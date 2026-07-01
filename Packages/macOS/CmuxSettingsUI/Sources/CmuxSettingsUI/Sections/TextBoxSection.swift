@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -120,12 +121,12 @@ private struct TextBoxBetaWarningNote: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12, weight: .semibold))
+                .cmuxFont(size: 12, weight: .semibold)
                 .foregroundStyle(.yellow)
                 .accessibilityHidden(true)
 
             Text(text)
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

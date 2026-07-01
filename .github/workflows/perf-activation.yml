@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       runner:
-        description: macOS runner (PRs use Depot for GUI activation; manual auto follows MACOS_RUNNER_15, then warp)
+        description: macOS runner (auto follows MACOS_RUNNER_15, default Blacksmith; pick warp-/depot-* to override)
         required: false
         default: auto
         type: choice
@@ -19,7 +19,6 @@ on:
           - blacksmith-6vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
           - warp-macos-15-arm64-6x
-          - warp-macos-26-arm64-6x
           - depot-macos-latest
           - depot-macos-14
       workspace_count:
@@ -44,16 +43,79 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  activation-session:
-    runs-on: ${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}
+  activation_changes:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      macos: ${{ steps.detect.outputs.macos }}
+      web: ${{ steps.detect.outputs.web }}
+      go: ${{ steps.detect.outputs.go }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect CI change areas
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          emit_all_areas() {
+            echo "macos=true" >> "$GITHUB_OUTPUT"
+            echo "web=true" >> "$GITHUB_OUTPUT"
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          }
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if ! MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")" \
+              || ! git diff --name-only "$MERGE_BASE" "$HEAD_SHA" > /tmp/cmux-activation-changed-files.txt; then
+              echo "Could not compute PR diff; running activation benchmark." >&2
+              emit_all_areas
+              exit 0
+            fi
+
+            if [ ! -s /tmp/cmux-activation-changed-files.txt ]; then
+              echo "PR diff is empty; running activation benchmark."
+              emit_all_areas
+              exit 0
+            fi
+
+            # This guard runs before the PR-editable Python detector. Workflow
+            # and detector edits must fail open to the benchmark.
+            if grep -Eq '^(\.github/workflows/[^/]+\.ya?ml|scripts/ci/[^/]+\.py|tests/test_ci_change_areas\.py)$' /tmp/cmux-activation-changed-files.txt; then
+              echo "CI router changed; running activation benchmark."
+              emit_all_areas
+              exit 0
+            fi
+
+            python3 scripts/ci/detect_ci_change_areas.py \
+              --event-name "$EVENT_NAME" \
+              --files-from /tmp/cmux-activation-changed-files.txt
+            exit 0
+          fi
+
+          python3 scripts/ci/detect_ci_change_areas.py \
+            --event-name "$EVENT_NAME" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA"
+
+  activation-session-benchmark:
+    needs: activation_changes
+    if: ${{ needs.activation_changes.outputs.macos == 'true' }}
+    runs-on: ${{ ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner) }}
     timeout-minutes: 45
     env:
       PERF_TAG: perf-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Validate Depot runner identity
-        if: ${{ startsWith(github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner), 'depot-macos-') }}
+        if: ${{ startsWith(((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner), 'depot-macos-') }}
         env:
-          REQUESTED_RUNNER: ${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}
+          REQUESTED_RUNNER: ${{ ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner) }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -90,25 +152,7 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+          ./scripts/select-ci-xcode.sh
 
       - name: Download pre-built GhosttyKit.xcframework
         env:
@@ -131,8 +175,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}-
+          key: spm-${{ ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner) }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner) }}-
 
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
@@ -306,3 +350,47 @@ jobs:
         run: |
           pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
           rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"
+
+  activation-session:
+    needs:
+      - activation_changes
+      - activation-session-benchmark
+    if: ${{ always() }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Check activation benchmark routing
+        env:
+          ACTIVATION_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["ACTIVATION_NEEDS"])
+          changes = needs["activation_changes"]
+          benchmark = needs["activation-session-benchmark"]
+          macos = changes.get("outputs", {}).get("macos")
+
+          if changes["result"] != "success":
+              print(f"changes: {changes['result']}", file=sys.stderr)
+              sys.exit(1)
+
+          if macos == "true" and benchmark["result"] != "success":
+              print(
+                  f"Activation benchmark was required but did not pass: {benchmark['result']}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          if macos != "true" and benchmark["result"] not in {"success", "skipped"}:
+              print(
+                  f"Activation benchmark had unexpected result for macos={macos}: {benchmark['result']}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print(f"changes.macos={macos}")
+          print(f"activation-session-benchmark={benchmark['result']}")
+          PY

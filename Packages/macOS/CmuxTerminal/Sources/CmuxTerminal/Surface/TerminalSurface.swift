@@ -56,6 +56,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
     public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
+    public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     /// The live runtime surface pointer, or nil before creation/after teardown.
     public internal(set) var surface: ghostty_surface_t?
@@ -70,12 +71,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
     let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
     let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
-    /// Port ordinal base/range for CMUX_PORT assignment, snapshotted once per
-    /// app session by the composition root so every runtime startup path uses
-    /// the same immutable workspace port range.
+    /// Port ordinal base/range for CMUX_PORT assignment, snapshotted by the app composition root.
     let sessionPortBase: Int
     let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
+    let globalFontMagnificationPercent: @Sendable () -> Int
 
     /// cmux renderer reclamation: whether the current runtime surface's GPU
     /// renderer (Metal swap chain / IOSurface, ~40MB) is realized. A freshly
@@ -157,8 +157,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The working directory requested at construction, if any.
     public var requestedWorkingDirectory: String? { workingDirectory }
 
-    /// Where the surface participates in focus routing.
-    public let focusPlacement: TerminalSurfaceFocusPlacement
+    /// Where the surface participates in focus routing. Mutable so a live
+    /// surface can move between the workspace area and the right-sidebar dock
+    /// without being recreated (preserving its process). Always mutate through
+    /// `setFocusPlacement(_:)` so the surface registry's placement record stays
+    /// in sync. Reads happen on the main actor (UI/focus routing) and once on
+    /// the creating thread at registration.
+    public private(set) var focusPlacement: TerminalSurfaceFocusPlacement
     var additionalEnvironment: [String: String]
 
     /// When true, the surface is created in libghostty MANUAL I/O mode: no
@@ -417,6 +422,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey
+        self.globalFontMagnificationPercent = dependencies.globalFontMagnificationPercent
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.
@@ -464,6 +470,17 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
+    }
+
+    /// Moves this surface between focus-routing placements (workspace ↔
+    /// right-sidebar dock) and keeps the surface registry's record in sync.
+    /// Used when a live terminal is dragged across containers so it is not
+    /// recreated. No-op when the placement is unchanged.
+    @MainActor
+    public func setFocusPlacement(_ placement: TerminalSurfaceFocusPlacement) {
+        guard focusPlacement != placement else { return }
+        focusPlacement = placement
+        registry.updateFocusPlacement(id: id, placement)
     }
 
     deinit {

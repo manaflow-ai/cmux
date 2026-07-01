@@ -49,6 +49,22 @@ def main() -> int:
         # Type into the shell prompt without pressing Enter.
         text = "cmux"
 
+        # Capture the static prompt line (empty input) once. The typed-text check
+        # below strips this prefix so a "cmux" already present in the prompt/path
+        # cannot satisfy the check before anything is typed. Trailing
+        # zsh-autosuggestion glyphs render AFTER the cursor, so the typed prefix
+        # still appears at the start of the post-prompt remainder.
+        def _last_line() -> str:
+            return (
+                c.read_terminal_text(panel_id)
+                .replace("\r", "")
+                .rstrip("\n")
+                .split("\n")[-1]
+                .rstrip()
+            )
+
+        baseline_line = _last_line()
+
         # A single glyph can be surprisingly small at some font sizes; keep this low but
         # non-zero to still catch the "no visual updates until Enter/unfocus" regression.
         min_pixels = 20
@@ -81,7 +97,15 @@ def main() -> int:
                     state["changed"] = changed
                 buf = c.read_terminal_text(panel_id)
                 state["buf"] = buf
-                return state["changed"] >= min_pixels and expected_prefix in buf
+                last_line = buf.replace("\r", "").rstrip("\n").split("\n")[-1].rstrip()
+                # Strip the prompt captured before typing so the prompt's own text
+                # cannot satisfy the check; only the region we typed into remains.
+                typed_region = (
+                    last_line[len(baseline_line):]
+                    if last_line.startswith(baseline_line)
+                    else last_line
+                )
+                return state["changed"] >= min_pixels and expected_prefix in typed_region
 
             try:
                 _wait_for(_typed_visible, timeout_s=6.0)

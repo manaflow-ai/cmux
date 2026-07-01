@@ -6,6 +6,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case terminal
     case textBox
     case paneTabBar
+    case sleepyMode
     case mobile
     case sidebarAppearance
     case customSidebars
@@ -33,6 +34,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .paneTabBar:
             return String(localized: "settings.section.paneTabBar", defaultValue: "Pane Tab Bar")
+        case .sleepyMode:
+            return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile:
             return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .workspaceColors:
@@ -72,6 +75,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "textformat"
         case .paneTabBar:
             return "slider.horizontal.3"
+        case .sleepyMode:
+            return "moon.zzz"
         case .mobile:
             return "iphone"
         case .workspaceColors:
@@ -111,6 +116,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
         case .paneTabBar:
             return "\(title) surface tab bar pane buttons more menu customize cmux json project local directory"
+        case .sleepyMode:
+            return "\(title) sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile:
             return "\(title) ios iphone ipad mobile pairing local network sync"
         case .workspaceColors:
@@ -441,6 +448,7 @@ enum SettingsSearchIndex {
         setting(.browser, "theme", String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), "web appearance light dark system"),
         setting(.browser, "hidden-webview-discard", String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Discard Hidden Browser WebViews"), "memory hidden tabs webview discard unload"),
         setting(.browser, "hidden-webview-discard-delay", String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Hidden WebView Discard Delay"), "memory hidden tabs delay seconds discard"),
+        setting(.browser, "ask-where-to-save-downloads", String(localized: "settings.browser.askWhereToSaveDownloads", defaultValue: "Ask Where to Save Downloads"), "downloads save panel download folder attachments files pdf gmail"),
         setting(.browser, "terminal-links", String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"), "click links browser"),
         setting(.browser, "intercept-open", String(localized: "settings.browser.interceptOpen", defaultValue: "Intercept open http(s) in Terminal"), "open command urls"),
         setting(.browser, "host-whitelist", String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"), "hosts wildcard terminal links"),
@@ -462,7 +470,7 @@ enum SettingsSearchIndex {
         setting(.settingsJSON, "open-file", String(localized: "settings.settingsJSON.openFile", defaultValue: "Open cmux.json"), "config json file editor dotfiles"),
         setting(.settingsJSON, "documentation", String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"), "cmux json schema reference docs"),
         setting(.reset, "reset-all", String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), "restore defaults")
-    ]
+    ] + terminalScrollSpeedSettingEntries
 
     private static let allEntries = sectionEntries + settingEntries
 
@@ -573,6 +581,7 @@ enum SettingsSearchIndex {
         "browser.theme": settingID(for: .browser, idSuffix: "theme"),
         "browser.discardHiddenWebViews": settingID(for: .browser, idSuffix: "hidden-webview-discard"),
         "browser.hiddenWebViewDiscardDelaySeconds": settingID(for: .browser, idSuffix: "hidden-webview-discard-delay"),
+        "browser.askWhereToSaveDownloads": settingID(for: .browser, idSuffix: "ask-where-to-save-downloads"),
         "browser.openTerminalLinksInCmuxBrowser": settingID(for: .browser, idSuffix: "terminal-links"),
         "browser.interceptTerminalOpenCommandInCmuxBrowser": settingID(for: .browser, idSuffix: "intercept-open"),
         "browser.hostsToOpenInEmbeddedBrowser": settingID(for: .browser, idSuffix: "host-whitelist"),
@@ -581,7 +590,7 @@ enum SettingsSearchIndex {
         "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
         "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
         "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
-    ]
+    ].merging(terminalScrollSpeedSettingsPathAnchorIDs) { current, _ in current }
 
     static func entries(matching query: String) -> [SettingsSearchEntry] {
         let tokens = normalizedQueryTokens(for: query)

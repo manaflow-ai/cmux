@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import { DocsHeading } from "../../components/docs-heading";
@@ -53,6 +54,7 @@ export default function CustomCommandsPage() {
 
   return (
     <>
+      <DocsSchema namespace="docs.customCommands" path="/docs/custom-commands" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 

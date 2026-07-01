@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxFoundation
 
 struct CmuxConfigUIDefinition: Codable, Sendable {
     var newWorkspace: CmuxConfigButtonPlacement?
@@ -251,7 +252,7 @@ extension CmuxButtonIcon {
 
     private static func contextMenuEmojiImage(_ value: String, scale: Double) -> NSImage? {
         let clampedScale = min(max(scale, 0.25), 4)
-        let font = NSFont.systemFont(ofSize: CGFloat(16.0 * clampedScale))
+        let font = GlobalFontMagnification.systemFont(ofSize: CGFloat(16.0 * clampedScale))
         let attributedString = NSAttributedString(string: value, attributes: [.font: font])
         let measuredSize = attributedString.size()
         let imageSize = NSSize(

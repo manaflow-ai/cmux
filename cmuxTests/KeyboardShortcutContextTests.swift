@@ -134,6 +134,14 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
     }
 
+    func testShowNotificationsStaysGenerallyAvailableForCustomBrowserBindings() {
+        // The Cmd+I italics collision is special-cased in the browser routing path,
+        // not by scoping the whole action out of browser panes. Show Notifications
+        // therefore stays `.application` so non-colliding custom bindings (e.g.
+        // Cmd+Shift+I) still open it from a browser pane (issue #6776).
+        XCTAssertEqual(KeyboardShortcutSettings.Action.showNotifications.shortcutContext, .application)
+    }
+
     func testRightSidebarContextIsOnlyAvailableWhenRightSidebarHasFocus() {
         let context = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext
 

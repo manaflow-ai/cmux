@@ -73,6 +73,18 @@ final class HostSettingsActions: SettingsHostActions {
         BrowserHistoryStore.shared.clearHistory()
     }
 
+    func sleepyModePreview() {
+        SleepyModeController.shared.preview()
+    }
+
+    func sleepyModeStart() {
+        SleepyModeController.shared.activate()
+    }
+
+    func sleepyModeStore() -> SleepyModeSettingsStore {
+        SleepyModeController.shared.store
+    }
+
     func openConfigInExternalEditor() {
         // Honor the user's configured editor (`preferredEditorCommand`),
         // falling back to the OS default. Opening the config file directly
@@ -335,6 +347,7 @@ final class HostSettingsActions: SettingsHostActions {
         GhosttyApp.shared.reloadConfiguration(source: reloadSource)
         return true
     }
+
 }
 
 /// Wraps the opaque observer returned by `NotificationCenter.addObserver` so the

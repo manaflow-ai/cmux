@@ -1,4 +1,6 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxSettings
 import SwiftUI
 import Testing
 
@@ -67,6 +69,7 @@ struct HiddenRightSidebarContentMountingTests {
             sessionIndexStore: SessionIndexStore(),
             notesTreeStore: NotesTreeStore(),
             titlebarHeight: 36,
+            windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },

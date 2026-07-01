@@ -46,7 +46,12 @@ public final class CanvasModel {
     /// panels that no longer exist leave the canvas. Returns the IDs of
     /// panes that were newly added, so the caller can reveal them.
     @discardableResult
-    public func syncPanes(panelIds: [UUID], focusedPanelId: UUID?) -> [UUID] {
+    public func syncPanes(
+        panelIds: [UUID],
+        focusedPanelId: UUID?,
+        preferredDirection: CanvasDirection? = nil,
+        preferredNewPaneSize: CanvasSize? = nil
+    ) -> [UUID] {
         var changed = false
         let idSet = Set(panelIds.map(CanvasPanelID.init(rawValue:)))
         for panelId in layout.allPanelIds where !idSet.contains(panelId) {
@@ -62,10 +67,12 @@ public final class CanvasModel {
                 .flatMap { layout.pane(containing: CanvasPanelID(rawValue: $0)) }
                 .flatMap { layout.frame(of: $0) }
                 ?? layout.panes.last?.frame
+            let size = preferredNewPaneSize ?? anchor?.size ?? Self.defaultPaneSize
             let frame = placer.frameForNewPane(
-                size: Self.defaultPaneSize,
+                size: size,
                 near: anchor,
-                avoiding: occupiedFrames
+                avoiding: occupiedFrames,
+                preferredDirection: preferredDirection
             )
             let pane = CanvasPane(id: CanvasPaneID(rawValue: panelId), frame: frame)
             layout.add(pane)

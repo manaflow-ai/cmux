@@ -20,7 +20,11 @@ extension TerminalSurface {
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
         var baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
-        surfaceConfig.font_size = baseConfig.fontSize
+        let magnificationPercent = globalFontMagnificationPercent()
+        surfaceConfig.font_size = CmuxSurfaceConfigTemplate.runtimeFontSize(
+            fromBasePoints: baseConfig.fontSize,
+            percent: magnificationPercent
+        )
         surfaceConfig.wait_after_command = baseConfig.waitAfterCommand
         surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
@@ -46,10 +50,11 @@ extension TerminalSurface {
             surfaceConfig.io_write_userdata = box.toOpaque()
         }
 #if DEBUG
-        let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
+        let templateFontText = String(format: "%.2f", baseConfig.fontSize)
+        let runtimeFontText = String(format: "%.2f", surfaceConfig.font_size)
         logDebugEvent(
             "zoom.create surface=\(id.uuidString.prefix(5)) context=\(GhosttySurfaceRuntimeProbe.contextName(surfaceContext)) " +
-            "templateFont=\(templateFontText)"
+            "templateFont=\(templateFontText) runtimeFont=\(runtimeFontText)"
         )
 #endif
         var envVars: [ghostty_env_var_s] = []
@@ -110,6 +115,13 @@ extension TerminalSurface {
         if !claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
+        // The codex wrapper shim is still installed (it stays on PATH so a
+        // resumed codex routes through it), but when the Codex integration is
+        // off the wrapper no-ops on this env var and injects no hooks, mirroring
+        // the Claude toggle.
+        if !spawnPolicy.codexHooksEnabled {
+            setManagedEnvironmentValue("CMUX_CODEX_HOOKS_DISABLED", "1")
+        }
         if let customClaudePath = spawnPolicy.customClaudePath {
             setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
         }
@@ -147,6 +159,17 @@ extension TerminalSurface {
         if let claudeShim {
             setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM", claudeShim.executablePath)
             setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", claudeShim.directoryPath)
+            // Carry the sibling codex wrapper-shim path into the managed env too,
+            // mirroring the claude shim. The auto-resume command for a codex
+            // session resolves the codex executable through CMUX_CODEX_WRAPPER_SHIM
+            // (see AgentResumeArgv.codexWrapperShellExecutableToken), so without
+            // this the resumed codex bypasses cmux-codex-wrapper and loses its
+            // hooks (iOS GUI stays read-only). The shim lives in the same
+            // per-surface directory already prepended to PATH below.
+            if let codexShim = claudeShim.codexCommandShim {
+                setManagedEnvironmentValue("CMUX_CODEX_WRAPPER_SHIM", codexShim.executablePath)
+                setManagedEnvironmentValue("CMUX_CODEX_WRAPPER_SHIM_ROOT", codexShim.directoryPath)
+            }
             let currentPath = env["PATH"]
                 ?? getenv("PATH").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["PATH"]

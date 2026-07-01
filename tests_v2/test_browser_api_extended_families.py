@@ -259,6 +259,10 @@ def main() -> int:
             t.start()
             dl = c._call("browser.download.wait", {"surface_id": sid, "path": download_path, "timeout_ms": 5000}) or {}
             _must(bool(dl.get("downloaded")) is True, f"Expected download wait success: {dl}")
+            try:
+                os.unlink(download_path)
+            except Exception:
+                pass
 
             c._call(
                 "browser.cookies.set",
@@ -343,6 +347,10 @@ def main() -> int:
             c._call("browser.state.load", {"surface_id": sid, "path": state_path})
             persisted = c._call("browser.storage.get", {"surface_id": sid, "type": "local", "key": "persist"}) or {}
             _must(str(persisted.get("value") or "") == "yes", f"Expected state.load to restore storage key: {persisted}")
+            try:
+                os.unlink(state_path)
+            except Exception:
+                pass
 
     print("PASS: extended browser parity families are green")
     return 0

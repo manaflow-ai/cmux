@@ -123,13 +123,136 @@ extension TerminalSurface {
             try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
             let script = """
             #!/usr/bin/env bash
+            cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
+            if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
+                cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-claude-wrapper"
+                if [[ -x "$cmux_candidate" ]]; then
+                    cmux_wrapper="$cmux_candidate"
+                fi
+            fi
+            if [[ ! -x "$cmux_wrapper" ]]; then
+                cmux_cli="$(command -v cmux 2>/dev/null || true)"
+                if [[ -n "$cmux_cli" ]]; then
+                    cmux_candidate="$(dirname "$cmux_cli")/cmux-claude-wrapper"
+                    if [[ -x "$cmux_candidate" ]]; then
+                        cmux_wrapper="$cmux_candidate"
+                    fi
+                fi
+            fi
             export CMUX_CLAUDE_WRAPPER_SHIM=\(shellSingleQuoted(shimURL.path))
             export CMUX_CLAUDE_WRAPPER_SHIM_ROOT=\(shellSingleQuoted(shimDirectory.path))
-            exec \(shellSingleQuoted(wrapperURL.path)) "$@"
+            if [[ -x "$cmux_wrapper" ]]; then
+                exec "$cmux_wrapper" "$@"
+            fi
+            cmux_path_without_shim=""
+            cmux_old_ifs="$IFS"
+            IFS=:
+            for cmux_entry in ${PATH:-}; do
+                if [[ "$cmux_entry" == "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" || "$cmux_entry" == */cmux-cli-shims/* || "$cmux_entry" == */cmux-cli-shims ]]; then
+                    continue
+                fi
+                if [[ -z "$cmux_path_without_shim" ]]; then
+                    cmux_path_without_shim="$cmux_entry"
+                else
+                    cmux_path_without_shim="$cmux_path_without_shim:$cmux_entry"
+                fi
+            done
+            IFS="$cmux_old_ifs"
+            export PATH="$cmux_path_without_shim"
+            exec claude "$@"
             """
             try script.write(to: shimURL, atomically: true, encoding: .utf8)
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimURL.path)
+            // Best-effort: write a sibling `codex` shim into the same per-surface
+            // dir so typed `codex` resolves to cmux-codex-wrapper through the
+            // PATH entry already prepended for the claude shim. Failure here
+            // never blocks the claude shim (codex detection degrades, claude is
+            // unaffected). The returned codex shim is carried on the claude shim
+            // so runtime surface creation can export CMUX_CODEX_WRAPPER_SHIM into
+            // the managed env, which a resumed `codex` session needs to route its
+            // resume through the wrapper and keep cmux hooks.
+            let codexShim = installCodexCommandShimIfPossible(
+                claudeWrapperURL: wrapperURL,
+                shimDirectory: shimDirectory,
+                fileManager: fileManager
+            )
             return ClaudeCommandShim(
+                directoryPath: shimDirectory.path,
+                executablePath: shimURL.path,
+                codexCommandShim: codexShim
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    /// Writes the per-surface `codex` wrapper shim into `shimDirectory`, if the
+    /// bundled `cmux-codex-wrapper` exists alongside `cmux-claude-wrapper`. The
+    /// shim resolves and execs the codex wrapper; if the wrapper is gone it
+    /// strips every cmux shim dir from `PATH` and execs the real `codex`, so the
+    /// user's `codex` keeps working even when the app bundle is pruned.
+    ///
+    /// The directory is already prepended to the spawned shell's `PATH` for the
+    /// claude shim, so no extra `PATH` handling is required.
+    @discardableResult
+    public static func installCodexCommandShimIfPossible(
+        claudeWrapperURL: URL,
+        shimDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> CodexCommandShim? {
+        let codexWrapperURL = claudeWrapperURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("cmux-codex-wrapper", isDirectory: false)
+            .standardizedFileURL
+        guard fileManager.isExecutableFile(atPath: codexWrapperURL.path) else {
+            return nil
+        }
+
+        let shimURL = shimDirectory.appendingPathComponent("codex", isDirectory: false)
+        do {
+            let script = """
+            #!/usr/bin/env bash
+            cmux_wrapper=\(shellSingleQuoted(codexWrapperURL.path))
+            if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
+                cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-codex-wrapper"
+                if [[ -x "$cmux_candidate" ]]; then
+                    cmux_wrapper="$cmux_candidate"
+                fi
+            fi
+            if [[ ! -x "$cmux_wrapper" ]]; then
+                cmux_cli="$(command -v cmux 2>/dev/null || true)"
+                if [[ -n "$cmux_cli" ]]; then
+                    cmux_candidate="$(dirname "$cmux_cli")/cmux-codex-wrapper"
+                    if [[ -x "$cmux_candidate" ]]; then
+                        cmux_wrapper="$cmux_candidate"
+                    fi
+                fi
+            fi
+            export CMUX_CODEX_WRAPPER_SHIM=\(shellSingleQuoted(shimURL.path))
+            export CMUX_CODEX_WRAPPER_SHIM_ROOT=\(shellSingleQuoted(shimDirectory.path))
+            if [[ -x "$cmux_wrapper" ]]; then
+                exec "$cmux_wrapper" "$@"
+            fi
+            cmux_path_without_shim=""
+            cmux_old_ifs="$IFS"
+            IFS=:
+            for cmux_entry in ${PATH:-}; do
+                if [[ "$cmux_entry" == "$CMUX_CODEX_WRAPPER_SHIM_ROOT" || "$cmux_entry" == */cmux-cli-shims/* || "$cmux_entry" == */cmux-cli-shims ]]; then
+                    continue
+                fi
+                if [[ -z "$cmux_path_without_shim" ]]; then
+                    cmux_path_without_shim="$cmux_entry"
+                else
+                    cmux_path_without_shim="$cmux_path_without_shim:$cmux_entry"
+                fi
+            done
+            IFS="$cmux_old_ifs"
+            export PATH="$cmux_path_without_shim"
+            exec codex "$@"
+            """
+            try script.write(to: shimURL, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimURL.path)
+            return CodexCommandShim(
                 directoryPath: shimDirectory.path,
                 executablePath: shimURL.path
             )

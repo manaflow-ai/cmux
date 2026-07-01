@@ -2,6 +2,7 @@
 #define GHOSTTY_RUNTIME_TEST_STUBS_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 // Test-only stand-ins for the libghostty symbols referenced by CmuxTerminal
 // and CmuxTerminalCore object files. SwiftPM cannot link the GhosttyKit macOS
@@ -9,6 +10,12 @@
 // stubs to satisfy the link. No test ever calls them (tests construct no
 // runtime surface), so only the symbol names matter; C symbols carry no type
 // information for the linker.
+typedef struct {
+  const char* ptr;
+  uintptr_t len;
+  bool sentinel;
+} ghostty_string_s;
+
 bool ghostty_surface_clear_selection(void *surface);
 
 void ghostty_config_diagnostics_count(void);
@@ -18,6 +25,7 @@ void ghostty_surface_binding_action(void);
 void ghostty_surface_config_new(void);
 void ghostty_surface_free(void);
 void ghostty_surface_free_text(void);
+uint64_t ghostty_surface_foreground_pid(void *surface);
 void ghostty_surface_has_selection(void);
 void ghostty_surface_key(void);
 void ghostty_surface_mouse_button(void);
@@ -40,5 +48,6 @@ void ghostty_surface_set_size(void);
 void ghostty_surface_size(void);
 void ghostty_surface_text(void);
 void ghostty_surface_text_input(void);
+ghostty_string_s ghostty_surface_tty_name(void *surface);
 
 #endif

@@ -3,7 +3,10 @@ import Darwin
 import Foundation
 
 #if canImport(Sentry)
-import Sentry
+// Sentry Cocoa 9.3.0 is pinned in Package.resolved. This SPI stores the
+// envelope durably without blocking short-lived CLI commands; verify it before
+// any Sentry SDK upgrade.
+@_spi(Private) import Sentry
 #endif
 
 enum CLISocketEnvironment {
@@ -11,7 +14,10 @@ enum CLISocketEnvironment {
         let socketPath = normalized(environment["CMUX_SOCKET_PATH"])
         let legacySocketPath = normalized(environment["CMUX_SOCKET"])
         if let socketPath, let legacySocketPath, socketPath != legacySocketPath {
-            throw CLIError(message: "Refusing to choose socket: CMUX_SOCKET_PATH and CMUX_SOCKET differ. Use CMUX_SOCKET_PATH or unset CMUX_SOCKET.")
+            throw CLIError(message: String(
+                localized: "cli.socket.error.conflictingEnvironment",
+                defaultValue: "Refusing to choose socket: CMUX_SOCKET_PATH and CMUX_SOCKET differ. Use CMUX_SOCKET_PATH or unset CMUX_SOCKET."
+            ))
         }
         return socketPath ?? legacySocketPath
     }
@@ -135,7 +141,6 @@ final class CLISocketSentryTelemetry {
 #endif
 #if canImport(Sentry)
         Self.ensureStarted()
-        flushPendingBreadcrumbs()
         var context = baseContext()
         context["stage"] = stage
         context["error"] = errorDescription
@@ -147,14 +152,30 @@ final class CLISocketSentryTelemetry {
         }
         let subcommand = self.subcommand
         let command = self.command
-        _ = SentrySDK.capture(error: error) { scope in
-            scope.setLevel(.error)
-            scope.setTag(value: "cmux-cli", key: "component")
-            scope.setTag(value: command, key: "cli_command")
-            scope.setTag(value: subcommand, key: "cli_subcommand")
-            scope.setContext(value: context, key: "cli_socket")
+        let event = Self.makeErrorEvent(
+            error: error,
+            context: context,
+            command: command,
+            subcommand: subcommand,
+            breadcrumbs: pendingBreadcrumbs.map { pending in
+                makeBreadcrumb(message: pending.message, data: pending.data)
+            }
+        )
+        pendingBreadcrumbs.removeAll()
+        let scrubber = SentryEventScrubber()
+        let scrubbedEvent = scrubber.scrub(event)
+        guard !Self.isExpectedCLISocketTransportEvent(scrubbedEvent) else {
+            return
         }
-        SentrySDK.flush(timeout: 2.0)
+        let envelopeItem = SentryEnvelopeItem(event: scrubbedEvent)
+        let envelope = SentryEnvelope(id: scrubbedEvent.eventId, singleItem: envelopeItem)
+        PrivateSentrySDKOnly.store(envelope)
+        // `store` is the durable step. A zero-timeout flush only schedules the
+        // SDK's cached-envelope sender without waiting for network completion.
+        SentrySDK.flush(timeout: 0)
+#if DEBUG
+        recordStoreProbe(eventId: scrubbedEvent.eventId.sentryIdString)
+#endif
 #endif
     }
 
@@ -171,9 +192,78 @@ final class CLISocketSentryTelemetry {
         let payload = "stage=\(stage)\nerror=\(String(describing: error))\n"
         try? payload.write(toFile: NSString(string: path).expandingTildeInPath, atomically: true, encoding: .utf8)
     }
+
+#if canImport(Sentry)
+    private func recordStoreProbe(eventId: String) {
+        guard let path = processEnv["CMUX_CLI_SENTRY_STORE_PROBE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return
+        }
+        let payload = "event_id=\(eventId)\n"
+        try? payload.write(toFile: NSString(string: path).expandingTildeInPath, atomically: true, encoding: .utf8)
+    }
+#endif
 #endif
 
 #if canImport(Sentry)
+    private static func makeErrorEvent(
+        error: Error,
+        context: [String: Any],
+        command: String,
+        subcommand: String,
+        breadcrumbs: [Breadcrumb]
+    ) -> Event {
+        let nsError = error as NSError
+        let event = Event(error: nsError)
+        event.exceptions = errorChain(for: nsError).reversed().map(Self.makeException)
+        event.level = .error
+        event.releaseName = currentSentryReleaseName()
+#if DEBUG
+        event.environment = "development-cli"
+#else
+        event.environment = "production-cli"
+#endif
+        event.tags = [
+            "component": "cmux-cli",
+            "cli_command": command,
+            "cli_subcommand": subcommand
+        ]
+        event.context = ["cli_socket": context]
+        if !breadcrumbs.isEmpty {
+            event.breadcrumbs = breadcrumbs
+        }
+        return event
+    }
+
+    private static func errorChain(for error: NSError) -> [NSError] {
+        var errors = [error]
+        var underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
+        while let current = underlying {
+            errors.append(current)
+            underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return errors
+    }
+
+    private static func makeException(for error: NSError) -> Exception {
+        let value: String
+        if let debugDescription = error.userInfo[NSDebugDescriptionErrorKey] as? String {
+            value = "\(debugDescription) (Code: \(error.code))"
+        } else {
+            value = "Code: \(error.code)"
+        }
+
+        let exception = Exception(value: value, type: error.domain)
+        let mechanism = Mechanism(type: "NSError")
+        let mechanismContext = MechanismContext()
+        mechanismContext.error = SentryNSError(domain: error.domain, code: error.code)
+        mechanism.meta = mechanismContext
+        mechanism.desc = error.description
+        mechanism.data = error.userInfo
+        exception.mechanism = mechanism
+        return exception
+    }
+
     private static func isExpectedCLISocketTransportEvent(_ event: Event) -> Bool {
         let noiseFilter = SentryNoiseFilter()
         if let message = event.message?.formatted,
@@ -189,14 +279,7 @@ final class CLISocketSentryTelemetry {
         return false
     }
 
-    private func flushPendingBreadcrumbs() {
-        for pending in pendingBreadcrumbs {
-            addBreadcrumb(message: pending.message, data: pending.data)
-        }
-        pendingBreadcrumbs.removeAll()
-    }
-
-    private func addBreadcrumb(message: String, data: [String: Any]) {
+    private func makeBreadcrumb(message: String, data: [String: Any]) -> Breadcrumb {
         var payload = baseContext()
         for (key, value) in data {
             payload[key] = value
@@ -204,7 +287,7 @@ final class CLISocketSentryTelemetry {
         let crumb = Breadcrumb(level: .info, category: "cmux.cli")
         crumb.message = message
         crumb.data = payload
-        SentrySDK.addBreadcrumb(crumb)
+        return crumb
     }
 #endif
 

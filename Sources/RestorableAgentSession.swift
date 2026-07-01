@@ -36,7 +36,12 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
     static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
         let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
-        return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && "
+        // No POSIX `{ …; }` grouping: this runs verbatim in the user's login shell
+        // (cmux spawns via `/usr/bin/login → $SHELL`), which may be fish — fish has no
+        // brace grouping and errors before the agent launches (issue #6285). `&&`/`||`
+        // are a left-associative, equal-precedence AND-OR list in sh/bash/zsh/fish, so
+        // `cd … || [ ! -d … ] && cmd` == `(cd || test) && cmd` in every shell.
+        return "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && "
     }
 
     static func prefix(_ command: String, workingDirectory: String?) -> String {
@@ -63,6 +68,24 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         return prefix(command, workingDirectory: workingDirectory)
     }
 
+    static func replacingRequiredChangeDirectoryPrefix(
+        in command: String,
+        previousWorkingDirectory: String?,
+        workingDirectory: String?
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stripped = normalized(previousWorkingDirectory).map {
+            strippedSavedWorkingDirectoryOptions(
+                from: strippedRequiredChangeDirectoryPrefix(from: trimmed, workingDirectory: $0),
+                workingDirectory: $0
+            )
+        } ?? trimmed
+        return replacingRequiredChangeDirectoryPrefix(
+            in: stripped,
+            workingDirectory: workingDirectory
+        )
+    }
+
     private static func strippedRequiredChangeDirectoryPrefix(
         from command: String,
         workingDirectory: String
@@ -74,6 +97,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         var seen = Set<String>()
         for quoted in quotedCandidates where seen.insert(quoted).inserted {
             let prefixes = [
+                "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && ",
                 "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && ",
                 "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && ",
                 "cd -- \(quoted) && ",
@@ -111,12 +135,12 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private struct ShellWordRange {
+    struct ShellWordRange {
         var value: String
         var range: Range<String.Index>
     }
 
-    private static func shellWordRanges(_ command: String) -> [ShellWordRange] {
+    static func shellWordRanges(_ command: String) -> [ShellWordRange] {
         enum Quote {
             case single
             case double
@@ -371,19 +395,34 @@ enum AgentResumeCommandBuilder {
                 workingDirectory: cwd
             )
             : commandParts
-        // Render the claude executable as the wrapper shim token so the executed
-        // command routes through cmux's `claude` wrapper (re-injecting the hook
-        // --settings) even inside the `$SHELL -lic` restore launcher, where the
-        // shell integration's PATH shim / `claude()` function are not active and an
-        // `env`-prefixed invocation would otherwise hit the user's real binary.
+        // Render the claude/codex executable as the wrapper shim token so the
+        // executed command routes through cmux's `claude`/`codex` wrapper
+        // (re-injecting the agent hooks) even inside the `$SHELL -lic` restore
+        // launcher, where the shell integration's PATH shim / shell function are
+        // not active and an `env`-prefixed invocation would otherwise hit the
+        // user's real binary. Without this, an auto-resumed codex session runs the
+        // bare `codex` binary, fires no SessionStart hook, and the session registry
+        // never marks it live, so the iOS GUI stays read-only.
         // The token is POSIX-only, and the launcher dispatches through the user's
         // shell (fish/csh/tcsh included), so token-bearing commands are wrapped in
         // `/bin/sh -c '…'` to parse everywhere; the cwd guard stays outside so
         // cd-prefix rewriting keeps composing.
         // https://github.com/manaflow-ai/cmux/issues/5639
-        let shellCommand = kind == .claude
-            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: sanitizedCommandParts, quote: shellSingleQuoted)
-            : sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+        let shellCommand: String
+        switch kind {
+        case .claude:
+            shellCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+                parts: sanitizedCommandParts,
+                quote: shellSingleQuoted
+            )
+        case .codex:
+            shellCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: sanitizedCommandParts,
+                quote: shellSingleQuoted
+            )
+        default:
+            shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+        }
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 
@@ -540,8 +579,6 @@ enum AgentResumeCommandBuilder {
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
             return [original.executable, "--session", sessionId, "--fork"] + preserved
         case .custom:
-            // Custom Vault agents fork via their registration's `forkCommand`
-            // template (nil when the agent has no fork capability).
             guard let customRegistration else { return nil }
             let arguments = customForkArguments(
                 registration: customRegistration,
@@ -570,8 +607,6 @@ enum AgentResumeCommandBuilder {
         )
     }
 
-    /// Builds the fork argv from a custom agent's `forkCommand` template, or
-    /// returns empty when the agent declares no fork capability.
     private static func customForkArguments(
         registration: CmuxVaultAgentRegistration,
         sessionId: String,
@@ -1352,28 +1387,55 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> (sessionId: String, path: String)? {
         var best: (sessionId: String, path: String, modifiedAt: TimeInterval)?
         for projectDir in projectDirs {
-            guard let children = try? fileManager.contentsOfDirectory(atPath: projectDir) else {
-                continue
-            }
-            for child in children where child.hasSuffix(".jsonl") {
-                let sessionId = String(child.dropLast(".jsonl".count))
-                guard sessionId != excludedSessionId,
-                      claudeSessionIdIsSafeFilename(sessionId) else {
-                    continue
-                }
-                let path = (projectDir as NSString).appendingPathComponent(child)
-                guard regularNonEmptyFileExists(atPath: path, fileManager: fileManager) else {
-                    continue
-                }
-                let modifiedAt = ((try? fileManager.attributesOfItem(atPath: path)[.modificationDate]) as? Date)?
-                    .timeIntervalSince1970 ?? 0
-                if best == nil || modifiedAt > best!.modifiedAt {
-                    best = (sessionId, path, modifiedAt)
-                }
-            }
+            newestClaudeTranscript(
+                inDirectory: projectDir,
+                excludingSessionId: excludedSessionId,
+                remainingDirectoryDepth: 4,
+                fileManager: fileManager,
+                best: &best
+            )
         }
         guard let best else { return nil }
         return (best.sessionId, best.path)
+    }
+
+    private static func newestClaudeTranscript(
+        inDirectory directory: String,
+        excludingSessionId excludedSessionId: String,
+        remainingDirectoryDepth: Int,
+        fileManager: FileManager,
+        best: inout (sessionId: String, path: String, modifiedAt: TimeInterval)?
+    ) {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let children = try? fileManager.contentsOfDirectory(atPath: directory) else {
+            return
+        }
+        for child in children {
+            let childPath = (directory as NSString).appendingPathComponent(child)
+            if child.hasSuffix(".jsonl") {
+                let sessionId = String(child.dropLast(".jsonl".count))
+                guard sessionId != excludedSessionId,
+                      claudeSessionIdIsSafeFilename(sessionId),
+                      regularNonEmptyFileExists(atPath: childPath, fileManager: fileManager) else {
+                    continue
+                }
+                let modifiedAt = ((try? fileManager.attributesOfItem(atPath: childPath)[.modificationDate]) as? Date)?
+                    .timeIntervalSince1970 ?? 0
+                if best == nil || modifiedAt > best!.modifiedAt {
+                    best = (sessionId, childPath, modifiedAt)
+                }
+            } else if remainingDirectoryDepth > 0 {
+                newestClaudeTranscript(
+                    inDirectory: childPath,
+                    excludingSessionId: excludedSessionId,
+                    remainingDirectoryDepth: remainingDirectoryDepth - 1,
+                    fileManager: fileManager,
+                    best: &best
+                )
+            }
+        }
     }
 
     private static func claudeTranscriptExists(
@@ -1393,20 +1455,17 @@ struct RestorableAgentSessionIndex: Sendable {
             ?? normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
         for root in roots {
             if let cwd,
-               claudeTranscriptFileExists(
+               lookup.transcriptPath(
                    configRoot: root,
                    projectDirName: encodeClaudeProjectDir(cwd),
-                   sessionId: sessionId,
-                   fileManager: fileManager
-               ) {
+                   sessionId: sessionId
+               ) != nil {
                 return true
             }
-            if claudeTranscriptFileExistsInAnyProject(
+            if lookup.transcriptPathInAnyProject(
                 configRoot: root,
-                sessionId: sessionId,
-                fileManager: fileManager,
-                lookup: lookup
-            ) {
+                sessionId: sessionId
+            ) != nil {
                 return true
             }
         }
@@ -1486,8 +1545,12 @@ struct RestorableAgentSessionIndex: Sendable {
         // so the candidate whose encoding matches it is the one Claude can resume from.
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
             let expandedTranscriptPath = (transcriptPath as NSString).expandingTildeInPath
-            let projectDir = (expandedTranscriptPath as NSString).deletingLastPathComponent
-            let expectedProjectDirName = (projectDir as NSString).lastPathComponent
+            let roots = lookup.configRoots(for: record)
+            let expectedProjectDirName = claudeProjectDirName(
+                containingTranscriptPath: expandedTranscriptPath,
+                configRoots: roots
+            ) ?? (((expandedTranscriptPath as NSString).deletingLastPathComponent) as NSString)
+                .lastPathComponent
             if !expectedProjectDirName.isEmpty,
                let matched = candidates.first(where: {
                    encodeClaudeProjectDir($0) == expectedProjectDirName
@@ -1501,12 +1564,11 @@ struct RestorableAgentSessionIndex: Sendable {
         if !roots.isEmpty {
             for candidate in candidates {
                 let projectDirName = encodeClaudeProjectDir(candidate)
-                for root in roots where claudeTranscriptFileExists(
+                for root in roots where lookup.transcriptPath(
                     configRoot: root,
                     projectDirName: projectDirName,
-                    sessionId: sessionId,
-                    fileManager: fileManager
-                ) {
+                    sessionId: sessionId
+                ) != nil {
                     return candidate
                 }
             }
@@ -1529,87 +1591,47 @@ struct RestorableAgentSessionIndex: Sendable {
             .replacingOccurrences(of: ".", with: "-")
     }
 
-    /// Resolves the newest Claude transcript session id for `cwd` (honoring an
-    /// optional `CLAUDE_CONFIG_DIR`), reusing the exact config-root + project-dir
-    /// lookup the hook-store path uses. Used by live-process detection so a
-    /// hook-less `claude` process (e.g. launched via `sr claude`, bypassing the
-    /// cmux wrapper) still yields a fork-able session id.
-    static func newestClaudeSessionId(
-        forCwd cwd: String,
-        configDir: String?,
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) -> String? {
-        guard let normalizedCwd = normalizedNonEmptyValue(cwd) else { return nil }
-        let environment = normalizedNonEmptyValue(configDir).map { ["CLAUDE_CONFIG_DIR": $0] }
-        let record = RestorableAgentHookSessionRecord(
-            sessionId: "",
-            workspaceId: "",
-            surfaceId: "",
-            cwd: normalizedCwd,
-            transcriptPath: nil,
-            pid: nil,
-            launchCommand: environment.map {
-                AgentLaunchCommandSnapshot(
-                    launcher: nil,
-                    executablePath: nil,
-                    arguments: [],
-                    workingDirectory: normalizedCwd,
-                    environment: $0,
-                    capturedAt: nil,
-                    source: nil
-                )
-            },
-            isRestorable: nil,
-            agentLifecycle: nil,
-            updatedAt: 0
-        )
-        let lookup = ClaudeTranscriptLookupCache(homeDirectory: homeDirectory, fileManager: fileManager)
-        let encoded = encodeClaudeProjectDir(normalizedCwd)
-        var projectDirs: [String] = []
-        var seen: Set<String> = []
-        for root in lookup.configRoots(for: record) {
-            let projectsRoot = (root as NSString).appendingPathComponent("projects")
-            let projectDir = (projectsRoot as NSString).appendingPathComponent(encoded)
-            let standardized = (projectDir as NSString).standardizingPath
-            if seen.insert(standardized).inserted {
-                projectDirs.append(standardized)
+    private static func claudeProjectDirName(containingTranscriptPath path: String, configRoots: [String]) -> String? {
+        let standardizedPath = (path as NSString).standardizingPath
+        for root in configRoots {
+            let projectsRoot = ((root as NSString).appendingPathComponent("projects") as NSString)
+                .standardizingPath
+            let prefix = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
+            guard standardizedPath.hasPrefix(prefix) else { continue }
+            let relativePath = String(standardizedPath.dropFirst(prefix.count))
+            guard let projectDirName = relativePath.split(separator: "/", maxSplits: 1).first,
+                  !projectDirName.isEmpty else {
+                continue
             }
+            return String(projectDirName)
         }
-        return newestClaudeSiblingTranscript(
-            in: projectDirs,
-            excludingSessionId: "",
-            fileManager: fileManager
-        )?.sessionId
+        return nil
     }
 
-    private static func claudeTranscriptFileExists(
-        configRoot: String,
-        projectDirName: String,
+    private static func claudeTranscriptPath(
+        inProjectRoot projectRoot: String,
         sessionId: String,
         fileManager: FileManager
-    ) -> Bool {
-        let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
-        let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDirName)
-        let path = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
-        return regularNonEmptyFileExists(atPath: path, fileManager: fileManager)
-    }
-
-    private static func claudeTranscriptFileExistsInAnyProject(
-        configRoot: String,
-        sessionId: String,
-        fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
-    ) -> Bool {
-        let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
-        for projectDir in lookup.projectDirs(configRoot: configRoot) {
-            let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
-            let path = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
-            if regularNonEmptyFileExists(atPath: path, fileManager: fileManager) {
-                return true
-            }
+    ) -> String? {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: projectRoot, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
         }
-        return false
+
+        let directPath = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
+        if regularNonEmptyFileExists(atPath: directPath, fileManager: fileManager) {
+            return directPath
+        }
+
+        let nestedMessagesPath = (((projectRoot as NSString)
+            .appendingPathComponent(sessionId) as NSString)
+            .appendingPathComponent("messages") as NSString)
+            .appendingPathComponent("\(sessionId).jsonl")
+        if regularNonEmptyFileExists(atPath: nestedMessagesPath, fileManager: fileManager) {
+            return nestedMessagesPath
+        }
+        return nil
     }
 
     private final class ClaudeTranscriptLookupCache {
@@ -1617,6 +1639,10 @@ struct RestorableAgentSessionIndex: Sendable {
         private let fileManager: FileManager
         private var defaultRoots: [String]?
         private var projectDirsByConfigRoot: [String: [String]] = [:]
+        private var transcriptPathByProjectRootAndSession: [String: String] = [:]
+        private var missingTranscriptPathByProjectRootAndSession: Set<String> = []
+        private var transcriptPathByConfigRootAndSession: [String: String] = [:]
+        private var missingTranscriptPathByConfigRootAndSession: Set<String> = []
 
         init(homeDirectory: String, fileManager: FileManager) {
             self.homeDirectory = homeDirectory
@@ -1685,9 +1711,69 @@ struct RestorableAgentSessionIndex: Sendable {
             return projectDirs
         }
 
+        func transcriptPath(configRoot: String, projectDirName: String, sessionId: String) -> String? {
+            let standardizedRoot = (configRoot as NSString).standardizingPath
+            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
+            let projectRoot = ((projectsRoot as NSString).appendingPathComponent(projectDirName) as NSString)
+                .standardizingPath
+            let key = cacheKey(projectRoot, sessionId)
+            if let cached = transcriptPathByProjectRootAndSession[key] {
+                return cached
+            }
+            if missingTranscriptPathByProjectRootAndSession.contains(key) {
+                return nil
+            }
+
+            let path = RestorableAgentSessionIndex.claudeTranscriptPath(
+                inProjectRoot: projectRoot,
+                sessionId: sessionId,
+                fileManager: fileManager
+            )
+            if let path {
+                transcriptPathByProjectRootAndSession[key] = path
+            } else {
+                missingTranscriptPathByProjectRootAndSession.insert(key)
+            }
+            return path
+        }
+
+        func transcriptPathInAnyProject(configRoot: String, sessionId: String) -> String? {
+            let standardizedRoot = (configRoot as NSString).standardizingPath
+            let key = cacheKey(standardizedRoot, sessionId)
+            if let cached = transcriptPathByConfigRootAndSession[key] {
+                return cached
+            }
+            if missingTranscriptPathByConfigRootAndSession.contains(key) {
+                return nil
+            }
+
+            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
+            guard directoryExists(atPath: projectsRoot) else {
+                missingTranscriptPathByConfigRootAndSession.insert(key)
+                return nil
+            }
+
+            for projectDir in projectDirs(configRoot: standardizedRoot) {
+                if let path = transcriptPath(
+                    configRoot: standardizedRoot,
+                    projectDirName: projectDir,
+                    sessionId: sessionId
+                ) {
+                    transcriptPathByConfigRootAndSession[key] = path
+                    return path
+                }
+            }
+            missingTranscriptPathByConfigRootAndSession.insert(key)
+            return nil
+        }
+
         private func directoryExists(atPath path: String) -> Bool {
             var isDirectory: ObjCBool = false
             return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+        }
+
+        private func cacheKey(_ prefix: String, _ sessionId: String) -> String {
+            prefix + "\u{0}" + sessionId
         }
     }
 

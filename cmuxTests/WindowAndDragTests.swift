@@ -1836,7 +1836,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             fileExplorerState: FileExplorerState(),
             sessionIndexStore: SessionIndexStore(),
             notesTreeStore: NotesTreeStore(),
-            titlebarHeight: 36,
+            titlebarHeight: 36, windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },

@@ -37,6 +37,9 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.renameWorkspace`
 - `shortcuts.bindings.editWorkspaceDescription`
 - `shortcuts.bindings.closeWorkspace`
+- `shortcuts.bindings.newWorkspaceGroup`
+- `shortcuts.bindings.groupSelectedWorkspaces`
+- `shortcuts.bindings.toggleFocusedWorkspaceGroupCollapsed`
 
 ## Panes and surfaces
 
@@ -55,6 +58,24 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.splitDown`
 - `shortcuts.bindings.toggleSplitZoom`
 - `shortcuts.bindings.equalizeSplits`
+
+## Canvas
+
+- `shortcuts.bindings.toggleCanvasLayout`
+- `shortcuts.bindings.canvasRevealFocusedPane`
+- `shortcuts.bindings.canvasOverview`
+- `shortcuts.bindings.canvasZoomIn`
+- `shortcuts.bindings.canvasZoomOut`
+- `shortcuts.bindings.canvasZoomReset`
+- `shortcuts.bindings.canvasTidy`
+- `shortcuts.bindings.canvasAlignLeft`
+- `shortcuts.bindings.canvasAlignRight`
+- `shortcuts.bindings.canvasAlignTop`
+- `shortcuts.bindings.canvasAlignBottom`
+- `shortcuts.bindings.canvasEqualizeWidths`
+- `shortcuts.bindings.canvasEqualizeHeights`
+- `shortcuts.bindings.canvasDistributeHorizontally`
+- `shortcuts.bindings.canvasDistributeVertically`
 
 ## Command palette
 

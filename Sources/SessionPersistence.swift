@@ -306,9 +306,10 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         updatedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
         let normalizedCwd = Self.normalized(cwd)
+        let normalizedKind = Self.normalized(kind)
         let normalizedSource = Self.normalized(source)
         self.name = Self.normalized(name)
-        self.kind = Self.normalized(kind)
+        self.kind = normalizedKind
         self.command = Self.sanitizedStartupCommand(
             command,
             cwd: normalizedCwd,
@@ -362,6 +363,29 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         detectedBinding.isProcessDetected && (isProcessDetected || isAgentHookBinding)
     }
 
+    func retargetingWorkingDirectory(_ workingDirectory: String?) -> SurfaceResumeBindingSnapshot {
+        guard isAgentHookBinding else { return self }
+        let normalizedCwd = Self.normalized(workingDirectory)
+        let retargetedCommand = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+            in: command,
+            previousWorkingDirectory: cwd,
+            workingDirectory: normalizedCwd
+        )
+        return SurfaceResumeBindingSnapshot(
+            name: name,
+            kind: kind,
+            command: retargetedCommand,
+            cwd: normalizedCwd,
+            checkpointId: checkpointId,
+            source: source,
+            environment: environment,
+            autoResume: autoResume,
+            approvalPolicy: approvalPolicy,
+            approvalRecordId: approvalRecordId,
+            updatedAt: updatedAt
+        )
+    }
+
     static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
 
     var startupInput: String? {
@@ -369,34 +393,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     }
 
     var inlineStartupInput: String? {
-        let trimmed = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        guard let environment, !environment.isEmpty else {
-            return trimmed + "\n"
-        }
-        let assignments = environment.keys.sorted().compactMap { key -> String? in
-            guard let value = environment[key] else { return nil }
-            return "\(key)=\(value)"
-        }
-        let argv = ["/usr/bin/env"] + assignments + ["/bin/zsh", "-lc", trimmed]
-        return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
-    }
-
-    private var startupCommand: String {
-        Self.sanitizedStartupCommand(command, cwd: cwd, source: source)
-    }
-
-    private static func sanitizedStartupCommand(
-        _ command: String,
-        cwd: String?,
-        source: String?
-    ) -> String {
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard source == "agent-hook" else { return trimmed }
-        return TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
-            in: trimmed,
-            workingDirectory: cwd
-        )
+        inlineStartupInput(repairPortableAgentExecutable: true)
     }
 
     func startupInputWithLauncherScript(
@@ -480,7 +477,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         return sensitiveFragments.contains { uppercasedKey.contains($0) }
     }
 
-    private static func shellSingleQuoted(_ value: String) -> String {
+    static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
@@ -695,6 +692,7 @@ enum SurfaceResumeCommandCanonicalizer {
         }
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
+
 }
 
 enum SurfaceResumeApprovalSignature {
@@ -1282,20 +1280,19 @@ enum SurfaceResumeApprovalStore {
 nonisolated enum TerminalStartupReturnShellScript {
     private static let shellLine = #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#
     private static let zshIntegrationReentryLines = [
-        #"if [[ "${_cmux_resume_shell:t}" == "zsh" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
-        #"  if [[ -n "${ZDOTDIR+X}" ]]; then"#,
-        #"    export CMUX_ZSH_ZDOTDIR="$ZDOTDIR""#,
+        #"if [[ "${_cmux_resume_shell:t}" == "zsh" ]]; then"#,
+        #"  _cmux_resume_zdotdir_is_integration() { [[ -n "${1:-}" && ( "$1" == "${CMUX_SHELL_INTEGRATION_DIR:-}" || "$1" == */Contents/Resources/shell-integration ) ]]; }"#,
+        #"  if [[ -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
+        #"    if [[ -n "${ZDOTDIR+X}" ]] && ! _cmux_resume_zdotdir_is_integration "$ZDOTDIR"; then export CMUX_ZSH_ZDOTDIR="$ZDOTDIR"; elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]] && _cmux_resume_zdotdir_is_integration "$CMUX_ZSH_ZDOTDIR"; then unset CMUX_ZSH_ZDOTDIR; fi; export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
         #"  else"#,
-        #"    unset CMUX_ZSH_ZDOTDIR"#,
-        #"  fi"#,
-        #"  export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
+        #"    if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"; unset GHOSTTY_ZSH_ZDOTDIR; elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]] && ! _cmux_resume_zdotdir_is_integration "$CMUX_ZSH_ZDOTDIR"; then export ZDOTDIR="$CMUX_ZSH_ZDOTDIR"; unset CMUX_ZSH_ZDOTDIR; elif [[ -n "${ZDOTDIR+X}" ]] && _cmux_resume_zdotdir_is_integration "$ZDOTDIR"; then unset ZDOTDIR; unset CMUX_ZSH_ZDOTDIR; fi"#,
+        #"  fi; unfunction _cmux_resume_zdotdir_is_integration 2>/dev/null || true"#,
         #"fi"#,
     ]
 
     static func commandThenReturnLines(command: String, workingDirectory: String? = nil) -> [String] {
         let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
-        var lines = [
-            shellLine,
+        var lines = [shellLine] + zshIntegrationReentryLines + [
             #"case "${_cmux_resume_shell:t}" in"#,
             #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
             #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
@@ -1315,7 +1312,7 @@ nonisolated enum TerminalStartupReturnShellScript {
     }
 }
 
-private enum SurfaceResumeBindingScriptStore {
+enum SurfaceResumeBindingScriptStore {
     private static let directoryName = "cmux-surface-resume"
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
 
@@ -1612,11 +1609,9 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     /// Display title from the indexed note record, preserved for restored tabs.
     var noteTitle: String? = nil
 }
-
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
-
 struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     var mode: RightSidebarMode?
 
@@ -1634,7 +1629,7 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
         self.mode = raw.flatMap { RightSidebarMode(rawValue: $0) }
     }
 }
-
+struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
@@ -1741,6 +1736,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
+    var customSidebar: SessionCustomSidebarPanelSnapshot? = nil
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
 }

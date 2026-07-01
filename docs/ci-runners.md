@@ -13,9 +13,9 @@ workflow run, with no PR or commit.
 | ------------------- | ---------------------------------------------------------- | --------------------------- | -------------------------------- |
 | `LINUX_RUNNER`      | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `warp-ubuntu-latest-x64-4x`   |
 | `MACOS_RUNNER_15`   | universal Release app builds: nightly, stable release, `release-ghostty-cli-helper`, most macOS defaults | `blacksmith-6vcpu-macos-15` | `warp-macos-15-arm64-6x`         |
-| `MACOS_RUNNER_26`   | macOS 26 compat + jobs that do not need Zig                 | `blacksmith-6vcpu-macos-26` | `warp-macos-26-arm64-6x`         |
-| `MACOS_RUNNER_26_RELEASE` | disk-heavy `release-build` universal app             | `blacksmith-6vcpu-macos-26` | `warp-macos-26-arm64-6x`         |
-| `MACOS_RUNNER_IOS`  | iOS simulator tests + TestFlight upload (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `macos-26` (free GitHub-hosted)  |
+| `MACOS_RUNNER_26`   | macOS 26 compat + jobs that do not need Zig                 | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`      |
+| `MACOS_RUNNER_26_RELEASE` | disk-heavy `release-build` universal app             | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`      |
+| `MACOS_RUNNER_IOS`  | iOS simulator tests + TestFlight upload (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`  |
 
 Workflows reference them as `runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}`.
 If a variable is unset the job uses the fallback, so CI is never broken by a
@@ -36,10 +36,16 @@ green there. These stay on Warp or Depot on purpose:
   (Depot/Warp) because Cmd-Tab timing, virtual displays, and XCTest automation
   need a GUI-capable runner. A Depot identity guard validates these.
 
-`MACOS_RUNNER_IOS` defaults to Blacksmith but keeps a free GitHub-hosted
-`macos-26` fallback because iOS simulator XCUITests may hit the same
-testmanagerd limitation. If an iOS job wedges on Blacksmith, flip
-`MACOS_RUNNER_IOS` back to `macos-26`.
+`MACOS_RUNNER_IOS` defaults to Blacksmith and its baked-in fallback is also
+`blacksmith-6vcpu-macos-26`. Unlike macOS app-host XCTest, iOS simulator XCTest
+runs inside the Simulator (not a foregrounded Mac app), so the Blacksmith
+foreground limitation does not apply, and the iOS lanes are verified green on
+`blacksmith-6vcpu-macos-26`. The fallback deliberately does NOT use the bare
+GitHub-hosted `macos-26` label: our self-hosted fleet carries `macos-26`, and
+GitHub prefers a matching self-hosted runner, so `macos-26` would route iOS jobs
+to a mini. If an iOS lane ever does need a non-Blacksmith runner, break-glass to
+a cloud runner (`gh variable set MACOS_RUNNER_IOS -b depot-macos-latest`), never
+to `macos-26`.
 
 ## Break-glass: switch a runner type off Blacksmith
 
@@ -58,12 +64,18 @@ gh variable set MACOS_RUNNER_IOS      --repo manaflow-ai/cmux -b blacksmith-6vcp
 
 Break-glass a type to WarpBuild only when Blacksmith is down or queuing for
 minutes (as happened for macOS in https://github.com/manaflow-ai/cmux/pull/4926).
-Either delete the variable to use the baked-in fallback, or set it explicitly:
+**Set an explicit cloud label.** Do not rely on deleting the variable: the
+baked-in macOS-26 fallbacks are now `blacksmith-6vcpu-macos-26` (not Warp),
+because `warp-macos-26-arm64-6x` collides with the self-hosted fleet, so
+deleting `MACOS_RUNNER_26` just keeps the job on Blacksmith. Never set any
+runner variable to a fleet/self-hosted label.
 
 ```bash
 gh variable set LINUX_RUNNER    --repo manaflow-ai/cmux -b warp-ubuntu-latest-x64-4x
 gh variable set MACOS_RUNNER_15 --repo manaflow-ai/cmux -b warp-macos-15-arm64-6x
-gh variable delete MACOS_RUNNER_26 --repo manaflow-ai/cmux   # reverts to the Warp fallback
+# macOS 26 has no Warp cloud fallback (warp-macos-26 collides with the fleet);
+# break-glass to a GUI-capable cloud runner instead:
+gh variable set MACOS_RUNNER_26 --repo manaflow-ai/cmux -b depot-macos-latest
 ```
 
 Check current values:
@@ -91,3 +103,20 @@ a single variable flip. It also asserts every paid macOS job references
 fall back to a free runner. Bare paid-provider labels (`blacksmith-*`, `warp-*`,
 `depot-*`) stay allowed for deliberate single-runner pins. Keep new labels in
 `.github/actionlint.yaml`.
+
+## No self-hosted mac-mini fleet in CI
+
+We do not use the self-hosted mac-mini fleet (`cmux-mac-mini`, `studio1`,
+`mac4-cmuxvnc*`, `cmux-austin-mini-*`) for any CI job. Those minis carry labels
+that collide with cloud labels (notably `macos-26` and `warp-macos-26-arm64-6x`),
+and GitHub prefers a matching self-hosted runner, so a required job could
+silently land on a mini that cannot foreground a GUI app (it stays
+`Running Background`, breaking key-window / pasteboard / IME / XCUITest). Every
+macOS fallback therefore routes to Blacksmith cloud, and
+`check_no_self_hosted_fleet_runners` in `tests/test_ci_self_hosted_guard.sh`
+fails CI if any workflow references a fleet/self-hosted label.
+
+Residual: this guard checks workflow literals, not repo-variable values. Do not
+set `MACOS_RUNNER_*` / `LINUX_RUNNER` to a self-hosted label; keep them on
+Blacksmith. Fully closing the variable-value path requires removing the
+colliding labels from the minis (runner-side, needs org/runner admin).

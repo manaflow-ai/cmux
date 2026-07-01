@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -58,25 +59,131 @@ actor LivenessHostRouter {
     }
 
     private var recorded: [RecordedRequest] = []
+    private var countWaiters: [(
+        id: UUID,
+        method: String,
+        expectedCount: Int,
+        continuation: CheckedContinuation<Void, Never>
+    )] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
+    private var replayRequestCount = 0
+    private var heldReplayRequestNumbers: Set<Int> = []
+    private var heldReplayResponsesRemaining = 0
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
-    private var capabilities = ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var replayTexts: [String] = []
+    private var replayFailuresRemaining = 0
+    private var emptyReplayResponsesRemaining = 0
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
+        resumeSatisfiedCountWaiters()
     }
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
     }
 
+    @discardableResult
+    func waitForCount(
+        of method: String,
+        atLeast expectedCount: Int,
+        timeoutNanoseconds: UInt64 = 3_000_000_000,
+        recordIssueOnTimeout: Bool = true
+    ) async -> Bool {
+        let reached = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await self.waitUntilCountReached(of: method, atLeast: expectedCount)
+                return true
+            }
+            group.addTask {
+                // Test assertion deadline only; request arrival is signaled by record().
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                return false
+            }
+            let reached = await group.next() ?? false
+            group.cancelAll()
+            return reached
+        }
+        if !reached, recordIssueOnTimeout {
+            Issue.record("timed out waiting for \(method) count >= \(expectedCount)")
+        }
+        return reached
+    }
+
+    private func waitUntilCountReached(of method: String, atLeast expectedCount: Int) async {
+        guard count(of: method) < expectedCount else { return }
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                countWaiters.append((
+                    id: waiterID,
+                    method: method,
+                    expectedCount: expectedCount,
+                    continuation: continuation
+                ))
+                resumeSatisfiedCountWaiters()
+            }
+        } onCancel: {
+            Task { await self.cancelCountWaiter(id: waiterID) }
+        }
+    }
+
+    private func resumeSatisfiedCountWaiters() {
+        var remaining: [(
+            id: UUID,
+            method: String,
+            expectedCount: Int,
+            continuation: CheckedContinuation<Void, Never>
+        )] = []
+        var satisfied: [CheckedContinuation<Void, Never>] = []
+        for waiter in countWaiters {
+            if count(of: waiter.method) >= waiter.expectedCount {
+                satisfied.append(waiter.continuation)
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        countWaiters = remaining
+        for continuation in satisfied {
+            continuation.resume()
+        }
+    }
+
+    private func cancelCountWaiter(id: UUID) {
+        guard let index = countWaiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = countWaiters.remove(at: index)
+        waiter.continuation.resume()
+    }
+
+    func topics(for method: String) -> [[String]] {
+        recorded.compactMap { request in
+            guard request.method == method else { return nil }
+            return request.topics
+        }
+    }
+
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
+    }
+
+    func enqueueReplayTexts(_ texts: [String]) {
+        replayTexts.append(contentsOf: texts)
+    }
+
+    func failNextReplay(count: Int = 1) {
+        replayFailuresRemaining += count
+    }
+
+    func enqueueEmptyReplayResponses(count: Int = 1) {
+        emptyReplayResponsesRemaining += count
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -96,6 +203,18 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers.insert(number)
     }
 
+    /// Hold the Nth `mobile.terminal.replay` response (1-based), letting a test
+    /// swap clients while the old request is still in flight.
+    func holdReplayRequest(number: Int) {
+        heldReplayRequestNumbers.insert(number)
+    }
+
+    /// Hold the next N `mobile.terminal.replay` responses, independent of any
+    /// replay requests the connect/mount path already used.
+    func holdNextReplayResponses(count: Int = 1) {
+        heldReplayResponsesRemaining += count
+    }
+
     /// Forget the host-side registration, modeling a lost subscription behind
     /// a live RPC channel: the next subscribe reports
     /// `already_subscribed: false`.
@@ -109,6 +228,8 @@ actor LivenessHostRouter {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
         heldSubscribeRequestNumbers = []
+        heldReplayRequestNumbers = []
+        heldReplayResponsesRemaining = 0
         let continuations = heldContinuations
         heldContinuations = []
         for continuation in continuations {
@@ -161,8 +282,35 @@ actor LivenessHostRouter {
                 "topics": ["workspace.updated", "terminal.render_grid"],
                 "already_subscribed": alreadySubscribed,
             ])
-        case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
+        case "mobile.terminal.replay":
+            replayRequestCount += 1
+            if heldReplayResponsesRemaining > 0 {
+                heldReplayResponsesRemaining -= 1
+                await park()
+            } else if heldReplayRequestNumbers.contains(replayRequestCount) {
+                await park()
+            }
+            if replayFailuresRemaining > 0 {
+                replayFailuresRemaining -= 1
+                return try? Self.errorFrame(id: id, message: "replay failed")
+            }
+            if emptyReplayResponsesRemaining > 0 {
+                emptyReplayResponsesRemaining -= 1
+                return try? Self.resultFrame(id: id, result: [:])
+            }
+            guard !replayTexts.isEmpty else {
+                return try? Self.resultFrame(id: id, result: [:])
+            }
+            let text = replayTexts.removeFirst()
+            return try? Self.resultFrame(id: id, result: [
+                "data_b64": Data(text.utf8).base64EncodedString(),
+            ])
+        case "mobile.events.unsubscribe", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
+        case "terminal.input":
+            return try? Self.resultFrame(id: id, result: [
+                "terminal_seq": 100,
+            ])
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
@@ -290,12 +438,14 @@ actor LivenessTransport: CmxByteTransport {
 @MainActor
 final class OutputCollector {
     private(set) var lines: [String] = []
+    private(set) var viewportPolicies: [MobileTerminalOutputViewportPolicy?] = []
     private var task: Task<Void, Never>?
 
     func mount(store: MobileShellComposite, surfaceID: String) {
         task = Task { @MainActor [weak self] in
             for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                 self?.lines.append(String(decoding: chunk.data, as: UTF8.self))
+                self?.viewportPolicies.append(chunk.viewportPolicy)
                 store.terminalOutputDidProcess(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
@@ -321,6 +471,7 @@ func makeTicket(clock: TestClock) throws -> CmxAttachTicket {
         terminalID: "live-terminal",
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
+        macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
         expiresAt: clock.now.addingTimeInterval(3600)
     )
@@ -337,13 +488,64 @@ func attachURL(for ticket: CmxAttachTicket) throws -> String {
     return "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"
 }
 
-func renderGridEventFrame(surfaceID: String, seq: UInt64, text: String) throws -> Data {
-    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+func renderGridEventFrame(
+    surfaceID: String,
+    seq: UInt64,
+    text: String,
+    activeScreen: MobileTerminalRenderGridFrame.Screen = .primary,
+    full: Bool = true
+) throws -> Data {
+    let frame = try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
         stateSeq: seq,
         columns: 16,
         rows: 4,
-        text: text
+        full: full,
+        rowSpans: [
+            MobileTerminalRenderGridFrame.RowSpan(
+                row: 0,
+                column: 0,
+                styleID: 0,
+                text: text
+            ),
+        ],
+        activeScreen: activeScreen
+    )
+    let envelope: [String: Any] = [
+        "kind": "event",
+        "topic": "terminal.render_grid",
+        "payload": try frame.jsonObject(),
+    ]
+    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+}
+
+func terminalBytesEventFrame(surfaceID: String, seq: UInt64, text: String) throws -> Data {
+    let envelope: [String: Any] = [
+        "kind": "event",
+        "topic": "terminal.bytes",
+        "payload": [
+            "surface_id": surfaceID,
+            "seq": seq,
+            "data_b64": Data(text.utf8).base64EncodedString(),
+        ],
+    ]
+    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+}
+
+func emptyRenderGridEventFrame(
+    surfaceID: String,
+    seq: UInt64,
+    activeScreen: MobileTerminalRenderGridFrame.Screen,
+    full: Bool = false
+) throws -> Data {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: seq,
+        columns: 16,
+        rows: 4,
+        full: full,
+        rowSpans: [],
+        activeScreen: activeScreen
     )
     let envelope: [String: Any] = [
         "kind": "event",
@@ -387,4 +589,25 @@ func makeConnectedStore(
     let connected = await store.connectPairingURL(try attachURL(for: ticket))
     #expect(connected, "scripted connect must succeed")
     return store
+}
+
+@MainActor
+func installFreshLivenessRemoteClient(
+    on store: MobileShellComposite,
+    router: LivenessHostRouter,
+    box: TransportBox,
+    clock: TestClock
+) throws {
+    let runtime = LivenessTestRuntime(
+        transportFactory: LivenessTransportFactory(router: router, box: box),
+        now: { clock.now }
+    )
+    let ticket = try makeTicket(clock: clock)
+    let route = try #require(ticket.routes.first)
+    store.remoteClient = MobileCoreRPCClient(
+        runtime: runtime,
+        route: route,
+        ticket: ticket,
+        allowsStackAuthFallback: true
+    )
 }

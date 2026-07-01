@@ -847,6 +847,44 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testCustomSnapshotWithForkTemplateIsForkable() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let supportedKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let customRegistration = CmuxVaultAgentRegistration(
+            id: "my-agent",
+            name: "My Agent",
+            detect: CmuxVaultAgentDetectRule(processNames: ["my-agent"]),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "my-agent --session {{sessionId}}",
+            forkCommand: "my-agent --session {{sessionId}} --fork"
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("my-agent"),
+            sessionId: "custom-session",
+            workingDirectory: "/tmp/my-agent",
+            launchCommand: nil,
+            registration: customRegistration
+        )
+
+        XCTAssertNotNil(snapshot.forkCommand)
+        XCTAssertEqual(
+            ContentView.commandPaletteSnapshotForkAvailability(snapshot),
+            .supportedWithoutProbe
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                fallbackSnapshot: snapshot
+            )
+        )
+    }
+
     func testImmediateForkExecutionRejectsFallbackSnapshotBeforeProbeVerification() {
         let workspaceId = UUID()
         let panelId = UUID()

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 @MainActor
@@ -182,7 +183,7 @@ extension SavingTextView {
         textView.importsGraphics = false
         textView.usesFindPanel = true
         textView.usesFontPanel = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.applyCurrentPreviewFont()
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -244,8 +245,29 @@ final class SavingTextView: NSTextView {
     var onPointerDown: (() -> Void)?
     private var previewFontSize: CGFloat = 13
     private var pendingSaveShortcutChordPrefix: ShortcutStroke?
+    private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
+
+    convenience init() {
+        self.init(frame: .zero, textContainer: nil)
+    }
+
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: container)
+        installFontMagnificationObserver()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installFontMagnificationObserver()
+    }
 
     deinit {}
+
+    private func installFontMagnificationObserver() {
+        fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyCurrentPreviewFont()
+        }
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -301,7 +323,11 @@ final class SavingTextView: NSTextView {
         let clamped = min(max(nextFontSize, Self.minimumPreviewFontSize), Self.maximumPreviewFontSize)
         guard clamped.isFinite else { return }
         previewFontSize = clamped
-        let nextFont = NSFont.monospacedSystemFont(ofSize: clamped, weight: .regular)
+        applyCurrentPreviewFont()
+    }
+
+    func applyCurrentPreviewFont() {
+        let nextFont = GlobalFontMagnification.monospacedSystemFont(ofSize: previewFontSize, weight: .regular)
         font = nextFont
         typingAttributes[.font] = nextFont
     }
