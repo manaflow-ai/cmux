@@ -12,7 +12,7 @@ import SwiftUI
 /// app state the tree doesn't own (opening a note panel, resuming a session) are
 /// injected as closures from the composition root.
 struct NotesTreePanelView: NSViewRepresentable {
-    @ObservedObject var store: NotesTreeStore
+    let store: NotesTreeStore
     /// Open a note file in a markdown surface.
     let onOpenNote: (NotesTreeNode, _ editImmediately: Bool) -> Void
     /// Resume the Claude session backing a session folder.

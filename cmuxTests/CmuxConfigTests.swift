@@ -1237,10 +1237,12 @@ struct CmuxConfigDecodingTests {
         }
         """.write(to: configURL, atomically: true, encoding: .utf8)
 
-        // cmux.json must not hot reload without an explicit loadAll(). Yield the
-        // main actor long enough for any unexpected auto-reload to land, then
-        // confirm the store still serves the originally loaded actions.
-        try await Task.sleep(nanoseconds: 250_000_000)
+        // cmux.json must not hot reload without an explicit loadAll(). A watcher
+        // would deliver its reload through the main actor / main run loop, so
+        // drain both (no wall-clock wait) and confirm the store still serves
+        // the originally loaded actions.
+        for _ in 0..<8 { await Task.yield() }
+        RunLoop.main.run(until: Date())
         XCTAssertNotNil(store.resolvedAction(id: "first"))
         XCTAssertNil(store.resolvedAction(id: "second"))
 
