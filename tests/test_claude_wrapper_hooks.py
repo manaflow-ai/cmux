@@ -1410,6 +1410,42 @@ def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]
     expect("--session-id" not in real_argv, f"resume auth env: expected no injected session id, got {real_argv}", failures)
 
 
+def test_live_socket_preserved_claude_config_dir_skips_resume_self_heal(failures: list[str]) -> None:
+    session_id = "582054f9-2f87-4e90-ad8d-2f532ed8c61b"
+    expected: dict[str, str] = {}
+
+    def setup_env(tmp: Path) -> dict[str, str]:
+        home = tmp / "home"
+        default_root = home / ".claude"
+        (default_root / "projects" / "-work").mkdir(parents=True)
+        (default_root / "projects" / "-work" / f"{session_id}.jsonl").write_text(
+            "{}\n", encoding="utf-8"
+        )
+        selected_root = home / ".subrouter" / "codex" / "claude" / "aziz-claude-1"
+        (selected_root / "projects").mkdir(parents=True)
+        expected["path"] = str(selected_root)
+        return {
+            "HOME": str(home),
+            "CLAUDE_CONFIG_DIR": str(selected_root),
+            "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1",
+            "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR",
+        }
+
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--resume", session_id, "--fork-session"],
+        inherited_env={},
+        setup_env=setup_env,
+    )
+    expect(code == 0, f"preserved resume config dir: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"],
+        "preserved resume config dir: expected CLAUDE_CONFIG_DIR to remain on the selected profile root "
+        f"{expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}",
+        failures,
+    )
+    expect(real_argv[-3:] == ["--resume", session_id, "--fork-session"], f"preserved resume config dir: expected resume+fork argv, got {real_argv}", failures)
+
+
 def test_live_socket_preserves_only_listed_claude_auth_keys(failures: list[str]) -> None:
     inherited = {
         "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
@@ -1883,6 +1919,7 @@ def main() -> int:
     test_live_socket_resume_keeps_correct_claude_config_dir(failures)
     test_live_socket_resume_self_heal_ignores_prompt_text_after_double_dash(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
+    test_live_socket_preserved_claude_config_dir_skips_resume_self_heal(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
     test_live_socket_auto_preserves_vertex_auth_when_truthy(failures)
     test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures)
