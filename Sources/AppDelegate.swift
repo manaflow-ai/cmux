@@ -5698,12 +5698,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didFocus
     }
 
-    func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
+    func closeMainWindow(windowId: UUID, recordHistory: Bool = true, force: Bool = false) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(windowId)
         }
         closeMainWindowWithoutInteractiveVeto(window)
+        if force {
+            // The close fires `windowWillClose` → `unregisterMainWindowContext`,
+            // which re-adds this just-closed window to the RECOVERABLE route ledger while
+            // its surfaces are still registered — so it would linger in
+            // `list-windows`/`listMainWindowSummaries` until the async surface-deinit
+            // sweep catches up. A programmatic close is authoritative, so forget the
+            // route now (same fix as `discardMainWindowWithoutClosedHistory`).
+            forgetRecoverableMainWindowRoute(windowId: windowId)
+            // Verify against the authoritative registry — it is cleared synchronously
+            // on close. `windowForMainWindowId`'s `NSApp.windows` identifier fallback
+            // can re-find a just-closed, not-yet-released window and report a FALSE
+            // failure, so don't gate on it.
+            return !mainWindowContexts.values.contains { $0.windowId == windowId }
+        }
         return true
     }
 
@@ -5711,6 +5725,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let window = windowForMainWindowId(windowId) else { return }
         closedWindowHistorySuppressedWindowIds.insert(windowId)
         closeMainWindowWithoutInteractiveVeto(window)
+        // A discarded window is gone for good (typically a dead remote-mirror window),
+        // so also drop its RECOVERABLE route. The close removes it from
+        // `mainWindowContexts`, but the route ledger is independent and
+        // `liveRecoverableMainWindow` keeps finding the closed-but-retained NSWindow
+        // (`isReleasedWhenClosed == false`) — which is exactly why discarded mirror
+        // windows lingered in `list-windows`/`listMainWindowSummaries` after a
+        // host-death teardown despite the window itself being closed.
+        forgetRecoverableMainWindowRoute(windowId: windowId)
     }
 
     private func confirmCloseMainWindow(_ window: NSWindow) -> Bool {
