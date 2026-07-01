@@ -19725,7 +19725,9 @@ struct CMUXCLI {
             for threadId in (loaded["data"] as? [String] ?? []) {
                 do {
                     _ = try hydrateThreadIfNeeded(threadId, connection: connection)
-                } catch {
+                } catch let error as CLIError {
+                    // Protocol-level failures only affect this thread; transport
+                    // failures propagate so run() reconnects and re-backfills.
                     cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
                 }
             }
@@ -19762,7 +19764,7 @@ struct CMUXCLI {
                 guard allowThreadSubscribe, let threadId = params["threadId"] as? String, !threadId.isEmpty else { return }
                 do {
                     _ = try hydrateThreadIfNeeded(threadId, connection: connection)
-                } catch {
+                } catch let error as CLIError {
                     cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
                 }
                 return
@@ -19770,7 +19772,7 @@ struct CMUXCLI {
             if allowThreadSubscribe {
                 do {
                     if try hydrateThreadIfNeeded(thread.id, connection: connection) { return }
-                } catch {
+                } catch let error as CLIError {
                     cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n")
                 }
             }
@@ -20092,6 +20094,23 @@ struct CMUXCLI {
             return true
         }
 
+        private func reconnectedSocketClient() throws -> SocketClient {
+            // The app can close a control connection that sat idle between
+            // subagent spawns, and SocketClient does not self-heal local
+            // sockets. Reconnect and re-authenticate before pane-opening
+            // requests so late spawns still open panes.
+            if !socketClient.connectionAppearsOpen() {
+                socketClient.close()
+                try socketClient.connect()
+                try CMUXCLI.authenticateSocketClientIfNeeded(
+                    socketClient,
+                    explicitPassword: socketPassword,
+                    socketPath: socketClient.socketPath
+                )
+            }
+            return socketClient
+        }
+
         private func openSubagent(
             _ thread: CodexTeamsThread,
             spawn: CodexTeamsSpawn,
@@ -20130,7 +20149,7 @@ struct CMUXCLI {
                 splitParams["working_directory"] = cwd
             }
 
-            let created = try socketClient.sendV2(method: "surface.split", params: splitParams)
+            let created = try reconnectedSocketClient().sendV2(method: "surface.split", params: splitParams)
             if (created["accepted"] as? Bool) == true {
                 // Routed to a remote tmux mirror: the pane was created on the
                 // remote session and there is no local surface id to attach the
@@ -20143,7 +20162,7 @@ struct CMUXCLI {
             lastAgentSurfaceId = surfaceId
 
             do {
-                _ = try socketClient.sendV2(method: "tab.action", params: [
+                _ = try reconnectedSocketClient().sendV2(method: "tab.action", params: [
                     "workspace_id": workspaceId,
                     "surface_id": surfaceId,
                     "action": "rename",
@@ -20153,7 +20172,7 @@ struct CMUXCLI {
                 // The subagent pane already exists, so a rename failure should not stop watching.
             }
             do {
-                _ = try socketClient.sendV2(method: "workspace.equalize_splits", params: [
+                _ = try reconnectedSocketClient().sendV2(method: "workspace.equalize_splits", params: [
                     "workspace_id": workspaceId,
                     "orientation": "vertical"
                 ])
