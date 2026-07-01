@@ -32,6 +32,10 @@ zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=fals
 zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=Bengali
 ```
 
+The corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-7a51798436fa2cfcfcc9a2ed1e109ba69bdb68f9-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
 The previous cmux pinned fork head was `05c3e2908`, which adds
 the Darwin-only `ghostty_surface_set_renderer_realized` C API (a
 `display_realized` renderer-thread mailbox message that drives
