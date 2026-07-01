@@ -145,13 +145,14 @@ describe("sign out and sign back in", () => {
     signOut.mockClear();
   });
 
-  function switchRequest(afterAuthReturnTo: string): NextRequest {
+  function switchRequest(afterAuthReturnTo: string, headers: Record<string, string> = {}): NextRequest {
     return new NextRequest(
       `https://cmux.test/handler/sign-out-and-sign-in?after_auth_return_to=${encodeURIComponent(afterAuthReturnTo)}`,
       {
         headers: {
           cookie:
-            "stack-access=access-token; stack-refresh-test-project--default=refresh-token; __Host-stack-refresh-test-project--default=secure-refresh-token; unrelated=value",
+            "stack-access=access-token; __Host-stack-access=secure-access-token; stack-refresh-test-project--default=refresh-token; __Host-stack-refresh-test-project--default=secure-refresh-token; unrelated=value",
+          ...headers,
         },
       }
     );
@@ -171,13 +172,44 @@ describe("sign out and sign back in", () => {
 
     const setCookie = response.headers.get("set-cookie");
     expect(setCookie).toContain("stack-access=;");
+    expect(setCookie).toContain("__Host-stack-access=;");
     expect(setCookie).toContain("stack-refresh-test-project--default=;");
     expect(setCookie).toContain("__Host-stack-refresh-test-project--default=;");
     expect(setCookie).not.toContain("unrelated=;");
   });
 
+  test("still clears cookies and redirects when Stack sign-out throws", async () => {
+    const GET = makeSignOutAndSignInHandler({
+      projectId: "test-project",
+      signOut: async () => {
+        throw new Error("stack unavailable");
+      },
+    });
+    const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
+    const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+
+    const response = await GET(switchRequest(nativeSignIn));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://cmux.test${nativeSignIn}`);
+    const setCookie = response.headers.get("set-cookie");
+    expect(setCookie).toContain("stack-access=;");
+    expect(setCookie).toContain("__Host-stack-access=;");
+  });
+
   test("rejects non-native sign-in redirect targets", async () => {
     const response = await GET(switchRequest("/docs"));
+
+    expect(signOut).not.toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
+  test("rejects cross-site attempts to force sign-out", async () => {
+    const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
+    const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+
+    const response = await GET(switchRequest(nativeSignIn, { "sec-fetch-site": "cross-site" }));
 
     expect(signOut).not.toHaveBeenCalled();
     expect(response.status).toBe(307);
