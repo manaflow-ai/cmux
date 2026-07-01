@@ -172,6 +172,10 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults)
         case .rightSidebarDock:
             return RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
+        // `.newNote` is deliberately NOT gated on the Notes sidebar beta: the
+        // flag hides the right-sidebar Notes tab, while attached-note creation
+        // (tab-bar button, More menu, ⌘⌃N) ships for everyone. Covered by
+        // testDefaultSurfaceTabBarMoreMenuIncludesNotesWhenSidebarBetaDisabled.
         case .newWorkspace, .cloudVM, .newTerminal, .newBrowser, .newNote,
              .splitRight, .splitDown, .more, .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault,
              .filesPane, .findPane, .vaultPane, .diffViewer,
