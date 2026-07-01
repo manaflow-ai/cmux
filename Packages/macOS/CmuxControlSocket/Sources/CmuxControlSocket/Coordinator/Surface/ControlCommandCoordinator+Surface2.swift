@@ -287,9 +287,6 @@ extension ControlCommandCoordinator {
         if let lineLimit, lineLimit <= 0 {
             return .err(code: "invalid_params", message: "lines must be greater than 0", data: nil)
         }
-        if lineLimit != nil {
-            includeScrollback = true
-        }
         let resolution = context?.controlSurfaceReadText(
             routing: routing,
             surfaceID: uuid(params, "surface_id"),
