@@ -212,15 +212,16 @@ function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
   clearHandoffCookie: boolean,
-  switchAccountHref: string
+  switchAccountHref: string | null
 ): NextResponse {
   const { locale, messages } = localized;
   const escapedHref = escapeHtml(href);
-  const escapedSwitchAccountHref = escapeHtml(switchAccountHref);
+  const switchAccountAction = switchAccountHref
+    ? `      <a class="secondary" href="${escapeHtml(switchAccountHref)}">${escapeHtml(messages.switchAccountButton)}</a>\n`
+    : "";
   const escapedTitle = escapeHtml(messages.title);
   const escapedBody = escapeHtml(messages.body);
   const escapedButton = escapeHtml(messages.button);
-  const escapedSwitchAccountButton = escapeHtml(messages.switchAccountButton);
   const response = new NextResponse(
     `<!doctype html>
 <html lang="${escapeHtml(locale)}">
@@ -283,8 +284,7 @@ function nativeReturnResponse(
     <p>${escapedBody}</p>
     <div class="actions">
       <a class="primary" href="${escapedHref}">${escapedButton}</a>
-      <a class="secondary" href="${escapedSwitchAccountHref}">${escapedSwitchAccountButton}</a>
-    </div>
+${switchAccountAction}    </div>
   </main>
 </body>
 </html>`,
@@ -314,7 +314,8 @@ function currentAfterSignInPath(request: NextRequest): string {
   return `${afterSignIn.pathname}${afterSignIn.search}`;
 }
 
-function switchAccountHref(request: NextRequest): string {
+function switchAccountHref(request: NextRequest): string | null {
+  if (!request.nextUrl.searchParams.has("native_app_return_to")) return null;
   const nativeSignIn = new URL("/handler/native-sign-in", request.nextUrl.origin);
   nativeSignIn.searchParams.set("after_auth_return_to", currentAfterSignInPath(request));
 
