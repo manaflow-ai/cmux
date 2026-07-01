@@ -565,11 +565,12 @@ public final class ChatConversationStore {
     private func apply(_ event: ChatSessionEvent) {
         switch event {
         case .appended(let newMessages):
+            let freshMessages = newMessages.filter { !knownWindowIDs.contains($0.id) }
             var reconciledPendingEchoIDs = Set<String>()
             reconcilePending(against: newMessages) { reconciledPendingEchoIDs.insert($0.id) }
             let pendingEchoIDs = pendingEchoBatchIDs(in: newMessages, reconciledPendingEchoIDs: reconciledPendingEchoIDs)
             if streamingMessage != nil,
-               newMessages.contains(where: { appendClearsStreamingPreview($0, pendingEchoBatchIDs: pendingEchoIDs) }) {
+               freshMessages.contains(where: { appendClearsStreamingPreview($0, pendingEchoBatchIDs: pendingEchoIDs) }) {
                 streamingMessage = nil
             }
             // A live append whose seq regresses below the window tail means
@@ -827,8 +828,7 @@ public final class ChatConversationStore {
 
     private func reproject() {
         // A terminal session is a flat ordered command log, not a grouped
-        // conversation, so it bypasses the bubble-grouping projector. The
-        // agent branch is unchanged.
+        // conversation, so it bypasses the bubble-grouping projector.
         if descriptor.kind == .terminal {
             // Include optimistic sends so the user sees their command (and any
             // failure/retry) until the shell echoes it back as a command

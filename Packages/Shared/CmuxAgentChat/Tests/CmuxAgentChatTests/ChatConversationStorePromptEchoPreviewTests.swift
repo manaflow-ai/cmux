@@ -195,6 +195,34 @@ struct ChatConversationStorePromptEchoPreviewTests {
         })
     }
 
+    @Test("attachment-only pending echo batch does not clear accepted live preview")
+    func attachmentOnlyPendingEchoBatchDoesNotClearAcceptedLivePreview() async {
+        let source = PromptEchoSilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await waitForPromptEchoPreview { store.isConnected })
+        let attachments = [
+            ChatOutboundAttachment(data: Data([0x89]), format: .png),
+            ChatOutboundAttachment(data: Data([0x50]), format: .png),
+        ]
+        await store.send(text: "", attachments: attachments)
+        #expect(await waitForPromptEchoPreview { Self.pendingItems(store.rows).count == 1 })
+
+        await source.emit(.streamingProse(Self.streamingMessage(text: "valid preview")))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["valid preview"] })
+
+        await source.emit(.appended([
+            Self.attachment(seq: 0, hostPath: "/tmp/clipboard-image-a.png"),
+            Self.attachment(seq: 1, hostPath: "/tmp/clipboard-image-b.png"),
+        ]))
+        #expect(await waitForPromptEchoPreview {
+            Self.proseTexts(store.rows) == ["valid preview"]
+                && Self.pendingItems(store.rows).isEmpty
+        })
+    }
+
     @Test("mixed append batch clears preview for a real next user turn")
     func mixedAppendBatchClearsPreviewForRealNextUserTurn() async {
         let source = PromptEchoSilentSendEventSource()
@@ -213,6 +241,25 @@ struct ChatConversationStorePromptEchoPreviewTests {
         let nextUser = Self.prose(seq: 1, role: .user, text: "next prompt")
         await source.emit(.appended([echoedUser, nextUser]))
         #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["current prompt", "next prompt"] })
+    }
+
+    @Test("replayed user append does not clear accepted live preview")
+    func replayedUserAppendDoesNotClearAcceptedLivePreview() async {
+        let source = PromptEchoSilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await waitForPromptEchoPreview { store.isConnected })
+        let user = Self.prose(seq: 0, role: .user, text: "already merged")
+        await source.emit(.appended([user]))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["already merged"] })
+
+        await source.emit(.streamingProse(Self.streamingMessage(text: "valid preview")))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["already merged", "valid preview"] })
+
+        await source.emit(.appended([user]))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["already merged", "valid preview"] })
     }
 
     @Test("queued prompts do not suppress the active turn live preview")

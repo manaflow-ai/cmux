@@ -9,20 +9,26 @@ extension ChatConversationStore {
     ) -> Set<String> {
         guard !reconciledPendingEchoIDs.isEmpty else { return [] }
         var echoIDs = reconciledPendingEchoIDs
-        var precedingAttachmentIDs: [String] = []
+        var attachmentRunIDs: [String] = []
+        func flushAttachmentRun(beforeProseID proseID: String? = nil) {
+            let runReconciled = attachmentRunIDs.contains { reconciledPendingEchoIDs.contains($0) }
+            let proseReconciled = proseID.map { reconciledPendingEchoIDs.contains($0) } ?? false
+            if runReconciled || proseReconciled {
+                echoIDs.formUnion(attachmentRunIDs)
+            }
+            attachmentRunIDs.removeAll(keepingCapacity: true)
+        }
         for message in messages where message.role == .user {
             switch message.kind {
             case .attachment:
-                precedingAttachmentIDs.append(message.id)
+                attachmentRunIDs.append(message.id)
             case .prose:
-                if reconciledPendingEchoIDs.contains(message.id) {
-                    echoIDs.formUnion(precedingAttachmentIDs)
-                }
-                precedingAttachmentIDs.removeAll(keepingCapacity: true)
+                flushAttachmentRun(beforeProseID: message.id)
             default:
-                precedingAttachmentIDs.removeAll(keepingCapacity: true)
+                flushAttachmentRun()
             }
         }
+        flushAttachmentRun()
         return echoIDs
     }
 
