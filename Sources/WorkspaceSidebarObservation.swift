@@ -59,6 +59,19 @@ private struct SidebarObservationState: Equatable {
 }
 
 extension Workspace {
+    // Leading-edge coalescing for the immediate sidebar observation stream.
+    // The publisher fans out to every sidebar consumer (per-row rows and the
+    // MergeMany extension-sidebar aggregate), and each downstream fires a full
+    // makeWorkspaceSnapshot() rebuild. Agents (e.g. Codex) rewrite a workspace
+    // title every turn, and removeDuplicates() cannot collapse distinct titles,
+    // so without coalescing each rewrite drives a snapshot rebuild per consumer
+    // per workspace. A leading-edge throttle keeps the first change in a burst
+    // instant (so a user pin/color/title edit still feels immediate) while
+    // collapsing the rest to at most one emission per window. Mirrors the 40ms
+    // debounce already applied to the slower observation publisher.
+    // See https://github.com/manaflow-ai/cmux/issues/4127.
+    static let sidebarImmediateObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
+
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
             $title,
@@ -86,6 +99,11 @@ extension Workspace {
                 )
             }
             .removeDuplicates()
+            .throttle(
+                for: Self.sidebarImmediateObservationCoalesceInterval,
+                scheduler: RunLoop.main,
+                latest: true
+            )
             .map { _ in () }
             .eraseToAnyPublisher()
     }
