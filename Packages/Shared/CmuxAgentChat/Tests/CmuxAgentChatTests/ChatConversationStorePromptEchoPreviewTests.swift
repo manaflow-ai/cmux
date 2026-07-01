@@ -151,6 +151,26 @@ struct ChatConversationStorePromptEchoPreviewTests {
         #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["current prompt", "valid preview"] })
     }
 
+    @Test("mixed append batch clears preview for a real next user turn")
+    func mixedAppendBatchClearsPreviewForRealNextUserTurn() async {
+        let source = PromptEchoSilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await waitForPromptEchoPreview { store.isConnected })
+        await store.send(text: "current prompt")
+        #expect(await waitForPromptEchoPreview { Self.pendingItems(store.rows).count == 1 })
+
+        await source.emit(.streamingProse(Self.streamingMessage(text: "valid preview")))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["valid preview"] })
+
+        let echoedUser = Self.prose(seq: 0, role: .user, text: "current prompt")
+        let nextUser = Self.prose(seq: 1, role: .user, text: "next prompt")
+        await source.emit(.appended([echoedUser, nextUser]))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["current prompt", "next prompt"] })
+    }
+
     @Test("queued prompts do not suppress the active turn live preview")
     func queuedPromptDoesNotSuppressActivePreview() async {
         let source = PromptEchoSilentSendEventSource()
