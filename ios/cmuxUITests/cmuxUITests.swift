@@ -1408,6 +1408,14 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+        XCTAssertEqual(
+            afterKeyboard.adjustedBottomInset,
+            afterKeyboard.composerOverlayBottomInset + afterKeyboard.keyboardOverlap,
+            accuracy: 6,
+            "Keyboard-up transcript inset must include the keyboard-clipped viewport below the composer. Otherwise bottom-pinned state can report success while the newest content is hidden. after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
         XCTAssertGreaterThan(
             composerBarFrame.height,
             52,
