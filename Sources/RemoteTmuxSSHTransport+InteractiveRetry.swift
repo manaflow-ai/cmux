@@ -35,6 +35,10 @@ extension RemoteTmuxSSHTransport {
         "temporary failure in name resolution",
         "kex_exchange_identification:",     // target spoke no SSH / closed during key exchange
         "ssh_exchange_identification:",     // target closed during banner exchange
+        "command not found",                // bash/zsh: ProxyCommand binary missing
+        ": not found",                      // dash/busybox sh: ProxyCommand binary missing
+        "no such file or directory",        // shell: ProxyCommand path does not exist
+        "exec format error",                // shell: ProxyCommand binary for wrong architecture
     ]
 
     /// Convenience predicate composing the recovery rule the controller's

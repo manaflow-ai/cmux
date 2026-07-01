@@ -29,6 +29,12 @@ import Testing
         "channel 1: open failed: administratively prohibited: open failed\nConnection closed by UNKNOWN port 65535",
         "nc: connect to inner.invalid port 22 (tcp) failed: Connection timed out\nConnection closed by UNKNOWN port 65535",
         "ssh_exchange_identification: Connection closed by remote host\nConnection closed by UNKNOWN port 65535",
+        "zsh:1: command not found: corp-proxy\nConnection closed by UNKNOWN port 65535",
+        "bash: line 1: corp-proxy: command not found\nConnection closed by UNKNOWN port 65535",
+        "sh: 1: corp-proxy: not found\nConnection closed by UNKNOWN port 65535",
+        "zsh:1: no such file or directory: /opt/corp/proxy\nConnection closed by UNKNOWN port 65535",
+        "bash: line 1: /opt/corp/proxy: No such file or directory\nConnection closed by UNKNOWN port 65535",
+        "bash: line 1: /opt/corp/proxy: cannot execute binary file: Exec format error\nConnection closed by UNKNOWN port 65535",
     ])
     func doesNotClassifyExplainedProxyClosures(_ stderr: String) {
         #expect(!RemoteTmuxSSHTransport.indicatesProxyCommandTransportClosed(stderr))
@@ -79,6 +85,7 @@ import Testing
         "ssh: connect to host bad.example.com port 22: Connection refused",
         "",
         "channel 0: open failed: connect failed: Connection refused\nstdio forwarding failed\nConnection closed by UNKNOWN port 65535",
+        "zsh:1: command not found: corp-proxy\nConnection closed by UNKNOWN port 65535",
     ])
     func composedPredicateRejectsNonRecoverableFailures(_ stderr: String) {
         #expect(!RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr))
