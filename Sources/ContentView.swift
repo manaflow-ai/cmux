@@ -11843,7 +11843,7 @@ struct VerticalTabsSidebar: View {
                     inheritWorkingDirectory: spawnArgs.inheritWorkingDirectory,
                     select: true,
                     eagerLoadTerminal: false,
-                    autoWelcomeIfNeeded: spawnArgs.initialTerminalInput == nil
+                    autoWelcomeIfNeeded: spawnArgs.autoWelcomeIfNeeded
                 )
             } catch {
                 NSSound.beep()
