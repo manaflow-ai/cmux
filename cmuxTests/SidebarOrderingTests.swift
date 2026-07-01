@@ -292,6 +292,68 @@ final class SidebarBranchOrderingTests: XCTestCase {
         )
     }
 
+    func testOrderedUniqueBranchDirectoryEntriesPrefersDisplayLabelsForSharedDirectories() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let fourth = UUID()
+
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
+            orderedPanelIds: [first, second, third, fourth],
+            panelBranches: [:],
+            panelDirectories: [
+                first: "/repo/a",
+                second: "/repo/a",
+                third: "/repo/a",
+                fourth: "/repo/b"
+            ],
+            panelDirectoryDisplayLabels: [
+                second: "Repo A  main",
+                third: "Repo A  stale-label",
+                fourth: "Repo B  main"
+            ],
+            defaultDirectory: nil,
+            homeDirectoryForTildeExpansion: nil,
+            fallbackBranch: nil
+        )
+
+        // A later panel's label upgrades the unlabeled `/repo/a` row, the first
+        // reported label wins over later ones, and dedup still keys on the real
+        // directory rather than the label text.
+        XCTAssertEqual(
+            rows,
+            [
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: nil, isDirty: false, directory: "Repo A  main"),
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: nil, isDirty: false, directory: "Repo B  main")
+            ]
+        )
+    }
+
+    func testOrderedUniqueBranchDirectoryEntriesKeepsLabelWhenLaterPanelReportsBarePath() {
+        let first = UUID()
+        let second = UUID()
+
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
+            orderedPanelIds: [first, second],
+            panelBranches: [:],
+            panelDirectories: [
+                first: "/repo/a",
+                second: "/repo/a"
+            ],
+            panelDirectoryDisplayLabels: [
+                first: "Repo A  main"
+            ],
+            defaultDirectory: nil,
+            homeDirectoryForTildeExpansion: nil,
+            fallbackBranch: nil
+        )
+
+        XCTAssertEqual(
+            rows,
+            [SidebarBranchOrdering.BranchDirectoryEntry(branch: nil, isDirty: false, directory: "Repo A  main")]
+        )
+    }
+
     func testOrderedUniqueBranchDirectoryEntriesUsesFallbackBranchWhenPanelBranchesMissing() {
         let first = UUID()
         let second = UUID()

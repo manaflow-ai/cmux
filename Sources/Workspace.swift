@@ -5262,14 +5262,19 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Same rows as ``sidebarDirectoriesInDisplayOrder(orderedPanelIds:includeFallback:)``
     /// but always emitting the real filesystem path, never a reported display
-    /// label. Consumers that resolve paths on disk (Finder, File Explorer)
-    /// must use this variant.
-    private func sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [UUID], includeFallback: Bool = true) -> [String] {
+    /// label. Consumers that resolve paths on disk (Finder, File Explorer) or
+    /// publish path-shaped API payloads (extension sidebar snapshots) must use
+    /// this variant.
+    func sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [UUID], includeFallback: Bool = true) -> [String] {
         sidebarOrderedUniqueDirectories(
             orderedPanelIds: orderedPanelIds,
             includeFallback: includeFallback,
             preferDisplayLabels: false
         )
+    }
+
+    func sidebarFilesystemDirectoriesInDisplayOrder() -> [String] {
+        sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
     }
 
     /// One row per canonical filesystem directory, in panel display order.
@@ -5286,7 +5291,8 @@ final class Workspace: Identifiable, ObservableObject {
             resolvedPanelDirectories: resolvedDirectories
         )
         var ordered: [String] = []
-        var seen: Set<String> = []
+        var orderedIndexByKey: [String: Int] = [:]
+        var labeledKeys: Set<String> = []
 
         for panelId in orderedPanelIds {
             guard let directory = resolvedDirectories[panelId],
@@ -5294,12 +5300,21 @@ final class Workspace: Identifiable, ObservableObject {
                       directory,
                       homeDirectoryForTildeExpansion: homeDirectoryForCanonicalization
                   ) else { continue }
-            if seen.insert(key).inserted {
-                let displayedDirectory = preferDisplayLabels
-                    ? (normalizedSidebarDirectory(panelDirectoryDisplayLabels[panelId]) ?? directory)
-                    : directory
-                ordered.append(displayedDirectory)
+            let displayLabel = preferDisplayLabels
+                ? normalizedSidebarDirectory(panelDirectoryDisplayLabels[panelId])
+                : nil
+            if let existingIndex = orderedIndexByKey[key] {
+                // A label wins over an unlabeled path spelling for a shared
+                // directory; the first reported label wins over later ones.
+                if let displayLabel, !labeledKeys.contains(key) {
+                    ordered[existingIndex] = displayLabel
+                    labeledKeys.insert(key)
+                }
+                continue
             }
+            orderedIndexByKey[key] = ordered.count
+            if displayLabel != nil { labeledKeys.insert(key) }
+            ordered.append(displayLabel ?? directory)
         }
 
         if includeFallback, ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {

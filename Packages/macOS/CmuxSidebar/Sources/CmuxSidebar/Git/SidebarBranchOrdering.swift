@@ -314,6 +314,7 @@ public struct SidebarBranchOrdering: Sendable {
             var branch: String?
             var isDirty: Bool
             var directory: String?
+            var directoryIsDisplayLabel: Bool
         }
 
         let normalized = normalizedDirectory
@@ -332,8 +333,10 @@ public struct SidebarBranchOrdering: Sendable {
             let branch = panelBranch ?? defaultBranchForPanels
             let directory = normalized(panelDirectories[panelId])
             // Rows display the reported label when present, but dedup keys
-            // below always derive from the real filesystem directory.
-            let displayedDirectory = normalized(panelDirectoryDisplayLabels[panelId]) ?? directory
+            // below always derive from the real filesystem directory. A label
+            // wins over an unlabeled path spelling for a shared directory; the
+            // first reported label wins over later ones.
+            let displayLabel = normalized(panelDirectoryDisplayLabels[panelId])
             guard branch != nil || directory != nil else { continue }
 
             let panelDirty = panelBranch != nil
@@ -361,11 +364,18 @@ public struct SidebarBranchOrdering: Sendable {
                     } else if existing.branch == nil {
                         existing.isDirty = panelDirty
                     }
-                    existing.directory = preferredDisplayedDirectory(
-                        existing: existing.directory,
-                        replacement: displayedDirectory,
-                        homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
-                    )
+                    if let displayLabel {
+                        if !existing.directoryIsDisplayLabel {
+                            existing.directory = displayLabel
+                            existing.directoryIsDisplayLabel = true
+                        }
+                    } else if !existing.directoryIsDisplayLabel {
+                        existing.directory = preferredDisplayedDirectory(
+                            existing: existing.directory,
+                            replacement: directory,
+                            homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
+                        )
+                    }
                     entries[key] = existing
                 } else if panelDirty {
                     existing.isDirty = true
@@ -373,7 +383,12 @@ public struct SidebarBranchOrdering: Sendable {
                 }
             } else {
                 order.append(key)
-                entries[key] = MutableEntry(branch: branch, isDirty: panelDirty, directory: displayedDirectory)
+                entries[key] = MutableEntry(
+                    branch: branch,
+                    isDirty: panelDirty,
+                    directory: displayLabel ?? directory,
+                    directoryIsDisplayLabel: displayLabel != nil
+                )
             }
         }
 
