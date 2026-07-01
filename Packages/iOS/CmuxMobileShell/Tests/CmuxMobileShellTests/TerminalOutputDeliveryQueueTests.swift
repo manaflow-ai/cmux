@@ -808,6 +808,53 @@ private func waitForReplayRequestCount(
     #expect(queue.isIdle)
 }
 
+// Regression for https://github.com/manaflow-ai/cmux/issues/6358: switching a
+// workspace away and quickly back remounts the same terminal surface. Mount 2
+// installs the live output sink, but mount 1's stream teardown is deferred onto
+// the main actor. If that stale teardown unregisters unconditionally it rips out
+// mount 2's freshly-installed sink, leaving the remounted surface showing stale /
+// leftover content because it can no longer receive frames. The teardown must
+// only fire when it still owns the live registration.
+@MainActor
+@Test func remountedSurfaceSinkSurvivesStaleStreamTeardown() async {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    // Mount 1: selecting the workspace attaches and consumes an output sink.
+    let staleMount = OutputCollector()
+    staleMount.mount(store: store, surfaceID: surfaceID)
+    for _ in 0..<100 where store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil {
+        await Task.yield()
+    }
+    let staleToken = store.terminalOutputStreamTokensBySurfaceID[surfaceID]
+
+    // Quick switch away-and-back remounts the SAME surface; mount 2 registers a
+    // fresh sink (new stream token) and begins consuming the live output.
+    let liveMount = OutputCollector()
+    liveMount.mount(store: store, surfaceID: surfaceID)
+    for _ in 0..<100 where store.terminalOutputStreamTokensBySurfaceID[surfaceID] == staleToken {
+        await Task.yield()
+    }
+
+    // Mount 1 goes away: its stream terminates and schedules the deferred
+    // main-actor teardown. Drain it before delivering so a regression (the
+    // unconditional teardown) has already unregistered mount 2 by delivery time.
+    staleMount.unmount()
+    for _ in 0..<100 { await Task.yield() }
+
+    // Behavior: a frame delivered after the stale teardown must actually reach the
+    // remounted sink. Without the lifetime-token guard the teardown unregisters
+    // mount 2 and this delivery is dropped — the user-visible "stranded on stale
+    // content" bug. Bounded poll so a regression fails fast instead of hanging.
+    store.deliverTerminalBytes(Data("live".utf8), surfaceID: surfaceID)
+    for _ in 0..<500 where !liveMount.lines.contains("live") {
+        await Task.yield()
+    }
+    #expect(liveMount.lines.contains("live"))
+
+    liveMount.unmount()
+}
+
 @Test func renderGridViewportPatchIsReplaceableOnlyWhenEveryRowIsCleared() throws {
     let fullFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal",
