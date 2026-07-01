@@ -567,9 +567,9 @@ public final class ChatConversationStore {
         case .appended(let newMessages):
             var reconciledPendingEchoIDs = Set<String>()
             reconcilePending(against: newMessages) { reconciledPendingEchoIDs.insert($0.id) }
-            // Authoritative committed prose or a real next user turn owns the transcript.
+            let pendingEchoIDs = pendingEchoBatchIDs(in: newMessages, reconciledPendingEchoIDs: reconciledPendingEchoIDs)
             if streamingMessage != nil,
-               newMessages.contains(where: { appendClearsStreamingPreview($0, reconciledPendingEchoIDs: reconciledPendingEchoIDs) }) {
+               newMessages.contains(where: { appendClearsStreamingPreview($0, pendingEchoBatchIDs: pendingEchoIDs) }) {
                 streamingMessage = nil
             }
             // A live append whose seq regresses below the window tail means

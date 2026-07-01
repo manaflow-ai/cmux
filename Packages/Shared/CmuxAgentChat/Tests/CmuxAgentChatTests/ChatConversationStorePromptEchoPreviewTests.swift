@@ -172,6 +172,29 @@ struct ChatConversationStorePromptEchoPreviewTests {
         })
     }
 
+    @Test("text attachment pending echo does not clear accepted live preview")
+    func textAttachmentPendingEchoDoesNotClearAcceptedLivePreview() async {
+        let source = PromptEchoSilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await waitForPromptEchoPreview { store.isConnected })
+        let outboundAttachment = ChatOutboundAttachment(data: Data([0x89]), format: .png)
+        await store.send(text: "what is in this screenshot", attachments: [outboundAttachment])
+        #expect(await waitForPromptEchoPreview { Self.pendingItems(store.rows).count == 1 })
+
+        await source.emit(.streamingProse(Self.streamingMessage(text: "valid preview")))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["valid preview"] })
+
+        let echoedAttachment = Self.attachment(seq: 0, hostPath: "/tmp/clipboard-image.png")
+        let echoedText = Self.prose(seq: 1, role: .user, text: "what is in this screenshot")
+        await source.emit(.appended([echoedAttachment, echoedText]))
+        #expect(await waitForPromptEchoPreview {
+            Self.proseTexts(store.rows) == ["what is in this screenshot", "valid preview"]
+        })
+    }
+
     @Test("mixed append batch clears preview for a real next user turn")
     func mixedAppendBatchClearsPreviewForRealNextUserTurn() async {
         let source = PromptEchoSilentSendEventSource()
@@ -244,6 +267,16 @@ struct ChatConversationStorePromptEchoPreviewTests {
             role: role,
             timestamp: baseTime.addingTimeInterval(TimeInterval(seq)),
             kind: .prose(ChatProse(text: text))
+        )
+    }
+
+    private static func attachment(seq: Int, hostPath: String) -> ChatMessage {
+        ChatMessage(
+            id: "a\(seq)",
+            seq: seq,
+            role: .user,
+            timestamp: baseTime.addingTimeInterval(TimeInterval(seq)),
+            kind: .attachment(ChatAttachment(media: .image, displayName: nil, hostPath: hostPath))
         )
     }
 

@@ -3,12 +3,35 @@ import Foundation
 private let promptEchoScanLimit = 4096
 
 extension ChatConversationStore {
+    func pendingEchoBatchIDs(
+        in messages: [ChatMessage],
+        reconciledPendingEchoIDs: Set<String>
+    ) -> Set<String> {
+        guard !reconciledPendingEchoIDs.isEmpty else { return [] }
+        var echoIDs = reconciledPendingEchoIDs
+        var precedingAttachmentIDs: [String] = []
+        for message in messages where message.role == .user {
+            switch message.kind {
+            case .attachment:
+                precedingAttachmentIDs.append(message.id)
+            case .prose:
+                if reconciledPendingEchoIDs.contains(message.id) {
+                    echoIDs.formUnion(precedingAttachmentIDs)
+                }
+                precedingAttachmentIDs.removeAll(keepingCapacity: true)
+            default:
+                precedingAttachmentIDs.removeAll(keepingCapacity: true)
+            }
+        }
+        return echoIDs
+    }
+
     func appendClearsStreamingPreview(
         _ message: ChatMessage,
-        reconciledPendingEchoIDs: Set<String>
+        pendingEchoBatchIDs: Set<String>
     ) -> Bool {
         (message.role == .agent && messageContainsProse(message))
-            || (message.role == .user && !reconciledPendingEchoIDs.contains(message.id))
+            || (message.role == .user && !pendingEchoBatchIDs.contains(message.id))
     }
 
     /// The screen-scraped live preview can momentarily read the wrapped tail of
