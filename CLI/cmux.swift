@@ -28293,10 +28293,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         )
         let codexLegacyHookTrustHashes = Self.codexLegacyHookTrustHashes(def: def)
 
+        let previousHookFileData = fm.contents(atPath: filePath)
+        var wroteHookFile = false
+
         let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
         let newString = String(data: newData, encoding: .utf8) ?? "{}"
         let oldString: String = {
-            if let data = fm.contents(atPath: filePath),
+            if let data = previousHookFileData,
                let json = try? JSONSerialization.jsonObject(with: data),
                let pretty = try? JSONSerialization.data(
                     withJSONObject: json, options: [.prettyPrinted, .sortedKeys]
@@ -28326,6 +28329,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
             }
             try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+            wroteHookFile = true
             print("\(def.displayName) hooks installed at \(filePath)")
         }
 
@@ -28370,6 +28374,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         )
                         print("\nProceed? [y/N] ", terminator: "")
                         guard readLine()?.lowercased().hasPrefix("y") == true else {
+                            if wroteHookFile {
+                                if let previousHookFileData {
+                                    try previousHookFileData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+                                } else if fm.fileExists(atPath: filePath) {
+                                    try fm.removeItem(atPath: filePath)
+                                }
+                                print("Rolled back \(def.displayName) hooks at \(filePath).")
+                            }
                             print("Aborted (\(configPath) unchanged).")
                             return
                         }
