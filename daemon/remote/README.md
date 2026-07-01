@@ -168,7 +168,7 @@ Environment fallbacks:
 
 ### Migration notes
 
-**`new-workspace`**: The flags `--command` and `--working-directory` were removed. They were accepted by the old relay but sent incorrect param names that `workspace.create` does not use, so the server silently ignored them. Use `--cwd` for the working directory.
+**`new-workspace`**: The flag `--working-directory` was removed. It was accepted by the old relay but sent the wrong param name (`working_directory` instead of `cwd`), so the server silently ignored it. Use `--cwd` for the working directory. The flag `--command` is now supported: it sends the command text to the new workspace's default surface after creation.
 
 **`send` / `send-key`**: The `--text` and `--key` flags were removed. Both commands now take their argument positionally, matching the Mac CLI convention: `cmux send "hello world"` and `cmux send-key ctrl+c`.
 

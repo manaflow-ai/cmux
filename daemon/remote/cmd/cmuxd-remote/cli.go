@@ -1,3 +1,5 @@
+//go:generate go run ./gen/main.go
+
 package main
 
 import (
@@ -42,6 +44,9 @@ type commandSpec struct {
 	// positionalKey is the param name that receives positional arguments.
 	// All positional args are joined with a space and assigned to this key.
 	positionalKey string
+	// repeatKeys lists flags that may appear multiple times. Their values
+	// accumulate in parsedFlags.repeated rather than parsedFlags.flags.
+	repeatKeys []string
 }
 
 type browserCommandSpec struct {
@@ -54,63 +59,6 @@ type browserCommandSpec struct {
 	allowPositionalValue  bool
 	useWorkspaceEnv       bool
 	useSurfaceEnv         bool
-}
-
-var commands = []commandSpec{
-	// V2 JSON-RPC commands
-
-	// System
-	{name: "ping", v2Method: "system.ping", noParams: true},
-	{name: "capabilities", v2Method: "system.capabilities", noParams: true},
-
-	// Window management
-	{name: "list-windows", v2Method: "window.list", noParams: true},
-	{name: "current-window", v2Method: "window.current", noParams: true},
-	{name: "new-window", v2Method: "window.create", noParams: true},
-	{name: "focus-window", v2Method: "window.focus", flagKeys: []string{"window"}},
-	{name: "close-window", v2Method: "window.close", flagKeys: []string{"window"}},
-
-	// Workspace management
-	{name: "list-workspaces", v2Method: "workspace.list", noParams: true},
-	{name: "new-workspace", v2Method: "workspace.create", flagKeys: []string{"name", "cwd", "description", "focus"}, boolFlags: []string{"focus"}, paramKeyOverrides: map[string]string{"name": "title"}},
-	{name: "rename-workspace", v2Method: "workspace.rename", flagKeys: []string{"workspace", "title"}},
-	{name: "close-workspace", v2Method: "workspace.close", flagKeys: []string{"workspace"}},
-	{name: "select-workspace", v2Method: "workspace.select", flagKeys: []string{"workspace"}},
-	{name: "current-workspace", v2Method: "workspace.current", noParams: true},
-	{name: "next-workspace", v2Method: "workspace.next", noParams: true},
-	{name: "previous-workspace", v2Method: "workspace.previous", noParams: true},
-	{name: "last-workspace", v2Method: "workspace.last", noParams: true},
-	{name: "move-workspace-to-window", v2Method: "workspace.move_to_window", flagKeys: []string{"workspace", "window"}},
-	{name: "equalize-splits", v2Method: "workspace.equalize_splits", flagKeys: []string{"workspace"}},
-
-	// Pane management
-	{name: "list-panes", v2Method: "pane.list", flagKeys: []string{"workspace"}},
-	{name: "list-pane-surfaces", v2Method: "pane.surfaces", flagKeys: []string{"pane"}},
-	{name: "new-pane", v2Method: "pane.create", flagKeys: []string{"workspace", "direction", "type", "url", "focus"}, boolFlags: []string{"focus"}, defaultParams: map[string]any{"direction": "right"}},
-	{name: "last-pane", v2Method: "pane.last", flagKeys: []string{"workspace"}},
-	{name: "resize-pane", v2Method: "pane.resize", flagKeys: []string{"pane"}},
-	{name: "swap-pane", v2Method: "pane.swap", flagKeys: []string{"pane"}},
-	{name: "break-pane", v2Method: "pane.break", flagKeys: []string{"pane", "focus"}, boolFlags: []string{"focus"}},
-	{name: "join-pane", v2Method: "pane.join", flagKeys: []string{"pane", "target-pane", "focus"}, boolFlags: []string{"focus"}, paramKeyOverrides: map[string]string{"target-pane": "target_pane_id"}},
-
-	// Surface (panel) management
-	{name: "list-panels", v2Method: "surface.list", flagKeys: []string{"workspace"}},
-	{name: "focus-panel", v2Method: "surface.focus", flagKeys: []string{"panel", "workspace"}, paramKeyOverrides: map[string]string{"panel": "surface_id"}},
-	{name: "new-surface", v2Method: "surface.create", flagKeys: []string{"workspace", "pane", "type", "url", "focus"}, boolFlags: []string{"focus"}},
-	{name: "new-split", v2Method: "surface.split", flagKeys: []string{"surface", "direction", "focus"}, boolFlags: []string{"focus"}},
-	{name: "close-surface", v2Method: "surface.close", flagKeys: []string{"workspace", "surface"}},
-	{name: "send", v2Method: "surface.send_text", flagKeys: []string{"surface"}, positionalKey: "text"},
-	{name: "send-key", v2Method: "surface.send_key", flagKeys: []string{"surface"}, positionalKey: "key"},
-	{name: "read-screen", v2Method: "surface.read_text", flagKeys: []string{"surface"}},
-	{name: "clear-history", v2Method: "surface.clear_history", flagKeys: []string{"surface"}},
-	{name: "refresh-surfaces", v2Method: "surface.refresh", noParams: true},
-
-	// Notifications
-	{name: "notify", v2Method: "notification.create", flagKeys: []string{"title", "body", "workspace"}},
-	{name: "dismiss-notification", v2Method: "notification.dismiss", flagKeys: []string{"id"}},
-	{name: "mark-notification-read", v2Method: "notification.mark_read", flagKeys: []string{"id"}},
-	{name: "open-notification", v2Method: "notification.open", flagKeys: []string{"id"}},
-	{name: "jump-to-unread", v2Method: "notification.jump_to_unread", noParams: true},
 }
 
 var browserCommands = map[string]browserCommandSpec{
@@ -146,6 +94,22 @@ var browserCommands = map[string]browserCommandSpec{
 var commandIndex map[string]*commandSpec
 
 func init() {
+	// Apply per-command overrides from cli_overrides.go onto the generated specs.
+	for i := range commands {
+		ov, ok := commandOverrides[commands[i].name]
+		if !ok {
+			continue
+		}
+		if ov.paramKeyOverrides != nil {
+			commands[i].paramKeyOverrides = ov.paramKeyOverrides
+		}
+		if ov.positionalKey != "" {
+			commands[i].positionalKey = ov.positionalKey
+		}
+		if ov.defaultParams != nil {
+			commands[i].defaultParams = ov.defaultParams
+		}
+	}
 	commandIndex = make(map[string]*commandSpec, len(commands))
 	for i := range commands {
 		commandIndex[commands[i].name] = &commands[i]
@@ -208,6 +172,15 @@ doneFlags:
 		return runRPC(socketPath, cmdArgs, jsonOutput, refreshAddr)
 	}
 
+	// Commands with specialDispatch=true in cli_overrides.go have dedicated
+	// handler functions for client-side logic the generic path cannot express.
+	if commandOverrides[cmdName].specialDispatch {
+		switch cmdName {
+		case "new-workspace":
+			return runNewWorkspaceRelay(socketPath, cmdArgs, jsonOutput, refreshAddr)
+		}
+	}
+
 	// Browser subcommand delegation
 	if cmdName == "browser" {
 		return runBrowserRelay(socketPath, cmdArgs, jsonOutput, refreshAddr)
@@ -263,7 +236,7 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 	}
 
 	if !spec.noParams {
-		parsed, err := parseFlags(args, spec.flagKeys)
+		parsed, err := parseFlags(args, spec.flagKeys, spec.repeatKeys)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
 			return 2
@@ -319,6 +292,130 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
 		return 1
+	}
+
+	if jsonOutput {
+		fmt.Println(resp)
+	} else {
+		fmt.Println(defaultRelayOutput(resp))
+	}
+	return 0
+}
+
+// runNewWorkspaceRelay handles "cmux new-workspace" with full flag parity to the
+// macOS CLI: --layout (JSON object), --env (repeatable KEY=VALUE), --env-file
+// (file of KEY=VALUE lines), and --command (post-create send+return).
+func runNewWorkspaceRelay(socketPath string, args []string, jsonOutput bool, refreshAddr func() string) int {
+	flagKeys := []string{"name", "cwd", "description", "focus", "window", "group", "group-placement", "group-reference", "layout", "env-file", "command"}
+	repeatKeys := []string{"env"}
+
+	parsed, err := parseFlags(args, flagKeys, repeatKeys)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux new-workspace: %v\n", err)
+		return 2
+	}
+	if len(parsed.positional) > 0 {
+		fmt.Fprintln(os.Stderr, "cmux: new-workspace does not accept positional arguments")
+		return 2
+	}
+
+	params := make(map[string]any)
+
+	for _, key := range []string{"name", "cwd", "description", "window", "group", "group-placement", "group-reference", "command"} {
+		if val, ok := parsed.flags[key]; ok {
+			paramKey := flagToParamKey(key)
+			switch key {
+			case "name":
+				paramKey = "title"
+			case "group-placement":
+				paramKey = "placement"
+			case "group-reference":
+				paramKey = "group_reference_workspace_id"
+			case "command":
+				// handled post-create; do not send to workspace.create
+				continue
+			}
+			params[paramKey] = val
+		}
+	}
+
+	if val, ok := parsed.flags["focus"]; ok {
+		switch strings.ToLower(val) {
+		case "true", "1", "yes":
+			params["focus"] = true
+		case "false", "0", "no":
+			params["focus"] = false
+		default:
+			fmt.Fprintf(os.Stderr, "cmux: --focus must be true or false\n")
+			return 2
+		}
+	}
+
+	if val, ok := parsed.flags["layout"]; ok {
+		var layout any
+		if err := json.Unmarshal([]byte(val), &layout); err != nil {
+			fmt.Fprintf(os.Stderr, "cmux new-workspace: --layout must be valid JSON: %v\n", err)
+			return 2
+		}
+		params["layout"] = layout
+	}
+
+	// Build env dict from --env KEY=VALUE pairs and --env-file lines.
+	env := make(map[string]string)
+	for _, kv := range parsed.repeated["env"] {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			fmt.Fprintf(os.Stderr, "cmux new-workspace: --env %q must be KEY=VALUE\n", kv)
+			return 2
+		}
+		env[k] = v
+	}
+	if envFile, ok := parsed.flags["env-file"]; ok {
+		data, err := os.ReadFile(envFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cmux new-workspace: --env-file: %v\n", err)
+			return 2
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			k, v, ok := strings.Cut(line, "=")
+			if !ok {
+				fmt.Fprintf(os.Stderr, "cmux new-workspace: --env-file line %q must be KEY=VALUE\n", line)
+				return 2
+			}
+			env[k] = v
+		}
+	}
+	if len(env) > 0 {
+		params["env"] = env
+	}
+
+	resp, err := socketRoundTripV2(socketPath, "workspace.create", params, refreshAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+		return 1
+	}
+
+	// --command: send text + Enter to the new workspace's surface.
+	if cmd, ok := parsed.flags["command"]; ok {
+		var result map[string]any
+		if err := json.Unmarshal([]byte(resp), &result); err == nil {
+			if surfaceID, _ := result["surface_id"].(string); surfaceID != "" {
+				sendParams := map[string]any{"surface_id": surfaceID, "text": cmd}
+				if _, err := socketRoundTripV2(socketPath, "surface.send_text", sendParams, refreshAddr); err != nil {
+					fmt.Fprintf(os.Stderr, "cmux new-workspace: --command send failed: %v\n", err)
+					return 1
+				}
+				keyParams := map[string]any{"surface_id": surfaceID, "key": "return"}
+				if _, err := socketRoundTripV2(socketPath, "surface.send_key", keyParams, refreshAddr); err != nil {
+					fmt.Fprintf(os.Stderr, "cmux new-workspace: --command send-key failed: %v\n", err)
+					return 1
+				}
+			}
+		}
 	}
 
 	if jsonOutput {
@@ -756,6 +853,8 @@ func flagToParamKey(key string) string {
 		return "pane_id"
 	case "window":
 		return "window_id"
+	case "group":
+		return "group_id"
 	case "command":
 		return "initial_command"
 	case "name":
@@ -777,19 +876,31 @@ func flagToParamKey(key string) string {
 
 // parsedFlags holds the results of flag parsing.
 type parsedFlags struct {
-	flags      map[string]string // --key value pairs
-	positional []string          // non-flag arguments
+	flags      map[string]string   // --key value pairs (last wins for duplicates)
+	repeated   map[string][]string // --key values for repeat-allowed keys
+	positional []string            // non-flag arguments
 }
 
 // parseFlags extracts --key value pairs from args for the given allowed keys.
-// Non-flag arguments are collected in positional.
-func parseFlags(args []string, keys []string) (parsedFlags, error) {
+// Keys listed in repeatKeys may appear more than once; their values accumulate
+// in repeated rather than flags. Non-flag arguments are collected in positional.
+func parseFlags(args []string, keys []string, repeatKeys ...[]string) (parsedFlags, error) {
 	allowed := make(map[string]bool, len(keys))
 	for _, k := range keys {
 		allowed[k] = true
 	}
+	repeat := make(map[string]bool)
+	if len(repeatKeys) > 0 {
+		for _, k := range repeatKeys[0] {
+			repeat[k] = true
+			allowed[k] = true
+		}
+	}
 
-	result := parsedFlags{flags: make(map[string]string)}
+	result := parsedFlags{
+		flags:    make(map[string]string),
+		repeated: make(map[string][]string),
+	}
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--" {
 			result.positional = append(result.positional, args[i+1:]...)
@@ -806,8 +917,13 @@ func parseFlags(args []string, keys []string) (parsedFlags, error) {
 		if i+1 >= len(args) {
 			return parsedFlags{}, fmt.Errorf("flag --%s requires a value", key)
 		}
-		result.flags[key] = args[i+1]
+		val := args[i+1]
 		i++
+		if repeat[key] {
+			result.repeated[key] = append(result.repeated[key], val)
+		} else {
+			result.flags[key] = val
+		}
 	}
 	return result, nil
 }
@@ -1040,6 +1156,18 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  capabilities              List server capabilities")
 	fmt.Fprintln(os.Stderr, "  list-workspaces           List all workspaces")
 	fmt.Fprintln(os.Stderr, "  new-workspace             Create a new workspace")
+	fmt.Fprintln(os.Stderr, "    --name <title>          Workspace title")
+	fmt.Fprintln(os.Stderr, "    --cwd <dir>             Working directory")
+	fmt.Fprintln(os.Stderr, "    --description <text>    Workspace description")
+	fmt.Fprintln(os.Stderr, "    --focus true|false      Focus the workspace after creation")
+	fmt.Fprintln(os.Stderr, "    --window <id>           Target window")
+	fmt.Fprintln(os.Stderr, "    --group <id>            Workspace group to place into")
+	fmt.Fprintln(os.Stderr, "    --group-placement <p>   Placement within the group (before|after|...)")
+	fmt.Fprintln(os.Stderr, "    --group-reference <id>  Reference workspace for placement")
+	fmt.Fprintln(os.Stderr, "    --layout <json>         Pane layout JSON object")
+	fmt.Fprintln(os.Stderr, "    --env KEY=VALUE         Environment variable (repeatable)")
+	fmt.Fprintln(os.Stderr, "    --env-file <path>       File of KEY=VALUE environment variables")
+	fmt.Fprintln(os.Stderr, "    --command <cmd>         Command to send to the new workspace after creation")
 	fmt.Fprintln(os.Stderr, "  rename-workspace          Rename a workspace")
 	fmt.Fprintln(os.Stderr, "  close-workspace           Close a workspace")
 	fmt.Fprintln(os.Stderr, "  select-workspace          Select a workspace")

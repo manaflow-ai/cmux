@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"net"
+	"os"
 	"testing"
 	"time"
 )
@@ -144,19 +147,216 @@ func TestJoinPaneTargetPaneParam(t *testing.T) {
 	}
 }
 
-// TestNewWorkspaceRemovedFlags verifies that --working-directory and --command
-// are no longer accepted. Both were previously accepted but sent wrong param
-// names to workspace.create (working_directory and initial_command respectively),
-// so the server silently ignored them. They are now removed to surface the error.
+// TestNewWorkspaceRemovedFlags verifies that --working-directory is no longer
+// accepted. It was previously accepted but sent the wrong param name
+// (working_directory instead of cwd) so the server silently ignored it.
 func TestNewWorkspaceRemovedFlags(t *testing.T) {
-	for _, flag := range []string{"--working-directory", "--command"} {
-		t.Run(flag, func(t *testing.T) {
-			sockPath := startMockV2Socket(t)
-			code := runCLI([]string{"--socket", sockPath, "new-workspace", flag, "somevalue"})
-			if code == 0 {
-				t.Fatalf("new-workspace %s: expected non-zero exit (flag was silently broken before and has been removed)", flag)
+	sockPath := startMockV2Socket(t)
+	code := runCLI([]string{"--socket", sockPath, "new-workspace", "--working-directory", "/home/dev"})
+	if code == 0 {
+		t.Fatal("new-workspace --working-directory: expected non-zero exit (flag was removed)")
+	}
+}
+
+// TestNewWorkspaceLayout verifies that --layout parses the JSON value and sends
+// it as a nested object, not a string.
+func TestNewWorkspaceLayout(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	layout := `{"splits":[{"direction":"vertical","ratio":0.5}]}`
+	code := runCLI([]string{"--socket", sockPath, "new-workspace", "--layout", layout})
+	if code != 0 {
+		t.Fatalf("new-workspace --layout: exit %d", code)
+	}
+	req := receiveRequest(t, requests)
+	if req["method"] != "workspace.create" {
+		t.Fatalf("expected workspace.create, got %v", req["method"])
+	}
+	p := params(req)
+	if p["layout"] == nil {
+		t.Fatal("expected 'layout' param to be set")
+	}
+	// layout must be a map, not a raw string
+	if _, ok := p["layout"].(map[string]any); !ok {
+		t.Fatalf("expected layout to be a JSON object, got %T", p["layout"])
+	}
+}
+
+// TestNewWorkspaceLayoutInvalid verifies that non-JSON --layout returns exit 2.
+func TestNewWorkspaceLayoutInvalid(t *testing.T) {
+	sockPath := startMockV2Socket(t)
+	code := runCLI([]string{"--socket", sockPath, "new-workspace", "--layout", "not-json"})
+	if code == 0 {
+		t.Fatal("new-workspace --layout not-json: expected non-zero exit")
+	}
+}
+
+// TestNewWorkspaceEnv verifies that --env KEY=VALUE pairs are collected into a
+// dict under the "env" param.
+func TestNewWorkspaceEnv(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "new-workspace",
+		"--env", "FOO=bar",
+		"--env", "BAZ=qux",
+	})
+	if code != 0 {
+		t.Fatalf("new-workspace --env: exit %d", code)
+	}
+	req := receiveRequest(t, requests)
+	p := params(req)
+	env, ok := p["env"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected env to be a map, got %T: %v", p["env"], p["env"])
+	}
+	if env["FOO"] != "bar" {
+		t.Fatalf("expected env.FOO='bar', got %v", env["FOO"])
+	}
+	if env["BAZ"] != "qux" {
+		t.Fatalf("expected env.BAZ='qux', got %v", env["BAZ"])
+	}
+}
+
+// TestNewWorkspaceEnvBadFormat verifies that --env values without '=' return exit 2.
+func TestNewWorkspaceEnvBadFormat(t *testing.T) {
+	sockPath := startMockV2Socket(t)
+	code := runCLI([]string{"--socket", sockPath, "new-workspace", "--env", "NOEQUALS"})
+	if code == 0 {
+		t.Fatal("new-workspace --env NOEQUALS: expected non-zero exit")
+	}
+}
+
+// TestNewWorkspaceEnvFile verifies that --env-file reads a file of KEY=VALUE
+// lines (ignoring blank lines and comments) and merges them into the env param.
+func TestNewWorkspaceEnvFile(t *testing.T) {
+	f, err := os.CreateTemp("", "cmux-env-*.env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(f.Name()) })
+	f.WriteString("# comment\nHOST=localhost\nPORT=5432\n\n")
+	f.Close()
+
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "new-workspace", "--env-file", f.Name()})
+	if code != 0 {
+		t.Fatalf("new-workspace --env-file: exit %d", code)
+	}
+	req := receiveRequest(t, requests)
+	env, ok := params(req)["env"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected env map, got %T", params(req)["env"])
+	}
+	if env["HOST"] != "localhost" || env["PORT"] != "5432" {
+		t.Fatalf("unexpected env contents: %v", env)
+	}
+}
+
+// TestNewWorkspaceWindowGroupFlags verifies that --window, --group,
+// --group-placement, and --group-reference map to the correct param names.
+func TestNewWorkspaceWindowGroupFlags(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "new-workspace",
+		"--window", "win-1",
+		"--group", "grp-1",
+		"--group-placement", "before",
+		"--group-reference", "ws-ref-1",
+	})
+	if code != 0 {
+		t.Fatalf("new-workspace with group flags: exit %d", code)
+	}
+	req := receiveRequest(t, requests)
+	p := params(req)
+	if p["window_id"] != "win-1" {
+		t.Fatalf("expected window_id='win-1', got %v", p["window_id"])
+	}
+	if p["group_id"] != "grp-1" {
+		t.Fatalf("expected group_id='grp-1', got %v", p["group_id"])
+	}
+	if p["placement"] != "before" {
+		t.Fatalf("expected placement='before', got %v", p["placement"])
+	}
+	if p["group_reference_workspace_id"] != "ws-ref-1" {
+		t.Fatalf("expected group_reference_workspace_id='ws-ref-1', got %v", p["group_reference_workspace_id"])
+	}
+}
+
+// TestNewWorkspaceCommand verifies that --command triggers two follow-up calls
+// (surface.send_text and surface.send_key return) using the surface_id returned
+// by workspace.create.
+func TestNewWorkspaceCommand(t *testing.T) {
+	// Custom mock: workspace.create returns surface_id; other methods echo normally.
+	sockPath := makeShortUnixSocketPath(t)
+	requests := make(chan map[string]any, 8)
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
 			}
-		})
+			go func(conn net.Conn) {
+				defer conn.Close()
+				buf := make([]byte, 4096)
+				n, _ := conn.Read(buf)
+				if n == 0 {
+					return
+				}
+				var req map[string]any
+				if err := json.Unmarshal(buf[:n], &req); err != nil {
+					conn.Write([]byte(`{"ok":false,"error":{"code":"parse","message":"bad json"}}` + "\n"))
+					return
+				}
+				requests <- req
+				var result any
+				if req["method"] == "workspace.create" {
+					result = map[string]any{"workspace_id": "ws-1", "surface_id": "surf-1"}
+				} else {
+					result = map[string]any{"ok": true}
+				}
+				resp := map[string]any{"id": req["id"], "ok": true, "result": result}
+				payload, _ := json.Marshal(resp)
+				conn.Write(append(payload, '\n'))
+			}(conn)
+		}
+	}()
+
+	code := runCLI([]string{"--socket", sockPath, "new-workspace", "--command", "claude ."})
+	if code != 0 {
+		t.Fatalf("new-workspace --command: exit %d", code)
+	}
+
+	create := receiveRequest(t, requests)
+	if create["method"] != "workspace.create" {
+		t.Fatalf("expected workspace.create, got %v", create["method"])
+	}
+
+	sendText := receiveRequest(t, requests)
+	if sendText["method"] != "surface.send_text" {
+		t.Fatalf("expected surface.send_text, got %v", sendText["method"])
+	}
+	sp := params(sendText)
+	if sp["surface_id"] != "surf-1" {
+		t.Fatalf("expected surface_id='surf-1', got %v", sp["surface_id"])
+	}
+	if sp["text"] != "claude ." {
+		t.Fatalf("expected text='claude .', got %v", sp["text"])
+	}
+
+	sendKey := receiveRequest(t, requests)
+	if sendKey["method"] != "surface.send_key" {
+		t.Fatalf("expected surface.send_key, got %v", sendKey["method"])
+	}
+	kp := params(sendKey)
+	if kp["surface_id"] != "surf-1" {
+		t.Fatalf("expected surface_id='surf-1', got %v", kp["surface_id"])
+	}
+	if kp["key"] != "return" {
+		t.Fatalf("expected key='return', got %v", kp["key"])
 	}
 }
 
