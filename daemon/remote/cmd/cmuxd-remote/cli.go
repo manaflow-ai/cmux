@@ -899,7 +899,8 @@ func flagToParamKey(key string) string {
 	case "load-state":
 		return "load_state"
 	default:
-		return key
+		// Hyphenated flag names map to underscore param keys by convention.
+		return strings.ReplaceAll(key, "-", "_")
 	}
 }
 
