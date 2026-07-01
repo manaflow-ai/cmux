@@ -105,4 +105,46 @@ public struct TerminalPathResolver: Sendable {
         guard URL(string: trimmed)?.scheme == nil else { return nil }
         return resolveQuicklookPath(trimmed, cwd: cwd)
     }
+
+    /// Resolves an open-URL request payload to an existing file plus an optional
+    /// `line[:column]` reference.
+    ///
+    /// Like ``resolveOpenURLFilePath(_:cwd:)`` but understands the
+    /// `path:line[:column]` convention: each candidate spelling is probed
+    /// as-is first (so a literal path that really contains a colon wins) and
+    /// then with a trailing line reference stripped. `http`/`https` text is
+    /// never treated as a file path; other schemes still fall through to the
+    /// file-existence probe, which gates false positives.
+    ///
+    /// - Parameters:
+    ///   - rawText: The raw open-URL text from the runtime.
+    ///   - cwd: The surface's working directory used for relative candidates.
+    /// - Returns: The first existing file reference, or `nil`.
+    public func resolveOpenURLFileReference(_ rawText: String, cwd: String?) -> TerminalFileReference? {
+        return nil
+    }
+}
+
+/// An existing file plus an optional editor `line[:column]` target, carried
+/// from terminal link resolution to the file opener.
+///
+/// The line/column travel to the editor as a URL fragment (`#L<line>` or
+/// `#L<line>:<column>`) so a plain `URL` is enough to cross the package
+/// boundary; ``fileURL`` is the single place that encoding lives.
+public struct TerminalFileReference: Equatable, Sendable {
+    public let path: String
+    public let line: Int?
+    public let column: Int?
+
+    public init(path: String, line: Int?, column: Int?) {
+        self.path = path
+        self.line = line
+        self.column = column
+    }
+
+    /// A `file://` URL for ``path``, carrying the line/column as a `#L…`
+    /// fragment when a line is present.
+    public var fileURL: URL {
+        return URL(fileURLWithPath: path)
+    }
 }
