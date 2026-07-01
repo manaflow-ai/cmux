@@ -97,5 +97,33 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
             CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [])
         )
     }
+
+    func testOffscreenRecoveryMovesWindowOntoConnectedDisplay() throws {
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        // Frame on a now-disconnected external display to the right.
+        window.setFrame(NSRect(x: 5000, y: 200, width: 800, height: 600), display: false)
+
+        CmuxMainWindow.applyOffscreenRecoveryIfNeeded(window, mouseLocation: NSPoint(x: 400, y: 400))
+
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+            throw XCTSkip("No screen available for offscreen recovery regression")
+        }
+        let visible = screen.visibleFrame
+        let intersection = window.frame.intersection(visible)
+        XCTAssertFalse(intersection.isNull)
+        XCTAssertGreaterThanOrEqual(intersection.width, 60)
+        XCTAssertGreaterThanOrEqual(intersection.height, 60)
+    }
 }
 #endif

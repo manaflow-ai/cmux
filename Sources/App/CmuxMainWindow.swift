@@ -230,4 +230,42 @@ extension CmuxMainWindow {
             height: height
         )
     }
+
+    /// Move a main window back onto a connected display when its frame would be
+    /// stranded off-screen (e.g. the display it lived on was disconnected).
+    /// Uses the same target-screen selection as Settings multi-monitor recovery
+    /// (#5770). No-op when the frame already has a grabbable on-screen slice.
+    static func applyOffscreenRecoveryIfNeeded(
+        _ window: NSWindow,
+        mouseLocation: NSPoint? = NSEvent.mouseLocation
+    ) {
+        guard !window.styleMask.contains(.fullScreen) else { return }
+
+        let visibleFrames = NSScreen.screens.map(\.visibleFrame)
+        guard !shouldPreserveFrameDuringConstrain(window.frame, visibleFrames: visibleFrames) else {
+            return
+        }
+
+        let screens = NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) }
+        let fallbackVisibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+        guard let targetVisibleFrame = SettingsWindowPresenter.targetVisibleFrame(
+            windowFrame: window.frame,
+            screens: screens,
+            mouseLocation: mouseLocation,
+            fallbackVisibleFrame: fallbackVisibleFrame
+        ) else { return }
+
+        let minimumFrameSize = NSSize(
+            width: max(window.minSize.width, minimumContentSize.width),
+            height: max(window.minSize.height, minimumContentSize.height)
+        )
+        let recovered = SettingsWindowPresenter.clampedFrame(
+            window.frame,
+            minimumSize: minimumFrameSize,
+            into: targetVisibleFrame,
+            inset: 0
+        )
+        guard recovered != window.frame else { return }
+        window.setFrame(recovered, display: true, animate: false)
+    }
 }
