@@ -106,6 +106,9 @@ class AppServerSession {
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.child = child;
+    // Writes can race the child dying; the exit handler already rejects all
+    // pending requests, so a stdin error must not crash the server.
+    child.stdin.on("error", () => {});
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => {
       process.stderr.write(`[codex app-server] ${chunk}`);
@@ -414,6 +417,7 @@ print(String(data: data, encoding: .utf8) ?? "[]")
 function runWithStdin(command, args, input) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    child.stdin.on("error", () => {}); // spawn failure surfaces via the error/close handlers
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
