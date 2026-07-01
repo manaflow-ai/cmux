@@ -23,29 +23,28 @@ type relayAuthState struct {
 	RelayToken string `json:"relay_token"`
 }
 
-// protocolVersion indicates whether a command uses the v1 text or v2 JSON-RPC protocol.
-type protocolVersion int
-
-const (
-	protoV1 protocolVersion = iota
-	protoV2
-)
-
 // commandSpec describes a single CLI command and how to relay it.
 type commandSpec struct {
-	name     string          // CLI command name (e.g. "ping", "new-window")
-	proto    protocolVersion // v1 text or v2 JSON-RPC
-	v1Cmd    string          // v1: literal command string sent over the socket
-	v2Method string          // v2: JSON-RPC method name
+	name     string // CLI command name (e.g. "ping", "new-window")
+	v2Method string // JSON-RPC method name
 	// flagKeys lists parameter keys this command accepts.
 	// They are extracted from --key flags and added to params.
 	flagKeys []string
+	// boolFlags lists flag keys whose values should be sent as JSON booleans
+	// rather than strings. Accepted values: "true", "false", "1", "0".
+	boolFlags []string
 	// noParams means the command takes no parameters at all.
 	noParams bool
 	// paramKeyOverrides remaps specific flags for compatibility aliases.
 	paramKeyOverrides map[string]string
 	// defaultParams are applied before flags/env fallbacks.
 	defaultParams map[string]any
+	// positionalKey is the param name that receives positional arguments.
+	// All positional args are joined with a space and assigned to this key.
+	positionalKey string
+	// repeatKeys lists flags that may appear multiple times. Their values
+	// accumulate in parsedFlags.repeated rather than parsedFlags.flags.
+	repeatKeys []string
 }
 
 type browserCommandSpec struct {
@@ -224,44 +223,7 @@ doneFlags:
 		return 2
 	}
 
-	switch spec.proto {
-	case protoV1:
-		return execV1(socketPath, spec, cmdArgs, refreshAddr)
-	case protoV2:
-		return execV2(socketPath, spec, cmdArgs, jsonOutput, refreshAddr)
-	default:
-		fmt.Fprintf(os.Stderr, "cmux: internal error: unknown protocol for %q\n", cmdName)
-		return 1
-	}
-}
-
-// execV1 sends a v1 text command over the socket.
-func execV1(socketPath string, spec *commandSpec, args []string, refreshAddr func() string) int {
-	cmd := spec.v1Cmd
-
-	if !spec.noParams {
-		parsed, err := parseFlags(args, spec.flagKeys)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
-			return 2
-		}
-		for _, key := range spec.flagKeys {
-			if val, ok := parsed.flags[key]; ok {
-				cmd += " " + val
-			}
-		}
-	}
-
-	resp, err := socketRoundTrip(socketPath, cmd, refreshAddr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
-		return 1
-	}
-	fmt.Print(resp)
-	if !strings.HasSuffix(resp, "\n") {
-		fmt.Println()
-	}
-	return 0
+	return execV2(socketPath, spec, cmdArgs, jsonOutput, refreshAddr)
 }
 
 // execV2 sends a v2 JSON-RPC request over the socket.
@@ -272,35 +234,186 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 	}
 
 	if !spec.noParams {
-		parsed, err := parseFlags(args, spec.flagKeys)
+		parsed, err := parseFlags(args, spec.flagKeys, spec.repeatKeys)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
 			return 2
 		}
-		// Map flag keys to JSON param keys (e.g. "workspace" → "workspace_id" where appropriate)
+		// Build a set of bool flags for O(1) lookup.
+		boolFlagSet := make(map[string]struct{}, len(spec.boolFlags))
+		for _, k := range spec.boolFlags {
+			boolFlagSet[k] = struct{}{}
+		}
+
+		// Map flag keys to JSON param keys (e.g. "workspace" → "workspace_id" where appropriate).
+		// Flags listed in boolFlags are coerced to JSON booleans instead of sent as strings.
 		for _, key := range spec.flagKeys {
 			if val, ok := parsed.flags[key]; ok {
 				paramKey := flagToParamKey(key)
 				if override, ok := spec.paramKeyOverrides[key]; ok {
 					paramKey = override
 				}
-				params[paramKey] = val
+				if _, isBool := boolFlagSet[key]; isBool {
+					switch strings.ToLower(val) {
+					case "true", "1", "yes":
+						params[paramKey] = true
+					case "false", "0", "no":
+						params[paramKey] = false
+					default:
+						fmt.Fprintf(os.Stderr, "cmux: --%s must be true or false\n", key)
+						return 2
+					}
+				} else {
+					params[paramKey] = val
+				}
 			}
 		}
 
-		// First positional arg is used as initial_command if --command wasn't given
-		if _, ok := params["initial_command"]; !ok && len(parsed.positional) > 0 {
-			params["initial_command"] = parsed.positional[0]
+		if len(parsed.positional) > 0 {
+			if spec.positionalKey != "" {
+				params[spec.positionalKey] = strings.Join(parsed.positional, " ")
+			} else {
+				fmt.Fprintf(os.Stderr, "cmux: %s does not accept positional arguments\n", spec.name)
+				return 2
+			}
 		}
 
-		applyWorkspaceEnvFallback(params)
-		applySurfaceEnvFallback(params)
+		if specUsesParam(spec, "workspace_id") {
+			applyWorkspaceEnvFallback(params)
+		}
+		if specUsesParam(spec, "surface_id") {
+			applySurfaceEnvFallback(params)
+		}
 	}
 
 	resp, err := socketRoundTripV2(socketPath, spec.v2Method, params, refreshAddr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
 		return 1
+	}
+
+	if jsonOutput {
+		fmt.Println(resp)
+	} else {
+		fmt.Println(defaultRelayOutput(resp))
+	}
+	return 0
+}
+
+// runNewWorkspaceRelay handles "cmux new-workspace" with full flag parity to the
+// macOS CLI: --layout (JSON object), --env (repeatable KEY=VALUE), --env-file
+// (file of KEY=VALUE lines), and --command (post-create send+return).
+func runNewWorkspaceRelay(socketPath string, args []string, jsonOutput bool, refreshAddr func() string) int {
+	flagKeys := []string{"name", "cwd", "description", "focus", "window", "group", "group-placement", "group-reference", "layout", "env-file", "command"}
+	repeatKeys := []string{"env"}
+
+	parsed, err := parseFlags(args, flagKeys, repeatKeys)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux new-workspace: %v\n", err)
+		return 2
+	}
+	if len(parsed.positional) > 0 {
+		fmt.Fprintln(os.Stderr, "cmux: new-workspace does not accept positional arguments")
+		return 2
+	}
+
+	params := make(map[string]any)
+
+	for _, key := range []string{"name", "cwd", "description", "window", "group", "group-placement", "group-reference", "command"} {
+		if val, ok := parsed.flags[key]; ok {
+			paramKey := flagToParamKey(key)
+			switch key {
+			case "name":
+				paramKey = "title"
+			case "group-placement":
+				paramKey = "placement"
+			case "group-reference":
+				paramKey = "group_reference_workspace_id"
+			case "command":
+				// handled post-create; do not send to workspace.create
+				continue
+			}
+			params[paramKey] = val
+		}
+	}
+
+	if val, ok := parsed.flags["focus"]; ok {
+		switch strings.ToLower(val) {
+		case "true", "1", "yes":
+			params["focus"] = true
+		case "false", "0", "no":
+			params["focus"] = false
+		default:
+			fmt.Fprintf(os.Stderr, "cmux: --focus must be true or false\n")
+			return 2
+		}
+	}
+
+	if val, ok := parsed.flags["layout"]; ok {
+		var layout any
+		if err := json.Unmarshal([]byte(val), &layout); err != nil {
+			fmt.Fprintf(os.Stderr, "cmux new-workspace: --layout must be valid JSON: %v\n", err)
+			return 2
+		}
+		params["layout"] = layout
+	}
+
+	// Build env dict from --env KEY=VALUE pairs and --env-file lines.
+	env := make(map[string]string)
+	for _, kv := range parsed.repeated["env"] {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			fmt.Fprintf(os.Stderr, "cmux new-workspace: --env %q must be KEY=VALUE\n", kv)
+			return 2
+		}
+		env[k] = v
+	}
+	if envFile, ok := parsed.flags["env-file"]; ok {
+		data, err := os.ReadFile(envFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cmux new-workspace: --env-file: %v\n", err)
+			return 2
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			k, v, ok := strings.Cut(line, "=")
+			if !ok {
+				fmt.Fprintf(os.Stderr, "cmux new-workspace: --env-file line %q must be KEY=VALUE\n", line)
+				return 2
+			}
+			env[k] = v
+		}
+	}
+	if len(env) > 0 {
+		params["env"] = env
+	}
+
+	resp, err := socketRoundTripV2(socketPath, "workspace.create", params, refreshAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+		return 1
+	}
+
+	// --command: send text + Enter to the new workspace's surface.
+	if cmd, ok := parsed.flags["command"]; ok {
+		var result map[string]any
+		if err := json.Unmarshal([]byte(resp), &result); err == nil {
+			if surfaceID, _ := result["surface_id"].(string); surfaceID != "" {
+				sendParams := map[string]any{"surface_id": surfaceID, "text": cmd}
+				if _, err := socketRoundTripV2(socketPath, "surface.send_text", sendParams, refreshAddr); err != nil {
+					fmt.Fprintf(os.Stderr, "cmux new-workspace: --command send failed: %v\n", err)
+					return 1
+				}
+				keyParams := map[string]any{"surface_id": surfaceID, "key": "return"}
+				if _, err := socketRoundTripV2(socketPath, "surface.send_key", keyParams, refreshAddr); err != nil {
+					fmt.Fprintf(os.Stderr, "cmux new-workspace: --command send-key failed: %v\n", err)
+					return 1
+				}
+			}
+		}
 	}
 
 	if jsonOutput {
@@ -651,6 +764,21 @@ func applyBrowserValuePositionals(params map[string]any, positionals []string, a
 	}
 }
 
+// specUsesParam reports whether any of spec's flagKeys resolves to paramKey
+// after applying flagToParamKey and any paramKeyOverrides.
+func specUsesParam(spec *commandSpec, paramKey string) bool {
+	for _, k := range spec.flagKeys {
+		resolved := flagToParamKey(k)
+		if override, ok := spec.paramKeyOverrides[k]; ok {
+			resolved = override
+		}
+		if resolved == paramKey {
+			return true
+		}
+	}
+	return false
+}
+
 func applyWorkspaceEnvFallback(params map[string]any) {
 	if _, ok := params["workspace_id"]; ok {
 		return
@@ -723,6 +851,8 @@ func flagToParamKey(key string) string {
 		return "pane_id"
 	case "window":
 		return "window_id"
+	case "group":
+		return "group_id"
 	case "command":
 		return "initial_command"
 	case "name":
