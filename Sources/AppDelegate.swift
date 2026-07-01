@@ -17906,7 +17906,8 @@ extension AppDelegate {
 
     private func recoverMainWindowsAfterDisplayChange() {
         for window in mainWindowsForVisibilityController() where window.isVisible {
-            CmuxMainWindow.applyOffscreenRecoveryIfNeeded(window)
+            guard let mainWindow = window as? CmuxMainWindow else { continue }
+            CmuxMainWindow.applyOffscreenRecoveryIfNeeded(mainWindow)
         }
     }
 }
