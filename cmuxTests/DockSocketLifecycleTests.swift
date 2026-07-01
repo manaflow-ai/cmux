@@ -753,14 +753,21 @@ struct DockSocketLifecycleTests {
             let otherPane = try #require(otherWindowDock.resolvePane(requestedPaneID: nil))
             let otherDockSurfaceId = try #require(otherWindowDock.newSurface(kind: .terminal, inPane: otherPane, focus: true))
 
-            // Dock-scoped reads anchor to the Dock's owning window: an explicit
-            // foreign window_id cannot re-home the report.
-            let crossList = try v2Result(method: "surface.list", params: [
+            // An explicit window_id that contradicts the Dock named by
+            // workspace_id fails closed instead of re-homing the report.
+            let crossListEnvelope = try v2Envelope(method: "surface.list", params: [
                 "workspace_id": activeWindowId.uuidString,
                 "window_id": dockWindowId.uuidString,
             ])
-            #expect(crossList["workspace_id"] as? String == activeWindowId.uuidString)
-            #expect(crossList["window_id"] as? String == activeWindowId.uuidString)
+            #expect(crossListEnvelope["ok"] as? Bool == false)
+
+            // A Dock-owner workspace_id alone routes to (and reports) the
+            // owning window, wherever the caller runs.
+            let ownerList = try v2Result(method: "surface.list", params: [
+                "workspace_id": activeWindowId.uuidString,
+            ])
+            #expect(ownerList["workspace_id"] as? String == activeWindowId.uuidString)
+            #expect(ownerList["window_id"] as? String == activeWindowId.uuidString)
 
             // Explicitly naming two different windows' Docks fails closed.
             let conflictEnvelope = try v2Envelope(method: "browser.tab.list", params: [
@@ -771,11 +778,16 @@ struct DockSocketLifecycleTests {
             let conflictError = try #require(conflictEnvelope["error"] as? [String: Any])
             #expect(conflictError["message"] as? String == "Conflicting Dock routing selectors")
 
-            // Focusing a Dock surface targets its owning window even when the
-            // caller's routing names the other window.
-            let focusResult = try v2Result(method: "surface.focus", params: [
+            // Focusing a Dock surface by id targets its owning window even when
+            // the caller's context resolved elsewhere; an explicit contradictory
+            // window_id fails closed instead.
+            let crossFocusEnvelope = try v2Envelope(method: "surface.focus", params: [
                 "surface_id": dockSurfaceId.uuidString,
                 "window_id": dockWindowId.uuidString,
+            ])
+            #expect(crossFocusEnvelope["ok"] as? Bool == false)
+            let focusResult = try v2Result(method: "surface.focus", params: [
+                "surface_id": dockSurfaceId.uuidString,
             ])
             #expect(focusResult["window_id"] as? String == activeWindowId.uuidString)
             #expect(focusResult["workspace_id"] as? String == activeWindowId.uuidString)

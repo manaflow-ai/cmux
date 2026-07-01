@@ -4,7 +4,7 @@
 34427	CLI/cmux.swift
 17986	Sources/AppDelegate.swift
 16482	Sources/ContentView.swift
-14278	Sources/TerminalController.swift
+14292	Sources/TerminalController.swift
 12913	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12214	Sources/GhosttyTerminalView.swift
@@ -86,7 +86,7 @@
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
 1044	cmuxTests/WorkspaceGroupTests.swift
-1025	cmuxTests/DockSocketLifecycleTests.swift
+1037	cmuxTests/DockSocketLifecycleTests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
@@ -212,9 +212,9 @@
 544	cmuxUITests/DisplayResolutionRegressionUITests.swift
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
+539	Sources/TerminalController+ControlSurfaceContext2.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
-534	Sources/TerminalController+ControlSurfaceContext2.swift
 533	Sources/TerminalController+ControlSurfaceContext3.swift
 532	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 531	Sources/App/WorkspaceRuntimeSettings.swift

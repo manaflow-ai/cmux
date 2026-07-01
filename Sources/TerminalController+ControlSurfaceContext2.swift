@@ -459,6 +459,11 @@ extension TerminalController {
             return .noFocusedSurface
         }
         if let windowDock = windowDockContainingPanel(surfaceId) {
+            // An explicit window_id naming a different window fails closed.
+            if routing.hasWindowIDParam, let requestedWindowID = routing.windowID,
+               requestedWindowID != windowDock.workspaceId {
+                return .surfaceNotFound(surfaceId)
+            }
             guard windowDock.closePanel(surfaceId, force: true) else {
                 return .closeFailed(surfaceId)
             }

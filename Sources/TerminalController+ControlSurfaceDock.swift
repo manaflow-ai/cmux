@@ -93,26 +93,33 @@ extension TerminalController {
     /// `workspace_id` (or the legacy alias, resolved against `tabManager`'s
     /// window), else the Dock containing the routed surface or pane.
     ///
-    /// An explicit owner id wins over surface/pane containment; if the routed
-    /// surface/pane lives in a DIFFERENT window's Dock, the downstream
-    /// `containsPanel`/`containsPane` guards fail closed rather than acting on
-    /// a Dock the caller did not name.
+    /// An explicit `window_id` must agree with the Dock's owning window —
+    /// disagreement returns `nil` so the caller fails closed rather than acting
+    /// on a Dock the caller did not name. (The alias agrees by construction:
+    /// an explicit `window_id` already selected `tabManager`.) An explicit
+    /// owner id likewise wins over surface/pane containment; a mismatched
+    /// routed surface/pane then fails the downstream `containsPanel`/
+    /// `containsPane` guards.
     func windowDockForRouting(_ routing: ControlRoutingSelectors, tabManager: TabManager) -> DockSplitStore? {
+        func matchesRequestedWindow(_ dock: DockSplitStore) -> Bool {
+            guard routing.hasWindowIDParam, let requestedWindowID = routing.windowID else { return true }
+            return dock.workspaceId == requestedWindowID
+        }
         if let workspaceID = routing.workspaceID {
             if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
                 return AppDelegate.shared?.windowDock(for: tabManager)
             }
             if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: workspaceID) {
-                return dock
+                return matchesRequestedWindow(dock) ? dock : nil
             }
         }
         if let surfaceID = routing.surfaceID,
            let dock = windowDockContainingPanel(surfaceID) {
-            return dock
+            return matchesRequestedWindow(dock) ? dock : nil
         }
         if let paneID = routing.paneID,
            let dock = windowDockContainingPane(paneID) {
-            return dock
+            return matchesRequestedWindow(dock) ? dock : nil
         }
         return nil
     }

@@ -274,6 +274,11 @@ extension TerminalController: ControlSurfaceContext {
             return .tabManagerUnavailable
         }
         if let windowDock = windowDockContainingPanel(surfaceID) {
+            // An explicit window_id naming a different window fails closed.
+            if routing.hasWindowIDParam, let requestedWindowID = routing.windowID,
+               requestedWindowID != windowDock.workspaceId {
+                return .surfaceNotFound(surfaceID)
+            }
             // A Dock surface renders only in its owning window (the Dock
             // registry is the source of truth), so focus and reveal there even
             // if the caller's routed context named another window.

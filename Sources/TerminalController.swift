@@ -5323,7 +5323,12 @@ class TerminalController {
         // Explicit selectors that name two different windows' Docks fail closed
         // rather than silently acting on one of them. (The legacy alias pins no
         // specific Dock, so it never conflicts.)
-        if windowDockSelectorsConflict(dockByOwner: dockByOwner, dockBySurface: dockBySurface, dockByPane: dockByPane) {
+        if windowDockSelectorsConflict(
+            requestedWindowID: v2UUID(params, "window_id"),
+            dockByOwner: dockByOwner,
+            dockBySurface: dockBySurface,
+            dockByPane: dockByPane
+        ) {
             return (true, nil, .err(code: "invalid_params", message: "Conflicting Dock routing selectors", data: nil))
         }
         guard let dock = dockBySurface ?? dockByPane ?? dockByOwner
@@ -5389,7 +5394,12 @@ class TerminalController {
         // Explicit selectors that name two different windows' Docks fail closed
         // rather than silently acting on one of them. (The legacy alias pins no
         // specific Dock, so it never conflicts.)
-        if windowDockSelectorsConflict(dockByOwner: dockByOwner, dockBySurface: dockBySurface, dockByPane: dockByPane) {
+        if windowDockSelectorsConflict(
+            requestedWindowID: v2UUID(params, "window_id"),
+            dockByOwner: dockByOwner,
+            dockBySurface: dockBySurface,
+            dockByPane: dockByPane
+        ) {
             return (true, nil, .err(code: "invalid_params", message: "Conflicting Dock routing selectors", data: nil))
         }
         let dock = dockBySurface
@@ -5402,16 +5412,20 @@ class TerminalController {
         return (true, dock, nil)
     }
 
-    /// Whether explicit Dock selectors resolved to more than one distinct
-    /// window Dock (owner `workspace_id` vs surface vs pane).
+    /// Whether explicit Dock selectors name more than one distinct window's
+    /// Dock: owner `workspace_id` vs surface vs pane vs an explicit `window_id`
+    /// (a window Dock's owner id IS its window id).
     private func windowDockSelectorsConflict(
+        requestedWindowID: UUID?,
         dockByOwner: DockSplitStore?,
         dockBySurface: DockSplitStore?,
         dockByPane: DockSplitStore?
     ) -> Bool {
         let resolved = [dockByOwner, dockBySurface, dockByPane].compactMap { $0 }
         guard let first = resolved.first else { return false }
-        return resolved.contains(where: { $0 !== first })
+        if resolved.contains(where: { $0 !== first }) { return true }
+        if let requestedWindowID, first.workspaceId != requestedWindowID { return true }
+        return false
     }
 
     private func v2BrowserTabListPayload(
