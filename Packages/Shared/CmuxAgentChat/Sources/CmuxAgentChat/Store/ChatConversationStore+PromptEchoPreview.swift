@@ -1,0 +1,47 @@
+import Foundation
+
+extension ChatConversationStore {
+    /// The screen-scraped live preview can momentarily read the wrapped tail of
+    /// the user's prompt as agent prose before the first answer token is painted.
+    static func previewEchoesLatestUserPrompt(
+        _ preview: ChatMessage,
+        in messages: [ChatMessage],
+        pending: [ChatPendingOutbound]
+    ) -> Bool {
+        guard case .prose(let previewProse) = preview.kind else { return false }
+        let previewText = normalizedPromptEchoText(previewProse.text)
+        guard !previewText.isEmpty else { return false }
+        if let latestPending = pending.last(where: { !$0.text.isEmpty }),
+           promptText(latestPending.text, hasSuffixPreview: previewText) {
+            return true
+        }
+        guard let latestUserIndex = messages.lastIndex(where: { $0.role == .user }) else { return false }
+        let hasAgentProseAfterUser = messages[(latestUserIndex + 1)...].contains {
+            $0.role == .agent && messageContainsProse($0)
+        }
+        guard !hasAgentProseAfterUser else { return false }
+        guard case .prose(let userProse) = messages[latestUserIndex].kind else { return false }
+        return promptText(userProse.text, hasSuffixPreview: previewText)
+    }
+
+    private static func messageContainsProse(_ message: ChatMessage) -> Bool {
+        if case .prose = message.kind { return true }
+        return false
+    }
+
+    private static func promptText(_ text: String, hasSuffixPreview previewText: String) -> Bool {
+        let promptText = normalizedPromptEchoText(text)
+        guard promptText.count > previewText.count,
+              promptText.hasSuffix(previewText) else { return false }
+        guard let boundary = promptText.dropLast(previewText.count).last else { return false }
+        return boundary.isWhitespace || boundary.isNewline
+    }
+
+    private static func normalizedPromptEchoText(_ text: String) -> String {
+        text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}

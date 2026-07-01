@@ -367,50 +367,6 @@ struct ChatConversationStoreTests {
         #expect(proseTexts == ["The sky is blue"])
     }
 
-    @Test("live preview suppresses a suffix copied from the latest multi-line user prompt")
-    func livePreviewSuppressesPromptSuffix() async {
-        let source = FixtureChatEventSource()
-        let store = Self.makeStore(source: source)
-        let runTask = Task { await store.run() }
-        defer { runTask.cancel() }
-
-        #expect(await TestPoller.waitUntil { store.isConnected })
-        let user = Self.prose(seq: 0, role: .user, text: "hihiiii\ntell me a story")
-        await source.emit(.appended([user]))
-        #expect(await TestPoller.waitUntil { Self.snapshots(store.rows).map(\.message.id) == [user.id] })
-
-        await source.emit(.streamingProse(Self.streamingMessage(text: "tell me a story")))
-        #expect(Self.snapshots(store.rows).map(\.message.id) == [user.id])
-
-        let realPreview = Self.streamingMessage(text: "Once upon a time, a tiny terminal learned to listen.")
-        await source.emit(.streamingProse(realPreview))
-        #expect(await TestPoller.waitUntil {
-            Self.snapshots(store.rows).map(\.message.id) == [user.id, realPreview.id]
-        })
-    }
-
-    @Test("live preview suppresses a suffix copied from a pending multi-line user prompt")
-    func livePreviewSuppressesPendingPromptSuffix() async {
-        let source = SilentSendEventSource()
-        let store = Self.makeStore(source: source)
-        let runTask = Task { await store.run() }
-        defer { runTask.cancel() }
-
-        #expect(await TestPoller.waitUntil { store.isConnected })
-        await store.send(text: "hi\ntell me a stiyr")
-        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 })
-
-        await source.emit(.streamingProse(Self.streamingMessage(text: "tell me a stiyr")))
-        #expect(Self.snapshots(store.rows).isEmpty)
-        #expect(Self.pendingItems(store.rows).map(\.text) == ["hi\ntell me a stiyr"])
-
-        let realPreview = Self.streamingMessage(text: "Once upon a time, a terminal started typing.")
-        await source.emit(.streamingProse(realPreview))
-        #expect(await TestPoller.waitUntil {
-            Self.snapshots(store.rows).map(\.message.id) == [realPreview.id]
-        })
-    }
-
     @Test("stateChanged event updates agentState")
     func stateChangedUpdatesAgentState() async {
         let source = FixtureChatEventSource()

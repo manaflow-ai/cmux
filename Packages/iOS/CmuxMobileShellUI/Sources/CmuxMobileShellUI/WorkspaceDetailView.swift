@@ -110,10 +110,6 @@ struct WorkspaceDetailView: View {
         #if os(iOS)
         if isChatMode, let session = chosenChatSession {
             chatContent(session)
-                // Chat underlaps the translucent navigation bar on iOS 26. A
-                // top-move transition exposes the terminal page background above
-                // the table until the first scroll-edge layout pass completes,
-                // which flashes as a black rectangle under the toolbar.
                 .transition(.opacity)
         } else if let browser = activeBrowser {
             browserContent(browser)
