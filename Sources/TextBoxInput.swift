@@ -2500,7 +2500,7 @@ struct TextBoxInputContainer: View {
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
             hasMarkedText: hasMarkedText
         )
-        let canSend = baseCanSend && !isPendingProviderLaunchAwaitingAgent
+        let canSend = Self.shouldEnableSubmitButton(baseCanSend: baseCanSend, pendingProviderLaunchAction: pendingProviderLaunchAction, action: effectiveSubmitAction, shouldForceTextEntrySubmit: shouldForceTextEntrySubmit, allowsCommandTemplateSubmit: allowsCommandTemplateSubmit)
 
         VStack(alignment: .leading, spacing: 6) {
             if pendingCommentCount > 0 {

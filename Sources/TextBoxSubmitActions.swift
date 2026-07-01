@@ -240,6 +240,13 @@ extension TextBoxInputContainer {
         ) == nil
     }
 
+    static func shouldEnableSubmitButton(
+        baseCanSend: Bool, pendingProviderLaunchAction: TextBoxSubmitAction?, action: TextBoxSubmitAction,
+        shouldForceTextEntrySubmit: Bool, allowsCommandTemplateSubmit: Bool
+    ) -> Bool {
+        baseCanSend && pendingProviderLaunchAction == nil && !shouldFailClosedForCommandTemplate(action: action, shouldForceTextEntrySubmit: shouldForceTextEntrySubmit, allowsCommandTemplateSubmit: allowsCommandTemplateSubmit)
+    }
+
     static func isPendingProviderLaunchAwaitingAgent(
         pendingProviderLaunchAction: TextBoxSubmitAction?,
         terminalAgentContext: String

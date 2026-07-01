@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,10 +7,13 @@ import XCTest
 @testable import cmux
 #endif
 
-final class TextBoxSubmitActionSettingsFileTests: XCTestCase {
+@Suite(.serialized)
+@MainActor
+struct TextBoxSubmitActionSettingsFileTests {
     private let backupsKey = "cmux.settingsFile.backups.v1"
     private let importedKey = "cmux.settingsFile.importedManagedDefaults.v1"
 
+    @Test
     func testSettingsFileStoreRejectsInvalidTextBoxSubmitActions() throws {
         let defaults = UserDefaults.standard
         let key = TerminalTextBoxInputSettings.submitActionsKey
@@ -45,12 +49,31 @@ final class TextBoxSubmitActionSettingsFileTests: XCTestCase {
                 startWatching: false
             )
 
-            XCTAssertNil(defaults.object(forKey: key))
-            XCTAssertEqual(
-                TerminalTextBoxInputSettings.submitActions(defaults: defaults).map(\.id),
-                TerminalTextBoxInputSettings.submitActions(configuredJSON: nil).map(\.id)
+            #expect(defaults.object(forKey: key) == nil)
+            #expect(
+                TerminalTextBoxInputSettings.submitActions(defaults: defaults).map(\.id) ==
+                    TerminalTextBoxInputSettings.submitActions(configuredJSON: nil).map(\.id)
             )
         }
+    }
+
+    @Test
+    func testCommandTemplateSubmitButtonDisablesWhenSubmitWouldFailClosed() throws {
+        let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
+        #expect(!TextBoxInputContainer.shouldEnableSubmitButton(
+            baseCanSend: true,
+            pendingProviderLaunchAction: nil,
+            action: codex,
+            shouldForceTextEntrySubmit: false,
+            allowsCommandTemplateSubmit: false
+        ))
+        #expect(TextBoxInputContainer.shouldEnableSubmitButton(
+            baseCanSend: true,
+            pendingProviderLaunchAction: nil,
+            action: codex,
+            shouldForceTextEntrySubmit: false,
+            allowsCommandTemplateSubmit: true
+        ))
     }
 
     private func makeTemporaryDirectory() throws -> URL {
