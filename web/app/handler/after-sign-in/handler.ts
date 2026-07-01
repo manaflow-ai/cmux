@@ -11,6 +11,7 @@ type AfterSignInMessages = {
   title: string;
   body: string;
   button: string;
+  switchAccountButton: string;
 };
 
 type LocalizedAfterSignInMessages = {
@@ -210,14 +211,17 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
 function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
-  autoOpen: boolean
+  autoOpen: boolean,
+  switchAccountHref: string
 ): NextResponse {
   const { locale, messages } = localized;
   const escapedHref = escapeHtml(href);
+  const escapedSwitchAccountHref = escapeHtml(switchAccountHref);
   const scriptHref = JSON.stringify(href).replaceAll("<", "\\u003c");
   const escapedTitle = escapeHtml(messages.title);
   const escapedBody = escapeHtml(messages.body);
   const escapedButton = escapeHtml(messages.button);
+  const escapedSwitchAccountButton = escapeHtml(messages.switchAccountButton);
   const autoOpenScript = autoOpen
     ? `  <script>\n    window.location.replace(${scriptHref});\n  </script>\n`
     : "";
@@ -254,15 +258,26 @@ function nativeReturnResponse(
       line-height: 1.5;
       margin: 0 0 24px;
     }
+    .actions {
+      align-items: center;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
     a {
-      background: #111;
       border-radius: 8px;
-      color: #fff;
       display: inline-block;
       font-size: 14px;
       font-weight: 500;
       padding: 10px 18px;
       text-decoration: none;
+    }
+    a.primary {
+      background: #111;
+      color: #fff;
+    }
+    a.secondary {
+      color: #555;
     }
   </style>
 </head>
@@ -270,7 +285,10 @@ function nativeReturnResponse(
   <main>
     <h1>${escapedTitle}</h1>
     <p>${escapedBody}</p>
-    <a href="${escapedHref}">${escapedButton}</a>
+    <div class="actions">
+      <a class="primary" href="${escapedHref}">${escapedButton}</a>
+      <a class="secondary" href="${escapedSwitchAccountHref}">${escapedSwitchAccountButton}</a>
+    </div>
   </main>
 ${autoOpenScript}
 </body>
@@ -292,6 +310,19 @@ ${autoOpenScript}
     });
   }
   return response;
+}
+
+function currentAfterSignInPath(request: NextRequest): string {
+  return `${request.nextUrl.pathname}${request.nextUrl.search}`;
+}
+
+function switchAccountHref(request: NextRequest): string {
+  const nativeSignIn = new URL("/handler/native-sign-in", request.nextUrl.origin);
+  nativeSignIn.searchParams.set("after_auth_return_to", currentAfterSignInPath(request));
+
+  const signOut = new URL("/handler/sign-out-and-sign-in", request.nextUrl.origin);
+  signOut.searchParams.set("after_auth_return_to", `${nativeSignIn.pathname}${nativeSignIn.search}`);
+  return `${signOut.pathname}${signOut.search}`;
 }
 
 function requestIsSecure(): boolean {
@@ -342,7 +373,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
         const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
         const autoOpen = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
         if (href) {
-          return nativeReturnResponse(href, localizedMessages, autoOpen);
+          return nativeReturnResponse(href, localizedMessages, autoOpen, switchAccountHref(request));
         }
       }
       return NextResponse.redirect(new URL("/", request.url));
@@ -355,7 +386,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
 
     if (refreshToken && accessCookie) {
       const fallback = buildNativeHref(null, refreshToken, accessCookie);
-      if (fallback) return nativeReturnResponse(fallback, localizedMessages, false);
+      if (fallback) return nativeReturnResponse(fallback, localizedMessages, false, switchAccountHref(request));
     }
 
     return NextResponse.redirect(new URL("/", request.url));
