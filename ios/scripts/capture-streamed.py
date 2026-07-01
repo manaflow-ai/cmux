@@ -100,6 +100,25 @@ def read_screen(tag, ws):
     return cli(tag, "read-screen", "--workspace", ws).stdout
 
 
+# Directory for Mac-side diagnostic screenshots (set in main from --out). Lets us
+# see the Mac's cmux window / terminal theme next to the phone's streamed view,
+# to check whether the Mac is streaming a light/default theme (the source of the
+# white bands on the phone).
+MAC_SHOT_DIR = None
+
+
+def mac_screencapture(key):
+    if not MAC_SHOT_DIR:
+        return
+    os.makedirs(MAC_SHOT_DIR, exist_ok=True)
+    out = os.path.join(MAC_SHOT_DIR, f"mac-{key}.png")
+    # -x: no capture sound. Full main display; the just-created workspace is
+    # foreground. Best-effort: a headless CI Mac may produce a blank/failed shot.
+    r = run(["screencapture", "-x", "-t", "png", out])
+    ok = os.path.exists(out) and os.path.getsize(out) > 0
+    print(f"  mac screenshot: {out} ({'ok' if ok else 'FAILED rc=%s' % r.returncode})")
+
+
 def setup_agent(tag, key, sandbox):
     """Create a workspace running the agent + drive it to a settled response.
     Returns the workspace ref."""
@@ -124,6 +143,9 @@ def setup_agent(tag, key, sandbox):
         cli(tag, "send-key", "--workspace", ws, "enter")
     # wait for a settled response
     _wait_for(lambda: _settled(read_screen(tag, ws)), 240)
+    # Snapshot the Mac while this workspace is foreground, so we can compare the
+    # Mac terminal's theme to the phone's streamed view for the same agent.
+    mac_screencapture(key)
     return ws
 
 
@@ -252,6 +274,9 @@ def main():
     ap.add_argument("--agents", default="claude,codex,opencode,pi")
     args = ap.parse_args()
     agents = [a.strip() for a in args.agents.split(",") if a.strip()]
+
+    global MAC_SHOT_DIR
+    MAC_SHOT_DIR = os.path.join(args.out, "_diag")
 
     print("== ensure Mac app ==")
     ensure_mac(args.tag)
