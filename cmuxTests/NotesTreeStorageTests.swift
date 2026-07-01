@@ -7,6 +7,15 @@ import Testing
 @testable import cmux
 #endif
 
+extension NotesTreeStore {
+    /// Awaits the store's in-flight reload, reaching the internal `reloadTask`
+    /// via `@testable import` (the store keeps no production test hook).
+    @MainActor
+    func waitForPendingReloadForTesting() async {
+        await reloadTask?.value
+    }
+}
+
 /// Behavioral tests for the Notes tree on-disk layer. Each test runs against a
 /// fresh temp directory acting as a project root; no app launch required.
 @Suite(.serialized) struct NotesTreeStorageTests {

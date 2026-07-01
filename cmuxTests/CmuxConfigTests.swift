@@ -1,5 +1,5 @@
-import Combine
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,9 +7,146 @@ import XCTest
 @testable import cmux
 #endif
 
+// MARK: - XCTest-style assertion shims over Swift Testing
+// Pattern: cmuxTests/TerminalControllerSocketSecurityTests.swift.
+
+private func testComment(_ message: @autoclosure () -> String) -> Comment? {
+    let value = message()
+    return value.isEmpty ? nil : Comment(rawValue: value)
+}
+
+private func XCTAssertEqual<T: Equatable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value1 = try expression1()
+        let value2 = try expression2()
+        #expect(value1 == value2, testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertNotEqual<T: Equatable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value1 = try expression1()
+        let value2 = try expression2()
+        #expect(value1 != value2, testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertTrue(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(try expression(), testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertFalse(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value = try expression()
+        #expect(!value, testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertNil<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(try expression() == nil, testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertThrowsError<T>(
+    _ expression: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        _ = try expression()
+        Issue.record(
+            testComment(message()) ?? "Expected expression to throw an error",
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        // Expected: the expression threw.
+    }
+}
+
+private func XCTAssertEqual<T: FloatingPoint>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    accuracy: T,
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value1 = try expression1()
+        let value2 = try expression2()
+        #expect(abs(value1 - value2) <= accuracy, testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertNotNil<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(try expression() != nil, testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTUnwrap<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) throws -> T {
+    let value = try expression()
+    return try #require(value, testComment(message()), sourceLocation: sourceLocation)
+}
+
+private func XCTFail(
+    _ message: @autoclosure () -> String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    Issue.record(Comment(rawValue: message()), sourceLocation: sourceLocation)
+}
+
 // MARK: - JSON Decoding
 
-final class CmuxConfigDecodingTests: XCTestCase {
+@MainActor
+@Suite(.serialized)
+struct CmuxConfigDecodingTests {
 
     private func decode(_ json: String) throws -> CmuxConfigFile {
         let data = json.data(using: .utf8)!
@@ -67,7 +204,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     // MARK: Simple commands
 
-    func testDecodeSimpleCommand() throws {
+    @Test func testDecodeSimpleCommand() throws {
         let json = """
         {
           "commands": [{
@@ -83,7 +220,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNil(config.commands[0].workspace)
     }
 
-    func testDecodeSimpleCommandWithAllFields() throws {
+    @Test func testDecodeSimpleCommandWithAllFields() throws {
         let json = """
         {
           "commands": [{
@@ -104,7 +241,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(cmd.confirm, true)
     }
 
-    func testDecodeMultipleCommands() throws {
+    @Test func testDecodeMultipleCommands() throws {
         let json = """
         {
           "commands": [
@@ -119,7 +256,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.commands.map(\.name), ["Build", "Test", "Lint"])
     }
 
-    func testDecodeNewWorkspaceCommand() throws {
+    @Test func testDecodeNewWorkspaceCommand() throws {
         let json = """
         {
           "newWorkspaceCommand": "Dev Environment",
@@ -133,7 +270,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.newWorkspaceCommand, "Dev Environment")
     }
 
-    func testDecodeNotificationHook() throws {
+    @Test func testDecodeNotificationHook() throws {
         let json = """
         {
           "notifications": {
@@ -153,7 +290,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(hook.enabled)
     }
 
-    func testDecodeNotificationHookRejectsBlankCommand() {
+    @Test func testDecodeNotificationHookRejectsBlankCommand() {
         let json = """
         {
           "notifications": {
@@ -167,7 +304,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeNewWorkspaceCommandTrimsWhitespace() throws {
+    @Test func testDecodeNewWorkspaceCommandTrimsWhitespace() throws {
         let json = """
         {
           "newWorkspaceCommand": "  Dev Environment  ",
@@ -181,7 +318,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.newWorkspaceCommand, "Dev Environment")
     }
 
-    func testDecodeLegacySurfaceTabBarButtons() throws {
+    @Test func testDecodeLegacySurfaceTabBarButtons() throws {
         let json = """
         {
           "surfaceTabBarButtons": ["newTerminal", "splitRight"],
@@ -192,7 +329,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.surfaceTabBarButtons, [.newTerminal, .splitRight])
     }
 
-    func testDecodeSurfaceTabBarButtonObjects() throws {
+    @Test func testDecodeSurfaceTabBarButtonObjects() throws {
         let json = """
         {
           "surfaceTabBarButtons": [
@@ -228,7 +365,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.surfaceTabBarButtons?[1].confirm, true)
     }
 
-    func testDecodeSurfaceTabBarButtonCanOverrideBuiltInWithCommand() throws {
+    @Test func testDecodeSurfaceTabBarButtonCanOverrideBuiltInWithCommand() throws {
         let json = """
         {
           "surfaceTabBarButtons": [
@@ -247,7 +384,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(button.command, "npm run dev")
     }
 
-    func testDecodeActionsSurfaceTabBarButtons() throws {
+    @Test func testDecodeActionsSurfaceTabBarButtons() throws {
         let json = """
         {
           "actions": {
@@ -286,7 +423,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(buttons[1].terminalCommand, "claude --permission-mode acceptEdits")
     }
 
-    func testDecodeSurfaceTabBarMenuButton() throws {
+    @Test func testDecodeSurfaceTabBarMenuButton() throws {
         let json = """
         {
           "ui": {
@@ -333,8 +470,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(resolvedButton.menu?[2].terminalCommand, "git status")
     }
 
-    @MainActor
-    func testDefaultSurfaceTabBarButtonsIncludeMoreMenu() throws {
+    @Test func testDefaultSurfaceTabBarButtonsIncludeMoreMenu() throws {
         try withSavedRightSidebarBetaFeatureDefaults {
             let defaults = UserDefaults.standard
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
@@ -374,8 +510,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
     }
 
-    @MainActor
-    func testDefaultSurfaceTabBarMoreMenuIncludesNotesWhenSidebarBetaDisabled() throws {
+    @Test func testDefaultSurfaceTabBarMoreMenuIncludesNotesWhenSidebarBetaDisabled() throws {
         try withSavedRightSidebarBetaFeatureDefaults {
             let defaults = UserDefaults.standard
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
@@ -406,8 +541,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
     }
 
-    @MainActor
-    func testSurfaceTabBarMenuFiltersUnavailableBetaBuiltIns() throws {
+    @Test func testSurfaceTabBarMenuFiltersUnavailableBetaBuiltIns() throws {
         try withSavedRightSidebarBetaFeatureDefaults {
             let defaults = UserDefaults.standard
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
@@ -451,7 +585,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
     }
 
-    func testDiffViewerAvailabilityRequiresGitDiff() throws {
+    @Test func testDiffViewerAvailabilityRequiresGitDiff() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-diff-availability-\(UUID().uuidString)",
             isDirectory: true
@@ -481,8 +615,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(CmuxGitDiffAvailability.hasDisplayableDiff(in: repo.path))
     }
 
-    @MainActor
-    func testConfiguredSurfaceTabBarButtonsAppendMoreMenu() throws {
+    @Test func testConfiguredSurfaceTabBarButtonsAppendMoreMenu() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -518,8 +651,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarButtons.last?.menu?.first?.action, .builtIn(.diffViewer))
     }
 
-    @MainActor
-    func testSurfaceTabBarCanExplicitlyHideMoreMenu() throws {
+    @Test func testSurfaceTabBarCanExplicitlyHideMoreMenu() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -554,8 +686,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         ])
     }
 
-    @MainActor
-    func testSurfaceTabBarKeepsConfiguredMoreMenuAtEnd() throws {
+    @Test func testSurfaceTabBarKeepsConfiguredMoreMenuAtEnd() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -597,8 +728,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarButtons.last?.menu?.map(\.action), [.builtIn(.vaultPane)])
     }
 
-    @MainActor
-    func testProjectLocalSurfaceTabBarButtonsOverrideGlobalButtons() throws {
+    @Test func testProjectLocalSurfaceTabBarButtonsOverrideGlobalButtons() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -644,7 +774,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         ])
     }
 
-    func testMenuSurfaceTabBarButtonActivatesOnMouseDown() throws {
+    @Test func testMenuSurfaceTabBarButtonActivatesOnMouseDown() throws {
         let button = CmuxSurfaceTabBarButton(
             id: CmuxSurfaceTabBarBuiltInAction.more.configID,
             action: .builtIn(.more),
@@ -659,7 +789,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(bonsplitButton.activatesOnMouseDown)
     }
 
-    func testDecodeSurfaceTabBarButtonsDefersUnknownActionReferences() throws {
+    @Test func testDecodeSurfaceTabBarButtonsDefersUnknownActionReferences() throws {
         let json = """
         {
           "ui": {
@@ -677,7 +807,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(button.action, .actionReference("global-codex"))
     }
 
-    func testResolveSurfaceTabBarActionReferenceUsesActionTitle() throws {
+    @Test func testResolveSurfaceTabBarActionReferenceUsesActionTitle() throws {
         let json = """
         {
           "actions": {
@@ -707,7 +837,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(button.action, .command("codex"))
     }
 
-    func testResolveSurfaceTabBarActionReferenceCanOverrideTitleAndIcon() throws {
+    @Test func testResolveSurfaceTabBarActionReferenceCanOverrideTitleAndIcon() throws {
         let json = """
         {
           "actions": {
@@ -741,8 +871,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(button.action, .command("codex"))
     }
 
-    @MainActor
-    func testSurfaceTabBarActionReferenceUsesActionSourcePath() throws {
+    @Test func testSurfaceTabBarActionReferenceUsesActionSourcePath() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
         let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
@@ -786,7 +915,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarCommandSourcePaths["start-codex"], globalConfigURL.path)
     }
 
-    func testDecodeActionIconObjectsSupportAllFormats() throws {
+    @Test func testDecodeActionIconObjectsSupportAllFormats() throws {
         let json = """
         {
           "ui": {
@@ -816,7 +945,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.surfaceTabBarButtons?[7].icon, .imagePath("./icons/logo.ico"))
     }
 
-    func testDecodeStringIconThrows() {
+    @Test func testDecodeStringIconThrows() {
         let json = """
         {
           "actions": {
@@ -831,7 +960,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testGlobalSVGIconAllowsNamespaceAndInternalGradient() throws {
+    @Test func testGlobalSVGIconAllowsNamespaceAndInternalGradient() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-svg-\(UUID().uuidString)",
             isDirectory: true
@@ -866,7 +995,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
-    func testProjectLocalSVGIconRejectsExternalReferences() throws {
+    @Test func testProjectLocalSVGIconRejectsExternalReferences() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-svg-\(UUID().uuidString)",
             isDirectory: true
@@ -898,7 +1027,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
-    func testUntrustedProjectLocalIconUsesLockPlaceholder() throws {
+    @Test func testUntrustedProjectLocalIconUsesLockPlaceholder() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-svg-\(UUID().uuidString)",
             isDirectory: true
@@ -931,8 +1060,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
-    @MainActor
-    func testInlineSurfaceButtonIconUsesTabBarConfigSourceForTrust() throws {
+    @Test func testInlineSurfaceButtonIconUsesTabBarConfigSourceForTrust() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-svg-\(UUID().uuidString)",
             isDirectory: true
@@ -970,7 +1098,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
-    func testDecodeNewWorkspaceAction() throws {
+    @Test func testDecodeNewWorkspaceAction() throws {
         let json = """
         {
           "actions": {
@@ -990,7 +1118,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.actions["new-dev"]?.action?.workspaceCommandName, "Dev Environment")
     }
 
-    func testDecodeActionShortcutString() throws {
+    @Test func testDecodeActionShortcutString() throws {
         let json = """
         {
           "actions": {
@@ -1009,7 +1137,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
-    func testDecodeActionShortcutChord() throws {
+    @Test func testDecodeActionShortcutChord() throws {
         let json = """
         {
           "actions": {
@@ -1028,8 +1156,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
-    @MainActor
-    func testInvalidConfigExposesSchemaIssueAndClearsAfterFix() throws {
+    @Test func testInvalidConfigExposesSchemaIssueAndClearsAfterFix() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -1080,8 +1207,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNotNil(store.resolvedAction(id: "bad"))
     }
 
-    @MainActor
-    func testConfigChangesRequireExplicitLoadByDefault() async throws {
+    @Test func testConfigChangesRequireExplicitLoadByDefault() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1103,15 +1229,6 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNotNil(store.resolvedAction(id: "first"))
         XCTAssertNil(store.resolvedAction(id: "second"))
 
-        let didAutoReload = expectation(description: "cmux.json should not hot reload")
-        didAutoReload.isInverted = true
-        var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
-            if actions.contains(where: { $0.id == "second" }) {
-                didAutoReload.fulfill()
-            }
-        }
-
         try """
         {
           "actions": {
@@ -1120,18 +1237,19 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
         """.write(to: configURL, atomically: true, encoding: .utf8)
 
-        await fulfillment(of: [didAutoReload], timeout: 0.25)
+        // cmux.json must not hot reload without an explicit loadAll(). Yield the
+        // main actor long enough for any unexpected auto-reload to land, then
+        // confirm the store still serves the originally loaded actions.
+        try await Task.sleep(nanoseconds: 250_000_000)
         XCTAssertNotNil(store.resolvedAction(id: "first"))
         XCTAssertNil(store.resolvedAction(id: "second"))
 
         store.loadAll()
         XCTAssertNil(store.resolvedAction(id: "first"))
         XCTAssertNotNil(store.resolvedAction(id: "second"))
-        cancellable?.cancel()
     }
 
-    @MainActor
-    func testConfigStoreParsesGlobalCmuxJSONCSettingsAndActionSections() throws {
+    @Test func testConfigStoreParsesGlobalCmuxJSONCSettingsAndActionSections() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1167,8 +1285,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.loadedCommands.map(\.name), ["Dev"])
     }
 
-    @MainActor
-    func testConfigStoreReportsJSONCPreprocessingErrors() throws {
+    @Test func testConfigStoreReportsJSONCPreprocessingErrors() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1187,8 +1304,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(issue.message, "JSONC preprocessing failed: unterminated block comment")
     }
 
-    @MainActor
-    func testLocalWatcherDetectsFirstCanonicalConfigAfterDirectoryCreation() async throws {
+    @Test func testLocalWatcherDetectsFirstCanonicalConfigAfterDirectoryCreation() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1207,15 +1323,6 @@ final class CmuxConfigDecodingTests: XCTestCase {
         store.loadAll()
         XCTAssertNil(store.resolvedAction(id: "created"))
 
-        let loaded = expectation(description: "created local cmux config is loaded")
-        loaded.assertForOverFulfill = false
-        var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
-            if actions.contains(where: { $0.id == "created" }) {
-                loaded.fulfill()
-            }
-        }
-
         try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
         try """
         {
@@ -1229,13 +1336,15 @@ final class CmuxConfigDecodingTests: XCTestCase {
         // watcher) to observe the .cmux directory creation, re-arm onto the new
         // cmux.json, reload, and republish loadedActions. vnode notification +
         // re-arm + reload latency is nondeterministic under CI I/O load, so use a
-        // generous deadline; the sink still fulfills as soon as the watcher fires.
-        await fulfillment(of: [loaded], timeout: 15)
-        cancellable?.cancel()
+        // generous deadline; polling stops as soon as the watcher has reloaded.
+        let deadline = Date().addingTimeInterval(15)
+        while store.resolvedAction(id: "created") == nil, Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertNotNil(store.resolvedAction(id: "created"), "created local cmux config is loaded")
     }
 
-    @MainActor
-    func testLocalWatcherDetectsFirstLegacyConfigWhenCmuxDirectoryExists() async throws {
+    @Test func testLocalWatcherDetectsFirstLegacyConfigWhenCmuxDirectoryExists() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1255,15 +1364,6 @@ final class CmuxConfigDecodingTests: XCTestCase {
         store.loadAll()
         XCTAssertNil(store.resolvedAction(id: "legacy-created"))
 
-        let loaded = expectation(description: "created legacy cmux config is loaded")
-        loaded.assertForOverFulfill = false
-        var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
-            if actions.contains(where: { $0.id == "legacy-created" }) {
-                loaded.fulfill()
-            }
-        }
-
         try """
         {
           "actions": {
@@ -1275,13 +1375,15 @@ final class CmuxConfigDecodingTests: XCTestCase {
         // The store observes the legacy cmux.json write via a DispatchSource vnode
         // watcher, then reloads and republishes loadedActions. Filesystem
         // notification + reload latency is nondeterministic under CI I/O load, so
-        // use a generous deadline; the sink still fulfills the moment the watcher fires.
-        await fulfillment(of: [loaded], timeout: 15)
-        cancellable?.cancel()
+        // use a generous deadline; polling stops the moment the watcher has reloaded.
+        let deadline = Date().addingTimeInterval(15)
+        while store.resolvedAction(id: "legacy-created") == nil, Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertNotNil(store.resolvedAction(id: "legacy-created"), "created legacy cmux config is loaded")
     }
 
-    @MainActor
-    func testResolvedNewWorkspaceCommandReturnsConfiguredWorkspaceCommand() throws {
+    @Test func testResolvedNewWorkspaceCommandReturnsConfiguredWorkspaceCommand() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1313,8 +1415,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 
-    @MainActor
-    func testGlobalNewWorkspaceActionUsesLocalActionOverride() throws {
+    @Test func testGlobalNewWorkspaceActionUsesLocalActionOverride() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1363,8 +1464,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 
-    @MainActor
-    func testNotificationHooksAppendThroughConfigHierarchy() throws {
+    @Test func testNotificationHooksAppendThroughConfigHierarchy() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1422,8 +1522,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 
-    @MainActor
-    func testNotificationHooksIncludeExplicitLocalConfigOutsideDiscoveredHierarchy() throws {
+    @Test func testNotificationHooksIncludeExplicitLocalConfigOutsideDiscoveredHierarchy() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1462,8 +1561,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.notificationHooks[1].sourcePath, explicitConfigURL.path)
     }
 
-    @MainActor
-    func testNotificationHooksReplaceInheritedHooks() throws {
+    @Test func testNotificationHooksReplaceInheritedHooks() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1505,8 +1603,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.notificationHooks.map(\.id), ["child"])
     }
 
-    @MainActor
-    func testNotificationHooksResolveFromExplicitWorkspaceDirectory() throws {
+    @Test func testNotificationHooksResolveFromExplicitWorkspaceDirectory() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1547,8 +1644,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
-    @MainActor
-    func testResolvedNewWorkspaceCommandExposesMissingCommandIssue() throws {
+    @Test func testResolvedNewWorkspaceCommandExposesMissingCommandIssue() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1580,8 +1676,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.configurationIssues.first?.commandName, "Missing")
     }
 
-    @MainActor
-    func testResolvedNewWorkspaceCommandExposesNonWorkspaceIssue() throws {
+    @Test func testResolvedNewWorkspaceCommandExposesNonWorkspaceIssue() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1614,8 +1709,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.configurationIssues.first?.sourcePath, configURL.path)
     }
 
-    @MainActor
-    func testResolvedNewWorkspaceActionAllowsCommandAction() throws {
+    @Test func testResolvedNewWorkspaceActionAllowsCommandAction() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1650,7 +1744,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 
-    func testDecodeActionsSurfaceTabBarButtonSupportsWorkspaceCommand() throws {
+    @Test func testDecodeActionsSurfaceTabBarButtonSupportsWorkspaceCommand() throws {
         let json = """
         {
           "actions": {
@@ -1679,7 +1773,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNil(button.terminalCommand)
     }
 
-    func testSurfaceTabBarWorkspaceCommandButtonRoundTrips() throws {
+    @Test func testSurfaceTabBarWorkspaceCommandButtonRoundTrips() throws {
         let original = CmuxSurfaceTabBarButton(
             id: "new-dev",
             icon: .symbol("rectangle.stack.badge.plus"),
@@ -1694,8 +1788,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(decoded, original)
     }
 
-    @MainActor
-    func testSurfaceTabBarDropsUnresolvedWorkspaceCommandButtons() throws {
+    @Test func testSurfaceTabBarDropsUnresolvedWorkspaceCommandButtons() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -1741,8 +1834,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarButtons.dropLast().last?.workspaceCommandName, "Dev Environment")
     }
 
-    @MainActor
-    func testSurfaceTabBarMenuResolvesNestedWorkspaceCommandsAndSourcePaths() throws {
+    @Test func testSurfaceTabBarMenuResolvesNestedWorkspaceCommandsAndSourcePaths() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
         let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
@@ -1802,7 +1894,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarCommandSourcePaths["repo-status"], globalConfigURL.path)
     }
 
-    func testDecodeEmptySurfaceTabBarButtons() throws {
+    @Test func testDecodeEmptySurfaceTabBarButtons() throws {
         let json = """
         {
           "surfaceTabBarButtons": []
@@ -1813,7 +1905,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(config.commands.isEmpty)
     }
 
-    func testDecodeEmptyCommandsArray() throws {
+    @Test func testDecodeEmptyCommandsArray() throws {
         let json = """
         { "commands": [] }
         """
@@ -1823,7 +1915,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     // MARK: Workspace commands
 
-    func testDecodeWorkspaceCommand() throws {
+    @Test func testDecodeWorkspaceCommand() throws {
         let json = """
         {
           "commands": [{
@@ -1844,7 +1936,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(ws?.color, "#FF5733")
     }
 
-    func testDecodeRestartBehaviors() throws {
+    @Test func testDecodeRestartBehaviors() throws {
         for behavior in ["new", "recreate", "ignore", "confirm"] {
             let json = """
             {
@@ -1862,7 +1954,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     // MARK: Layout tree
 
-    func testDecodePaneNode() throws {
+    @Test func testDecodePaneNode() throws {
         let json = """
         {
           "commands": [{
@@ -1890,7 +1982,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
     }
 
-    func testDecodeSplitNode() throws {
+    @Test func testDecodeSplitNode() throws {
         let json = """
         {
           "commands": [{
@@ -1919,7 +2011,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
     }
 
-    func testDecodeNestedSplits() throws {
+    @Test func testDecodeNestedSplits() throws {
         let json = """
         {
           "commands": [{
@@ -1964,7 +2056,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     // MARK: Surface definitions
 
-    func testDecodeTerminalSurfaceAllFields() throws {
+    @Test func testDecodeTerminalSurfaceAllFields() throws {
         let json = """
         {
           "commands": [{
@@ -2002,7 +2094,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
     }
 
-    func testDecodeBrowserSurface() throws {
+    @Test func testDecodeBrowserSurface() throws {
         let json = """
         {
           "commands": [{
@@ -2031,7 +2123,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
     }
 
-    func testDecodeMultipleSurfacesInPane() throws {
+    @Test func testDecodeMultipleSurfacesInPane() throws {
         let json = """
         {
           "commands": [{
@@ -2061,7 +2153,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     // MARK: Decoding errors
 
-    func testDecodeInvalidLayoutNodeThrows() {
+    @Test func testDecodeInvalidLayoutNodeThrows() {
         let json = """
         {
           "commands": [{
@@ -2075,7 +2167,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeMissingCommandsKeyAllowsActionOnlyConfig() throws {
+    @Test func testDecodeMissingCommandsKeyAllowsActionOnlyConfig() throws {
         let json = """
         {
           "actions": {
@@ -2097,7 +2189,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(button.terminalCommand, "codex")
     }
 
-    func testDecodeInvalidSurfaceTypeThrows() {
+    @Test func testDecodeInvalidSurfaceTypeThrows() {
         let json = """
         {
           "commands": [{
@@ -2117,7 +2209,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     // MARK: Command validation
 
-    func testDecodeCommandWithNeitherWorkspaceNorCommandThrows() {
+    @Test func testDecodeCommandWithNeitherWorkspaceNorCommandThrows() {
         let json = """
         {
           "commands": [{
@@ -2128,7 +2220,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeCommandWithBothWorkspaceAndCommandThrows() {
+    @Test func testDecodeCommandWithBothWorkspaceAndCommandThrows() {
         let json = """
         {
           "commands": [{
@@ -2143,7 +2235,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     // MARK: Layout validation
 
-    func testDecodeLayoutNodeWithBothPaneAndDirectionThrows() {
+    @Test func testDecodeLayoutNodeWithBothPaneAndDirectionThrows() {
         let json = """
         {
           "commands": [{
@@ -2164,7 +2256,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeSplitWithWrongChildrenCountThrows() {
+    @Test func testDecodeSplitWithWrongChildrenCountThrows() {
         let json = """
         {
           "commands": [{
@@ -2183,7 +2275,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeSplitWithThreeChildrenThrows() {
+    @Test func testDecodeSplitWithThreeChildrenThrows() {
         let json = """
         {
           "commands": [{
@@ -2204,7 +2296,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodePaneWithEmptySurfacesThrows() {
+    @Test func testDecodePaneWithEmptySurfacesThrows() {
         let json = """
         {
           "commands": [{
@@ -2220,7 +2312,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeBlankNameThrows() {
+    @Test func testDecodeBlankNameThrows() {
         let json = """
         {
           "commands": [{
@@ -2232,7 +2324,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeWhitespaceOnlyNameThrows() {
+    @Test func testDecodeWhitespaceOnlyNameThrows() {
         let json = """
         {
           "commands": [{
@@ -2244,7 +2336,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeBlankCommandThrows() {
+    @Test func testDecodeBlankCommandThrows() {
         let json = """
         {
           "commands": [{
@@ -2256,7 +2348,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeWhitespaceOnlyCommandThrows() {
+    @Test func testDecodeWhitespaceOnlyCommandThrows() {
         let json = """
         {
           "commands": [{
@@ -2268,7 +2360,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeBlankNewWorkspaceCommandThrows() {
+    @Test func testDecodeBlankNewWorkspaceCommandThrows() {
         let json = """
         {
           "newWorkspaceCommand": "   ",
@@ -2278,7 +2370,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeDuplicateSurfaceTabBarButtonsThrows() {
+    @Test func testDecodeDuplicateSurfaceTabBarButtonsThrows() {
         let json = """
         {
           "surfaceTabBarButtons": ["newTerminal", "newTerminal"],
@@ -2288,7 +2380,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeDuplicateSurfaceTabBarButtonIdsThrows() {
+    @Test func testDecodeDuplicateSurfaceTabBarButtonIdsThrows() {
         let json = """
         {
           "surfaceTabBarButtons": [
@@ -2309,7 +2401,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeDuplicateSurfaceTabBarMenuItemIdsThrows() {
+    @Test func testDecodeDuplicateSurfaceTabBarMenuItemIdsThrows() {
         let json = """
         {
           "surfaceTabBarButtons": [
@@ -2336,7 +2428,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
-    func testDecodeSurfaceTabBarMenuItemCannotReuseTopLevelId() {
+    @Test func testDecodeSurfaceTabBarMenuItemCannotReuseTopLevelId() {
         let json = """
         {
           "surfaceTabBarButtons": [
@@ -2366,27 +2458,29 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
 // MARK: - Command identity
 
-final class CmuxCommandIdentityTests: XCTestCase {
+@MainActor
+@Suite(.serialized)
+struct CmuxCommandIdentityTests {
 
-    func testCommandIdIsDeterministic() {
+    @Test func testCommandIdIsDeterministic() {
         let cmd = CmuxCommandDefinition(name: "Run tests", command: "test")
         XCTAssertEqual(cmd.id, "cmux.config.command.Run%20tests")
     }
 
-    func testCommandIdEncodesSpecialCharacters() {
+    @Test func testCommandIdEncodesSpecialCharacters() {
         let cmd = CmuxCommandDefinition(name: "build & deploy", command: "make")
         XCTAssertTrue(cmd.id.hasPrefix("cmux.config.command."))
         XCTAssertFalse(cmd.id.contains("&"))
         XCTAssertFalse(cmd.id.contains(" "))
     }
 
-    func testCommandIdIsUniqueForDifferentNames() {
+    @Test func testCommandIdIsUniqueForDifferentNames() {
         let cmd1 = CmuxCommandDefinition(name: "build", command: "make build")
         let cmd2 = CmuxCommandDefinition(name: "test", command: "make test")
         XCTAssertNotEqual(cmd1.id, cmd2.id)
     }
 
-    func testCommandIdDoesNotCollideWithBuiltinPrefix() {
+    @Test func testCommandIdDoesNotCollideWithBuiltinPrefix() {
         let cmd = CmuxCommandDefinition(name: "palette.newWorkspace", command: "echo")
         XCTAssertTrue(cmd.id.hasPrefix("cmux.config.command."))
         XCTAssertNotEqual(cmd.id, "palette.newWorkspace")
@@ -2396,9 +2490,10 @@ final class CmuxCommandIdentityTests: XCTestCase {
 // MARK: - Workspace command execution
 
 @MainActor
-final class CmuxConfigWorkspaceCommandExecutionTests: XCTestCase {
+@Suite(.serialized)
+struct CmuxConfigWorkspaceCommandExecutionTests {
 
-    func testWorkspaceCommandCreatesNewWorkspaceByDefaultWhenNameAlreadyExists() {
+    @Test func testWorkspaceCommandCreatesNewWorkspaceByDefaultWhenNameAlreadyExists() {
         let manager = TabManager()
         let existingWorkspace = manager.tabs[0]
         existingWorkspace.setCustomTitle("Dev")
@@ -2422,7 +2517,7 @@ final class CmuxConfigWorkspaceCommandExecutionTests: XCTestCase {
         XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Dev")
     }
 
-    func testWorkspaceCommandHonorsExplicitNewRestartPolicy() {
+    @Test func testWorkspaceCommandHonorsExplicitNewRestartPolicy() {
         let manager = TabManager()
         let existingWorkspace = manager.tabs[0]
         existingWorkspace.setCustomTitle("Dev")
@@ -2447,7 +2542,7 @@ final class CmuxConfigWorkspaceCommandExecutionTests: XCTestCase {
         XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Dev")
     }
 
-    func testWorkspaceCommandHonorsIgnoreRestartPolicy() {
+    @Test func testWorkspaceCommandHonorsIgnoreRestartPolicy() {
         let manager = TabManager()
         let existingWorkspace = manager.tabs[0]
         existingWorkspace.setCustomTitle("Dev")
@@ -2470,7 +2565,7 @@ final class CmuxConfigWorkspaceCommandExecutionTests: XCTestCase {
         XCTAssertEqual(manager.selectedWorkspace?.id, existingWorkspace.id)
     }
 
-    func testWorkspaceCommandHonorsRecreateRestartPolicy() {
+    @Test func testWorkspaceCommandHonorsRecreateRestartPolicy() {
         let manager = TabManager()
         let existingWorkspace = manager.tabs[0]
         existingWorkspace.setCustomTitle("Dev")
@@ -2497,44 +2592,46 @@ final class CmuxConfigWorkspaceCommandExecutionTests: XCTestCase {
 
 // MARK: - Split clamping
 
-final class CmuxSplitDefinitionTests: XCTestCase {
+@MainActor
+@Suite(.serialized)
+struct CmuxSplitDefinitionTests {
 
-    func testClampedSplitPositionDefaultsToHalf() {
+    @Test func testClampedSplitPositionDefaultsToHalf() {
         let split = CmuxSplitDefinition(direction: .horizontal, split: nil, children: [])
         XCTAssertEqual(split.clampedSplitPosition, 0.5)
     }
 
-    func testClampedSplitPositionPassesThroughValidValue() {
+    @Test func testClampedSplitPositionPassesThroughValidValue() {
         let split = CmuxSplitDefinition(direction: .vertical, split: 0.3, children: [])
         XCTAssertEqual(split.clampedSplitPosition, 0.3, accuracy: 0.001)
     }
 
-    func testClampedSplitPositionClampsLow() {
+    @Test func testClampedSplitPositionClampsLow() {
         let split = CmuxSplitDefinition(direction: .horizontal, split: 0.01, children: [])
         XCTAssertEqual(split.clampedSplitPosition, 0.1, accuracy: 0.001)
     }
 
-    func testClampedSplitPositionClampsHigh() {
+    @Test func testClampedSplitPositionClampsHigh() {
         let split = CmuxSplitDefinition(direction: .horizontal, split: 0.99, children: [])
         XCTAssertEqual(split.clampedSplitPosition, 0.9, accuracy: 0.001)
     }
 
-    func testClampedSplitPositionClampsNegative() {
+    @Test func testClampedSplitPositionClampsNegative() {
         let split = CmuxSplitDefinition(direction: .horizontal, split: -1.0, children: [])
         XCTAssertEqual(split.clampedSplitPosition, 0.1, accuracy: 0.001)
     }
 
-    func testClampedSplitPositionClampsAboveOne() {
+    @Test func testClampedSplitPositionClampsAboveOne() {
         let split = CmuxSplitDefinition(direction: .horizontal, split: 2.0, children: [])
         XCTAssertEqual(split.clampedSplitPosition, 0.9, accuracy: 0.001)
     }
 
-    func testSplitOrientationHorizontal() {
+    @Test func testSplitOrientationHorizontal() {
         let split = CmuxSplitDefinition(direction: .horizontal, split: nil, children: [])
         XCTAssertEqual(split.splitOrientation, .horizontal)
     }
 
-    func testSplitOrientationVertical() {
+    @Test func testSplitOrientationVertical() {
         let split = CmuxSplitDefinition(direction: .vertical, split: nil, children: [])
         XCTAssertEqual(split.splitOrientation, .vertical)
     }
@@ -2543,46 +2640,47 @@ final class CmuxSplitDefinitionTests: XCTestCase {
 // MARK: - CWD resolution
 
 @MainActor
-final class CmuxConfigCwdResolutionTests: XCTestCase {
+@Suite(.serialized)
+struct CmuxConfigCwdResolutionTests {
 
     private let baseCwd = "/Users/test/project"
 
-    func testNilCwdReturnsBase() {
+    @Test func testNilCwdReturnsBase() {
         XCTAssertEqual(
             CmuxConfigStore.resolveCwd(nil, relativeTo: baseCwd),
             baseCwd
         )
     }
 
-    func testEmptyCwdReturnsBase() {
+    @Test func testEmptyCwdReturnsBase() {
         XCTAssertEqual(
             CmuxConfigStore.resolveCwd("", relativeTo: baseCwd),
             baseCwd
         )
     }
 
-    func testDotCwdReturnsBase() {
+    @Test func testDotCwdReturnsBase() {
         XCTAssertEqual(
             CmuxConfigStore.resolveCwd(".", relativeTo: baseCwd),
             baseCwd
         )
     }
 
-    func testAbsolutePathReturnedAsIs() {
+    @Test func testAbsolutePathReturnedAsIs() {
         XCTAssertEqual(
             CmuxConfigStore.resolveCwd("/tmp/other", relativeTo: baseCwd),
             "/tmp/other"
         )
     }
 
-    func testRelativePathJoinedToBase() {
+    @Test func testRelativePathJoinedToBase() {
         XCTAssertEqual(
             CmuxConfigStore.resolveCwd("backend/src", relativeTo: baseCwd),
             "/Users/test/project/backend/src"
         )
     }
 
-    func testTildeExpandsToHome() {
+    @Test func testTildeExpandsToHome() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         XCTAssertEqual(
             CmuxConfigStore.resolveCwd("~", relativeTo: baseCwd),
@@ -2590,7 +2688,7 @@ final class CmuxConfigCwdResolutionTests: XCTestCase {
         )
     }
 
-    func testTildeSlashExpandsToHomePlusPath() {
+    @Test func testTildeSlashExpandsToHomePlusPath() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         XCTAssertEqual(
             CmuxConfigStore.resolveCwd("~/Documents/work", relativeTo: baseCwd),
@@ -2598,7 +2696,7 @@ final class CmuxConfigCwdResolutionTests: XCTestCase {
         )
     }
 
-    func testSingleSubdirectory() {
+    @Test func testSingleSubdirectory() {
         XCTAssertEqual(
             CmuxConfigStore.resolveCwd("src", relativeTo: baseCwd),
             "/Users/test/project/src"
@@ -2608,9 +2706,11 @@ final class CmuxConfigCwdResolutionTests: XCTestCase {
 
 // MARK: - Layout encoding round-trip
 
-final class CmuxLayoutEncodingTests: XCTestCase {
+@MainActor
+@Suite(.serialized)
+struct CmuxLayoutEncodingTests {
 
-    func testPaneNodeRoundTrips() throws {
+    @Test func testPaneNodeRoundTrips() throws {
         let original = CmuxLayoutNode.pane(CmuxPaneDefinition(surfaces: [
             CmuxSurfaceDefinition(type: .terminal, name: "shell")
         ]))
@@ -2625,7 +2725,7 @@ final class CmuxLayoutEncodingTests: XCTestCase {
         }
     }
 
-    func testSplitNodeRoundTrips() throws {
+    @Test func testSplitNodeRoundTrips() throws {
         let original = CmuxLayoutNode.split(CmuxSplitDefinition(
             direction: .vertical,
             split: 0.7,
@@ -2647,285 +2747,3 @@ final class CmuxLayoutEncodingTests: XCTestCase {
     }
 }
 
-// MARK: - Note support
-
-final class NoteSupportTests: XCTestCase {
-
-    func testNoteSlugFromPathRejectsInvalidFilenames() {
-        XCTAssertNil(NoteSupport.slug(forNotePath: "/tmp/project/.cmux/notes/Bad Name.md"))
-        XCTAssertNil(NoteSupport.slug(forNotePath: "/tmp/project/.cmux/notes/-todo.md"))
-        XCTAssertEqual(
-            NoteSupport.slug(forNotePath: "/tmp/project/.cmux/notes/todo-1.md"),
-            "todo-1"
-        )
-    }
-
-    func testProjectRootFromNotePathIsPurePathDecomposition() {
-        XCTAssertEqual(
-            NoteSupport.projectRoot(forNotePath: "/tmp/project/.cmux/notes/todo-1.md"),
-            "/tmp/project"
-        )
-        XCTAssertNil(NoteSupport.projectRoot(forNotePath: "/tmp/project/notes/todo-1.md"))
-    }
-
-    func testRestoredProjectRootPrefersCurrentDirectoryWhenStoredNoteMoved() {
-        XCTAssertEqual(
-            NoteSupport.restoredProjectRoot(
-                forStoredNotePath: "/tmp/old-project/.cmux/notes/todo-1.md",
-                currentDirectory: "/tmp/new-project"
-            ),
-            "/tmp/new-project"
-        )
-        XCTAssertEqual(
-            NoteSupport.restoredProjectRoot(
-                forStoredNotePath: "/tmp/project/.cmux/notes/todo-1.md",
-                currentDirectory: "/tmp/project/subdir"
-            ),
-            "/tmp/project"
-        )
-    }
-
-    func testConfigFallbackSlugIsDeterministicAndValid() throws {
-        let first = NoteSupport.configFallbackSlug(seed: "root.0.surface.1")
-        let second = NoteSupport.configFallbackSlug(seed: "root.0.surface.1")
-        let other = NoteSupport.configFallbackSlug(seed: "root.1.surface.1")
-
-        XCTAssertEqual(first, second)
-        XCTAssertNotEqual(first, other)
-        XCTAssertEqual(try NoteSupport.validateSlug(first), first)
-    }
-
-    func testDeleteNoteIsIdempotentWhenFileIsAlreadyAbsent() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        XCTAssertFalse(try NoteSupport.deleteNote(slug: "todo", projectRoot: root.path))
-    }
-
-    func testIndexedNoteCreateAttachesAndReusesCurrentSurfaceNote() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let target = CmuxNoteAttachmentTarget.surface(
-            workspaceAnchorId: "workspace-anchor",
-            surfaceAnchorId: "surface-anchor",
-            surfaceKind: PanelType.terminal.rawValue
-        )
-        let created = try CmuxNoteStore.createOrOpen(
-            slug: nil,
-            title: "Build Notes",
-            projectRoot: root.path,
-            createIfMissing: true,
-            attachment: target,
-            preferAttachedExisting: true
-        )
-
-        XCTAssertTrue(created.created)
-        XCTAssertTrue(created.attached)
-        XCTAssertEqual(created.note.title, "Build Notes")
-        XCTAssertEqual(created.note.attachments.count, 1)
-        XCTAssertEqual(created.note.attachments.first?.workspaceAnchorId, "workspace-anchor")
-        XCTAssertEqual(created.note.attachments.first?.surfaceAnchorId, "surface-anchor")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: created.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: CmuxNoteStore.indexPath(forProjectRoot: root.path)))
-
-        let reopened = try CmuxNoteStore.createOrOpen(
-            slug: nil,
-            projectRoot: root.path,
-            createIfMissing: true,
-            attachment: target,
-            preferAttachedExisting: true
-        )
-
-        XCTAssertFalse(reopened.created)
-        XCTAssertFalse(reopened.attached)
-        XCTAssertEqual(reopened.note.id, created.note.id)
-        XCTAssertEqual(reopened.path, created.path)
-    }
-
-    func testNoteContextResolverPrefersSurfaceThenWorkspace() {
-        let workspaceTarget = CmuxNoteAttachmentTarget.workspace(workspaceAnchorId: "ws-1")
-        let surfaceTarget = CmuxNoteAttachmentTarget.surface(
-            workspaceAnchorId: "ws-1",
-            surfaceAnchorId: "surf-1",
-            surfaceKind: "terminal"
-        )
-
-        func note(_ slug: String, updatedAt: TimeInterval, attachments: [CmuxNoteAttachment]) -> CmuxNoteRecord {
-            CmuxNoteRecord(
-                id: slug,
-                slug: slug,
-                title: slug,
-                bodyPath: "notes/\(slug).md",
-                attachments: attachments,
-                createdAt: 0,
-                updatedAt: updatedAt
-            )
-        }
-
-        let surfaceOld = note("surf-old", updatedAt: 10, attachments: [surfaceTarget.attachment])
-        let surfaceNew = note("surf-new", updatedAt: 20, attachments: [surfaceTarget.attachment])
-        let workspaceNote = note("ws-note", updatedAt: 30, attachments: [workspaceTarget.attachment])
-        let unlinked = note("free", updatedAt: 40, attachments: [])
-
-        let resolution = CmuxNoteContextResolver.resolve(
-            notes: [unlinked, workspaceNote, surfaceOld, surfaceNew],
-            surfaceTarget: surfaceTarget,
-            workspaceTarget: workspaceTarget
-        )
-
-        // A surface-linked note wins over a workspace-linked one even though the
-        // workspace note (and an unlinked note) are more recently updated.
-        XCTAssertEqual(resolution.resolvedNoteId, "surf-new")
-        XCTAssertEqual(resolution.link(for: surfaceNew), .surface)
-        XCTAssertEqual(resolution.link(for: surfaceOld), .surface)
-        XCTAssertEqual(resolution.link(for: workspaceNote), .workspace)
-        XCTAssertNil(resolution.link(for: unlinked))
-        // Order: surface-linked (newest first), then workspace, then unlinked.
-        XCTAssertEqual(resolution.orderedNotes.map(\.slug), ["surf-new", "surf-old", "ws-note", "free"])
-    }
-
-    func testNoteContextResolverFallsBackToWorkspaceThenNil() {
-        let workspaceTarget = CmuxNoteAttachmentTarget.workspace(workspaceAnchorId: "ws-1")
-        let surfaceTarget = CmuxNoteAttachmentTarget.surface(
-            workspaceAnchorId: "ws-1",
-            surfaceAnchorId: "surf-x",
-            surfaceKind: "terminal"
-        )
-
-        func note(_ slug: String, attachments: [CmuxNoteAttachment]) -> CmuxNoteRecord {
-            CmuxNoteRecord(
-                id: slug,
-                slug: slug,
-                title: slug,
-                bodyPath: "notes/\(slug).md",
-                attachments: attachments,
-                createdAt: 0,
-                updatedAt: 0
-            )
-        }
-
-        // No surface-linked note for this caller's surface → workspace note resolves.
-        let workspaceNote = note("ws", attachments: [workspaceTarget.attachment])
-        let workspaceResolution = CmuxNoteContextResolver.resolve(
-            notes: [workspaceNote],
-            surfaceTarget: surfaceTarget,
-            workspaceTarget: workspaceTarget
-        )
-        XCTAssertEqual(workspaceResolution.resolvedNoteId, "ws")
-
-        // No links at all → nothing resolves.
-        let unlinked = note("free", attachments: [])
-        let emptyResolution = CmuxNoteContextResolver.resolve(
-            notes: [unlinked],
-            surfaceTarget: surfaceTarget,
-            workspaceTarget: workspaceTarget
-        )
-        XCTAssertNil(emptyResolution.resolvedNoteId)
-        XCTAssertNil(emptyResolution.link(for: unlinked))
-    }
-
-    func testIndexedNoteAsyncCreateUsesSerializedStore() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let created = try await CmuxNoteStore.createOrOpenAsync(
-            slug: "async-note",
-            title: "Async Note",
-            projectRoot: root.path,
-            createIfMissing: true
-        )
-        let reopened = try CmuxNoteStore.createOrOpen(
-            slug: "async-note",
-            projectRoot: root.path,
-            createIfMissing: false
-        )
-
-        XCTAssertTrue(created.created)
-        XCTAssertEqual(created.note.id, reopened.note.id)
-        XCTAssertEqual(created.path, reopened.path)
-    }
-
-    func testIndexedNoteStoreKeepsLegacySlugFilesAddressable() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let legacyPath = try NoteSupport.ensureNoteFile(slug: "todo", projectRoot: root.path)
-        try "# Todo\n".write(toFile: legacyPath, atomically: true, encoding: .utf8)
-
-        let opened = try CmuxNoteStore.createOrOpen(
-            slug: "todo",
-            projectRoot: root.path,
-            createIfMissing: false
-        )
-
-        XCTAssertFalse(opened.created)
-        XCTAssertEqual(opened.note.id, "legacy-todo")
-        XCTAssertEqual(opened.note.bodyPath, "notes/todo.md")
-        XCTAssertEqual(opened.path, legacyPath)
-        XCTAssertEqual(try CmuxNoteStore.path(slug: "todo", projectRoot: root.path).path, legacyPath)
-    }
-
-    func testIndexedNoteStoreReadsWritesAndAppendsContent() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let written = try CmuxNoteStore.write(
-            slug: "agent-notes",
-            title: "Agent Notes",
-            content: "alpha",
-            projectRoot: root.path
-        )
-        XCTAssertEqual(written.note.slug, "agent-notes")
-        XCTAssertEqual(written.note.title, "Agent Notes")
-        XCTAssertEqual(try CmuxNoteStore.read(slug: "agent-notes", projectRoot: root.path).content, "alpha")
-
-        let appended = try CmuxNoteStore.append(
-            slug: "agent-notes",
-            content: "\nbeta",
-            projectRoot: root.path
-        )
-        XCTAssertEqual(appended.note.id, written.note.id)
-        XCTAssertEqual(try CmuxNoteStore.read(slug: "agent-notes", projectRoot: root.path).content, "alpha\nbeta")
-
-        XCTAssertThrowsError(
-            try CmuxNoteStore.write(
-                slug: "missing",
-                content: "nope",
-                projectRoot: root.path,
-                createIfMissing: false
-            )
-        )
-    }
-
-    func testIndexedNoteDeleteRestoresIndexWhenBodyCleanupCannotUnlink() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let created = try CmuxNoteStore.createOrOpen(
-            slug: "blocked-delete",
-            projectRoot: root.path,
-            createIfMissing: true
-        )
-        try FileManager.default.removeItem(atPath: created.path)
-        try FileManager.default.createDirectory(atPath: created.path, withIntermediateDirectories: false)
-
-        XCTAssertThrowsError(try CmuxNoteStore.delete(slug: "blocked-delete", projectRoot: root.path))
-        let retained = try CmuxNoteStore.path(slug: "blocked-delete", projectRoot: root.path)
-        XCTAssertEqual(retained.path, created.path)
-        XCTAssertFalse(retained.exists)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: created.path))
-    }
-}

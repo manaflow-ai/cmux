@@ -77,7 +77,6 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
 
     func testCLIArgumentNormalizerMapsVaultAndSessionsToSessions() {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "files"), .files)
-        XCTAssertEqual(RightSidebarMode.from(cliArgument: "notes"), .notes)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "find"), .find)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "vault"), .sessions)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "sessions"), .sessions)

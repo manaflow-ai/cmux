@@ -1,5 +1,6 @@
 import CmuxFoundation
 import Foundation
+import Observation
 import SwiftUI
 
 /// Backing store for the Notes sidebar tab.
@@ -13,13 +14,14 @@ import SwiftUI
 /// All access happens on the main thread. Properties are not marked `@MainActor`
 /// because `NSOutlineView` data-source/delegate methods call into the store on
 /// the main thread without that annotation, matching ``FileExplorerStore``.
-final class NotesTreeStore: ObservableObject {
+@Observable
+final class NotesTreeStore {
     /// Top-level nodes (children of the workspace notes root).
-    @Published private(set) var rootNodes: [NotesTreeNode] = []
+    private(set) var rootNodes: [NotesTreeNode] = []
     /// Bumped on every structural reload so the outline view reloads its data.
-    @Published private(set) var contentRevision = 0
+    private(set) var contentRevision = 0
     /// Whether a local workspace is currently bound (false ⇒ empty/disabled tree).
-    @Published private(set) var hasWorkspace = false
+    private(set) var hasWorkspace = false
     /// Abbreviated workspace path shown in the header bar — the same treatment
     /// as the Files tab's header (cwd with the home directory as `~`). Changes
     /// only when the bound cwd changes, which always reloads the tree.
@@ -68,7 +70,9 @@ final class NotesTreeStore: ObservableObject {
     private var watchers: [FileWatcher] = []
     private var watcherTasks: [Task<Void, Never>] = []
     private var watchedDirs: Set<String> = []
-    private var reloadTask: Task<Void, Never>?
+    /// Internal (not private) so tests can await the pending reload via
+    /// `@testable import` without a production test hook.
+    private(set) var reloadTask: Task<Void, Never>?
     private var reloadGeneration = 0
     private var reloadCoalesceTask: Task<Void, Never>?
     private var markerRefreshTask: Task<Void, Never>?
@@ -89,6 +93,10 @@ final class NotesTreeStore: ObservableObject {
     private let maxDepth = 12
     private let nodeBudget = 5000
     private let maxWatchers = 256
+    /// Clock backing the coalesce/retry/poll waits below, so timed waits are
+    /// cancellable and expressed via the injected-clock idiom rather than
+    /// bare task sleeps.
+    private let clock = ContinuousClock()
 
     // MARK: - Workspace binding
 
@@ -214,9 +222,9 @@ final class NotesTreeStore: ObservableObject {
     func setVisible(_ visible: Bool) {
         if visible {
             guard visibilityRefreshTask == nil else { return }
-            visibilityRefreshTask = Task { @MainActor [weak self] in
+            visibilityRefreshTask = Task { @MainActor [weak self, clock] in
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(10))
+                    try? await clock.sleep(for: .seconds(10))
                     guard let self else { break }
                     guard self.hasWorkspace, !Task.isCancelled else { continue }
                     self.refreshSessions(force: true)
@@ -572,8 +580,8 @@ final class NotesTreeStore: ObservableObject {
     /// window), cancelled on teardown.
     func scheduleReload() {
         guard reloadCoalesceTask == nil else { return }
-        reloadCoalesceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
+        reloadCoalesceTask = Task { @MainActor [weak self, clock] in
+            try? await clock.sleep(for: .milliseconds(150))
             guard let self, !Task.isCancelled else { return }
             self.reloadCoalesceTask = nil
             self.reload()
@@ -828,8 +836,8 @@ final class NotesTreeStore: ObservableObject {
             if allObserved.isEmpty, self.emptyObservationRetries < self.maxEmptyObservationRetries {
                 self.emptyObservationRetries += 1
                 self.emptyObservationRetryTask?.cancel()
-                self.emptyObservationRetryTask = Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .seconds(3))
+                self.emptyObservationRetryTask = Task { @MainActor [weak self, clock] in
+                    try? await clock.sleep(for: .seconds(3))
                     guard let self, !Task.isCancelled,
                           self.hasWorkspace, self.resolvedRootPath == root else { return }
                     self.refreshSessions(force: true)
@@ -1321,11 +1329,6 @@ final class NotesTreeStore: ObservableObject {
         reloadTask = nil
     }
 
-    @MainActor
-    func waitForPendingReloadForTesting() async {
-        await reloadTask?.value
-    }
-
     private func stopWatchers() {
         for task in watcherTasks { task.cancel() }
         watcherTasks = []
@@ -1343,21 +1346,3 @@ final class NotesTreeStore: ObservableObject {
     }
 }
 
-private struct NotesTreeReloadRequest: Sendable {
-    var root: String
-    var notesDirPath: String?
-    var projectRoot: String?
-    var workspaceAnchorId: String?
-    var observedTerminals: [NotesTreeObservedTerminal]
-    var observedSessionKeys: Set<String>
-    var observedSessions: [NotesTreeObservedSession]
-    var maxDepth: Int
-    var nodeBudget: Int
-    var sessionRowLimit: Int
-    var maxWatchers: Int
-}
-
-private struct NotesTreeReloadResult: Sendable {
-    var nodes: [NotesTreeNode]
-    var watchedDirs: Set<String>
-}

@@ -344,34 +344,4 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertNil(panelSnapshot.terminal?.tmuxStartCommand)
         XCTAssertNil(Workspace.restorableTmuxStartCommand(genericCommand))
     }
-
-    func testNewNoteForWorkspaceCreatesDistinctNotesEachTime() async throws {
-        let workspace = Workspace()
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
-
-        let projectRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: projectRoot) }
-        workspace.currentDirectory = projectRoot.path
-
-        // `await` cannot run inside XCTUnwrap's autoclosure, so resolve first.
-        let firstPanel = await workspace.openAttachedNoteForWorkspace(inPane: paneId, focus: false)
-        let first = try XCTUnwrap(firstPanel)
-        let secondPanel = await workspace.openAttachedNoteForWorkspace(inPane: paneId, focus: false)
-        let second = try XCTUnwrap(secondPanel)
-
-        // Each "New Note" invocation must create a brand-new note rather than
-        // refocusing the workspace's existing note. Regression: after the first
-        // note was dragged to another pane, a second "New Note" just refocused
-        // the original instead of creating another note.
-        XCTAssertNotEqual(first.id, second.id)
-        XCTAssertNotEqual(first.filePath, second.filePath)
-        XCTAssertNotEqual(first.noteSlug, second.noteSlug)
-        XCTAssertNotNil(first.noteSlug)
-        XCTAssertNotNil(second.noteSlug)
-
-        let notePanels = workspace.panels.values.compactMap { $0 as? MarkdownPanel }
-        XCTAssertEqual(notePanels.count, 2)
-    }
 }

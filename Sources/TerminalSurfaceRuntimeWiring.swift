@@ -11,11 +11,6 @@ import struct CmuxSettings.AgentIntegrationSettingsStore
 // here carries behavior verbatim from the legacy god-file reach-up it
 // replaces; this file is intended composition-root residue.
 
-private struct WorkspaceNotesDirectoryResolverEntry {
-    weak var owner: AnyObject?
-    let resolve: @MainActor (UUID) -> String?
-}
-
 @MainActor private var workspaceNotesDirectoryResolvers:
     [ObjectIdentifier: WorkspaceNotesDirectoryResolverEntry] = [:]
 

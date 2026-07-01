@@ -116,7 +116,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
-    @ObservedObject var notesTreeStore: NotesTreeStore
+    let notesTreeStore: NotesTreeStore
     let titlebarHeight: CGFloat
     let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?

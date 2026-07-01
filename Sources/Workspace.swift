@@ -2448,35 +2448,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// Durable canvas-layout state (pane frames, z-order). Lives on the
     /// workspace so it survives canvas view remounts and workspace switches.
     let canvasModel = CanvasModel(metricsProvider: { CanvasLayoutSettings.currentMetrics() })
-    private struct SurfaceTabBarExecutableButton {
+    struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
         let builtInAction: CmuxSurfaceTabBarBuiltInAction?
         let workspaceCommand: CmuxResolvedCommand?
         let terminalCommandSourcePath: String?
         let menuItems: [SurfaceTabBarExecutableButton]
-    }
-
-    private final class SurfaceTabBarMenuItemPayload: NSObject {
-        let item: SurfaceTabBarExecutableButton
-
-        init(item: SurfaceTabBarExecutableButton) {
-            self.item = item
-        }
-    }
-
-    private final class SurfaceTabBarMenuTarget: NSObject {
-        weak var workspace: Workspace?
-        let pane: PaneID
-
-        init(workspace: Workspace, pane: PaneID) {
-            self.workspace = workspace
-            self.pane = pane
-        }
-
-        @MainActor @objc func performMenuItem(_ sender: NSMenuItem) {
-            guard let payload = sender.representedObject as? SurfaceTabBarMenuItemPayload else { return }
-            workspace?.executeSurfaceTabBarExecutableButton(payload.item, inPane: pane)
-        }
     }
 
     private var surfaceTabBarCommandButtons: [String: SurfaceTabBarExecutableButton] = [:]
@@ -13166,7 +13143,7 @@ extension Workspace: BonsplitDelegate {
         executeSurfaceTabBarExecutableButton(executable, inPane: pane)
     }
 
-    private func executeSurfaceTabBarExecutableButton(_ executable: SurfaceTabBarExecutableButton, inPane pane: PaneID) {
+    func executeSurfaceTabBarExecutableButton(_ executable: SurfaceTabBarExecutableButton, inPane pane: PaneID) {
         let presentingWindow = selectedTerminalPanel(inPane: pane)?.surface.uiWindow
             ?? NSApp.keyWindow
             ?? NSApp.mainWindow

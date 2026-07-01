@@ -252,12 +252,7 @@ enum NoteSupport {
         return path
     }
 
-    struct NoteListEntry: Equatable {
-        let slug: String
-        let path: String
-        let sizeBytes: Int64
-        let mtime: Date
-    }
+    typealias NoteListEntry = NoteSupportListEntry
 
     /// List notes in the project's `.cmux/notes/` directory, sorted by
     /// mtime descending. Returns an empty array if the directory does not
@@ -330,23 +325,5 @@ enum NoteSupport {
         return values.isRegularFile == true
     }
 
-    enum NoteError: Error, CustomStringConvertible, LocalizedError {
-        case invalidSlug(String)
-        case notRegularFile
-
-        var description: String {
-            switch self {
-            case .invalidSlug(let reason):
-                return String(
-                    format: String(localized: "note.error.invalidSlug", defaultValue: "Invalid note slug: %@"),
-                    locale: .current,
-                    reason
-                )
-            case .notRegularFile:
-                return String(localized: "note.error.notRegularFile", defaultValue: "Note path is not a regular file")
-            }
-        }
-
-        var errorDescription: String? { description }
-    }
+    typealias NoteError = NoteSupportError
 }

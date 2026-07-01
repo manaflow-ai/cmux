@@ -4,10 +4,7 @@ import Darwin
 // MARK: - cmux note index store
 
 enum CmuxNoteStore {
-    private struct IndexFile: Codable, Sendable {
-        var version: Int
-        var notes: [CmuxNoteRecord]
-    }
+    private typealias IndexFile = CmuxNoteIndexFile
 
     private static let schemaVersion = 1
     private static let indexFileName = "index.json"
@@ -66,7 +63,7 @@ enum CmuxNoteStore {
     static func list(projectRoot: String) throws -> [CmuxNoteRecord] {
         // Propagate a corrupt/unreadable index instead of returning an empty list,
         // so `cmux note list` surfaces the error rather than making notes look gone.
-        try storageQueue.sync {
+        try withStoreLock {
             let notes = try loadIndex(projectRoot: projectRoot).notes
             // Stat each body once up front; a comparator that stats on every
             // comparison re-reads the filesystem O(n log n) times.

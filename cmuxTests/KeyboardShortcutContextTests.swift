@@ -264,17 +264,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(settingsAction.displayName, KeyboardShortcutSettings.Action.newBrowserWorkspace.label)
     }
 
-    func testNewNoteSettingsPackageActionStaysAligned() {
-        guard let settingsAction = ShortcutAction(
-            rawValue: KeyboardShortcutSettings.Action.newNote.rawValue
-        ) else {
-            XCTFail("Expected CmuxSettings.ShortcutAction for newNote")
-            return
-        }
-        XCTAssertEqual(settingsAction.defaultStroke, ShortcutStroke(key: "n", command: true, control: true))
-        XCTAssertEqual(settingsAction.displayName, KeyboardShortcutSettings.Action.newNote.label)
-    }
-
     func testSettingsPackageDefaultWhenClausesMatchRuntimeShortcutContexts() {
         for action in KeyboardShortcutSettings.Action.allCases {
             guard let settingsAction = ShortcutAction(rawValue: action.rawValue) else {

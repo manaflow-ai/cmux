@@ -517,13 +517,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         scheduleAutoSaveIfNeeded()
     }
 
+    /// Debounce clock for note autosave; sleeping on it cancels with the task.
+    private let autoSaveClock = ContinuousClock()
+
     /// Debounced auto-save for notes: write to disk shortly after the last
     /// keystroke so a note never needs a manual Save. No-op for plain Markdown.
     private func scheduleAutoSaveIfNeeded() {
         guard behavesAsNote, isDirty else { return }
         autoSaveTask?.cancel()
+        let clock = autoSaveClock
         autoSaveTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 600_000_000)
+            try? await clock.sleep(for: .milliseconds(600))
             guard let self, !Task.isCancelled, self.isDirty, !self.isClosed else { return }
             self.saveTextContent()
         }

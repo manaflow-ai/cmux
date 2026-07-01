@@ -1042,7 +1042,7 @@ import Testing
         let params = try XCTUnwrap(request["params"] as? [String: Any])
         XCTAssertEqual(params["slug"] as? String, "todo")
         XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
-        XCTAssertNil(params["surface_id"])
+        #expect(params["surface_id"] == nil)
     }
 
     @Test func testNoteWriteRejectsUnknownFlagInPositionalContent() throws {

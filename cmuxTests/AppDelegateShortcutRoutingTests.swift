@@ -198,7 +198,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
-        AppDelegate.shared?.debugNewNoteBuiltInActionHandler = nil
         AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
         if AppDelegate.shared?.dismissNotificationsPopoverIfShown() == true {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
@@ -2163,71 +2162,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             openDiffViewerCount,
             1,
             "Cmd+Ctrl+Shift+D must route to the shared diff-open path (same path as the command palette)"
-        )
-    }
-
-    func testNewNoteShortcutDefaultsToCmdCtrlNAndRoutesToSharedConfiguredActionPath() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let defaults = UserDefaults.standard
-        let previousNotes = defaults.object(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
-        defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
-        defer {
-            if let previousNotes {
-                defaults.set(previousNotes, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
-            } else {
-                defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
-            }
-        }
-
-        let cmdCtrlN = StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newNote), cmdCtrlN)
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.newNote.normalizedRecordedShortcutResult(cmdCtrlN),
-            .accepted(cmdCtrlN),
-            "Default New Note shortcut must not conflict with any other action"
-        )
-        XCTAssertTrue(
-            KeyboardShortcutSettings.settingsVisibleActions.contains(.newNote),
-            "New Note must be visible/editable in Settings → Keyboard Shortcuts"
-        )
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-        guard let targetWindow = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
-        var newNoteCount = 0
-        appDelegate.debugNewNoteBuiltInActionHandler = { newNoteCount += 1 }
-        defer { appDelegate.debugNewNoteBuiltInActionHandler = nil }
-
-        guard let event = makeKeyDownEvent(
-            key: "n",
-            modifiers: [.command, .control],
-            keyCode: 45, // kVK_ANSI_N
-            windowNumber: targetWindow.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+Ctrl+N event")
-            return
-        }
-
-#if DEBUG
-        XCTAssertTrue(
-            appDelegate.debugHandleCustomShortcut(event: event),
-            "Cmd+Ctrl+N should be consumed by the New Note shortcut"
-        )
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
-        XCTAssertEqual(
-            newNoteCount,
-            1,
-            "Cmd+Ctrl+N must route through the shared configured built-in action path"
         )
     }
 
