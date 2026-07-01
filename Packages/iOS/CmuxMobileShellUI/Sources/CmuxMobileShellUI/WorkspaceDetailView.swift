@@ -358,6 +358,12 @@ struct WorkspaceDetailView: View {
 
     #if os(iOS)
     /// Compact-stack back button rendered as its own leading toolbar island.
+    ///
+    /// On iOS 26 the system already backs a `.topBarLeading` toolbar item in
+    /// Liquid Glass (the trailing cluster relies on exactly this), so do NOT add
+    /// an explicit `.buttonStyle(.glass)` here. Stacking a second glass layer on
+    /// top of the system's automatic toolbar glass renders as an oversized square
+    /// blob instead of a capsule that matches the trailing buttons.
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
@@ -366,7 +372,6 @@ struct WorkspaceDetailView: View {
                 badgeContrast: backButtonConfiguration.badgeContrast,
                 action: backButtonConfiguration.action
             )
-            .mobileGlassCompactToolbarControl()
         }
     }
 
