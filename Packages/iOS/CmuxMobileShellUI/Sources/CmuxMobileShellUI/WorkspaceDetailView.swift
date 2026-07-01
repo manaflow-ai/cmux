@@ -50,7 +50,7 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
-    /// Live pane width, used to width-cap the centered glass title pill so a long
+    /// Live pane width, used to width-cap the leading glass title pill so a long
     /// workspace name truncates instead of underlapping the toolbar buttons.
     @State private var contentWidth: CGFloat = 0
     /// Captured at the moment the "View as Text" action is tapped so the
@@ -138,23 +138,27 @@ struct WorkspaceDetailView: View {
     #if os(iOS)
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {
-        if backButtonConfiguration != nil {
-            ToolbarItem(placement: .topBarLeading) { workspaceBackToolbarButton }
-        }
-        ToolbarItem(placement: .principal) {
-            WorkspaceTitleMenu(
-                contentWidth: contentWidth,
-                hasBackButton: backButtonConfiguration != nil,
-                hasTrailingCluster: true,
-                hasChatToggle: shouldShowChatToggle,
-                isEnabled: hasTitleMenuActions,
-                menuContent: { titleMenuContent }
-            ) {
-                toolbarTitleLabel
+        ToolbarItem(placement: .topBarLeading) {
+            HStack(spacing: 8) {
+                workspaceBackToolbarButton
+                workspaceTitleToolbarMenu
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
             toolbarTrailingCluster
+        }
+    }
+
+    private var workspaceTitleToolbarMenu: some View {
+        WorkspaceTitleMenu(
+            contentWidth: contentWidth,
+            hasBackButton: backButtonConfiguration != nil,
+            hasTrailingCluster: true,
+            hasChatToggle: shouldShowChatToggle,
+            isEnabled: hasTitleMenuActions,
+            menuContent: { titleMenuContent }
+        ) {
+            toolbarTitleLabel
         }
     }
 
