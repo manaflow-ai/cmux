@@ -1213,12 +1213,8 @@ extension Workspace {
             )
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoresRemoteWorkspaceTerminalSnapshot = remoteStartupCommand != nil && snapshot.terminal?.isRemoteTerminal != false
-            let restoresLocalTerminalInRemoteWorkspace = remoteStartupCommand != nil && snapshot.terminal?.isRemoteTerminal == false
             let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if restoresRemoteWorkspaceTerminalSnapshot {
                 effectiveResumeBindingForStartup?.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
-                    .map(SurfaceResumeStartupLaunch.input)
-            } else if restoresLocalTerminalInRemoteWorkspace {
-                effectiveResumeBindingForStartup?.startupInputWithLauncherScript(allowLauncherScript: false)
                     .map(SurfaceResumeStartupLaunch.input)
             } else {
                 effectiveResumeBindingForStartup.flatMap {
@@ -1263,6 +1259,33 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
             )
+            // cmux is itself resuming this agent session onto the restored surface.
+            // Some agents (codex) fire NO SessionStart hook on resume, and an
+            // `sr codex resume` bypasses the hook-injecting shim entirely, so
+            // record the (session, surface) binding from cmux's own authority
+            // instead of waiting for a hook that will not arrive; otherwise the
+            // chat registry keeps the stale pre-relaunch record (dead pid ->
+            // .ended) and the iOS GUI shows it read-only. The actual call is made
+            // AFTER the surface is created, keyed on the real `terminalPanel.id`
+            // (which differs from `snapshot.id` when a surface-id collision forces
+            // a fresh id on restore-into-live / duplicate-workspace). The
+            // (session id, agent source) comes from the restorable-agent snapshot
+            // when present, else from the agent-hook resume binding (most restores
+            // carry only the binding, whose `checkpointId` IS the agent session id).
+            let resumeReboundSession: (sessionID: String, source: String)? = {
+                if let restorableAgent {
+                    return (restorableAgent.sessionId, restorableAgent.kind.rawValue)
+                }
+                if let binding = resumeBinding,
+                   binding.isAgentHookBinding,
+                   let checkpoint = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !checkpoint.isEmpty,
+                   let bindingKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !bindingKind.isEmpty {
+                    return (checkpoint, bindingKind)
+                }
+                return nil
+            }()
             let restoredRemotePTYSessionID: String? = {
                 guard remoteConfiguration?.preserveAfterTerminalExit == true,
                       remoteConfiguration?.persistentDaemonSlot != nil else {
@@ -1360,6 +1383,27 @@ extension Workspace {
                 restoredSurfaceId: reusableSurfaceId
             ) else {
                 return nil
+            }
+            // Re-bind the resumed agent session from cmux's own authority, keyed
+            // on the surface that was actually created. `terminalPanel.id` equals
+            // `snapshot.id` on the normal path, but on a surface-id collision
+            // (restore-into-live / duplicate-workspace) `newTerminalSurface`
+            // minted a fresh id, so keying on `snapshot.id` would bind to a
+            // surface that does not exist and the GUI would never find the
+            // session. This is unconditional on whether cmux runs the resume
+            // command itself: a restored surface that CARRIES a resumable agent
+            // binding must flip its registry record to live/.idle so the iOS GUI
+            // is editable, even when auto-resume is off and the user resumes
+            // manually (e.g. `sr codex resume`). Recording .idle here is the safe
+            // direction per the spec — never invent `ended`.
+            if let resumeReboundSession {
+                AgentChatTranscriptService.recordResumeIntent(
+                    sessionID: resumeReboundSession.sessionID,
+                    source: resumeReboundSession.source,
+                    surfaceID: terminalPanel.id.uuidString,
+                    workspaceID: id.uuidString,
+                    workingDirectory: workingDirectory
+                )
             }
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
@@ -2217,6 +2261,34 @@ final class Workspace: Identifiable, ObservableObject {
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
 
+    /// Backing store for `dockSplit`, created on first access. Kept optional so
+    /// workspace teardown can tear down the Dock only when it was actually used
+    /// (and so reading it during teardown does not lazily create one).
+    private(set) var _dockSplit: DockSplitStore?
+
+    /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
+    /// terminal/browser panels, separate from the main-area `bonsplitController`.
+    /// Created on first access so workspaces that never open the Dock pay nothing.
+    var dockSplit: DockSplitStore {
+        if let existing = _dockSplit { return existing }
+        let store = DockSplitStore(
+            workspaceId: id,
+            baseDirectoryProvider: { [weak self] in self?.currentDirectory },
+            remoteBrowserSettingsProvider: { [weak self] in
+                guard let self else { return .local }
+                return DockRemoteBrowserSettings(
+                    proxyEndpoint: self.remoteProxyEndpoint,
+                    bypassRemoteProxy: false,
+                    isRemoteWorkspace: self.isRemoteWorkspace,
+                    remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
+                    remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
+                )
+            }
+        )
+        _dockSplit = store
+        return store
+    }
+
     /// How this workspace lays out its panels. Mutate through
     /// `setLayoutMode(_:)` (Workspace+CanvasLayout.swift) so canvas frames
     /// are seeded from the split layout on first entry.
@@ -2509,12 +2581,8 @@ final class Workspace: Identifiable, ObservableObject {
         get { surfaceRegistry.panelShellActivityStates }
         set { surfaceRegistry.panelShellActivityStates = newValue }
     }
-    /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
-    /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
-    var agentPIDs: [String: pid_t] = [:]
-    var agentPIDPanelIdsByKey: [String: UUID] = [:]
-    var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
-    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
+    /// Agent runtime maps that affect sidebar status visibility.
+    let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -2702,7 +2770,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Initialization
 
-    private static func currentSplitButtonTooltips() -> BonsplitConfiguration.SplitButtonTooltips {
+    static func currentSplitButtonTooltips() -> BonsplitConfiguration.SplitButtonTooltips {
         BonsplitConfiguration.SplitButtonTooltips(
             newTerminal: KeyboardShortcutSettings.Action.newSurface.tooltip("New Terminal"),
             newBrowser: KeyboardShortcutSettings.Action.openBrowser.tooltip("New Browser"),
@@ -3849,10 +3917,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func applyBrowserRemoteWorkspaceStatusToPanels() {
         let snapshot = browserRemoteWorkspaceStatusSnapshot()
-        for panel in panels.values {
-            guard let browserPanel = panel as? BrowserPanel else { continue }
-            browserPanel.setRemoteWorkspaceStatus(snapshot)
-        }
+        for panel in panels.values { (panel as? BrowserPanel)?.setRemoteWorkspaceStatus(snapshot) }
+        _dockSplit?.applyRemoteWorkspaceStatus(snapshot)
     }
 
     // MARK: - Panel Access
@@ -6613,9 +6679,9 @@ final class Workspace: Identifiable, ObservableObject {
     func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {
         remoteProxyEndpoint = endpoint
         for panel in panels.values {
-            guard let browserPanel = panel as? BrowserPanel else { continue }
-            browserPanel.setRemoteProxyEndpoint(endpoint)
+            (panel as? BrowserPanel)?.setRemoteProxyEndpoint(endpoint)
         }
+        _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
@@ -8539,6 +8605,9 @@ final class Workspace: Identifiable, ObservableObject {
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontPoints = nil
+        // Tear down the right-sidebar Dock's own panels (terminals/browsers) too,
+        // but only if the Dock was ever opened for this workspace.
+        _dockSplit?.closeAllPanels()
     }
 
     /// Close a panel.
@@ -9885,6 +9954,7 @@ final class Workspace: Identifiable, ObservableObject {
                 return true
             }
         }
+        if _dockSplit?.needsConfirmClose() == true { return true }
         return false
     }
 
@@ -10471,6 +10541,11 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        // Focus-exclusivity: when the right sidebar (Dock) owns input focus in this
+        // window, no main terminal should be (re)marked active even if it is still
+        // this workspace's focused panel — mirroring the SwiftUI `isFocused` gate so
+        // a layout reconcile cannot steal focus back from the sidebar.
+        let rightSidebarOwnsFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
         var didChange = agentHibernationAutoResumePresentationVisible
             ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
             : false
@@ -10486,7 +10561,7 @@ final class Workspace: Identifiable, ObservableObject {
                 terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
                 didChange = true
             }
-            let shouldBeActive = shouldBeVisible && focusedPanelId == terminalPanel.id
+            let shouldBeActive = shouldBeVisible && focusedPanelId == terminalPanel.id && !rightSidebarOwnsFocus
             if terminalPanel.hostedView.debugPortalActive != shouldBeActive {
                 terminalPanel.hostedView.setActive(shouldBeActive)
                 didChange = true

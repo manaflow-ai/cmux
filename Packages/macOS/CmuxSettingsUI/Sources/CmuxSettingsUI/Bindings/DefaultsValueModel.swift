@@ -12,7 +12,7 @@ import Observation
 /// 1. On construction it seeds ``current`` from the synchronous
 ///    `UserDefaults` value, but does not subscribe yet. ``startObserving()``
 ///    subscribes to
-///    ``UserDefaultsSettingsStore/values(for:)`` once the owning SwiftUI view
+///    ``UserDefaultsSettingsStore/valueEvents(for:)`` once the owning SwiftUI view
 ///    is mounted. That stream is `.bufferingNewest(1)`, so a burst of writes
 ///    (e.g. a `ColorPicker` drag) coalesces to the latest value instead of
 ///    replaying every intermediate back through ``current``.
@@ -34,14 +34,23 @@ import Observation
 public final class DefaultsValueModel<Value: SettingCodable> {
     /// The most recently observed value. SwiftUI views read this synchronously.
     public private(set) var current: Value
+    private(set) var revision = 0
 
     private let store: UserDefaultsSettingsStore
     private let key: DefaultsKey<Value>
-    @ObservationIgnored private let makeStream: () -> AsyncStream<Value>
+    private let initialStoreValue: Value
+    @ObservationIgnored private let makeStream:
+        @MainActor @Sendable (Set<UserDefaultsSettingsMutationSource>) async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
+    @ObservationIgnored private var pendingStoreEchoes: [(source: UserDefaultsSettingsMutationSource, value: Value)] = []
+    @ObservationIgnored private let maximumPendingStoreEchoes = 16
+    @ObservationIgnored private let mutationOwnerID = UUID()
+    @ObservationIgnored private var nextMutationSequence: UInt64 = 0
+    @ObservationIgnored private var minimumRetainedMutationSequence: UInt64 = 1
+    @ObservationIgnored private var hasObservedInitialStoreEvent = false
 
     /// Owns the change-stream subscription and cancels it when this model
     /// deallocates.
-    @ObservationIgnored private let observation = SettingReadDriver<Value>()
+    @ObservationIgnored private let observation = SettingReadDriver<UserDefaultsSettingsValueEvent<Value>>()
 
     /// Creates a model bound to ``key`` in ``store``.
     ///
@@ -53,7 +62,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
             store: store,
             key: key,
             initialValue: store.initialValue(for: key),
-            makeStream: { store.values(for: key) }
+            makeStream: { sources in await store.valueEvents(for: key, includingSources: sources) }
         )
     }
 
@@ -62,7 +71,8 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// The `makeStream` seam lets tests drive the observation with a stream
     /// whose teardown they can observe, proving the model cancels its
     /// observation on deallocation. Production code uses the public
-    /// `init(store:key:)`, which wires `makeStream` to the store.
+    /// `init(store:key:)`, which wires `makeStream` to the store's actor-isolated
+    /// source-tagged event stream.
     ///
     /// - Parameters:
     ///   - store: The UserDefaults store used for writes (`set`/`reset`).
@@ -72,7 +82,9 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         store: UserDefaultsSettingsStore,
         key: DefaultsKey<Value>,
         initialValue: Value? = nil,
-        makeStream: @escaping () -> AsyncStream<Value>
+        makeStream: @escaping @MainActor @Sendable (
+            Set<UserDefaultsSettingsMutationSource>
+        ) async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
     ) {
         self.store = store
         self.key = key
@@ -80,7 +92,9 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         // Keep init side-effect-light. SwiftUI may evaluate
         // `State(initialValue:)` for throwaway view values during layout, so
         // observing starts only after the retained view appears.
-        self.current = initialValue ?? key.defaultValue
+        let resolvedInitialValue = initialValue ?? key.defaultValue
+        self.initialStoreValue = resolvedInitialValue
+        self.current = resolvedInitialValue
     }
 
     /// Starts the settings change stream for the retained model.
@@ -89,8 +103,15 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// ignored by ``SettingReadDriver``. Views should call this from a mounted
     /// lifecycle hook such as `.task`, not from their initializer.
     public func startObserving() {
-        observation.activate(makeStream) { [weak self] value in
-            self?.current = value
+        let makeStream = self.makeStream
+        observation.activateAsync({ [weak self] in
+            guard let self else {
+                return AsyncStream { continuation in continuation.finish() }
+            }
+            let pendingSources = Set(self.pendingStoreEchoes.map(\.source))
+            return await makeStream(pendingSources)
+        }) { [weak self] value in
+            self?.acceptObservedValue(value)
         }
     }
 
@@ -99,11 +120,18 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// optimistically before the async storage write. Synchronous because
     /// SwiftUI `Binding` setters can't `await`; the write itself runs in a
     /// fire-and-forget `Task`.
-    public func set(_ value: Value) {
-        current = value
-        Task { [store, key] in
-            await store.set(value, for: key)
+    @discardableResult
+    public func set(_ value: Value) -> UserDefaultsSettingsMutationSource {
+        let source = recordPendingStoreEcho(value)
+        updateCurrent(value)
+        Task { @MainActor [self, store, key, source, value] in
+            guard await store.set(value, for: key, source: source) != nil else {
+                let committedValue = await store.value(for: key)
+                reconcileRejectedStoreWrite(source: source, committedValue: committedValue)
+                return
+            }
         }
+        return source
     }
 
     /// Persists the value, then runs `afterCommit` after storage accepts it.
@@ -116,12 +144,22 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     ///   - value: The new value to persist.
     ///   - afterCommit: Main-actor work to run after ``UserDefaultsSettingsStore``
     ///     has completed the write.
-    public func set(_ value: Value, afterCommit: @escaping @MainActor @Sendable () -> Void) {
-        current = value
-        Task { [store, key, afterCommit] in
-            await store.set(value, for: key)
-            await afterCommit()
+    @discardableResult
+    public func set(
+        _ value: Value,
+        afterCommit: @escaping @MainActor @Sendable () -> Void
+    ) -> UserDefaultsSettingsMutationSource {
+        let source = recordPendingStoreEcho(value)
+        updateCurrent(value)
+        Task { @MainActor [self, store, key, source, value, afterCommit] in
+            guard await store.set(value, for: key, source: source) != nil else {
+                let committedValue = await store.value(for: key)
+                reconcileRejectedStoreWrite(source: source, committedValue: committedValue)
+                return
+            }
+            afterCommit()
         }
+        return source
     }
 
     /// Updates ``current`` after another owner has already persisted `value`.
@@ -130,15 +168,140 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// and must stay in one host-owned mutation path. Unlike ``set(_:)``, this
     /// method does not write to ``store``.
     public func acceptCommittedValue(_ value: Value) {
-        current = value
+        clearPendingStoreEchoes()
+        updateCurrent(value)
     }
 
-    /// Removes the override; ``current`` updates when the stream observes
-    /// the reset.
-    public func reset() {
-        current = key.defaultValue
-        Task { [store, key] in
-            await store.reset(key)
+    /// Removes the override and updates ``current`` optimistically while the
+    /// async store write is in flight.
+    @discardableResult
+    public func reset() -> UserDefaultsSettingsMutationSource {
+        let defaultValue = key.defaultValue
+        let source = recordPendingStoreEcho(defaultValue)
+        updateCurrent(defaultValue)
+        Task { @MainActor [self, store, key, source] in
+            guard await store.reset(key, source: source) != nil else {
+                let committedValue = await store.value(for: key)
+                reconcileRejectedStoreWrite(source: source, committedValue: committedValue)
+                return
+            }
+        }
+        return source
+    }
+
+    private func acceptObservedValue(_ event: UserDefaultsSettingsValueEvent<Value>) {
+        let isInitialStoreEvent = !hasObservedInitialStoreEvent
+        hasObservedInitialStoreEvent = true
+
+        let echoConsumption = consumePendingStoreEcho(source: event.mutationSource, value: event.value)
+        if echoConsumption.consumed {
+            if echoConsumption.shouldUpdateCurrent {
+                updateCurrent(event.value)
+            }
+            return
+        }
+        if isInitialStoreEvent,
+           event.isInitialSnapshot,
+           event.mutationSource == nil,
+           event.supersededMutationSource == nil,
+           !pendingStoreEchoes.isEmpty,
+           event.value == initialStoreValue {
+            return
+        }
+        if consumeSupersededPendingStoreEchoes(sources: event.supersededMutationSources) {
+            return
+        }
+        updateCurrent(event.value)
+    }
+
+    private func updateCurrent(_ value: Value) {
+        current = value
+        revision &+= 1
+    }
+
+    private func recordPendingStoreEcho(_ value: Value) -> UserDefaultsSettingsMutationSource {
+        nextMutationSequence &+= 1
+        let source = UserDefaultsSettingsMutationSource(
+            ownerID: mutationOwnerID,
+            sequence: nextMutationSequence
+        )
+        pendingStoreEchoes.append((source, value))
+        let overflow = pendingStoreEchoes.count - maximumPendingStoreEchoes
+        if overflow > 0 {
+            if let lastRemoved = pendingStoreEchoes.prefix(overflow).last {
+                markLocalEchoesConsumed(through: lastRemoved.source.sequence)
+            }
+            pendingStoreEchoes.removeFirst(overflow)
+        }
+        return source
+    }
+
+    private func consumePendingStoreEcho(
+        source: UserDefaultsSettingsMutationSource?,
+        value: Value
+    ) -> (consumed: Bool, shouldUpdateCurrent: Bool) {
+        guard let source, source.ownerID == mutationOwnerID else {
+            return (false, false)
+        }
+
+        guard let matchingIndex = pendingStoreEchoes.firstIndex(where: { $0.source == source && $0.value == value }) else {
+            return (source.sequence < minimumRetainedMutationSequence, false)
+        }
+
+        let hasNewerPendingEcho = matchingIndex < pendingStoreEchoes.index(before: pendingStoreEchoes.endIndex)
+        markLocalEchoesConsumed(through: source.sequence)
+        pendingStoreEchoes.removeFirst(matchingIndex + 1)
+        return (true, !hasNewerPendingEcho && current != value)
+    }
+
+    private func consumeSupersededPendingStoreEchoes(
+        sources: [UserDefaultsSettingsMutationSource]
+    ) -> Bool {
+        var consumedSource = false
+        for source in sources where source.ownerID == mutationOwnerID {
+            consumedSource = consumeSupersededPendingStoreEcho(source: source) || consumedSource
+        }
+        return consumedSource && !pendingStoreEchoes.isEmpty
+    }
+
+    private func consumeSupersededPendingStoreEcho(source: UserDefaultsSettingsMutationSource) -> Bool {
+        if let matchingIndex = pendingStoreEchoes.firstIndex(where: { $0.source == source }) {
+            markLocalEchoesConsumed(through: source.sequence)
+            pendingStoreEchoes.removeFirst(matchingIndex + 1)
+            return true
+        } else if source.sequence < minimumRetainedMutationSequence {
+            return true
+        }
+
+        return false
+    }
+
+    private func reconcileRejectedStoreWrite(
+        source: UserDefaultsSettingsMutationSource,
+        committedValue: Value
+    ) {
+        guard let matchingIndex = pendingStoreEchoes.firstIndex(where: { $0.source == source }) else {
+            return
+        }
+        guard matchingIndex == pendingStoreEchoes.index(before: pendingStoreEchoes.endIndex) else {
+            return
+        }
+
+        markLocalEchoesConsumed(through: source.sequence)
+        pendingStoreEchoes.removeFirst(matchingIndex + 1)
+        updateCurrent(committedValue)
+    }
+
+    private func clearPendingStoreEchoes() {
+        if let newestPendingSource = pendingStoreEchoes.last?.source {
+            markLocalEchoesConsumed(through: newestPendingSource.sequence)
+        }
+        pendingStoreEchoes.removeAll()
+    }
+
+    private func markLocalEchoesConsumed(through sequence: UInt64) {
+        if sequence >= minimumRetainedMutationSequence {
+            minimumRetainedMutationSequence = sequence == UInt64.max ? UInt64.max : sequence + 1
         }
     }
 }

@@ -80,10 +80,13 @@ struct DeviceTreeView: View {
                                 confirmRemove: { _ in confirmComputerRemoval() }
                             )
                         }
+                        if showAddDevice != nil {
+                            addComputerRow
+                        }
                     } footer: {
                         Text(L10n.string(
                             "mobile.computers.footer",
-                            defaultValue: "The Macs signed in to your account. Use the workspace title picker to focus one Mac or show All Macs."
+                            defaultValue: "The computers signed in to your account. Use the workspace title picker to focus one computer or show All Computers."
                         ))
                     }
                 }
@@ -97,10 +100,7 @@ struct DeviceTreeView: View {
             .toolbar {
                 if showAddDevice != nil {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            showAddDevice?()
-                            dismiss()
-                        } label: {
+                        Button(action: addComputer) {
                             Image(systemName: "plus")
                         }
                         .accessibilityLabel(L10n.string("mobile.computers.add", defaultValue: "Add Computer"))
@@ -132,6 +132,26 @@ struct DeviceTreeView: View {
             }
         }
         .accessibilityIdentifier("MobileDeviceTree")
+    }
+
+    /// End-of-list affordance mirroring the top-left toolbar button, so users who
+    /// scroll past their Macs can add another without scrolling back up. Same
+    /// action path (`addComputer`) as the toolbar button.
+    private var addComputerRow: some View {
+        Button(action: addComputer) {
+            Label(
+                L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                systemImage: "plus"
+            )
+        }
+        .accessibilityIdentifier("MobileComputersAddRow")
+    }
+
+    /// Present the add-device (pairing) flow, then dismiss this screen. Shared by
+    /// the top-left toolbar button and the end-of-list row.
+    private func addComputer() {
+        showAddDevice?()
+        dismiss()
     }
 
     @ViewBuilder
