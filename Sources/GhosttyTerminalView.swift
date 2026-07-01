@@ -3093,9 +3093,10 @@ class GhosttyApp {
             // file URL, remote workspace, unreadable file, split creation
             // failure) falls through to the existing NSWorkspace path below so
             // URL semantics are preserved.
-            let fileURLHost = target.url.host
-            if target.url.isFileURL,
-               fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost" {
+            if TerminalOpenURLFileRoutingPolicy().shouldAttemptCmuxFileRouting(
+                rawOpenURLValue: normalizedOpenURLString,
+                target: target
+            ) {
                 let fileURL = target.url
                 let routed: Bool = performOnMain {
                     guard let termSurface = surfaceView.terminalSurface,
