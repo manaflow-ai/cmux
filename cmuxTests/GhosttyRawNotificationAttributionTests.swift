@@ -9,24 +9,17 @@ import Testing
 
 @Suite("Ghostty raw notification attribution")
 struct GhosttyRawNotificationAttributionTests {
-    @Test("Surface-less notifications are not attributed to the active workspace")
-    func surfacelessNotificationIsNotAttributedToActiveWorkspace() {
-        let activeWorkspace = UUID()
+    @Test("Surface-less notifications are not attributed to any workspace")
+    func surfacelessNotificationRecordsNothing() {
         #expect(
-            GhosttyApp.rawNotificationRecordingTabId(surfaceTabId: nil, activeTabId: activeWorkspace) == nil,
-            "A surface-less (app-target) notification has no known origin and must not fall back to the active workspace."
+            GhosttyApp.rawNotificationRecordingTabId(surfaceTabId: nil) == nil,
+            "A surface-less (app-target) notification has no known origin and must record nothing."
         )
     }
 
     @Test("Surface notifications are attributed to the emitting workspace")
     func surfaceNotificationIsAttributedToEmittingWorkspace() {
         let emittingWorkspace = UUID()
-        let activeWorkspace = UUID()
-        #expect(
-            GhosttyApp.rawNotificationRecordingTabId(
-                surfaceTabId: emittingWorkspace,
-                activeTabId: activeWorkspace
-            ) == emittingWorkspace
-        )
+        #expect(GhosttyApp.rawNotificationRecordingTabId(surfaceTabId: emittingWorkspace) == emittingWorkspace)
     }
 }
