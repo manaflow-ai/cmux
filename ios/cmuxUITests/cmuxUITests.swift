@@ -302,6 +302,28 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testBottomScrollStaysPinnedAcrossComposerViewportShrink() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_BOTTOM_SCROLL_STRESS": "1",
+        ])
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+
+        let dock = waitForDock(in: app, timeout: 8, describe: "bottom scroll stress completed") {
+            $0["bottomStressPhase"] == "done"
+        }
+        XCTAssertEqual(
+            dock["scrollAtBottom"],
+            "1",
+            "Harness must start from Ghostty-confirmed scrollback bottom before checking viewport anchoring. dock=\(dock)"
+        )
+        XCTAssertEqual(
+            dock["staleViewportObserved"],
+            "0",
+            "Bottom-scrolled terminal render used a stale taller viewport during composer/keyboard shrink. dock=\(dock)"
+        )
+    }
+
+    @MainActor
     func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()

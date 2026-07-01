@@ -393,6 +393,16 @@ public final class GhosttyRuntime {
         if action.tag == GHOSTTY_ACTION_SCROLLBAR {
             let sb = action.action.scrollbar
             MobileDebugLog.anchormux("scroll.bar total=\(sb.total) offset=\(sb.offset) len=\(sb.len)")
+            guard target.tag == GHOSTTY_TARGET_SURFACE,
+                  let surface = target.target.surface else { return true }
+            Task { @MainActor in
+                GhosttySurfaceView.updateScrollbarForTesting(
+                    total: Int(sb.total),
+                    offset: Int(sb.offset),
+                    len: Int(sb.len),
+                    for: surface
+                )
+            }
             return true
         }
         #endif

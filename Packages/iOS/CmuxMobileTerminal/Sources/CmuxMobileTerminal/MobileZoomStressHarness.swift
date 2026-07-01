@@ -139,4 +139,123 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
         }
     }
 }
+
+/// Local repro harness for the bottom-scroll viewport-shrink bug. It mounts the
+/// real terminal surface, fills scrollback, forces the viewport to bottom, then
+/// applies the same composer + keyboard reservation transition that showed up
+/// in dogfood logs as `container=402x333` with `renderRect=402x333@300`.
+///
+/// Enable with `CMUX_BOTTOM_SCROLL_STRESS=1`; DEBUG-only.
+public struct MobileBottomScrollStressView: View {
+    public init() {}
+
+    public var body: some View {
+        BottomScrollStressRepresentable()
+            .ignoresSafeArea()
+            .background(Color.black)
+    }
+}
+
+private struct BottomScrollStressRepresentable: UIViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        guard let runtime = try? GhosttyRuntime.shared() else {
+            let label = UILabel()
+            label.text = "BottomScrollStress: runtime init failed"
+            label.textColor = .white
+            return label
+        }
+        let view = GhosttySurfaceView(runtime: runtime, delegate: context.coordinator, fontSize: 10)
+        context.coordinator.surfaceView = view
+        context.coordinator.start()
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
+        weak var surfaceView: GhosttySurfaceView?
+        private var task: Task<Void, Never>?
+
+        func start() {
+            task = Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.runScenario()
+            }
+        }
+
+        func stop() {
+            task?.cancel()
+            task = nil
+        }
+
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
+
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
+            guard size.columns > 0, size.rows > 0 else { return }
+            surfaceView.applyViewSize(cols: size.columns, rows: size.rows)
+        }
+
+        private func runScenario() async {
+            guard let view = surfaceView else { return }
+            view.debugSetBottomScrollStressPhase("mount")
+            guard await waitForMountedSurface(view) else { return }
+
+            view.debugSetBottomScrollStressPhase("seed")
+            var text = ""
+            for i in 1...260 {
+                text += String(format: "bottom-scroll-repro line %03d\r\n", i)
+            }
+            _ = await view.processOutputAndWait(Data(text.utf8))
+
+            view.debugSetBottomScrollStressPhase("bottom")
+            view.debugScrollToBottomForTesting()
+            _ = await waitUntil(timeoutNanoseconds: 2_000_000_000) {
+                view.debugIsBottomScrollStressAtBottom
+            }
+
+            let composer = UIView()
+            composer.backgroundColor = .clear
+            view.mountComposerView(composer)
+            view.setComposerActive(true)
+
+            view.debugSetBottomScrollStressPhase("shrink")
+            view.setComposerBandHeight(300, animated: false)
+            view.debugSetKeyboardHeightForLayoutPreview(300)
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+
+            _ = await waitUntil(timeoutNanoseconds: 2_000_000_000) {
+                let probe = view.composerDockProbeValue
+                return probe.contains("staleViewportObserved=1")
+            }
+            view.debugSetBottomScrollStressPhase("done")
+        }
+
+        private func waitForMountedSurface(_ view: GhosttySurfaceView) async -> Bool {
+            await waitUntil(timeoutNanoseconds: 2_000_000_000) {
+                view.window != nil && view.bounds.width > 100 && view.bounds.height > 100 && view.surface != nil
+            }
+        }
+
+        private func waitUntil(
+            timeoutNanoseconds: UInt64,
+            _ predicate: @MainActor @escaping () -> Bool
+        ) async -> Bool {
+            let deadline = ContinuousClock.now + .nanoseconds(Int(timeoutNanoseconds))
+            while ContinuousClock.now < deadline {
+                if Task.isCancelled { return false }
+                if predicate() { return true }
+                try? await Task.sleep(nanoseconds: 20_000_000)
+            }
+            return predicate()
+        }
+    }
+}
 #endif

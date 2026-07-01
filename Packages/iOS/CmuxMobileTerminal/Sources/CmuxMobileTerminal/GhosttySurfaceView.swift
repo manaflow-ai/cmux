@@ -747,6 +747,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// compose-button tap.
     fileprivate var lastComposerDockIntent: ComposerDockIntent?
 
+    fileprivate struct DebugScrollbarSnapshot {
+        let total: Int
+        let offset: Int
+        let len: Int
+    }
+
+    fileprivate var debugLastScrollbar: DebugScrollbarSnapshot?
+    fileprivate var debugBottomScrollStressPhase = "idle"
+    fileprivate var debugBottomViewportMismatchObserved = false
+
     /// The live `key=value;…` description of the bottom dock, read by
     /// ``ComposerDockProbeView`` on every accessibility query. `fieldFocused` is the
     /// SAME ``composerFieldIsFirstResponder`` walk the reducer reads, so the probe and
@@ -778,7 +788,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "surfaceMinXInWindow=\(surfaceMinXInWindow)",
             "toolbarOriginX=\(toolbarOriginX)",
             "lastIntent=\(intent)",
+            "bottomStressPhase=\(debugBottomScrollStressPhase)",
             "viewportHeight=\(Int(terminalViewportHeight))",
+            "targetViewportHeight=\(Int(targetTerminalViewportHeight))",
             "renderMinY=\(Int(lastRenderRect.minY))",
             "renderMaxY=\(Int(lastRenderRect.maxY))",
             // Rendered terminal height vs the surface bounds, so a UI test can
@@ -788,8 +800,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // full height; the test compares the gap, not equality.
             "renderHeight=\(Int(lastRenderRect.height))",
             "boundsHeight=\(Int(bounds.height))",
+            "scrollTotal=\(debugLastScrollbar?.total ?? -1)",
+            "scrollOffset=\(debugLastScrollbar?.offset ?? -1)",
+            "scrollLen=\(debugLastScrollbar?.len ?? -1)",
+            "scrollAtBottom=\(debugScrollbarAtBottomForTesting ? 1 : 0)",
+            "staleViewportObserved=\(debugBottomViewportMismatchObserved ? 1 : 0)",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
+    }
+
+    private var debugScrollbarAtBottomForTesting: Bool {
+        guard let snapshot = debugLastScrollbar else { return false }
+        return snapshot.total > snapshot.len
+            && snapshot.offset >= max(0, snapshot.total - snapshot.len - 1)
     }
     #endif
     private let snapshotFallbackView: UITextView = {
@@ -1472,6 +1495,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let renderRect = renderRectPinnedToCurrentViewport(size: lastRenderRect.size)
         guard renderRect != lastRenderRect else { return }
         lastRenderRect = renderRect
+        #if DEBUG
+        debugRecordBottomViewportMismatchIfNeeded()
+        #endif
         syncRendererLayerFrame(scale: preferredScreenScale, renderRect: renderRect)
         updateLetterboxBorder(
             renderRect: renderRect,
@@ -2200,6 +2226,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// hammer the zoom path and reproduce the fast-zoom crash locally.
     func debugStressZoomStep(_ direction: TerminalFontZoomDirection) {
         performFontZoom(direction)
+    }
+
+    public func debugSetBottomScrollStressPhase(_ phase: String) {
+        debugBottomScrollStressPhase = phase
+    }
+
+    public var debugIsBottomScrollStressAtBottom: Bool {
+        debugScrollbarAtBottomForTesting
+    }
+
+    public func debugScrollToBottomForTesting() {
+        guard let surface else { return }
+        let action = "scroll_to_bottom"
+        outputQueue.async {
+            action.withCString { pointer in
+                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+            }
+        }
+    }
+
+    @MainActor
+    static func updateScrollbarForTesting(total: Int, offset: Int, len: Int, for surface: ghostty_surface_t) {
+        view(for: surface)?.debugLastScrollbar = DebugScrollbarSnapshot(
+            total: total,
+            offset: offset,
+            len: len
+        )
+    }
+
+    private func debugRecordBottomViewportMismatchIfNeeded() {
+        guard debugScrollbarAtBottomForTesting else { return }
+        let targetHeight = targetTerminalViewportHeight
+        let liveHeight = terminalViewportHeight
+        guard liveHeight > targetHeight + 1,
+              lastRenderRect.height <= targetHeight + 1,
+              lastRenderRect.minY > 1 else { return }
+        debugBottomViewportMismatchObserved = true
     }
     #endif
 
@@ -3652,6 +3715,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ?? CGRect(origin: .zero, size: naturalRenderSize)
         let renderRect = renderRectPinnedToCurrentViewport(size: measuredRenderRect.size)
         lastRenderRect = renderRect
+        #if DEBUG
+        debugRecordBottomViewportMismatchIfNeeded()
+        #endif
         // Re-seat the whole bottom dock after geometry readback so any composer
         // or safe-area changes that landed while the async resize was running are
         // reflected with the same viewport edge used by the render layer.
