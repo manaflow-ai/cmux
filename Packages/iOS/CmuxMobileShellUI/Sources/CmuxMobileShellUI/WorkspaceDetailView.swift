@@ -107,7 +107,17 @@ struct WorkspaceDetailView: View {
                 await runWarmChatConversation()
             }
             .onChange(of: selectedTerminalID) { _, _ in
+                MobileDebugLog.anchormux("toolbar.detail.selectedTerminal \(debugToolbarSignature)")
                 refreshCachedChatToggleAnchor()
+            }
+            .onChange(of: debugToolbarSignature) { _, signature in
+                MobileDebugLog.anchormux("toolbar.detail.change \(signature)")
+            }
+            .onAppear {
+                MobileDebugLog.anchormux("toolbar.detail.appear \(debugToolbarSignature)")
+            }
+            .onDisappear {
+                MobileDebugLog.anchormux("toolbar.detail.disappear \(debugToolbarSignature)")
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
@@ -165,6 +175,20 @@ struct WorkspaceDetailView: View {
         ) {
             toolbarTitleLabel
         }
+    }
+
+    private var debugToolbarSignature: String {
+        [
+            "workspace=\(workspace.id.rawValue)",
+            "selected=\(store.selectedWorkspaceID?.rawValue ?? "nil")",
+            "selectedTerminal=\(selectedTerminalID ?? "nil")",
+            "terminals=\(workspace.terminals.map(\.id.rawValue).joined(separator: ","))",
+            "back=\(backButtonConfiguration != nil)",
+            "titleActions=\(hasTitleMenuActions)",
+            "chatToggle=\(shouldShowChatToggle)",
+            "browser=\(activeBrowser?.id.rawValue ?? "nil")",
+            "width=\(Int(contentWidth))",
+        ].joined(separator: " ")
     }
 
     @ViewBuilder
