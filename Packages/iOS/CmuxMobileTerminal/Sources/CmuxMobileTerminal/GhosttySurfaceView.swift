@@ -2201,6 +2201,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func debugStressZoomStep(_ direction: TerminalFontZoomDirection) {
         performFontZoom(direction)
     }
+
     #endif
 
     required init?(coder: NSCoder) {

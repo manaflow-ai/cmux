@@ -26,6 +26,186 @@ public struct MobileZoomStressView: View {
     }
 }
 
+/// Simulator/XCUITest repro harness for the reported scroll freeze:
+/// scrolling still reaches the Mac-side delegate, while a local visible
+/// terminal snapshot times out as render-busy because OSC-heavy output fills the
+/// Ghostty app/surface mailbox and blocks the local output queue.
+///
+/// Enable with `CMUX_SCROLL_FREEZE_STRESS=1`; see `CMUXMobileRootScene`.
+public struct MobileScrollFreezeStressView: View {
+    public init() {}
+
+    public var body: some View {
+        ScrollFreezeStressRepresentable()
+            .ignoresSafeArea()
+            .background(Color.black)
+    }
+}
+
+private struct ScrollFreezeStressRepresentable: UIViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        guard let runtime = try? GhosttyRuntime.shared() else {
+            let label = UILabel()
+            label.text = "ScrollFreeze: runtime init failed"
+            label.textColor = .white
+            return label
+        }
+
+        let surface = GhosttySurfaceView(runtime: runtime, delegate: context.coordinator, fontSize: 12)
+        let probe = UILabel()
+        probe.isAccessibilityElement = true
+        probe.accessibilityIdentifier = "MobileScrollFreezeProbe"
+        probe.accessibilityValue = context.coordinator.probeValue
+        probe.textColor = .clear
+        probe.backgroundColor = .clear
+        probe.isUserInteractionEnabled = false
+
+        let armButton = UIButton(type: .system)
+        armButton.setTitle("Arm", for: .normal)
+        armButton.accessibilityIdentifier = "MobileScrollFreezeArmButton"
+        armButton.addAction(UIAction { [weak coordinator = context.coordinator] _ in
+            coordinator?.armRenderBusyProbe()
+        }, for: .touchUpInside)
+
+        let container = ScrollFreezeContainerView(surface: surface, probe: probe, armButton: armButton)
+        context.coordinator.surfaceView = surface
+        context.coordinator.probe = probe
+        context.coordinator.start()
+        return container
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
+        weak var surfaceView: GhosttySurfaceView?
+        weak var probe: UILabel?
+        private var byteTimer: Timer?
+        private var lineCounter = 0
+        private var scrollEventCount = 0
+        private var snapshotState = "idle"
+
+        var probeValue: String {
+            [
+                "scrollEvents=\(scrollEventCount)",
+                "snapshot=\(snapshotState)",
+            ].joined(separator: ";")
+        }
+
+        func start() {
+            // Prime the surface with real Ghostty output and keep it live while
+            // the test performs a real XCUITest swipe.
+            // lint:allow timer — DEBUG-only XCUITest repro harness. The fixed
+            // cadence is the synthetic Mac output stream under test.
+            byteTimer = Timer.scheduledTimer(withTimeInterval: 0.01, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let view = self.surfaceView else { return }
+                    self.lineCounter += 1
+                    let line = "scroll-freeze line \(self.lineCounter) \(String(repeating: "x", count: 80))\r\n"
+                    view.processOutput(Data(line.utf8))
+                    if self.lineCounter > 500 {
+                        self.byteTimer?.invalidate()
+                        self.byteTimer = nil
+                    }
+                }
+            }
+            updateProbe()
+        }
+
+        func stop() {
+            GhosttyRuntime.setAppTickSuspendedForTesting(false)
+            byteTimer?.invalidate()
+            byteTimer = nil
+        }
+
+        func armRenderBusyProbe() {
+            guard let view = surfaceView else { return }
+            snapshotState = "pending"
+            updateProbe()
+            GhosttyRuntime.setAppTickSuspendedForTesting(true)
+            view.processOutput(Self.surfaceMailboxBurst())
+            Task { @MainActor [weak self] in
+                let snapshot = await GhosttySurfaceView.visibleTerminalSnapshot()
+                guard let self else { return }
+                self.snapshotState = snapshot.contains("render busy") ? "busy" : "ok"
+                GhosttyRuntime.setAppTickSuspendedForTesting(false)
+                self.updateProbe()
+            }
+        }
+
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
+
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {
+            scrollEventCount += 1
+            updateProbe()
+        }
+
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
+            guard size.columns > 0, size.rows > 0 else { return }
+            let cols = max(1, size.columns - 3)
+            let rows = max(1, size.rows - 3)
+            Task { @MainActor [weak surfaceView] in
+                surfaceView?.applyViewSize(cols: cols, rows: rows)
+            }
+        }
+
+        private func updateProbe() {
+            probe?.accessibilityValue = probeValue
+        }
+
+        /// OSC-heavy output that routes through Ghostty's `surfaceMessageWriter`
+        /// into the app/surface mailbox. With app ticks suspended this fills the
+        /// 64-entry app mailbox and, before the fix, blocks `process_output` on
+        /// the first fallback `.forever` push.
+        private static func surfaceMailboxBurst() -> Data {
+            var s = ""
+            let cwd = "\u{1b}]7;file://mac/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-ios-scroll-freeze-repro\u{07}"
+            for i in 0..<160 {
+                s += "\u{1b}]0;scroll-freeze-\(i)\u{07}"
+                s += cwd
+                s += "\u{1b}]11;rgb:1d/1f/21\u{07}"
+                s += "\u{1b}]133;A\u{07}\u{1b}]133;B\u{07}"
+            }
+            s += "\r\nscroll-freeze mailbox burst complete\r\n"
+            return Data(s.utf8)
+        }
+    }
+}
+
+private final class ScrollFreezeContainerView: UIView {
+    private let surface: UIView
+    private let probe: UIView
+    private let armButton: UIButton
+
+    init(surface: UIView, probe: UIView, armButton: UIButton) {
+        self.surface = surface
+        self.probe = probe
+        self.armButton = armButton
+        super.init(frame: .zero)
+        backgroundColor = .black
+        addSubview(surface)
+        addSubview(probe)
+        addSubview(armButton)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        surface.frame = bounds
+        probe.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        armButton.frame = CGRect(x: 8, y: max(8, safeAreaInsets.top + 4), width: 56, height: 36)
+    }
+}
+
 private struct ZoomStressRepresentable: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
