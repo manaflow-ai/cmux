@@ -746,6 +746,25 @@ cmux_computer_use_json_escape() {
     printf '%s' "$value"
 }
 
+# A real codex install must exist for the computer-use engine. cmux's own
+# per-surface `codex` shim is on PATH in every cmux terminal, so a plain
+# `command -v codex` would always succeed; skip cmux shim dirs like the shims
+# themselves do when they fall back to the real binary.
+cmux_computer_use_codex_available() {
+    [[ -x "/Applications/Codex.app/Contents/Resources/codex" ]] && return 0
+    local dir
+    local IFS=:
+    for dir in $PATH; do
+        case "$dir" in
+            "${CMUX_CODEX_WRAPPER_SHIM_ROOT:-}"|"${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"|*/cmux-cli-shims/*|*/cmux-cli-shims)
+                continue
+                ;;
+        esac
+        [[ -n "$dir" && -x "$dir/codex" ]] && return 0
+    done
+    return 1
+}
+
 cmux_computer_use_mcp_config() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     local arg
@@ -760,10 +779,7 @@ cmux_computer_use_mcp_config() {
     done
     command -v node >/dev/null 2>&1 || return 1
     [[ -f "${CODEX_HOME:-$HOME/.codex}/auth.json" ]] || return 1
-    if ! command -v codex >/dev/null 2>&1 &&
-        [[ ! -x "/Applications/Codex.app/Contents/Resources/codex" ]]; then
-        return 1
-    fi
+    cmux_computer_use_codex_available || return 1
     local self_dir candidate
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
     for candidate in \

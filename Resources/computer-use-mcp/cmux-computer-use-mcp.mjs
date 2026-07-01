@@ -48,6 +48,18 @@ async function isExecutable(path) {
   }
 }
 
+// cmux prepends a per-surface shim dir to PATH whose `codex` entry re-execs
+// cmux's codex wrapper (for hook injection). That shim is not a codex install
+// signal and must never be spawned as the app-server binary.
+function isCmuxShimDir(dir) {
+  const normalized = dir.replace(/\/+$/, "");
+  for (const key of ["CMUX_CODEX_WRAPPER_SHIM_ROOT", "CMUX_CLAUDE_WRAPPER_SHIM_ROOT"]) {
+    const root = (process.env[key] || "").replace(/\/+$/, "");
+    if (root && normalized === root) return true;
+  }
+  return /(^|\/)cmux-cli-shims(\/|$)/.test(normalized);
+}
+
 async function resolveCodexBinary() {
   const override = (process.env.CMUX_CU_CODEX || "").trim();
   if (override) {
@@ -55,7 +67,7 @@ async function resolveCodexBinary() {
     throw new Error(`CMUX_CU_CODEX is set but not executable: ${override}`);
   }
   for (const dir of (process.env.PATH || "").split(delimiter)) {
-    if (!dir) continue;
+    if (!dir || isCmuxShimDir(dir)) continue;
     const candidate = join(dir, "codex");
     if (await isExecutable(candidate)) return candidate;
   }
