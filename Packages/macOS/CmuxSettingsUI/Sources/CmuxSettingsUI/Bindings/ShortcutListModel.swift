@@ -49,6 +49,8 @@ public final class ShortcutListModel {
 
     // MARK: - Init
 
+    /// Creates the model bound to the given stores. Call ``startObserving()``
+    /// before reading state so the bindings and `when` overrides are populated.
     public init(jsonStore: JSONConfigStore, catalog: SettingCatalog, errorLog: SettingsErrorLog) {
         self.jsonStore = jsonStore
         self.catalog = catalog
@@ -90,16 +92,22 @@ public final class ShortcutListModel {
 
     // MARK: - Display helpers (lifted from actionRow inline computations)
 
+    /// The effective shortcut for `action`: its override binding if set,
+    /// otherwise the action's built-in default.
     public func effective(for action: ShortcutAction) -> StoredShortcut? {
         bindings[action.rawValue] ?? action.defaultShortcut
     }
 
+    /// Whether `action` is currently unbound but has a cached stroke available to
+    /// restore (drives the X → restore button swap).
     public func canRestore(for action: ShortcutAction) -> Bool {
         let eff = effective(for: action)
         let isUnbound = eff?.isUnbound ?? true
         return isUnbound && restoreShortcuts[action.rawValue] != nil
     }
 
+    /// The red validation-banner text for `action` (bare-key, numbered-digit, or
+    /// conflict rejection), or `nil` when the row has no pending rejection.
     public func validationMessage(for action: ShortcutAction) -> String? {
         let numberedDigitRejected = numberedDigitRejections.contains(action.rawValue)
         let bareKeyRejected = bareKeyRejections.contains(action.rawValue)
@@ -133,10 +141,15 @@ public final class ShortcutListModel {
 
     // MARK: - Conflict helpers (moved verbatim from section)
 
+    /// The effective focus `when` clause for `action`: its `shortcuts.when`
+    /// override, or the built-in ``ShortcutAction/defaultFocusWhenClause``.
     private func effectiveWhenClause(for action: ShortcutAction) -> ShortcutWhenClause {
         whenOverrideClauses[action.rawValue] ?? action.defaultFocusWhenClause
     }
 
+    /// The "When: …" scope caption for `action` — the user's raw override text if
+    /// present, otherwise the built-in focus-context description; `nil` when the
+    /// shortcut is unrestricted.
     public func scopeCaption(for action: ShortcutAction) -> String? {
         if let overrideClause = whenOverrideClauses[action.rawValue] {
             // An explicit empty/`true` override means "no restriction" — show
@@ -174,6 +187,8 @@ public final class ShortcutListModel {
         }
     }
 
+    /// The recorder placeholder text for `effective`: its display glyphs, or the
+    /// localized "None" when unbound.
     public func formatPlaceholder(effective: StoredShortcut?, numbered: Bool) -> String {
         let unboundLabel = String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
         guard let effective else { return unboundLabel }
@@ -181,10 +196,14 @@ public final class ShortcutListModel {
         return format(effective, numbered: numbered)
     }
 
+    /// Renders `shortcut` to its user-facing display string.
     private func format(_ shortcut: StoredShortcut, numbered: Bool = false) -> String {
         shortcutDisplayString(shortcut, numbered: numbered)
     }
 
+    /// Returns the action `stroke` would collide with under `action`'s effective
+    /// `when` clause, or `nil` when there is no conflict. Context-disjoint or
+    /// priority-routed clauses coexist, matching the app target's check.
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         let proposedClause = effectiveWhenClause(for: action)
         for other in ShortcutAction.allCases where other != action {
@@ -247,6 +266,10 @@ public final class ShortcutListModel {
         }
     }
 
+    /// Records a single-stroke shortcut for `action`, rejecting (without writing)
+    /// a non-digit stroke on a numbered action or a stroke that conflicts with
+    /// another binding; a valid stroke is normalized, persisted, and clears the
+    /// action's rejection/restore state.
     public func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
         var stroke = stroke
         if action.usesNumberedDigitMatching {
@@ -290,6 +313,9 @@ public final class ShortcutListModel {
         await write(updated)
     }
 
+    /// Records a two-stroke chord for `action`, rejecting (without writing) an
+    /// action that disallows chords, a non-digit numbered chord, or a chord that
+    /// conflicts with another binding.
     public func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
         guard action.allowsChordShortcut else {
             chordModeActions.remove(action.rawValue)
@@ -319,6 +345,9 @@ public final class ShortcutListModel {
         await write(updated)
     }
 
+    /// For a numbered action, normalizes the digit stroke to the "1" placeholder;
+    /// returns `nil` if it is not a 1…9 digit. Non-numbered actions pass through
+    /// unchanged.
     private func normalizedNumberedShortcutIfNeeded(
         _ shortcut: StoredShortcut,
         for action: ShortcutAction
@@ -355,12 +384,14 @@ public final class ShortcutListModel {
         )
     }
 
+    /// Persists an unbound binding for `action`.
     func clearBinding(for action: ShortcutAction) async {
         var updated = bindings
         updated[action.rawValue] = StoredShortcut.unbound
         await write(updated)
     }
 
+    /// Persists `shortcut` for `action` and clears its rejection/restore state.
     func restoreBinding(_ shortcut: StoredShortcut, for action: ShortcutAction) async {
         var updated = bindings
         updated[action.rawValue] = shortcut
@@ -371,6 +402,8 @@ public final class ShortcutListModel {
         await write(updated)
     }
 
+    /// Clears every override and all in-memory rejection/restore state — the
+    /// "Reset Defaults" action.
     public func resetAll() async {
         restoreShortcuts.removeAll()
         bareKeyRejections.removeAll()
@@ -379,6 +412,8 @@ public final class ShortcutListModel {
         await write([:])
     }
 
+    /// Persists `updated` to the bindings store, recording any failure to the
+    /// error log.
     private func write(_ updated: [String: StoredShortcut]) async {
         do {
             try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
@@ -398,6 +433,8 @@ public final class ShortcutListModel {
         }
     }
 
+    /// Drops conflict banners for actions whose binding now resolves cleanly
+    /// (e.g. after an external cmux.json edit removes the colliding binding).
     private func pruneConflictRejections() {
         guard !conflictRejections.isEmpty else { return }
         // Drop banners for actions whose binding now resolves cleanly.
@@ -418,6 +455,7 @@ public final class ShortcutListModel {
         }
     }
 
+    /// Drops cached restore strokes for actions that are no longer unbound.
     private func pruneRestoreShortcuts() {
         guard !restoreShortcuts.isEmpty else { return }
         // Iterate a key snapshot — the loop mutates `restoreShortcuts`, and
