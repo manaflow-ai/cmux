@@ -262,6 +262,25 @@ struct ChatConversationStorePromptEchoPreviewTests {
         #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["already merged", "valid preview"] })
     }
 
+    @Test("replayed agent append clears stale live preview")
+    func replayedAgentAppendClearsStaleLivePreview() async {
+        let source = PromptEchoSilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await waitForPromptEchoPreview { store.isConnected })
+        let agent = Self.prose(seq: 0, role: .agent, text: "already committed")
+        await source.emit(.appended([agent]))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["already committed"] })
+
+        await source.emit(.streamingProse(Self.streamingMessage(text: "stale preview")))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["already committed", "stale preview"] })
+
+        await source.emit(.appended([agent]))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["already committed"] })
+    }
+
     @Test("queued prompts do not suppress the active turn live preview")
     func queuedPromptDoesNotSuppressActivePreview() async {
         let source = PromptEchoSilentSendEventSource()

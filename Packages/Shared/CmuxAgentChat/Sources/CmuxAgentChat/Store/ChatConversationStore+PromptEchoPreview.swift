@@ -32,14 +32,6 @@ extension ChatConversationStore {
         return echoIDs
     }
 
-    func appendClearsStreamingPreview(
-        _ message: ChatMessage,
-        pendingEchoBatchIDs: Set<String>
-    ) -> Bool {
-        (message.role == .agent && messageContainsProse(message))
-            || (message.role == .user && !pendingEchoBatchIDs.contains(message.id))
-    }
-
     /// The screen-scraped live preview can momentarily read the wrapped tail of
     /// the user's prompt as agent prose before the first answer token is painted.
     func livePreviewEchoesLatestUserPrompt(
@@ -63,7 +55,7 @@ extension ChatConversationStore {
         return promptText(userProse.text, hasSuffixPreview: previewText)
     }
 
-    private func messageContainsProse(_ message: ChatMessage) -> Bool {
+    func messageContainsProse(_ message: ChatMessage) -> Bool {
         if case .prose = message.kind { return true }
         return false
     }

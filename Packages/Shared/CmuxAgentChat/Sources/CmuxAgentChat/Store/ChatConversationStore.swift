@@ -8,8 +8,7 @@ import Observation
 /// It depends only on the ``ChatEventSource`` seam, injected at init.
 ///
 /// Lifecycle: the owning view runs ``run()`` inside its `.task` modifier so
-/// the live subscription is structured — it is cancelled automatically when
-/// the view disappears, and the store never stores a `Task` it could leak.
+/// the live subscription is cancelled automatically when the view disappears.
 ///
 /// ```swift
 /// @State private var store: ChatConversationStore
@@ -569,10 +568,10 @@ public final class ChatConversationStore {
             var reconciledPendingEchoIDs = Set<String>()
             reconcilePending(against: newMessages) { reconciledPendingEchoIDs.insert($0.id) }
             let pendingEchoIDs = pendingEchoBatchIDs(in: newMessages, reconciledPendingEchoIDs: reconciledPendingEchoIDs)
-            if streamingMessage != nil,
-               freshMessages.contains(where: { appendClearsStreamingPreview($0, pendingEchoBatchIDs: pendingEchoIDs) }) {
-                streamingMessage = nil
-            }
+            let hasAuthoritativeAgentProse = newMessages.contains { $0.role == .agent && messageContainsProse($0) }
+            let hasFreshClearingUser = freshMessages.contains { $0.role == .user && !pendingEchoIDs.contains($0.id) }
+            let didClearStreamingMessage = streamingMessage != nil && (hasAuthoritativeAgentProse || hasFreshClearingUser)
+            if didClearStreamingMessage { streamingMessage = nil }
             // A live append whose seq regresses below the window tail means
             // the transcript was truncated/replaced and the tailer reset;
             // appending would corrupt window ordering. Re-anchor instead.
@@ -586,6 +585,7 @@ public final class ChatConversationStore {
             } else {
                 appendToWindow(newMessages)
             }
+            if didClearStreamingMessage { reproject() }
         case .updated(let changed):
             var didChange = false
             for message in changed {
