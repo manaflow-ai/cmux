@@ -151,7 +151,7 @@ describe("sign out and sign back in", () => {
       {
         headers: {
           cookie:
-            "stack-access=access-token; __Host-stack-access=secure-access-token; stack-refresh-test-project--default=refresh-token; __Host-stack-refresh-test-project--default=secure-refresh-token; unrelated=value",
+            "stack-access=access-token; __Host-stack-access=secure-access-token; stack-refresh-test-project=refresh-token; __Host-stack-refresh-test-project=host-refresh-token; __Secure-stack-refresh-test-project=secure-refresh-token; stack-refresh-test-project--default=branch-refresh-token; __Host-stack-refresh-test-project--default=secure-branch-refresh-token; unrelated=value",
           ...headers,
         },
       }
@@ -173,6 +173,9 @@ describe("sign out and sign back in", () => {
     const setCookie = response.headers.get("set-cookie");
     expect(setCookie).toContain("stack-access=;");
     expect(setCookie).toContain("__Host-stack-access=;");
+    expect(setCookie).toContain("stack-refresh-test-project=;");
+    expect(setCookie).toContain("__Host-stack-refresh-test-project=;");
+    expect(setCookie).toContain("__Secure-stack-refresh-test-project=;");
     expect(setCookie).toContain("stack-refresh-test-project--default=;");
     expect(setCookie).toContain("__Host-stack-refresh-test-project--default=;");
     expect(setCookie).not.toContain("unrelated=;");

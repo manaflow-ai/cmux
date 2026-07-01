@@ -47,6 +47,8 @@ function isStackAuthCookie(name: string, projectId: string): boolean {
     name === `__Host-${LEGACY_STACK_REFRESH_COOKIE}` ||
     name === `__Secure-${LEGACY_STACK_REFRESH_COOKIE}` ||
     name === refreshName ||
+    name === `__Host-${refreshName}` ||
+    name === `__Secure-${refreshName}` ||
     name.startsWith(`${refreshName}--`) ||
     name.startsWith(`__Host-${refreshName}--`) ||
     name.startsWith(`__Secure-${refreshName}--`)
