@@ -48,7 +48,8 @@
     "blog": "ブログ",
     "changelog": "変更履歴",
     "community": "コミュニティ",
-    "github": "GitHub"
+    "github": "GitHub",
+    "pro": "Pro"
   },
   "footer": {
     "product": "プロダクト",
@@ -139,7 +140,11 @@
     "faqSupportQ": "cmuxを支援するには？",
     "faqSupportA": "cmuxは無料・オープンソースであり、これからもずっとそうです。開発を支援し、cmux AI、iOSアプリ、Cloud VMなど今後の機能に早期アクセスしたい方は、<foundersLink>cmux Founders Edition</foundersLink>をご覧ください。",
     "faqBrowserQ": "組み込みブラウザでは何ができますか？",
-    "faqBrowserA": "cmuxはターミナルの隣に本物のブラウザペインを分割表示でき、完全にプログラム可能です。同じsocket APIから、ナビゲート、DOMのスナップショット、クリック、入力、JavaScriptの評価、コンソールやネットワークの読み取りができます。エージェントはこれを使って、cmuxを離れずに自分のWeb変更を検証します。<link>ブラウザ自動化</link>をご覧ください。"
+    "faqBrowserA": "cmuxはターミナルの隣に本物のブラウザペインを分割表示でき、完全にプログラム可能です。同じsocket APIから、ナビゲート、DOMのスナップショット、クリック、入力、JavaScriptの評価、コンソールやネットワークの読み取りができます。エージェントはこれを使って、cmuxを離れずに自分のWeb変更を検証します。<link>ブラウザ自動化</link>をご覧ください。",
+    "proSection": "Pro",
+    "proTitle": "cmux Pro。",
+    "proDesc": "MacやiPhoneからターミナルを接続できるクラウド開発マシンに加え、iOSアプリとcmux AIも。<link>含まれる内容を見る</link>。",
+    "proPrice": "年払いで月額$20、月払いは$30。"
   },
   "community": {
     "title": "コミュニティ",
@@ -2226,5 +2231,31 @@
       "faqQ4": "Cursor CLI と一緒に使う cmux は無料ですか？",
       "faqA4": "はい。cmux は macOS 向けの無料のオープンソースです。"
     }
+  },
+  "pro": {
+    "section": "Pro",
+    "metaTitle": "cmux Pro",
+    "metaDescription": "クラウド開発マシン、cmux iOSアプリ、cmux AI。年払いで月額$20。",
+    "title": "cmux Pro",
+    "tagline": "ターミナル本体はこれからも無料でオープンソースです。Proはクラウドを追加します。エージェントを動かす開発マシン、持ち歩けるiOSアプリ、そしてcmux AI。",
+    "value": {
+      "cloudVms": "クラウド開発マシン。",
+      "cloudVmsDesc": "ワンクリックでCloud VMを作成し、cmuxからターミナルを接続。同時に10台まで実行でき、無料プランの2倍です。",
+      "vmCreates": "VM作成無制限。",
+      "vmCreatesDesc": "無料プランのVM作成は合計20回まで。Proでは上限がなくなります。",
+      "ios": "iOSアプリ。",
+      "iosDesc": "iPhoneからMacのターミナルに接続。ターミナル通知もiPhoneに転送されます。",
+      "ai": "cmux AI。",
+      "aiDesc": "cmux AIの新機能に早期アクセスできます。",
+      "support": "優先サポート。",
+      "supportDesc": "バグや要望を開発者に直接届けられます。"
+    },
+    "priceHeadline": "月額$20",
+    "priceDetail": "年払い$240。月払いは月額$30です。",
+    "cta": "cmux Proを購入",
+    "cancelNote": "cmuxアカウントでワンクリック。いつでも解約できます。",
+    "welcomeSuccess": "cmux Proへようこそ。サブスクリプションが有効になりました。",
+    "welcomeActive": "cmux Proはすでに有効です。",
+    "welcomePending": "決済を受け付けました。Proは1分ほどで有効になります。ページを再読み込みして確認してください。"
   }
 }

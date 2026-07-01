@@ -1,0 +1,57 @@
+import { NextRequest, NextResponse } from "next/server";
+import { stackServerApp } from "../../../lib/stack";
+import {
+  PRO_PRODUCT_ID,
+  hasActiveProSubscription,
+  syncProPlanMetadata,
+} from "../../../../services/billing/pro";
+
+export const dynamic = "force-dynamic";
+
+const CHECKOUT_PATH = "/api/billing/checkout";
+
+// One-click upgrade entrypoint. Signed-out visitors round-trip through Stack
+// sign-in and land back here (after_auth_return_to), so a single click on the
+// site always ends on the hosted purchase page.
+export async function GET(request: NextRequest) {
+  if (!stackServerApp) {
+    return NextResponse.redirect(new URL("/pro?billing=unavailable", request.url));
+  }
+
+  const user = await stackServerApp.getUser({ or: "return-null" });
+  if (!user) {
+    const signIn = new URL("/handler/sign-in", request.url);
+    signIn.searchParams.set("after_auth_return_to", CHECKOUT_PATH);
+    return NextResponse.redirect(signIn);
+  }
+
+  if (await hasActiveProSubscription(user)) {
+    await syncProPlanMetadata(user, true);
+    return NextResponse.redirect(new URL("/pro?welcome=active", request.url));
+  }
+
+  const returnUrl = new URL("/api/billing/confirm", request.url).toString();
+  let checkoutUrl: string;
+  try {
+    checkoutUrl = await user.createCheckoutUrl({
+      productId: PRO_PRODUCT_ID,
+      returnUrl,
+    });
+  } catch (error) {
+    if (isAlreadyGrantedError(error)) {
+      await syncProPlanMetadata(user, true);
+      return NextResponse.redirect(new URL("/pro?welcome=active", request.url));
+    }
+    // return_url must be on a domain the Stack project trusts; previews and
+    // local dev ports may not be. The purchase still works without it — the
+    // buyer just stays on the hosted receipt instead of bouncing to /pro.
+    checkoutUrl = await user.createCheckoutUrl({ productId: PRO_PRODUCT_ID });
+  }
+  return NextResponse.redirect(checkoutUrl);
+}
+
+function isAlreadyGrantedError(error: unknown): boolean {
+  const text =
+    error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  return /already.{0,20}granted/i.test(text);
+}

@@ -13,6 +13,7 @@ import {
   getTestimonialTranslation,
 } from "./testimonials";
 import { Link } from "../../i18n/navigation";
+import { ProCheckoutButton } from "./components/pro-checkout-button";
 
 export default function Home() {
   return <HomeContent />;
@@ -177,6 +178,27 @@ function HomeContent() {
               </span>
             </li>
           </ul>
+        </section>
+
+        {/* Pro */}
+        <section data-dev="pro" style={{ paddingTop: 12, paddingBottom: 15 }}>
+          <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
+            {t("proSection")}
+          </h2>
+          <p className="text-[15px] mb-1" style={{ lineHeight: 1.5 }}>
+            <strong className="font-medium">{t("proTitle")}</strong>{" "}
+            <span className="text-muted">
+              {t.rich("proDesc", {
+                link: (chunks) => (
+                  <Link href="/pro" className={linkClass}>
+                    {chunks}
+                  </Link>
+                ),
+              })}
+            </span>
+          </p>
+          <p className="text-[15px] text-muted mb-4">{t("proPrice")}</p>
+          <ProCheckoutButton size="sm" location="home_pro_section" />
         </section>
 
         {/* Screenshot: bleeds wider than the text column but stays bounded to

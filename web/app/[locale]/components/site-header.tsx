@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import posthog from "posthog-js";
 import { Link } from "../../../i18n/navigation";
 import { NavLinks } from "./nav-links";
 import { DownloadButton } from "./download-button";
@@ -61,6 +62,17 @@ export function SiteHeader({
 
           {/* Right: GitHub stars + Download + theme + mobile */}
           <div className="ml-auto flex min-w-0 items-center justify-end gap-3 min-[940px]:ml-0">
+            <Link
+              href="/pro"
+              onClick={() =>
+                posthog.capture("cmuxterm_pro_badge_clicked", {
+                  location: "navbar",
+                })
+              }
+              className="inline-flex items-center rounded-full border border-border px-2.5 py-0.5 text-xs font-medium hover:bg-code-bg transition-colors"
+            >
+              {t("pro")}
+            </Link>
             <GitHubStarsBadge />
             <div className="hidden min-[940px]:block">
               <DownloadButton size="sm" location="navbar" />
@@ -109,6 +121,13 @@ export function SiteHeader({
         </div>
 
         <div className="flex flex-col gap-3 text-sm text-muted px-4 pb-4">
+          <Link
+            href="/pro"
+            onClick={close}
+            className="hover:text-foreground transition-colors py-1"
+          >
+            {t("pro")}
+          </Link>
           <Link
             href="/docs/getting-started"
             onClick={close}

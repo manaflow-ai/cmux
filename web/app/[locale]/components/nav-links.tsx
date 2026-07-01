@@ -32,6 +32,15 @@ export function NavLinks() {
       >
         {t("community")}
       </Link>
+      <Link
+        href="/pro"
+        onClick={() =>
+          posthog.capture("cmuxterm_pro_badge_clicked", { location: "nav" })
+        }
+        className="hover:text-foreground transition-colors"
+      >
+        {t("pro")}
+      </Link>
       <a
         href="https://github.com/manaflow-ai/cmux"
         target="_blank"
