@@ -565,11 +565,12 @@ public final class ChatConversationStore {
     private func apply(_ event: ChatSessionEvent) {
         switch event {
         case .appended(let newMessages):
+            let reconcilesPendingPrompt = userAppendReconcilesPendingPrompt(newMessages, pending: pending)
             reconcilePending(against: newMessages)
             // Authoritative turn content just landed: drop the transient preview
             // so committed prose, or the next user turn, owns the transcript.
             if streamingMessage != nil,
-               newMessages.contains(where: { ($0.role == .agent && Self.isProse($0)) || $0.role == .user }) {
+               newMessages.contains(where: { ($0.role == .agent && Self.isProse($0)) || ($0.role == .user && !reconcilesPendingPrompt) }) {
                 streamingMessage = nil
             }
             // A live append whose seq regresses below the window tail means

@@ -3,6 +3,17 @@ import Foundation
 private let promptEchoScanLimit = 4096
 
 extension ChatConversationStore {
+    func userAppendReconcilesPendingPrompt(
+        _ messages: [ChatMessage],
+        pending: [ChatPendingOutbound]
+    ) -> Bool {
+        messages.contains { message in
+            guard message.role == .user,
+                  case .prose(let prose) = message.kind else { return false }
+            return pending.contains { $0.text == prose.text }
+        }
+    }
+
     /// The screen-scraped live preview can momentarily read the wrapped tail of
     /// the user's prompt as agent prose before the first answer token is painted.
     func livePreviewEchoesLatestUserPrompt(
