@@ -2942,6 +2942,23 @@
         }
       }
     },
+    "mobile.pairing.authEnvironmentMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This dev build is signed in to cmux's development auth environment, so its account can never match a Mac running the release app — even with the same email."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この開発ビルドは cmux の開発用認証環境にサインインしているため、同じメールアドレスでも、リリース版アプリを実行している Mac のアカウントとは一致しません。"
+          }
+        }
+      }
+    },
     "mobile.pairing.authorizationFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -3193,6 +3210,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "この端末はオフラインのようです。Wi-Fiまたはモバイルデータに接続してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.authEnvironment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebuild this app with production auth (ios/scripts/reload.sh --prod-auth), or pair with a dev-channel Mac signed in to the same account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本番認証を使ってこのアプリをビルドし直す（ios/scripts/reload.sh --prod-auth）か、同じアカウントでサインインした開発チャネルの Mac とペアリングしてください。"
           }
         }
       }

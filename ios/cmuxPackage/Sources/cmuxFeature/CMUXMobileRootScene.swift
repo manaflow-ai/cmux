@@ -1,3 +1,4 @@
+import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
@@ -251,7 +252,10 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
-        let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
+        let identityProvider = AuthCoordinatorIdentityProvider(
+            coordinator: auth.coordinator,
+            isDevelopmentAuthEnvironment: auth.authEnvironment == .development
+        )
         let deviceRegistry = makeDeviceRegistry()
         let restoreBoundary = PairedMacRestoreBoundary()
         let backedUpPairedMacStore = makeBackedUpPairedMacStore(restoreBoundary: restoreBoundary)

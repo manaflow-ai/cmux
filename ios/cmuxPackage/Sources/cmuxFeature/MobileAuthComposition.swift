@@ -24,6 +24,14 @@ public struct MobileAuthComposition {
     public let pushRegistration: PushRegistrationService
     /// The resolved configuration (used for diagnostics + push API base URL).
     public let config: AuthConfig
+    /// Which Stack project this build signs in to. DEBUG defaults to
+    /// development and Release to production, but an ``authEnvironmentOverrideKey``
+    /// entry (from `LocalConfig.plist`, or the Info.plist value
+    /// `ios/scripts/reload.sh --prod-auth` bakes) flips it, so a sideloaded
+    /// dev build can run production auth and pair with a release Mac
+    /// (https://github.com/manaflow-ai/cmux/issues/7145). Exposed so the
+    /// identity provider can label the channel its user ids belong to.
+    public let authEnvironment: CMUXAuthEnvironment
 
     /// A reachability monitor used to fail sign-in flows fast when offline.
     private let reachability: any ReachabilityProviding
@@ -47,10 +55,17 @@ public struct MobileAuthComposition {
     ) {
         self.reachability = reachability
 
-        let isDevelopment = Self.isDevelopmentBuild
-        let overrides = Self.localConfigStringOverrides(in: bundle)
+        let overrides = Self.authOverrides(
+            localConfig: Self.localConfigStringOverrides(in: bundle),
+            bakedAuthEnvironment: bundle.object(forInfoDictionaryKey: Self.authEnvironmentInfoPlistKey) as? String
+        )
+        let resolvedEnvironment = Self.resolvedAuthEnvironment(
+            isDevelopmentBuild: Self.isDevelopmentBuild,
+            overrides: overrides
+        )
+        self.authEnvironment = resolvedEnvironment
         let resolvedConfig = AuthConfig(
-            environment: isDevelopment ? .development : .production,
+            environment: resolvedEnvironment,
             overrides: overrides
         )
         self.config = resolvedConfig
@@ -117,6 +132,58 @@ public struct MobileAuthComposition {
         #else
         false
         #endif
+    }
+
+    /// The override-table key selecting the auth environment. Values
+    /// `"production"` / `"development"` (case-insensitive); anything else keeps
+    /// the build default. Sourced from `LocalConfig.plist` or the Info.plist
+    /// bake (see ``authEnvironmentInfoPlistKey``).
+    static let authEnvironmentOverrideKey = "AuthEnvironment"
+
+    /// The Info.plist key carrying the baked auth environment. A tapped device
+    /// build sees no shell env, so `ios/scripts/reload.sh --prod-auth` bakes
+    /// the channel into the build via the `CMUX_IOS_AUTH_ENV` build setting —
+    /// the same mechanism as `CMUXPresenceBaseURL`. Keep in sync with
+    /// `ios/Config/Info.plist` and `ios/Config/Shared.xcconfig`.
+    static let authEnvironmentInfoPlistKey = "CMUXAuthEnvironment"
+
+    /// Merge the Info.plist-baked auth environment into the `LocalConfig.plist`
+    /// override table. An explicit LocalConfig entry wins over the bake
+    /// (mirroring presence resolution, where the local override table beats the
+    /// baked Info.plist value); blank baked values are ignored so the empty
+    /// `$(CMUX_IOS_AUTH_ENV)` expansion in a normal build contributes nothing.
+    static func authOverrides(
+        localConfig: [String: String],
+        bakedAuthEnvironment: String?
+    ) -> [String: String] {
+        var overrides = localConfig
+        if overrides[authEnvironmentOverrideKey] == nil,
+           let baked = bakedAuthEnvironment?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !baked.isEmpty {
+            overrides[authEnvironmentOverrideKey] = baked
+        }
+        return overrides
+    }
+
+    /// Resolve which Stack project this build signs in to: an explicit
+    /// ``authEnvironmentOverrideKey`` override wins; otherwise DEBUG builds
+    /// default to development and Release builds to production. Unrecognized
+    /// values keep the build default (fail toward the channel the build was
+    /// compiled for).
+    static func resolvedAuthEnvironment(
+        isDevelopmentBuild: Bool,
+        overrides: [String: String]
+    ) -> CMUXAuthEnvironment {
+        switch overrides[authEnvironmentOverrideKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() {
+        case "production":
+            return .production
+        case "development":
+            return .development
+        default:
+            return isDevelopmentBuild ? .development : .production
+        }
     }
 
     private static var apnsEnvironment: String {

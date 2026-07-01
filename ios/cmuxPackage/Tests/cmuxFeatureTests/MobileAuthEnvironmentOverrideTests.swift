@@ -77,4 +77,88 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(composition.config.stack.projectId == Self.developmentProjectID)
         #expect(composition.config.apiBaseURL == "http://localhost:3000")
     }
+
+    @Test func productionOverrideExposesProductionAuthEnvironment() throws {
+        // The identity provider labels its user ids with this channel; a
+        // --prod-auth build must report production so a pairing user-id
+        // mismatch is NOT explained away as a dev-channel artifact.
+        let bundle = try fixtureBundle(localConfig: ["AuthEnvironment": "production"])
+        let composition = try makeComposition(bundle: bundle)
+
+        #expect(composition.authEnvironment == .production)
+    }
+
+    // MARK: - Pure environment resolution
+
+    @Test func overrideWinsOverBuildDefaultInBothDirections() {
+        #expect(MobileAuthComposition.resolvedAuthEnvironment(
+            isDevelopmentBuild: true,
+            overrides: ["AuthEnvironment": "production"]
+        ) == .production)
+        #expect(MobileAuthComposition.resolvedAuthEnvironment(
+            isDevelopmentBuild: false,
+            overrides: ["AuthEnvironment": "development"]
+        ) == .development)
+    }
+
+    @Test func overrideIsCaseInsensitiveAndTrimmed() {
+        #expect(MobileAuthComposition.resolvedAuthEnvironment(
+            isDevelopmentBuild: true,
+            overrides: ["AuthEnvironment": "  Production\n"]
+        ) == .production)
+    }
+
+    @Test func unrecognizedOverrideKeepsBuildDefault() {
+        // Fail toward the channel the build was compiled for: a typo must not
+        // silently flip a dev build onto production auth (or vice versa).
+        #expect(MobileAuthComposition.resolvedAuthEnvironment(
+            isDevelopmentBuild: true,
+            overrides: ["AuthEnvironment": "prod"]
+        ) == .development)
+        #expect(MobileAuthComposition.resolvedAuthEnvironment(
+            isDevelopmentBuild: false,
+            overrides: ["AuthEnvironment": "staging"]
+        ) == .production)
+        #expect(MobileAuthComposition.resolvedAuthEnvironment(
+            isDevelopmentBuild: true,
+            overrides: [:]
+        ) == .development)
+        #expect(MobileAuthComposition.resolvedAuthEnvironment(
+            isDevelopmentBuild: false,
+            overrides: [:]
+        ) == .production)
+    }
+
+    // MARK: - Override sourcing (LocalConfig.plist vs the Info.plist bake)
+
+    @Test func bakedInfoPlistValueFillsInWhenLocalConfigHasNoEntry() {
+        // The reload.sh --prod-auth path: no LocalConfig.plist, the channel
+        // rides in the Info.plist CMUXAuthEnvironment value.
+        let overrides = MobileAuthComposition.authOverrides(
+            localConfig: [:],
+            bakedAuthEnvironment: "production"
+        )
+        #expect(overrides["AuthEnvironment"] == "production")
+    }
+
+    @Test func localConfigEntryWinsOverBakedValue() {
+        // LocalConfig.plist is the deliberate, hand-authored override surface;
+        // it beats the script-baked Info.plist value (mirrors presence
+        // resolution precedence).
+        let overrides = MobileAuthComposition.authOverrides(
+            localConfig: ["AuthEnvironment": "development"],
+            bakedAuthEnvironment: "production"
+        )
+        #expect(overrides["AuthEnvironment"] == "development")
+    }
+
+    @Test func blankBakedValueContributesNothing() {
+        // A normal (non --prod-auth) build expands $(CMUX_IOS_AUTH_ENV) to ""
+        // in Info.plist; that empty string must not shadow the build default.
+        let overrides = MobileAuthComposition.authOverrides(
+            localConfig: [:],
+            bakedAuthEnvironment: "  "
+        )
+        #expect(overrides["AuthEnvironment"] == nil)
+    }
 }
