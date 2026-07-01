@@ -2635,6 +2635,10 @@ final class cmuxUITests: XCTestCase {
             || abs(metrics.presentationFrameMaxY - metrics.effectiveFrameMaxY) > 4
     }
 
+    private struct TranscriptMetricsWaitError: Error, CustomStringConvertible {
+        let description: String
+    }
+
     @MainActor
     private func waitForTranscriptMetrics(
         _ table: XCUIElement,
@@ -2661,17 +2665,12 @@ final class cmuxUITests: XCTestCase {
             object: table
         )
         let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
-        XCTAssertEqual(
-            result,
-            .completed,
-            "Timed out waiting for transcript metrics. Last metrics: \(String(describing: lastMetrics)); raw: \(lastRawValue)",
-            file: file,
-            line: line
-        )
-        if let metrics = lastMetrics {
-            return metrics
+        guard result == .completed, let metrics = lastMetrics else {
+            let message = "Timed out waiting for transcript metrics. Last metrics: \(String(describing: lastMetrics)); raw: \(lastRawValue)"
+            XCTFail(message, file: file, line: line)
+            throw TranscriptMetricsWaitError(description: message)
         }
-        throw XCTSkip("Transcript metrics were unavailable")
+        return metrics
     }
 
     @MainActor
