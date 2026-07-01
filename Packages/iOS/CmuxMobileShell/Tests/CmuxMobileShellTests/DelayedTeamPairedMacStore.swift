@@ -10,6 +10,15 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var blockers: [String: CheckedContinuation<Void, Never>] = [:]
     private var upsertCount = 0
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var gatedUpsertIDs: Set<String> = []
+    private var upsertStartedIDs: Set<String> = []
+    private var upsertStartWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var upsertBlockers: [String: CheckedContinuation<Void, Never>] = [:]
+    private var removeFailures: Set<String> = []
+    private var gatedRemoveFailures: Set<String> = []
+    private var removeStartedIDs: Set<String> = []
+    private var removeStartWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var removeBlockers: [String: CheckedContinuation<Void, Never>] = [:]
 
     init(recordsByTeam: [String: [MobilePairedMac]], blockedTeams: Set<String>) {
         self.recordsByTeam = recordsByTeam
@@ -25,6 +34,12 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
+        if gatedUpsertIDs.contains(macDeviceID) {
+            markUpsertStarted(macDeviceID)
+            await withCheckedContinuation { continuation in
+                upsertBlockers[macDeviceID] = continuation
+            }
+        }
         let key = teamID ?? ""
         if markActive {
             recordsByTeam[key] = recordsByTeam[key]?.map { mac in
@@ -62,11 +77,23 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
                 blockers[key] = continuation
             }
         }
-        return recordsByTeam[key] ?? []
+        let scoped = recordsByTeam[key] ?? []
+        guard key != "" else { return scoped }
+        let legacyTeamless = (recordsByTeam[""] ?? []).filter { mac in
+            mac.stackUserID == nil || mac.stackUserID == stackUserID
+        }
+        return scoped + legacyTeamless
     }
 
     func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
-    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {}
+    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        let key = teamID ?? ""
+        recordsByTeam[key] = recordsByTeam[key]?.map { mac in
+            var copy = mac
+            copy.isActive = copy.macDeviceID == macDeviceID
+            return copy
+        }
+    }
     func clearActive(stackUserID: String?, teamID: String?) async throws {}
     func setCustomization(
         macDeviceID: String,
@@ -84,6 +111,16 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         recordsByTeam[key]?[index].customIcon = customIcon
     }
     func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        if gatedRemoveFailures.contains(macDeviceID) {
+            markRemoveStarted(macDeviceID)
+            await withCheckedContinuation { continuation in
+                removeBlockers[macDeviceID] = continuation
+            }
+            throw CocoaError(.fileWriteUnknown)
+        }
+        if removeFailures.contains(macDeviceID) {
+            throw CocoaError(.fileWriteUnknown)
+        }
         let key = teamID ?? ""
         recordsByTeam[key]?.removeAll { $0.macDeviceID == macDeviceID }
     }
@@ -113,9 +150,55 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         upsertCount
     }
 
+    func gateUpsert(macDeviceID: String) {
+        gatedUpsertIDs.insert(macDeviceID)
+    }
+
+    func waitUntilUpsertStarted(macDeviceID: String) async {
+        if upsertStartedIDs.contains(macDeviceID) { return }
+        await withCheckedContinuation { continuation in
+            upsertStartWaiters[macDeviceID, default: []].append(continuation)
+        }
+    }
+
+    func releaseUpsert(macDeviceID: String) {
+        upsertBlockers.removeValue(forKey: macDeviceID)?.resume()
+    }
+
+    func failRemove(macDeviceID: String) {
+        removeFailures.insert(macDeviceID)
+    }
+
+    func failRemoveAfterRelease(macDeviceID: String) {
+        gatedRemoveFailures.insert(macDeviceID)
+    }
+
+    func waitUntilRemoveStarted(macDeviceID: String) async {
+        if removeStartedIDs.contains(macDeviceID) { return }
+        await withCheckedContinuation { continuation in
+            removeStartWaiters[macDeviceID, default: []].append(continuation)
+        }
+    }
+
+    func releaseRemove(macDeviceID: String) {
+        removeBlockers.removeValue(forKey: macDeviceID)?.resume()
+    }
+
     private func markStarted(_ key: String) {
         startedTeams.insert(key)
         let waiters = startWaiters.removeValue(forKey: key) ?? []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func markUpsertStarted(_ macDeviceID: String) {
+        upsertStartedIDs.insert(macDeviceID)
+        let waiters = upsertStartWaiters.removeValue(forKey: macDeviceID) ?? []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func markRemoveStarted(_ macDeviceID: String) {
+        removeStartedIDs.insert(macDeviceID)
+        let waiters = removeStartWaiters.removeValue(forKey: macDeviceID) ?? []
         for waiter in waiters { waiter.resume() }
     }
 

@@ -8,6 +8,7 @@ import {
   setSpanAttributes,
   withApiRouteSpan,
 } from "../../../services/telemetry";
+import { checkEmailDeliverable } from "./email-check";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,12 +28,21 @@ const waitlistSchema = z.object({
     .min(1)
     .max(WAITLIST_PLATFORMS.length),
   location: z.string().trim().max(64).optional().default(""),
+  // The client calls this route twice: first to validate the email before
+  // recording the signup (`notify: false`), then to fan out the Slack ping
+  // after the durable PostHog capture succeeds (`notify: true`). Defaults to
+  // `true` so a caller that omits the flag (e.g. a stale page bundle loaded
+  // before this change) keeps the original notify-on-valid behavior.
+  notify: z.boolean().optional().default(true),
 });
 
 /**
- * Notifies Slack when someone joins a platform waitlist. The durable signup
- * record lives in PostHog (captured client-side); this route only fans out the
- * team notification, so a Slack failure does not invalidate the signup.
+ * Gates and announces waitlist signups. It (1) checks that the email's domain
+ * can plausibly receive mail (MX/disposable check) so bogus addresses never get
+ * recorded, and (2) when `notify` is set, pings Slack. The durable signup record
+ * itself lives in PostHog (captured client-side), so a Slack failure never
+ * invalidates the signup — but an undeliverable email is rejected before the
+ * client records it.
  */
 export async function POST(request: Request) {
   return withApiRouteSpan(
@@ -40,8 +50,11 @@ export async function POST(request: Request) {
     "/api/waitlist",
     { "cmux.subsystem": "waitlist", "cmux.waitlist.operation": "notify" },
     async (span): Promise<Response> => {
-      // Reuse the feedback rate-limit rule so a public POST that fans out to
-      // Slack can't be used to flood the channel. Only active on Vercel.
+      // Rate-limit the whole public endpoint up front, before the DNS lookups
+      // below. The validate phase resolves a user-supplied domain (MX + A/AAAA),
+      // and unique domains miss the cache, so an unthrottled path would let a
+      // public POST flood the resolver as well as Slack. Reuses the feedback
+      // rule. Only active on Vercel.
       if (process.env.VERCEL === "1") {
         const { error, rateLimited } = await checkRateLimit(
           env.CMUX_FEEDBACK_RATE_LIMIT_ID,
@@ -66,16 +79,32 @@ export async function POST(request: Request) {
       if (!parsed.success) {
         return jsonError("Invalid waitlist payload", 400);
       }
-      const { email, platforms, location } = parsed.data;
+      const { email, platforms, location, notify } = parsed.data;
       setSpanAttributes(span, {
         "cmux.waitlist.platform_count": platforms.length,
         "cmux.waitlist.location": location,
       });
 
+      // Reject addresses whose domain can't receive mail (typos, fake domains,
+      // disposable inboxes) before the client records the signup. Transient DNS
+      // failures resolve to "unknown" and fail open so a resolver hiccup never
+      // blocks a real signup.
+      const deliverable = await checkEmailDeliverable(email);
+      setSpanAttributes(span, { "cmux.waitlist.email_check": deliverable });
+      if (deliverable === "invalid") {
+        return ok({ valid: false });
+      }
+
+      // Email looks deliverable. The validate-only first phase stops here; only
+      // the post-record `notify` call fans out to Slack.
+      if (!notify) {
+        return ok({ valid: true, slack: "skipped" });
+      }
+
       const webhookUrl = env.SLACK_WAITLIST_WEBHOOK_URL;
       if (!webhookUrl) {
         // Not configured: accept so the client signup flow still succeeds.
-        return ok({ slack: "skipped" });
+        return ok({ valid: true, slack: "skipped" });
       }
 
       try {
@@ -105,7 +134,7 @@ export async function POST(request: Request) {
         return jsonError("Failed to notify Slack", 502);
       }
 
-      return ok({ slack: "sent" });
+      return ok({ valid: true, slack: "sent" });
     },
   );
 }
