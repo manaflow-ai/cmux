@@ -269,8 +269,8 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         transitionID: Int
     ) {
         guard duration > 0, abs(targetOverlap - startOverlap) > 0.5 else {
-            stopKeyboardAnimation(removeAnimations: true)
-            applyKeyboardOverlap(targetOverlap)
+            stopKeyboardAnimation(removeAnimations: false)
+            pinAnimationToVisibleOverlap(targetOverlap)
             return
         }
 
