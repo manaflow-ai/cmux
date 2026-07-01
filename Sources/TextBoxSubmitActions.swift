@@ -253,11 +253,11 @@ extension TextBoxInputContainer {
         terminalAgentContext: String,
         pendingProviderLaunchAction: TextBoxSubmitAction? = nil
     ) -> String {
+        if let activeContext = TextBoxAgentDetection.activeAgentHookContext(from: terminalAgentContext) {
+            return activeContext
+        }
         if let pendingContext = pendingProviderLaunchAction?.pendingTerminalAgentContext {
             return pendingContext
-        }
-        if let activeContext = TextBoxAgentDetection.activeTextBoxLaunchContext(from: terminalAgentContext) {
-            return activeContext
         }
         return allowsCommandTemplateSubmit ? "" : terminalAgentContext
     }

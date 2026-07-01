@@ -151,25 +151,18 @@ struct TerminalPanelView: View {
     private var effectiveTerminalAgentContext: String {
         Self.effectiveTerminalAgentContext(
             terminalAgentContext,
-            pendingLaunchCommand: panel.textBoxState.pendingLaunchCommand,
-            activeLaunchCommand: panel.textBoxState.activeLaunchCommand
+            pendingLaunchCommand: panel.textBoxState.pendingLaunchCommand
         )
     }
 
     static func effectiveTerminalAgentContext(
         _ terminalAgentContext: String,
-        pendingLaunchCommand: String?,
-        activeLaunchCommand: String?
+        pendingLaunchCommand: String?
     ) -> String {
         var context = terminalAgentContext
         appendTextBoxLaunchContext(
             "textBoxPendingLaunchCommand:",
             command: pendingLaunchCommand,
-            to: &context
-        )
-        appendTextBoxLaunchContext(
-            "textBoxLaunchCommand:",
-            command: activeLaunchCommand,
             to: &context
         )
         return context

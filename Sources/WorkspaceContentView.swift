@@ -641,15 +641,6 @@ struct WorkspaceContentView: View {
 extension WorkspaceContentView {
     static func terminalAgentContext(panel: any Panel, workspace: Workspace) -> String {
         var parts: [String] = []
-        func appendSupportedAgentCommandContext(_ command: String?, prefix: String) {
-            guard let command = command?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !command.isEmpty else { return }
-            let context = "\(prefix)\(command)"
-            guard TextBoxAgentDetection.supportsAgentPrefixes(context: context),
-                  !parts.contains(context) else { return }
-            parts.append(context)
-        }
-
         if let terminalPanel = panel as? TerminalPanel {
             if let initialCommand = terminalPanel.surface.initialCommand {
                 parts.append("initialCommand:\(initialCommand)")
@@ -662,7 +653,6 @@ extension WorkspaceContentView {
                !pendingLaunchCommand.isEmpty {
                 parts.append("textBoxPendingLaunchCommand:\(pendingLaunchCommand)")
             }
-            appendSupportedAgentCommandContext(terminalPanel.textBoxState.activeLaunchCommand, prefix: "textBoxLaunchCommand:")
         }
         if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
             parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")

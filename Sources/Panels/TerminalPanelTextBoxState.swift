@@ -11,10 +11,6 @@ final class TerminalPanelTextBoxState {
     private(set) var launchCommand: String?
     private var observedCommandRunningSinceLaunch = false
 
-    var activeLaunchCommand: String? {
-        observedCommandRunningSinceLaunch ? launchCommand : nil
-    }
-
     var pendingLaunchCommand: String? {
         observedCommandRunningSinceLaunch ? nil : launchCommand
     }

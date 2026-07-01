@@ -183,7 +183,7 @@ struct TextBoxSubmitActionTests {
             )
         )
         panel.updateShellActivityState(.commandRunning)
-        XCTAssertTrue(
+        XCTAssertFalse(
             TextBoxAgentDetection.supportsActiveAgentPrefixes(
                 context: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
             )
@@ -371,7 +371,6 @@ struct TextBoxSubmitActionTests {
         XCTAssertFalse(template.contains(#""preservePromptAfterLaunch" : true"#))
     }
 
-
     @Test
     func testTextBoxForceTextEntryRequiresDetectedActiveAgent() {
         XCTAssertFalse(
@@ -392,7 +391,7 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: ""
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
                 allowsCommandTemplateSubmit: true,
                 terminalAgentContext: "textBoxLaunchCommand:codex --yolo"
@@ -448,10 +447,10 @@ struct TextBoxSubmitActionTests {
 
         panel.updateShellActivityState(.commandRunning)
         let runningContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
-        XCTAssertTrue(TextBoxAgentDetection.supportsAgentPrefixes(context: runningContext))
-        XCTAssertTrue(TextBoxAgentDetection.supportsActiveAgentPrefixes(context: runningContext))
+        XCTAssertFalse(TextBoxAgentDetection.supportsAgentPrefixes(context: runningContext))
+        XCTAssertFalse(TextBoxAgentDetection.supportsActiveAgentPrefixes(context: runningContext))
         XCTAssertFalse(TextBoxAgentDetection.hasPendingTextBoxLaunchContext(runningContext))
-        XCTAssertTrue(
+        XCTAssertFalse(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
                 allowsCommandTemplateSubmit: true,
                 terminalAgentContext: runningContext
@@ -462,7 +461,7 @@ struct TextBoxSubmitActionTests {
                 allowsCommandTemplateSubmit: true,
                 terminalAgentContext: runningContext
             ),
-            runningContext
+            ""
         )
     }
 
@@ -520,17 +519,17 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testActiveTextBoxLaunchContextWinsOverStaleRestoredAgent() {
+    func testHookActiveAgentContextWinsOverStaleRestoredAgent() {
         let context = """
         restoredAgent:claude
-        textBoxLaunchCommand:codex
+        agentPIDKey:codex.12345
         """
         let activeContext = TextBoxInputContainer.textEntryTerminalAgentContext(
             allowsCommandTemplateSubmit: true,
             terminalAgentContext: context
         )
 
-        XCTAssertEqual(activeContext, "textBoxLaunchCommand:codex")
+        XCTAssertEqual(activeContext, "agentPIDKey:codex.12345")
         XCTAssertFalse(TextBoxAgentDetection.isClaudeCode(context: activeContext))
     }
 
@@ -565,7 +564,7 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: ""
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             TextBoxInputContainer.isPendingProviderLaunchAwaitingAgent(
                 pendingProviderLaunchAction: claude,
                 terminalAgentContext: "textBoxLaunchCommand:claude"
@@ -799,7 +798,7 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: ""
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             TextBoxInputContainer.shouldClearLaunchCommandWhenClearingPending(
                 terminalAgentContext: "textBoxLaunchCommand:codex"
             )
@@ -810,8 +809,7 @@ struct TextBoxSubmitActionTests {
     func testTerminalPanelViewAddsPendingTextBoxLaunchContext() {
         let context = TerminalPanelView.effectiveTerminalAgentContext(
             "restoredAgent:claude",
-            pendingLaunchCommand: "codex",
-            activeLaunchCommand: nil
+            pendingLaunchCommand: "codex"
         )
 
         XCTAssertTrue(TextBoxAgentDetection.hasPendingTextBoxLaunchContext(context))
@@ -1065,10 +1063,12 @@ struct TextBoxSubmitActionTests {
         state.recordLaunchCommand("codex")
 
         state.updateShellActivityState(.commandRunning)
-        XCTAssertEqual(state.activeLaunchCommand, "codex")
+        XCTAssertEqual(state.launchCommand, "codex")
+        #expect(state.pendingLaunchCommand == nil)
 
         state.updateShellActivityState(.commandRunning)
-        XCTAssertEqual(state.activeLaunchCommand, "codex")
+        XCTAssertEqual(state.launchCommand, "codex")
+        #expect(state.pendingLaunchCommand == nil)
     }
 
     @Test

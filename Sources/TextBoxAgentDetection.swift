@@ -58,7 +58,7 @@ enum TextBoxAgentDetection: CaseIterable {
             }
     }
 
-    static func activeTextBoxLaunchContext(from context: String) -> String? {
+    static func activeAgentHookContext(from context: String) -> String? {
         context
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -106,9 +106,6 @@ enum TextBoxAgentDetection: CaseIterable {
         if let value = Self.metadataValue(line, prefix: "tmuxStartCommand:") {
             return matchesCommand(value)
         }
-        if let value = Self.metadataValue(line, prefix: "textBoxLaunchCommand:") {
-            return matchesLaunchExecutable(command: value)
-        }
         return false
     }
 
@@ -117,9 +114,6 @@ enum TextBoxAgentDetection: CaseIterable {
         guard !line.isEmpty else { return false }
         if let value = Self.metadataValue(line, prefix: "agentPIDKey:") {
             return matchesIdentity(value)
-        }
-        if let value = Self.metadataValue(line, prefix: "textBoxLaunchCommand:") {
-            return matchesLaunchExecutable(command: value)
         }
         return false
     }
