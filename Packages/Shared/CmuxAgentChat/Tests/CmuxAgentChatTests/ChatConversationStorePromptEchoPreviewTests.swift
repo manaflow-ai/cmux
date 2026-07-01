@@ -117,6 +117,23 @@ struct ChatConversationStorePromptEchoPreviewTests {
         #expect(await PromptEchoPreviewPoller.waitUntil { Self.messageIDs(store.rows) == [preview.id] })
     }
 
+    @Test("live preview suppresses a bounded tail from a large prompt")
+    func livePreviewSuppressesBoundedLargePromptTail() async {
+        let source = FixtureChatEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await PromptEchoPreviewPoller.waitUntil { store.isConnected })
+        let tail = "final visible line"
+        let user = Self.prose(seq: 0, role: .user, text: String(repeating: "large paste\n", count: 800) + tail)
+        await source.emit(.appended([user]))
+        #expect(await PromptEchoPreviewPoller.waitUntil { Self.messageIDs(store.rows) == [user.id] })
+
+        await source.emit(.streamingProse(Self.streamingMessage(text: tail)))
+        #expect(await PromptEchoPreviewPoller.waitUntil { Self.messageIDs(store.rows) == [user.id] })
+    }
+
     private static func makeStore(source: some ChatEventSource) -> ChatConversationStore {
         ChatConversationStore(
             descriptor: ChatSessionDescriptor(id: "session", agentKind: .claude, title: "Session"),

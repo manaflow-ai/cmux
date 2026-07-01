@@ -1,6 +1,8 @@
 import Foundation
 
 extension ChatConversationStore {
+    private static let promptEchoScanLimit = 4096
+
     /// The screen-scraped live preview can momentarily read the wrapped tail of
     /// the user's prompt as agent prose before the first answer token is painted.
     static func previewEchoesLatestUserPrompt(
@@ -39,7 +41,7 @@ extension ChatConversationStore {
     }
 
     private static func promptText(_ text: String, hasSuffixPreview previewText: String) -> Bool {
-        let promptText = normalizedPromptEchoText(text)
+        let promptText = normalizedPromptEchoText(String(text.unicodeScalars.suffix(promptEchoScanLimit)))
         guard promptText.count > previewText.count,
               promptText.hasSuffix(previewText) else { return false }
         guard let boundary = promptText.dropLast(previewText.count).last else { return false }
