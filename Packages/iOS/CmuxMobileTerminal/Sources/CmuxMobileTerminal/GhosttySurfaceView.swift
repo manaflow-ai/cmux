@@ -867,6 +867,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let renderedSize: TerminalGridSize?
         let isLetterboxBorderVisible: Bool
         let letterboxBorderPathBounds: CGRect?
+        /// The viewport the terminal content may occupy right now (bounds minus
+        /// the keyboard/safe-area + composer + toolbar reservation). The render
+        /// rect is bottom-pinned inside this; any `renderRect.minY -
+        /// viewportRect.minY` difference is user-visible empty space at the top.
+        let viewportRect: CGRect
+        /// The daemon-authoritative grid pin, nil when filling naturally.
+        let effectiveGrid: (cols: Int, rows: Int)?
+        /// Measured cell size in device pixels (zero before first measure).
+        let cellPixelSize: CGSize
+        let keyboardHeight: CGFloat
     }
 
     func debugGeometrySnapshotForTesting() -> DebugGeometrySnapshot {
@@ -887,7 +897,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             reportedSize: lastReportedSize,
             renderedSize: renderedSize,
             isLetterboxBorderVisible: letterboxBorderLayer?.isHidden == false,
-            letterboxBorderPathBounds: letterboxBorderLayer?.path?.boundingBoxOfPath
+            letterboxBorderPathBounds: letterboxBorderLayer?.path?.boundingBoxOfPath,
+            viewportRect: terminalViewportRect,
+            effectiveGrid: effectiveGrid,
+            cellPixelSize: cellPixelSize,
+            keyboardHeight: keyboardHeight
         )
     }
 
@@ -898,6 +912,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutBottomDock()
         syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
+
+    /// Test hook: geometry/spacing tests run in a scene-less xctest host where
+    /// a Metal present can never complete, so a real render dispatch stalls,
+    /// trips the render-pipeline stall recovery, and pauses geometry (and with
+    /// it the viewport reports under test). True skips the render dispatch
+    /// entirely; geometry (`set_size` + measure) never needs a present.
+    var debugSkipRenderDispatchForTesting = false
     #endif
 
     var currentGridSize: TerminalGridSize {
@@ -3190,6 +3211,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               !renderingSuspended,
               let surface,
               !isDismantled else { return }
+        #if DEBUG
+        if debugSkipRenderDispatchForTesting { return }
+        #endif
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
         if renderInFlight {
