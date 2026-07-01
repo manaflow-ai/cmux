@@ -117,7 +117,7 @@ struct MobileSettingsView: View {
                                 showingHostPicker = true
                             } label: {
                                 Label(
-                                    L10n.string("mobile.settings.switchMac", defaultValue: "Switch Computer"),
+                                    L10n.string("mobile.computers.title", defaultValue: "Computers"),
                                     systemImage: "macbook.and.iphone"
                                 )
                             }
@@ -293,9 +293,23 @@ struct MobileSettingsView: View {
                 TerminalLogDemoScreen()
             }
             #endif
+            // The Computers screen (DeviceTreeView) is the ONE list of the
+            // user's Macs; the legacy per-device host picker is gone. Switching
+            // the focused Mac lives in the workspace title picker; this sheet
+            // manages the saved set (inspect / remove / add). Adding rides the
+            // same rescanQR pairing path as the row below it, dismissing
+            // Settings so the scanner is not covered by this sheet; contexts
+            // without a QR path (the no-devices screen) hide the add
+            // affordance, matching their explicit "no QR to rescan" stance.
             .sheet(isPresented: $showingHostPicker) {
                 if let store {
-                    MobileHostPickerView(store: store)
+                    DeviceTreeView(
+                        store: store,
+                        selectWorkspace: { _ in },
+                        showAddDevice: rescanQR.map { rescan in
+                            { rescan(); dismiss() }
+                        }
+                    )
                 }
             }
             .sheet(isPresented: $showingOnboarding) {

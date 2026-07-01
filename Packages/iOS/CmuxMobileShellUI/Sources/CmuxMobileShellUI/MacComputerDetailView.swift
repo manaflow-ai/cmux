@@ -262,6 +262,13 @@ struct MacComputerDetailView: View {
                         L10n.string("mobile.computers.field.build", defaultValue: "Build"),
                         value: buildLabel)
                 }
+                if let transportLabel = MobileTransportModeLabel.label(for: presence.transportMode) {
+                    // Read-only: the Mac chooses its transport (Settings → Mobile
+                    // on the Mac); the phone just reports what it heartbeats.
+                    LabeledContent(
+                        L10n.string("mobile.computers.field.transport", defaultValue: "Transport"),
+                        value: transportLabel)
+                }
                 LabeledContent(L10n.string("mobile.computers.field.lastSeen", defaultValue: "Last seen"),
                                value: presence.lastSeenAt.formatted(.relative(presentation: .named)))
             } else if connectionStatus == .connected {

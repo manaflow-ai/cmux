@@ -184,6 +184,15 @@ verify (root cause is upstream Mac-heartbeat→worker route delivery, memory
   tolerant of pre-iroh routes.
 
 ### Stage 3 — iOS launch rework (rebase onto #6689 first)
+
+STATUS (2026-07-01): SUPERSEDED BY MAIN. Main shipped multi-Mac workspace
+aggregation independently (`WorkspaceListView+MacSelection`,
+`WorkspaceMacSelectionScope`, paired-Mac aliases): the workspace list already
+merges every paired Mac's workspaces with an "All Computers" scope, sourced
+from the paired-Mac backup + registry + presence. The connect-all-and-merge
+home this stage described exists; do not rebuild it. Remaining gap (future,
+not this branch): presence-driven auto-dial of account Macs the phone never
+paired with.
 - `CMUXMobileRootView` launch decision: returning user with known/paired Macs →
   subscribe to presence, dial all online Macs, merge workspaces, render the
   every-workspace home. First run / no known Macs → `DeviceTreeView`. Demote the
@@ -195,6 +204,18 @@ verify (root cause is upstream Mac-heartbeat→worker route delivery, memory
   degrades gracefully with a visible state.
 
 ### Stage 4 — DeviceTree consolidation + cut MobileHostPicker + transport badge
+
+STATUS (2026-07-01): COMPLETE on this branch. Main had already grown
+`DeviceTreeView` into the full Computers screen (snapshots, presence, add/
+remove, `MacComputerDetailView`), so consolidation reduced to: (a) the
+transport badge — `PresenceInstance.transportMode` (phone decode) →
+`PresenceMap.DeviceSummary` → aliases rollup → `MacComputerSnapshot` →
+`MacComputerRow` pill + `MacComputerDetailView` "Transport" field, via the
+shared `MobileTransportModeLabel` (en+ja, unknown modes show raw); and (b)
+cutting `MobileHostPickerView` — deleted, the Settings sheet now presents
+`DeviceTreeView` (add rides the rescanQR pairing path; contexts without a QR
+path hide the add affordance). PresenceMap tests cover the mode rollup +
+wire decode (7 pass).
 - Fold account + manual/Tailscale Macs into `DeviceTreeView`; remove
   `MobileHostPickerView.swift` and route every computers entry point to
   `DeviceTreeView`.
@@ -204,6 +225,12 @@ verify (root cause is upstream Mac-heartbeat→worker route delivery, memory
   snapshot-boundary rule (rows take value snapshots + closures).
 
 ### Stage 5 — Onboarding one-pager
+
+STATUS (2026-07-01): SUPERSEDED BY MAIN. Main shipped `OnboardingFlowView` +
+`MobileOnboardingStore` (persisted first-run seen flag gating ahead of the
+never-paired add-device state, re-enterable from Settings). The Mac-side
+transport choice at pairing is #6689's Stage C (its pairing window). No
+onboarding work left on this branch.
 - First-run = `DeviceTreeView` with an explicit add-Mac affordance; QR/manual
   pairing behind `+`/Advanced. Copy points the user to choose transport on the Mac.
 

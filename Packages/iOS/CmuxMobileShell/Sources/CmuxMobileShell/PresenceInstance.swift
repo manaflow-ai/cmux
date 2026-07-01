@@ -18,6 +18,11 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
     /// channel (Stable / Nightly / RC / DEV) — see ``MacBuildChannel``. `nil` for
     /// an older host that doesn't announce it.
     public var bundleId: String?
+    /// The Mac-chosen mobile transport mode (`cmuxRelay`/`ownRelay`/`tailscale`),
+    /// shown as a read-only badge on the Computers screen. `nil` for an older
+    /// host that doesn't announce it. Opaque string on the wire so new modes
+    /// roll out without breaking older phones.
+    public var transportMode: String?
     /// Capability strings announced by the host instance.
     public var capabilities: [String]
     /// Whether the instance is currently considered online by the service.
@@ -42,6 +47,7 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
         case platform
         case displayName
         case bundleId
+        case transportMode
         case capabilities
         case online
         case lastSeenAt
@@ -67,6 +73,7 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
         platform = try container.decode(String.self, forKey: .platform)
         displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
         bundleId = try container.decodeIfPresent(String.self, forKey: .bundleId)
+        transportMode = try container.decodeIfPresent(String.self, forKey: .transportMode)
         capabilities = try container.decode([String].self, forKey: .capabilities)
         online = try container.decode(Bool.self, forKey: .online)
         lastSeenAt = try container.decode(Double.self, forKey: .lastSeenAt)
@@ -82,6 +89,7 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
         platform: String,
         displayName: String? = nil,
         bundleId: String? = nil,
+        transportMode: String? = nil,
         capabilities: [String] = [],
         online: Bool,
         lastSeenAt: Double,
@@ -94,6 +102,7 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
         self.platform = platform
         self.displayName = displayName
         self.bundleId = bundleId
+        self.transportMode = transportMode
         self.capabilities = capabilities
         self.online = online
         self.lastSeenAt = lastSeenAt

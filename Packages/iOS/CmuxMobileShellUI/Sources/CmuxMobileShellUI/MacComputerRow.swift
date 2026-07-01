@@ -78,6 +78,9 @@ struct MacComputerRow: View {
                     if let buildLabel = computer.buildLabel {
                         buildBadge(buildLabel)
                     }
+                    if let transportLabel {
+                        transportBadge(transportLabel)
+                    }
                 }
                 Text(connectionLine)
                     .font(.caption)
@@ -177,6 +180,28 @@ struct MacComputerRow: View {
         if label.hasPrefix("DEV") || label == "RC" || label == "Staging" { return .orange }
         if label == "Nightly" { return .blue }
         return .secondary
+    }
+
+    /// The localized display label for the Mac-chosen transport mode, or `nil`
+    /// when the host hasn't announced one (see ``MobileTransportModeLabel``).
+    private var transportLabel: String? {
+        MobileTransportModeLabel.label(for: computer.transportMode)
+    }
+
+    /// A read-only pill showing HOW this Mac is reachable (the Mac chooses the
+    /// transport; the phone only displays it). Neutral tint: informational, not
+    /// a state to act on from here — change it on the Mac.
+    private func transportBadge(_ label: String) -> some View {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.secondary.opacity(0.14), in: Capsule())
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(
+                "\(L10n.string("mobile.computers.transportLabelPrefix", defaultValue: "Transport:")) \(label)")
+            .accessibilityIdentifier("MobileComputerTransport-\(computer.deviceId)")
     }
 
     private var dotColor: Color {

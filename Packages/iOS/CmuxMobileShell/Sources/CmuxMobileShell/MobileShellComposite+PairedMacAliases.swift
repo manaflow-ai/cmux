@@ -35,10 +35,13 @@ extension MobileShellComposite {
         let freshest = summaries.max { $0.lastSeenAt < $1.lastSeenAt }
         let label = summaries.first { $0.online && $0.buildLabel != nil }?.buildLabel
             ?? freshest?.buildLabel
+        let transportMode = summaries.first { $0.online && $0.transportMode != nil }?.transportMode
+            ?? freshest?.transportMode
         return PresenceMap.DeviceSummary(
             online: online,
             lastSeenAt: freshest?.lastSeenAt ?? Date(timeIntervalSince1970: 0),
-            buildLabel: label
+            buildLabel: label,
+            transportMode: transportMode
         )
     }
 
