@@ -596,7 +596,7 @@ final class NotesTreeStore {
         indexedTitleByPath: [String: String]
     ) -> [NotesTreeNode] {
         guard depth < maxDepth, budget > 0 else { return [] }
-        let entries = NotesTreeStorage.listEntries(inDirectory: directory)
+        let entries = NotesTreeStorage.listEntries(inDirectory: directory, limit: budget)
         var nodes: [NotesTreeNode] = []
         for entry in entries {
             guard budget > 0 else { break }

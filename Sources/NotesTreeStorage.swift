@@ -218,11 +218,19 @@ enum NotesTreeStorage {
     /// so historical sessions do not read as current workspace rows. Other
     /// directories are plain folders; `.md` files are notes; everything else is
     /// omitted. Sorted directories-first, then case-insensitive by name.
-    static func listEntries(inDirectory directory: String) -> [NotesTreeEntry] {
+    ///
+    /// `limit` caps how many entries are materialized (stat + marker reads +
+    /// sort) so a pathologically large directory cannot make the watcher-driven
+    /// reload do unbounded work; callers pass their remaining node budget.
+    /// Beyond the cap, selection follows filesystem order. The scan also bails
+    /// early when the surrounding reload task is cancelled (partial results are
+    /// discarded by the caller's cancellation guards).
+    static func listEntries(inDirectory directory: String, limit: Int = .max) -> [NotesTreeEntry] {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: directory) else { return [] }
         var entries: [NotesTreeEntry] = []
         for name in names {
+            if entries.count >= limit || Task.isCancelled { break }
             if name.hasPrefix(".") || name == workspaceMarkerName || name == sessionMarkerName { continue }
             let full = (directory as NSString).appendingPathComponent(name)
             // Never traverse symlinks: a project-controlled link under
