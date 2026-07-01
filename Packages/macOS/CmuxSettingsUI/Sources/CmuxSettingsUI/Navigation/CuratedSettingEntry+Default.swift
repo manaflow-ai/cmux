@@ -87,6 +87,7 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(section: .terminal, id: "copy-on-select", title: "Copy on Selection", synonyms: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
             .init(section: .terminal, id: "agent-auto-resume", title: "Resume Agent Sessions on Reopen", synonyms: "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
+            .init(section: .terminal, id: "claude-resume-mode", title: String(localized: "settings.terminal.claudeResumeMode", defaultValue: "Claude Resume Prompt"), synonyms: "terminal.claudeResumeMode claude code resume full session summary compacted prompt auto answer skip menu usage limits"),
             .init(section: .terminal, id: "agent-hibernation", title: "Agent Hibernation", synonyms: "terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "agent-hibernation-idle", title: "Hibernate After Idle Seconds", synonyms: "terminal.agentHibernation.idleSeconds idle seconds timeout delay hibernate suspend"),
             .init(section: .terminal, id: "agent-hibernation-max", title: "Max Live Agent Terminals", synonyms: "terminal.agentHibernation.maxLiveTerminals max live agent terminals limit count hibernate"),

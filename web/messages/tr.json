@@ -817,6 +817,7 @@
         "terminal": {
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",
           "scrollSpeed": "Terminalde fare tekerleği ve dokunmatik yüzey kaydırma değerlerine uygulanan çarpan. Yüksek değerler daha hızlı, düşük değerler daha yavaş kaydırır.",
+          "claudeResumeMode": "Bir Claude aracısı otomatik olarak sürdürülürken cmux'ün Claude Code'un sıkıştırılmış oturum sürdürme istemine nasıl yanıt vereceğini belirler. \"ask\" istemi olduğu gibi bırakır; \"full\" otomatik olarak \"Resume full session as-is\" seçer; \"summary\" \"Resume from summary\" seçer.",
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
           "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
         },

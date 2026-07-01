@@ -507,6 +507,17 @@ final class CmuxSettingsFileStore {
     ) {
         applyBooleanSettings(TerminalSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyTerminalScrollSpeedSetting(from: section, assign: { snapshot.managedUserDefaults[$0] = .double($1) }, logInvalid: { logInvalid($0, sourcePath: sourcePath) })
+
+        if let raw = jsonString(section["claudeResumeMode"]) {
+            if let mode = ClaudeResumeMode(rawString: raw) {
+                snapshot.managedUserDefaults[SettingCatalog().terminal.claudeResumeMode.userDefaultsKey] = .string(mode.rawValue)
+            } else {
+                logInvalid("terminal.claudeResumeMode", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("claudeResumeMode") {
+            logInvalid("terminal.claudeResumeMode", sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["showTextBoxOnNewTerminals"]) {
             snapshot.managedUserDefaults[TerminalTextBoxInputSettings.showOnNewTerminalsKey] = .bool(value)
         } else if section.keys.contains("showTextBoxOnNewTerminals") {
