@@ -136,7 +136,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
         let decodedStartupCommand = decodedReusableShellStartupCommand(terminalStartupCommand)
         XCTAssertTrue(decodedStartupCommand.contains("vm ssh-attach"), decodedStartupCommand)
-        XCTAssertFalse(decodedStartupCommand.contains(":lease-token@"), decodedStartupCommand)
+        XCTAssertFalse(decodedStartupCommand.contains("lease-token"), decodedStartupCommand)
+        XCTAssertFalse(decodedStartupCommand.contains("bGVhc2UtdG9rZW4="), decodedStartupCommand)
         XCTAssertNotNil(configureParams["relay_port"] as? Int)
     }
 

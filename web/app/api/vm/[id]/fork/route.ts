@@ -36,15 +36,9 @@ export async function POST(
       const timing = new VmTimingRecorder(span, "fork", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
       setResponseFinalizer((response) => timing.finish({ status: response.status }));
-      const body = await optionalObjectBody(request);
-      if (body === null) {
-        return vmErrorResponse({
-          error: "vm_invalid_request",
-          status: 400,
-          message: "Cloud VM fork expected a JSON object body.",
-          action: "Send `{}` or `{ \"name\": \"before-agent\" }`.",
-        });
-      }
+      const parsedBody = await optionalObjectBody(request);
+      if (!parsedBody.ok) return parsedBody.response;
+      const body = parsedBody.body;
       const { id } = await params;
       let user: AuthedUser = initialUser;
       const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
@@ -101,12 +95,37 @@ export async function POST(
   );
 }
 
-async function optionalObjectBody(request: Request): Promise<Record<string, unknown> | null> {
+type ParsedObjectBody = { ok: true; body: Record<string, unknown> } | { ok: false; response: Response };
+
+async function optionalObjectBody(request: Request): Promise<ParsedObjectBody> {
   const raw = await request.text();
-  if (!raw.trim()) return {};
-  const parsed = JSON.parse(raw) as unknown;
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  return parsed as Record<string, unknown>;
+  if (!raw.trim()) return { ok: true, body: {} };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return {
+      ok: false,
+      response: vmErrorResponse({
+        error: "vm_json_parse_failed",
+        status: 400,
+        message: "Cloud VM fork expected valid JSON.",
+        action: "Send `{}` or `{ \"name\": \"before-agent\" }`.",
+      }),
+    };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      response: vmErrorResponse({
+        error: "vm_expected_object",
+        status: 400,
+        message: "Cloud VM fork expected a JSON object body.",
+        action: "Send `{}` or `{ \"name\": \"before-agent\" }`.",
+      }),
+    };
+  }
+  return { ok: true, body: parsed as Record<string, unknown> };
 }
 
 function stringField(body: Record<string, unknown>, key: string): string | undefined {

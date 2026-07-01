@@ -9355,8 +9355,8 @@ struct CMUXCLI {
 
         var payload = configuredPayload
 
-        let redactsDestination = sshOptions.destination != sshOptions.displayDestination
-        if redactsDestination {
+        let redactsCommandPayload = sshOptions.destination != sshOptions.displayDestination || sshOptions.passwordCredential?.isEmpty == false
+        if redactsCommandPayload {
             payload["ssh_command"] = "<redacted>"
             payload["ssh_terminal_command"] = "<redacted>"
             payload["ssh_startup_command"] = "<redacted>"

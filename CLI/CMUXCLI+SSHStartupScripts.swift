@@ -34,12 +34,14 @@ extension CMUXCLI {
         retryPTYAttachStatus: Bool = false,
         reconnectLimitDefault: Int = 20
     ) -> String {
+        // Reusable commands are persisted in workspace metadata and can be emitted over the socket API.
+        // Short-lived credentials must stay in the one-shot launcher path only.
         let script = buildSSHStartupScriptBody(
             sshCommand: sshCommand,
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
             isShellSnippet: isShellSnippet,
-            passwordCredential: passwordCredential,
+            passwordCredential: nil,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
             retryPTYAttachStatus: retryPTYAttachStatus,
             reconnectLimitDefault: reconnectLimitDefault

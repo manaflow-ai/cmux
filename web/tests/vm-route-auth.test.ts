@@ -11,8 +11,10 @@ const listUserVms = mock(() => ({ workflow: "list" }));
 const getVm = mock(() => ({ workflow: "get" }));
 const destroyVm = mock(() => ({ workflow: "destroy" }));
 const execVm = mock(() => ({ workflow: "exec" }));
+const forkVm = mock(() => ({ workflow: "fork" }));
 const openAttachEndpoint = mock(() => ({ workflow: "attach" }));
 const openSshEndpoint = mock(() => ({ workflow: "ssh" }));
+const restoreVm = mock(() => ({ workflow: "restore" }));
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_E2B_ENABLED",
@@ -41,11 +43,13 @@ mock.module("../services/vms/workflows", () => ({
   createVm,
   destroyVm,
   execVm,
+  forkVm,
   getVm,
   listUserVms,
   openBaseVm,
   openAttachEndpoint,
   openSshEndpoint,
+  restoreVm,
   resetBaseVm,
   runVmWorkflow,
 }));
@@ -57,7 +61,9 @@ const vmIdRoute = await import("../app/api/vm/[id]/route");
 const { DELETE } = vmIdRoute;
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
+const forkRoute = await import("../app/api/vm/[id]/fork/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
+const restoreRoute = await import("../app/api/vm/restore/route");
 const { VmProviderOperationError } = await import("../services/vms/errors");
 const { verifyRequest } = await import("../services/vms/auth");
 const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
@@ -72,10 +78,12 @@ beforeEach(() => {
   resetBaseVm.mockClear();
   destroyVm.mockClear();
   execVm.mockClear();
+  forkVm.mockClear();
   getVm.mockClear();
   listUserVms.mockClear();
   openAttachEndpoint.mockClear();
   openSshEndpoint.mockClear();
+  restoreVm.mockClear();
 });
 
 afterEach(() => {
@@ -840,6 +848,74 @@ describe("VM REST auth", () => {
     expect(JSON.stringify(payload)).not.toContain("aws");
     expect(payload.message).toContain("Cloud VM service");
     expect(payload.action).toContain("default Cloud VM service");
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("returns client errors for invalid restore request bodies", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const malformed = await restoreRoute.POST(
+      new Request("https://cmux.test/api/vm/restore", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: "{",
+      }),
+    );
+
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toMatchObject({
+      error: "vm_json_parse_failed",
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+
+    const invalidProvider = await restoreRoute.POST(
+      new Request("https://cmux.test/api/vm/restore", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ snapshotId: "snap-1", provider: "aws" }),
+      }),
+    );
+
+    expect(invalidProvider.status).toBe(400);
+    expect(await invalidProvider.json()).toMatchObject({
+      error: "vm_invalid_provider",
+      details: { field: "provider" },
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("returns client errors for invalid fork request bodies", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-1" }) };
+
+    const malformed = await forkRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/fork", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: "{",
+      }),
+      context,
+    );
+
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toMatchObject({
+      error: "vm_json_parse_failed",
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+
+    const nonObject = await forkRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/fork", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: "[]",
+      }),
+      context,
+    );
+
+    expect(nonObject.status).toBe(400);
+    expect(await nonObject.json()).toMatchObject({
+      error: "vm_expected_object",
+    });
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 

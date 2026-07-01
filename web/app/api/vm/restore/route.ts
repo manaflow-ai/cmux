@@ -33,7 +33,9 @@ export async function POST(request: Request): Promise<Response> {
       const timing = new VmTimingRecorder(span, "restore", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
       setResponseFinalizer((response) => timing.finish({ status: response.status }));
-      const body = await requiredObjectBody(request);
+      const parsedBody = await requiredObjectBody(request);
+      if (!parsedBody.ok) return parsedBody.response;
+      const body = parsedBody.body;
       if (body === null) {
         return vmErrorResponse({
           error: "vm_invalid_request",
@@ -52,7 +54,9 @@ export async function POST(request: Request): Promise<Response> {
           details: { field: "snapshotId" },
         });
       }
-      const provider = providerField(body) ?? defaultProviderId();
+      const providerResult = providerField(body);
+      if (!providerResult.ok) return providerResult.response;
+      const provider = providerResult.provider ?? defaultProviderId();
       let user: AuthedUser = initialUser;
       const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
       if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
@@ -105,12 +109,37 @@ export async function POST(request: Request): Promise<Response> {
   );
 }
 
-async function requiredObjectBody(request: Request): Promise<Record<string, unknown> | null> {
+type ParsedObjectBody = { ok: true; body: Record<string, unknown> | null } | { ok: false; response: Response };
+
+async function requiredObjectBody(request: Request): Promise<ParsedObjectBody> {
   const raw = await request.text();
-  if (!raw.trim()) return null;
-  const parsed = JSON.parse(raw) as unknown;
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  return parsed as Record<string, unknown>;
+  if (!raw.trim()) return { ok: true, body: null };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return {
+      ok: false,
+      response: vmErrorResponse({
+        error: "vm_json_parse_failed",
+        status: 400,
+        message: "Cloud VM restore expected valid JSON.",
+        action: "Send `{ \"snapshotId\": \"...\" }`.",
+      }),
+    };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      response: vmErrorResponse({
+        error: "vm_expected_object",
+        status: 400,
+        message: "Cloud VM restore expected a JSON object body.",
+        action: "Send `{ \"snapshotId\": \"...\" }`.",
+      }),
+    };
+  }
+  return { ok: true, body: parsed as Record<string, unknown> };
 }
 
 function stringField(body: Record<string, unknown>, key: string): string | undefined {
@@ -118,11 +147,22 @@ function stringField(body: Record<string, unknown>, key: string): string | undef
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function providerField(body: Record<string, unknown>): ProviderId | undefined {
+type ProviderFieldResult = { ok: true; provider?: ProviderId } | { ok: false; response: Response };
+
+function providerField(body: Record<string, unknown>): ProviderFieldResult {
   const value = stringField(body, "provider");
-  if (!value) return undefined;
-  if (value === "e2b" || value === "freestyle") return value;
-  throw new Error(`unsupported VM provider: ${value}`);
+  if (!value) return { ok: true };
+  if (value === "e2b" || value === "freestyle") return { ok: true, provider: value };
+  return {
+    ok: false,
+    response: vmErrorResponse({
+      error: "vm_invalid_provider",
+      status: 400,
+      message: "Unsupported Cloud VM service override.",
+      action: "Use the default Cloud VM service, or pass a supported provider.",
+      details: { field: "provider" },
+    }),
+  };
 }
 
 function idempotencyKeyFromRequest(request: Request): string | undefined {

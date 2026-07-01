@@ -66,7 +66,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertTrue(decodedInitialCommand.contains("--default-freestyle-sshd"), decodedInitialCommand)
                 XCTAssertTrue(decodedInitialCommand.contains("CMUX_CLOUD_RECONNECT_ATTEMPT"), decodedInitialCommand)
                 XCTAssertFalse(decodedInitialCommand.contains("[cmux] ssh exited with status"), decodedInitialCommand)
-                XCTAssertFalse(decodedInitialCommand.contains(":lease-token@"), decodedInitialCommand)
+                XCTAssertFalse(decodedInitialCommand.contains("lease-token"), decodedInitialCommand)
+                XCTAssertFalse(decodedInitialCommand.contains("bGVhc2UtdG9rZW4="), decodedInitialCommand)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -103,7 +104,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertFalse(decodedStartupCommand.contains("Cloud VM reconnecting"), decodedStartupCommand)
                 XCTAssertFalse(decodedStartupCommand.contains("cmux_freestyle_notify_reconnect"), decodedStartupCommand)
                 XCTAssertFalse(decodedStartupCommand.contains("[cmux] ssh exited with status"), decodedStartupCommand)
-                XCTAssertFalse(decodedStartupCommand.contains(":lease-token@"), decodedStartupCommand)
+                XCTAssertFalse(decodedStartupCommand.contains("lease-token"), decodedStartupCommand)
+                XCTAssertFalse(decodedStartupCommand.contains("bGVhc2UtdG9rZW4="), decodedStartupCommand)
                 XCTAssertEqual(params["preserve_after_terminal_exit"] as? Bool, true)
                 XCTAssertEqual(params["persistent_daemon_slot"] as? String, "cmux-default-freestyle-sshd-v1")
                 return self.v2Response(
