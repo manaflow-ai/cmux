@@ -14099,10 +14099,6 @@ struct CMUXCLI {
 
     /// Return the help/usage text for a subcommand, or nil if the command is unknown.
     private func subcommandUsage(_ command: String) -> String? {
-        // Commands defined in cliCommandEntries generate their help text from the spec.
-        if let entry = Self.cliCommandEntries.first(where: { $0.name == command || $0.aliases.contains(command) }) {
-            return Self.cliHelpText(for: entry)
-        }
         switch command {
         case "remotes", "remote":
             return Self.remotesUsage

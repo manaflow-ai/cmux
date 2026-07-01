@@ -46,7 +46,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     private static let socketWorkerMethods: Set<String> = [
         "system.ping",
         "system.capabilities",
-        "system.command_spec",
         "auth.status",
         "auth.sign_in_url",
         "auth.begin_sign_in",
