@@ -12,7 +12,8 @@
     "toggleTheme": "Skift tema",
     "backToBlog": "Tilbage til blog",
     "readTheDocs": "Læs dokumentationen",
-    "viewChangelog": "Se ændringslog"
+    "viewChangelog": "Se ændringslog",
+    "otherPlatforms": "Andre platforme"
   },
   "nav": {
     "docs": "Dokumentation",
@@ -736,13 +737,13 @@
       "layoutItem1": "Fastgjorte rækker på øverste niveau (workspaces og grupper).",
       "layoutItem2": "Ufastgjorte rækker på øverste niveau (workspaces og grupper).",
       "creatingTitle": "Oprettelse af en gruppe",
-      "creatingIntro": "En gruppe oprettes på en af to måder: via en tastaturgenvej eller en workspace-kontekstmenu. Begge indsætter et nyt anker-workspace over markeringen og flytter de markerede workspaces ind i gruppen. Når en gruppe findes, administrerer du den og tilføjer workspaces til den fra gruppens overskrift (se Administration af en gruppe nedenfor).",
-      "keyboardTitle": "Fra tastaturet ({shortcut})",
-      "keyboardDesc": "Vælg to eller flere workspaces i sidebaren, og tryk derefter på {shortcut}. Et nyt anker-workspace indsættes over markeringen, og alle valgte workspaces bliver børn. Gruppen navngives automatisk Group 1, Group 2 og så videre — omdøb den når som helst via headerens kontekstmenu.",
+      "creatingIntro": "En gruppe oprettes fra en tastaturgenvej eller en genvejsmenu i sidebjælken. Tomme grupper indsætter et nyt ankerarbejdsområde som gruppeoverskrift. Valgbaserede grupper indsætter ankeret over markeringen og flytter de valgte arbejdsområder ind i gruppen. Når gruppen findes, administrerer du den og føjer arbejdsområder til den fra gruppeoverskriften (se Administrering af en gruppe nedenfor).",
+      "keyboardTitle": "Fra tastaturgenveje",
+      "keyboardDesc": "Tryk på ⌃⌘G for at oprette en ny tom arbejdsområdegruppe. Vælg to eller flere arbejdsområder i sidebjælken, og tryk derefter på {shortcut} for at gruppere markeringen. Begge veje opretter et nyt ankerarbejdsområde og navngiver automatisk gruppen Group 1, Group 2 osv. Omdøb den når som helst fra overskriftens genvejsmenu.",
       "keyboardNote": "{shortcut} kolliderer med React Grabs standard. Gruppehåndteringen forbruger kun akkorden, når der er en eksplicit multimarkering af mindst to workspaces i sidebaren, så React Grab udløses stadig ved enkeltmarkering og i browser- eller terminalkontekster. Genbind den i Indstillinger → Tastatur, hvis du hellere vil have, at de to ikke deler en tast.",
       "keyboardSingle": "Grupper med en enkelt fane oprettes ikke via genvejen. Brug i stedet menupunktet Ny gruppe fra arbejdsområde i workspace-kontekstmenuen.",
       "contextMenuTitle": "Fra en workspace-kontekstmenu",
-      "contextMenuDesc": "Højreklik på et hvilket som helst workspace i sidebjælken, og vælg Ny gruppe fra arbejdsområde, eller Ny gruppe fra valg, når flere workspaces er valgt. Dette bruger samme automatiske navngivning som genvejen.",
+      "contextMenuDesc": "Højreklik på et arbejdsområde i sidebjælken, og vælg Ny tom arbejdsområdegruppe, Ny gruppe fra arbejdsområde eller Ny gruppe fra markering, når flere arbejdsområder er valgt. Det tomme område under sidebjælkelisten tilbyder også Ny tom arbejdsområdegruppe. Disse veje bruger samme automatiske navngivning som genvejene.",
       "managingTitle": "Administration af en gruppe",
       "managingIntro": "Når en gruppe findes, kan du via kontekstmenuen i dens overskrift og +-knappen på overskriften administrere gruppen og tilføje workspaces til den. Ingen af dem opretter en ny gruppe.",
       "headerMenuTitle": "Fra gruppeheaderens kontekstmenu",
@@ -819,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Når dette er slået til, trækkes et notifikationsbanner kun automatisk tilbage, når dets surface er præcis den fokuserede surface. Et banner leveret til en ikke-fokuseret surface i det aktuelt synlige workspace bliver vist, indtil du fokuserer på den surface (eller klikker/afviser det), i stedet for at blive trukket tilbage, når workspacet bliver synligt. Fra bevarer den ældre tilbagetrækning baseret på workspace-synlighed."
+        },
         "browser": {
           "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
           "customSearchEngineName": "Visningsnavn brugt når defaultSearchEngine er custom.",
@@ -846,7 +850,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
+          "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
           "showModifierHoldHints": "Vis genvejstipchips, mens Cmd eller Control holdes nede."
         }
       },
@@ -1067,7 +1071,8 @@
       "closeWorkspaceDesc": "Luk et workspace.",
       "splitCommands": "Opdelingskommandoer",
       "newSplitDesc": "Opret et nyt opdelt panel. Retninger: left, right, up, down.",
-      "listSurfacesDesc": "List alle surfaces i det aktuelle workspace.",
+      "listPanelsDesc": "List alle surfaces i det aktuelle workspace.",
+      "listPaneSurfacesDesc": "List surfaces i det fokuserede panel.",
       "focusSurfaceDesc": "Fokusér en specifik surface.",
       "inputCommands": "Inputkommandoer",
       "sendDesc": "Send tekstinput til den fokuserede terminal.",
@@ -1868,5 +1873,32 @@
       "faqQ4": "Er cmux gratis at bruge med Cursor CLI?",
       "faqA4": "Ja. cmux er gratis og open source til macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Tilmeld dig ventelisten til {platform}",
+    "titleAny": "Tilmeld dig ventelisten",
+    "description": "Understøttelse af {platform} er på vej. Efterlad din e-mail, så giver vi besked, så snart den er klar.",
+    "descriptionAny": "cmux er macOS-først lige nu. Efterlad din e-mail, så giver vi besked, så snart Linux, Windows eller Android er klar.",
+    "calloutText": "Kommer til Linux, Windows og Android.",
+    "platformsLabel": "Hvilke platforme?",
+    "selectPlatform": "Vælg mindst én platform.",
+    "emailLabel": "E-mail",
+    "emailPlaceholder": "you@example.com",
+    "join": "Tilmeld venteliste",
+    "joining": "Tilmelder…",
+    "cancel": "Annuller",
+    "invalidEmail": "Indtast en gyldig e-mailadresse.",
+    "sendError": "Kunne ikke sende. Prøv igen.",
+    "successTitle": "Du er på listen",
+    "successBody": "Vi sender dig en e-mail, når {platform}-versionen er klar.",
+    "successBodyAny": "Vi sender dig en e-mail, når cmux er klar til din platform.",
+    "done": "Færdig"
   }
 }

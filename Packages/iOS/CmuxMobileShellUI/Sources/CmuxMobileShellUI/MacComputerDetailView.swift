@@ -21,6 +21,13 @@ struct MacComputerDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var pendingRemoval = false
+    /// Per-route reachability probe results, keyed by ``routeSignature(_:)``
+    /// (kind + endpoint), not `route.id`: a stable id like `tailscale` can keep
+    /// its id while its host/port is refreshed, so id-keying would show a stale
+    /// result under a changed endpoint. Signature-keying drops the stale row.
+    @State private var pingResults: [String: CmxRoutePingResult] = [:]
+    /// True while a ping pass is in flight (drives the spinner + disables Ping).
+    @State private var isPinging = false
     @State private var editName = ""
     @State private var customColorPick = Color.blue
     @State private var customEmoji = ""
@@ -37,19 +44,18 @@ struct MacComputerDetailView: View {
     private static let emojiChoices = ["💻", "🖥️", "⚡️", "🔥", "⭐️", "🚀", "🐧", "🍎", "🎮", "👾"]
 
     private var pairedMac: MobilePairedMac? {
-        store.pairedMacs.first { $0.macDeviceID == macDeviceID }
+        store.displayPairedMacs.first { $0.macDeviceID == macDeviceID }
     }
     private var connectionStatus: MobileMacConnectionStatus? {
         store.macConnectionStatuses[macDeviceID]
     }
     private var presence: PresenceMap.DeviceSummary? {
-        store.presenceMap.deviceSummary(deviceId: macDeviceID)
+        store.presenceSummary(for: macDeviceID)
     }
     private var isForeground: Bool { store.connectedMacDeviceID == macDeviceID }
     private var workspaceCount: Int {
-        store.workspaces.filter { $0.macDeviceID == macDeviceID }.count
+        store.workspaceCount(for: macDeviceID)
     }
-
     var body: some View {
         Form {
             appearanceSection
@@ -85,8 +91,7 @@ struct MacComputerDetailView: View {
             }
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
-            Text(L10n.string("mobile.computers.removeMessage",
-                             defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."))
+            Text(removeMessage)
         }
     }
 
@@ -219,6 +224,13 @@ struct MacComputerDetailView: View {
         }
     }
 
+    private var removeMessage: String {
+        L10n.string(
+            "mobile.computers.removeMessage",
+            defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
+        )
+    }
+
     @ViewBuilder
     private var connectionSection: some View {
         Section(L10n.string("mobile.computers.section.connection", defaultValue: "Connection")) {
@@ -282,22 +294,112 @@ struct MacComputerDetailView: View {
     @ViewBuilder
     private var routesSection: some View {
         Section {
-            let routes = pairedMac?.routes ?? []
+            let routes = (pairedMac?.routes ?? []).sorted { $0.priority > $1.priority }
             if routes.isEmpty {
                 Text(L10n.string("mobile.computers.noRoute", defaultValue: "no route"))
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(routes.sorted { $0.priority > $1.priority }, id: \.id) { route in
-                    LabeledContent(route.kind.rawValue) {
-                        Text(endpointText(route.endpoint))
-                            .font(.callout.monospaced())
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                ForEach(routes, id: \.id) { route in
+                    routeRow(route)
+                }
+                Button {
+                    pingAllRoutes(routes)
+                } label: {
+                    Label {
+                        Text(isPinging
+                            ? L10n.string("mobile.computers.pinging", defaultValue: "Pinging…")
+                            : L10n.string("mobile.computers.ping", defaultValue: "Ping"))
+                    } icon: {
+                        if isPinging {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "wave.3.right")
+                        }
                     }
                 }
+                .disabled(isPinging)
+                .accessibilityIdentifier("MobileComputerPingButton")
             }
         } header: {
             Text(L10n.string("mobile.computers.section.routes", defaultValue: "Routes the phone can dial"))
+        } footer: {
+            Text(L10n.string(
+                "mobile.computers.pingFooter",
+                defaultValue: "Ping opens a direct connection to each route to check if this phone can reach the Mac right now. It works even when a workspace shows Disconnected, which usually means the live stream dropped, not that the Mac is offline."))
+        }
+    }
+
+    /// One route: kind + endpoint, with its latest ping status underneath.
+    @ViewBuilder
+    private func routeRow(_ route: CmxAttachRoute) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(route.kind.rawValue)
+                    .font(.callout)
+                Spacer(minLength: 8)
+                Text(endpointText(route.endpoint))
+                    .font(.callout.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            pingStatusLine(for: route)
+        }
+    }
+
+    /// The per-route ping status sub-line: nothing before the first ping, a
+    /// spinner while in flight, then the classified result with a tinted icon.
+    /// A stable per-endpoint key: route kind + the host/port it dials. Used to
+    /// match a ping result to the row it was measured for, so a refreshed
+    /// endpoint (same id, new host/port) does not inherit a stale result.
+    private func routeSignature(_ route: CmxAttachRoute) -> String {
+        "\(route.kind.rawValue)|\(endpointText(route.endpoint))"
+    }
+
+    @ViewBuilder
+    private func pingStatusLine(for route: CmxAttachRoute) -> some View {
+        if let result = pingResults[routeSignature(route)] {
+            Label {
+                Text(result.pingLabel)
+                    .font(.caption)
+                    .foregroundStyle(result.pingColor)
+            } icon: {
+                Image(systemName: result.pingSymbol)
+                    .font(.caption)
+                    .foregroundStyle(result.pingColor)
+            }
+            .accessibilityIdentifier("MobileComputerPingResult-\(route.id)")
+        } else if isPinging {
+            Label {
+                Text(L10n.string("mobile.computers.pinging", defaultValue: "Pinging…"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } icon: {
+                ProgressView().controlSize(.mini)
+            }
+        }
+    }
+
+    /// Probe every route in parallel and record each outcome as it lands, so
+    /// fast routes show a result while slow ones are still resolving.
+    private func pingAllRoutes(_ routes: [CmxAttachRoute]) {
+        guard !routes.isEmpty, !isPinging else { return }
+        isPinging = true
+        pingResults = [:]
+        let store = store
+        let signatures = Dictionary(
+            routes.map { (routeSignature($0), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        Task {
+            await withTaskGroup(of: (String, CmxRoutePingResult).self) { group in
+                for (signature, route) in signatures {
+                    group.addTask { (signature, await store.pingRoute(route)) }
+                }
+                for await (signature, result) in group {
+                    pingResults[signature] = result
+                }
+            }
+            isPinging = false
         }
     }
 

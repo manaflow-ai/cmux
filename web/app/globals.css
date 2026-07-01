@@ -28,6 +28,17 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Always reserve the scrollbar gutter so opening a modal doesn't remove the
+   scrollbar and shift the page. `html` covers the normal scrolling state;
+   `body` covers the locked state, because Base UI's dialog locks scroll by
+   setting `body { overflow: hidden }` (which makes the body the overflow box),
+   and `scrollbar-gutter: stable` there reserves exactly the width the removed
+   scrollbar took. No effect with overlay scrollbars. */
+html,
+body {
+  scrollbar-gutter: stable;
+}
+
 html {
   background: var(--background);
 }

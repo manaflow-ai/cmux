@@ -12,7 +12,8 @@
     "toggleTheme": "Przełącz motyw",
     "backToBlog": "Powrót do bloga",
     "readTheDocs": "Przeczytaj dokumentację",
-    "viewChangelog": "Zobacz dziennik zmian"
+    "viewChangelog": "Zobacz dziennik zmian",
+    "otherPlatforms": "Inne platformy"
   },
   "nav": {
     "docs": "Dokumentacja",
@@ -736,13 +737,13 @@
       "layoutItem1": "Przypięte wiersze najwyższego poziomu (workspace'y i grupy).",
       "layoutItem2": "Nieprzypięte wiersze najwyższego poziomu (workspace'y i grupy).",
       "creatingTitle": "Tworzenie grupy",
-      "creatingIntro": "Grupę można utworzyć na jeden z dwóch sposobów: za pomocą skrótu klawiszowego lub menu kontekstowego workspace’u. Oba wstawiają nowy workspace kotwiczący nad zaznaczeniem i przenoszą zaznaczone workspace’y do grupy. Gdy grupa już istnieje, zarządzasz nią i dodajesz do niej workspace’y z nagłówka grupy (zobacz Zarządzanie grupą poniżej).",
-      "keyboardTitle": "Z klawiatury ({shortcut})",
-      "keyboardDesc": "Zaznacz dwa lub więcej workspace'ów w pasku bocznym, a następnie naciśnij {shortcut}. Nad zaznaczeniem zostaje wstawiony nowy kotwicowy workspace, a wszystkie zaznaczone workspace'y stają się jego elementami podrzędnymi. Grupa otrzymuje automatyczną nazwę Group 1, Group 2 i tak dalej — możesz ją zmienić w dowolnej chwili z menu kontekstowego nagłówka.",
+      "creatingIntro": "Grupę tworzy się ze skrótu klawiaturowego lub menu kontekstowego paska bocznego. Puste grupy wstawiają nową kotwiczną przestrzeń roboczą jako nagłówek grupy. Grupy oparte na zaznaczeniu wstawiają tę kotwicę nad zaznaczeniem i przenoszą wybrane przestrzenie robocze do grupy. Gdy grupa już istnieje, zarządzasz nią i dodajesz do niej przestrzenie robocze z nagłówka grupy (zobacz Zarządzanie grupą poniżej).",
+      "keyboardTitle": "Ze skrótów klawiaturowych",
+      "keyboardDesc": "Naciśnij ⌃⌘G, aby utworzyć nową pustą grupę przestrzeni roboczych. Zaznacz co najmniej dwie przestrzenie robocze na pasku bocznym, a następnie naciśnij {shortcut}, aby zgrupować zaznaczenie. Obie ścieżki tworzą nową kotwiczną przestrzeń roboczą i automatycznie nazywają grupę Group 1, Group 2 itd. Możesz zmienić nazwę w dowolnym momencie z menu kontekstowego nagłówka.",
       "keyboardNote": "{shortcut} koliduje z domyślnym skrótem React Grab. Obsługa grup wykorzystuje ten akord tylko wtedy, gdy w pasku bocznym istnieje jawne wielokrotne zaznaczenie co najmniej dwóch workspace'ów, więc React Grab nadal działa przy pojedynczym zaznaczeniu oraz w kontekście przeglądarki lub terminala. Zmień przypisanie w Ustawienia → Klawiatura, jeśli wolisz, aby te dwie funkcje nie współdzieliły klawisza.",
       "keyboardSingle": "Grupy jednokartowe nie są tworzone za pomocą skrótu. W tym celu użyj pozycji „Nowa grupa z przestrzeni” w menu kontekstowym przestrzeni roboczej.",
       "contextMenuTitle": "Z menu kontekstowego workspace'a",
-      "contextMenuDesc": "Kliknij prawym przyciskiem dowolną przestrzeń roboczą na pasku bocznym i wybierz „Nowa grupa z przestrzeni” lub „Nowa grupa z zaznaczenia”, gdy zaznaczono wiele przestrzeni roboczych. Wykorzystuje to to samo automatyczne nazewnictwo co skrót.",
+      "contextMenuDesc": "Kliknij prawym przyciskiem dowolną przestrzeń roboczą na pasku bocznym i wybierz Nowa pusta grupa przestrzeni roboczych, Nowa grupa z przestrzeni roboczej albo Nowa grupa z zaznaczenia, gdy zaznaczono wiele przestrzeni roboczych. Pusty obszar pod listą paska bocznego także oferuje Nowa pusta grupa przestrzeni roboczych. Te ścieżki używają tego samego automatycznego nazewnictwa co skróty.",
       "managingTitle": "Zarządzanie grupą",
       "managingIntro": "Gdy grupa już istnieje, menu kontekstowe jej nagłówka oraz przycisk + w nagłówku umożliwiają zarządzanie grupą i dodawanie do niej workspace’ów. Żadne z nich nie tworzy nowej grupy.",
       "headerMenuTitle": "Z menu kontekstowego nagłówka grupy",
@@ -819,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
           "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Gdy włączone, baner powiadomienia jest automatycznie wycofywany tylko wtedy, gdy jego Surface jest dokładnie tym Surface, który ma fokus. Baner dostarczony dla Surface bez fokusu w aktualnie widocznym workspace pozostaje wyświetlony, dopóki nie ustawisz fokusu na tym Surface (albo go nie klikniesz/odrzucisz), zamiast być wycofywany, gdy workspace stanie się widoczny. Wyłączone zachowuje dawne wycofywanie oparte na widoczności workspace."
+        },
         "browser": {
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
           "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
@@ -846,7 +850,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
+          "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
           "showModifierHoldHints": "Pokazuj etykiety podpowiedzi skrótów podczas przytrzymywania Cmd lub Control."
         }
       },
@@ -1067,7 +1071,8 @@
       "closeWorkspaceDesc": "Zamknij workspace.",
       "splitCommands": "Polecenia podziału",
       "newSplitDesc": "Utwórz nowy dzielony panel. Kierunki: left, right, up, down.",
-      "listSurfacesDesc": "Wyświetl wszystkie surface'y w bieżącym workspace.",
+      "listPanelsDesc": "Wyświetl wszystkie surface'y w bieżącym workspace.",
+      "listPaneSurfacesDesc": "Wyświetl surface'y w aktywnym panelu.",
       "focusSurfaceDesc": "Ustaw fokus na konkretnym surface.",
       "inputCommands": "Polecenia wejścia",
       "sendDesc": "Wyślij tekst do fokusowanego terminala.",
@@ -1868,5 +1873,32 @@
       "faqQ4": "Czy cmux jest darmowy w użyciu z Cursor CLI?",
       "faqA4": "Tak. cmux jest darmowy i open source dla macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Dołącz do listy oczekujących na {platform}",
+    "titleAny": "Dołącz do listy oczekujących",
+    "description": "Obsługa {platform} jest w drodze. Zostaw swój e-mail, a damy znać, gdy będzie gotowe.",
+    "descriptionAny": "Na razie cmux działa przede wszystkim na macOS. Zostaw e-mail, a powiadomimy Cię, gdy będzie gotowa wersja na Linux, Windows lub Android.",
+    "calloutText": "Wkrótce na Linux, Windows i Android.",
+    "platformsLabel": "Które platformy?",
+    "selectPlatform": "Wybierz co najmniej jedną platformę.",
+    "emailLabel": "E-mail",
+    "emailPlaceholder": "you@example.com",
+    "join": "Dołącz do listy",
+    "joining": "Dołączanie…",
+    "cancel": "Anuluj",
+    "invalidEmail": "Podaj prawidłowy adres e-mail.",
+    "sendError": "Nie udało się wysłać. Spróbuj ponownie.",
+    "successTitle": "Jesteś na liście",
+    "successBody": "Wyślemy Ci e-mail, gdy wersja na {platform} będzie gotowa.",
+    "successBodyAny": "Wyślemy Ci e-mail, gdy cmux będzie gotowy na Twoją platformę.",
+    "done": "Gotowe"
   }
 }

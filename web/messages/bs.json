@@ -12,7 +12,8 @@
     "toggleTheme": "Promijeni temu",
     "backToBlog": "Nazad na blog",
     "readTheDocs": "Pročitaj dokumentaciju",
-    "viewChangelog": "Pogledaj zapisnik promjena"
+    "viewChangelog": "Pogledaj zapisnik promjena",
+    "otherPlatforms": "Druge platforme"
   },
   "nav": {
     "docs": "Dokumentacija",
@@ -736,13 +737,13 @@
       "layoutItem1": "Prikvačeni redovi najvišeg nivoa (radni prostori i grupe).",
       "layoutItem2": "Neprikvačeni redovi najvišeg nivoa (radni prostori i grupe).",
       "creatingTitle": "Kreiranje grupe",
-      "creatingIntro": "Grupa se kreira na jedan od dva načina: putem prečice na tastaturi ili kontekstualnog menija workspace-a. Oba načina umeću novi sidreni workspace iznad odabira i premještaju odabrane workspace-ove u grupu. Kada grupa postoji, upravljate njome i dodajete joj workspace-ove iz zaglavlja grupe (pogledajte Upravljanje grupom u nastavku).",
-      "keyboardTitle": "S tastature ({shortcut})",
-      "keyboardDesc": "Odaberite dva ili više radnih prostora u bočnoj traci, zatim pritisnite {shortcut}. Novi sidreni radni prostor umeće se iznad odabira i svi odabrani radni prostori postaju potomci. Grupa se automatski imenuje Group 1, Group 2 i tako dalje — preimenujte je bilo kada putem kontekstnog menija zaglavlja.",
+      "creatingIntro": "Grupa se kreira iz prečice na tastaturi ili kontekstnog menija bočne trake. Prazne grupe umeću svježi sidreni radni prostor kao zaglavlje grupe. Grupe zasnovane na odabiru umeću to sidro iznad odabira i premještaju odabrane radne prostore u grupu. Kada grupa postoji, upravljate njom i dodajete radne prostore iz zaglavlja grupe (pogledajte Upravljanje grupom ispod).",
+      "keyboardTitle": "Iz prečica na tastaturi",
+      "keyboardDesc": "Pritisnite ⌃⌘G za kreiranje nove prazne grupe radnih prostora. Odaberite dva ili više radnih prostora u bočnoj traci, zatim pritisnite {shortcut} da grupišete odabir. Oba puta kreiraju svježi sidreni radni prostor i automatski imenuju grupu kao Group 1, Group 2 i tako dalje. Preimenujte je bilo kada iz kontekstnog menija zaglavlja.",
       "keyboardNote": "{shortcut} se podudara s podrazumijevanom prečicom za React Grab. Rukovalac grupe troši kombinaciju tipki samo kada postoji eksplicitan višestruki odabir od najmanje dva radna prostora u bočnoj traci, pa se React Grab i dalje aktivira pri pojedinačnom odabiru te u kontekstu preglednika ili terminala. Promijenite je u Postavke → Tastatura ako ne želite da to dvoje dijele tipku.",
       "keyboardSingle": "Grupe s jednom karticom ne kreiraju se putem prečice. Za to koristite stavku Nova grupa iz radnog prostora u kontekstualnom meniju radnog prostora.",
       "contextMenuTitle": "Iz kontekstnog menija radnog prostora",
-      "contextMenuDesc": "Desnim klikom kliknite bilo koji radni prostor u bočnoj traci i odaberite Nova grupa iz radnog prostora, ili Nova grupa iz odabira kada je odabrano više radnih prostora. Ovo koristi isto ponašanje automatskog imenovanja kao i prečica.",
+      "contextMenuDesc": "Kliknite desnim klikom na bilo koji radni prostor u bočnoj traci i odaberite Nova prazna grupa radnih prostora, Nova grupa iz radnog prostora ili Nova grupa iz odabira kada je odabrano više radnih prostora. Prazan prostor ispod liste bočne trake također nudi Nova prazna grupa radnih prostora. Ovi putevi koriste isto automatsko imenovanje kao prečice.",
       "managingTitle": "Upravljanje grupom",
       "managingIntro": "Kada grupa postoji, kontekstualni meni njenog zaglavlja i dugme + na zaglavlju omogućavaju vam da upravljate grupom i dodajete joj workspace-ove. Nijedno od njih ne kreira novu grupu.",
       "headerMenuTitle": "Iz kontekstnog menija zaglavlja grupe",
@@ -819,6 +820,9 @@
           "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
           "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
         },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Kada je uključeno, baner notifikacije se automatski povlači samo kada je njegova površina tačno fokusirana površina. Baner isporučen za nefokusiranu površinu u trenutno vidljivom workspaceu ostaje prikazan dok ne fokusirate tu površinu (ili je kliknete/odbacite), umjesto da bude povučen kada workspace postane vidljiv. Isključeno zadržava staro ponašanje povlačenja na osnovu vidljivosti workspacea."
+        },
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
@@ -846,7 +850,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
+          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
           "showModifierHoldHints": "Prikaži oznake s prečicama dok držite Cmd ili Control."
         }
       },
@@ -1067,7 +1071,8 @@
       "closeWorkspaceDesc": "Zatvori radni prostor.",
       "splitCommands": "Komande razdjelnica",
       "newSplitDesc": "Kreiraj novi podijeljeni panel. Smjerovi: left, right, up, down.",
-      "listSurfacesDesc": "Izlistaj sve površine u trenutnom radnom prostoru.",
+      "listPanelsDesc": "Izlistaj sve površine u trenutnom radnom prostoru.",
+      "listPaneSurfacesDesc": "Izlistaj površine u fokusiranom panelu.",
       "focusSurfaceDesc": "Fokusiraj specifičnu površinu.",
       "inputCommands": "Komande unosa",
       "sendDesc": "Pošalji tekstualni unos u fokusirani terminal.",
@@ -1868,5 +1873,32 @@
       "faqQ4": "Je li cmux besplatan za korištenje s Cursor CLI-jem?",
       "faqA4": "Da. cmux je besplatan i otvorenog koda za macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Pridruži se listi čekanja za {platform}",
+    "titleAny": "Pridruži se listi čekanja",
+    "description": "Podrška za {platform} stiže. Ostavi svoj email i javit ćemo ti čim bude spremno.",
+    "descriptionAny": "cmux je trenutno prvenstveno za macOS. Ostavi svoj email i javit ćemo ti čim Linux, Windows ili Android bude spreman.",
+    "calloutText": "Uskoro za Linux, Windows i Android.",
+    "platformsLabel": "Koje platforme?",
+    "selectPlatform": "Odaberi barem jednu platformu.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "join": "Pridruži se listi",
+    "joining": "Pridruživanje…",
+    "cancel": "Otkaži",
+    "invalidEmail": "Unesi ispravnu email adresu.",
+    "sendError": "Slanje nije uspjelo. Pokušaj ponovo.",
+    "successTitle": "Na listi si",
+    "successBody": "Poslat ćemo ti email kada {platform} verzija bude spremna.",
+    "successBodyAny": "Poslat ćemo ti email kada cmux bude spreman za tvoju platformu.",
+    "done": "Gotovo"
   }
 }

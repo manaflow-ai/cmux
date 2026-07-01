@@ -110,6 +110,7 @@ enum KeyboardShortcutSettings {
         case closeTab
         case closeOtherTabsInPane
         case closeWorkspace
+        case newWorkspaceGroup
         case groupSelectedWorkspaces
         case toggleFocusedWorkspaceGroupCollapsed
         case reopenClosedBrowserPanel
@@ -232,6 +233,7 @@ enum KeyboardShortcutSettings {
             case .closeTab: return String(localized: "menu.file.closeTab", defaultValue: "Close Tab")
             case .closeOtherTabsInPane: return String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")
             case .closeWorkspace: return String(localized: "shortcut.closeWorkspace.label", defaultValue: "Close Workspace")
+            case .newWorkspaceGroup: return String(localized: "shortcut.newWorkspaceGroup.label", defaultValue: "New Workspace Group")
             case .groupSelectedWorkspaces: return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
             case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
@@ -403,6 +405,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: true, control: false)
             case .closeWorkspace:
                 return StoredShortcut(key: "w", command: true, shift: true, option: false, control: false)
+            case .newWorkspaceGroup:
+                return StoredShortcut(key: "g", command: true, shift: false, option: false, control: true)
             case .groupSelectedWorkspaces:
                 // Cmd+Shift+G is the user-natural mnemonic. It collides with
                 // toggleReactGrab's default, but handleGroupSelectedWorkspacesShortcut
@@ -447,7 +451,7 @@ enum KeyboardShortcutSettings {
             case .canvasZoomOut:
                 return StoredShortcut(key: "-", command: true, shift: false, option: true, control: false)
             case .canvasZoomReset:
-                return StoredShortcut(key: "0", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "0", command: true, shift: false, option: false, control: false)
             case .canvasTidy:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: true)
             case .canvasAlignLeft,
@@ -638,11 +642,9 @@ enum KeyboardShortcutSettings {
             // Two bindings on the same keystroke only collide when some focus
             // state activates both AND router priority cannot decide the overlap.
             // A `shortcuts.when` override (or the built-in context default) can
-            // make them non-overlapping — e.g. ⌃1 selecting a workspace only when
-            // the sidebar is NOT focused coexists with the sidebar's ⌃1 (issue
-            // #5189) — and a pre-routed action (sidebar modes) wins its context
-            // outright, so the factory Select Surface ⌃1…9 coexists with the
-            // sidebar's ⌃1…5 by priority.
+            // make them non-overlapping (issue #5189), and a pre-routed action
+            // wins its context outright, so factory Select Surface ⌃1…9 coexists
+            // with the sidebar's ⌃1…5 by priority.
             guard ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.effectiveWhenClause(for: self),
                 lhsHasPriority: hasPriorityShortcutRouting,
