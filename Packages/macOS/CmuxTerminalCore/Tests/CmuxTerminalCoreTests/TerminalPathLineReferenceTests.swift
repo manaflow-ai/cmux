@@ -109,6 +109,32 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(reference.column == nil)
     }
 
+    @Test func doesNotTreatHostPortWithSameNamedDirectoryAsFileReference() {
+        // `config/` exists in cwd; a bare `config:8080` (host:port) must stay a
+        // link, not resolve to `config` opened at line 8080 in the editor.
+        let existingDir = "/Users/dev/project/config"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingDir])).resolveOpenURLFileReference(
+                "config:8080",
+                cwd: "/Users/dev/project"
+            ) == nil
+        )
+    }
+
+    @Test func resolvesExtensionlessFileWithLineWhenPathHasSeparator() throws {
+        // A path-shaped extension-less token (`bin/run`) still resolves; only
+        // bare `word:number` tokens are excluded.
+        let existingFile = "/Users/dev/project/bin/run"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                "bin/run:7",
+                cwd: "/Users/dev/project"
+            )
+        )
+        #expect(reference.path == existingFile)
+        #expect(reference.line == 7)
+    }
+
     @Test func returnsNilWhenBasePathDoesNotExist() {
         #expect(
             TerminalPathResolver(fileExists: existsIn([])).resolveOpenURLFileReference(

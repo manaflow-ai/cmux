@@ -80,3 +80,67 @@ struct PreferredEditorLineReferenceTests {
         #expect(lines.contains("\(sourceFile.path):42:5"))
     }
 }
+
+@Suite("PreferredEditorService editor invocation")
+@MainActor
+struct PreferredEditorInvocationTests {
+    private func fragmentURL(path: String, fragment: String?) -> URL {
+        var components = URLComponents(url: URL(fileURLWithPath: path), resolvingAgainstBaseURL: false)
+        components?.fragment = fragment
+        return components?.url ?? URL(fileURLWithPath: path)
+    }
+
+    @Test func addsGotoFlagAndLineColumnForGotoEditor() {
+        let invocation = PreferredEditorService.editorInvocation(
+            forURL: fragmentURL(path: "/tmp/main.swift", fragment: "L42:5"),
+            command: "code"
+        )
+        #expect(invocation.gotoFlag == " -g")
+        #expect(invocation.argument == "/tmp/main.swift:42:5")
+    }
+
+    @Test func addsLineOnlyWhenNoColumn() {
+        let invocation = PreferredEditorService.editorInvocation(
+            forURL: fragmentURL(path: "/tmp/main.swift", fragment: "L42"),
+            command: "cursor"
+        )
+        #expect(invocation.gotoFlag == " -g")
+        #expect(invocation.argument == "/tmp/main.swift:42")
+    }
+
+    @Test func keepsExistingGotoFlag() {
+        let invocation = PreferredEditorService.editorInvocation(
+            forURL: fragmentURL(path: "/tmp/main.swift", fragment: "L42:5"),
+            command: "code --goto"
+        )
+        #expect(invocation.gotoFlag == "")
+        #expect(invocation.argument == "/tmp/main.swift:42:5")
+    }
+
+    @Test func recognizesQuotedBinaryPath() {
+        let invocation = PreferredEditorService.editorInvocation(
+            forURL: fragmentURL(path: "/tmp/main.swift", fragment: "L42:5"),
+            command: "\"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code\""
+        )
+        #expect(invocation.gotoFlag == " -g")
+        #expect(invocation.argument == "/tmp/main.swift:42:5")
+    }
+
+    @Test func leavesUnknownEditorWithBarePath() {
+        let invocation = PreferredEditorService.editorInvocation(
+            forURL: fragmentURL(path: "/tmp/main.swift", fragment: "L42:5"),
+            command: "mate"
+        )
+        #expect(invocation.gotoFlag == "")
+        #expect(invocation.argument == "/tmp/main.swift")
+    }
+
+    @Test func leavesBarePathWhenNoFragment() {
+        let invocation = PreferredEditorService.editorInvocation(
+            forURL: fragmentURL(path: "/tmp/main.swift", fragment: nil),
+            command: "code"
+        )
+        #expect(invocation.gotoFlag == "")
+        #expect(invocation.argument == "/tmp/main.swift")
+    }
+}

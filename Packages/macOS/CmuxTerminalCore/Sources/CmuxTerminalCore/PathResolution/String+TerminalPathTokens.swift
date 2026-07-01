@@ -126,7 +126,31 @@ extension String {
     ///
     /// - Returns: The base path and its line/optional column, or `nil`.
     func splitTerminalPathLineSuffix() -> (path: String, line: Int, column: Int?)? {
-        return nil
+        guard let lastColon = lastIndex(of: ":") else { return nil }
+        let lastSuffix = self[index(after: lastColon)...]
+        guard !lastSuffix.isEmpty,
+              lastSuffix.allSatisfy(\.isNumber),
+              let lastNumber = Int(lastSuffix),
+              lastNumber > 0 else {
+            return nil
+        }
+
+        let beforeLastColon = self[..<lastColon]
+        if let lineColon = beforeLastColon.lastIndex(of: ":") {
+            let lineSuffix = beforeLastColon[beforeLastColon.index(after: lineColon)...]
+            if !lineSuffix.isEmpty,
+               lineSuffix.allSatisfy(\.isNumber),
+               let lineNumber = Int(lineSuffix),
+               lineNumber > 0 {
+                let path = String(beforeLastColon[..<lineColon])
+                guard !path.isEmpty else { return nil }
+                return (path, lineNumber, lastNumber)
+            }
+        }
+
+        let path = String(beforeLastColon)
+        guard !path.isEmpty else { return nil }
+        return (path, lastNumber, nil)
     }
 
     /// Candidate path spellings derived from the receiver: the raw text, its
