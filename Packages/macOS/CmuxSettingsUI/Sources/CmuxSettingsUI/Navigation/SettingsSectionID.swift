@@ -14,6 +14,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case app
     case terminal
     case textBox
+    /// Pane tab bar button and More menu customization via cmux.json.
     case paneTabBar
     /// Sleepy Mode screensaver + keep-awake lock.
     case sleepyMode

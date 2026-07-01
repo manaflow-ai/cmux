@@ -6,12 +6,28 @@ import SwiftUI
 public struct PaneTabBarSection: View {
     private let jsonStore: JSONConfigStore
     private let hostActions: SettingsHostActions
+    private let homeDirectoryPath: String
 
-    public init(jsonStore: JSONConfigStore, hostActions: SettingsHostActions) {
+    /// Creates the Pane Tab Bar settings section.
+    ///
+    /// - Parameters:
+    ///   - jsonStore: The store backing the global cmux.json config file whose
+    ///     path the section displays.
+    ///   - hostActions: Host callbacks used to open the config in an external editor.
+    ///   - homeDirectoryPath: The home directory prefix abbreviated to `~` in the
+    ///     displayed config path. Inject a fixed path in tests.
+    public init(
+        jsonStore: JSONConfigStore,
+        hostActions: SettingsHostActions,
+        homeDirectoryPath: String = URL.homeDirectory.path
+    ) {
         self.jsonStore = jsonStore
         self.hostActions = hostActions
+        self.homeDirectoryPath = homeDirectoryPath
     }
 
+    /// The Pane Tab Bar settings section content: a documentation link plus
+    /// global and project cmux.json rows.
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.paneTabBar", defaultValue: "Pane Tab Bar"), section: .paneTabBar)
@@ -88,10 +104,9 @@ public struct PaneTabBarSection: View {
     }
 
     private var displayPath: String {
-        let homePath = NSHomeDirectory()
         let fullPath = jsonStore.fileURL.path
-        if fullPath.hasPrefix(homePath) {
-            return "~" + String(fullPath.dropFirst(homePath.count))
+        if fullPath.hasPrefix(homeDirectoryPath) {
+            return "~" + String(fullPath.dropFirst(homeDirectoryPath.count))
         }
         return fullPath
     }

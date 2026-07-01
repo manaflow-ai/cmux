@@ -42,6 +42,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case switchRightSidebarToSessions
     case switchRightSidebarToFeed
     case switchRightSidebarToDock
+    /// Switches the right sidebar to the Notes tab.
     case switchRightSidebarToNotes
     case triggerFlash
 
@@ -68,6 +69,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleFocusedWorkspaceGroupCollapsed
     case reopenClosedBrowserPanel
     case newSurface
+    /// Creates a new note in the focused workspace (Notes sidebar beta).
     case newNote
     case toggleTerminalCopyMode
     case focusTextBoxInput
