@@ -78,11 +78,11 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let dock = globalDockForRouting(routing) {
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             var refreshedCount = 0
             for panel in dock.panels.values {
                 if let terminalPanel = panel as? TerminalPanel {
-                    terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceRefresh.globalDock")
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceRefresh.windowDock")
                     refreshedCount += 1
                 }
             }
@@ -119,7 +119,7 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let dock = globalDockForRouting(routing) {
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             let target = terminalPanel(
                 in: dock,
                 explicitSurfaceID: surfaceID,
@@ -138,7 +138,7 @@ extension TerminalController {
             guard terminalPanel.performBindingAction("clear_screen") else {
                 return .bindingActionUnavailable
             }
-            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory.globalDock")
+            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory.windowDock")
             return .cleared(
                 windowID: v2ResolveWindowId(tabManager: tabManager),
                 workspaceID: dock.workspaceId,
@@ -179,7 +179,7 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let dock = globalDockForRouting(routing) {
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             let surfaceId = surfaceID ?? dock.focusedPanelId
             guard let surfaceId else {
                 return .noFocusedSurface
@@ -270,7 +270,7 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let dock = globalDockForRouting(routing) {
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             let target = terminalPanel(
                 in: dock,
                 explicitSurfaceID: surfaceID,
@@ -289,7 +289,7 @@ extension TerminalController {
             let queued: Bool
             switch terminalPanel.sendInputResult(text) {
             case .sent:
-                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText.globalDock")
+                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText.windowDock")
                 queued = false
             case .queued:
                 queued = true
@@ -349,7 +349,7 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let dock = globalDockForRouting(routing) {
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             let target = terminalPanel(
                 in: dock,
                 explicitSurfaceID: surfaceID,
@@ -368,7 +368,7 @@ extension TerminalController {
             let sendResult = terminalPanel.sendNamedKeyResult(key)
             switch sendResult {
             case .sent:
-                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey.globalDock")
+                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey.windowDock")
             case .queued:
                 break
             case .unknownKey:
@@ -433,7 +433,7 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let dock = globalDockForRouting(routing) {
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             let target = terminalPanel(
                 in: dock,
                 explicitSurfaceID: surfaceID,

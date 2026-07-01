@@ -422,29 +422,29 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let globalDock = globalDockForRouting(routing) {
-            let resolved = resolvedGlobalDockSurfaceId(
+        if let windowDock = windowDockForRouting(routing, tabManager: tabManager) {
+            let resolved = resolvedWindowDockSurfaceId(
                 explicitSurfaceID: surfaceID,
                 hasSurfaceIDParam: false,
                 routing: routing,
-                dock: globalDock
+                dock: windowDock
             )
             guard let surfaceId = resolved.surfaceID else {
                 return .noFocusedSurface
             }
-            guard globalDock.containsPanel(surfaceId) else {
+            guard windowDock.containsPanel(surfaceId) else {
                 return .closeFailed(surfaceId)
             }
-            guard globalDock.closePanel(surfaceId, force: true) else {
+            guard windowDock.closePanel(surfaceId, force: true) else {
                 return .closeFailed(surfaceId)
             }
             AppDelegate.shared?.notificationStore?.clearNotifications(
-                forTabId: globalDock.workspaceId,
+                forTabId: windowDock.workspaceId,
                 surfaceId: surfaceId
             )
             return .closed(
                 windowID: v2ResolveWindowId(tabManager: tabManager),
-                workspaceID: globalDock.workspaceId,
+                workspaceID: windowDock.workspaceId,
                 surfaceID: surfaceId
             )
         }
@@ -458,17 +458,17 @@ extension TerminalController {
         ) else {
             return .noFocusedSurface
         }
-        if let globalDock = globalDockContainingPanel(surfaceId) {
-            guard globalDock.closePanel(surfaceId, force: true) else {
+        if let windowDock = windowDockContainingPanel(surfaceId) {
+            guard windowDock.closePanel(surfaceId, force: true) else {
                 return .closeFailed(surfaceId)
             }
             AppDelegate.shared?.notificationStore?.clearNotifications(
-                forTabId: globalDock.workspaceId,
+                forTabId: windowDock.workspaceId,
                 surfaceId: surfaceId
             )
             return .closed(
                 windowID: v2ResolveWindowId(tabManager: tabManager),
-                workspaceID: globalDock.workspaceId,
+                workspaceID: windowDock.workspaceId,
                 surfaceID: surfaceId
             )
         } else if ws.containsDockPanel(surfaceId) {

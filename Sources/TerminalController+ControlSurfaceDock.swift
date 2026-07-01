@@ -22,8 +22,8 @@ extension TerminalController {
         String(localized: "dock.error.unavailable", defaultValue: "Dock placement is disabled")
     }
 
-    /// Creates a surface (tab) in the app-wide right-sidebar Dock. The Dock
-    /// hosts terminal and browser surfaces only; agent-session is unsupported.
+    /// Creates a surface (tab) in the routed window's right-sidebar Dock. The
+    /// Dock hosts terminal and browser surfaces only; agent-session is unsupported.
     func dockSurfaceCreate(
         tabManager: TabManager,
         panelType: PanelType,
@@ -36,10 +36,10 @@ extension TerminalController {
         guard RightSidebarMode.dock.isAvailable() else {
             return .dockUnavailable(message: dockUnavailableMessage())
         }
-        guard let app = AppDelegate.shared else {
+        guard let app = AppDelegate.shared,
+              let dock = app.windowDock(for: tabManager) else {
             return .workspaceNotFound
         }
-        let dock = app.globalDock
         guard let paneId = dock.resolvePane(requestedPaneID: inputs.requestedPaneID) else {
             return .paneNotFound
         }
@@ -77,37 +77,36 @@ extension TerminalController {
         return resolveSurfaceWorkspace(routing: routing, tabManager: tabManager)
     }
 
-    func globalDockContextWorkspace(tabManager: TabManager) -> Workspace? {
-        tabManager.selectedWorkspace ?? tabManager.tabs.first
-    }
-
     func dockReferenceWindowId(app: AppDelegate, tabManager: TabManager) -> UUID? {
         app.windowId(for: tabManager) ?? v2ResolveWindowId(tabManager: tabManager)
     }
 
-    func globalDockContainingPanel(_ surfaceId: UUID) -> DockSplitStore? {
-        guard let dock = AppDelegate.shared?.existingGlobalDock,
-              dock.containsPanel(surfaceId) else { return nil }
-        return dock
+    func windowDockContainingPanel(_ surfaceId: UUID) -> DockSplitStore? {
+        AppDelegate.shared?.windowDockContainingPanel(surfaceId)
     }
 
-    func globalDockContainingPane(_ paneId: UUID) -> DockSplitStore? {
-        guard let dock = AppDelegate.shared?.existingGlobalDock,
-              dock.containsPane(paneId) else { return nil }
-        return dock
+    func windowDockContainingPane(_ paneId: UUID) -> DockSplitStore? {
+        AppDelegate.shared?.windowDockContainingPane(paneId)
     }
 
-    func globalDockForRouting(_ routing: ControlRoutingSelectors) -> DockSplitStore? {
-        if let workspaceID = routing.workspaceID,
-           AppDelegate.isGlobalDockOwnerId(workspaceID) {
-            return AppDelegate.shared?.globalDock
+    /// The window Dock a command routes to, if any: an explicit dock-owner
+    /// `workspace_id` (or the legacy alias, resolved against `tabManager`'s
+    /// window), else the Dock containing the routed surface or pane.
+    func windowDockForRouting(_ routing: ControlRoutingSelectors, tabManager: TabManager) -> DockSplitStore? {
+        if let workspaceID = routing.workspaceID {
+            if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
+                return AppDelegate.shared?.windowDock(for: tabManager)
+            }
+            if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: workspaceID) {
+                return dock
+            }
         }
         if let surfaceID = routing.surfaceID,
-           let dock = globalDockContainingPanel(surfaceID) {
+           let dock = windowDockContainingPanel(surfaceID) {
             return dock
         }
         if let paneID = routing.paneID,
-           let dock = globalDockContainingPane(paneID) {
+           let dock = windowDockContainingPane(paneID) {
             return dock
         }
         return nil
@@ -144,14 +143,12 @@ extension TerminalController {
         if let routedSurfaceID = routing.surfaceID {
             return routedSurfaceID
         }
-        if let workspaceID = routing.workspaceID,
-           AppDelegate.isGlobalDockOwnerId(workspaceID) {
-            return AppDelegate.shared?.existingGlobalDock?.focusedPanelId
-        }
+        // A dock-routing workspace_id never reaches here: controlSurfaceClose
+        // handles it through windowDockForRouting before resolving a workspace.
         return fallbackWorkspace.focusedPanelId
     }
 
-    func resolvedGlobalDockSurfaceId(
+    func resolvedWindowDockSurfaceId(
         explicitSurfaceID: UUID?,
         hasSurfaceIDParam: Bool,
         routing: ControlRoutingSelectors,
@@ -175,7 +172,7 @@ extension TerminalController {
         hasSurfaceIDParam: Bool,
         routing: ControlRoutingSelectors
     ) -> (surfaceID: UUID?, terminalPanel: TerminalPanel?, invalidSurfaceID: Bool) {
-        let resolved = resolvedGlobalDockSurfaceId(
+        let resolved = resolvedWindowDockSurfaceId(
             explicitSurfaceID: explicitSurfaceID,
             hasSurfaceIDParam: hasSurfaceIDParam,
             routing: routing,
@@ -189,22 +186,11 @@ extension TerminalController {
 
     func locateDockSurface(_ surfaceId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager)? {
         guard let app = AppDelegate.shared else { return nil }
-        if let globalDock = app.existingGlobalDock,
-           globalDock.containsPanel(surfaceId),
-           let tabManager = app.dockReferenceTabManager(for: globalDock),
-           let windowId = dockReferenceWindowId(app: app, tabManager: tabManager) {
-            return (
-                windowId,
-                globalDock.workspaceId,
-                tabManager
-            )
-        }
-        // Indexed path: only workspaces that actually have a Dock register a live
-        // store, so this asks each store's authoritative `containsPanel` instead
-        // of walking every window × workspace tab. The global store is already
-        // handled above. Falls through to the scan if a store can't be located.
-        for store in DockSplitStore.liveStores
-        where !AppDelegate.isGlobalDockOwnerId(store.workspaceId) && store.containsPanel(surfaceId) {
+        // Indexed path: only workspaces/windows that actually have a Dock
+        // register a live store, so this asks each store's authoritative
+        // `containsPanel` instead of walking every window × workspace tab.
+        // Falls through to the scan if a store can't be located.
+        for store in DockSplitStore.liveStores where store.containsPanel(surfaceId) {
             if let location = dockStoreLocation(store, app: app) {
                 return (location.windowId, location.workspaceId, location.tabManager)
             }
@@ -219,20 +205,7 @@ extension TerminalController {
 
     func locateDockPane(_ paneId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager, workspace: Workspace)? {
         guard let app = AppDelegate.shared else { return nil }
-        if let globalDock = app.existingGlobalDock,
-           globalDock.containsPane(paneId),
-           let tabManager = app.dockReferenceTabManager(for: globalDock),
-           let windowId = dockReferenceWindowId(app: app, tabManager: tabManager),
-           let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first {
-            return (
-                windowId,
-                globalDock.workspaceId,
-                tabManager,
-                workspace
-            )
-        }
-        for store in DockSplitStore.liveStores
-        where !AppDelegate.isGlobalDockOwnerId(store.workspaceId) && store.containsPane(paneId) {
+        for store in DockSplitStore.liveStores where store.containsPane(paneId) {
             if let location = dockStoreLocation(store, app: app), let workspace = location.workspace {
                 return (location.windowId, location.workspaceId, location.tabManager, workspace)
             }
@@ -252,9 +225,10 @@ extension TerminalController {
         _ store: DockSplitStore,
         app: AppDelegate
     ) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager, workspace: Workspace?)? {
-        if AppDelegate.isGlobalDockOwnerId(store.workspaceId) {
-            guard let tabManager = app.dockReferenceTabManager(for: store),
-                  let windowId = dockReferenceWindowId(app: app, tabManager: tabManager) else { return nil }
+        if store.scope == .global {
+            // Window Dock: its owner id IS the owning window's id.
+            let windowId = store.workspaceId
+            guard let tabManager = app.tabManagerFor(windowId: windowId) else { return nil }
             return (windowId, store.workspaceId, tabManager, tabManager.selectedWorkspace ?? tabManager.tabs.first)
         }
         guard let tabManager = app.tabManagerFor(tabId: store.workspaceId),

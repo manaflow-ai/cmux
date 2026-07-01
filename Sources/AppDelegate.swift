@@ -1042,6 +1042,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
 
+    /// Per-window Docks keyed by the owning window's `windowId` (which is also
+    /// each store's `workspaceId`). Created lazily when a window first shows the
+    /// Dock, torn down when that window unregisters. See AppDelegate+WindowDock.swift.
+    var windowDocksById: [UUID: DockSplitStore] = [:]
+
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
     private var lastCascadePoint = NSPoint.zero
@@ -6019,6 +6024,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
+        teardownWindowDock(forWindowId: removed.windowId)
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
@@ -6032,6 +6038,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
+        teardownWindowDock(forWindowId: context.windowId)
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()

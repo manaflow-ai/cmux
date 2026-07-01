@@ -3166,6 +3166,15 @@ class TerminalController {
             if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(tabId: wsId) }) {
                 return tm
             }
+            // A window-Dock owner id IS its owning window's id, so a Dock-scoped
+            // workspace_id routes to that window rather than the caller's.
+            if let tm = v2MainSync({
+                AppDelegate.shared?.existingWindowDock(forWindowId: wsId) != nil
+                    ? AppDelegate.shared?.tabManagerFor(windowId: wsId)
+                    : nil
+            }) {
+                return tm
+            }
         }
         if let surfaceId = v2UUID(params, "surface_id")
             ?? v2UUID(params, "terminal_id")
@@ -3208,9 +3217,16 @@ class TerminalController {
            let tm = v2LocateTabManager(forGroupId: groupId) {
             return tm
         }
-        if let workspaceId = routing.workspaceID,
-           let tm = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) {
-            return tm
+        if let workspaceId = routing.workspaceID {
+            if let tm = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) {
+                return tm
+            }
+            // A window-Dock owner id IS its owning window's id, so a Dock-scoped
+            // workspace_id routes to that window rather than the caller's.
+            if AppDelegate.shared?.existingWindowDock(forWindowId: workspaceId) != nil,
+               let tm = AppDelegate.shared?.tabManagerFor(windowId: workspaceId) {
+                return tm
+            }
         }
         if let surfaceId = routing.surfaceID {
             if let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceId) ?? locateDockSurface(surfaceId) { return located.tabManager }
@@ -5257,9 +5273,9 @@ class TerminalController {
         params: [String: Any],
         tabManager: TabManager
     ) -> (context: V2BrowserPanelContext?, error: V2CallResult?) {
-        let globalDockResolution = v2ResolveGlobalDockBrowserPanelContext(params: params)
-        if globalDockResolution.handled {
-            return (globalDockResolution.context, globalDockResolution.error)
+        let windowDockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
+        if windowDockResolution.handled {
+            return (windowDockResolution.context, windowDockResolution.error)
         }
 
         guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
@@ -5286,23 +5302,26 @@ class TerminalController {
         )
     }
 
-    private func v2ResolveGlobalDockBrowserPanelContext(
-        params: [String: Any]
+    private func v2ResolveWindowDockBrowserPanelContext(
+        params: [String: Any],
+        tabManager: TabManager
     ) -> (handled: Bool, context: V2BrowserPanelContext?, error: V2CallResult?) {
         let requestedWorkspaceID = v2UUID(params, "workspace_id")
         let requestedSurfaceID = v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id")
         let requestedPaneID = v2UUID(params, "pane_id")
 
-        let dockBySurface = requestedSurfaceID.flatMap { globalDockContainingPanel($0) }
-        let dockByPane = requestedPaneID.flatMap { globalDockContainingPane($0) }
-        let routesGlobalDock = requestedWorkspaceID.map(AppDelegate.isGlobalDockOwnerId) == true
+        let dockBySurface = requestedSurfaceID.flatMap { windowDockContainingPanel($0) }
+        let dockByPane = requestedPaneID.flatMap { windowDockContainingPane($0) }
+        let routesWindowDock = requestedWorkspaceID.map(AppDelegate.isWindowDockRoutingId) == true
             || dockBySurface != nil
             || dockByPane != nil
-        guard routesGlobalDock else {
+        guard routesWindowDock else {
             return (false, nil, nil)
         }
 
-        guard let dock = dockBySurface ?? dockByPane ?? AppDelegate.shared?.existingGlobalDock else {
+        let dockByOwner = requestedWorkspaceID.flatMap { AppDelegate.shared?.existingWindowDock(forWindowId: $0) }
+        guard let dock = dockBySurface ?? dockByPane ?? dockByOwner
+                ?? AppDelegate.shared?.existingWindowDock(for: tabManager) else {
             return (true, nil, .err(code: "not_found", message: "No focused browser surface", data: nil))
         }
 
@@ -5340,8 +5359,9 @@ class TerminalController {
         )
     }
 
-    private func v2ResolveGlobalDockBrowserTabStore(
-        params: [String: Any]
+    private func v2ResolveWindowDockBrowserTabStore(
+        params: [String: Any],
+        tabManager: TabManager
     ) -> (handled: Bool, dock: DockSplitStore?, error: V2CallResult?) {
         let requestedWorkspaceID = v2UUID(params, "workspace_id")
         let requestedSurfaceID = v2UUID(params, "surface_id")
@@ -5350,18 +5370,20 @@ class TerminalController {
         let requestedPaneID = v2UUID(params, "pane_id")
             ?? v2UUID(params, "target_pane_id")
 
-        let dockBySurface = requestedSurfaceID.flatMap { globalDockContainingPanel($0) }
-        let dockByPane = requestedPaneID.flatMap { globalDockContainingPane($0) }
-        let routesGlobalDock = requestedWorkspaceID.map(AppDelegate.isGlobalDockOwnerId) == true
+        let dockBySurface = requestedSurfaceID.flatMap { windowDockContainingPanel($0) }
+        let dockByPane = requestedPaneID.flatMap { windowDockContainingPane($0) }
+        let routesWindowDock = requestedWorkspaceID.map(AppDelegate.isWindowDockRoutingId) == true
             || dockBySurface != nil
             || dockByPane != nil
-        guard routesGlobalDock else {
+        guard routesWindowDock else {
             return (false, nil, nil)
         }
 
+        let dockByOwner = requestedWorkspaceID.flatMap { AppDelegate.shared?.existingWindowDock(forWindowId: $0) }
         let dock = dockBySurface
             ?? dockByPane
-            ?? AppDelegate.shared?.globalDock
+            ?? dockByOwner
+            ?? AppDelegate.shared?.windowDock(for: tabManager)
         guard let dock else {
             return (true, nil, .err(code: "not_found", message: "Workspace not found", data: nil))
         }
@@ -5397,7 +5419,7 @@ class TerminalController {
         ]
     }
 
-    private func closeGlobalDockBrowserPanel(_ targetId: UUID, in dock: DockSplitStore) -> Bool {
+    private func closeWindowDockBrowserPanel(_ targetId: UUID, in dock: DockSplitStore) -> Bool {
         guard let tabId = dock.surfaceId(forPanelId: targetId) else { return false }
         dock.forceCloseDockTabIds.insert(tabId)
         let closed = dock.bonsplitController.closeTab(tabId)
@@ -7819,7 +7841,7 @@ class TerminalController {
         if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
-            let dockResolution = v2ResolveGlobalDockBrowserPanelContext(params: params)
+            let dockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
             if dockResolution.handled {
                 if let error = dockResolution.error {
                     result = error
@@ -7853,7 +7875,7 @@ class TerminalController {
         if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
-            let dockResolution = v2ResolveGlobalDockBrowserPanelContext(params: params)
+            let dockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
             if dockResolution.handled {
                 if let error = dockResolution.error {
                     result = error
@@ -7893,7 +7915,7 @@ class TerminalController {
         }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
-            let dockResolution = v2ResolveGlobalDockBrowserPanelContext(params: params)
+            let dockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
             if dockResolution.handled {
                 if let error = dockResolution.error {
                     result = error
@@ -7904,9 +7926,9 @@ class TerminalController {
                     || (mode == "toggle" && !context.browserPanel.isBrowserFocusModeActive)
                 if willActivate,
                    context.browserPanel.searchState == nil,
-                   let globalDock = globalDockContainingPanel(context.surfaceId),
-                   globalDock.focusedPanelId != context.surfaceId {
-                    globalDock.focusPanel(context.surfaceId)
+                   let windowDock = windowDockContainingPanel(context.surfaceId),
+                   windowDock.focusedPanelId != context.surfaceId {
+                    windowDock.focusPanel(context.surfaceId)
                 }
                 let handled: Bool
                 if enterAliases.contains(mode) {
@@ -7967,7 +7989,7 @@ class TerminalController {
         }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
-            let dockResolution = v2ResolveGlobalDockBrowserPanelContext(params: params)
+            let dockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
             if dockResolution.handled {
                 if let error = dockResolution.error {
                     result = error
@@ -8064,9 +8086,9 @@ class TerminalController {
                 _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
                 setActiveTabManager(tabManager)
             }
-            if let globalDock = globalDockContainingPanel(surfaceId) {
+            if let windowDock = windowDockContainingPanel(surfaceId) {
                 revealDockForFocus(tabManager: tabManager)
-                globalDock.focusPanel(surfaceId)
+                windowDock.focusPanel(surfaceId)
             } else if let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) {
                 if tabManager.selectedTabId != ws.id {
                     tabManager.selectWorkspace(ws)
@@ -9264,7 +9286,7 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
         v2MainSync {
-            let dockResolution = v2ResolveGlobalDockBrowserTabStore(params: params)
+            let dockResolution = v2ResolveWindowDockBrowserTabStore(params: params, tabManager: tabManager)
             if dockResolution.handled {
                 guard let dock = dockResolution.dock else {
                     result = dockResolution.error ?? .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -9303,7 +9325,7 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
         v2MainSync {
-            let dockResolution = v2ResolveGlobalDockBrowserTabStore(params: params)
+            let dockResolution = v2ResolveWindowDockBrowserTabStore(params: params, tabManager: tabManager)
             if dockResolution.handled {
                 guard let dock = dockResolution.dock else {
                     result = dockResolution.error ?? .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -9386,7 +9408,7 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "not_found", message: "Browser tab not found", data: nil)
         v2MainSync {
-            let dockResolution = v2ResolveGlobalDockBrowserTabStore(params: params)
+            let dockResolution = v2ResolveWindowDockBrowserTabStore(params: params, tabManager: tabManager)
             if dockResolution.handled {
                 guard let dock = dockResolution.dock else {
                     result = dockResolution.error ?? .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -9462,7 +9484,7 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "not_found", message: "Browser tab not found", data: nil)
         v2MainSync {
-            let dockResolution = v2ResolveGlobalDockBrowserTabStore(params: params)
+            let dockResolution = v2ResolveWindowDockBrowserTabStore(params: params, tabManager: tabManager)
             if dockResolution.handled {
                 guard let dock = dockResolution.dock else {
                     result = dockResolution.error ?? .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -9499,7 +9521,7 @@ class TerminalController {
                     return
                 }
 
-                let ok = closeGlobalDockBrowserPanel(targetId, in: dock)
+                let ok = closeWindowDockBrowserPanel(targetId, in: dock)
                 result = ok
                     ? .ok([
                         "workspace_id": dock.workspaceId.uuidString,

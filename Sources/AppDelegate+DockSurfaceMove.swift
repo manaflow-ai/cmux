@@ -50,12 +50,12 @@ extension AppDelegate {
         return context.fileExplorerState?.rightSidebarOwnsInputFocus ?? false
     }
 
-    /// Finds the Dock (global or any workspace's local Dock) that owns a pane.
-    /// Used by the portal drop target to route a tab dropped on a Dock pane to
-    /// the Dock's own controller instead of the workspace's.
+    /// Finds the Dock (any window's Dock or any workspace's local Dock) that
+    /// owns a pane. Used by the portal drop target to route a tab dropped on a
+    /// Dock pane to the Dock's own controller instead of the workspace's.
     func dockForPane(_ paneId: PaneID) -> DockSplitStore? {
-        if let globalDock = existingGlobalDock, globalDock.containsPane(paneId.id) {
-            return globalDock
+        if let windowDock = windowDockContainingPane(paneId.id) {
+            return windowDock
         }
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
@@ -71,10 +71,12 @@ extension AppDelegate {
     /// Used by `moveBonsplitTab` to route a Dock→main-area drop.
     func locateDockSurface(tabId: UUID) -> (dock: DockSplitStore, panelId: UUID)? {
         let bonsplitTabId = TabID(uuid: tabId)
-        // The app-wide Global Dock first (it has no owning workspace), then each
+        // Per-window Docks first (they have no owning workspace), then each
         // workspace's local Dock.
-        if let globalDock = existingGlobalDock, let panel = globalDock.panel(for: bonsplitTabId) {
-            return (globalDock, panel.id)
+        for windowDock in existingWindowDocks {
+            if let panel = windowDock.panel(for: bonsplitTabId) {
+                return (windowDock, panel.id)
+            }
         }
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
@@ -101,7 +103,7 @@ extension AppDelegate {
         // the now-empty workspace tears down that same Dock and destroys the just-
         // moved surface, while seeding a replacement terminal issues a remote
         // `tmux new-window` for a remote tmux mirror. The surface stays put — move
-        // it after adding another main terminal, or into a different/Global Dock.
+        // it after adding another main terminal, or into a different/window Dock.
         if case .workspace(_, let workspace, _, _) = source,
            workspace.panels.count == 1,
            destinationDock.scope == .workspace,
@@ -155,8 +157,9 @@ extension AppDelegate {
 
         // A move into the source workspace's own Dock that would empty it was
         // already rejected above, so any now-empty source workspace here moved its
-        // surface into a DIFFERENT container (another Dock or the Global Dock) and
-        // should be cleaned up as usual (the surface survives at the destination).
+        // surface into a DIFFERENT container (another workspace's Dock or a window
+        // Dock) and should be cleaned up as usual (the surface survives at the
+        // destination).
         cleanupEmptyContainerAfterMove(source)
         return true
     }
@@ -232,8 +235,8 @@ extension AppDelegate {
         focus: Bool = true,
         focusWindow: Bool = false
     ) -> Bool {
-        // The Global Dock has no owning workspace/window, so resolve the target
-        // window from the active main window instead of the dock's owner id.
+        // A window Dock resolves its owning window; a Workspace Dock resolves
+        // that workspace's window (see `dockReferenceTabManager`).
         guard let manager = dockReferenceTabManager(for: sourceDock) else { return false }
         let sourcePane = sourceDock.paneId(forPanelId: panelId)
         guard let detached = sourceDock.detachSurface(panelId: panelId) else { return false }

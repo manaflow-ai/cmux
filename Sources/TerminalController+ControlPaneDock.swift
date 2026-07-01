@@ -4,9 +4,9 @@ import CmuxControlSocket
 import Foundation
 
 extension TerminalController {
-    /// Creates a pane in the app-wide right-sidebar Dock instead of the main
-    /// area, splitting the Dock's own Bonsplit tree. Browser-disabled is handled
-    /// by `controlPaneCreate` before this is reached.
+    /// Creates a pane in the routed window's right-sidebar Dock instead of the
+    /// main area, splitting the Dock's own Bonsplit tree. Browser-disabled is
+    /// handled by `controlPaneCreate` before this is reached.
     func dockPaneCreate(
         tabManager: TabManager,
         panelType: PanelType,
@@ -25,10 +25,10 @@ extension TerminalController {
         guard RightSidebarMode.dock.isAvailable() else {
             return .dockUnavailable(message: dockUnavailableMessage())
         }
-        guard let app = AppDelegate.shared else {
+        guard let app = AppDelegate.shared,
+              let dock = app.windowDock(for: tabManager) else {
             return .workspaceNotFound
         }
-        let dock = app.globalDock
         // An explicit source surface must live in the Dock tree; do not silently
         // fall back to another Dock pane (mirrors the workspace `.noSourceSurface`).
         if let requestedSource = inputs.requestedSourceSurfaceID, !dock.containsPanel(requestedSource) {

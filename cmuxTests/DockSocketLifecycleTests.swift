@@ -173,8 +173,8 @@ struct DockSocketLifecycleTests {
             fileExplorerState: fileExplorerState
         )
         defer {
-            appDelegate.existingGlobalDock?.closeAllPanels()
             TerminalController.shared.setActiveTabManager(previousManager)
+            // Unregistering the window context also tears down that window's Dock.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
@@ -204,8 +204,8 @@ struct DockSocketLifecycleTests {
             fileExplorerState: fileExplorerState
         )
         defer {
-            appDelegate.existingGlobalDock?.closeAllPanels()
             TerminalController.shared.setActiveTabManager(previousManager)
+            // Unregistering the window context also tears down that window's Dock.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
@@ -267,12 +267,12 @@ struct DockSocketLifecycleTests {
 
                 let dockSurfaceIdRaw = try #require(result["dock_surface_id"] as? String)
                 let dockSurfaceId = try #require(UUID(uuidString: dockSurfaceIdRaw))
-                let globalDock = try #require(AppDelegate.shared?.existingGlobalDock)
+                let windowDock = try #require(AppDelegate.shared?.existingWindowDock(forWindowId: windowId))
                 #expect(result["window_id"] as? String == windowId.uuidString)
-                #expect(result["workspace_id"] as? String == AppDelegate.globalDockWorkspaceId.uuidString)
+                #expect(result["workspace_id"] as? String == windowId.uuidString)
                 #expect(fileExplorerState.isVisible)
                 #expect(fileExplorerState.mode == .dock)
-                #expect(globalDock.focusedPanelId == dockSurfaceId)
+                #expect(windowDock.focusedPanelId == dockSurfaceId)
                 #expect(workspace._dockSplit?.containsPanel(dockSurfaceId) != true)
             }
         }
@@ -294,12 +294,12 @@ struct DockSocketLifecycleTests {
 
                 let dockSurfaceIdRaw = try #require(result["dock_surface_id"] as? String)
                 let dockSurfaceId = try #require(UUID(uuidString: dockSurfaceIdRaw))
-                let globalDock = try #require(AppDelegate.shared?.existingGlobalDock)
+                let windowDock = try #require(AppDelegate.shared?.existingWindowDock(forWindowId: windowId))
                 #expect(result["window_id"] as? String == windowId.uuidString)
-                #expect(result["workspace_id"] as? String == AppDelegate.globalDockWorkspaceId.uuidString)
+                #expect(result["workspace_id"] as? String == windowId.uuidString)
                 #expect(fileExplorerState.isVisible)
                 #expect(fileExplorerState.mode == .dock)
-                #expect(globalDock.focusedPanelId == dockSurfaceId)
+                #expect(windowDock.focusedPanelId == dockSurfaceId)
                 #expect(workspace._dockSplit?.containsPanel(dockSurfaceId) != true)
             }
         }
@@ -321,7 +321,7 @@ struct DockSocketLifecycleTests {
                     let error = try #require(envelope["error"] as? [String: Any])
                     #expect(error["code"] as? String == "invalid_params")
                     #expect(error["message"] as? String == "Dock placement is disabled")
-                    #expect(AppDelegate.shared?.existingGlobalDock?.bonsplitController.allTabIds.isEmpty ?? true)
+                    #expect(AppDelegate.shared?.existingWindowDocks.isEmpty ?? true)
                     #expect(workspace._dockSplit?.bonsplitController.allTabIds.isEmpty ?? true)
                 }
             }
@@ -345,7 +345,7 @@ struct DockSocketLifecycleTests {
                         let error = try #require(envelope["error"] as? [String: Any])
                         #expect(error["code"] as? String == "invalid_params")
                         #expect(error["message"] as? String == "Dock placement is disabled")
-                        #expect(AppDelegate.shared?.existingGlobalDock?.bonsplitController.allTabIds.isEmpty ?? true)
+                        #expect(AppDelegate.shared?.existingWindowDocks.isEmpty ?? true)
                         #expect(workspace._dockSplit?.bonsplitController.allTabIds.isEmpty ?? true)
                     }
                 }
@@ -365,32 +365,32 @@ struct DockSocketLifecycleTests {
                 )
                 let dockSurfaceIdRaw = try #require(createResult["dock_surface_id"] as? String)
                 let dockSurfaceId = try #require(UUID(uuidString: dockSurfaceIdRaw))
-                let globalDock = try #require(AppDelegate.shared?.existingGlobalDock)
-                #expect(createResult["workspace_id"] as? String == AppDelegate.globalDockWorkspaceId.uuidString)
-                #expect(globalDock.containsPanel(dockSurfaceId))
+                let windowDock = try #require(AppDelegate.shared?.existingWindowDock(forWindowId: windowId))
+                #expect(createResult["workspace_id"] as? String == windowId.uuidString)
+                #expect(windowDock.containsPanel(dockSurfaceId))
                 #expect(workspace._dockSplit?.containsPanel(dockSurfaceId) != true)
 
                 let closeResult = try v2Result(
                     method: "surface.close",
                     params: [
-                        "workspace_id": AppDelegate.globalDockWorkspaceId.uuidString
+                        "workspace_id": windowId.uuidString
                     ]
                 )
 
                 #expect(closeResult["window_id"] as? String == windowId.uuidString)
-                #expect(closeResult["workspace_id"] as? String == AppDelegate.globalDockWorkspaceId.uuidString)
+                #expect(closeResult["workspace_id"] as? String == windowId.uuidString)
                 #expect(closeResult["surface_id"] as? String == dockSurfaceId.uuidString)
-                #expect(!globalDock.containsPanel(dockSurfaceId))
+                #expect(!windowDock.containsPanel(dockSurfaceId))
                 #expect(Set(workspace.panels.keys) == mainPanelIds)
             }
         }
     }
 
-    @Test("Global Dock owner resolves surface read snapshots")
+    @Test("Window Dock owner id resolves surface read snapshots")
     @MainActor
-    func globalDockOwnerResolvesSurfaceReadSnapshots() throws {
+    func windowDockOwnerResolvesSurfaceReadSnapshots() throws {
         try withDockEnabled {
-            try withSocketAppContext { _, workspace, _ in
+            try withSocketAppContext { _, workspace, windowId in
                 let mainPanelIds = Set(workspace.panels.keys)
                 let createResult = try v2Result(
                     method: "surface.create",
@@ -401,28 +401,63 @@ struct DockSocketLifecycleTests {
 
                 let listResult = try v2Result(
                     method: "surface.list",
-                    params: ["workspace_id": AppDelegate.globalDockWorkspaceId.uuidString]
+                    params: ["workspace_id": windowId.uuidString]
                 )
                 let surfaces = try #require(listResult["surfaces"] as? [[String: Any]])
-                #expect(listResult["workspace_id"] as? String == AppDelegate.globalDockWorkspaceId.uuidString)
+                #expect(listResult["workspace_id"] as? String == windowId.uuidString)
                 #expect(surfaces.contains { $0["id"] as? String == dockSurfaceId.uuidString })
 
                 let currentResult = try v2Result(
                     method: "surface.current",
-                    params: ["workspace_id": AppDelegate.globalDockWorkspaceId.uuidString]
+                    params: ["workspace_id": windowId.uuidString]
                 )
-                #expect(currentResult["workspace_id"] as? String == AppDelegate.globalDockWorkspaceId.uuidString)
+                #expect(currentResult["workspace_id"] as? String == windowId.uuidString)
                 #expect(currentResult["surface_id"] as? String == dockSurfaceId.uuidString)
                 #expect(Set(workspace.panels.keys) == mainPanelIds)
             }
         }
     }
 
-    @Test("Global Dock owner pane mutations do not fall back to selected workspace")
+    @Test("Legacy global Dock alias workspace_id routes to the caller window's Dock")
     @MainActor
-    func globalDockOwnerPaneMutationDoesNotFallBackToSelectedWorkspace() throws {
+    func legacyDockAliasRoutesToCallerWindowDock() throws {
         try withDockEnabled {
-            try withSocketAppContext { _, workspace, _ in
+            try withSocketAppContext { _, _, windowId in
+                let createResult = try v2Result(
+                    method: "surface.create",
+                    params: ["placement": "dock", "type": "terminal", "focus": true]
+                )
+                let dockSurfaceIdRaw = try #require(createResult["dock_surface_id"] as? String)
+                let dockSurfaceId = try #require(UUID(uuidString: dockSurfaceIdRaw))
+
+                // The retired app-wide Global Dock's owner id keeps routing for
+                // CLI compatibility: it resolves to the Dock of the window the
+                // command targets, and results report that Dock's real owner id.
+                let listResult = try v2Result(
+                    method: "surface.list",
+                    params: ["workspace_id": AppDelegate.windowDockAliasWorkspaceId.uuidString]
+                )
+                let surfaces = try #require(listResult["surfaces"] as? [[String: Any]])
+                #expect(listResult["workspace_id"] as? String == windowId.uuidString)
+                #expect(surfaces.contains { $0["id"] as? String == dockSurfaceId.uuidString })
+
+                let closeResult = try v2Result(
+                    method: "surface.close",
+                    params: ["workspace_id": AppDelegate.windowDockAliasWorkspaceId.uuidString]
+                )
+                #expect(closeResult["workspace_id"] as? String == windowId.uuidString)
+                #expect(closeResult["surface_id"] as? String == dockSurfaceId.uuidString)
+                let windowDock = try #require(AppDelegate.shared?.existingWindowDock(forWindowId: windowId))
+                #expect(!windowDock.containsPanel(dockSurfaceId))
+            }
+        }
+    }
+
+    @Test("Window Dock owner pane mutations do not fall back to selected workspace")
+    @MainActor
+    func windowDockOwnerPaneMutationDoesNotFallBackToSelectedWorkspace() throws {
+        try withDockEnabled {
+            try withSocketAppContext { _, workspace, windowId in
                 let mainPanelIds = Set(workspace.panels.keys)
                 let mainFocusedPane = workspace.bonsplitController.focusedPaneId
 
@@ -434,7 +469,7 @@ struct DockSocketLifecycleTests {
                 let envelope = try v2Envelope(
                     method: "pane.resize",
                     params: [
-                        "workspace_id": AppDelegate.globalDockWorkspaceId.uuidString,
+                        "workspace_id": windowId.uuidString,
                         "direction": "right",
                         "amount": 1,
                     ]
@@ -447,12 +482,12 @@ struct DockSocketLifecycleTests {
         }
     }
 
-    @Test("Global Dock browser surfaces resolve browser commands")
+    @Test("Window Dock browser surfaces resolve browser commands")
     @MainActor
-    func globalDockBrowserSurfacesResolveBrowserCommands() async throws {
+    func windowDockBrowserSurfacesResolveBrowserCommands() async throws {
         try await withDockEnabled {
             try await withBrowserEnabled {
-                try await withSocketAppContext { _, workspace, _ in
+                try await withSocketAppContext { _, workspace, windowId in
                     let mainPanelIds = Set(workspace.panels.keys)
                     let createResult = try v2Result(
                         method: "surface.create",
@@ -469,30 +504,30 @@ struct DockSocketLifecycleTests {
                     let urlResult = try v2Result(
                         method: "browser.url.get",
                         params: [
-                            "workspace_id": AppDelegate.globalDockWorkspaceId.uuidString,
+                            "workspace_id": windowId.uuidString,
                             "surface_id": dockSurfaceId.uuidString,
                         ]
                     )
-                    #expect(urlResult["workspace_id"] as? String == AppDelegate.globalDockWorkspaceId.uuidString)
+                    #expect(urlResult["workspace_id"] as? String == windowId.uuidString)
                     #expect(urlResult["surface_id"] as? String == dockSurfaceId.uuidString)
 
                     let navigateResult = try await v2ResultOnSocketWorker(
                         method: "browser.navigate",
                         params: [
-                            "workspace_id": AppDelegate.globalDockWorkspaceId.uuidString,
+                            "workspace_id": windowId.uuidString,
                             "surface_id": dockSurfaceId.uuidString,
                             "url": "about:blank",
                         ]
                     )
-                    #expect(navigateResult["workspace_id"] as? String == AppDelegate.globalDockWorkspaceId.uuidString)
+                    #expect(navigateResult["workspace_id"] as? String == windowId.uuidString)
                     #expect(navigateResult["surface_id"] as? String == dockSurfaceId.uuidString)
 
                     let tabListResult = try v2Result(
                         method: "browser.tab.list",
-                        params: ["workspace_id": AppDelegate.globalDockWorkspaceId.uuidString]
+                        params: ["workspace_id": windowId.uuidString]
                     )
                     let tabs = try #require(tabListResult["tabs"] as? [[String: Any]])
-                    #expect(tabListResult["workspace_id"] as? String == AppDelegate.globalDockWorkspaceId.uuidString)
+                    #expect(tabListResult["workspace_id"] as? String == windowId.uuidString)
                     #expect(tabs.contains { $0["id"] as? String == dockSurfaceId.uuidString })
                     #expect(Set(workspace.panels.keys) == mainPanelIds)
                 }
@@ -652,7 +687,7 @@ struct DockSocketLifecycleTests {
         }
     }
 
-    @Test("Global Dock pane routing and focused close stay in the Dock")
+    @Test("Window Dock pane routing and focused close stay in their own window's Dock")
     @MainActor
     func dockPaneRoutingAndFocusedCloseStayInDock() throws {
 #if DEBUG
@@ -680,7 +715,7 @@ struct DockSocketLifecycleTests {
             dockWindow.orderFront(nil)
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
-                appDelegate.existingGlobalDock?.closeAllPanels()
+                // Unregistering each window context also tears down its Dock.
                 appDelegate.unregisterMainWindowContextForTesting(windowId: activeWindowId)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: dockWindowId)
                 activeManager.tabs.forEach { $0.teardownAllPanels() }
@@ -694,8 +729,8 @@ struct DockSocketLifecycleTests {
 
             let activeWorkspace = try #require(activeManager.tabs.first)
             let dockWorkspace = try #require(dockManager.tabs.first)
-            let globalDock = appDelegate.globalDock
-            let dockPane = try #require(globalDock.bonsplitController.allPaneIds.first)
+            let activeWindowDock = appDelegate.windowDock(forWindowId: activeWindowId)
+            let dockPane = try #require(activeWindowDock.bonsplitController.allPaneIds.first)
             let result = try v2Result(method: "surface.create", params: [
                 "placement": "dock",
                 "type": "terminal",
@@ -705,10 +740,18 @@ struct DockSocketLifecycleTests {
             let dockSurfaceIdRaw = try #require(result["dock_surface_id"] as? String)
             let dockSurfaceId = try #require(UUID(uuidString: dockSurfaceIdRaw))
             #expect(result["window_id"] as? String == activeWindowId.uuidString)
-            #expect(result["workspace_id"] as? String == AppDelegate.globalDockWorkspaceId.uuidString)
-            #expect(globalDock.containsPanel(dockSurfaceId))
+            #expect(result["workspace_id"] as? String == activeWindowId.uuidString)
+            #expect(activeWindowDock.containsPanel(dockSurfaceId))
+            #expect(appDelegate.existingWindowDock(forWindowId: dockWindowId) == nil)
             #expect(activeWorkspace._dockSplit?.containsPanel(dockSurfaceId) != true)
             #expect(dockWorkspace._dockSplit?.containsPanel(dockSurfaceId) != true)
+
+            // Seed the second window's own Dock so the focused close below has a
+            // panel to act on in ITS window.
+            let otherWindowDock = appDelegate.windowDock(forWindowId: dockWindowId)
+            #expect(otherWindowDock !== activeWindowDock)
+            let otherPane = try #require(otherWindowDock.resolvePane(requestedPaneID: nil))
+            let otherDockSurfaceId = try #require(otherWindowDock.newSurface(kind: .terminal, inPane: otherPane, focus: true))
 
             let closeAction = KeyboardShortcutSettings.Action.closeTab
             let hadCloseShortcut = UserDefaults.standard.object(forKey: closeAction.defaultsKey) != nil
@@ -730,7 +773,10 @@ struct DockSocketLifecycleTests {
             let closeEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: dockWindow.windowNumber, context: nil, characters: "w", charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13))
 
             #expect(appDelegate.debugHandleCustomShortcut(event: closeEvent))
-            #expect(!globalDock.containsPanel(dockSurfaceId))
+            // The focused close acted on the second window's OWN Dock; the first
+            // window's Dock panel is untouched.
+            #expect(!otherWindowDock.containsPanel(otherDockSurfaceId))
+            #expect(activeWindowDock.containsPanel(dockSurfaceId))
             #expect(dockWorkspace.panels.count == mainPanelCount)
             #expect(dockWorkspace.focusedPanelId == focusedMainPanel)
         }
@@ -775,8 +821,6 @@ struct DockSocketLifecycleTests {
 
     // MARK: - Creation/split shortcut routing to the focused Dock
 
-    /// Sets up a single registered main window with the Global Dock created, and
-    /// tears everything down (including the static Global Dock's panels) on exit.
     /// Builds and dispatches a synthetic key-down event through the custom
     /// shortcut handler. Kept as a `@MainActor` method so callers don't invoke
     /// the main-actor handler from a nested/ nonisolated context.
@@ -805,15 +849,15 @@ struct DockSocketLifecycleTests {
         return appDelegate.debugHandleCustomShortcut(event: event)
     }
 
-    /// Sets up a single registered main window with the Global Dock created, and
-    /// tears everything down (including the static Global Dock's panels) on exit.
+    /// Sets up a single registered main window with that window's Dock created,
+    /// and tears everything down (the Dock included, via unregister) on exit.
     @MainActor
     private func withDockShortcutHarness(
         _ body: @MainActor (
             _ appDelegate: AppDelegate,
             _ manager: TabManager,
             _ mainWorkspace: Workspace,
-            _ globalDock: DockSplitStore,
+            _ windowDock: DockSplitStore,
             _ fileExplorerState: FileExplorerState,
             _ window: NSWindow
         ) throws -> Void
@@ -834,8 +878,8 @@ struct DockSocketLifecycleTests {
         appDelegate.registerMainWindow(window, windowId: windowId, tabManager: manager, sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState(), fileExplorerState: fileExplorerState)
         window.makeKeyAndOrderFront(nil)
         defer {
-            appDelegate.existingGlobalDock?.closeAllPanels()
             TerminalController.shared.setActiveTabManager(previousManager)
+            // Unregistering the window context also tears down that window's Dock.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             window.orderOut(nil)
@@ -844,8 +888,8 @@ struct DockSocketLifecycleTests {
         }
 
         let mainWorkspace = try #require(manager.tabs.first)
-        let globalDock = appDelegate.globalDock
-        try body(appDelegate, manager, mainWorkspace, globalDock, fileExplorerState, window)
+        let windowDock = appDelegate.windowDock(forWindowId: windowId)
+        try body(appDelegate, manager, mainWorkspace, windowDock, fileExplorerState, window)
     }
 
     @MainActor
@@ -878,10 +922,10 @@ struct DockSocketLifecycleTests {
         try withDockEnabled {
             try withBrowserEnabled {
                 try withDefaultShortcuts([.newSurface, .openBrowser, .splitRight, .splitDown]) {
-                    try withDockShortcutHarness { appDelegate, _, mainWorkspace, globalDock, fileExplorerState, window in
+                    try withDockShortcutHarness { appDelegate, _, mainWorkspace, windowDock, fileExplorerState, window in
                         // Seed one Dock terminal so there is a focused Dock pane/panel.
-                        let rootPane = try #require(globalDock.resolvePane(requestedPaneID: nil))
-                        _ = try #require(globalDock.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+                        let rootPane = try #require(windowDock.resolvePane(requestedPaneID: nil))
+                        _ = try #require(windowDock.newSurface(kind: .terminal, inPane: rootPane, focus: true))
 
                         // Make the Dock the active right-sidebar area.
                         fileExplorerState.setVisible(true)
@@ -891,26 +935,26 @@ struct DockSocketLifecycleTests {
                         let mainPanelsBefore = Set(mainWorkspace.panels.keys)
 
                         // New Terminal (Cmd+T) -> a Dock tab is added.
-                        let tabsBeforeT = globalDock.bonsplitController.allTabIds.count
+                        let tabsBeforeT = windowDock.bonsplitController.allTabIds.count
                         #expect(dispatchShortcut(appDelegate, window: window, characters: "t", keyCode: 17, flags: [.command]))
-                        #expect(globalDock.bonsplitController.allTabIds.count == tabsBeforeT + 1)
+                        #expect(windowDock.bonsplitController.allTabIds.count == tabsBeforeT + 1)
 
                         // New Browser (Cmd+Shift+L) -> a Dock browser is added.
-                        let tabsBeforeL = globalDock.bonsplitController.allTabIds.count
+                        let tabsBeforeL = windowDock.bonsplitController.allTabIds.count
                         #expect(dispatchShortcut(appDelegate, window: window, characters: "l", keyCode: 37, flags: [.command, .shift]))
-                        #expect(globalDock.bonsplitController.allTabIds.count == tabsBeforeL + 1)
-                        let browserPanelId = try #require(globalDock.focusedPanelId)
-                        #expect(globalDock.browserPanel(for: browserPanelId) != nil)
+                        #expect(windowDock.bonsplitController.allTabIds.count == tabsBeforeL + 1)
+                        let browserPanelId = try #require(windowDock.focusedPanelId)
+                        #expect(windowDock.browserPanel(for: browserPanelId) != nil)
 
                         // Split Right (Cmd+D) -> a Dock pane is added.
-                        let panesBeforeD = globalDock.bonsplitController.allPaneIds.count
+                        let panesBeforeD = windowDock.bonsplitController.allPaneIds.count
                         #expect(dispatchShortcut(appDelegate, window: window, characters: "d", keyCode: 2, flags: [.command]))
-                        #expect(globalDock.bonsplitController.allPaneIds.count == panesBeforeD + 1)
+                        #expect(windowDock.bonsplitController.allPaneIds.count == panesBeforeD + 1)
 
                         // Split Down (Cmd+Shift+D) -> a Dock pane is added.
-                        let panesBeforeShiftD = globalDock.bonsplitController.allPaneIds.count
+                        let panesBeforeShiftD = windowDock.bonsplitController.allPaneIds.count
                         #expect(dispatchShortcut(appDelegate, window: window, characters: "d", keyCode: 2, flags: [.command, .shift]))
-                        #expect(globalDock.bonsplitController.allPaneIds.count == panesBeforeShiftD + 1)
+                        #expect(windowDock.bonsplitController.allPaneIds.count == panesBeforeShiftD + 1)
 
                         // The main content area never received any of the new surfaces.
                         #expect(Set(mainWorkspace.panels.keys) == mainPanelsBefore)
@@ -929,20 +973,20 @@ struct DockSocketLifecycleTests {
 #if DEBUG
         try withDockEnabled {
             try withDefaultShortcuts([.newSurface]) {
-                try withDockShortcutHarness { appDelegate, _, mainWorkspace, globalDock, fileExplorerState, window in
+                try withDockShortcutHarness { appDelegate, _, mainWorkspace, windowDock, fileExplorerState, window in
                     // Dock has content but is NOT the focused area; the main panel is.
-                    let rootPane = try #require(globalDock.resolvePane(requestedPaneID: nil))
-                    _ = try #require(globalDock.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+                    let rootPane = try #require(windowDock.resolvePane(requestedPaneID: nil))
+                    _ = try #require(windowDock.newSurface(kind: .terminal, inPane: rootPane, focus: true))
                     fileExplorerState.mode = .files
                     let mainPanelId = try #require(mainWorkspace.focusedPanelId)
                     appDelegate.noteMainPanelKeyboardFocusIntent(workspaceId: mainWorkspace.id, panelId: mainPanelId, in: window)
 
-                    let dockTabsBefore = globalDock.bonsplitController.allTabIds.count
+                    let dockTabsBefore = windowDock.bonsplitController.allTabIds.count
 
                     #expect(dispatchShortcut(appDelegate, window: window, characters: "t", keyCode: 17, flags: [.command]))
 
                     // The Dock did not receive the new surface (it went to the main area).
-                    #expect(globalDock.bonsplitController.allTabIds.count == dockTabsBefore)
+                    #expect(windowDock.bonsplitController.allTabIds.count == dockTabsBefore)
                 }
             }
         }
