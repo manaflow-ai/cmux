@@ -112,6 +112,13 @@ final class RecordingCodexTeamsCmuxSocket: @unchecked Sendable {
                 response.withCString { pointer in
                     _ = Darwin.write(clientFD, pointer, strlen(pointer))
                 }
+                if Self.method(in: line) == "workspace.equalize_splits" {
+                    // Simulate the app closing a control connection that idles
+                    // between subagent spawns: drop it once a pane-open burst
+                    // (split, rename, equalize) completes. The watcher must
+                    // reconnect before opening the next subagent pane.
+                    return
+                }
             }
         }
     }
