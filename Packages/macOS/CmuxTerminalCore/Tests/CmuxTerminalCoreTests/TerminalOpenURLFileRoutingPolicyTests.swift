@@ -25,6 +25,16 @@ import CmuxTerminalCore
         )
     }
 
+    @Test func hostedFileTargetBypassesCmuxFileRoutingEvenWithoutRawScheme() throws {
+        let url = try #require(URL(string: "file://remote-host/Users/dev/out/ab_cosyvoice_emo.wav"))
+        #expect(
+            policy.shouldAttemptCmuxFileRouting(
+                rawOpenURLValue: "/Users/dev/out/ab_cosyvoice_emo.wav",
+                target: .external(url)
+            ) == false
+        )
+    }
+
     @Test func absolutePathCanStillUseCmuxFileRouting() {
         let url = URL(fileURLWithPath: "/Users/dev/project/README.md")
         #expect(
