@@ -24,6 +24,8 @@ struct WorkspaceShellView: View {
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
+    @State private var pendingMacSwitchID: String?
+    @State private var pendingMacSwitchGeneration: UInt64 = 0
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -103,6 +105,10 @@ struct WorkspaceShellView: View {
                 createWorkspace: createWorkspaceInCompactStack,
                 canCreateWorkspace: canCreateWorkspaceForMacSelection,
                 macSelection: $macSelection,
+                switchMac: { macDeviceID in
+                    await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
+                },
+                cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
@@ -191,6 +197,10 @@ struct WorkspaceShellView: View {
                 createWorkspace: createWorkspaceIfConnected,
                 canCreateWorkspace: canCreateWorkspaceForMacSelection,
                 macSelection: $macSelection,
+                switchMac: { macDeviceID in
+                    await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
+                },
+                cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
@@ -290,7 +300,36 @@ struct WorkspaceShellView: View {
     }
 
     private var canCreateWorkspaceForMacSelection: Bool {
-        macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
+        macSelectionScope.canCreateWorkspace(
+            base: canCreateWorkspace,
+            switchPending: pendingMacSwitchID != nil
+        )
+    }
+
+    @MainActor
+    private func switchMacFromWorkspacePicker(macDeviceID: String) async -> Bool {
+        pendingMacSwitchGeneration &+= 1
+        let generation = pendingMacSwitchGeneration
+        pendingMacSwitchID = macDeviceID
+        defer {
+            if pendingMacSwitchGeneration == generation {
+                pendingMacSwitchID = nil
+            }
+        }
+        return await store.switchToMac(macDeviceID: macDeviceID)
+    }
+
+    @MainActor
+    private func cancelMacSwitchFromWorkspacePicker(restorePreviousOnCancel: Bool) async {
+        pendingMacSwitchGeneration &+= 1
+        let generation = pendingMacSwitchGeneration
+        let restoreTask = store.cancelPendingMacSwitch(restorePreviousOnCancel: restorePreviousOnCancel)
+        if restorePreviousOnCancel, let restoreTask {
+            _ = await restoreTask.value
+        }
+        if pendingMacSwitchGeneration == generation {
+            pendingMacSwitchID = nil
+        }
     }
 
     private var macSelectionScope: WorkspaceMacSelectionScope {

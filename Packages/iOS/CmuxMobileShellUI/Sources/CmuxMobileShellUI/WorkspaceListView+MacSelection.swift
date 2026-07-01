@@ -40,7 +40,7 @@ extension WorkspaceListView {
     }
 
     var fallbackMacPickerName: String {
-        L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Mac")
+        L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
     }
 
     func macDisplayNamesByID() -> [String: String] {
@@ -104,19 +104,26 @@ extension WorkspaceListView {
     func macTitlePickerTitle(machineSnapshots: WorkspaceMachineSnapshots) -> String {
         switch visibleMacSelection {
         case .all, .automatic:
-            L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs")
+            L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
         case .machine(let id):
             machineSnapshots.macPickerMachines.first { $0.id == id }?.name ?? fallbackMacPickerName
         }
     }
 
+    var macTitlePickerSelection: Binding<WorkspaceMacSelection> {
+        Binding(
+            get: { currentMacTitlePickerSelection },
+            set: { _ = handleMacTitlePickerSelection($0) }
+        )
+    }
+
     func macTitlePicker(machineSnapshots: WorkspaceMachineSnapshots) -> some View {
         Menu {
             Picker(
-                L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Mac"),
-                selection: $macSelection
+                L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Computer"),
+                selection: macTitlePickerSelection
             ) {
-                Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
+                Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers"))
                     .tag(WorkspaceMacSelection.all)
                 ForEach(machineSnapshots.macPickerMachines) { machine in
                     Text(machine.name)
@@ -137,7 +144,10 @@ extension WorkspaceListView {
                 .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
             }
         } label: {
-            WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle(machineSnapshots: machineSnapshots))
+            WorkspaceMacTitlePickerLabel(
+                title: macTitlePickerTitle(machineSnapshots: machineSnapshots),
+                isLoading: macTitlePickerShowsProgress
+            )
         }
         .buttonStyle(.plain)
         .tint(.white)
@@ -166,6 +176,7 @@ private struct WorkspaceMacTitlePickerLabel: View {
     private static let titleWidth: CGFloat = 155
 
     let title: String
+    let isLoading: Bool
 
     var body: some View {
         HStack(spacing: 6) {
@@ -177,9 +188,17 @@ private struct WorkspaceMacTitlePickerLabel: View {
                 .allowsTightening(true)
                 .minimumScaleFactor(0.9)
                 .layoutPriority(1)
-            Image(systemName: "chevron.down")
-                .font(.caption.weight(.bold))
-                .accessibilityHidden(true)
+            ZStack {
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .opacity(isLoading ? 0 : 1)
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(.white)
+                    .opacity(isLoading ? 1 : 0)
+            }
+            .frame(width: 12, height: 12)
+            .accessibilityHidden(true)
             Spacer(minLength: 0)
         }
         .foregroundStyle(.white)
