@@ -56,7 +56,9 @@ extension TerminalController: ControlWindowContext {
     }
 
     func controlCloseWindow(id: UUID) -> Bool {
-        AppDelegate.shared?.closeMainWindow(windowId: id) ?? false
+        // force: a programmatic (v2/socket) close must bypass the interactive
+        // last-window quit veto and report the truth — same contract as the v1 CLI path.
+        AppDelegate.shared?.closeMainWindow(windowId: id, force: true) ?? false
     }
 
     func controlAvailableDisplays() -> [ControlDisplayInfo] {
