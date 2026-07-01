@@ -92,6 +92,25 @@ struct ChatConversationStorePromptEchoPreviewTests {
         #expect(await waitForPromptEchoPreview { Self.messageIDs(store.rows) == [preview.id] })
     }
 
+    @Test("live preview is not cleared after real streaming text is accepted")
+    func acceptedLivePreviewIsNotLaterClearedByPromptSuffix() async {
+        let source = FixtureChatEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await waitForPromptEchoPreview { store.isConnected })
+        let user = Self.prose(seq: 0, role: .user, text: "respond with hello world")
+        await source.emit(.appended([user]))
+        #expect(await waitForPromptEchoPreview { Self.messageIDs(store.rows) == [user.id] })
+
+        await source.emit(.streamingProse(Self.streamingMessage(text: "hello")))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["respond with hello world", "hello"] })
+
+        await source.emit(.streamingProse(Self.streamingMessage(text: "hello world")))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["respond with hello world", "hello world"] })
+    }
+
     @Test("queued prompts do not suppress the active turn live preview")
     func queuedPromptDoesNotSuppressActivePreview() async {
         let source = PromptEchoSilentSendEventSource()
@@ -173,5 +192,12 @@ struct ChatConversationStorePromptEchoPreviewTests {
 
     private static func messageIDs(_ rows: [ChatTranscriptRow]) -> [String] {
         snapshots(rows).map(\.message.id)
+    }
+
+    private static func proseTexts(_ rows: [ChatTranscriptRow]) -> [String] {
+        snapshots(rows).compactMap { snapshot in
+            if case .prose(let prose) = snapshot.message.kind { return prose.text }
+            return nil
+        }
     }
 }
