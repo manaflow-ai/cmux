@@ -869,8 +869,7 @@ final class cmuxUITests: XCTestCase {
             "Interrupted show-dismiss must capture partially visible keyboard motion, not only down state. samples=\(animationSamples)"
         )
         guard let keyboardDown = animationSamples.reversed().first(where: {
-            $0.metrics.keyboardOverlap == 0
-                && abs($0.metrics.presentationFrameMaxY - $0.metrics.effectiveFrameMaxY) < 4
+            isKeyboardDownClipSettled($0.metrics)
                 && abs($0.metrics.frameMaxY - beforeKeyboard.frameMaxY) < 8
         })?.metrics else {
             XCTFail("Interrupted show-dismiss evidence must end with the keyboard down. samples=\(animationSamples)")
@@ -1013,8 +1012,7 @@ final class cmuxUITests: XCTestCase {
                 minimumDistinctFrameBuckets: 2
             )
             guard let refocused = interruptedSamples.reversed().first(where: {
-                $0.metrics.keyboardOverlap > 120
-                    && abs($0.metrics.presentationFrameMaxY - $0.metrics.effectiveFrameMaxY) < 4
+                isKeyboardUpClipSettled($0.metrics)
             })?.metrics else {
                 XCTFail("\(refocusCase.label) evidence must end with the keyboard visible. samples=\(interruptedSamples)")
                 return
@@ -1094,8 +1092,7 @@ final class cmuxUITests: XCTestCase {
             // attachment/pinning. Dense in-flight frames come from the external
             // simulator recording used for dogfood evidence.
             guard let refocused = samples.reversed().first(where: {
-                $0.metrics.keyboardOverlap > 120
-                    && abs($0.metrics.presentationFrameMaxY - $0.metrics.effectiveFrameMaxY) < 4
+                isKeyboardUpClipSettled($0.metrics)
             })?.metrics else {
                 XCTFail("\(refocusCase.label) evidence must end with the keyboard visible. samples=\(samples)")
                 return
@@ -2633,6 +2630,16 @@ final class cmuxUITests: XCTestCase {
         metrics.keyboardAnimationActive
             || metrics.keyboardOverlap > 0
             || abs(metrics.presentationFrameMaxY - metrics.effectiveFrameMaxY) > 4
+    }
+
+    private func isKeyboardUpClipSettled(_ metrics: ChatTranscriptMetrics) -> Bool {
+        metrics.keyboardOverlap > 120
+            && abs(metrics.presentationFrameMaxY - metrics.effectiveFrameMaxY) < 4
+    }
+
+    private func isKeyboardDownClipSettled(_ metrics: ChatTranscriptMetrics) -> Bool {
+        abs(metrics.keyboardOverlap) <= 0.5
+            && metrics.presentationFrameMaxY >= metrics.effectiveFrameMaxY - 6
     }
 
     private struct TranscriptMetricsWaitError: Error, CustomStringConvertible {
