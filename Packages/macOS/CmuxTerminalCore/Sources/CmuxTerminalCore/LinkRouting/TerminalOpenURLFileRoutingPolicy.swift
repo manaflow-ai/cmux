@@ -16,11 +16,18 @@ public struct TerminalOpenURLFileRoutingPolicy: Sendable {
     ///   - rawOpenURLValue: The raw open-URL payload from the terminal runtime.
     ///   - target: The parsed terminal link target.
     public func shouldAttemptCmuxFileRouting(
-        rawOpenURLValue _: String,
+        rawOpenURLValue: String,
         target: TerminalOpenURLTarget
     ) -> Bool {
+        guard !Self.hasExplicitURLScheme(rawOpenURLValue) else { return false }
         guard target.url.isFileURL else { return false }
         return Self.isLocalFileURL(target.url)
+    }
+
+    private static func hasExplicitURLScheme(_ rawValue: String) -> Bool {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let scheme = URL(string: trimmed)?.scheme else { return false }
+        return !scheme.isEmpty
     }
 
     private static func isLocalFileURL(_ url: URL) -> Bool {

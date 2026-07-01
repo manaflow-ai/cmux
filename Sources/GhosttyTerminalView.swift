@@ -3086,15 +3086,12 @@ class GhosttyApp {
                 return true
             }
             #endif
-            // Route local file URLs into cmux when the file-routing toggle is on.
-            // URL fragments/queries are stripped (the panel only needs the file
-            // path), so links emitted by tools like Claude Code (`foo.md#L42`)
-            // still route into the viewer. Anything else (toggle off, hosted
-            // file URL, remote workspace, unreadable file, split creation
-            // failure) falls through to the existing NSWorkspace path below so
-            // URL semantics are preserved.
+            // Route local file paths into cmux when the file-routing toggle is on.
+            // Explicit URL schemes (including file://) stay on the URL route so
+            // the OS owns non-web schemes, while bare paths like `foo.md#L42`
+            // still route into the viewer when eligible.
             if TerminalOpenURLFileRoutingPolicy().shouldAttemptCmuxFileRouting(
-                rawOpenURLValue: normalizedOpenURLString,
+                rawOpenURLValue: trimmedUrlString,
                 target: target
             ) {
                 let fileURL = target.url
