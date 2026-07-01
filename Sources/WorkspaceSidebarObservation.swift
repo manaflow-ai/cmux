@@ -2,12 +2,28 @@ import Combine
 import CmuxCore
 import Foundation
 import CmuxSidebar
+import SwiftUI
 
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]
 
     init(panels: [UUID: any Panel]) {
         panelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
+    }
+}
+
+extension View {
+    func sidebarAgentRuntimeObservation(
+        id: UUID,
+        model: WorkspaceSidebarAgentRuntimeObservationModel,
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: id) { @MainActor in
+            for await _ in model.changes() {
+                if Task.isCancelled { break }
+                onChange()
+            }
+        }
     }
 }
 
@@ -39,6 +55,7 @@ private struct SidebarObservationState: Equatable {
     let remoteConnectionDetail: String?
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
+    let browserMediaActivity: BrowserMediaActivity
 }
 
 extension Workspace {
@@ -98,7 +115,6 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
-
         return Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
@@ -106,7 +122,8 @@ extension Workspace {
             remoteFields
         )
             .combineLatest($listeningPorts)
-            .map { groupedFields, listeningPorts in
+            .compactMap { [weak self] groupedFields, listeningPorts -> SidebarObservationState? in
+                guard let self else { return nil }
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
@@ -128,7 +145,8 @@ extension Workspace {
                     remoteConnectionState: remoteFields.1,
                     remoteConnectionDetail: remoteFields.2,
                     activeRemoteTerminalSessionCount: remoteFields.3,
-                    listeningPorts: listeningPorts
+                    listeningPorts: listeningPorts,
+                    browserMediaActivity: self.browserMediaActivity
                 )
             }
             .removeDuplicates()

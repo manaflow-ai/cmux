@@ -2,11 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { shortcutCategories, type LocalizedText, type Shortcut } from "../../data/cmux-shortcuts";
-
-function localizedText(text: LocalizedText, locale: string) {
-  return locale.startsWith("ja") ? text.ja : text.en;
-}
+import { localizedShortcutText, shortcutCategories, type Shortcut } from "../../data/cmux-shortcuts";
 
 function normalize(s: string) {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
@@ -34,8 +30,8 @@ function KeyCombo({ combo }: { combo: string[] }) {
 }
 
 function ShortcutRow({ shortcut, locale }: { shortcut: Shortcut; locale: string }) {
-  const description = localizedText(shortcut.description, locale);
-  const note = shortcut.note ? localizedText(shortcut.note, locale) : undefined;
+  const description = localizedShortcutText(shortcut.description, locale);
+  const note = shortcut.note ? localizedShortcutText(shortcut.note, locale) : undefined;
 
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-[11px] transition-colors hover:bg-foreground/[0.025]">
@@ -73,8 +69,8 @@ export function KeyboardShortcuts() {
       ...cat,
       shortcuts: cat.shortcuts.filter((shortcut) => {
         const catTitle = t(`cat.${cat.titleKey}`);
-        const description = localizedText(shortcut.description, locale);
-        const note = shortcut.note ? localizedText(shortcut.note, locale) : "";
+        const description = localizedShortcutText(shortcut.description, locale);
+        const note = shortcut.note ? localizedShortcutText(shortcut.note, locale) : "";
         const combos = shortcut.combos.map(comboToText).join(" ");
         return normalize(`${catTitle} ${combos} ${description} ${note}`).includes(q);
       }),

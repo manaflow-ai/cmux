@@ -1,4 +1,4 @@
-import CMUXWorkstream
+import CMUXAgentLaunch
 import Foundation
 
 enum IMessageModeSettings {
@@ -73,7 +73,7 @@ extension WorkstreamEvent {
     }
 
     var assistantFinalMessage: String? {
-        guard hookEventName == .stop || hookEventName == .subagentStop else { return nil }
+        guard hookEventName == .stop else { return nil }
         let contextMessage = context?.assistantPreamble.flatMap(Self.normalizedPromptText)
         return contextMessage
             ?? Self.messageText(fromJSON: extraFieldsJSON, keys: Self.assistantMessageKeys)

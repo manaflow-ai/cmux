@@ -62,9 +62,41 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowWorkspaceListLayoutPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.workspaceListLayoutPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    private var shouldShowStreamingChatPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.streamingChatPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder private var streamingChatPreview: some View {
+        #if os(iOS) && DEBUG
+        StreamingChatPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var workspaceListLayoutPreview: some View {
+        #if os(iOS) && DEBUG
+        WorkspaceListLayoutPreviewView()
         #else
         EmptyView()
         #endif
@@ -86,8 +118,8 @@ struct CMUXMobileRootView: View {
             // If the view mounts already authenticated (cached session, or a
             // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,
             // so kick off the stored-Mac reconnect here too. Without this the
-            // restoring gate could stay on RestoringSessionView forever because
-            // nothing ever resolves `didFinishStoredMacReconnectAttempt`.
+            // workspace list's initial-connection status could never resolve
+            // because nothing updates `didFinishStoredMacReconnectAttempt`.
             reconnectStoredMacIfNeeded()
         }
         #if os(iOS)
@@ -100,6 +132,14 @@ struct CMUXMobileRootView: View {
             pushCoordinator.workspacesDidChange()
         }
         #endif
+        .onChange(of: authManager.selectedTeamID) { _, _ in
+            // The user switched Stack teams (from the nav drawer). Lazily re-scope
+            // the team-bound state (presence, registry, paired-Mac backup,
+            // aggregation) to the new team without dropping the live terminal. The
+            // drawer only writes `selectedTeamID`; this is the single observation
+            // point, so every entrypoint that changes the team flows through here.
+            store.currentTeamDidChange()
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             store.resumeForegroundRefresh()
@@ -156,30 +196,33 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowTerminalLayoutPreview {
+        if shouldShowDeleteComputersVerifier {
+            deleteComputersVerifier
+        } else if shouldShowAgentChatDemoPreview {
+            agentChatDemoPreview
+        } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
-        } else if shouldShowRestoringSession {
-            RestoringSessionView()
+        } else if shouldShowWorkspaceListLayoutPreview {
+            workspaceListLayoutPreview
+        } else if shouldShowStreamingChatPreview {
+            streamingChatPreview
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
-            if store.hasKnownPairedMac || store.isReconnectingStoredMac {
-                // We know a Mac is being reconnected: it is honest to say so.
-                RestoringSessionView()
-            } else {
-                // Still determining whether a paired Mac exists (install predating
-                // the hint, or a fresh sign-in): a neutral spinner, since we do not
-                // yet know if there is a session to restore.
-                MobilePairedMacDeterminingView()
-            }
+            RestoringStoredMacWorkspaceShell(
+                store: store,
+                signOut: signOut,
+                showAddDevice: showAddDevice,
+                reconnectStoredMac: reconnectStoredMacIfNeeded
+            )
         } else if shouldShowOnboarding {
-            // Placed after the reconnect-determining branch so `hasKnownPairedMac`
-            // has resolved: a genuine first run (never onboarded, never paired)
-            // sees the one-time explainer before the add-device flow; a returning
-            // paired-but-offline user (who can reach here after a failed
-            // reconnect) is excluded by the gate and falls through to pairing.
+            // Show the one-time explainer before the add-device flow. This is
+            // keyed only by onboarding completion so auto-pairing cannot defer
+            // onboarding until the user later removes every computer.
             onboardingFlow
-        } else if store.connectionState != .connected {
+        } else if store.connectionState != .connected && !store.hasKnownPairedMac {
+            // ONLY when there are no saved Macs at all: the add-device flow (it
+            // auto-presents the pairing sheet since there is nothing to list).
             DisconnectedWorkspaceShellView(
                 hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
@@ -187,11 +230,14 @@ struct CMUXMobileRootView: View {
                 setupHelpHighlight: disconnectedSetupHelpHighlight,
                 store: store
             )
-            .onAppear {
-                showAddDevice()
-            }
         } else {
-            WorkspaceShellView(store: store, signOut: signOut)
+            // Connected, OR we have saved Macs and are auto-connecting in the
+            // background: always show the integrated cross-Mac workspace list, so
+            // the user never sees a "Your Macs" picker screen. The list renders
+            // whatever workspaces have aggregated (foreground + live secondary
+            // subscriptions); the foreground connection is established without any
+            // tap. Opening a workspace attaches its Mac on demand.
+            WorkspaceShellView(store: store, signOut: signOut, showAddDevice: showAddDevice)
         }
     }
 
@@ -258,8 +304,7 @@ struct CMUXMobileRootView: View {
     private var shouldShowOnboarding: Bool {
         #if os(iOS)
         return MobileOnboardingGate.shouldShowOnboarding(
-            hasSeenOnboarding: hasSeenOnboarding,
-            hasKnownPairedMac: store.hasKnownPairedMac
+            hasSeenOnboarding: hasSeenOnboarding
         )
         #else
         return false
@@ -292,16 +337,8 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    private var shouldShowRestoringSession: Bool {
-        MobileRootAuthGate.shouldShowRestoringSession(
-            stackAuthenticated: authManager.isAuthenticated,
-            attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
-            isRestoringSession: authManager.isRestoringSession
-        )
-    }
-
     private var shouldShowRestoringStoredMac: Bool {
-        MobileRootAuthGate.shouldShowRestoringStoredMac(
+        store.workspaceListConnectionStatus != .connected && MobileRootAuthGate.shouldShowRestoringStoredMac(
             authenticated: isAuthenticated,
             connectionState: store.connectionState,
             isReconnectingStoredMac: store.isReconnectingStoredMac,

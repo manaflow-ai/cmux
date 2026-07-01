@@ -141,12 +141,12 @@ extension CMUXCLI {
         process.standardError = FileHandle.nullDevice
 
         do {
-            try process.run()
+            try cliRunProcess(process)
         } catch {
             return nil
         }
         if let promptData = prompt.data(using: .utf8) {
-            try? stdinPipe.fileHandleForWriting.write(contentsOf: promptData)
+            _ = cliWrite(promptData, to: stdinPipe.fileHandleForWriting, onBrokenPipe: .ignore)
         }
         try? stdinPipe.fileHandleForWriting.close()
 

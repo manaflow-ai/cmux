@@ -54,6 +54,30 @@ def _surface_ids(client: cmux, workspace_id: str) -> set[str]:
     return {surface_id for _, surface_id, _ in client.list_surfaces(workspace=workspace_id)}
 
 
+def _wait_for_surface(client: cmux, workspace_id: str, surface_id: str, *, timeout_s: float = 5.0) -> None:
+    """Block until a v1-created surface is registered, returning the instant it appears."""
+    deadline = time.time() + timeout_s
+    seen: set[str] = set()
+    while time.time() < deadline:
+        seen = _surface_ids(client, workspace_id)
+        if surface_id in seen:
+            return
+        time.sleep(0.02)
+    raise cmuxError(f"surface {surface_id!r} never appeared in workspace {workspace_id}: {seen}")
+
+
+def _wait_for_current_workspace(client: cmux, workspace_id: str, *, timeout_s: float = 5.0) -> None:
+    """Block until workspace selection has settled on the target, returning the instant it holds."""
+    deadline = time.time() + timeout_s
+    current = ""
+    while time.time() < deadline:
+        current = client.current_workspace()
+        if current == workspace_id:
+            return
+        time.sleep(0.02)
+    raise cmuxError(f"workspace selection never settled on {workspace_id!r}: current={current!r}")
+
+
 def _created_surface_id(response: str) -> str:
     parts = response.split(" ", 1)
     _must(len(parts) == 2 and parts[1], f"expected surface id in response: {response!r}")
@@ -74,15 +98,15 @@ def main() -> int:
             created_workspace = client.new_workspace()
             created_workspaces.append(created_workspace)
             client.select_workspace(created_workspace)
-            time.sleep(0.2)
+            _wait_for_current_workspace(client, created_workspace)
 
             baseline_workspace = client.current_workspace()
             baseline_focused_surface = _focused_surface_id(client, created_workspace)
             baseline_surfaces = _surface_ids(client, created_workspace)
 
             new_surface_response = _send_v1("new_surface")
-            time.sleep(0.2)
             new_surface_id = _created_surface_id(new_surface_response)
+            _wait_for_surface(client, created_workspace, new_surface_id)
             _must(new_surface_id in _surface_ids(client, created_workspace), "new_surface should create a surface")
             _must(client.current_workspace() == baseline_workspace, "new_surface should not retarget workspace selection")
             _must(
@@ -91,8 +115,8 @@ def main() -> int:
             )
 
             open_browser_response = _send_v1("open_browser")
-            time.sleep(0.2)
             browser_surface_id = _created_surface_id(open_browser_response)
+            _wait_for_surface(client, created_workspace, browser_surface_id)
             _must(browser_surface_id in _surface_ids(client, created_workspace), "open_browser should create a browser surface")
             _must(client.current_workspace() == baseline_workspace, "open_browser should not retarget workspace selection")
             _must(
@@ -101,8 +125,8 @@ def main() -> int:
             )
 
             new_pane_response = _send_v1("new_pane --direction=right")
-            time.sleep(0.2)
             split_surface_id = _created_surface_id(new_pane_response)
+            _wait_for_surface(client, created_workspace, split_surface_id)
             current_surfaces = _surface_ids(client, created_workspace)
             _must(
                 len(current_surfaces - baseline_surfaces) >= 3,
@@ -118,7 +142,7 @@ def main() -> int:
             background_workspace = client.new_workspace()
             created_workspaces.append(background_workspace)
             client.select_workspace(background_workspace)
-            time.sleep(0.2)
+            _wait_for_current_workspace(client, background_workspace)
 
             target_directory = f"/tmp/cmux-v1-report-pwd-{int(time.time() * 1000)}"
             _send_v1(

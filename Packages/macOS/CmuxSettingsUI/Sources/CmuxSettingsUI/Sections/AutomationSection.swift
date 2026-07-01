@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -14,6 +15,7 @@ public struct AutomationSection: View {
     @State private var socketPasswordModel: SecretValueModel
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
+    @State private var codexModel: DefaultsValueModel<Bool>
     @State private var claudePathModel: DefaultsValueModel<String>
     @State private var autoNamingModel: DefaultsValueModel<Bool>
     @State private var autoNamingAgentModel: DefaultsValueModel<String>
@@ -53,6 +55,7 @@ public struct AutomationSection: View {
         ))
         _modeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode))
         _claudeCodeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeHooksEnabled))
+        _codexModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.codexHooksEnabled))
         _claudePathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath))
         _autoNamingModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.workspaceAutoNaming))
         _autoNamingAgentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.autoNamingAgent))
@@ -85,6 +88,7 @@ public struct AutomationSection: View {
 
             socketControlCard
             claudeCodeCard
+            codexCard
             claudePathCard
             autoNamingCard
             ripgrepPathCard
@@ -122,7 +126,7 @@ public struct AutomationSection: View {
                 localized: "settings.automation.openAccess.dialog.message",
                 defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."
             ))
-        }
+        }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
     }
 
     @ViewBuilder
@@ -201,7 +205,7 @@ public struct AutomationSection: View {
                 }
                 if let status = socketPasswordStatus {
                     Text(status.message)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(status.isError ? Color.red : Color.secondary)
                         .padding(.horizontal, 14)
                         .padding(.bottom, 8)
@@ -211,7 +215,7 @@ public struct AutomationSection: View {
             if isAllowAll {
                 SettingsCardDivider()
                 Text(String(localized: "settings.automation.openAccessWarning", defaultValue: "Warning: Full open access makes the control socket world-readable/writable on this Mac and disables auth checks. Use only for local debugging."))
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundStyle(.red)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
@@ -238,6 +242,26 @@ public struct AutomationSection: View {
             }
             SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
+        }
+    }
+
+    @ViewBuilder
+    private var codexCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("automation.codexIntegration"),
+                String(localized: "settings.automation.codex", defaultValue: "Codex Integration"),
+                subtitle: codexModel.current
+                    ? String(localized: "settings.automation.codex.subtitleOn", defaultValue: "Sidebar shows Codex session status and notifications.")
+                    : String(localized: "settings.automation.codex.subtitleOff", defaultValue: "Codex runs without cmux integration.")
+            ) {
+                Toggle("", isOn: Binding(get: { codexModel.current }, set: { codexModel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsCodexHooksToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardNote(String(localized: "settings.automation.codex.note", defaultValue: "When enabled, cmux wraps the codex command to inject session tracking and notification hooks. Disable if you prefer to manage Codex hooks yourself. cmux still tracks live Codex sessions it can observe even when this is off. To also track Codex launched through a custom launcher that bypasses the wrapper (e.g. a subrouter), run `cmux hooks setup --agent codex`, which installs hooks into ~/.codex/hooks.json."))
         }
     }
 
@@ -317,7 +341,7 @@ public struct AutomationSection: View {
     @ViewBuilder
     private func autoNamingFootnote(_ text: String) -> some View {
         Text(text)
-            .font(.caption)
+            .cmuxFont(.caption)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)

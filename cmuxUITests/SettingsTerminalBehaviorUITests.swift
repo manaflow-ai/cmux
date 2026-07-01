@@ -156,8 +156,8 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
     private enum Subtitle {
         static let scrollBarOn = "Shows the right-edge terminal scroll bar"
         static let scrollBarOff = "Hides the right-edge terminal scroll bar"
-        static let copyOn = "Selected terminal text is copied to the system clipboard"
-        static let copyOff = "Terminal selections do not replace the system clipboard"
+        static let copyOn = "Selected terminal text is also copied to the system clipboard"
+        static let copyOff = "cmux does not add system-clipboard copy on selection"
         static let resumeOn = "automatically run their resume command"
         static let resumeOff = "stay idle until you resume them manually"
         static let hibernateOn = "Idle background agent terminals can be suspended"

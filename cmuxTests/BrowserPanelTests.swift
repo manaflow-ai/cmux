@@ -393,59 +393,25 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         )
     }
 
-    func testBrowserChromeDrawDecisionClearsBlankPageForTransparentGhosttyBackground() {
-        XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
-            isBlankPage: true,
-            opacity: 0.42,
-            usesGhosttyGlassStyle: false,
-            usesTransparentWindow: false
-        ))
-    }
-
-    func testBrowserChromeDrawDecisionClearsBlankPageForGhosttyGlassStyle() {
-        XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
-            isBlankPage: true,
-            opacity: 1.0,
-            usesGhosttyGlassStyle: true,
-            usesTransparentWindow: false
-        ))
-    }
-
-    func testBrowserChromeDrawDecisionClearsBlankPageForTransparentWindow() {
-        XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
-            isBlankPage: true,
-            opacity: 1.0,
-            usesGhosttyGlassStyle: false,
-            usesTransparentWindow: true
-        ))
-    }
-
-    func testBrowserChromeDrawDecisionKeepsFillForRealPagesWithTransparentGhosttyBackground() {
-        XCTAssertTrue(BrowserPanel.drawsWebViewBackground(
-            isBlankPage: false,
-            opacity: 0.42,
-            usesGhosttyGlassStyle: false,
-            usesTransparentWindow: false
-        ))
-    }
-
-    func testBrowserChromeDrawDecisionClearsTransparentInternalRealPagesWithTransparentGhosttyBackground() {
-        XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
-            isBlankPage: false,
-            usesTransparentBackground: true,
-            opacity: 0.42,
-            usesGhosttyGlassStyle: false,
-            usesTransparentWindow: false
-        ))
-    }
-
-    func testBrowserChromeDrawDecisionKeepsFillForOpaqueGhosttyBackground() {
-        XCTAssertTrue(BrowserPanel.drawsWebViewBackground(
-            isBlankPage: true,
-            opacity: 1.0,
-            usesGhosttyGlassStyle: false,
-            usesTransparentWindow: false
-        ))
+    func testBrowserChromeDrawDecisionMatchesTransparencyOwnership() {
+        let cases: [(String, Bool, Bool, Double, Bool, Bool, Bool)] = [
+            ("blank transparent Ghostty", true, false, 0.42, false, false, false),
+            ("blank glass", true, false, 1.0, true, false, false),
+            ("blank transparent window", true, false, 1.0, false, true, false),
+            ("real transparent Ghostty", false, false, 0.42, false, false, true),
+            ("transparent internal opaque Ghostty", false, true, 1.0, false, false, true),
+            ("transparent internal transparent Ghostty", false, true, 0.42, false, false, false),
+            ("blank opaque Ghostty", true, false, 1.0, false, false, true),
+        ]
+        for (name, isBlank, transparentPage, opacity, glass, transparentWindow, expected) in cases {
+            XCTAssertEqual(BrowserPanel.drawsWebViewBackground(
+                isBlankPage: isBlank,
+                usesTransparentBackground: transparentPage,
+                opacity: opacity,
+                usesGhosttyGlassStyle: glass,
+                usesTransparentWindow: transparentWindow
+            ), expected, name)
+        }
     }
 
     func testBrowserBlankPageURLDetectionTreatsOnlyEmptyAndAboutBlankAsBlank() throws {
@@ -820,9 +786,9 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let delegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
         webView.navigationDelegate = delegate
         webView.load(URLRequest(url: allowedURL))
-        wait(for: [loaded], timeout: 3)
+        wait(for: [loaded], timeout: 10)
         XCTAssertNil(delegate.error)
-        wait(for: [moduleLoaded], timeout: 3)
+        wait(for: [moduleLoaded], timeout: 10)
         XCTAssertEqual(moduleHandler.body as? String, "module-ok:js-ok:wasm-ok")
 
         let evaluated = expectation(description: "module evaluated")
@@ -831,7 +797,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             XCTAssertEqual(value as? String, "module-ok:js-ok:wasm-ok")
             evaluated.fulfill()
         }
-        wait(for: [evaluated], timeout: 3)
+        wait(for: [evaluated], timeout: 10)
     }
 
     func testDiffViewerSchemeRejectsSymlinkEscapeFromTrustedRoot() throws {

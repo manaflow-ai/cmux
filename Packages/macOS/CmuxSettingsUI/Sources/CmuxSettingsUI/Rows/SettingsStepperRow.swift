@@ -34,5 +34,6 @@ public struct SettingsStepperRow: View {
                     .monospacedDigit()
             }
         }
+        .task { model.startObserving() }
     }
 }

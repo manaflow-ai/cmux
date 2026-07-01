@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import { DocsHeading } from "../../components/docs-heading";
@@ -43,6 +44,7 @@ export default function ApiPage() {
 
   return (
     <>
+      <DocsSchema namespace="docs.api" path="/docs/api" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
@@ -215,16 +217,23 @@ cmux new-split down`}
         socket={`{"id":"split-new","method":"surface.split","params":{"direction":"right"}}`}
       />
       <Cmd
-        name="list-surfaces"
-        desc={t("listSurfacesDesc")}
-        cli={`cmux list-surfaces
-cmux list-surfaces --json`}
+        name="list-panels"
+        desc={t("listPanelsDesc")}
+        cli={`cmux list-panels
+cmux list-panels --json`}
         socket={`{"id":"surface-list","method":"surface.list","params":{}}`}
       />
       <Cmd
-        name="focus-surface"
+        name="list-pane-surfaces"
+        desc={t("listPaneSurfacesDesc")}
+        cli={`cmux list-pane-surfaces
+cmux list-pane-surfaces --json`}
+        socket={`{"id":"pane-surfaces","method":"pane.surfaces","params":{}}`}
+      />
+      <Cmd
+        name="focus-panel"
         desc={t("focusSurfaceDesc")}
-        cli={`cmux focus-surface --surface <id>`}
+        cli={`cmux focus-panel --panel <id>`}
         socket={`{"id":"surface-focus","method":"surface.focus","params":{"surface_id":"<id>"}}`}
       />
 
@@ -244,15 +253,15 @@ cmux send "ls -la\\n"`}
         socket={`{"id":"send-key","method":"surface.send_key","params":{"key":"enter"}}`}
       />
       <Cmd
-        name="send-surface"
+        name="send --surface"
         desc={t("sendSurfaceDesc")}
-        cli={`cmux send-surface --surface <id> "command"`}
+        cli={`cmux send --surface <id> "command"`}
         socket={`{"id":"send-surface","method":"surface.send_text","params":{"surface_id":"<id>","text":"command"}}`}
       />
       <Cmd
-        name="send-key-surface"
+        name="send-key --surface"
         desc={t("sendKeySurfaceDesc")}
-        cli={`cmux send-key-surface --surface <id> enter`}
+        cli={`cmux send-key --surface <id> enter`}
         socket={`{"id":"send-key-surface","method":"surface.send_key","params":{"surface_id":"<id>","key":"enter"}}`}
       />
 

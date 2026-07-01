@@ -1,6 +1,15 @@
 import type { DiffViewerLabelResolver } from "./labels";
 
 export function resolveDiffNavigationURL(rawURL: string): string {
+  // Root-relative URLs (the branch picker rebases its endpoints against the
+  // current page origin) resolve natively against `window.location` for BOTH
+  // the HTTP server and the custom-scheme page, so pass them through unchanged.
+  // They must never enter the http->scheme segment-drop rewrite below: that
+  // rewrite assumes an absolute http(s) URL whose first path segment is a token
+  // and would otherwise mangle a relative path's query/host.
+  if (!hasURLScheme(rawURL)) {
+    return rawURL;
+  }
   try {
     const target = new URL(rawURL, window.location.href);
     if (
@@ -14,6 +23,14 @@ export function resolveDiffNavigationURL(rawURL: string): string {
   } catch {
     return rawURL;
   }
+}
+
+// Whether `url` begins with an explicit `scheme://` or `scheme:` prefix (e.g.
+// `http://`, `cmux-diff-viewer://`, `data:`). A root-relative path (`/foo?x`)
+// or a protocol-relative/relative path has no scheme and is left for the
+// browser to resolve against the current document.
+function hasURLScheme(url: string): boolean {
+  return /^[a-zA-Z][\w+.-]*:/.test(url);
 }
 
 export function diffSourceDetail(payload: any): string {

@@ -11,6 +11,9 @@ struct WorkspaceNavigationRow: View {
     /// How many lines the activity preview shows (1 or 2), forwarded to the
     /// shared ``WorkspaceRow``.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
+    var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
+    var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
+    var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
@@ -92,9 +95,12 @@ struct WorkspaceNavigationRow: View {
     private var rowTarget: some View {
         switch navigationStyle {
         case .push:
-            NavigationLink(value: workspace.id) {
+            Button {
+                selectWorkspace(workspace.id)
+            } label: {
                 rowLabel
             }
+            .buttonStyle(.plain)
         case .sidebar:
             Button {
                 selectWorkspace(workspace.id)
@@ -111,7 +117,10 @@ struct WorkspaceNavigationRow: View {
             connectionStatus: connectionStatus,
             isSelected: navigationStyle == .sidebar && isSelected,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
-            previewLineLimit: previewLineLimit
+            previewLineLimit: previewLineLimit,
+            unreadIndicatorLeftShift: unreadIndicatorLeftShift,
+            profilePictureLeftShift: profilePictureLeftShift,
+            profilePictureSize: profilePictureSize
         )
     }
 

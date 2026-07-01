@@ -688,7 +688,6 @@ final class ClosedItemHistoryStore: ObservableObject {
             )
         }
     }
-
     private static func title(for snapshot: SessionPanelSnapshot) -> String {
         let candidates = [
             snapshot.customTitle,
@@ -705,7 +704,6 @@ final class ClosedItemHistoryStore: ObservableObject {
             .first(where: { !$0.isEmpty }) {
             return title
         }
-
         switch snapshot.type {
         case .terminal:
             return String(localized: "menu.history.recentlyClosed.panel.terminal", defaultValue: "Terminal")
@@ -720,6 +718,8 @@ final class ClosedItemHistoryStore: ObservableObject {
                 return mode.label
             }
             return String(localized: "menu.history.recentlyClosed.panel.tool", defaultValue: "Tool")
+        case .customSidebar:
+            return String(localized: "menu.history.recentlyClosed.panel.customSidebar", defaultValue: "Custom Sidebar")
         case .agentSession:
             return String(localized: "menu.history.recentlyClosed.panel.agentSession", defaultValue: "Agent")
         case .project:

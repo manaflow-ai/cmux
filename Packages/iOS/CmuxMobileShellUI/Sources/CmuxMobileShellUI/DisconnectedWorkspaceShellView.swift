@@ -1,3 +1,4 @@
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileWorkspace
@@ -31,6 +32,12 @@ struct DisconnectedWorkspaceShellView: View {
 
     @State private var showingSettings = false
 
+    /// Saved Macs restored/known on this device. Surfaced here so a returning or
+    /// freshly-restored user can pick a known Mac directly instead of being
+    /// dropped into the bare "add device" pairing flow when auto-reconnect did
+    /// not land (e.g. the Mac is momentarily unreachable).
+    private var savedMacs: [MobilePairedMac] { store?.pairedMacs ?? [] }
+
     #if os(iOS)
     @State private var isShowingSetupHelp = false
     #endif
@@ -39,11 +46,17 @@ struct DisconnectedWorkspaceShellView: View {
         NavigationStack {
             ContentUnavailableView {
                 Label(
-                    L10n.string("mobile.devices.emptyTitle", defaultValue: "No devices"),
+                    savedMacs.isEmpty
+                        ? L10n.string("mobile.devices.emptyTitle", defaultValue: "No devices")
+                        : L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"),
                     systemImage: "desktopcomputer.and.iphone"
                 )
             } description: {
-                Text(L10n.string("mobile.devices.emptyDescription", defaultValue: "Add a Mac to start syncing terminal workspaces."))
+                Text(
+                    savedMacs.isEmpty
+                        ? L10n.string("mobile.devices.emptyDescription", defaultValue: "Add a computer to start syncing terminal workspaces.")
+                        : L10n.string("mobile.devices.savedDescription", defaultValue: "Tap a saved computer to reconnect, or add another.")
+                )
             } actions: {
                 // When a paired Mac is unreachable and this device has no
                 // active tailnet, lead with that explanation instead of
@@ -55,8 +68,32 @@ struct DisconnectedWorkspaceShellView: View {
                         .frame(maxWidth: 320, alignment: .leading)
                         .padding(.bottom, 4)
                 }
+                // Restored/known saved Macs, tappable to reconnect. A small fixed
+                // set (bounded by the per-user backup cap), so a plain VStack is
+                // fine; rows take value snapshots + a closure action, never the
+                // store, honoring the list snapshot-boundary rule.
+                if let store, !savedMacs.isEmpty {
+                    VStack(spacing: 8) {
+                        ForEach(savedMacs) { mac in
+                            Button {
+                                Task { await store.switchToMac(macDeviceID: mac.macDeviceID) }
+                            } label: {
+                                Label(mac.displayName ?? mac.macDeviceID, systemImage: "desktopcomputer")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("MobileDisconnectedSavedMac-\(mac.macDeviceID)")
+                        }
+                    }
+                    .frame(maxWidth: 320)
+                    .padding(.bottom, 4)
+                }
                 Button(action: showAddDevice) {
-                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+                    Text(
+                        savedMacs.isEmpty
+                            ? L10n.string("mobile.addDevice.title", defaultValue: "Add Computer")
+                            : L10n.string("mobile.addDevice.another", defaultValue: "Add another Computer")
+                    )
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
@@ -91,6 +128,16 @@ struct DisconnectedWorkspaceShellView: View {
                 #endif
             }
             .accessibilityIdentifier("MobileDisconnectedWorkspaceShell")
+            .task {
+                // Load (and, via the backup decorator, restore) saved Macs so a
+                // known/restored Mac shows up here for one-tap reconnect. Only
+                // auto-present the pairing sheet when there is nothing to pick,
+                // so a returning user is not buried under the add-device flow.
+                await store?.loadPairedMacs()
+                if store?.pairedMacs.isEmpty ?? true {
+                    showAddDevice()
+                }
+            }
         }
         #if os(iOS)
         .sheet(isPresented: $isShowingSetupHelp) {
@@ -152,7 +199,7 @@ struct DisconnectedWorkspaceShellView: View {
         Button(action: showAddDevice) {
             Image(systemName: "plus")
         }
-        .accessibilityLabel(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+        .accessibilityLabel(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
         .accessibilityIdentifier("MobileShowAddDeviceToolbarButton")
     }
 }

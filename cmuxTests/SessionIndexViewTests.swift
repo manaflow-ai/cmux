@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import Combine
 import SQLite3
 import SwiftUI
@@ -158,16 +159,23 @@ final class SessionIndexViewTests: XCTestCase {
         )
 
         let command = entry.resumeCommand ?? ""
+        // The codex resume now routes the codex executable through the cmux codex
+        // wrapper token and wraps the rendered command in `/bin/sh -c '…'` so a
+        // resumed codex session keeps its hooks (issue #5639). Assert the inner
+        // POSIX command preserves the sandbox-flag behavior of issue #5262.
+        XCTAssertTrue(command.hasPrefix("/bin/sh -c "), command)
+        let inner = Self.unwrapPortableShellCommand(command)
+        XCTAssertTrue(inner.hasPrefix(AgentResumeArgv.codexWrapperShellExecutableToken), inner)
         XCTAssertEqual(
-            command,
-            "codex resume codex-session-123 -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high"
+            inner,
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-123 -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high"
         )
         XCTAssertFalse(
-            command.contains("-s disabled"),
+            inner.contains("-s disabled"),
             "Codex resume must not emit the invalid `-s disabled` flag (issue #5262)"
         )
         XCTAssertFalse(
-            command.contains("-a never -s"),
+            inner.contains("-a never -s"),
             "The bypass flag must replace, not accompany, -a/-s"
         )
     }
@@ -188,9 +196,13 @@ final class SessionIndexViewTests: XCTestCase {
         )
 
         let command = entry.resumeCommand ?? ""
-        XCTAssertEqual(command, "codex resume codex-session-managed -a on-request")
+        let inner = Self.unwrapPortableShellCommand(command)
+        XCTAssertEqual(
+            inner,
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-managed -a on-request"
+        )
         XCTAssertFalse(
-            command.contains("-s managed"),
+            inner.contains("-s managed"),
             "Codex resume must not emit the invalid `-s managed` flag (issue #5262)"
         )
     }
@@ -210,7 +222,10 @@ final class SessionIndexViewTests: XCTestCase {
                 effort: nil
             )
         )
-        XCTAssertEqual(readOnly.resumeCommand, "codex resume codex-ro -a untrusted -s read-only")
+        XCTAssertEqual(
+            Self.unwrapPortableShellCommand(readOnly.resumeCommand ?? ""),
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-ro -a untrusted -s read-only"
+        )
 
         let dangerFullAccess = makeEntry(
             agent: .codex,
@@ -224,9 +239,21 @@ final class SessionIndexViewTests: XCTestCase {
             )
         )
         XCTAssertEqual(
-            dangerFullAccess.resumeCommand,
-            "codex resume codex-dfa -m gpt-5.5 -a never -s danger-full-access"
+            Self.unwrapPortableShellCommand(dangerFullAccess.resumeCommand ?? ""),
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-dfa -m gpt-5.5 -a never -s danger-full-access"
         )
+    }
+
+    /// Reverses `AgentResumeArgv.portableCodexResumeShellCommand`, recovering the
+    /// inner POSIX command from a `/bin/sh -c '<command>'` wrapper (undoing the
+    /// `'\''` single-quote escaping).
+    static func unwrapPortableShellCommand(_ command: String) -> String {
+        let prefix = "/bin/sh -c "
+        guard command.hasPrefix(prefix) else { return command }
+        var quoted = String(command.dropFirst(prefix.count))
+        guard quoted.hasPrefix("'"), quoted.hasSuffix("'") else { return quoted }
+        quoted = String(quoted.dropFirst().dropLast())
+        return quoted.replacingOccurrences(of: "'\\''", with: "'")
     }
 
     func testCurrentDirectorySetterDoesNotPublishEqualValue() {
@@ -339,6 +366,55 @@ final class SessionIndexViewTests: XCTestCase {
 
         XCTAssertEqual(outcome.errors, [])
         XCTAssertEqual(outcome.entries.map(\.sessionId), ["codex-transcript-match"])
+    }
+
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6302.
+    // The always-visible sidebar list is built from `scanAll()`, which loads
+    // only each agent's 30 most-recent sessions across ALL folders and then
+    // groups that already-capped pool by folder. A folder can therefore
+    // contribute ≤ collapsedRowLimit sessions to the in-memory list even
+    // though more exist on disk. "Show more" is the ONLY trigger for the
+    // complete folder-scoped query (`loadDirectorySnapshot`), so it must be
+    // offered for every directory section regardless of the truncated count —
+    // otherwise the rest of a folder's sessions are permanently unreachable.
+    func testDirectorySectionOffersShowMoreEvenWhenUnderRowLimit() {
+        let section = IndexSection(
+            key: .directory("/Users/me/dev/codexbarlite"),
+            title: "codexbarlite",
+            icon: .folder,
+            entries: [makeEntry(title: "a"), makeEntry(title: "b")]
+        )
+
+        XCTAssertTrue(section.shouldOfferShowMore(rowLimit: 5))
+    }
+
+    func testNoFolderDirectorySectionOffersShowMore() {
+        let section = IndexSection(
+            key: .directory(nil),
+            title: "(no folder)",
+            icon: .folder,
+            entries: [makeEntry(title: "x")]
+        )
+
+        XCTAssertTrue(section.shouldOfferShowMore(rowLimit: 5))
+    }
+
+    func testAgentSectionUsesRowCountThresholdForShowMore() {
+        let under = IndexSection(
+            key: .agent(.claude),
+            title: "Claude",
+            icon: .agent(.claude),
+            entries: [makeEntry(title: "a"), makeEntry(title: "b")]
+        )
+        XCTAssertFalse(under.shouldOfferShowMore(rowLimit: 5))
+
+        let over = IndexSection(
+            key: .agent(.claude),
+            title: "Claude",
+            icon: .agent(.claude),
+            entries: (0..<6).map { makeEntry(title: "s\($0)") }
+        )
+        XCTAssertTrue(over.shouldOfferShowMore(rowLimit: 5))
     }
 
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {

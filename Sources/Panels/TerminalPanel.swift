@@ -4,7 +4,7 @@ import Combine
 import AppKit
 import Bonsplit
 import CmuxTerminal
-import CmuxWorkspaceWindow
+import CmuxWorkspaces
 
 struct AgentHibernationPanelState {
     let agent: SessionRestorableAgentSnapshot
@@ -714,6 +714,12 @@ final class TerminalPanel: Panel, ObservableObject {
     func performBindingAction(_ action: String) -> Bool {
         guard !isAgentHibernated else { return false }
         return surface.performBindingAction(action)
+    }
+
+    @discardableResult
+    func clearScreenKeepingScrollback() -> Bool {
+        resumeForExplicitInputIfNeeded()
+        return surface.clearScreenKeepingScrollback()
     }
 
     private func resumeForExplicitInputIfNeeded() {

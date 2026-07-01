@@ -123,10 +123,15 @@ public enum AgentLaunchSanitizer {
         case "antigravity":
             return preserveOptions(args, policy: antigravityPolicy)
         case "opencode":
-            return preserveOptions(
-                args.filter { !isOpenCodeInternalWorkerArgument($0) },
-                policy: openCodePolicy
-            )
+            var tail = args
+            while let first = tail.first {
+                let normalized = first.replacingOccurrences(of: "\\", with: "/")
+                let isInternalArgument = first == "tui-settings" ||
+                    (normalized.contains("/$bunfs/") && normalized.hasSuffix("/tui/worker.js"))
+                guard isInternalArgument else { break }
+                tail.removeFirst()
+            }
+            return preserveOptions(tail, policy: openCodePolicy)
         case "rovodev":
             var tail = args
             if tail.first == "rovodev" {
@@ -163,6 +168,39 @@ public enum AgentLaunchSanitizer {
 
     /// Preserves restorable `claude-teams` `args` with the Teams policy, keeping routing flags while dropping `--tmux` prompt payloads; returns `nil` for unsafe replay shapes.
     public static func preservedClaudeTeamsLaunchArguments(args: [String]) -> [String]? { preserveOptions(args, policy: claudeTeamsPolicy) }
+
+    /// Whether `option` appears as a real Claude *option* in claude-teams launch
+    /// `args`. Unlike restore preservation, this does NOT stop at the first
+    /// positional — Claude honors options that follow a positional prompt (e.g.
+    /// `claude "do x" --dangerously-skip-permissions` enables bypass mode). It reuses
+    /// the launch parser's prompt-boundary handling, so `--tmux classic` (a launch
+    /// mode) is skipped and scanning continues, while a real `--tmux <prompt>`
+    /// payload, a trailing `--`, or a value slot are NOT treated as options. Use this
+    /// for trust-boundary opt-in decisions so a flag-shaped token inside the prompt
+    /// is never promoted to an option.
+    public static func claudeTeamsLaunchHasOption(_ option: String, args: [String]) -> Bool {
+        let policy = claudeTeamsPolicy
+        var index = 0
+        var sink: [String] = []
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--" { return false }
+            if !arg.hasPrefix("-") || arg == "-" {
+                index += 1
+                continue
+            }
+            let width = optionWidth(args, index: index, policy: policy)
+            guard let consumedBoundary = consumePromptBoundaryOption(
+                arg, args: args, index: &index, width: width, policy: policy, result: &sink
+            ) else {
+                return false
+            }
+            if consumedBoundary { continue }
+            if arg == option || arg.hasPrefix(option + "=") { return true }
+            index += max(width, 1)
+        }
+        return false
+    }
     public static func preservedCodexForkArguments(args: [String]) -> [String]? {
         var tail = args
         if let forkCommand = codexForkCommand(in: tail) {
@@ -558,9 +596,4 @@ public enum AgentLaunchSanitizer {
         return String(data: userData, encoding: .utf8)
     }
 
-    private static func isOpenCodeInternalWorkerArgument(_ value: String) -> Bool {
-        let normalized = value.replacingOccurrences(of: "\\", with: "/")
-        return normalized.contains("/$bunfs/") &&
-            normalized.contains("/src/cli/cmd/tui/worker.js")
-    }
 }

@@ -510,7 +510,7 @@ extension RemotePTYBridgeServer {
             let lowered = message.lowercased()
             if lowered.contains("missing required capability") ||
                 lowered.contains("pty.session") ||
-                lowered.contains(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability) {
+                lowered.contains(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability) || lowered.contains(RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability) {
                 return strings.missingPersistentPTYCapability
             }
             if lowered.contains("pty_session_not_found") ||
