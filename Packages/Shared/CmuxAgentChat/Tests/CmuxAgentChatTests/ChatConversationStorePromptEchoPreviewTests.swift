@@ -111,6 +111,27 @@ struct ChatConversationStorePromptEchoPreviewTests {
         #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["respond with hello world", "hello world"] })
     }
 
+    @Test("next user turn clears stale live preview before echo suppression")
+    func nextUserTurnClearsStaleLivePreviewBeforeEchoSuppression() async {
+        let source = FixtureChatEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await waitForPromptEchoPreview { store.isConnected })
+        let first = Self.prose(seq: 0, role: .user, text: "first prompt")
+        await source.emit(.appended([first]))
+        await source.emit(.streamingProse(Self.streamingMessage(text: "valid preview")))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["first prompt", "valid preview"] })
+
+        let second = Self.prose(seq: 1, role: .user, text: "next prompt tail")
+        await source.emit(.appended([second]))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["first prompt", "next prompt tail"] })
+
+        await source.emit(.streamingProse(Self.streamingMessage(text: "prompt tail")))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["first prompt", "next prompt tail"] })
+    }
+
     @Test("queued prompts do not suppress the active turn live preview")
     func queuedPromptDoesNotSuppressActivePreview() async {
         let source = PromptEchoSilentSendEventSource()

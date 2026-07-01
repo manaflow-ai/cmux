@@ -566,11 +566,10 @@ public final class ChatConversationStore {
         switch event {
         case .appended(let newMessages):
             reconcilePending(against: newMessages)
-            // The authoritative agent prose for the in-flight turn just landed:
-            // drop the live preview so the committed message takes over with no
-            // duplicate, even if the host's explicit clear is delayed or lost.
+            // Authoritative turn content just landed: drop the transient preview
+            // so committed prose, or the next user turn, owns the transcript.
             if streamingMessage != nil,
-               newMessages.contains(where: { $0.role == .agent && Self.isProse($0) }) {
+               newMessages.contains(where: { ($0.role == .agent && Self.isProse($0)) || $0.role == .user }) {
                 streamingMessage = nil
             }
             // A live append whose seq regresses below the window tail means
