@@ -23230,6 +23230,17 @@ struct CMUXCLI {
                     parsedInput: parsedInput,
                     sessionRecord: mappedSession
                 )
+                // The turn ended, but Claude may have left `run_in_background` tasks or a
+                // Monitor running (or scheduled a session cron). Such a task has its own
+                // process group and emits no terminal output, so it is invisible to the
+                // scrollback+PID activity fingerprint; recording `.idle` here would let the
+                // pane hibernate and SIGTERM the group, killing the live work. Record
+                // `.running` instead so it stays out of hibernation until a later Stop
+                // reports the tasks gone (Claude drops finished tasks from the payload).
+                // Mirrors the antigravity `fullyIdle` gate in the generic hook lane.
+                let stopBackgroundWork = AgentBackgroundWorkStatus(hookObject: parsedInput.rawObject)
+                let lifecycleAfterStop: AgentHibernationLifecycleState =
+                    stopBackgroundWork.isActive ? .running : .idle
                 if let sessionId = parsedInput.sessionId {
                     try? sessionStore.upsert(
                         sessionId: sessionId,
@@ -23238,7 +23249,7 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd,
                         transcriptPath: parsedInput.transcriptPath,
                         isRestorable: true,
-                        agentLifecycle: .idle,
+                        agentLifecycle: lifecycleAfterStop,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         markActive: true,
@@ -23259,7 +23270,7 @@ struct CMUXCLI {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .idle,
+                    lifecycle: lifecycleAfterStop,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )

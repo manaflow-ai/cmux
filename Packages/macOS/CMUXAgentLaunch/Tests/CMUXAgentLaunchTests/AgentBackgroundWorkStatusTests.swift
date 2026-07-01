@@ -25,7 +25,7 @@ struct AgentBackgroundWorkStatusTests {
 
     @Test("A running background task keeps the pane active")
     func runningBackgroundTaskIsActive() {
-        let status = AgentBackgroundWork.status(fromHookObject: [
+        let status = AgentBackgroundWorkStatus(hookObject: [
             "hook_event_name": "Stop",
             "background_tasks": [runningTask()],
             "session_crons": [],
@@ -38,7 +38,7 @@ struct AgentBackgroundWorkStatusTests {
     func emptyPayloadIsInactive() {
         // Control: no background work. Claude drops finished tasks from the array, so
         // both arrays empty cleanly means nothing is pending and the pane may hibernate.
-        let status = AgentBackgroundWork.status(fromHookObject: [
+        let status = AgentBackgroundWorkStatus(hookObject: [
             "hook_event_name": "Stop",
             "background_tasks": [],
             "session_crons": [],
@@ -51,7 +51,7 @@ struct AgentBackgroundWorkStatusTests {
     @Test("A scheduled session cron keeps the pane active")
     func scheduledCronIsActive() {
         // A cron means Claude expects to wake itself later; hibernating would kill it.
-        let status = AgentBackgroundWork.status(fromHookObject: [
+        let status = AgentBackgroundWorkStatus(hookObject: [
             "background_tasks": [],
             "session_crons": [["id": "job1", "cron": "*/5 * * * *"]],
         ])
@@ -64,7 +64,7 @@ struct AgentBackgroundWorkStatusTests {
         // Finished tasks normally vanish from the array, but if a terminal-status entry
         // lingers it must NOT block hibernation.
         for terminal in ["completed", "done", "failed", "error", "cancelled", "killed", "exited"] {
-            let status = AgentBackgroundWork.status(fromHookObject: [
+            let status = AgentBackgroundWorkStatus(hookObject: [
                 "background_tasks": [runningTask(status: terminal)],
                 "session_crons": [],
             ])
@@ -77,13 +77,13 @@ struct AgentBackgroundWorkStatusTests {
         // A task present with a status we don't recognize (or no status) is treated as
         // live: the safe direction is to NOT hibernate and risk killing real work.
         for unknown in ["", "queued", "pending", "in_progress", "weird-new-state"] {
-            let status = AgentBackgroundWork.status(fromHookObject: [
+            let status = AgentBackgroundWorkStatus(hookObject: [
                 "background_tasks": [["id": "x", "status": unknown]],
             ])
             #expect(status.isActive, "Expected active for non-terminal status \(unknown.debugDescription)")
         }
         // A task object with no status key at all is still active.
-        let noStatus = AgentBackgroundWork.status(fromHookObject: [
+        let noStatus = AgentBackgroundWorkStatus(hookObject: [
             "background_tasks": [["id": "x", "command": "sleep 99"]],
         ])
         #expect(noStatus.isActive)
@@ -91,20 +91,20 @@ struct AgentBackgroundWorkStatusTests {
 
     @Test("Missing, nil, and malformed payloads are inactive")
     func malformedPayloadsAreInactive() {
-        #expect(!AgentBackgroundWork.status(fromHookObject: nil).isActive)
-        #expect(!AgentBackgroundWork.status(fromHookObject: [:]).isActive)
+        #expect(!AgentBackgroundWorkStatus(hookObject: nil).isActive)
+        #expect(!AgentBackgroundWorkStatus(hookObject: [:]).isActive)
         // Wrong types must not crash or false-positive.
-        #expect(!AgentBackgroundWork.status(fromHookObject: ["background_tasks": "nope"]).isActive)
-        #expect(!AgentBackgroundWork.status(fromHookObject: ["background_tasks": 7]).isActive)
-        #expect(!AgentBackgroundWork.status(fromHookObject: ["background_tasks": ["a", "b"]]).isActive)
+        #expect(!AgentBackgroundWorkStatus(hookObject: ["background_tasks": "nope"]).isActive)
+        #expect(!AgentBackgroundWorkStatus(hookObject: ["background_tasks": 7]).isActive)
+        #expect(!AgentBackgroundWorkStatus(hookObject: ["background_tasks": ["a", "b"]]).isActive)
     }
 
     @Test("Status matching ignores case and surrounding whitespace")
     func statusNormalization() {
-        #expect(!AgentBackgroundWork.status(fromHookObject: [
+        #expect(!AgentBackgroundWorkStatus(hookObject: [
             "background_tasks": [["status": "  COMPLETED  "]],
         ]).isActive)
-        #expect(AgentBackgroundWork.status(fromHookObject: [
+        #expect(AgentBackgroundWorkStatus(hookObject: [
             "background_tasks": [["status": " Running "]],
         ]).isActive)
     }
