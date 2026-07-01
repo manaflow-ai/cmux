@@ -195,4 +195,64 @@ import CmuxSettings
         #expect(model.heightRevision > initialRevision)
         #expect(model.consumeRemeasure().contains(action.rawValue))
     }
+
+    @Test func assignChordWritesValidTwoStrokeChord() async throws {
+        // WHY: assignChord is the recorder's onChord path for chord-capable
+        // actions (wired from ShortcutListRowView). Only its rejection branches
+        // were covered; the happy path — a non-conflicting, non-numbered chord —
+        // must persist the chord verbatim to disk and leave no chord-mode or
+        // rejection residue for the row. A first stroke using all four modifiers
+        // collides with no default (defaults use at most three), so the write is
+        // deterministically conflict-free regardless of default bindings.
+        let (store, catalog, errorLog) = makeStore()
+        let action = ShortcutAction.openSettings // allowsChordShortcut, not numbered
+        let chord = StoredShortcut(
+            first: ShortcutStroke(key: "j", command: true, shift: true, option: true, control: true),
+            second: ShortcutStroke(key: "k", command: true, shift: false, option: false, control: false)
+        )
+
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+
+        await model.assignChord(chord, to: action)
+        await spin(until: { model.bindings[action.rawValue] == chord })
+
+        // Persisted verbatim — openSettings is not numbered, so no digit normalization.
+        let storeBindings = await store.value(for: catalog.shortcuts.bindings)
+        #expect(storeBindings[action.rawValue] == chord)
+        // Happy path clears chord-mode arming and leaves no rejection state.
+        #expect(!model.chordModeActions.contains(action.rawValue))
+        #expect(!model.numberedDigitRejections.contains(action.rawValue))
+        #expect(model.conflictRejections[action.rawValue] == nil)
+    }
+
+    @Test func whenOverrideIsParsedRetainedVerbatimAndBumpsRemeasureOnChange() async throws {
+        // WHY: the whenDriver branch of startObserving parses shortcuts.when
+        // overrides used by conflict detection, keeps the raw expression verbatim
+        // so the row can render the user's own clause text in its scope caption,
+        // and must bump remeasure when an action's effective clause changes so the
+        // caption re-lays-out. None of this observation path was covered before.
+        let (store, catalog, errorLog) = makeStore()
+        let action = ShortcutAction.openSettings
+
+        // Pre-load a when override so the first stream delivery carries it.
+        try await store.set([action.rawValue: "!sidebarFocus"], for: catalog.shortcuts.when)
+
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.whenOverrideClauses[action.rawValue] != nil })
+
+        // Parsed to the clause AST, and the raw expression retained verbatim.
+        #expect(model.whenOverrideClauses[action.rawValue] == .not(.atom(.sidebarFocus)))
+        #expect(model.whenOverrideRawStrings[action.rawValue] == "!sidebarFocus")
+
+        // A change to the effective clause must bump remeasure for that row.
+        let revisionBeforeChange = model.heightRevision
+        try await store.set([action.rawValue: "sidebarFocus"], for: catalog.shortcuts.when)
+        await spin(until: { model.whenOverrideClauses[action.rawValue] == .atom(.sidebarFocus) })
+
+        #expect(model.whenOverrideRawStrings[action.rawValue] == "sidebarFocus")
+        #expect(model.heightRevision > revisionBeforeChange)
+        #expect(model.rowsNeedingRemeasure.contains(action.rawValue))
+    }
 }
