@@ -3,21 +3,12 @@ import Foundation
 private let promptEchoScanLimit = 4096
 
 extension ChatConversationStore {
-    func userAppendReconcilesPendingPrompt(
-        _ message: ChatMessage,
-        pending: [ChatPendingOutbound]
-    ) -> Bool {
-        guard message.role == .user,
-              case .prose(let prose) = message.kind else { return false }
-        return pending.contains { $0.text == prose.text }
-    }
-
     func appendClearsStreamingPreview(
         _ message: ChatMessage,
-        pendingBeforeAppend: [ChatPendingOutbound]
+        reconciledPendingEchoIDs: Set<String>
     ) -> Bool {
         (message.role == .agent && messageContainsProse(message))
-            || (message.role == .user && !userAppendReconcilesPendingPrompt(message, pending: pendingBeforeAppend))
+            || (message.role == .user && !reconciledPendingEchoIDs.contains(message.id))
     }
 
     /// The screen-scraped live preview can momentarily read the wrapped tail of

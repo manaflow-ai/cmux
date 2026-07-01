@@ -565,12 +565,11 @@ public final class ChatConversationStore {
     private func apply(_ event: ChatSessionEvent) {
         switch event {
         case .appended(let newMessages):
-            let pendingBeforeAppend = pending
-            reconcilePending(against: newMessages)
-            // Authoritative turn content just landed: drop the transient preview
-            // so committed prose, or the next user turn, owns the transcript.
+            var reconciledPendingEchoIDs = Set<String>()
+            reconcilePending(against: newMessages) { reconciledPendingEchoIDs.insert($0.id) }
+            // Authoritative committed prose or a real next user turn owns the transcript.
             if streamingMessage != nil,
-               newMessages.contains(where: { appendClearsStreamingPreview($0, pendingBeforeAppend: pendingBeforeAppend) }) {
+               newMessages.contains(where: { appendClearsStreamingPreview($0, reconciledPendingEchoIDs: reconciledPendingEchoIDs) }) {
                 streamingMessage = nil
             }
             // A live append whose seq regresses below the window tail means
@@ -673,7 +672,7 @@ public final class ChatConversationStore {
 
     /// Drops optimistic rows whose prompt text has echoed back through the
     /// transcript as a real user message.
-    private func reconcilePending(against newMessages: [ChatMessage]) {
+    private func reconcilePending(against newMessages: [ChatMessage], onReconciled: (ChatMessage) -> Void = { _ in }) {
         guard !pending.isEmpty else { return }
         var maxReconciledCounter: Int?
         for message in newMessages where message.role == .user {
@@ -738,6 +737,7 @@ public final class ChatConversationStore {
             }
             if let index {
                 let removed = pending.remove(at: index)
+                onReconciled(message)
                 if let counter = Self.pendingCounter(removed.id) {
                     maxReconciledCounter = max(maxReconciledCounter ?? counter, counter)
                 }
