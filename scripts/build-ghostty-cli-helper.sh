@@ -79,6 +79,9 @@ select_zig_for_target() {
   # /usr/local/bin first or run under Rosetta, but the x86_64 Zig link path can
   # fail against newer macOS SDKs while arm64 Zig cross-compiles both slices.
   candidates+=("/opt/homebrew/bin/zig")
+  local homebrew_versioned_zig=""
+  homebrew_versioned_zig="$(brew --prefix zig@0.15 2>/dev/null || true)"
+  [[ -n "$homebrew_versioned_zig" ]] && candidates+=("$homebrew_versioned_zig/bin/zig")
   local path_zig=""
   path_zig="$(command -v zig 2>/dev/null || true)"
   [[ -n "$path_zig" ]] && candidates+=("$path_zig")
@@ -232,6 +235,12 @@ if [[ ! -f "$GHOSTTY_DIR/build.zig" ]]; then
   exit 1
 fi
 
+metal_toolchain_identifier() {
+  xcodebuild -showComponent MetalToolchain -json 2>/dev/null \
+    | plutil -extract toolchainIdentifier raw -o - -- - 2>/dev/null \
+    || true
+}
+
 build_helper() {
   local prefix="$1"
   local target="${2:-}"
@@ -273,7 +282,19 @@ build_helper() {
     # Zig 0.15.x treats SDKROOT as a sysroot override. Xcode exports SDKROOT to
     # the macOS SDK, which makes Zig look for SDK paths under that SDK again and
     # leaves build-runner binaries unlinked against libSystem on a cold cache.
-    env -u SDKROOT "${args[@]}"
+    if xcrun -sdk macosx metal -v >/dev/null 2>&1; then
+      env -u SDKROOT "${args[@]}"
+    else
+      # Xcode 26 installs Metal as a separate toolchain, but script phases set
+      # TOOLCHAINS to XcodeDefault and prevent xcrun from discovering it.
+      local metal_toolchain
+      metal_toolchain="$(metal_toolchain_identifier)"
+      if [[ -z "$metal_toolchain" ]]; then
+        echo "error: Metal Toolchain is required; install it with: xcodebuild -downloadComponent MetalToolchain" >&2
+        exit 1
+      fi
+      env -u SDKROOT TOOLCHAINS="$metal_toolchain" "${args[@]}"
+    fi
   )
 }
 

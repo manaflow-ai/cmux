@@ -618,6 +618,15 @@ extension Workspace {
                 selectedConfigurationName: projectPanel.selectedConfigurationName
             )
             agentSessionSnapshot = nil
+        case .agentUsage:
+            guard panel is AgentUsagePanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            agentSessionSnapshot = nil
+            projectSnapshot = nil
         case .extensionBrowser:
             return nil
         }
@@ -1554,6 +1563,12 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
             return projectPanel.id
+        case .agentUsage:
+            guard let usagePanel = newAgentUsageSurface(inPane: paneId, focus: false) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: usagePanel.id)
+            return usagePanel.id
         case .extensionBrowser:
             return nil
         }
@@ -3987,6 +4002,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.project.rawValue
         case .extensionBrowser:
             return SurfaceKind.extensionBrowser.rawValue
+        case .agentUsage:
+            return SurfaceKind.agentUsage.rawValue
         }
     }
 
@@ -8462,6 +8479,70 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return toolPanel
+    }
+
+    /// Focuses the existing Agent Usage panel (the first one in sidebar/tab
+    /// order, so reuse is deterministic) or creates one in `paneId`.
+    @discardableResult
+    func openOrFocusAgentUsageSurface(
+        inPane paneId: PaneID,
+        focus: Bool = true
+    ) -> AgentUsagePanel? {
+        for existingId in sidebarOrderedPanelIds() {
+            guard let usagePanel = panels[existingId] as? AgentUsagePanel else { continue }
+            if focus {
+                focusPanel(existingId)
+            }
+            return usagePanel
+        }
+        return newAgentUsageSurface(inPane: paneId, focus: focus)
+    }
+
+    @discardableResult
+    func newAgentUsageSurface(
+        inPane paneId: PaneID,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> AgentUsagePanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let usagePanel = AgentUsagePanel()
+        panels[usagePanel.id] = usagePanel
+        panelTitles[usagePanel.id] = usagePanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: usagePanel.displayTitle,
+            icon: usagePanel.displayIcon,
+            kind: SurfaceKind.agentUsage,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: usagePanel.id)
+            panelTitles.removeValue(forKey: usagePanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = usagePanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(usagePanel.id, paneId: paneId, kind: "agent_usage", origin: "agent_usage_tab", focused: shouldFocusNewTab)
+
+        if shouldFocusNewTab {
+            focusPanel(usagePanel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: usagePanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return usagePanel
     }
 
     @discardableResult

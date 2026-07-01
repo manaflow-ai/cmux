@@ -13,6 +13,7 @@ public struct AutomationSection: View {
     private let catalog: SettingCatalog
 
     @State private var socketPasswordModel: SecretValueModel
+    @State private var openRouterKeyModel: SecretValueModel
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
     @State private var codexModel: DefaultsValueModel<Bool>
@@ -31,6 +32,8 @@ public struct AutomationSection: View {
     @State private var portRangeModel: DefaultsValueModel<Int>
     @State private var socketPasswordDraft: String = ""
     @State private var socketPasswordStatus: SocketPasswordStatus?
+    @State private var openRouterKeyDraft: String = ""
+    @State private var openRouterKeyStatus: SocketPasswordStatus?
     @State private var showOpenAccessConfirmation: Bool = false
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var modeBeforePendingOpenAccess: SocketControlMode?
@@ -51,6 +54,11 @@ public struct AutomationSection: View {
         _socketPasswordModel = State(initialValue: SecretValueModel(
             store: secretStore,
             key: catalog.automation.socketPassword,
+            errorLog: errorLog
+        ))
+        _openRouterKeyModel = State(initialValue: SecretValueModel(
+            store: secretStore,
+            key: catalog.integrations.openRouterApiKey,
             errorLog: errorLog
         ))
         _modeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode))
@@ -97,6 +105,7 @@ public struct AutomationSection: View {
             cursorCard
             geminiCard
             kiroCard
+            openRouterCard
             portCard
         }
         .confirmationDialog(
@@ -489,6 +498,55 @@ public struct AutomationSection: View {
     }
 
     @ViewBuilder
+    private var openRouterCard: some View {
+        let hasKey = !openRouterKeyModel.current.isEmpty
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("integrations.openRouter.apiKey"),
+                String(localized: "settings.automation.openRouter.key", defaultValue: "OpenRouter API Key"),
+                subtitle: hasKey
+                    ? String(localized: "settings.automation.openRouter.key.subtitleSet", defaultValue: "Stored securely. The Agent Usage panel shows your OpenRouter usage and balance.")
+                    : String(localized: "settings.automation.openRouter.key.subtitleUnset", defaultValue: "Add a provisioning key to show OpenRouter usage in the Agent Usage panel.")
+            ) {
+                HStack(spacing: 8) {
+                    SecureField(
+                        String(localized: "settings.automation.openRouter.key.placeholder", defaultValue: "sk-or-v1-…"),
+                        text: $openRouterKeyDraft
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 170)
+                    Button(
+                        hasKey
+                            ? String(localized: "settings.automation.openRouter.key.change", defaultValue: "Change")
+                            : String(localized: "settings.automation.openRouter.key.set", defaultValue: "Set")
+                    ) {
+                        saveOpenRouterKey()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(openRouterKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if hasKey {
+                        Button(String(localized: "settings.automation.openRouter.key.clear", defaultValue: "Clear")) {
+                            clearOpenRouterKey()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+            }
+            if let status = openRouterKeyStatus {
+                Text(status.message)
+                    .font(.caption)
+                    .foregroundStyle(status.isError ? Color.red : Color.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            }
+            SettingsCardDivider()
+            SettingsCardNote(String(localized: "settings.automation.openRouter.note", defaultValue: "Use a provisioning (management) key from OpenRouter Settings → Provisioning Keys — a regular inference key cannot read account activity. The key is only used to fetch usage and credits and is stored in its own file, never in cmux.json."))
+        }
+    }
+
+    @ViewBuilder
     private var portCard: some View {
         SettingsCard {
             SettingsCardRow(
@@ -539,6 +597,32 @@ public struct AutomationSection: View {
         socketPasswordDraft = ""
         socketPasswordStatus = SocketPasswordStatus(
             message: String(localized: "settings.automation.socketPassword.cleared", defaultValue: "Cleared."),
+            isError: false
+        )
+    }
+
+    private func saveOpenRouterKey() {
+        let trimmed = openRouterKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            openRouterKeyStatus = SocketPasswordStatus(
+                message: String(localized: "settings.automation.openRouter.key.empty", defaultValue: "Enter a key first."),
+                isError: true
+            )
+            return
+        }
+        openRouterKeyModel.set(trimmed)
+        openRouterKeyDraft = ""
+        openRouterKeyStatus = SocketPasswordStatus(
+            message: String(localized: "settings.automation.openRouter.key.saved", defaultValue: "Saved."),
+            isError: false
+        )
+    }
+
+    private func clearOpenRouterKey() {
+        openRouterKeyModel.reset()
+        openRouterKeyDraft = ""
+        openRouterKeyStatus = SocketPasswordStatus(
+            message: String(localized: "settings.automation.openRouter.key.cleared", defaultValue: "Cleared."),
             isError: false
         )
     }

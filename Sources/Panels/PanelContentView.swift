@@ -136,6 +136,16 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .agentUsage:
+            if let agentUsagePanel = panel as? AgentUsagePanel {
+                AgentUsagePanelView(
+                    panel: agentUsagePanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .extensionBrowser:
             if let extensionBrowserPanel = panel as? CMUXSidebarExtensionBrowserPanel {
                 CMUXSidebarExtensionBrowserPanelView(
@@ -161,7 +171,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .agentUsage:
             return true
         case .terminal, .browser:
             return false

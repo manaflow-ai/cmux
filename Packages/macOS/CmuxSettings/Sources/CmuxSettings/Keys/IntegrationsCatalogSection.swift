@@ -71,5 +71,13 @@ public struct IntegrationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "suppressSubagentNotifications"
     )
 
+    /// OpenRouter provisioning (management) key used by the Agent Usage
+    /// dashboard to fetch account activity and credits. Stored in its own
+    /// `0600` file, never serialized into the shared `cmux.json`.
+    public let openRouterApiKey = SecretFileKey(
+        id: "integrations.openRouter.apiKey",
+        fileName: "openrouter-api-key"
+    )
+
     public init() {}
 }

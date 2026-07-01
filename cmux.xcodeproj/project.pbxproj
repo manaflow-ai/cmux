@@ -52,6 +52,14 @@
 		A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */; };
 		A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000D /* AgentSessionWebTheme.swift */; };
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
+		A6E0200000000000000000B4 /* AgentUsageAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0100000000000000000B4 /* AgentUsageAggregator.swift */; };
+		A6E0200000000000000000B3 /* AgentUsageLogParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0100000000000000000B3 /* AgentUsageLogParser.swift */; };
+		A6E0200000000000000000A4 /* AgentUsageModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0100000000000000000A4 /* AgentUsageModelTests.swift */; };
+		A6E0200000000000000000A2 /* AgentUsagePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0100000000000000000A2 /* AgentUsagePanel.swift */; };
+		A6E0200000000000000000A3 /* AgentUsagePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0100000000000000000A3 /* AgentUsagePanelView.swift */; };
+		A6E0200000000000000000B2 /* AgentUsagePricing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0100000000000000000B2 /* AgentUsagePricing.swift */; };
+		A6E0200000000000000000B5 /* AgentUsageScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0100000000000000000B5 /* AgentUsageScanner.swift */; };
+		A6E0200000000000000000B1 /* AgentUsageTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0100000000000000000B1 /* AgentUsageTypes.swift */; };
 		F4350A110000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */; };
 		F4350A120000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */; };
 		C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */; };
@@ -717,6 +725,7 @@
 		A9F200000000000000000019 /* OpenCodeProcessOutputDisposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000019 /* OpenCodeProcessOutputDisposition.swift */; };
 		ODBG00010000000000000001 /* OpenDiffViewerAgentBaselineLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = ODBG00010000000000000002 /* OpenDiffViewerAgentBaselineLookup.swift */; };
 		ODBG00020000000000000001 /* OpenDiffViewerAgentContextRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = ODBG00020000000000000002 /* OpenDiffViewerAgentContextRequest.swift */; };
+		A6E0200000000000000000C1 /* OpenRouterUsageClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0100000000000000000C1 /* OpenRouterUsageClient.swift */; };
 		D0B1001CA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */; };
 		A5001400 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001410 /* Panel.swift */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
@@ -1345,6 +1354,14 @@
 		A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionWebRendererTests.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000D /* AgentSessionWebTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebTheme.swift; sourceTree = "<group>"; };
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
+		A6E0100000000000000000B4 /* AgentUsageAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentUsageAggregator.swift; sourceTree = "<group>"; };
+		A6E0100000000000000000B3 /* AgentUsageLogParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentUsageLogParser.swift; sourceTree = "<group>"; };
+		A6E0100000000000000000A4 /* AgentUsageModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsageModelTests.swift; sourceTree = "<group>"; };
+		A6E0100000000000000000A2 /* AgentUsagePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentUsagePanel.swift; sourceTree = "<group>"; };
+		A6E0100000000000000000A3 /* AgentUsagePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentUsagePanelView.swift; sourceTree = "<group>"; };
+		A6E0100000000000000000B2 /* AgentUsagePricing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentUsagePricing.swift; sourceTree = "<group>"; };
+		A6E0100000000000000000B5 /* AgentUsageScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentUsageScanner.swift; sourceTree = "<group>"; };
+		A6E0100000000000000000B1 /* AgentUsageTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentUsageTypes.swift; sourceTree = "<group>"; };
 		F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppBundleIconPersistencePolicy.swift; sourceTree = "<group>"; };
 		C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CanvasShortcutRouting.swift"; sourceTree = "<group>"; };
 		C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ClosedItemHistory.swift"; sourceTree = "<group>"; };
@@ -1955,6 +1972,7 @@
 		A9F100000000000000000019 /* OpenCodeProcessOutputDisposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenCodeProcessOutputDisposition.swift; sourceTree = "<group>"; };
 		ODBG00010000000000000002 /* OpenDiffViewerAgentBaselineLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenDiffViewerAgentBaselineLookup.swift; sourceTree = "<group>"; };
 		ODBG00020000000000000002 /* OpenDiffViewerAgentContextRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenDiffViewerAgentContextRequest.swift; sourceTree = "<group>"; };
+		A6E0100000000000000000C1 /* OpenRouterUsageClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenRouterUsageClient.swift; sourceTree = "<group>"; };
 		D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropRoutingSupport.swift; sourceTree = "<group>"; };
 		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
@@ -3205,6 +3223,14 @@
 				A9E01000000000000000000C /* AgentSessionWebRendererSession.swift */,
 				A9E01000000000000000000D /* AgentSessionWebTheme.swift */,
 				A9E010000000000000000004 /* AgentSessionPanelView.swift */,
+				A6E0100000000000000000A2 /* AgentUsagePanel.swift */,
+				A6E0100000000000000000C1 /* OpenRouterUsageClient.swift */,
+				A6E0100000000000000000B1 /* AgentUsageTypes.swift */,
+				A6E0100000000000000000B2 /* AgentUsagePricing.swift */,
+				A6E0100000000000000000B3 /* AgentUsageLogParser.swift */,
+				A6E0100000000000000000B4 /* AgentUsageAggregator.swift */,
+				A6E0100000000000000000B5 /* AgentUsageScanner.swift */,
+				A6E0100000000000000000A3 /* AgentUsagePanelView.swift */,
 
 				B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */,
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
@@ -3733,6 +3759,7 @@
 				B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */,
 				604500100000000000000004 /* WindowTitleTemplateTests.swift */,
 				D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */,
+				A6E0100000000000000000A4 /* AgentUsageModelTests.swift */,
 				C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */,
 				C9A57402C9A57402C9A57402 /* WorkspaceGroupMoveToMenuStateTests.swift */,
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
@@ -4266,6 +4293,13 @@
 				A9E02000000000000000000C /* AgentSessionWebRendererSession.swift in Sources */,
 				A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */,
 				A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */,
+				A6E0200000000000000000B4 /* AgentUsageAggregator.swift in Sources */,
+				A6E0200000000000000000B3 /* AgentUsageLogParser.swift in Sources */,
+				A6E0200000000000000000A2 /* AgentUsagePanel.swift in Sources */,
+				A6E0200000000000000000A3 /* AgentUsagePanelView.swift in Sources */,
+				A6E0200000000000000000B2 /* AgentUsagePricing.swift in Sources */,
+				A6E0200000000000000000B5 /* AgentUsageScanner.swift in Sources */,
+				A6E0200000000000000000B1 /* AgentUsageTypes.swift in Sources */,
 				F4350A110000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */,
 				C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */,
 				C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */,
@@ -4631,6 +4665,7 @@
 				A9F200000000000000000019 /* OpenCodeProcessOutputDisposition.swift in Sources */,
 				ODBG00010000000000000001 /* OpenDiffViewerAgentBaselineLookup.swift in Sources */,
 				ODBG00020000000000000001 /* OpenDiffViewerAgentContextRequest.swift in Sources */,
+				A6E0200000000000000000C1 /* OpenRouterUsageClient.swift in Sources */,
 				D0B1001CA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift in Sources */,
 				A5001400 /* Panel.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
@@ -5094,6 +5129,7 @@
 				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
 				A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */,
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
+				A6E0200000000000000000A4 /* AgentUsageModelTests.swift in Sources */,
 				725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,
 				E3309A09 /* AppDelegateEqualizeSplitsShortcutTests.swift in Sources */,
 				F5996001A1B2C3D4E5F60001 /* AppDelegateFileExplorerShortcutRoutingTests.swift in Sources */,

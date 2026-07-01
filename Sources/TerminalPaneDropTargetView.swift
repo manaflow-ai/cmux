@@ -409,6 +409,8 @@ final class PaneDropTargetView: NSView {
             return nil
         case .extensionBrowser:
             return nil
+        case .agentUsage:
+            return nil
         }
     }
 

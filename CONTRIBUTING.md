@@ -4,7 +4,7 @@
 
 - macOS 14+
 - Xcode 15+
-- [Zig](https://ziglang.org/) (install via `brew install zig`)
+- [Zig 0.15.2](https://ziglang.org/) (install via `brew install zig@0.15`)
 
 ## Getting Started
 
