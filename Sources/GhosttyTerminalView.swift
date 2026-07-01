@@ -2621,6 +2621,14 @@ class GhosttyApp {
         return initializingRuntimeApp
     }
 
+    /// Workspace a raw terminal (OSC 9/777) desktop notification is recorded against:
+    /// the emitting surface's workspace, or nil when the origin is unknown. A surface-less
+    /// (app-target) notification passes `surfaceTabId == nil` and must not fall back to
+    /// `activeTabId`, which would misfile it onto the focused row.
+    static func rawNotificationRecordingTabId(surfaceTabId: UUID?, activeTabId: UUID?) -> UUID? {
+        surfaceTabId
+    }
+
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
         if target.tag != GHOSTTY_TARGET_SURFACE {
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
@@ -2635,9 +2643,16 @@ class GhosttyApp {
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
                 return performOnMain {
-                    guard let tabManager = AppDelegate.shared?.tabManager,
-                          let tabId = tabManager.selectedTabId else {
+                    guard let tabManager = AppDelegate.shared?.tabManager else {
                         return false
+                    }
+                    // The app target carries no originating surface, so the emitting
+                    // workspace is unknown. Never fall back to the active workspace.
+                    guard let tabId = GhosttyApp.rawNotificationRecordingTabId(
+                        surfaceTabId: nil,
+                        activeTabId: tabManager.selectedTabId
+                    ) else {
+                        return true
                     }
                     let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
@@ -2900,7 +2915,10 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
-            guard let tabId = surfaceView.tabId else { return true }
+            guard let tabId = GhosttyApp.rawNotificationRecordingTabId(
+                surfaceTabId: surfaceView.tabId,
+                activeTabId: nil
+            ) else { return true }
             let surfaceId = surfaceView.terminalSurface?.id
             let actionTitle = action.action.desktop_notification.title
                 .flatMap { String(cString: $0) } ?? ""
