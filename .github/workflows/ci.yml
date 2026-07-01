@@ -162,6 +162,9 @@ jobs:
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
 
+      - name: Validate shipped-DMG signature verification gate
+        run: python3 tests/test_ci_released_dmg_signature_gate.py
+
       - name: Validate CI change area filter
         run: python3 tests/test_ci_change_areas.py
 
@@ -212,6 +215,23 @@ jobs:
 
       - name: Validate test determinism gate
         run: python3 scripts/check-test-determinism.py --strict
+
+  released-dmg-verifier-self-test:
+    needs: changes
+    if: ${{ needs.changes.outputs.macos == 'true' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Prove the shipped-DMG verifier rejects tampered bundles
+        # Runs scripts/verify-released-app-bundle.sh --self-test, which
+        # synthesizes a bundle, ad-hoc signs it inside-out, and tampers a sealed
+        # Mach-O resource to prove the verifier fails on "code or signature have
+        # been modified" (the issue #6670 failure class) outside the real
+        # release/nightly jobs. codesign -s - needs no certificate or keychain.
+        run: ./scripts/verify-released-app-bundle.sh --self-test
 
   remote-daemon-tests:
     needs: changes
@@ -1893,6 +1913,7 @@ jobs:
     needs:
       - changes
       - workflow-guard-tests
+      - released-dmg-verifier-self-test
       - remote-daemon-tests
       - web-typecheck
       - react-apps-check
