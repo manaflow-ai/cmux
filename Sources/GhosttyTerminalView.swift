@@ -4174,6 +4174,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
             return
         }
+        // Push the current config to this surface before switching the color scheme.
+        // ghostty_surface_set_color_scheme alone only updates the scheme flag but does
+        // not re-apply the ANSI palette (OSC 4, colors 0-15) to the existing surface.
+        // Calling ghostty_surface_update_config first ensures the surface picks up the
+        // full palette for the new scheme (light/dark) from the current config.
+        if let config = GhosttyApp.shared.config {
+            ghostty_surface_update_config(surface, config)
+        }
         ghostty_surface_set_color_scheme(surface, scheme)
         appliedColorScheme = scheme
         if GhosttyApp.shared.backgroundLogEnabled {
