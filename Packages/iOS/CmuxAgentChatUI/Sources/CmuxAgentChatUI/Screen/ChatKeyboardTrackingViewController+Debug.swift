@@ -16,7 +16,9 @@ extension ChatKeyboardTrackingViewController {
                 guard let self,
                       tableView != nil
                 else { return nil }
-                return self.presentationAdjustedFrameInWindow(for: self.transcriptClipView)?.maxY
+                return self.presentationAdjustedFrameInWindow(
+                    for: self.transcriptHostingController.view.superview
+                )?.maxY
             }
             tableView.keyboardDebugComposerPresentationMinYProvider = { [weak self] in
                 guard let self else { return nil }
@@ -62,7 +64,7 @@ extension ChatKeyboardTrackingViewController {
         guard let targetView,
               let window = targetView.window
         else {
-            return targetView.flatMap { frameInWindow(for: $0) }
+            return nil
         }
         let sourceLayer = targetView.layer.presentation() ?? targetView.layer
         let targetLayer = window.layer.presentation() ?? window.layer

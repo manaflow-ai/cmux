@@ -22,7 +22,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     var excludedKeyboardDismissFrame: CGRect = .zero
 
     private let keyboardContentView = UIView(frame: .zero)
-    let transcriptClipView = UIView(frame: .zero)
+    private let transcriptClipView = UIView(frame: .zero)
     private let composerBackgroundView = UIVisualEffectView(effect: nil)
     let transcriptHostingController: UIHostingController<Transcript>
     let composerHostingController: UIHostingController<Composer>
