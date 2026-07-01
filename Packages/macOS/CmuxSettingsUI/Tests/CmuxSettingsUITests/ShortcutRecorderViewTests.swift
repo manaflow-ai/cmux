@@ -9,8 +9,8 @@ struct ShortcutRecorderViewTests {
     @Test func bareFirstStrokeCanBeAcceptedWhenModifierRequirementIsDisabled() throws {
         let button = RecorderHostButton(frame: .zero)
         defer {
-            if button.debugIsRecording {
-                button.debugStopRecording()
+            if button.isRecording {
+                button.stopRecording()
             }
         }
         button.firstStrokeRequiresModifier = false
@@ -18,35 +18,35 @@ struct ShortcutRecorderViewTests {
         var rejectedBareKey = false
         button.onStroke = { recordedStroke = $0 }
         button.onBareKeyRejected = { rejectedBareKey = true }
-        button.debugStartRecording()
+        button.startRecording()
 
-        try #require(button.debugIsRecording)
-        button.debugHandleRecordingEvent(try keyDownEvent(key: "j", keyCode: 38))
+        try #require(button.isRecording)
+        button.handleRecordingEvent(try keyDownEvent(key: "j", keyCode: 38))
 
         #expect(recordedStroke == ShortcutStroke(key: "j", keyCode: 38))
         #expect(!rejectedBareKey)
-        #expect(!button.debugIsRecording)
+        #expect(!button.isRecording)
     }
 
     @Test func bareFirstStrokeIsRejectedByDefault() throws {
         let button = RecorderHostButton(frame: .zero)
         defer {
-            if button.debugIsRecording {
-                button.debugStopRecording()
+            if button.isRecording {
+                button.stopRecording()
             }
         }
         var recordedStroke: ShortcutStroke?
         var rejectedBareKey = false
         button.onStroke = { recordedStroke = $0 }
         button.onBareKeyRejected = { rejectedBareKey = true }
-        button.debugStartRecording()
+        button.startRecording()
 
-        try #require(button.debugIsRecording)
-        button.debugHandleRecordingEvent(try keyDownEvent(key: "j", keyCode: 38))
+        try #require(button.isRecording)
+        button.handleRecordingEvent(try keyDownEvent(key: "j", keyCode: 38))
 
         #expect(recordedStroke == nil)
         #expect(rejectedBareKey)
-        #expect(button.debugIsRecording)
+        #expect(button.isRecording)
     }
 
     @Test func cancelRecordingIfActiveStopsRecording() throws {
@@ -54,14 +54,14 @@ struct ShortcutRecorderViewTests {
         // disarm an active recorder idempotently so Task 5 cell reuse is safe.
         let button = RecorderHostButton(frame: .zero)
         defer {
-            if button.debugIsRecording {
-                button.debugStopRecording()
+            if button.isRecording {
+                button.stopRecording()
             }
         }
-        button.debugStartRecording()
-        try #require(button.debugIsRecording)
+        button.startRecording()
+        try #require(button.isRecording)
         button.cancelRecordingIfActive()
-        #expect(!button.debugIsRecording)
+        #expect(!button.isRecording)
     }
 
     private func keyDownEvent(key: String, keyCode: UInt16) throws -> NSEvent {
