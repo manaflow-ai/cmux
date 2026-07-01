@@ -1,0 +1,43 @@
+Computer Use state (CUA App Version: 829)
+<app_state>
+App=/System/Applications/Calculator.app/ (bundleID com.apple.calculator, pid 96116)
+Window: "Calculator", App: Calculator.
+0 standard window Calculator, ID: main, Secondary Actions: Raise
+	1 split group main, SidebarNavigationSplitView
+		2 container CalculatorKeypadView
+			3 scroll area Description: Edit field, ID: StandardInputView, Secondary Actions: Copy
+				4 text ‎0
+			5 button Description: Delete, Help: Delete the last digit or operation entered (long press to delete all)
+			6 button Description: All Clear, ID: AllClear
+			7 button Percent
+			8 button Divide
+			9 button Description: 7, ID: Seven
+			10 button Description: 8, ID: Eight
+			11 button Description: 9, ID: Nine
+			12 button Multiply
+			13 button Description: 4, ID: Four
+			14 button Description: 5, ID: Five
+			15 button Description: 6, ID: Six
+			16 button Subtract
+			17 button Description: 1, ID: One
+			18 button Description: 2, ID: Two
+			19 button Description: 3, ID: Three
+			20 button Add
+			21 button Description: Change Sign, Help: Change sign of a value, ID: Negate
+			22 button Description: 0, ID: Zero
+			23 button Description: Point, ID: Decimal
+			24 button Equals
+	25 toolbar
+		26 button Description: Show Sidebar, Secondary Actions: Increment, Decrement, delete, Cancel
+		27 button Description: Mode, ID: Mode: basic; unitConversion: false, Secondary Actions: Increment, Decrement, delete, Cancel, Move previous, Remove from toolbar
+	28 close button
+	29 zoom button (disabled)
+	30 minimize button
+31 menu bar
+	32 Calculator
+	33 Edit
+	34 View
+	35 Window
+	36 Help
+
+</app_state>

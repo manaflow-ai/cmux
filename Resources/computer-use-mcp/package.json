@@ -1,0 +1,16 @@
+{
+  "name": "cmux-computer-use-mcp",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "cmux computer use — agent-agnostic MCP server that exposes the standard Codex Computer Use engine (codex app-server's bundled computer-use MCP) so any agent can drive the local Mac.",
+  "bin": {
+    "cmux-computer-use-mcp": "cmux-computer-use-mcp.mjs"
+  },
+  "scripts": {
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}
