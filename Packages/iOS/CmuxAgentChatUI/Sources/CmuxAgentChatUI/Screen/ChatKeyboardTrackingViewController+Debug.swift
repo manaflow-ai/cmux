@@ -68,7 +68,7 @@ extension ChatKeyboardTrackingViewController {
         }
         let sourceLayer = targetView.layer.presentation() ?? targetView.layer
         let targetLayer = window.layer.presentation() ?? window.layer
-        return sourceLayer.convert(targetView.bounds, to: targetLayer)
+        return sourceLayer.convert(sourceLayer.bounds, to: targetLayer)
     }
 }
 #endif
