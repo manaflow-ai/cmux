@@ -5,14 +5,14 @@ import Foundation
 /// Pure mapping from a Claude session's `ChatAgentState` to a sidebar status-row decision.
 /// Scoped to `.claude` ONLY — Codex/other kinds return `.ignore` so the CLI keeps owning their
 /// (richer) rows. `.ended` clears; other states upsert using the verbatim constants.
-enum ClaudeSidebarStatusMapper {
-    enum Decision: Equatable {
+nonisolated struct ClaudeSidebarStatusMapper {
+    nonisolated enum Decision: Equatable {
         case upsert(SidebarStatusEntry)
         case clear(key: String)
         case ignore
     }
 
-    static func decision(for state: ChatAgentState, kind: ChatAgentKind) -> Decision {
+    func decision(for state: ChatAgentState, kind: ChatAgentKind) -> Decision {
         guard kind == .claude else { return .ignore }
         let key = ClaudeSidebarStatusConstants.statusKey
         switch state {

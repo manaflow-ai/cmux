@@ -13,12 +13,15 @@ final class ClaudeSidebarStatusBridge {
     private var cancellables = Set<AnyCancellable>()
     private let upsert: (ControlSidebarTabTarget, SidebarStatusEntry) -> Void
     private let clear: (ControlSidebarTabTarget, String) -> Void
+    private let mapper: ClaudeSidebarStatusMapper
 
     init(registry: AgentChatSessionRegistry,
          upsert: @escaping (ControlSidebarTabTarget, SidebarStatusEntry) -> Void,
-         clear: @escaping (ControlSidebarTabTarget, String) -> Void) {
+         clear: @escaping (ControlSidebarTabTarget, String) -> Void,
+         mapper: ClaudeSidebarStatusMapper = ClaudeSidebarStatusMapper()) {
         self.upsert = upsert
         self.clear = clear
+        self.mapper = mapper
         registry.recordChangesPublisher
             .sink { [weak self] change in self?.apply(change.record) }
             .store(in: &cancellables)
@@ -30,7 +33,7 @@ final class ClaudeSidebarStatusBridge {
               let uuid = UUID(uuidString: workspaceID) else { return }
         let target = ControlSidebarTabTarget.workspace(uuid)
 
-        switch ClaudeSidebarStatusMapper.decision(for: record.state, kind: record.agentKind) {
+        switch mapper.decision(for: record.state, kind: record.agentKind) {
         case let .upsert(entry):
             // No reaper to arm: the registry's own per-PID exit watcher
             // (DispatchSourceProcess) flips the session to `.ended` on process
