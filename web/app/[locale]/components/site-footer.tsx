@@ -17,12 +17,14 @@ export async function SiteFooter() {
         { label: t("blog"), href: "/blog" },
         { label: t("community"), href: "/community" },
         { label: t("nightly"), href: "/nightly" },
+        { label: t("assets"), href: "/assets" },
       ],
     },
     {
       heading: t("resources"),
       links: [
         { label: t("docs"), href: "/docs/getting-started" },
+        { label: t("guides"), href: "/guides" },
         { label: t("changelog"), href: "/docs/changelog" },
       ],
     },
@@ -83,6 +85,17 @@ export async function SiteFooter() {
         <div className="flex items-center justify-between mt-10">
           <p className="text-xs text-muted">
             {t("copyright", { year })}
+            <span aria-hidden className="mx-2">
+              ·
+            </span>
+            <a
+              href="https://github.com/manaflow-ai/cmux"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-foreground transition-colors"
+            >
+              {t("openSource")}
+            </a>
           </p>
           <LanguageSwitcher />
         </div>

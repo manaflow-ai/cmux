@@ -36,6 +36,8 @@ def run_claude_teams(
         real_bin.mkdir(parents=True, exist_ok=True)
 
         env_log = tmp / "agent-teams.log"
+        sandboxed_log = tmp / "sandboxed.log"
+        marker_log = tmp / "sandboxed-marker.log"
         tmux_log = tmp / "tmux-path.log"
         cmux_bin_log = tmp / "cmux-bin.log"
         argv_log = tmp / "argv.log"
@@ -56,6 +58,8 @@ def run_claude_teams(
             """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS-__UNSET__}" > "$FAKE_AGENT_TEAMS_LOG"
+printf '%s\\n' "${CLAUDE_CODE_SANDBOXED-__UNSET__}" > "$FAKE_SANDBOXED_LOG"
+printf '%s\\n' "${CMUX_CLAUDE_TEAMS_SANDBOXED-__UNSET__}" > "$FAKE_SANDBOXED_MARKER_LOG"
 command -v tmux > "$FAKE_TMUX_PATH_LOG"
 printf '%s\\n' "${CMUX_CLAUDE_TEAMS_CMUX_BIN-__UNSET__}" > "$FAKE_CMUX_BIN_LOG"
 printf '%s\\n' "$@" > "$FAKE_ARGV_LOG"
@@ -108,6 +112,8 @@ fs.writeFileSync(
         env["HOME"] = str(fake_home)
         env["PATH"] = f"{real_bin}:{base_env.get('PATH', '/usr/bin:/bin')}"
         env["FAKE_AGENT_TEAMS_LOG"] = str(env_log)
+        env["FAKE_SANDBOXED_LOG"] = str(sandboxed_log)
+        env["FAKE_SANDBOXED_MARKER_LOG"] = str(marker_log)
         env["FAKE_TMUX_PATH_LOG"] = str(tmux_log)
         env["FAKE_CMUX_BIN_LOG"] = str(cmux_bin_log)
         env["FAKE_ARGV_LOG"] = str(argv_log)
@@ -139,6 +145,10 @@ fs.writeFileSync(
                 "--password",
                 explicit_socket_password,
                 "claude-teams",
+                # The trust-gate bypass (CLAUDE_CODE_SANDBOXED) is only granted
+                # once the user opts into skipping safety prompts, so exercise the
+                # bypass path with --dangerously-skip-permissions.
+                "--dangerously-skip-permissions",
                 "--version",
             ],
             capture_output=True,
@@ -154,6 +164,22 @@ fs.writeFileSync(
         agent_teams_value = read_text(env_log)
         if agent_teams_value != "1":
             print(f"FAIL: expected CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1, got {agent_teams_value!r}")
+            raise SystemExit(1)
+
+        # #6447: the lead must skip Claude Code's interactive "trust this folder?"
+        # gate (which otherwise deadlocks the unattended session) via
+        # CLAUDE_CODE_SANDBOXED.
+        sandboxed_value = read_text(sandboxed_log)
+        if sandboxed_value != "1":
+            print(f"FAIL: expected CLAUDE_CODE_SANDBOXED=1 to skip the trust gate, got {sandboxed_value!r}")
+            raise SystemExit(1)
+
+        # The launcher records the opt-in in CMUX_CLAUDE_TEAMS_SANDBOXED so teammate
+        # respawns re-apply the same trust decision without re-deriving it from
+        # untrusted command text.
+        marker_value = read_text(marker_log)
+        if marker_value != "1":
+            print(f"FAIL: expected CMUX_CLAUDE_TEAMS_SANDBOXED=1 opt-in marker, got {marker_value!r}")
             raise SystemExit(1)
 
         tmux_path = read_text(tmux_log)
@@ -186,6 +212,18 @@ fs.writeFileSync(
         argv_lines = argv_log.read_text(encoding="utf-8").splitlines()
         if argv_lines[:2] != ["--teammate-mode", "auto"]:
             print(f"FAIL: expected launcher to prepend --teammate-mode auto, got {argv_lines!r}")
+            raise SystemExit(1)
+
+        # #6447: so a plain `cmux claude-teams "make a demo team"` actually opens
+        # split panes, the lead is nudged (via an appended system prompt) toward
+        # named split-pane teammates instead of nameless in-process subagents.
+        if "--append-system-prompt" not in argv_lines:
+            print(f"FAIL: expected claude-teams to append a team-spawn system prompt, got {argv_lines!r}")
+            raise SystemExit(1)
+        nudge_index = argv_lines.index("--append-system-prompt")
+        nudge_text = argv_lines[nudge_index + 1] if nudge_index + 1 < len(argv_lines) else ""
+        if "teammate" not in nudge_text.lower() or "pane" not in nudge_text.lower():
+            print(f"FAIL: team-spawn nudge must steer toward split-pane teammates, got {nudge_text!r}")
             raise SystemExit(1)
 
         if "--version" not in argv_lines:
@@ -305,16 +343,16 @@ def main() -> int:
         )
         return 1
 
-    if runtime_node_options_value != "--max-old-space-size 2048 --trace-warnings":
+    if runtime_node_options_value != "--max-old-space-size=2048 --trace-warnings":
         print(
-            "FAIL: expected Claude runtime NODE_OPTIONS to preserve the original max-old-space-size flag, "
+            "FAIL: expected Claude runtime NODE_OPTIONS to preserve the original max-old-space-size value, "
             f"got {runtime_node_options_value!r}"
         )
         return 1
 
-    if child_node_options_value != "--max-old-space-size 2048 --trace-warnings":
+    if child_node_options_value != "--max-old-space-size=2048 --trace-warnings":
         print(
-            "FAIL: expected child NODE_OPTIONS to preserve the original max-old-space-size flag, "
+            "FAIL: expected child NODE_OPTIONS to preserve the original max-old-space-size value, "
             f"got {child_node_options_value!r}"
         )
         return 1

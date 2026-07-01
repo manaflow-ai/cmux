@@ -580,6 +580,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             argumentNeedles: ["opencode", "opencode-ai", "open-code", "oh-my-openagent"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
+            id: "omp",
+            displayName: "OMP",
+            assetName: nil,
+            launchKinds: ["omp"],
+            directBasenames: ["omp"],
+            argumentNeedles: ["@oh-my-pi/pi-coding-agent"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
             id: "pi",
             displayName: "Pi",
             assetName: "AgentIcons/Pi",
@@ -610,6 +618,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             launchKinds: ["gemini"],
             directBasenames: ["gemini"],
             argumentNeedles: ["gemini"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "kiro",
+            displayName: "Kiro",
+            assetName: nil,
+            launchKinds: ["kiro"],
+            directBasenames: ["kiro", "kiro-cli"],
+            argumentNeedles: ["kiro", "kiro-cli"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
             id: "antigravity",

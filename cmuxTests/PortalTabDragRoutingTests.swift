@@ -23,6 +23,19 @@ final class PortalTabDragRoutingTests: XCTestCase {
         }
     }
 
+    private final class CountingTabBarBackgroundNSView: NSView {
+        private(set) var pointConversionCount = 0
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+
+        override func convert(_ point: NSPoint, from view: NSView?) -> NSPoint {
+            pointConversionCount += 1
+            return super.convert(point, from: view)
+        }
+    }
+
     func testCompactPaneTabChromeStaysBelowDragHitMinimum() throws {
         let appearance = BonsplitConfiguration.Appearance(
             tabMinWidth: 140,
@@ -102,7 +115,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
     private func waitForHighSaturationWidth(
         in view: NSView,
         sampleRect: NSRect,
-        timeout: TimeInterval = 1.0
+        timeout: TimeInterval = 10.0
     ) -> CGFloat? {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
@@ -319,6 +332,47 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.applicationDefined))
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.systemDefined))
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.periodic))
+        XCTAssertFalse(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.scrollWheel))
+    }
+
+    func testBrowserPortalDragRoutingKeepsAppKitEventsOutOfPassThrough() {
+        let context = WindowInputRoutingContext(eventType: .appKitDefined)
+
+        XCTAssertTrue(context.allowsTabBarPassThroughHitTesting)
+        XCTAssertTrue(context.allowsPaneDropHitTesting)
+        XCTAssertFalse(context.allowsBrowserPortalDragRouting)
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .appKitDefined
+            )
+        )
+    }
+
+    func testWindowInputRoutingContextRejectsKeyboardForPointerOnlyRoutes() {
+        let context = WindowInputRoutingContext(eventType: .keyDown)
+
+        XCTAssertFalse(context.allowsFirstResponderHitTesting)
+        XCTAssertFalse(context.allowsPortalPointerHitTesting)
+        XCTAssertFalse(context.allowsPaneDropHitTesting)
+        XCTAssertFalse(context.allowsFileDropOverlayHitTesting)
+        XCTAssertFalse(context.allowsWorkspaceDropOverlayHitTesting)
+        XCTAssertFalse(context.allowsBrowserPortalDragRouting)
+        XCTAssertFalse(context.allowsTerminalPortalDragRouting)
+    }
+
+    func testWindowInputRoutingContextKeepsScrollOutOfTabBarPassThrough() {
+        let context = WindowInputRoutingContext(eventType: .scrollWheel)
+
+        XCTAssertTrue(context.allowsPortalPointerHitTesting)
+        XCTAssertFalse(context.allowsTabBarPassThroughHitTesting)
+    }
+
+    func testWindowInputRoutingContextPreservesNoEventWorkspaceDropHitTesting() {
+        let context = WindowInputRoutingContext(eventType: nil)
+
+        XCTAssertTrue(context.allowsWorkspaceDropOverlayHitTesting)
+        XCTAssertFalse(context.allowsPaneDropHitTesting)
     }
 
     func testTerminalPaneDropTargetDefersToUnderlyingTabStrip() {
@@ -349,6 +403,61 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertTrue(
             dropTarget.shouldDeferToPaneTabBar(at: point),
             "Terminal pane drop target should not steal Bonsplit tab-strip drags"
+        )
+    }
+
+    func testTerminalPaneDropTargetKeyDownSkipsOverlayRoutingPaths() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.clearContents()
+        dragPasteboard.declareTypes([.fileURL], owner: nil)
+        defer { dragPasteboard.clearContents() }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        let tabStrip = CountingTabBarBackgroundNSView(
+            frame: NSRect(x: 0, y: contentView.bounds.maxY - 44, width: contentView.bounds.width, height: 44)
+        )
+        tabStrip.autoresizingMask = [.width, .minYMargin]
+        contentView.addSubview(tabStrip)
+
+        let dropTarget = TerminalPaneDropTargetView(frame: contentView.bounds)
+        dropTarget.autoresizingMask = [.width, .height]
+        dropTarget.dropContext = PaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID())
+        )
+        contentView.addSubview(dropTarget, positioned: .above, relativeTo: tabStrip)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: NSPoint(x: contentView.bounds.midX, y: tabStrip.frame.midY),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ))
+
+        let hit = dropTarget.performHitTest(
+            at: NSPoint(x: contentView.bounds.midX, y: tabStrip.frame.midY),
+            currentEvent: event
+        )
+        XCTAssertNil(hit)
+        XCTAssertEqual(
+            tabStrip.pointConversionCount,
+            0,
+            "Keyboard events should not scan tab-strip or drag-overlay hit-test paths."
         )
     }
 

@@ -38,6 +38,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
 
         let textView = SavingTextView()
@@ -67,11 +68,124 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
+    func testExtensionlessANSITextResolvesAsTextAfterSniffing() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try "\u{001B}[31mred\u{001B}[0m\n".write(to: url, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testTypeScriptFileResolvesAsTextInsteadOfTransportStreamMedia() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try """
+        export const answer: number = 42;
+        console.log(answer);
+        """.write(to: url, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testUTF8BOMTypeScriptFileResolvesAsText() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var data = Data([0xEF, 0xBB, 0xBF])
+        data.append(Data("export const answer: number = 42;\n".utf8))
+        try data.write(to: url, options: .atomic)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testTypeScriptFileWithNULBytesDoesNotResolveAsText() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var data = Data("export const answer = 42;".utf8)
+        data.append(contentsOf: [0x00, 0x00])
+        try data.write(to: url, options: .atomic)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testTypeScriptTextWinsOverTransportStreamSyncBytePattern() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let source = "G"
+            + String(repeating: "a", count: 187)
+            + "G"
+            + String(repeating: "b", count: 187)
+            + "\nexport const answer: number = 42;\n"
+        try source.write(to: url, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testBinaryTransportStreamFileKeepsMediaPreview() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var data = Data(repeating: 0, count: 188 * 2)
+        data[0] = 0x47
+        data[1] = 0x40
+        data[2] = 0x00
+        data[3] = 0x10
+        data[188] = 0x47
+        data[189] = 0x41
+        data[190] = 0x00
+        data[191] = 0x10
+        try data.write(to: url, options: .atomic)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
+    }
+
+    func testM2TSTransportStreamFileKeepsMediaPreview() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var data = Data(repeating: 0, count: 192 * 2)
+        data[4] = 0x47
+        data[5] = 0x40
+        data[6] = 0x00
+        data[7] = 0x10
+        data[196] = 0x47
+        data[197] = 0x41
+        data[198] = 0x00
+        data[199] = 0x10
+        try data.write(to: url, options: .atomic)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
+    }
+
     func testQuickLookSessionCloseDoesNotDeactivateMountedRepresentableView() throws {
         let url = try temporaryBinaryFile()
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         XCTAssertEqual(panel.previewMode, .quickLook)
 
         let view = panel.nativeViewSessions.quickLook.view(
@@ -102,6 +216,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         let retiredView = panel.nativeViewSessions.quickLook.view(
             panel: panel,
             isVisibleInUI: true,
@@ -191,6 +306,10 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertFalse(coordinator.focus(.textEditor))
 
         let window = NSWindow(contentRect: textView.bounds, styleMask: [], backing: .buffered, defer: false)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
         window.contentView = textView
         coordinator.fulfillPendingFocusIfNeeded()
 
@@ -208,6 +327,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
 
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
         let firstPane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let existingPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
             inPane: firstPane,
@@ -273,6 +393,53 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             charactersIgnoringModifiers: key,
             isARepeat: false,
             keyCode: keyCode
+        )
+    }
+
+    // Regression test for manaflow-ai/cmux#4576: drag-selecting deep into a large file pegged the
+    // main thread because TextKit 2's `NSTextSelectionNavigation` hit-tests are O(N) in line
+    // fragments. Selection hit-testing near the bottom of a large file must stay responsive.
+    func testLargeFileSelectionHitTestStaysResponsive() {
+        let lineCount = 60_000
+        let text = (0..<lineCount)
+            .map { "  \"row_\($0)\": { \"id\": \($0), \"value\": \"item-\($0)-payload\" }," }
+            .joined(separator: "\n")
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = text
+        // Realize layout so hit-testing measures steady-state cost (as it would after the file is
+        // displayed and the user has scrolled), not first-layout cost. Deliberately do NOT touch
+        // `layoutManager`/`textLayoutManager` here: that would force a TextKit mode in the test view
+        // and the test could no longer detect a production regression back to TextKit 2.
+        textView.sizeToFit()
+
+        // Geometry precondition: the hit-tests below must actually land deep in the document. If
+        // headless layout left the view collapsed, `bottomY` would sit at the top where even
+        // TextKit 2 is cheap, turning this into a silent false negative. Fail loudly instead.
+        let documentHeight = textView.bounds.height
+        XCTAssertGreaterThan(
+            documentHeight,
+            100_000,
+            "Test precondition failed: a \(lineCount)-line document laid out to only "
+                + "\(documentHeight)pt, so hit-tests would not reach the bottom. The timing "
+                + "assertion below would be meaningless."
+        )
+
+        let bottomY = max(documentHeight - 5, 1)
+        let start = ProcessInfo.processInfo.systemUptime
+        for offset in 0..<20 {
+            _ = textView.characterIndexForInsertion(at: CGPoint(x: 200, y: bottomY - CGFloat(offset)))
+        }
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+
+        // TextKit 2 takes several seconds here; TextKit 1 + non-contiguous layout takes a few ms.
+        // The 1.0s ceiling sits far from both, so it is a clean, non-flaky regression signal.
+        XCTAssertLessThan(
+            elapsed,
+            1.0,
+            "Selection hit-testing near the bottom of a \(lineCount)-line file took \(elapsed)s. "
+                + "File Preview likely regressed to TextKit 2 O(N) selection navigation (see "
+                + "manaflow-ai/cmux#4576)."
         )
     }
 

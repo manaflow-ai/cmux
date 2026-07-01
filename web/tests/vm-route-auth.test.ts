@@ -31,6 +31,7 @@ const originalEnv = Object.fromEntries(
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
+  stackServerApp: { getUser },
 }));
 
 mock.module("../services/vms/workflows", () => ({
@@ -49,6 +50,7 @@ const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
 const { VmProviderOperationError } = await import("../services/vms/errors");
+const { verifyRequest } = await import("../services/vms/auth");
 const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
 
 beforeEach(() => {
@@ -665,6 +667,33 @@ describe("VM REST auth", () => {
 
     expect(response.status).toBe(200);
     expect(runVmWorkflow).toHaveBeenCalled();
+  });
+
+  test("native-only auth does not fall back to browser cookies", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const nativeOnlyUser = await verifyRequest(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: { cookie: "stack-auth-cookie=present" },
+        body: "{}",
+      }),
+      { allowCookie: false },
+    );
+
+    expect(nativeOnlyUser).toBeNull();
+    expect(getUser).not.toHaveBeenCalled();
+
+    const cookieUser = await verifyRequest(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: { cookie: "stack-auth-cookie=present" },
+        body: "{}",
+      }),
+    );
+
+    expect(cookieUser?.id).toBe("user-1");
+    expect(getUser).toHaveBeenCalledTimes(1);
   });
 
   test("blocks VM create kill switch before workflow", async () => {

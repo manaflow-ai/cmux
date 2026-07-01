@@ -4,6 +4,7 @@ build/
 DerivedData/
 *.xcuserstate
 xcuserdata/
+*.xcworkspace/xcshareddata/
 
 # macOS
 .DS_Store
@@ -12,9 +13,11 @@ xcuserdata/
 .env
 .envrc
 !web/.envrc
+ios/Config/AppStoreConnect.local.plist
 
 # Swift Package Manager
 .swiftpm/
+.ci-source-packages/
 
 # GhosttyKit binary (built from ghostty submodule via scripts/setup.sh)
 GhosttyKit.xcframework
@@ -44,6 +47,7 @@ node_modules/
 # Test outputs
 tests/visual_output/
 tests/visual_report.html
+experiments/*/target/
 
 # Generated docs search index
 web/.pagefind-site/
@@ -52,3 +56,12 @@ web/public/pagefind/
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+.iter-logs/
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+
+# Local dogfood scratch (screenshots, recordings) — never commit
+artifacts/
+
+# tmux verbose debug logs (tmux -v) that land in the cwd
+tmux-*.log

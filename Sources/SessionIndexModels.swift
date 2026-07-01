@@ -309,13 +309,21 @@ struct SessionEntry: Identifiable, Hashable {
         guard let cwd = resumeWorkingDirectory else {
             return command
         }
-        return "cd \(Self.shellQuote(cwd)) && \(command)"
+        return TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: cwd)
     }
 
     private var resumeCommandWithoutWorkingDirectory: String? {
         switch specifics {
         case let .claude(model, permissionMode, configDirectoryForResume):
-            var parts = ["claude --resume \(sessionId)"]
+            // Route through the wrapper resolver token so a manually-resumed claude session
+            // re-injects cmux hooks even when the command runs in a shell where the
+            // integration's PATH shim / `claude()` function are not active (e.g. the
+            // `$SHELL -lic` restore launcher). The token is POSIX-only and this command
+            // is typed into — and copy-pasted into — the user's own shell (fish/csh
+            // included), so the rendered command is wrapped in `/bin/sh -c '…'` to parse
+            // everywhere; the `cd` guard stays outside in `resumeCommandWithCwd`.
+            // https://github.com/manaflow-ai/cmux/issues/5639
+            var parts = ["\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)"]
             if let model, !model.isEmpty {
                 parts.append("--model \(Self.shellQuote(model))")
             }
@@ -325,22 +333,35 @@ struct SessionEntry: Identifiable, Hashable {
             let environment = configDirectoryForResume.map {
                 ["CLAUDE_CONFIG_DIR": $0, "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1", "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR"]
             } ?? [:]
-            return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
+            return AgentResumeArgv.portableClaudeResumeShellCommand(
+                posixCommand: Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
+            )
         case let .codex(model, approval, sandbox, effort):
-            var parts = ["codex resume \(sessionId)"]
+            // Route through the codex wrapper-resolver token so a manually- or
+            // auto-resumed codex session re-injects cmux hooks even when the
+            // command runs in a shell where the integration's PATH shim is not
+            // active (e.g. the `$SHELL -lic` restore launcher). Without this the
+            // bare `codex resume <id>` resolves to the real codex binary,
+            // bypassing cmux-codex-wrapper, so no SessionStart fires and the iOS
+            // GUI stays read-only. Mirror of the claude case: the token is
+            // POSIX-only and this command is typed into / copy-pasted into the
+            // user's own shell (fish/csh included), so the rendered command is
+            // wrapped in `/bin/sh -c '…'`; the `cd` guard stays outside in
+            // `resumeCommandWithCwd`. https://github.com/manaflow-ai/cmux/issues/5639
+            var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)"]
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
             }
-            if let approval, !approval.isEmpty {
-                parts.append("-a \(Self.shellQuote(approval))")
-            }
-            if let sandbox, !sandbox.isEmpty {
-                parts.append("-s \(Self.shellQuote(sandbox))")
-            }
+            parts.append(contentsOf: Self.codexApprovalSandboxArguments(
+                approvalPolicy: approval,
+                sandboxMode: sandbox
+            ))
             if let effort, !effort.isEmpty {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
-            return parts.joined(separator: " ")
+            return AgentResumeArgv.portableCodexResumeShellCommand(
+                posixCommand: parts.joined(separator: " ")
+            )
         case let .grok(model, permissionMode, sandboxMode, grokHome):
             var argv = ["grok", "-r", sessionId]
             if let model, !model.isEmpty {
@@ -432,16 +453,55 @@ struct SessionEntry: Identifiable, Hashable {
     }
 
     private static func shellSingleQuote(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: #"'\''"#))'"
+        TerminalStartupShellQuoting.singleQuoted(value)
     }
 
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
-        if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
-            return value
+        TerminalStartupShellQuoting.shellToken(value, allowingBareASCII: true)
+    }
+
+    /// Sandbox-policy values the Codex CLI `--sandbox` flag accepts.
+    ///
+    /// cmux captures Codex's *internal* sandbox-policy `type`, which is a
+    /// superset of the CLI vocabulary (it also includes `disabled`, `managed`,
+    /// and may grow further). Those extra types have no `--sandbox` equivalent
+    /// and must never be forwarded as `-s`, or Codex rejects the resumed command
+    /// (see https://github.com/manaflow-ai/cmux/issues/5262).
+    static let codexCLISandboxModes: Set<String> = [
+        "read-only",
+        "workspace-write",
+        "danger-full-access",
+    ]
+
+    /// Builds the approval/sandbox CLI tokens for a `codex resume` command from
+    /// the per-session policy cmux captured, always yielding a valid invocation.
+    ///
+    /// A `--dangerously-bypass-approvals-and-sandbox` launch round-trips to a
+    /// captured `(approval: "never", sandbox: "disabled")`. This reproduces that
+    /// single combined flag rather than the invalid, contradictory `-a never -s
+    /// disabled`. Sandbox types with no CLI equivalent (`disabled`, `managed`,
+    /// future values) are dropped instead of emitted as an invalid `-s`; valid
+    /// values pass through unchanged.
+    static func codexApprovalSandboxArguments(
+        approvalPolicy: String?,
+        sandboxMode: String?
+    ) -> [String] {
+        // The exact inverse of `--dangerously-bypass-approvals-and-sandbox`:
+        // emit that one flag and nothing else, since `-a`/`-s` here would be both
+        // invalid (`-s disabled`) and contradictory with the bypass flag.
+        if approvalPolicy == "never", sandboxMode == "disabled" {
+            return ["--dangerously-bypass-approvals-and-sandbox"]
         }
-        let escaped = value.replacingOccurrences(of: "'", with: #"'\''"#)
-        return "'\(escaped)'"
+
+        var parts: [String] = []
+        if let approvalPolicy, !approvalPolicy.isEmpty {
+            parts.append("-a \(shellQuote(approvalPolicy))")
+        }
+        if let sandboxMode, !sandboxMode.isEmpty, codexCLISandboxModes.contains(sandboxMode) {
+            parts.append("-s \(shellQuote(sandboxMode))")
+        }
+        return parts
     }
 
     var displayTitle: String {

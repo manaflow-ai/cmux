@@ -1,27 +1,34 @@
 import Bonsplit
+import CmuxSettings
+import CmuxCore
 import Darwin
 import Foundation
+import CmuxSidebar
 
 extension Workspace {
-    private static let structuredAgentHookStatusKeys: Set<String> = [
-        "amp",
-        "antigravity",
-        "claude_code",
-        "codebuddy",
-        "codex",
-        "copilot",
-        "cursor",
-        "factory",
-        "gemini",
-        "grok",
-        "hermes-agent",
-        "opencode",
-        "pi",
-        "qoder",
-        "rovodev",
-    ]
+    private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
     private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
+
+    var agentPIDs: [String: pid_t] {
+        get { sidebarAgentRuntimeObservation.agentPIDs }
+        set { sidebarAgentRuntimeObservation.setAgentPIDs(newValue) }
+    }
+
+    var agentPIDPanelIdsByKey: [String: UUID] {
+        get { sidebarAgentRuntimeObservation.agentPIDPanelIdsByKey }
+        set { sidebarAgentRuntimeObservation.setAgentPIDPanelIdsByKey(newValue) }
+    }
+
+    var agentPIDKeysByPanelId: [UUID: Set<String>] {
+        get { sidebarAgentRuntimeObservation.agentPIDKeysByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentPIDKeysByPanelId(newValue) }
+    }
+
+    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
+        get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
+    }
 
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
@@ -131,7 +138,7 @@ extension Workspace {
             return false
         }
 
-        if AgentSubagentNotificationSettings.suppressNotifications(),
+        if AgentIntegrationSettingsStore(defaults: .standard).suppressesSubagentNotifications,
            terminalPanelHasManagedSubagentStartupEnvironment(panelId: panelId) {
             return true
         }
@@ -239,6 +246,12 @@ extension Workspace {
             removeAgentPIDOwnership(key: key)
             didChange = true
         }
+        if let lifecyclePanelId = ownedPanelId ?? panelId {
+            let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
+            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
+                didChange = true
+            }
+        }
         if let statusKeyToClear,
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
            statusEntries.removeValue(forKey: statusKeyToClear) != nil {
@@ -313,6 +326,8 @@ extension Workspace {
         removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
+        discardAgentSessionPanelSubscription(panelId: panelId, panel: panel)
+        discardBrowserPanelSubscription(panelId: panelId, panel: panel)
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })
@@ -321,14 +336,26 @@ extension Workspace {
             panel?.close()
         }
 
+        let shouldPreserveRemoteDisconnectOnClose =
+            origin == "tab_close" ||
+            origin == "pane_close"
+        if shouldPreserveRemoteDisconnectOnClose,
+           panel is TerminalPanel {
+            markRemoteTerminalSessionClosingIfLast(surfaceId: panelId)
+        }
+        let shouldRefreshRemoteDisconnectPlaceholder =
+            shouldPreserveRemoteDisconnectOnClose &&
+            remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
+            panels.count == 1
+        if shouldRefreshRemoteDisconnectPlaceholder,
+           let remoteConfiguration {
+            rememberPendingRemoteDisconnectReplacement(configuration: remoteConfiguration)
+        }
+
         panels.removeValue(forKey: panelId)
         untrackRemoteTerminalSurface(panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
-        if let tabId {
-            surfaceIdToPanelId.removeValue(forKey: tabId)
-        } else {
-            surfaceIdToPanelId = surfaceIdToPanelId.filter { $0.value != panelId }
-        }
+        removeSurfaceMappings(forPanelId: panelId)
 
         panelDirectories.removeValue(forKey: panelId)
         panelDirectoryDisplayLabels.removeValue(forKey: panelId)
@@ -336,10 +363,12 @@ extension Workspace {
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
+        panelCustomTitleSources.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
+        clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)

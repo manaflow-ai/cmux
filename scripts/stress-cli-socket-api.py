@@ -849,6 +849,17 @@ def require(value: str | None, label: str) -> str:
 
 def build_cli_cases(ctx: StressContext) -> list[CliCase]:
     any_code = tuple(range(0, 128))
+
+    def focus_pane_args(c: StressContext) -> list[str]:
+        c.ensure_core_surfaces()
+        return [
+            "focus-pane",
+            "--workspace",
+            require(c.workspace_id, "workspace"),
+            "--pane",
+            require(c.pane_id, "pane"),
+        ]
+
     cases = [
         CliCase("version-flag", argv("--version"), no_socket=True, covered_command="version"),
         CliCase("version-command", argv("version"), no_socket=True, covered_command="version"),
@@ -906,7 +917,7 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("list-pane-surfaces", ctx_argv(lambda c: ["list-pane-surfaces", "--workspace", require(c.workspace_id, "workspace")]), covered_command="list-pane-surfaces"),
         CliCase("tree", argv("--json", "tree", "--all"), covered_command="tree"),
         CliCase("top", argv("--json", "top", "--all"), timeout=20, covered_command="top"),
-        CliCase("focus-pane", ctx_argv(lambda c: ["focus-pane", "--workspace", require(c.workspace_id, "workspace"), "--pane", require(c.pane_id, "pane")]), covered_command="focus-pane"),
+        CliCase("focus-pane", ctx_argv(focus_pane_args), covered_command="focus-pane"),
         CliCase("new-pane", ctx_argv(lambda c: ["new-pane", "--workspace", require(c.workspace_id, "workspace"), "--type", "terminal", "--direction", "right", "--focus", "false"]), covered_command="new-pane", layout_mutation=True),
         CliCase("new-surface", ctx_argv(lambda c: ["new-surface", "--workspace", require(c.workspace_id, "workspace"), "--type", "terminal", "--focus", "false"]), covered_command="new-surface", layout_mutation=True),
         CliCase("new-split", ctx_argv(lambda c: ["new-split", "right", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "--focus", "false"]), expect_codes=any_code, covered_command="new-split", layout_mutation=True),

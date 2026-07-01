@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net"
@@ -15,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -24,6 +27,13 @@ type notifyingBuffer struct {
 	buffer bytes.Buffer
 	notify chan struct{}
 }
+
+type persistentTestFrameQueue struct {
+	mu     sync.Mutex
+	frames []map[string]any
+}
+
+var persistentTestPendingFrames sync.Map
 
 func newNotifyingBuffer() *notifyingBuffer {
 	return &notifyingBuffer{notify: make(chan struct{}, 1)}
@@ -46,6 +56,158 @@ func (b *notifyingBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buffer.String()
+}
+
+func startPersistentDaemonForTest(t *testing.T, token string) (string, func()) {
+	return startPersistentDaemonWithVerifierForTest(t, persistentDaemonFixedTokenVerifier(token))
+}
+
+func startPersistentDaemonWithVerifierForTest(t *testing.T, verifier persistentDaemonTokenVerifier) (string, func()) {
+	t.Helper()
+	socketDir, err := os.MkdirTemp("/tmp", "cmuxd-remote-test-*")
+	if err != nil {
+		t.Fatalf("create short socket dir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(socketDir)
+	})
+	socketPath := filepath.Join(socketDir, "rpc.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- servePersistentDaemonWithVerifier(listener, verifier, io.Discard)
+	}()
+	stop := func() {
+		_ = listener.Close()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("persistent daemon exited with error: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("persistent daemon did not stop")
+		}
+	}
+	return socketPath, stop
+}
+
+func openPersistentTestClient(t *testing.T, socketPath string, token string) (net.Conn, *bufio.Reader, *bufio.Writer) {
+	t.Helper()
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("dial persistent daemon: %v", err)
+	}
+	reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
+	writePersistentTestFrame(t, writer, rpcRequest{
+		ID:     "auth",
+		Method: persistentDaemonAuthMethod,
+		Params: map[string]any{"token": token},
+	})
+	frame := readPersistentTestFrame(t, conn, reader)
+	if ok, _ := frame["ok"].(bool); !ok {
+		_ = conn.Close()
+		t.Fatalf("persistent daemon auth failed: %v", frame)
+	}
+	return conn, reader, writer
+}
+
+func persistentTestRPCCall(t *testing.T, conn net.Conn, reader *bufio.Reader, writer *bufio.Writer, req rpcRequest) map[string]any {
+	t.Helper()
+	writePersistentTestFrame(t, writer, req)
+	for {
+		frame := readPersistentTestFrame(t, conn, reader)
+		if _, isEvent := frame["event"]; isEvent {
+			enqueuePersistentTestFrame(conn, frame)
+			continue
+		}
+		return frame
+	}
+}
+
+func readPersistentTestEvent(t *testing.T, conn net.Conn, reader *bufio.Reader, matches func(map[string]any) bool) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var last map[string]any
+	for time.Now().Before(deadline) {
+		if frame, ok := dequeuePersistentTestFrame(conn); ok {
+			last = frame
+			if _, isEvent := frame["event"]; isEvent && matches(frame) {
+				return frame
+			}
+			continue
+		}
+		frame := readPersistentTestFrame(t, conn, reader)
+		last = frame
+		if _, isEvent := frame["event"]; isEvent && matches(frame) {
+			return frame
+		}
+	}
+	t.Fatalf("timed out waiting for persistent daemon event; last=%v", last)
+	return nil
+}
+
+func enqueuePersistentTestFrame(conn net.Conn, frame map[string]any) {
+	queue := persistentTestQueue(conn)
+	queue.mu.Lock()
+	queue.frames = append(queue.frames, frame)
+	queue.mu.Unlock()
+}
+
+func dequeuePersistentTestFrame(conn net.Conn) (map[string]any, bool) {
+	queue := persistentTestQueue(conn)
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	if len(queue.frames) == 0 {
+		return nil, false
+	}
+	frame := queue.frames[0]
+	queue.frames = queue.frames[1:]
+	return frame, true
+}
+
+func persistentTestQueue(conn net.Conn) *persistentTestFrameQueue {
+	if queue, ok := persistentTestPendingFrames.Load(conn); ok {
+		return queue.(*persistentTestFrameQueue)
+	}
+	queue := &persistentTestFrameQueue{}
+	actual, _ := persistentTestPendingFrames.LoadOrStore(conn, queue)
+	return actual.(*persistentTestFrameQueue)
+}
+
+func writePersistentTestFrame(t *testing.T, writer *bufio.Writer, payload any) {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal test frame: %v", err)
+	}
+	if _, err := writer.Write(data); err != nil {
+		t.Fatalf("write test frame: %v", err)
+	}
+	if err := writer.WriteByte('\n'); err != nil {
+		t.Fatalf("write test newline: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("flush test frame: %v", err)
+	}
+}
+
+func readPersistentTestFrame(t *testing.T, conn net.Conn, reader *bufio.Reader) map[string]any {
+	t.Helper()
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	line, err := reader.ReadBytes('\n')
+	_ = conn.SetReadDeadline(time.Time{})
+	if err != nil {
+		t.Fatalf("read persistent daemon frame: %v", err)
+	}
+	var frame map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(line), &frame); err != nil {
+		t.Fatalf("decode persistent daemon frame %q: %v", string(line), err)
+	}
+	return frame
 }
 
 type eofWithPayloadConn struct {
@@ -169,6 +331,36 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 	if !sawPushCapability {
 		t.Fatalf("hello should advertise proxy.stream.push: %v", firstResult)
 	}
+	var sawPersistentPTYCapability bool
+	for _, capability := range capabilities {
+		if capability == "pty.session.persistent_daemon" {
+			sawPersistentPTYCapability = true
+			break
+		}
+	}
+	if !sawPersistentPTYCapability {
+		t.Fatalf("hello should advertise pty.session.persistent_daemon: %v", firstResult)
+	}
+	var sawPTYWriteNotificationCapability bool
+	for _, capability := range capabilities {
+		if capability == "pty.write.notification" {
+			sawPTYWriteNotificationCapability = true
+			break
+		}
+	}
+	if !sawPTYWriteNotificationCapability {
+		t.Fatalf("hello should advertise pty.write.notification: %v", firstResult)
+	}
+	var sawPTYResizeNotificationCapability bool
+	for _, capability := range capabilities {
+		if capability == "pty.resize.notification" {
+			sawPTYResizeNotificationCapability = true
+			break
+		}
+	}
+	if !sawPTYResizeNotificationCapability {
+		t.Fatalf("hello should advertise pty.resize.notification: %v", firstResult)
+	}
 
 	var second map[string]any
 	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
@@ -176,6 +368,915 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 	}
 	if ok, _ := second["ok"].(bool); !ok {
 		t.Fatalf("second response should be ok=true: %v", second)
+	}
+}
+
+func TestRunStdioPTYWriteNotificationDoesNotEmitResponse(t *testing.T) {
+	input := strings.NewReader(
+		`{"method":"pty.write","params":{"session_id":"missing","attachment_id":"missing","client_attachment_token":"token","data_base64":"YQ=="}}` + "\n" +
+			`{"id":2,"method":"ping","params":{}}` + "\n",
+	)
+	var out bytes.Buffer
+	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("run serve exit code = %d, want 0", code)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d frame lines, want pty.error event plus ping response: %q", len(lines), out.String())
+	}
+
+	var event map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
+		t.Fatalf("failed to decode pty.write error event: %v", err)
+	}
+	if _, hasID := event["id"]; hasID {
+		t.Fatalf("pty.write notification should not emit an RPC response id: %v", event)
+	}
+	if got := event["event"]; got != "pty.error" {
+		t.Fatalf("first frame = %v, want pty.error event; payload=%v", got, event)
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &response); err != nil {
+		t.Fatalf("failed to decode ping response: %v", err)
+	}
+	if got := response["id"]; got != float64(2) {
+		t.Fatalf("response id = %v, want ping id 2; payload=%v", got, response)
+	}
+	if ok, _ := response["ok"].(bool); !ok {
+		t.Fatalf("ping response should be ok=true after pty.write notification: %v", response)
+	}
+}
+
+func TestRunStdioPTYResizeNotificationDoesNotEmitResponse(t *testing.T) {
+	input := strings.NewReader(
+		`{"method":"pty.resize","params":{"session_id":"missing","attachment_id":"missing","client_attachment_token":"token","cols":100,"rows":30}}` + "\n" +
+			`{"id":2,"method":"ping","params":{}}` + "\n",
+	)
+	var out bytes.Buffer
+	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("run serve exit code = %d, want 0", code)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d frame lines, want pty.error event plus ping response: %q", len(lines), out.String())
+	}
+
+	var event map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
+		t.Fatalf("failed to decode pty.resize error event: %v", err)
+	}
+	if _, hasID := event["id"]; hasID {
+		t.Fatalf("pty.resize notification should not emit an RPC response id: %v", event)
+	}
+	if got := event["event"]; got != "pty.error" {
+		t.Fatalf("first frame = %v, want pty.error event; payload=%v", got, event)
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &response); err != nil {
+		t.Fatalf("failed to decode ping response: %v", err)
+	}
+	if got := response["id"]; got != float64(2) {
+		t.Fatalf("response id = %v, want ping id 2; payload=%v", got, response)
+	}
+	if ok, _ := response["ok"].(bool); !ok {
+		t.Fatalf("ping response should be ok=true after pty.resize notification: %v", response)
+	}
+}
+
+func TestRunStdioNoIDNonPTYRequestStillEmitsResponse(t *testing.T) {
+	input := strings.NewReader(`{"method":"ping","params":{}}` + "\n")
+	var out bytes.Buffer
+	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("run serve exit code = %d, want 0", code)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("got %d response lines, want ping response: %q", len(lines), out.String())
+	}
+	var response map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &response); err != nil {
+		t.Fatalf("failed to decode ping response: %v", err)
+	}
+	if ok, _ := response["ok"].(bool); !ok {
+		t.Fatalf("no-id ping should still emit an ok response: %v", response)
+	}
+}
+
+func TestRunStdioNullIDPTYWriteStillEmitsResponse(t *testing.T) {
+	input := strings.NewReader(
+		`{"id":null,"method":"pty.write","params":{"session_id":"missing","attachment_id":"missing","client_attachment_token":"token","data_base64":"YQ=="}}` + "\n" +
+			`{"id":2,"method":"ping","params":{}}` + "\n",
+	)
+	var out bytes.Buffer
+	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("run serve exit code = %d, want 0", code)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d frame lines, want pty.write response plus ping response: %q", len(lines), out.String())
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &response); err != nil {
+		t.Fatalf("failed to decode pty.write response: %v", err)
+	}
+	if eventName, _ := response["event"].(string); eventName != "" {
+		t.Fatalf("id:null pty.write should emit an RPC response, got event: %v", response)
+	}
+	if ok, _ := response["ok"].(bool); ok {
+		t.Fatalf("missing pty.write target should fail: %v", response)
+	}
+
+	var ping map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &ping); err != nil {
+		t.Fatalf("failed to decode ping response: %v", err)
+	}
+	if got := ping["id"]; got != float64(2) {
+		t.Fatalf("response id = %v, want ping id 2; payload=%v", got, ping)
+	}
+	if ok, _ := ping["ok"].(bool); !ok {
+		t.Fatalf("ping response should be ok=true after id:null pty.write: %v", ping)
+	}
+}
+
+func TestRunStdioNullIDPTYResizeStillEmitsResponse(t *testing.T) {
+	input := strings.NewReader(
+		`{"id":null,"method":"pty.resize","params":{"session_id":"missing","attachment_id":"missing","client_attachment_token":"token","cols":100,"rows":30}}` + "\n" +
+			`{"id":2,"method":"ping","params":{}}` + "\n",
+	)
+	var out bytes.Buffer
+	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("run serve exit code = %d, want 0", code)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d frame lines, want pty.resize response plus ping response: %q", len(lines), out.String())
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &response); err != nil {
+		t.Fatalf("failed to decode pty.resize response: %v", err)
+	}
+	if eventName, _ := response["event"].(string); eventName != "" {
+		t.Fatalf("id:null pty.resize should emit an RPC response, got event: %v", response)
+	}
+	if ok, _ := response["ok"].(bool); ok {
+		t.Fatalf("missing pty.resize target should fail: %v", response)
+	}
+
+	var ping map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &ping); err != nil {
+		t.Fatalf("failed to decode ping response: %v", err)
+	}
+	if got := ping["id"]; got != float64(2) {
+		t.Fatalf("response id = %v, want ping id 2; payload=%v", got, ping)
+	}
+	if ok, _ := ping["ok"].(bool); !ok {
+		t.Fatalf("ping response should be ok=true after id:null pty.resize: %v", ping)
+	}
+}
+
+func TestPersistentDaemonRejectsInvalidSlot(t *testing.T) {
+	for _, slot := range []string{"", ".", "..", "../nope", "bad/slot", strings.Repeat("a", 129)} {
+		if _, err := persistentDaemonPathsForSlot(slot); err == nil {
+			t.Fatalf("persistentDaemonPathsForSlot(%q) succeeded, want error", slot)
+		}
+	}
+}
+
+func TestPersistentDaemonPathsUseShortSocketPath(t *testing.T) {
+	rootBase := filepath.Join(
+		t.TempDir(),
+		strings.Repeat("long-path-segment-", 4),
+		"daemon-root",
+	)
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", "")
+
+	paths, err := persistentDaemonPathsForSlot(strings.Repeat("a", 128))
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	if strings.HasPrefix(paths.socket, paths.root) {
+		t.Fatalf("socket path should not live under long daemon root: socket=%q root=%q", paths.socket, paths.root)
+	}
+	if len(paths.socket) >= 100 {
+		t.Fatalf("socket path length = %d, want < 100: %q", len(paths.socket), paths.socket)
+	}
+}
+
+func TestPersistentDaemonPathsIncludeDaemonVersion(t *testing.T) {
+	rootBase := filepath.Join(t.TempDir(), "daemon-root")
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", "")
+	oldVersion := version
+	defer func() { version = oldVersion }()
+
+	version = "v1.2.3"
+	first, err := persistentDaemonPathsForSlot("versioned-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	if !strings.Contains(first.root, string(filepath.Separator)+"v1.2.3"+string(filepath.Separator)) {
+		t.Fatalf("root %q should include daemon version", first.root)
+	}
+
+	version = "v1.2.4"
+	second, err := persistentDaemonPathsForSlot("versioned-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	if first.root == second.root {
+		t.Fatalf("root should change across versions: %q", first.root)
+	}
+	if first.socket == second.socket {
+		t.Fatalf("socket should change across versions: %q", first.socket)
+	}
+	if first.lockFile == second.lockFile {
+		t.Fatalf("lock file should change across versions: %q", first.lockFile)
+	}
+}
+
+func TestPersistentDaemonSocketDirOverrideUsesPrivateChild(t *testing.T) {
+	rootBase := filepath.Join(t.TempDir(), "daemon-root")
+	socketParent := filepath.Join(t.TempDir(), "caller-socket-dir")
+	if err := os.MkdirAll(socketParent, 0o755); err != nil {
+		t.Fatalf("create socket parent: %v", err)
+	}
+	if err := os.Chmod(socketParent, 0o755); err != nil {
+		t.Fatalf("chmod socket parent: %v", err)
+	}
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", socketParent)
+
+	paths, err := persistentDaemonPathsForSlot("override-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	socketDir := filepath.Dir(paths.socket)
+	if socketDir == socketParent {
+		t.Fatalf("socket dir should be a private child, got parent %q", socketParent)
+	}
+	if filepath.Dir(socketDir) != socketParent {
+		t.Fatalf("socket dir parent = %q, want %q", filepath.Dir(socketDir), socketParent)
+	}
+
+	paths, err = ensurePersistentDaemonDirectory(paths)
+	if err != nil {
+		t.Fatalf("ensurePersistentDaemonDirectory returned error: %v", err)
+	}
+	parentInfo, err := os.Stat(socketParent)
+	if err != nil {
+		t.Fatalf("stat socket parent: %v", err)
+	}
+	if parentInfo.Mode().Perm() != 0o755 {
+		t.Fatalf("socket parent mode = %o, want 755", parentInfo.Mode().Perm())
+	}
+	childInfo, err := os.Stat(socketDir)
+	if err != nil {
+		t.Fatalf("stat socket child: %v", err)
+	}
+	if childInfo.Mode().Perm() != 0o700 {
+		t.Fatalf("socket child mode = %o, want 700", childInfo.Mode().Perm())
+	}
+}
+
+func TestPersistentDaemonSocketDirFallsBackFromUnsafeSymlink(t *testing.T) {
+	rootBase := filepath.Join(t.TempDir(), "daemon-root")
+	socketParent := filepath.Join(t.TempDir(), "caller-socket-dir")
+	if err := os.MkdirAll(socketParent, 0o755); err != nil {
+		t.Fatalf("create socket parent: %v", err)
+	}
+	unsafeTarget := filepath.Join(t.TempDir(), "attacker-dir")
+	if err := os.MkdirAll(unsafeTarget, 0o755); err != nil {
+		t.Fatalf("create unsafe target: %v", err)
+	}
+	unsafeChild := filepath.Join(socketParent, fmt.Sprintf("cmuxd-remote-%d", os.Getuid()))
+	if err := os.Symlink(unsafeTarget, unsafeChild); err != nil {
+		t.Fatalf("create unsafe socket child symlink: %v", err)
+	}
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", socketParent)
+
+	paths, err := persistentDaemonPathsForSlot("unsafe-socket-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	unsafeSocketDir := filepath.Dir(paths.socket)
+	if unsafeSocketDir != unsafeChild {
+		t.Fatalf("precondition failed: socket dir = %q, want unsafe child %q", unsafeSocketDir, unsafeChild)
+	}
+
+	paths, err = ensurePersistentDaemonDirectory(paths)
+	if err != nil {
+		t.Fatalf("ensurePersistentDaemonDirectory returned error: %v", err)
+	}
+	socketDir := filepath.Dir(paths.socket)
+	if socketDir == unsafeChild {
+		t.Fatalf("socket dir still points at unsafe child %q", socketDir)
+	}
+	if filepath.Clean(filepath.Dir(socketDir)) != filepath.Clean(os.TempDir()) {
+		t.Fatalf("fallback socket dir parent = %q, want %q", filepath.Dir(socketDir), os.TempDir())
+	}
+	info, err := os.Lstat(socketDir)
+	if err != nil {
+		t.Fatalf("stat fallback socket dir: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		t.Fatalf("fallback socket dir should be a real directory, got mode %v", info.Mode())
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("fallback socket dir mode = %o, want 700", info.Mode().Perm())
+	}
+	storedSocketDir, err := readPersistentDaemonSocketDir(paths.root)
+	if err != nil {
+		t.Fatalf("read stored fallback socket dir: %v", err)
+	}
+	if storedSocketDir != socketDir {
+		t.Fatalf("stored socket dir = %q, want %q", storedSocketDir, socketDir)
+	}
+}
+
+func TestPersistentDaemonSocketDirReplacesInvalidStoredFallback(t *testing.T) {
+	rootBase := filepath.Join(t.TempDir(), "daemon-root")
+	socketParent := filepath.Join(t.TempDir(), "caller-socket-dir")
+	if err := os.MkdirAll(socketParent, 0o755); err != nil {
+		t.Fatalf("create socket parent: %v", err)
+	}
+	unsafeTarget := filepath.Join(t.TempDir(), "attacker-dir")
+	if err := os.MkdirAll(unsafeTarget, 0o755); err != nil {
+		t.Fatalf("create unsafe target: %v", err)
+	}
+	unsafeChild := filepath.Join(socketParent, fmt.Sprintf("cmuxd-remote-%d", os.Getuid()))
+	if err := os.Symlink(unsafeTarget, unsafeChild); err != nil {
+		t.Fatalf("create unsafe socket child symlink: %v", err)
+	}
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", socketParent)
+
+	paths, err := persistentDaemonPathsForSlot("invalid-stored-fallback-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	if err := os.MkdirAll(paths.root, 0o700); err != nil {
+		t.Fatalf("create daemon root: %v", err)
+	}
+	invalidStoredSocketDir := filepath.Join(t.TempDir(), "invalid-stored-socket-dir")
+	if err := os.WriteFile(invalidStoredSocketDir, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("create invalid stored socket path: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(paths.root, persistentDaemonSocketDirFile), []byte(invalidStoredSocketDir+"\n"), 0o600); err != nil {
+		t.Fatalf("write invalid stored socket-dir metadata: %v", err)
+	}
+
+	paths, err = ensurePersistentDaemonDirectory(paths)
+	if err != nil {
+		t.Fatalf("ensurePersistentDaemonDirectory returned error: %v", err)
+	}
+	socketDir := filepath.Dir(paths.socket)
+	if socketDir == unsafeChild {
+		t.Fatalf("socket dir still points at unsafe child %q", socketDir)
+	}
+	if filepath.Clean(filepath.Dir(socketDir)) != filepath.Clean(os.TempDir()) {
+		t.Fatalf("fallback socket dir parent = %q, want %q", filepath.Dir(socketDir), os.TempDir())
+	}
+	storedSocketDir, err := readPersistentDaemonSocketDir(paths.root)
+	if err != nil {
+		t.Fatalf("read stored replacement socket dir: %v", err)
+	}
+	if storedSocketDir != socketDir {
+		t.Fatalf("stored socket dir = %q, want replacement %q", storedSocketDir, socketDir)
+	}
+}
+
+func TestPersistentDaemonSocketDirReusesStoredFallback(t *testing.T) {
+	rootBase := filepath.Join(t.TempDir(), "daemon-root")
+	socketParent := filepath.Join(t.TempDir(), "caller-socket-dir")
+	if err := os.MkdirAll(socketParent, 0o755); err != nil {
+		t.Fatalf("create socket parent: %v", err)
+	}
+	unsafeChild := filepath.Join(socketParent, fmt.Sprintf("cmuxd-remote-%d", os.Getuid()))
+	if err := os.WriteFile(unsafeChild, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("create unsafe socket child file: %v", err)
+	}
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", socketParent)
+
+	paths, err := persistentDaemonPathsForSlot("stored-fallback-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	paths, err = ensurePersistentDaemonDirectory(paths)
+	if err != nil {
+		t.Fatalf("ensurePersistentDaemonDirectory returned error: %v", err)
+	}
+	firstSocketDir := filepath.Dir(paths.socket)
+
+	nextPaths, err := persistentDaemonPathsForSlot("stored-fallback-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	nextPaths, err = ensurePersistentDaemonDirectory(nextPaths)
+	if err != nil {
+		t.Fatalf("second ensurePersistentDaemonDirectory returned error: %v", err)
+	}
+	if filepath.Dir(nextPaths.socket) != firstSocketDir {
+		t.Fatalf("second socket dir = %q, want stored fallback %q", filepath.Dir(nextPaths.socket), firstSocketDir)
+	}
+}
+
+func TestPersistentDaemonTokenConcurrentCreate(t *testing.T) {
+	root := t.TempDir()
+	paths := persistentDaemonPaths{
+		root:      root,
+		tokenFile: filepath.Join(root, "auth.token"),
+	}
+	if err := os.MkdirAll(filepath.Dir(paths.tokenFile), 0o700); err != nil {
+		t.Fatalf("mkdir token dir: %v", err)
+	}
+
+	const workers = 12
+	var wg sync.WaitGroup
+	results := make(chan string, workers)
+	errorsCh := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			token, err := persistentDaemonToken(paths)
+			if err != nil {
+				errorsCh <- err
+				return
+			}
+			results <- token
+		}()
+	}
+	wg.Wait()
+	close(results)
+	close(errorsCh)
+	for err := range errorsCh {
+		t.Fatalf("persistentDaemonToken returned error: %v", err)
+	}
+	var first string
+	for token := range results {
+		if len(token) != 64 {
+			t.Fatalf("token length = %d, want 64", len(token))
+		}
+		if first == "" {
+			first = token
+			continue
+		}
+		if token != first {
+			t.Fatalf("concurrent token mismatch: got %q want %q", token, first)
+		}
+	}
+	onDisk, err := os.ReadFile(paths.tokenFile)
+	if err != nil {
+		t.Fatalf("read token file: %v", err)
+	}
+	if strings.TrimSpace(string(onDisk)) != first {
+		t.Fatalf("token file = %q, want %q", strings.TrimSpace(string(onDisk)), first)
+	}
+}
+
+func TestPersistentDaemonRejectsBadToken(t *testing.T) {
+	socketPath, stop := startPersistentDaemonForTest(t, "good-token")
+	defer stop()
+
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		t.Fatalf("dial persistent daemon: %v", err)
+	}
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
+	writePersistentTestFrame(t, writer, rpcRequest{
+		ID:     1,
+		Method: persistentDaemonAuthMethod,
+		Params: map[string]any{"token": "bad-token"},
+	})
+	frame := readPersistentTestFrame(t, conn, reader)
+	if ok, _ := frame["ok"].(bool); ok {
+		t.Fatalf("bad token auth should fail: %v", frame)
+	}
+	errObj, _ := frame["error"].(map[string]any)
+	if got := errObj["code"]; got != "unauthorized" {
+		t.Fatalf("bad token error code = %v, want unauthorized; frame=%v", got, frame)
+	}
+}
+
+func TestDialPersistentDaemonBadTokenWrapsAuthFailure(t *testing.T) {
+	socketPath, stop := startPersistentDaemonForTest(t, "good-token")
+	defer stop()
+
+	conn, err := dialPersistentDaemon(socketPath, "bad-token")
+	if err == nil {
+		_ = conn.Close()
+		t.Fatalf("dialPersistentDaemon succeeded with bad token")
+	}
+	if !errors.Is(err, errPersistentDaemonAuthFailed) {
+		t.Fatalf("dialPersistentDaemon error = %v, want errPersistentDaemonAuthFailed", err)
+	}
+}
+
+func TestPersistentDaemonAcceptsRotatedTokenFile(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "auth.token")
+	if err := os.WriteFile(tokenFile, []byte("old-token\n"), 0o600); err != nil {
+		t.Fatalf("write initial token: %v", err)
+	}
+	socketPath, stop := startPersistentDaemonWithVerifierForTest(
+		t,
+		persistentDaemonFileTokenVerifier("old-token", tokenFile),
+	)
+	defer stop()
+
+	if err := os.WriteFile(tokenFile, []byte("new-token\n"), 0o600); err != nil {
+		t.Fatalf("rotate token: %v", err)
+	}
+	conn, _, _ := openPersistentTestClient(t, socketPath, "new-token")
+	_ = conn.Close()
+}
+
+func TestPersistentDaemonPTYWriteNotificationDoesNotEmitResponse(t *testing.T) {
+	socketPath, stop := startPersistentDaemonForTest(t, "good-token")
+	defer stop()
+
+	conn, reader, writer := openPersistentTestClient(t, socketPath, "good-token")
+	defer conn.Close()
+
+	writePersistentTestFrame(t, writer, map[string]any{
+		"method": "pty.write",
+		"params": map[string]any{
+			"session_id":              "missing",
+			"attachment_id":           "missing",
+			"client_attachment_token": "token",
+			"data_base64":             base64.StdEncoding.EncodeToString([]byte("a")),
+		},
+	})
+	event := readPersistentTestFrame(t, conn, reader)
+	if _, hasID := event["id"]; hasID {
+		t.Fatalf("pty.write notification should not emit an RPC response id: %v", event)
+	}
+	if got := event["event"]; got != "pty.error" {
+		t.Fatalf("first frame = %v, want pty.error event; payload=%v", got, event)
+	}
+	ping := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     2,
+		Method: "ping",
+		Params: map[string]any{},
+	})
+	if got := ping["id"]; got != float64(2) {
+		t.Fatalf("response id = %v, want ping id 2; payload=%v", got, ping)
+	}
+	if ok, _ := ping["ok"].(bool); !ok {
+		t.Fatalf("ping response should be ok=true after pty.write notification: %v", ping)
+	}
+}
+
+func TestPersistentDaemonPTYResizeNotificationDoesNotEmitResponse(t *testing.T) {
+	socketPath, stop := startPersistentDaemonForTest(t, "good-token")
+	defer stop()
+
+	conn, reader, writer := openPersistentTestClient(t, socketPath, "good-token")
+	defer conn.Close()
+
+	writePersistentTestFrame(t, writer, map[string]any{
+		"method": "pty.resize",
+		"params": map[string]any{
+			"session_id":              "missing",
+			"attachment_id":           "missing",
+			"client_attachment_token": "token",
+			"cols":                    100,
+			"rows":                    30,
+		},
+	})
+	event := readPersistentTestFrame(t, conn, reader)
+	if _, hasID := event["id"]; hasID {
+		t.Fatalf("pty.resize notification should not emit an RPC response id: %v", event)
+	}
+	if got := event["event"]; got != "pty.error" {
+		t.Fatalf("first frame = %v, want pty.error event; payload=%v", got, event)
+	}
+	ping := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     2,
+		Method: "ping",
+		Params: map[string]any{},
+	})
+	if got := ping["id"]; got != float64(2) {
+		t.Fatalf("response id = %v, want ping id 2; payload=%v", got, ping)
+	}
+	if ok, _ := ping["ok"].(bool); !ok {
+		t.Fatalf("ping response should be ok=true after pty.resize notification: %v", ping)
+	}
+}
+
+func TestAuthenticatePersistentDaemonClientReadDeadline(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	requestRead := make(chan error, 1)
+	go func() {
+		_, err := bufio.NewReader(server).ReadString('\n')
+		requestRead <- err
+	}()
+
+	start := time.Now()
+	err := authenticatePersistentDaemonClientWithTimeout(client, "token", 50*time.Millisecond)
+	if err == nil {
+		t.Fatalf("authenticatePersistentDaemonClientWithTimeout succeeded, want timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("authenticatePersistentDaemonClientWithTimeout took %s, want bounded deadline", elapsed)
+	}
+	select {
+	case readErr := <-requestRead:
+		if readErr != nil {
+			t.Fatalf("server failed to read auth request: %v", readErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("server did not receive auth request")
+	}
+}
+
+func TestAuthenticatePersistentDaemonServerReadDeadline(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	defer hub.closeAll()
+
+	done := make(chan struct{}, 1)
+	go func() {
+		handlePersistentDaemonConnWithAuthTimeout(server, persistentDaemonFixedTokenVerifier("token"), hub, 50*time.Millisecond)
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatalf("server auth handler did not return after deadline")
+	}
+}
+
+func TestPersistentStdioProxyReturnsWhenDaemonClosesFirst(t *testing.T) {
+	client, server := net.Pipe()
+	stdinReader, stdinWriter := io.Pipe()
+	defer stdinWriter.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- proxyPersistentDaemonConn(stdinReader, io.Discard, client)
+	}()
+
+	_ = server.Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("proxyPersistentDaemonConn returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("proxyPersistentDaemonConn did not return after daemon side closed")
+	}
+	_ = stdinWriter.Close()
+}
+
+func TestPersistentDaemonPTYReattachSurvivesClientDisconnect(t *testing.T) {
+	socketPath, stop := startPersistentDaemonForTest(t, "reattach-token")
+	defer stop()
+
+	conn1, reader1, writer1 := openPersistentTestClient(t, socketPath, "reattach-token")
+	sessionID := "persistent-rpc"
+	attach1 := persistentTestRPCCall(t, conn1, reader1, writer1, rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              sessionID,
+			"attachment_id":           "a1",
+			"client_attachment_token": "token-a1",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "printf 'persistent-rpc-data\\n'; sleep 60",
+		},
+	})
+	if ok, _ := attach1["ok"].(bool); !ok {
+		t.Fatalf("first pty.attach failed: %v", attach1)
+	}
+	readPersistentTestEvent(t, conn1, reader1, func(frame map[string]any) bool {
+		return frame["event"] == "pty.ready" && frame["attachment_id"] == "a1"
+	})
+	readPersistentTestEvent(t, conn1, reader1, func(frame map[string]any) bool {
+		if frame["event"] != "pty.data" || frame["attachment_id"] != "a1" {
+			return false
+		}
+		payload, err := base64.StdEncoding.DecodeString(frame["data_base64"].(string))
+		return err == nil && strings.Contains(string(payload), "persistent-rpc-data")
+	})
+	_ = conn1.Close()
+
+	conn2, reader2, writer2 := openPersistentTestClient(t, socketPath, "reattach-token")
+	defer conn2.Close()
+	attach2 := persistentTestRPCCall(t, conn2, reader2, writer2, rpcRequest{
+		ID:     2,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              sessionID,
+			"attachment_id":           "a2",
+			"client_attachment_token": "token-a2",
+			"cols":                    100,
+			"rows":                    30,
+			"command":                 "printf 'should-not-run\\n'",
+			"require_existing":        true,
+		},
+	})
+	if ok, _ := attach2["ok"].(bool); !ok {
+		t.Fatalf("second pty.attach failed: %v", attach2)
+	}
+	readPersistentTestEvent(t, conn2, reader2, func(frame map[string]any) bool {
+		return frame["event"] == "pty.ready" && frame["attachment_id"] == "a2"
+	})
+	readPersistentTestEvent(t, conn2, reader2, func(frame map[string]any) bool {
+		if frame["event"] != "pty.data" || frame["attachment_id"] != "a2" {
+			return false
+		}
+		payload, err := base64.StdEncoding.DecodeString(frame["data_base64"].(string))
+		return err == nil && strings.Contains(string(payload), "persistent-rpc-data")
+	})
+
+	list := persistentTestRPCCall(t, conn2, reader2, writer2, rpcRequest{
+		ID:     3,
+		Method: "pty.list",
+		Params: map[string]any{},
+	})
+	if ok, _ := list["ok"].(bool); !ok {
+		t.Fatalf("pty.list failed: %v", list)
+	}
+	result, _ := list["result"].(map[string]any)
+	sessions, _ := result["sessions"].([]any)
+	if len(sessions) != 1 {
+		t.Fatalf("pty.list sessions = %v, want one", result["sessions"])
+	}
+	session, _ := sessions[0].(map[string]any)
+	if got := session["session_id"]; got != sessionID {
+		t.Fatalf("pty.list session_id = %v, want %s", got, sessionID)
+	}
+
+	closeResp := persistentTestRPCCall(t, conn2, reader2, writer2, rpcRequest{
+		ID:     4,
+		Method: "pty.close",
+		Params: map[string]any{"session_id": sessionID},
+	})
+	if ok, _ := closeResp["ok"].(bool); !ok {
+		t.Fatalf("pty.close failed: %v", closeResp)
+	}
+}
+
+func TestPersistentDaemonReadySignalAllowsImmediateDial(t *testing.T) {
+	socketDir, err := os.MkdirTemp("/tmp", "cmuxd-remote-ready-*")
+	if err != nil {
+		t.Fatalf("create short socket dir: %v", err)
+	}
+	defer os.RemoveAll(socketDir)
+	socketPath := filepath.Join(socketDir, "rpc.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+
+	readyReader, readyWriter, err := os.Pipe()
+	if err != nil {
+		_ = listener.Close()
+		t.Fatalf("create ready pipe: %v", err)
+	}
+	defer readyReader.Close()
+	readyFD, err := syscall.Dup(int(readyWriter.Fd()))
+	if err != nil {
+		_ = listener.Close()
+		_ = readyWriter.Close()
+		t.Fatalf("duplicate ready fd: %v", err)
+	}
+	t.Setenv(persistentDaemonReadyFDEnv, strconv.Itoa(readyFD))
+	signalPersistentDaemonReady()
+	_ = readyWriter.Close()
+	line, err := bufio.NewReader(readyReader).ReadString('\n')
+	if err != nil {
+		_ = listener.Close()
+		t.Fatalf("read ready signal: %v", err)
+	}
+	if strings.TrimSpace(line) != "ready" {
+		_ = listener.Close()
+		t.Fatalf("ready signal = %q, want ready", strings.TrimSpace(line))
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- servePersistentDaemonWithVerifier(listener, persistentDaemonFixedTokenVerifier("ready-token"), io.Discard)
+	}()
+
+	conn, err := dialPersistentDaemon(socketPath, "ready-token")
+	if err != nil {
+		_ = listener.Close()
+		t.Fatalf("dial persistent daemon after ready signal: %v", err)
+	}
+	_ = conn.Close()
+
+	_ = listener.Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("persistent daemon exited with error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("persistent daemon did not stop")
+	}
+}
+
+func TestPersistentDaemonServerExitsAfterEmptySlotIdleTimeout(t *testing.T) {
+	socketDir, err := os.MkdirTemp("/tmp", "cmuxd-remote-idle-*")
+	if err != nil {
+		t.Fatalf("create short socket dir: %v", err)
+	}
+	defer os.RemoveAll(socketDir)
+	socketPath := filepath.Join(socketDir, "rpc.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- servePersistentDaemonWithVerifierConfig(
+			listener,
+			persistentDaemonFixedTokenVerifier("idle-token"),
+			io.Discard,
+			persistentDaemonServerConfig{
+				emptyIdleTimeout: 500 * time.Millisecond,
+				acceptPollStep:   25 * time.Millisecond,
+			},
+		)
+	}()
+
+	conn, reader, writer := openPersistentTestClient(t, socketPath, "idle-token")
+	attach := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "idle-session",
+			"attachment_id":           "idle-attachment",
+			"client_attachment_token": "idle-attachment-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 60",
+		},
+	})
+	if ok, _ := attach["ok"].(bool); !ok {
+		t.Fatalf("pty.attach failed: %v", attach)
+	}
+	readPersistentTestEvent(t, conn, reader, func(frame map[string]any) bool {
+		return frame["event"] == "pty.ready" && frame["attachment_id"] == "idle-attachment"
+	})
+
+	closeResp := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     2,
+		Method: "pty.close",
+		Params: map[string]any{"session_id": "idle-session"},
+	})
+	if ok, _ := closeResp["ok"].(bool); !ok {
+		t.Fatalf("pty.close failed: %v", closeResp)
+	}
+	_ = conn.Close()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("persistent daemon exited with error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("persistent daemon did not stop after empty idle timeout")
+	}
+}
+
+func TestRunStdioSlotRequiresPersistent(t *testing.T) {
+	var stderr bytes.Buffer
+	code := run([]string{"serve", "--stdio", "--slot", "slot-without-persistent"}, strings.NewReader(""), &bytes.Buffer{}, &stderr)
+	if code != 2 {
+		t.Fatalf("run serve exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "serve --slot requires --persistent") {
+		t.Fatalf("stderr = %q, want --slot validation error", stderr.String())
 	}
 }
 

@@ -19,11 +19,32 @@ OWNER_LIST_NAME = "cmuxAuxiliaryWindowIdentifiers"
 IGNORED_IDENTIFIERS = {
     # Hidden WebKit preload host; it is not user closable and must not own Cmd+W.
     "cmux.browserBackgroundPreload",
+    # Hidden WebKit visual automation host; it renders offscreen and never becomes key/main.
+    "cmux.browserVisualAutomationRender",
     "cmux.bootstrap",
+    # Cursor-anchored textbox completion popup; it never becomes key/main.
+    "cmux.textbox.mentionCompletionPanel",
+    # Full-screen Sleepy Mode screensaver overlay: it intentionally consumes
+    # every key (including Cmd+W, via performKeyEquivalent) to wake/dismiss the
+    # cover, so it must not own a standard Close-window shortcut.
+    "cmux.sleepyMode",
 }
 
 IDENTIFIER_ASSIGNMENT_RE = re.compile(
     r"""\b[A-Za-z_][A-Za-z0-9_]*\.identifier\s*=\s*NSUserInterfaceItemIdentifier\("(?P<identifier>cmux\.[^"]+)"\)"""
+)
+# `window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)` —
+# the identifier comes from a named constant instead of an inline literal. The
+# constant is resolved against `let <name> = "cmux...."` declarations in the
+# same file (the prevailing pattern: a `static let windowIdentifier` next to
+# the controller that assigns it). The pairing window regressed exactly here:
+# the literal-only regex never saw `cmux.mobilePairingWindow`, so the lint
+# passed while Cmd+W fell through to the terminal's Close Tab.
+CONSTANT_ASSIGNMENT_RE = re.compile(
+    r"""\b[A-Za-z_][A-Za-z0-9_]*\.identifier\s*=\s*NSUserInterfaceItemIdentifier\(\s*(?P<expr>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\)"""
+)
+STRING_CONSTANT_DECL_RE = re.compile(
+    r"""\blet\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*String\s*)?=\s*"(?P<identifier>cmux\.[^"]+)\""""
 )
 STRING_LITERAL_RE = re.compile(r'"(?P<identifier>cmux\.[^"]+)"')
 BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
@@ -83,6 +104,17 @@ def collect_window_identifier_assignments(
             text = strip_line_comments(path.read_text(encoding="utf-8", errors="replace"))
             for match in IDENTIFIER_ASSIGNMENT_RE.finditer(text):
                 identifier = match.group("identifier")
+                line_number = text.count("\n", 0, match.start()) + 1
+                assignments.setdefault(identifier, []).append(f"{rel_path}:{line_number}")
+            constants = {
+                decl.group("name"): decl.group("identifier")
+                for decl in STRING_CONSTANT_DECL_RE.finditer(text)
+            }
+            for match in CONSTANT_ASSIGNMENT_RE.finditer(text):
+                constant_name = match.group("expr").rsplit(".", 1)[-1]
+                identifier = constants.get(constant_name)
+                if identifier is None:
+                    continue
                 line_number = text.count("\n", 0, match.start()) + 1
                 assignments.setdefault(identifier, []).append(f"{rel_path}:{line_number}")
     return assignments

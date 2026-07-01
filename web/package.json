@@ -26,10 +26,13 @@
     "db:url": "bash scripts/db-local.sh url",
     "start": "next start",
     "test": "bun test",
+    "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
+    "typecheck": "tsgo --noEmit",
     "lint": "eslint"
   },
   "dependencies": {
     "@aws-sdk/rds-signer": "^3.1045.0",
+    "@base-ui-components/react": "^1.0.0-rc.0",
     "@effect/experimental": "0.57.9",
     "@effect/platform": "0.93.6",
     "@effect/sql": "0.48.6",
@@ -73,6 +76,7 @@
     "drizzle-kit": "^1.0.0-beta.23",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.6",
+    "@typescript/native-preview": "7.0.0-dev.20260616.1",
     "pagefind": "^1.5.2",
     "tailwindcss": "^4",
     "typescript": "^5"

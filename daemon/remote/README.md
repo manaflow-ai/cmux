@@ -6,12 +6,17 @@ Go remote daemon for `cmux ssh` bootstrap, capability negotiation, and remote pr
 
 1. `cmuxd-remote version`
 2. `cmuxd-remote serve --stdio`
-3. `cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]`
-4. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
+3. `cmuxd-remote serve --stdio --persistent --slot <slot>`
+4. `cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]`
+5. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
 
 `serve --ws` is explicit opt-in for cloud VM images only. The normal `cmux ssh`
-code path continues to use `serve --stdio` over an SSH exec channel and does not
-open a WebSocket listener.
+code path uses `serve --stdio --persistent --slot <slot>` over an SSH exec
+channel. That stdio process is only a proxy to an authenticated per-slot daemon
+with credentials and logs under `~/.cmux/daemon/<version>/<slot>/`, so remote PTY sessions
+can survive local surface close, local reconnect, and app relaunch. The persistent
+server never opens a public listener; it accepts only a per-user Unix socket under
+`/tmp/cmuxd-remote-<uid>/` and the slot token.
 
 When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the binary auto-dispatches to the `cli` subcommand. This is busybox-style argv[0] detection.
 
@@ -30,12 +35,38 @@ When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the bin
 11. `session.resize`
 12. `session.detach`
 13. `session.status`
+14. `pty.attach`
+15. `pty.write`
+16. `pty.resize`
+17. `pty.detach`
+18. `pty.close`
+19. `pty.list`
 
 Current integration in cmux:
 1. `workspace.remote.configure` now bootstraps this binary over SSH when missing.
 2. Client sends `hello` before enabling remote proxy transport.
 3. Local workspace proxy broker serves SOCKS5 + HTTP CONNECT and tunnels stream traffic through `proxy.*` RPC over `serve --stdio`, using daemon-pushed stream events instead of polling reads.
 4. Daemon status/capabilities are exposed in `workspace.remote.status -> remote.daemon` (including `session.resize.min`).
+5. Persistent SSH terminals require the `pty.session.persistent_daemon` capability before cmux will restore a saved remote PTY session ID after relaunch.
+
+## Persistent SSH PTY daemon
+
+`cmux ssh` uses one persistent daemon slot per CLI-launched SSH workspace. The
+slot name is generated locally, validated as `[A-Za-z0-9._-]{1,128}`, and sent
+to the remote daemon bootstrap as `--slot`.
+
+Remote slot files:
+1. `/tmp/cmuxd-remote-<uid>/cmuxd-<slot-hash>.sock` authenticated Unix socket for stdio proxies.
+2. `~/.cmux/daemon/<version>/<slot>/auth.token` random 32-byte hex token, mode `0600`.
+3. `~/.cmux/daemon/<version>/<slot>/daemon.lock` single-owner lock.
+4. `~/.cmux/daemon/<version>/<slot>/daemon.log` startup and crash diagnostics.
+
+PTY lifecycle:
+1. A local attach creates or reuses a named `pty.*` session in the persistent daemon.
+2. If the local surface closes, the stdio proxy disconnects and its attachment detaches, but the PTY process and bounded scrollback remain in the daemon.
+3. `cmux ssh-session-list` calls `pty.list`; `cmux ssh-session-attach` creates a new local terminal whose startup script calls `ssh-pty-attach --require-existing`.
+4. `cmux ssh-session-cleanup` calls `pty.close` to terminate a persisted PTY session explicitly.
+5. Sessions with no attachments keep their last-known size and are reaped by the daemon idle TTL.
 
 ## Cloud WebSocket PTY transport
 
@@ -132,3 +163,8 @@ Browser relay behavior:
 1. `cmux browser ...` inside an SSH session controls the local cmux browser through the authenticated relay, not a browser process inside the VM.
 2. The remote CLI supports the common automation commands: `open`, `navigate`, `back`, `forward`, `reload`, `get-url`, `snapshot`, `eval`, `wait`, `click`, `dblclick`, `hover`, `focus`, `check`, `uncheck`, `fill`, `type`, `press`, `select`, and `screenshot`.
 3. Commands that target an existing browser surface default to `CMUX_SURFACE_ID`; `open` defaults to `CMUX_WORKSPACE_ID` so agents can create a browser pane next to the active SSH terminal.
+
+Workspace group relay behavior:
+
+1. `cmux workspace group <sub>` (and the `cmux workspace-group <sub>` alias) maps to the `workspace.group.*` v2 methods, with the same subcommands and flags as the macOS CLI: `list`, `create`, `ungroup`, `delete`, `rename`, `collapse`, `expand`, `pin`, `unpin`, `add`, `remove`, `set-anchor`, `new-workspace`, `set-color`, `set-icon`, `move`, and `focus`.
+2. The group id comes from `--group <id>` or the first positional argument and accepts UUIDs or refs such as `workspace_group:1`. Like the macOS CLI, `add` and `set-anchor` require explicit `--group <id> --workspace <id>`.

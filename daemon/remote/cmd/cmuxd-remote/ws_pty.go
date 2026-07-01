@@ -21,6 +21,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/creack/pty"
 	"nhooyr.io/websocket"
@@ -146,6 +147,7 @@ type wsPTYSession struct {
 	id             string
 	key            wsPTYSessionKey
 	cmd            *exec.Cmd
+	tmpScript      string // temp file path for large startup scripts; cleaned up on exit
 	ptyFile        *os.File
 	ttyFile        *os.File
 	attachments    map[string]*wsPTYAttachment
@@ -174,7 +176,15 @@ type wsPTYHub struct {
 	stderr           io.Writer
 	scrollbackLimit  int
 	sessionIdleTTL   time.Duration
+	// openPTY allocates a PTY master/slave pair. It defaults to creack/pty.Open
+	// (which opens /dev/ptmx) and exists as a field so tests can simulate a
+	// hardened devpts where allocation is denied.
+	openPTY ptyOpener
 }
+
+// ptyOpener allocates a PTY master/slave pair, returning the master (ptmx) and
+// slave (tty) ends. The production implementation is creack/pty.Open.
+type ptyOpener func() (ptmx *os.File, tty *os.File, err error)
 
 func newWebSocketPTYHub(cfg wsPTYServerConfig, stderr io.Writer) *wsPTYHub {
 	limit := cfg.ScrollbackLimit
@@ -191,6 +201,7 @@ func newWebSocketPTYHub(cfg wsPTYServerConfig, stderr io.Writer) *wsPTYHub {
 		stderr:          stderr,
 		scrollbackLimit: limit,
 		sessionIdleTTL:  idleTTL,
+		openPTY:         pty.Open,
 	}
 }
 
@@ -306,7 +317,7 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 	attachment, err := cfg.PTYHub.attach(r.Context(), conn, auth)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "ws pty attach failed: %v\n", err)
-		_ = conn.Close(websocket.StatusInternalError, "pty start failed")
+		_ = conn.Close(websocket.StatusInternalError, truncateWebSocketCloseReason(err.Error()))
 		return
 	}
 	defer func() {
@@ -490,8 +501,7 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 			continue
 		}
 
-		resp := server.handleRequest(req)
-		if err := server.frameWriter.writeResponse(resp); err != nil {
+		if err := server.handleRequestAndWriteResponse(req); err != nil {
 			_ = conn.Close(websocket.StatusInternalError, "write failed")
 			return
 		}
@@ -711,20 +721,44 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 	shellPath := resolvePTYShell(h.shell)
 	trimmedCommand := strings.TrimSpace(command)
 	var cmd *exec.Cmd
+	var tmpScript string
 	if trimmedCommand == "" {
 		cmd = exec.Command(shellPath)
+	} else if len(trimmedCommand) > 120*1024 {
+		// Startup script exceeds Linux's MAX_ARG_STRLEN (~128KB). Write to a
+		// temp file and exec /bin/sh <file> to avoid E2BIG from execve.
+		f, err := os.CreateTemp("", "cmuxd-startup-*.sh")
+		if err != nil {
+			return nil, fmt.Errorf("could not create startup script temp file: %w", err)
+		}
+		tmpScript = f.Name()
+		if _, err := f.WriteString(trimmedCommand); err != nil {
+			_ = f.Close()
+			_ = os.Remove(tmpScript)
+			return nil, fmt.Errorf("could not write startup script: %w", err)
+		}
+		_ = f.Chmod(0o400)
+		_ = f.Close()
+		cmd = exec.Command("/bin/sh", tmpScript)
 	} else {
 		cmd = exec.Command("/bin/sh", "-c", trimmedCommand)
 	}
 	cmd.Env = defaultWebSocketPTYEnv(shellPath)
-	ptyFile, ttyFile, err := startPTYCommand(cmd, cols, rows)
+	ptyFile, ttyFile, err := h.startPTYCommand(cmd, cols, rows)
 	if err != nil {
+		if tmpScript != "" {
+			_ = os.Remove(tmpScript)
+		}
+		if h.stderr != nil {
+			_, _ = fmt.Fprintf(h.stderr, "pty session start failed session=%s: %v\n", sessionID, err)
+		}
 		return nil, err
 	}
 	session := &wsPTYSession{
 		id:            sessionID,
 		key:           sessionKey,
 		cmd:           cmd,
+		tmpScript:     tmpScript,
 		ptyFile:       ptyFile,
 		ttyFile:       ttyFile,
 		attachments:   map[string]*wsPTYAttachment{},
@@ -741,10 +775,14 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 	return session, nil
 }
 
-func startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File, *os.File, error) {
-	ptyFile, ttyFile, err := pty.Open()
+func (h *wsPTYHub) startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File, *os.File, error) {
+	open := h.openPTY
+	if open == nil {
+		open = pty.Open
+	}
+	ptyFile, ttyFile, err := open()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, newPTYAllocationError(err)
 	}
 	closeFiles := true
 	defer func() {
@@ -781,6 +819,96 @@ func startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File, *os.File, err
 	closeFiles = false
 	_ = ttyFile.Close()
 	return ptyFile, nil, nil
+}
+
+// newPTYAllocationError wraps a raw PTY-allocation failure with actionable
+// diagnostics about the remote devpts. Without this, a hardened mount
+// (ptmxmode=000) or a non-writable /dev/ptmx surfaced only a generic
+// "remote PTY attach failed" with a 0-byte daemon log, leaving the operator no
+// way to tell why the terminal would not open. See issue #5185.
+func newPTYAllocationError(err error) error {
+	suffix := ""
+	if detail := describeDevPTS(); detail != "" {
+		suffix = "; " + detail
+	}
+	hint := ""
+	if isPermissionDeniedErr(err) {
+		hint = "; the remote devpts denies /dev/ptmx (e.g. mounted ptmxmode=000): remount it writable with `sudo mount -o remount,ptmxmode=0666 /dev/pts` or expose a writable /dev/ptmx so the cmux daemon can open a terminal"
+	}
+	return fmt.Errorf("could not allocate a remote PTY: %w%s%s", err, suffix, hint)
+}
+
+// describeDevPTS reports the current /dev/ptmx mode and the /dev/pts devpts
+// mount options (which carry ptmxmode) on a best-effort basis. It never errors;
+// missing data is simply omitted from the returned summary.
+func describeDevPTS() string {
+	var parts []string
+	if info, statErr := os.Stat("/dev/ptmx"); statErr == nil {
+		parts = append(parts, fmt.Sprintf("/dev/ptmx mode=%04o", info.Mode().Perm()))
+	} else {
+		parts = append(parts, fmt.Sprintf("/dev/ptmx stat error: %v", statErr))
+	}
+	if opts := devptsMountOptions(); opts != "" {
+		parts = append(parts, "devpts ("+opts+")")
+	}
+	return strings.Join(parts, "; ")
+}
+
+// devptsMountOptions returns the super-block options of the devpts filesystem
+// mounted at /dev/pts (e.g. "rw,gid=5,mode=620,ptmxmode=000"), or "" if it
+// cannot be determined. It parses /proc/self/mountinfo, whose per-line layout
+// places the optional fields and the " - <fstype> <source> <superopts>" tail
+// after a literal " - " separator.
+func devptsMountOptions() string {
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		// mount point is field index 4 (0-based) in the pre-separator section.
+		if len(fields) < 5 || fields[4] != "/dev/pts" {
+			continue
+		}
+		sep := -1
+		for i, f := range fields {
+			if f == "-" {
+				sep = i
+				break
+			}
+		}
+		if sep < 0 || sep+3 >= len(fields) {
+			continue
+		}
+		if fields[sep+1] != "devpts" {
+			continue
+		}
+		return fields[sep+3]
+	}
+	return ""
+}
+
+// truncateWebSocketCloseReason clamps a close reason to the 123-byte limit a
+// WebSocket control frame allows for its UTF-8 reason payload, trimming on a
+// rune boundary so the frame stays valid.
+func truncateWebSocketCloseReason(reason string) string {
+	const maxReasonBytes = 123
+	if len(reason) <= maxReasonBytes {
+		return reason
+	}
+	truncated := reason[:maxReasonBytes]
+	for len(truncated) > 0 && !utf8.ValidString(truncated) {
+		truncated = truncated[:len(truncated)-1]
+	}
+	return truncated
+}
+
+// isPermissionDeniedErr reports whether err is an EACCES/EPERM-class failure,
+// the signature of a devpts that refuses /dev/ptmx.
+func isPermissionDeniedErr(err error) bool {
+	return errors.Is(err, os.ErrPermission) ||
+		errors.Is(err, syscall.EACCES) ||
+		errors.Is(err, syscall.EPERM)
 }
 
 func (h *wsPTYHub) detach(attachment *wsPTYAttachment) bool {
@@ -989,6 +1117,9 @@ func (h *wsPTYHub) sessionSnapshotLocked(session *wsPTYSession) map[string]any {
 func (h *wsPTYHub) waitSessionProcess(session *wsPTYSession) {
 	if session.cmd != nil {
 		_ = session.cmd.Wait()
+	}
+	if session.tmpScript != "" {
+		_ = os.Remove(session.tmpScript)
 	}
 	session.closeTTYFile()
 }

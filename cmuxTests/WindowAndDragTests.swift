@@ -1,14 +1,23 @@
 import XCTest
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
 import Carbon.HIToolbox
 import Darwin
 import PDFKit
+import Testing
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 @testable import Bonsplit
 import UserNotifications
+// Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
+// so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
+// the settings symbols this file needs.
+import struct CmuxSettings.AccountCatalogSection
+import struct CmuxSettings.AppCatalogSection
+import struct CmuxSettings.FileRouteSettingsStore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -44,31 +53,33 @@ final class WindowGlassEffectTests: XCTestCase {
         )
         window.contentView = originalContentView
 
-        WindowGlassEffect.apply(to: window, tintColor: .systemBlue)
+        let glassEffect = WindowGlassEffect()
+        glassEffect.apply(to: window, tintColor: .systemBlue)
 
-        if WindowGlassEffect.isAvailable {
+        if glassEffect.isAvailable {
             XCTAssertFalse(window.contentView === originalContentView)
-            XCTAssertTrue(WindowGlassEffect.originalContentView(for: window) === originalContentView)
-            XCTAssertTrue(originalContentView.superview === WindowGlassEffect.foregroundContainer(for: window))
-            XCTAssertNotNil(WindowGlassEffect.portalInstallationTarget(for: window))
+            XCTAssertTrue(glassEffect.originalContentView(for: window) === originalContentView)
+            XCTAssertTrue(originalContentView.superview === glassEffect.foregroundContainer(for: window))
+            XCTAssertNotNil(glassEffect.portalInstallationTarget(for: window))
         } else {
             XCTAssertTrue(window.contentView === originalContentView)
-            XCTAssertNil(WindowGlassEffect.originalContentView(for: window))
-            XCTAssertNil(WindowGlassEffect.foregroundContainer(for: window))
-            XCTAssertNil(WindowGlassEffect.portalInstallationTarget(for: window))
+            XCTAssertNil(glassEffect.originalContentView(for: window))
+            XCTAssertNil(glassEffect.foregroundContainer(for: window))
+            XCTAssertNil(glassEffect.portalInstallationTarget(for: window))
         }
         XCTAssertTrue(Self.windowContainsGlassBackground(window))
 
-        WindowGlassEffect.remove(from: window)
+        glassEffect.remove(from: window)
 
         XCTAssertTrue(window.contentView === originalContentView)
-        XCTAssertNil(WindowGlassEffect.foregroundContainer(for: window))
-        XCTAssertNil(WindowGlassEffect.originalContentView(for: window))
+        XCTAssertNil(glassEffect.foregroundContainer(for: window))
+        XCTAssertNil(glassEffect.originalContentView(for: window))
         XCTAssertFalse(Self.windowContainsGlassBackground(window))
     }
 
     func testNativeGlassTintFollowsWindowKeyNotifications() throws {
-        guard WindowGlassEffect.isAvailable else {
+        let glassEffect = WindowGlassEffect()
+        guard glassEffect.isAvailable else {
             throw XCTSkip("NSGlassEffectView is unavailable on this macOS version")
         }
         _ = NSApplication.shared
@@ -82,7 +93,7 @@ final class WindowGlassEffectTests: XCTestCase {
         )
         window.contentView = originalContentView
 
-        WindowGlassEffect.apply(to: window, tintColor: .black, style: .clear)
+        glassEffect.apply(to: window, tintColor: .black, style: .clear)
 
         guard let backgroundView = Self.glassBackgroundView(in: window.contentView),
               let tintOverlay = backgroundView.subviews.last else {
@@ -105,7 +116,7 @@ final class WindowGlassEffectTests: XCTestCase {
 
     private static func glassBackgroundView(in view: NSView?) -> NSView? {
         guard let view else { return nil }
-        if view.identifier == WindowGlassEffect.backgroundViewIdentifier {
+        if view.identifier == WindowGlassEffect().backgroundViewIdentifier {
             return view
         }
         return view.subviews.lazy.compactMap(glassBackgroundView(in:)).first
@@ -399,13 +410,14 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         _ = app.synchronizeActiveMainWindowContext(preferredWindow: window)
 
         let defaults = UserDefaults.standard
-        let previousWelcomeShown = defaults.object(forKey: WelcomeSettings.shownKey)
-        defaults.set(true, forKey: WelcomeSettings.shownKey)
+        let welcomeShownKey = AccountCatalogSection().welcomeShown.userDefaultsKey
+        let previousWelcomeShown = defaults.object(forKey: welcomeShownKey)
+        defaults.set(true, forKey: welcomeShownKey)
         defer {
             if let previousWelcomeShown {
-                defaults.set(previousWelcomeShown, forKey: WelcomeSettings.shownKey)
+                defaults.set(previousWelcomeShown, forKey: welcomeShownKey)
             } else {
-                defaults.removeObject(forKey: WelcomeSettings.shownKey)
+                defaults.removeObject(forKey: welcomeShownKey)
             }
         }
 
@@ -427,7 +439,7 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertEqual(createdWorkspace?.currentDirectory, droppedDirectory.path)
     }
 
-    func testApplicationOpenURLsIgnoresBundleSelfPaths() {
+    func testApplicationOpenURLsIgnoresBundleSelfPaths() throws {
         _ = NSApplication.shared
         let app = AppDelegate()
 
@@ -449,8 +461,12 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         _ = app.synchronizeActiveMainWindowContext(preferredWindow: window)
 
         let existingWorkspaceIds = Set(manager.tabs.map(\.id))
-        let embeddedExecutableURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/MacOS/cmux", isDirectory: false)
+        let embeddedExecutableURL = try XCTUnwrap(Bundle.main.executableURL?.standardizedFileURL)
+        let executableValues = try embeddedExecutableURL.resourceValues(forKeys: [.isExecutableKey])
+        XCTAssertEqual(executableValues.isExecutable, true)
+        XCTAssertNotNil(
+            TerminalDefaultFileOpenRequest(fileURL: embeddedExecutableURL)
+        )
 
         app.application(
             NSApplication.shared,
@@ -465,6 +481,17 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
 
 @MainActor
 final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
+    func testDefaultTerminalRegistrationKeepsAllAdvertisedTargets() {
+        XCTAssertEqual(
+            DefaultTerminalRegistration.targetCount,
+            DefaultTerminalRegistration.urlSchemes.count + DefaultTerminalRegistration.contentTypeIdentifiers.count
+        )
+        XCTAssertEqual(
+            DefaultTerminalRegistration.contentType(forIdentifier: "com.apple.terminal.shell-script").identifier,
+            "com.apple.terminal.shell-script"
+        )
+    }
+
     func testScheduleLaunchServicesRegistrationDefersRegisterWork() {
         _ = NSApplication.shared
         let app = AppDelegate()
@@ -489,6 +516,53 @@ final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
         scheduledWork?()
 
         XCTAssertEqual(registerCallCount, 1)
+    }
+}
+
+final class TerminalDefaultFileOpenRequestTests: XCTestCase {
+    func testBuildsQuotedLaunchInputForTerminalCommandFile() throws {
+        let contentType = DefaultTerminalRegistration.contentType(forIdentifier: "com.apple.terminal.shell-script")
+        let url = URL(fileURLWithPath: "/tmp/cmux default's/Run Me.command")
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: url, contentType: contentType))
+
+        XCTAssertEqual(request.workingDirectory, "/tmp/cmux default's")
+        XCTAssertEqual(request.initialInput, "'/tmp/cmux default'\\''s/Run Me.command'\n")
+    }
+
+    func testIgnoresPlainTextFiles() {
+        let url = URL(fileURLWithPath: "/tmp/notes.txt")
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .plainText))
+    }
+
+    func testBuildsLaunchInputForExtensionlessUnixExecutable() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-terminal-default-executable-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let executable = directory.appendingPathComponent("runme", isDirectory: false)
+        try "#!/bin/sh\necho cmux\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: executable))
+
+        XCTAssertEqual(request.workingDirectory, directory.path)
+        XCTAssertEqual(request.initialInput, "'\(executable.path)'\n")
+    }
+
+    func testIgnoresDirectoriesWithTerminalScriptExtension() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-terminal-default-directory-\(UUID().uuidString).command", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: directory, contentType: .directory))
     }
 }
 
@@ -659,6 +733,8 @@ final class WindowDragHandleHitTests: XCTestCase {
     private final class SidebarActionRegionView: NSView, MinimalModeSidebarControlActionHitRegionProviding {
         nonisolated(unsafe) var config = TitlebarControlsStyle.classic.config
 
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
         nonisolated func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
             minimalModeSidebarControlActionSlot(localPoint: localPoint) != nil
         }
@@ -803,7 +879,13 @@ final class WindowDragHandleHitTests: XCTestCase {
     func testTitlebarControlGapsAreOutsideButtonHitColumns() {
         let config = TitlebarControlsStyle.classic.config
         let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
-        XCTAssertEqual(ranges.count, 3)
+        XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
+        XCTAssertEqual(
+            ranges[0].lowerBound,
+            TitlebarControlsLayoutMetrics.hintLeadingPadding + config.groupPadding.leading,
+            accuracy: 0.001,
+            "Hidden titlebar hit regions should share the visible titlebar control leading position."
+        )
 
         XCTAssertTrue(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(
@@ -823,6 +905,63 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(NSPoint(x: secondGapX, y: 14), config: config),
             "The gap between the notification and new-workspace icons should remain available for window dragging"
+        )
+    }
+
+    func testDragHandleYieldsToRegisteredMinimalModeSidebarButtonColumns() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let dragHandle = NSView(frame: contentView.bounds)
+        dragHandle.autoresizingMask = [.width, .height]
+        contentView.addSubview(dragHandle)
+
+        let controlRegion = SidebarActionRegionView(
+            frame: NSRect(
+                x: 72,
+                y: 88,
+                width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+                height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+            )
+        )
+        contentView.addSubview(controlRegion)
+        MinimalModeTitlebarControlHitRegionRegistry.register(controlRegion)
+        defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
+
+        let ranges = TitlebarControlsHitRegions.buttonXRanges(config: controlRegion.config)
+        let backButtonPoint = NSPoint(
+            x: controlRegion.frame.minX + ranges[MinimalModeSidebarControlActionSlot.focusHistoryBack.rawValue].lowerBound + 1,
+            y: controlRegion.frame.midY
+        )
+        XCTAssertTrue(isMinimalModeTitlebarControlHit(window: window, locationInWindow: backButtonPoint))
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                dragHandle.convert(backButtonPoint, from: nil),
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Registered minimal-mode titlebar buttons should not fall through to the window drag handle."
+        )
+
+        let emptyTitlebarPoint = NSPoint(x: contentView.bounds.maxX - 20, y: controlRegion.frame.midY)
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(
+                dragHandle.convert(emptyTitlebarPoint, from: nil),
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Empty titlebar space should still be draggable."
         )
     }
 
@@ -908,19 +1047,15 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
 
         let trafficLightFrame = closeButtonSuperview.convert(closeButton.frame, to: contentView)
-        let opticalYOffset = MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(in: window)
-        let expectedHostCenterY = contentView.isFlipped
-            ? trafficLightFrame.midY + opticalYOffset
-            : trafficLightFrame.midY - opticalYOffset
         XCTAssertEqual(
             target.frame.midY,
-            expectedHostCenterY,
+            trafficLightFrame.midY,
             accuracy: 0.25,
-            "Minimal-mode sidebar controls should compensate for the titlebar icon padding by one backing pixel"
+            "Minimal-mode sidebar controls should share the traffic-light center Y"
         )
     }
 
-    func testTitlebarChromeSettingsUseHardcodedDefaults() {
+    func testTitlebarChromeSettingsUseDefaultsAndStoredOverrides() {
         let suiteName = "WindowDragHandleHitTests.titlebarChromeSettings.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -940,6 +1075,51 @@ final class WindowDragHandleHitTests: XCTestCase {
             MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults),
             CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset),
             accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults),
+            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset),
+            accuracy: 0.001
+        )
+
+        defaults.set(44.5, forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+        defaults.set(6.5, forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+        defaults.set(12.0, forKey: "titlebarDebug.trafficLightsXOffset")
+        defaults.set(-3.0, forKey: "titlebarDebug.trafficLightsYOffset")
+        defaults.set(88.0, forKey: MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey)
+        defaults.set(92.0, forKey: MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey)
+
+        let storedSnapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        XCTAssertEqual(storedSnapshot.leftControlsLeadingInset, 44.5, accuracy: 0.001)
+        XCTAssertEqual(storedSnapshot.leftControlsTopInset, 6.5, accuracy: 0.001)
+        XCTAssertEqual(storedSnapshot.trafficLightTabBarLeadingInset, 88.0, accuracy: 0.001)
+        XCTAssertEqual(storedSnapshot.trafficLightTitlebarLeadingInset, 92.0, accuracy: 0.001)
+
+        defaults.set(999.0, forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+        XCTAssertEqual(
+            MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults),
+            CGFloat(MinimalModeTitlebarDebugSettings.horizontalInsetRange.upperBound),
+            accuracy: 0.001
+        )
+    }
+
+    func testTitlebarChromeSettingsIgnoreLegacyNativeTrafficLightOffsets() {
+        let suiteName = "WindowDragHandleHitTests.titlebarChromeLegacyTrafficLights.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(44.0, forKey: "titlebarDebug.trafficLightsXOffset")
+        defaults.set(-12.0, forKey: "titlebarDebug.trafficLightsYOffset")
+
+        let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        XCTAssertEqual(
+            snapshot,
+            MinimalModeTitlebarDebugSnapshot(
+                leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+                leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+                trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
+                trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+            )
         )
     }
 
@@ -1651,10 +1831,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         defer { window.orderOut(nil) }
 
         let rootView = RightSidebarPanelView(
+            tabManager: TabManager(),
             fileExplorerStore: FileExplorerStore(),
             fileExplorerState: FileExplorerState(),
             sessionIndexStore: SessionIndexStore(),
-            titlebarHeight: 36,
+            titlebarHeight: 36, windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
@@ -1738,17 +1919,54 @@ final class DraggableFolderHitTests: XCTestCase {
 
 
 @MainActor
-final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
-    func testLeadingInsetViewDoesNotParticipateInHitTesting() {
-        let view = TitlebarLeadingInsetPassthroughView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
-        XCTAssertNil(view.hitTest(NSPoint(x: 20, y: 10)))
+@Suite struct MainWindowHostingViewTests {
+    @Test func testReportsPolicyMinimumInsteadOfChildMinimum() {
+        _ = NSApplication.shared
+
+        let root = HStack(spacing: 0) {
+            Color.clear
+                .frame(width: 900, height: 240)
+        }
+            .frame(
+                minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+                minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+            )
+        let hostingView = MainWindowHostingView(rootView: root)
+        let expectedMinimumWidth = CGFloat(SessionPersistencePolicy.minimumWindowWidth)
+
+        for width in [520, 1_200] as [CGFloat] {
+            hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 500)
+            hostingView.layoutSubtreeIfNeeded()
+
+            #expect(
+                abs(hostingView.fittingSize.width - expectedMinimumWidth) <= 0.001,
+                "Main window AppKit fitting width must equal minimumWindowWidth at \(width)pt."
+            )
+            #expect(
+                abs(hostingView.intrinsicContentSize.width - expectedMinimumWidth) <= 0.001,
+                "Main window AppKit intrinsic width must equal minimumWindowWidth at \(width)pt."
+            )
+        }
     }
 
-    func testLeadingInsetViewCannotMoveWindowViaMouseDown() {
-        let view = TitlebarLeadingInsetPassthroughView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
-        XCTAssertFalse(view.mouseDownCanMoveWindow)
+    @Test func testStandardFrameKeepsAppKitDefaultFrameWhenLargerThanPolicyMinimum() {
+        let defaultFrame = NSRect(x: 20, y: 40, width: 1_000, height: 700)
+
+        #expect(CmuxMainWindow.standardFrame(forDefaultFrame: defaultFrame) == defaultFrame)
     }
 
+    @Test func testStandardFrameDoesNotShrinkBelowPolicyMinimum() {
+        let tinyDefaultFrame = NSRect(x: 20, y: 40, width: 100, height: 80)
+        let standardFrame = CmuxMainWindow.standardFrame(forDefaultFrame: tinyDefaultFrame)
+
+        #expect(standardFrame.origin == tinyDefaultFrame.origin)
+        #expect(standardFrame.width == CGFloat(SessionPersistencePolicy.minimumWindowWidth))
+        #expect(standardFrame.height == CGFloat(SessionPersistencePolicy.minimumWindowHeight))
+    }
+}
+
+@MainActor
+final class MainWindowDragBehaviorTests: XCTestCase {
     func testMainWindowHostingViewCannotMoveWindowViaMouseDown() {
         let view = MainWindowHostingView(rootView: Color.clear)
         XCTAssertFalse(
@@ -1785,6 +2003,134 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
             window.isMovable,
             "Explicit chrome drag zones may temporarily enable movement, but the main window must return to pane-tab-safe immovable state"
         )
+    }
+}
+
+
+@Suite("Custom titlebar leading padding")
+struct CustomTitlebarLeadingPaddingTests {
+    @Test func hiddenSidebarUsesMinimumSidebarTitleInset() {
+        #expect(
+            ContentView.customTitlebarLeadingPadding(
+                isFullScreen: false,
+                isSidebarVisible: false,
+                sidebarWidth: 216,
+                minimumSidebarWidth: 216,
+                titlebarLeadingInset: 82
+            ) == 228
+        )
+    }
+
+    @Test func minimumWidthVisibleSidebarMatchesHiddenSidebarTitleInset() {
+        let hidden = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: false,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+        let visible = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: true,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+
+        #expect(visible == hidden)
+    }
+
+    @Test func widerSidebarPushesTitlebarContentRight() {
+        let hidden = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: false,
+            sidebarWidth: 216,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+        let visible = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: true,
+            sidebarWidth: 320,
+            minimumSidebarWidth: 216,
+            titlebarLeadingInset: 82
+        )
+
+        #expect(visible > hidden)
+        #expect(visible == 332)
+    }
+
+    @Test func fullscreenHiddenSidebarKeepsCompactInset() {
+        #expect(
+            ContentView.customTitlebarLeadingPadding(
+                isFullScreen: true,
+                isSidebarVisible: false,
+                sidebarWidth: 216,
+                minimumSidebarWidth: 216,
+                titlebarLeadingInset: 82
+            ) == 8
+        )
+    }
+
+    // Regression: at the default (== minimum) sidebar width, toggling the sidebar
+    // must not move the folder/title. The title tracks the actual width only when
+    // the sidebar is wider than the minimum, so the default width must equal the
+    // minimum for the visible and hidden insets to match.
+    @Test func togglingSidebarAtDefaultWidthDoesNotMoveTitle() {
+        let width = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+        let minimum = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
+        let visible = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: true,
+            sidebarWidth: width,
+            minimumSidebarWidth: minimum,
+            titlebarLeadingInset: 82
+        )
+        let hidden = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: false,
+            sidebarWidth: width,
+            minimumSidebarWidth: minimum,
+            titlebarLeadingInset: 82
+        )
+        #expect(visible == hidden)
+    }
+}
+
+
+@Suite("Fullscreen titlebar controls placement")
+struct FullscreenControlsPlacementTests {
+    @Test func notShownOutsideFullscreen() {
+        #expect(
+            ContentView.fullscreenControlsPlacement(
+                isFullScreen: false,
+                isSidebarVisible: true
+            ) == nil
+        )
+        #expect(
+            ContentView.fullscreenControlsPlacement(
+                isFullScreen: false,
+                isSidebarVisible: false
+            ) == nil
+        )
+    }
+
+    // Regression: in fullscreen, toggling the sidebar used to shift the accessory
+    // bar a few pixels left and up because the controls were mounted in two
+    // anchors with different padding. Placement must be identical regardless of
+    // sidebar visibility.
+    @Test func placementIsIndependentOfSidebarVisibility() {
+        let visible = ContentView.fullscreenControlsPlacement(
+            isFullScreen: true,
+            isSidebarVisible: true
+        )
+        let hidden = ContentView.fullscreenControlsPlacement(
+            isFullScreen: true,
+            isSidebarVisible: false
+        )
+
+        #expect(visible != nil)
+        #expect(visible == hidden)
     }
 }
 
@@ -2538,7 +2884,7 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
-    func testNativePreviewSessionsDetachAndReuseViewsAcrossRecreation() throws {
+    func testNativePreviewSessionsDetachAndManageViewsAcrossRecreation() throws {
         let url = try temporaryTextFile(contents: "preview", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -2601,12 +2947,15 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         ))
         XCTAssertNil(mediaView.superview)
 
-        XCTAssertTrue(quickLookView === sessions.quickLook.view(
+        let remountedQuickLookView = sessions.quickLook.view(
             panel: panel,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
-        ))
+        )
+        XCTAssertFalse(quickLookView === remountedQuickLookView)
+        XCTAssertTrue(quickLookView.superview === host)
+        sessions.quickLook.dismantle(quickLookView)
         XCTAssertNil(quickLookView.superview)
     }
 
@@ -2615,6 +2964,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         let textView = NSTextView()
         textView.string = "edited from text view"
@@ -2635,6 +2985,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         panel.updateTextContent("first save")
 
@@ -2667,6 +3018,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
 
         try "loaded after clean save".write(to: url, atomically: true, encoding: .utf8)
@@ -2693,6 +3045,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
 
         let textView = SavingTextView()
@@ -2731,6 +3084,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
 
         let textView = SavingTextView()
@@ -2760,6 +3114,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         panel.updateTextContent("edited")
         if let task = panel.saveTextContent() {
@@ -2786,6 +3141,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: linkURL.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         panel.updateTextContent("edited through link")
         if let task = panel.saveTextContent() {
@@ -2806,6 +3162,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         if let task = panel.saveTextContent() {
             await task.value
@@ -2821,6 +3178,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         panel.updateTextContent("edited")
         try FileManager.default.removeItem(at: url)
@@ -2839,6 +3197,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         textView.textContainer?.lineFragmentPadding = 5
 
         let firstWindow = windowHosting(textView)
+        defer { closeWindow(firstWindow) }
         XCTAssertEqual(textView.textContainerInset.width, FilePreviewTextEditorLayout.textContainerInset.width)
         XCTAssertEqual(textView.textContainerInset.height, FilePreviewTextEditorLayout.textContainerInset.height)
         XCTAssertEqual(textView.textContainer?.lineFragmentPadding, FilePreviewTextEditorLayout.lineFragmentPadding)
@@ -2847,6 +3206,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         textView.textContainer?.lineFragmentPadding = 5
 
         let secondWindow = windowHosting(textView)
+        defer { closeWindow(secondWindow) }
         XCTAssertEqual(textView.textContainerInset.width, FilePreviewTextEditorLayout.textContainerInset.width)
         XCTAssertEqual(textView.textContainerInset.height, FilePreviewTextEditorLayout.textContainerInset.height)
         XCTAssertEqual(textView.textContainer?.lineFragmentPadding, FilePreviewTextEditorLayout.lineFragmentPadding)
@@ -2907,10 +3267,12 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         panel.focus()
 
         let textView = SavingTextView()
         let window = windowHosting(textView)
+        defer { closeWindow(window) }
         panel.attachTextView(textView)
 
         XCTAssertTrue(window.firstResponder === textView)
@@ -2947,6 +3309,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await waitForPanelPreviewMode(panel, .text)
         await waitForPanelTextContent(panel, "extensionless text")
 
@@ -3002,6 +3365,55 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(applications.map(\.isDefault), [false])
     }
 
+    func testExternalOpenMenuKeepsFinderTopLevelAndOpenWithItemsSearchableByAppName() throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.png")
+        let previewURL = URL(fileURLWithPath: "/System/Applications/Preview.app")
+        let pixelmatorURL = URL(fileURLWithPath: "/Applications/Pixelmator Pro.app")
+        let primaryApplication = FileExternalOpenApplication(
+            url: previewURL,
+            displayName: "Preview",
+            isDefault: true
+        )
+        let otherApplication = FileExternalOpenApplication(
+            url: pixelmatorURL,
+            displayName: "Pixelmator Pro",
+            isDefault: false
+        )
+
+        let menu = FileExternalOpenMenuFactory.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: primaryApplication,
+            otherApplications: [otherApplication]
+        )
+
+        let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        XCTAssertEqual(topLevelTitles, [
+            FileExternalOpenText.openInApplication("Preview"),
+            FileExternalOpenText.revealInFinder,
+            FileExternalOpenText.openWithMenu,
+        ])
+
+        let openWithItem = try XCTUnwrap(menu.items.first { $0.title == FileExternalOpenText.openWithMenu })
+        let openWithTitles = try XCTUnwrap(openWithItem.submenu?.items.map(\.title))
+        XCTAssertEqual(openWithTitles, ["Pixelmator Pro"])
+    }
+
+    func testExternalOpenMenuKeepsFinderTopLevelWithoutResolvedApplications() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.bin")
+
+        let menu = FileExternalOpenMenuFactory.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: nil,
+            otherApplications: []
+        )
+
+        let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        XCTAssertEqual(topLevelTitles, [
+            FileExternalOpenText.openExternally,
+            FileExternalOpenText.revealInFinder,
+        ])
+    }
+
     func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {
         let suiteName = "cmux.file-preview-routing.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -3015,12 +3427,12 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        XCTAssertTrue(CmdClickSupportedFileRouteSettings.isEnabled(defaults: defaults))
-        XCTAssertTrue(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
-        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: directoryURL.path, defaults: defaults))
+        XCTAssertTrue(FileRouteSettingsStore(defaults: defaults).supportedFileRouteEnabled)
+        XCTAssertTrue(FileRouteSettingsStore(defaults: defaults).shouldRouteSupportedFile(path: fileURL.path))
+        XCTAssertFalse(FileRouteSettingsStore(defaults: defaults).shouldRouteSupportedFile(path: directoryURL.path))
 
-        defaults.set(false, forKey: CmdClickSupportedFileRouteSettings.key)
-        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        defaults.set(false, forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey)
+        XCTAssertFalse(FileRouteSettingsStore(defaults: defaults).shouldRouteSupportedFile(path: fileURL.path))
     }
 
     func testCmdClickMarkdownRoutingDoesNotRequireSupportedFileRoutingSetting() throws {
@@ -3031,11 +3443,23 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let fileURL = try temporaryTextFile(contents: "# preview me", encoding: .utf8, pathExtension: "md")
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        defaults.set(true, forKey: CmdClickMarkdownRouteSettings.key)
-        defaults.set(false, forKey: CmdClickSupportedFileRouteSettings.key)
+        defaults.set(true, forKey: AppCatalogSection().openMarkdownInCmuxViewer.userDefaultsKey)
+        defaults.set(false, forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey)
 
-        XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
-        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        XCTAssertTrue(FileRouteSettingsStore(defaults: defaults).shouldRouteMarkdown(path: fileURL.path))
+        XCTAssertFalse(FileRouteSettingsStore(defaults: defaults).shouldRouteSupportedFile(path: fileURL.path))
+    }
+
+    func testCmdClickMarkdownRoutingDefaultsToReadableMarkdownFiles() throws {
+        let suiteName = "cmux.markdown-preview-default-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "# preview me", encoding: .utf8, pathExtension: "md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        XCTAssertTrue(FileRouteSettingsStore(defaults: defaults).markdownRouteEnabled)
+        XCTAssertTrue(FileRouteSettingsStore(defaults: defaults).shouldRouteMarkdown(path: fileURL.path))
     }
 
     func testCmdClickFilePreviewRoutingReusesRightSidePane() throws {
@@ -3170,6 +3594,11 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTFail("Timed out waiting for file preview text content", file: file, line: line)
     }
 
+    private func closeWindow(_ window: NSWindow) {
+        window.contentView = nil
+        window.close()
+    }
+
     private func windowHosting(_ textView: NSTextView) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -3280,17 +3709,164 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         XCTAssertEqual(model.flashReason, .navigation)
     }
 
-    func testNavigationFlashUsesNonNotificationPresentation() {
-        XCTAssertNotEqual(
-            WorkspaceAttentionCoordinator.flashStyle(for: .navigation),
-            WorkspaceAttentionCoordinator.flashStyle(for: .notificationArrival)
+    func testTmuxWorkspacePaneOverlayModelAnimatesFlashAfterWorkspaceSwitchBackWhenTokenChanges() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let firstWorkspaceId = UUID()
+        let secondWorkspaceId = UUID()
+        let firstFlashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: firstWorkspaceId,
+            unreadRects: [firstFlashRect],
+            flashRect: firstFlashRect,
+            flashToken: 0,
+            flashReason: nil
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: secondWorkspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 0,
+            flashReason: nil
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: firstWorkspaceId,
+                unreadRects: [],
+                flashRect: firstFlashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
         )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
     }
 
-    func testNavigationFlashUsesNonNeutralAccent() {
+    func testTmuxWorkspacePaneOverlayModelWaitsForFlashRectBeforeConsumingToken() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let firstWorkspaceId = UUID()
+        let secondWorkspaceId = UUID()
+        let firstFlashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: firstWorkspaceId,
+            unreadRects: [],
+            flashRect: firstFlashRect,
+            flashToken: 0,
+            flashReason: nil
+        ))
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: secondWorkspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 0,
+            flashReason: nil
+        ))
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: firstWorkspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 1,
+            flashReason: .unreadIndicatorDismiss
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: firstWorkspaceId,
+                unreadRects: [],
+                flashRect: firstFlashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
+        )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
+    }
+
+    func testTmuxWorkspacePaneOverlayModelAnimatesFirstObservedFlashToken() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let workspaceId = UUID()
+        let flashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: workspaceId,
+                unreadRects: [],
+                flashRect: flashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
+        )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
+    }
+
+    func testTmuxWorkspacePaneOverlayModelWaitsForRectBeforeFirstObservedFlashToken() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let workspaceId = UUID()
+        let flashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: workspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 1,
+            flashReason: .unreadIndicatorDismiss
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: workspaceId,
+                unreadRects: [],
+                flashRect: flashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
+        )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
+    }
+
+    func testAllFlashReasonsUseNotificationRingAccent() {
+        let reasons: [WorkspaceAttentionFlashReason] = [
+            .navigation,
+            .notificationArrival,
+            .notificationDismiss,
+            .unreadIndicatorDismiss,
+            .debug,
+        ]
+
+        for reason in reasons {
+            XCTAssertEqual(
+                WorkspaceAttentionCoordinator.flashStyle(for: reason).accent,
+                WorkspaceAttentionCoordinator.notificationRingStyle.accent
+            )
+        }
+    }
+
+    func testFocusFlashUsesNotificationRingColor() {
         XCTAssertEqual(
-            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent,
-            .navigationTeal
+            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor.hexString(),
+            WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor.hexString()
         )
     }
 
@@ -3315,120 +3891,6 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
             ContentView.tmuxWorkspacePaneExactRect(for: targetView, in: contentView),
             CGRect(x: 120, y: 48, width: 300, height: 200)
         )
-    }
-}
-
-@MainActor
-final class ApplicationAccessibilityHierarchyCacheTests: XCTestCase {
-    private func makeWindow() -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        return window
-    }
-
-    private func assertWindowsEqual(_ actual: Any?, _ expected: [NSWindow], file: StaticString = #filePath, line: UInt = #line) {
-        guard let actualWindows = actual as? [NSWindow] else {
-            XCTFail("Expected NSWindow array", file: file, line: line)
-            return
-        }
-        guard actualWindows.count == expected.count else {
-            XCTFail("Expected \(expected.count) windows, got \(actualWindows.count)", file: file, line: line)
-            return
-        }
-        for (lhs, rhs) in zip(actualWindows, expected) {
-            XCTAssertTrue(lhs === rhs, file: file, line: line)
-        }
-    }
-
-    func testRepeatedWindowsQueriesReuseSingleHierarchyBuildUntilStateChanges() {
-        let firstWindow = makeWindow()
-        let secondWindow = makeWindow()
-        defer {
-            firstWindow.orderOut(nil)
-            secondWindow.orderOut(nil)
-        }
-
-        let cache = CmuxApplicationAccessibilityHierarchyCache()
-        let state = CmuxApplicationAccessibilityHierarchyCache.StateToken(windows: [firstWindow, secondWindow])
-        var buildCount = 0
-
-        let firstValue = cache.value(for: .windows, stateToken: state) {
-            buildCount += 1
-            return .init(windows: [firstWindow, secondWindow])
-        }
-        let secondValue = cache.value(for: .windows, stateToken: state) {
-            XCTFail("Expected cached snapshot for repeated state")
-            return .init(windows: [])
-        }
-
-        assertWindowsEqual(firstValue, [firstWindow, secondWindow])
-        assertWindowsEqual(secondValue, [firstWindow, secondWindow])
-        XCTAssertEqual(buildCount, 1, "Expected a single hierarchy build for repeated AX queries with no invalidation")
-    }
-
-    func testChangedStateTokenInvalidatesCachedHierarchySnapshot() {
-        let window = makeWindow()
-        let otherWindow = makeWindow()
-        defer {
-            window.orderOut(nil)
-            otherWindow.orderOut(nil)
-        }
-
-        let cache = CmuxApplicationAccessibilityHierarchyCache()
-        let initialState = CmuxApplicationAccessibilityHierarchyCache.StateToken(windows: [window])
-        let updatedState = CmuxApplicationAccessibilityHierarchyCache.StateToken(windows: [window, otherWindow])
-        var buildCount = 0
-
-        _ = cache.value(for: .windows, stateToken: initialState) {
-            buildCount += 1
-            return .init(windows: [window])
-        }
-        let updatedWindowsValue = cache.value(for: .windows, stateToken: updatedState) {
-            buildCount += 1
-            return .init(windows: [window, otherWindow])
-        }
-
-        assertWindowsEqual(updatedWindowsValue, [window, otherWindow])
-        XCTAssertEqual(buildCount, 2, "Expected the cache to rebuild once after the hierarchy token changes")
-    }
-
-    func testNonWindowsAttributesStayPassthrough() {
-        let cache = CmuxApplicationAccessibilityHierarchyCache()
-
-        for attribute: NSAccessibility.Attribute in [.children, .visibleChildren, .mainWindow, .focusedWindow] {
-            switch cache.resolve(attribute: attribute, application: NSApp) {
-            case .passthrough:
-                break
-            case .handled:
-                XCTFail("Expected \(attribute.rawValue) to fall back to AppKit")
-            }
-        }
-    }
-
-    func testWindowCloseNotificationInvalidatesCache() {
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
-
-        let center = NotificationCenter()
-        let cache = CmuxApplicationAccessibilityHierarchyCache(notificationCenter: center)
-        let state = CmuxApplicationAccessibilityHierarchyCache.StateToken(windows: [window])
-        var buildCount = 0
-
-        _ = cache.value(for: .windows, stateToken: state) {
-            buildCount += 1
-            return .init(windows: [window])
-        }
-        center.post(name: NSWindow.willCloseNotification, object: window)
-        _ = cache.value(for: .windows, stateToken: state) {
-            buildCount += 1
-            return .init(windows: [window])
-        }
-
-        XCTAssertEqual(buildCount, 2, "Expected NSWindow.willCloseNotification to invalidate the cache")
     }
 }
 #endif

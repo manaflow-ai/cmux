@@ -12,16 +12,42 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `ff6e1260d`, based on `aef980e27`, with the
+Current cmux pinned fork head: `05c3e2908`, which adds
+the Darwin-only `ghostty_surface_set_renderer_realized` C API (a
+`display_realized` renderer-thread mailbox message that drives
+`displayUnrealized()`/`displayRealized()`) on top of `5697db81`. cmux uses it to
+release an occluded terminal's GPU renderer resources (Metal swap chain /
+IOSurface) while keeping its PTY alive, then rebuild them on re-show. The API
+returns whether the message was enqueued so the embedder only advances its
+realize/unrealize mirror state on success. The push is `.instant`
+(non-blocking) so it never stalls the embedder's main thread waiting on the
+renderer. See manaflow-ai/ghostty branch `feat-renderer-realized-offscreen`,
+the copy-mode read branches `issue-6170-surface-read-screen-text-main` and
+`issue-6170-screen-clipboard-text`, and
+https://github.com/manaflow-ai/cmux/issues/4607. The corresponding prebuilt
+archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-49cb510f759aa109a5b1d30329583195155e58a4-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+The prior head was refreshed from upstream `main` on May 1, 2026.
+Earlier cmux pinned fork head: `34cbf180d`, merging the surface registry
+serialization for https://github.com/manaflow-ai/cmux/issues/5458 (`e5c962a72`,
+landed on cmux `main`) into the iOS render bounded-acquire line (`f78189ac1`)
+combined with the cmd-click link refresh under mouse reporting (`df789cd4b`,
+manaflow-ai/ghostty#71 and PRs #74 through #79) for
+https://github.com/manaflow-ai/cmux/issues/5128. This keeps the previous head's
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
-the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
-regex bound for spaced file paths followed by prose. This head keeps the cmux
-theme picker hooks, exposes the manual surface IO needed by libghostty iOS
-clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
-prevents Cmd-hover from highlighting normal sentence text after a file path.
+the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369,
+the URL/path regex bound for spaced file paths followed by prose, and the iOS
+render serial-queue bounded acquire fix from manaflow-ai/ghostty#80. This head
+keeps the cmux theme picker hooks, exposes the manual surface IO needed by
+libghostty iOS clients, bounds shaped glyph iteration during IME/preedit row
+rebuilds, prevents Cmd-hover from highlighting normal sentence text after a file
+path, and lets Cmd-click open links even while a mouse-reporting alt-screen TUI
+(Claude Code, Codex) has grabbed the mouse.
+It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-34cbf180d8917b802d61d9929cfb493594f2ab52-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -77,6 +103,7 @@ tend to conflict together during rebases.
   - `eb34bcdd6` (Harden cmux theme override writes)
   - `04ec69173` (Apply highlighted cmux theme on Enter)
   - `4265d3428` (Apply cmux theme from picker search)
+  - `176bd550f` (Add ctrl navigation to cmux theme picker)
 - Files:
   - `build.zig`
   - `src/cli/list_themes.zig`
@@ -87,6 +114,7 @@ tend to conflict together during rebases.
   - Keeps the preview UI readable in light mode, matches upstream picker startup behavior, and hardens writes to the cmux-managed theme override file.
   - Restores Enter as the cmux apply action by writing the currently highlighted theme before the picker exits.
   - Applies the highlighted search result when Enter is pressed from search mode in cmux-managed picker sessions.
+  - Supports Ctrl-N and Ctrl-P as one-row down/up navigation in cmux-managed picker sessions.
 
 ### 5) Color scheme mode 2031 reporting
 
@@ -102,11 +130,15 @@ tend to conflict together during rebases.
 
 ### 6) Keyboard copy mode selection C API
 
-- Commit: `0b231db94` (Re-export cmux selection APIs removed from upstream)
+- Commits:
+  - `0b231db94` (Re-export cmux selection APIs removed from upstream)
+  - `46bd03a7` (surface: add absolute screen row text read)
+  - `edad0cfec` (surface: format screen row clipboard text)
+  - `e81fb65f` (surface: bound screen clipboard text formatting)
 - Files:
   - `include/ghostty.h`
-  - `src/Surface.zig`
   - `src/apprt/embedded.zig`
+  - `src/Surface.zig`
 - Summary:
   - Restores `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection`.
   - Keeps cmux keyboard copy mode working against the refreshed Ghostty base after upstream removed those exports.
@@ -209,14 +241,109 @@ tend to conflict together during rebases.
   - Preserves versioned or dotted path components before the first space, such as
     `/tmp/v1.2 captures/video.mp4`.
 
-The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through the
-`xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1`
-release tag and branch `issue-cmd-hover-path-range`.
-Published `xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1` and pinned its
-archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
-pin must be regenerated whenever this commit changes, even for comment-only
-amends, because the release tag is keyed by the Ghostty commit SHA.
+### 13) Cmd-click opens links under mouse reporting (alt-screen TUIs)
+
+- Commits (manaflow-ai/ghostty#71, by @doronpr):
+  - `1c7613c95` (fix: open terminal links on cmd-click even when mouse reporting is active)
+  - `55d154a97` (fix: gate link refresh on effective mouse-reporting state)
+- Follow-up commits (manaflow-ai/ghostty#74):
+  - `354e3626b` (fix: suppress mouse reporting for the full cmd-clicked link click)
+  - `d1dbbec9b` (fix: key cmd-click link suppression on the modifier, not over_link)
+- Follow-up commit (manaflow-ai/ghostty#75):
+  - `76ead3eae` (fix: also suppress motion reports during a cmd-clicked link drag)
+- Follow-up commit (manaflow-ai/ghostty#76):
+  - `f24195271` (fix: scope cmd-click link suppression to left button; clear stale hover)
+- Follow-up commits (manaflow-ai/ghostty#77):
+  - `5998abddd` (fix: latch cmd-click link suppression for the click lifecycle)
+  - `59fb750c0` (fix: clear link-click latch unconditionally on left release)
+- Follow-up commit (manaflow-ai/ghostty#78):
+  - `9f014e98b` (fix: open latched link on release with press-time chord; defer-clear latch)
+- Follow-up commit (manaflow-ai/ghostty#79):
+  - `df789cd4b` (fix: only open a latched link click that started on a link)
+- Files:
+  - `src/Surface.zig`
+- Summary:
+  - Link hover/highlight state was refreshed in `keyCallback`/`cursorPosCallback`
+    only when mouse reporting was off, or shift was releasing the mouse from
+    capture. Holding the ctrl/super link-activation modifier was not considered,
+    so under a mouse-grabbing alt-screen TUI (Claude Code, Codex) `over_link`
+    stayed `false`, the link-click branch in `mouseButtonCallback` was skipped,
+    and the Cmd-click was reported to the program — which made cmux fall back to
+    the OS default browser instead of honoring the configured link-open target.
+  - Adds a shared `mouseLinkRefreshAllowed` gate (pure logic in
+    `mouseLinkRefreshAllowedState`) that also allows local link handling when the
+    ctrl/super modifier is held, using the effective mouse-reporting state
+    (`isMouseReporting()`), matching iTerm2 and macOS Terminal. Fixes
+    https://github.com/manaflow-ai/cmux/issues/5128.
+  - Follow-up (#74): `mouseButtonCallback` ran the link-open path only on
+    release, while the mouse-report path ran for both press and release and only
+    broke out for the shift-release case — so a Cmd-click over a link still
+    reported the *press* to the program and leaked a half-click to mouse-grabbing
+    TUIs. The follow-up breaks out of the report path whenever the ctrl/super
+    link chord is held (keyed on the modifier, like the shift-release path, so
+    cursor jitter can't leak a press or a release), suppressing the whole click.
+  - Follow-up (#75): `cursorPosCallback` still emitted `.motion` reports while a
+    button was held during the chord, so a drag during link activation leaked
+    button-motion. Mirrors the shift "grab override" for the ctrl/super chord in
+    the motion path. Net: the link chord suppresses the whole left click+drag —
+    press, release, and motion — consistently.
+  - Follow-up (#76): scopes that suppression to the left button (ctrl/super
+    right/middle clicks still reach the program, since link activation is
+    left-only), and clears a stale link highlight/cursor when the chord is
+    released through `cursorPosCallback`'s mods (refresh when `over_link` is set,
+    mirroring `keyCallback`'s existing reset branch).
+  - Follow-up (#77): latches the suppression decision at left-button press
+    (`mouse.link_click_active`) and applies it through the release, instead of
+    re-checking the live modifier each event — so releasing ctrl/super before the
+    mouse button can't leak the release as a half-click. Ties suppression to the
+    click lifecycle (press/drag/release), fully closing the half-click class. The
+    latch is cleared unconditionally on left release (independent of
+    mouse-reporting state) so it can't go stale.
+  - Follow-up (#78): unifies the open and suppression decisions. `linkAtPos`
+    uses the latched chord while a click is active and the release attempts
+    `processLinks` whenever latched, so releasing the modifier before the button
+    still opens the link (instead of swallowing the click); the latch is cleared
+    via a function-level `defer` so the early-return link-open path resets it.
+  - Follow-up (#79): only opens the latched click when it started on a link
+    (`link_press_over_link`), so a chord drag that began off a link and released
+    over one is swallowed rather than opening a link the press never targeted.
+  - Known limitation (noted by review): the bypass matches the default
+    `ctrlOrSuper` chord, which is exactly what both link kinds already require to
+    activate (OSC 8 `linkAtPos` and the default url `hover_mods = ctrlOrSuper`); a
+    user who reconfigures `link.highlight.hover_mods` to a non-default chord would
+    not get the under-mouse-reporting bypass. Out of scope for #5128.
+
+### 14) Embedded surface registry serialization
+
+- Commits:
+  - `c9b61a8af` (Add surface registry mutation serialization test)
+  - `e5c962a72` (Serialize Ghostty surface registry mutations)
+- Files:
+  - `src/App.zig`
+- Summary:
+  - Adds a deterministic regression test for concurrent embedded runtime
+    surface registry mutation.
+  - Protects the native `App.surfaces` list and `focused_surface` pointer with
+    one mutex so an off-main `ghostty_surface_free` cannot overlap the main
+    actor `ghostty_surface_new` insertion path.
+  - Keeps callbacks such as the quit timer outside the registry mutex to avoid
+    re-entrancy through the embedder.
+- Conflict notes:
+  - Any upstream change to `App.addSurface`, `App.deleteSurface`,
+    `App.focusedSurface`, or the embedded surface close path should preserve
+    serialization of registry/focus mutation across create and free.
+
+The current cmux pin is the merged head `34cbf180d`, which merges the surface
+registry serialization (`e5c962a72`, section 14, landed on cmux `main` via
+branch `issue-5458-surface-registry-lock`) into the Cmd-click link fix line
+(`df789cd4b`, section 13) on top of the iOS render bounded-acquire pin
+(`f78189ac1`). It is reachable from `manaflow-ai/ghostty` through branch
+`issue-5128-alt-screen-link-open`. Published
+`xcframework-34cbf180d8917b802d61d9929cfb493594f2ab52-crashsubdir-cmux-crash-v1`
+and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The
+release and checksum pin must be regenerated whenever this commit changes, even
+for comment-only amends, because the release tag is keyed by the Ghostty commit
+SHA.
 
 ## Upstreamed fork changes
 
@@ -319,6 +446,13 @@ These files change frequently upstream; be careful when rebasing the fork:
   - The initial `focused` plumbing has to stay aligned across the C config, embedded runtime surface,
     and macOS wrapper. If upstream refactors surface creation or post-create focus sync, re-check that
     background panes can start unfocused without synthesizing a focus-loss transition during creation.
+
+- `src/Surface.zig` (modifier tracking)
+  - `modsChanged` and the key callback's link-highlight gate must compare binding mods against
+    binding mods (stored mouse mods are binding-only). cmux sends sided modifier bits on key
+    events for `macos-option-as-alt = left|right`; comparing raw mods re-dirties the screen and
+    re-runs the link refresh on every event while a sided or lock modifier is held. If upstream
+    refactors modifier tracking, keep the binding-normalized comparison.
 
 - `src/termio/stream_handler.zig`
   - Keep DECSET 1004 enablement side-effect free. xterm-compatible focus reporting should only emit

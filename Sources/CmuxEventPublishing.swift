@@ -1,5 +1,5 @@
 import Foundation
-import CMUXWorkstream
+import CMUXAgentLaunch
 
 extension CmuxEventBus {
     func publishWorkspaceCreated(
@@ -76,6 +76,47 @@ extension CmuxEventBus {
                 index: index,
                 tabCount: tabCount
             )
+        )
+    }
+
+    func publishWorkspacePromptSubmitted(
+        workspaceId: UUID,
+        message: String?,
+        preview: String?,
+        source: String = "workspace.prompt_submit"
+    ) {
+        publish(
+            name: "workspace.prompt.submitted",
+            category: "workspace",
+            source: source,
+            workspaceId: workspaceId.uuidString,
+            payload: [
+                "workspace_id": workspaceId.uuidString,
+                "message": NSNull(),
+                "message_preview": preview ?? NSNull(),
+                "message_length": message?.count ?? 0,
+                "redacted_fields": ["message"]
+            ]
+        )
+    }
+
+    func publishWorkspaceReordered(
+        workspaceIds: [UUID],
+        movedWorkspaceIds: [UUID],
+        pinnedWorkspaceIds: [UUID],
+        source: String
+    ) {
+        publish(
+            name: "workspace.reordered",
+            category: "workspace",
+            source: source,
+            workspaceId: movedWorkspaceIds.first?.uuidString,
+            payload: [
+                "workspace_ids": workspaceIds.map(\.uuidString),
+                "moved_workspace_ids": movedWorkspaceIds.map(\.uuidString),
+                "pinned_workspace_ids": pinnedWorkspaceIds.map(\.uuidString),
+                "count": workspaceIds.count
+            ]
         )
     }
 
@@ -250,13 +291,31 @@ extension CmuxEventBus {
     }
 
     func publishNotificationChanges(oldValue: [TerminalNotification], newValue: [TerminalNotification]) {
-        let oldById = Dictionary(uniqueKeysWithValues: oldValue.map { ($0.id, $0) })
+        var oldById: [UUID: TerminalNotification] = [:]
+        for notification in oldValue {
+#if DEBUG
+            if oldById[notification.id] != nil {
+                cmuxDebugLog(
+                    "notification.changes.duplicateOldId function=publishNotificationChanges " +
+                        "id=\(notification.id.uuidString) source=oldById " +
+                        "expectedUniqueBy=TerminalNotificationStore.restoreSessionNotifications.notificationWithUniqueId"
+                )
+            }
+#endif
+            oldById[notification.id] = notification
+        }
         let newIds = Set(newValue.map(\.id))
-        let removed = oldValue.filter { !newIds.contains($0.id) }
+        var removedIds = Set<UUID>()
+        let removed = oldValue.filter { notification in
+            guard !newIds.contains(notification.id) else { return false }
+            return removedIds.insert(notification.id).inserted
+        }
         for notification in removed {
             publishNotificationRemoved(notification)
         }
+        var seenNewIds = Set<UUID>()
         for notification in newValue {
+            guard seenNewIds.insert(notification.id).inserted else { continue }
             if let old = oldById[notification.id] {
                 if !old.isRead, notification.isRead {
                     publishNotificationRead(

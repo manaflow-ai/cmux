@@ -1,4 +1,6 @@
 import AppKit
+import CmuxTerminalCore
+import CmuxTerminal
 import ObjectiveC.runtime
 
 @MainActor
@@ -36,6 +38,11 @@ private struct MainWindowRouteSnapshot {
 
 private var mainWindowRouteLedgerKey: UInt8 = 0
 
+// The retire sweep is the MainWindowRouteRetiring witness: the terminal
+// surface registry (CmuxTerminalEngine) calls it through the seam instead of
+// reaching up to AppDelegate.shared.
+extension AppDelegate: MainWindowRouteRetiring {}
+
 extension AppDelegate {
     private var mainWindowRouteLedger: MainWindowRouteLedger {
         if let ledger = objc_getAssociatedObject(self, &mainWindowRouteLedgerKey) as? MainWindowRouteLedger {
@@ -50,7 +57,7 @@ extension AppDelegate {
         for workspace in manager.tabs {
             for panel in workspace.panels.values {
                 guard let terminalPanel = panel as? TerminalPanel else { continue }
-                if TerminalSurfaceRegistry.shared.surface(id: terminalPanel.id) === terminalPanel.surface {
+                if GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface {
                     return true
                 }
             }
@@ -344,6 +351,27 @@ extension AppDelegate {
             }
         }
         return nil
+    }
+
+    /// One-pass `tabId -> workspace title` index across every window context.
+    /// Notification lists call this once per render and look up each row's title
+    /// in O(1), instead of scanning the tab list per notification row, which was
+    /// O(notifications × tabs). Resolution mirrors `tabTitle(for:)`: window
+    /// contexts win, then the active `tabManager` covers any tab not yet present
+    /// in a context. See https://github.com/manaflow-ai/cmux/issues/5794.
+    func tabTitlesByTabId() -> [UUID: String] {
+        var titles: [UUID: String] = [:]
+        for context in mainWindowContexts.values {
+            for tab in context.tabManager.tabs where titles[tab.id] == nil {
+                titles[tab.id] = tab.title
+            }
+        }
+        if let activeTabs = tabManager?.tabs {
+            for tab in activeTabs where titles[tab.id] == nil {
+                titles[tab.id] = tab.title
+            }
+        }
+        return titles
     }
 
     /// Returns the `TabManager` that owns `tabId`, if any.

@@ -1,4 +1,5 @@
-import XCTest
+import AppKit
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -44,8 +45,10 @@ private final class MockFileExplorerProvider: FileExplorerProvider {
 private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
     var homePath: Result<String, Error>
     var listings: [String: Result<[FileExplorerEntry], Error>] = [:]
+    var downloads: [String: Result<Data, Error>] = [:]
     private(set) var resolvedHomeConnections: [SSHFileExplorerConnection] = []
     private(set) var listedPaths: [String] = []
+    private(set) var downloadedPaths: [String] = []
 
     init(homePath: Result<String, Error> = .success("/home/dev")) {
         self.homePath = homePath
@@ -67,19 +70,42 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
         return []
     }
+
+    func downloadFile(
+        path: String,
+        connection: SSHFileExplorerConnection,
+        to localURL: URL
+    ) async throws {
+        downloadedPaths.append(path)
+        let data = try downloads[path, default: .success(Data())].get()
+        try FileManager.default.createDirectory(
+            at: localURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: localURL)
+    }
 }
 
 private final class DeferredListFileExplorerProvider: FileExplorerProvider {
     var homePath = "/home/dev"
     var isAvailable = true
     private(set) var listCallPaths: [String] = []
+    /// Set the instant `listDirectory` hands its resumed value back to the store's
+    /// load task. Because that value is delivered on the same MainActor-isolated
+    /// continuation that then runs the store's synchronous post-`await` tail
+    /// (cancellation check + error handling), observing this flag from any other
+    /// MainActor work means the resumed load task has fully run. This lets the
+    /// cancelled-load test wait on the real completion signal instead of sleeping.
+    private(set) var didCompleteListing = false
     private var continuation: CheckedContinuation<[FileExplorerEntry], Error>?
 
     func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
         listCallPaths.append(path)
-        return try await withCheckedThrowingContinuation { continuation in
+        let entries = try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
         }
+        didCompleteListing = true
+        return entries
     }
 
     func resumeListing(returning entries: [FileExplorerEntry]) {
@@ -94,7 +120,8 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
 /// hop to `@MainActor`. Pinning the test class to `@MainActor` keeps observations on
 /// the same actor as the mutations, so reads see a consistent snapshot.
 @MainActor
-final class FileExplorerStoreTests: XCTestCase {
+@Suite(.serialized)
+struct FileExplorerStoreTests {
 
     struct WaitTimeout: Error, CustomStringConvertible {
         let description: String
@@ -130,7 +157,7 @@ final class FileExplorerStoreTests: XCTestCase {
             }
         } catch {
             await MainActor.run {
-                XCTFail("Timed out waiting for: \(description)", file: file, line: line)
+                Issue.record("Timed out waiting for: \(description)")
             }
             throw error
         }
@@ -138,6 +165,7 @@ final class FileExplorerStoreTests: XCTestCase {
 
     // MARK: - Basic loading
 
+    @Test
     func testLoadRootPopulatesNodes() async throws {
         let provider = MockFileExplorerProvider()
         provider.listings["/home/user/project"] = .success([
@@ -152,20 +180,22 @@ final class FileExplorerStoreTests: XCTestCase {
         try await waitFor("root nodes loaded") { store.rootNodes.count == 2 }
 
         // Directories should sort before files
-        XCTAssertEqual(store.rootNodes[0].name, "src")
-        XCTAssertTrue(store.rootNodes[0].isDirectory)
-        XCTAssertEqual(store.rootNodes[1].name, "README.md")
-        XCTAssertFalse(store.rootNodes[1].isDirectory)
+        #expect(store.rootNodes[0].name == "src")
+        #expect(store.rootNodes[0].isDirectory)
+        #expect(store.rootNodes[1].name == "README.md")
+        #expect(!(store.rootNodes[1].isDirectory))
     }
 
+    @Test
     func testDisplayRootPathUsesTilde() {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
         let store = FileExplorerStore()
         store.setProviderForTesting(provider)
         store.rootPath = "/home/user/project"
-        XCTAssertEqual(store.displayRootPath, "~/project")
+        #expect(store.displayRootPath == "~/project")
     }
 
+    @Test
     func testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath() async throws {
         let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
         transport.listings["/home/dev"] = .success([
@@ -187,6 +217,7 @@ final class FileExplorerStoreTests: XCTestCase {
                 workspaceId: UUID(),
                 connection: connection,
                 displayTarget: "dev@ubuntu-host:2222",
+                rootPath: nil,
                 isAvailable: true,
                 unavailableDetail: nil
             ),
@@ -198,13 +229,14 @@ final class FileExplorerStoreTests: XCTestCase {
                 store.rootNodes.map(\.name) == ["project"]
         }
 
-        XCTAssertTrue(store.provider is SSHFileExplorerProvider)
-        XCTAssertEqual(store.rootPath, "/home/dev")
-        XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:2222:/home/dev")
-        XCTAssertEqual(transport.resolvedHomeConnections, [connection])
-        XCTAssertEqual(transport.listedPaths, ["/home/dev"])
+        #expect(store.provider is SSHFileExplorerProvider)
+        #expect(store.rootPath == "/home/dev")
+        #expect(store.displayRootPath == "ssh://dev@ubuntu-host:2222:/home/dev")
+        #expect(transport.resolvedHomeConnections == [connection])
+        #expect(transport.listedPaths == ["/home/dev"])
     }
 
+    @Test
     func testSwitchingFromLocalToRemoteRepointsTreeToRemoteHome() async throws {
         let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
         transport.listings["/home/dev"] = .success([
@@ -233,6 +265,7 @@ final class FileExplorerStoreTests: XCTestCase {
                     sshOptions: []
                 ),
                 displayTarget: "dev@ubuntu-host",
+                rootPath: nil,
                 isAvailable: true,
                 unavailableDetail: nil
             ),
@@ -244,10 +277,81 @@ final class FileExplorerStoreTests: XCTestCase {
                 store.rootNodes.map(\.name) == [".ssh"]
         }
 
-        XCTAssertTrue(store.provider is SSHFileExplorerProvider)
-        XCTAssertEqual(transport.resolvedHomeConnections.map(\.destination), ["dev@ubuntu-host"])
+        #expect(store.provider is SSHFileExplorerProvider)
+        #expect(transport.resolvedHomeConnections.map(\.destination) == ["dev@ubuntu-host"])
     }
 
+    @Test
+    func testRemoteWorkspaceRootTracksRequestedWorkingDirectory() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/srv/app"] = .success([
+            FileExplorerEntry(name: "Package.swift", path: "/srv/app/Package.swift", isDirectory: false),
+        ])
+        let store = FileExplorerStore()
+
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                displayTarget: "dev@ubuntu-host",
+                rootPath: "/srv/app",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("remote requested cwd loaded") {
+            store.rootPath == "/srv/app" &&
+                store.rootNodes.map(\.name) == ["Package.swift"]
+        }
+
+        #expect(transport.resolvedHomeConnections == [])
+        #expect(transport.listedPaths == ["/srv/app"])
+        #expect(store.displayRootPath == "ssh://dev@ubuntu-host:/srv/app")
+    }
+
+    @Test
+    func testRemoteFilePreviewMaterializesThroughSSHProvider() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/srv/app"] = .success([
+            FileExplorerEntry(name: "README.md", path: "/srv/app/README.md", isDirectory: false),
+        ])
+        transport.downloads["/srv/app/README.md"] = .success(Data("# Remote\n".utf8))
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                displayTarget: "dev@ubuntu-host",
+                rootPath: "/srv/app",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("remote requested cwd loaded") {
+            store.rootNodes.map(\.name) == ["README.md"]
+        }
+        let localURL = try await store.materializeRemoteFileForPreview(path: "/srv/app/README.md")
+
+        #expect(transport.downloadedPaths == ["/srv/app/README.md"])
+        #expect(try String(contentsOf: localURL, encoding: .utf8) == "# Remote\n")
+        #expect(localURL.path.contains("cmux-remote-file-previews"))
+    }
+
+    @Test
     func testCancelledRootLoadDoesNotClearRemoteUnavailableStatus() async throws {
         let provider = DeferredListFileExplorerProvider()
         let store = FileExplorerStore()
@@ -268,6 +372,7 @@ final class FileExplorerStoreTests: XCTestCase {
                     sshOptions: []
                 ),
                 displayTarget: "dev@ubuntu-host",
+                rootPath: nil,
                 isAvailable: false,
                 unavailableDetail: nil
             ),
@@ -278,20 +383,26 @@ final class FileExplorerStoreTests: XCTestCase {
             localized: "fileExplorer.status.sshUnavailable",
             defaultValue: "SSH files unavailable"
         )
-        XCTAssertEqual(store.rootStatusMessage, unavailableMessage)
+        #expect(store.rootStatusMessage == unavailableMessage)
 
         provider.resumeListing(returning: [
             FileExplorerEntry(name: "stale", path: "/home/dev/stale", isDirectory: true),
         ])
 
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // Wait on the real completion signal: the resumed (already-cancelled) root
+        // load task running to completion. `didCompleteListing` flips on the same
+        // MainActor continuation that runs the load task's post-`await` tail, so once
+        // it is observed the cancelled task has finished and can no longer mutate
+        // state. Then assert it left the unavailable status and empty tree intact.
+        try await waitFor("cancelled root load finished") { provider.didCompleteListing }
 
-        XCTAssertEqual(store.rootStatusMessage, unavailableMessage)
-        XCTAssertTrue(store.rootNodes.isEmpty)
+        #expect(store.rootStatusMessage == unavailableMessage)
+        #expect(store.rootNodes.isEmpty)
     }
 
     // MARK: - Expansion state persistence
 
+    @Test
     func testExpandedPathsPersistAcrossProviderChange() async throws {
         let provider1 = MockFileExplorerProvider()
         provider1.listings["/home/user/project"] = .success([
@@ -310,7 +421,7 @@ final class FileExplorerStoreTests: XCTestCase {
         store.expand(node: srcNode)
         try await waitFor("src expanded") { srcNode.children?.count == 1 }
 
-        XCTAssertTrue(store.expandedPaths.contains("/home/user/project/src"))
+        #expect(store.expandedPaths.contains("/home/user/project/src"))
 
         // Switch to a new provider (simulating provider recreation)
         let provider2 = MockFileExplorerProvider()
@@ -323,18 +434,19 @@ final class FileExplorerStoreTests: XCTestCase {
         ])
         store.setProviderForTesting(provider2)
 
-        XCTAssertTrue(store.expandedPaths.contains("/home/user/project/src"))
+        #expect(store.expandedPaths.contains("/home/user/project/src"))
 
         try await waitFor("src re-hydrated with 2 children") {
             (store.rootNodes.first { $0.name == "src" }?.children?.count ?? 0) == 2
         }
         let newSrcNode = store.rootNodes.first { $0.name == "src" }
-        XCTAssertNotNil(newSrcNode)
-        XCTAssertEqual(newSrcNode?.children?.count, 2)
+        #expect(newSrcNode != nil)
+        #expect(newSrcNode?.children?.count == 2)
     }
 
     // MARK: - SSH hydration
 
+    @Test
     func testExpandedRemoteNodesHydrateWhenProviderBecomesAvailable() async throws {
         let provider = MockFileExplorerProvider(isAvailable: false)
 
@@ -349,11 +461,11 @@ final class FileExplorerStoreTests: XCTestCase {
         }
 
         // Root load fails because provider unavailable
-        XCTAssertTrue(store.rootNodes.isEmpty)
+        #expect(store.rootNodes.isEmpty)
 
         // Manually track expanded state (user expanded before provider was ready)
         store.expand(node: FileExplorerNode(name: "src", path: "/home/user/project/src", isDirectory: true))
-        XCTAssertTrue(store.expandedPaths.contains("/home/user/project/src"))
+        #expect(store.expandedPaths.contains("/home/user/project/src"))
 
         // Provider becomes available
         provider.isAvailable = true
@@ -370,10 +482,11 @@ final class FileExplorerStoreTests: XCTestCase {
             (store.rootNodes.first { $0.name == "src" }?.children?.count ?? 0) == 1
         }
         let srcNode = store.rootNodes.first { $0.name == "src" }
-        XCTAssertNotNil(srcNode)
-        XCTAssertEqual(srcNode?.children?.first?.name, "app.swift")
+        #expect(srcNode != nil)
+        #expect(srcNode?.children?.first?.name == "app.swift")
     }
 
+    @Test
     func testExpandedNodesSurviveStoreRecreation() async throws {
         let provider = MockFileExplorerProvider()
         provider.listings["/home/user/project"] = .success([
@@ -392,7 +505,7 @@ final class FileExplorerStoreTests: XCTestCase {
         store.expand(node: libNode)
         try await waitFor("lib expanded") { libNode.children?.count == 1 }
 
-        XCTAssertTrue(store.isExpanded(libNode))
+        #expect(store.isExpanded(libNode))
 
         // Simulate provider recreation
         let newProvider = MockFileExplorerProvider()
@@ -406,7 +519,7 @@ final class FileExplorerStoreTests: XCTestCase {
 
         store.setProviderForTesting(newProvider)
 
-        XCTAssertTrue(store.expandedPaths.contains("/home/user/project/lib"))
+        #expect(store.expandedPaths.contains("/home/user/project/lib"))
         try await waitFor("lib re-hydrated with 2 children") {
             (store.rootNodes.first { $0.name == "lib" }?.children?.count ?? 0) == 2
         }
@@ -414,6 +527,7 @@ final class FileExplorerStoreTests: XCTestCase {
 
     // MARK: - Error clearing
 
+    @Test
     func testStaleErrorClearsOnRetry() async throws {
         let provider = MockFileExplorerProvider()
         provider.listings["/home/user/project"] = .success([
@@ -440,12 +554,13 @@ final class FileExplorerStoreTests: XCTestCase {
         store.expand(node: srcNode)
         try await waitFor("src retry loaded") { srcNode.children?.count == 1 }
 
-        XCTAssertNil(srcNode.error)
-        XCTAssertNotNil(srcNode.children)
+        #expect(srcNode.error == nil)
+        #expect(srcNode.children != nil)
     }
 
     // MARK: - Selection persistence
 
+    @Test
     func testMultiSelectionKeepsAnchorAndSelectedPaths() {
         let store = FileExplorerStore()
         let readme = FileExplorerNode(name: "README.md", path: "/project/README.md", isDirectory: false)
@@ -453,68 +568,62 @@ final class FileExplorerStoreTests: XCTestCase {
 
         store.select(nodes: [readme, package], anchor: package)
 
-        XCTAssertEqual(store.selectedPath, "/project/Package.swift")
-        XCTAssertEqual(store.selectedPaths, ["/project/README.md", "/project/Package.swift"])
+        #expect(store.selectedPath == "/project/Package.swift")
+        #expect(store.selectedPaths == ["/project/README.md", "/project/Package.swift"])
 
         store.select(node: readme)
 
-        XCTAssertEqual(store.selectedPath, "/project/README.md")
-        XCTAssertEqual(store.selectedPaths, ["/project/README.md"])
+        #expect(store.selectedPath == "/project/README.md")
+        #expect(store.selectedPaths == ["/project/README.md"])
 
         store.select(node: nil)
 
-        XCTAssertNil(store.selectedPath)
-        XCTAssertTrue(store.selectedPaths.isEmpty)
+        #expect(store.selectedPath == nil)
+        #expect(store.selectedPaths.isEmpty)
     }
 
+    @Test
     func testRestoredMultiSelectionScrollsToAnchorRow() {
         let exactRows = IndexSet([2, 7, 11])
 
-        XCTAssertEqual(
-            FileExplorerSelectionRestoration.scrollRow(anchorRow: 7, exactRows: exactRows),
-            7
-        )
-        XCTAssertEqual(
-            FileExplorerSelectionRestoration.scrollRow(anchorRow: 4, exactRows: exactRows),
-            2
-        )
-        XCTAssertEqual(
-            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: exactRows),
-            2
-        )
-        XCTAssertNil(
-            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: [])
+        #expect(FileExplorerSelectionRestoration.scrollRow(anchorRow: 7, exactRows: exactRows) == 7)
+        #expect(FileExplorerSelectionRestoration.scrollRow(anchorRow: 4, exactRows: exactRows) == 2)
+        #expect(FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: exactRows) == 2)
+        #expect(
+            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: []) == nil
         )
     }
 
     // MARK: - Collapse/Expand
 
+    @Test
     func testCollapseRemovesFromExpandedPaths() {
         let store = FileExplorerStore()
         let node = FileExplorerNode(name: "src", path: "/project/src", isDirectory: true)
         node.children = []
         store.expand(node: node)
-        XCTAssertTrue(store.isExpanded(node))
+        #expect(store.isExpanded(node))
 
         store.collapse(node: node)
-        XCTAssertFalse(store.isExpanded(node))
+        #expect(!(store.isExpanded(node)))
     }
 
+    @Test
     func testExpandNonDirectoryDoesNothing() {
         let store = FileExplorerStore()
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
         store.expand(node: node)
-        XCTAssertFalse(store.isExpanded(node))
+        #expect(!(store.isExpanded(node)))
     }
 }
 
 @MainActor
-final class FileSearchControllerTests: XCTestCase {
+@Suite(.serialized)
+struct FileSearchControllerTests {
     private struct WaitTimeout: Error {}
 
+    @Test(.enabled(if: FileSearchControllerTests.hasRipgrep(), "ripgrep is required for file search behavior tests"))
     func testSearchIncludesDotfilesWithoutSearchingGitInternals() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
-
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -553,19 +662,18 @@ final class FileSearchControllerTests: XCTestCase {
         controller.search(query: "needle", rootPath: rootURL.path, isLocal: true)
         let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
-        XCTAssertEqual(finalSnapshot.status, .matches)
-        XCTAssertTrue(finalSnapshot.results.contains { $0.relativePath == "visible.txt" })
-        XCTAssertTrue(finalSnapshot.results.contains { $0.relativePath == ".env" })
-        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix(".git/") })
-        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("node_modules/") })
-        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("dist/") })
-        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("build/") })
-        XCTAssertFalse(finalSnapshot.results.contains { $0.relativePath.hasPrefix("DerivedData/") })
+        #expect(finalSnapshot.status == .matches)
+        #expect(finalSnapshot.results.contains { $0.relativePath == "visible.txt" })
+        #expect(finalSnapshot.results.contains { $0.relativePath == ".env" })
+        #expect(!finalSnapshot.results.contains { $0.relativePath.hasPrefix(".git/") })
+        #expect(!finalSnapshot.results.contains { $0.relativePath.hasPrefix("node_modules/") })
+        #expect(!finalSnapshot.results.contains { $0.relativePath.hasPrefix("dist/") })
+        #expect(!finalSnapshot.results.contains { $0.relativePath.hasPrefix("build/") })
+        #expect(!finalSnapshot.results.contains { $0.relativePath.hasPrefix("DerivedData/") })
     }
 
+    @Test(.enabled(if: FileSearchControllerTests.hasRipgrep(), "ripgrep is required for file search behavior tests"))
     func testSearchPublishesAllMatchingFilesInFolder() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
-
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -598,14 +706,13 @@ final class FileSearchControllerTests: XCTestCase {
         controller.search(query: "issue3817Token", rootPath: rootURL.path, isLocal: true)
         let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
-        XCTAssertEqual(finalSnapshot.status, .matches)
-        XCTAssertEqual(Set(finalSnapshot.results.map(\.relativePath)), Set(matchingFiles))
-        XCTAssertEqual(finalSnapshot.results.count, matchingFiles.count)
+        #expect(finalSnapshot.status == .matches)
+        #expect(Set(finalSnapshot.results.map(\.relativePath)) == Set(matchingFiles))
+        #expect(finalSnapshot.results.count == matchingFiles.count)
     }
 
+    @Test(.enabled(if: FileSearchControllerTests.hasRipgrep(), "ripgrep is required for file search behavior tests"))
     func testSearchLimitsHighVolumeResultsWithoutWaitingForRipgrepExit() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
-
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -626,13 +733,12 @@ final class FileSearchControllerTests: XCTestCase {
         controller.search(query: "needle", rootPath: rootURL.path, isLocal: true)
         let finalSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
-        XCTAssertEqual(finalSnapshot.status, .limited(500))
-        XCTAssertEqual(finalSnapshot.results.count, 500)
+        #expect(finalSnapshot.status == .limited(500))
+        #expect(finalSnapshot.results.count == 500)
     }
 
+    @Test(.enabled(if: FileSearchControllerTests.hasRipgrep(), "ripgrep is required for file search behavior tests"))
     func testSearchRefreshesWhenContentRevisionChanges() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
-
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -644,7 +750,7 @@ final class FileSearchControllerTests: XCTestCase {
 
         controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
         let emptySnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
-        XCTAssertEqual(emptySnapshot.status, .noMatches)
+        #expect(emptySnapshot.status == .noMatches)
 
         try "fresh needle\n".write(
             to: rootURL.appendingPathComponent("fresh.txt"),
@@ -655,13 +761,12 @@ final class FileSearchControllerTests: XCTestCase {
         controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 2)
         let refreshedSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
-        XCTAssertEqual(refreshedSnapshot.status, .matches)
-        XCTAssertEqual(refreshedSnapshot.results.map(\.relativePath), ["fresh.txt"])
+        #expect(refreshedSnapshot.status == .matches)
+        #expect(refreshedSnapshot.results.map(\.relativePath) == ["fresh.txt"])
     }
 
+    @Test(.enabled(if: FileSearchControllerTests.hasRipgrep(), "ripgrep is required for file search behavior tests"))
     func testSearchRefreshesSameRequestAfterFileContentsChange() async throws {
-        try XCTSkipUnless(Self.hasRipgrep(), "ripgrep is required for file search behavior tests")
-
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -676,17 +781,18 @@ final class FileSearchControllerTests: XCTestCase {
 
         controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
         let emptySnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
-        XCTAssertEqual(emptySnapshot.status, .noMatches)
+        #expect(emptySnapshot.status == .noMatches)
 
         try "fresh needle\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
         controller.search(query: "needle", rootPath: rootURL.path, isLocal: true, contentRevision: 1)
         let refreshedSnapshot = try await waitForSettledSearchSnapshot { snapshots.last }
 
-        XCTAssertEqual(refreshedSnapshot.status, .matches)
-        XCTAssertEqual(refreshedSnapshot.results.map(\.relativePath), ["editable.txt"])
+        #expect(refreshedSnapshot.status == .matches)
+        #expect(refreshedSnapshot.results.map(\.relativePath) == ["editable.txt"])
     }
 
+    @Test
     func testTypingBurstDebouncesFindSearches() async throws {
         let store = FileExplorerStore()
         let state = FileExplorerState()
@@ -706,7 +812,7 @@ final class FileSearchControllerTests: XCTestCase {
         container.updateHeader(store: store)
         container.updatePresentation(.find)
 
-        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+        let searchField = try #require(Self.findSearchField(in: container))
         searchController.searchRequests.removeAll()
 
         for query in ["p", "pr", "pri", "priv", "priva", "privat", "private"] {
@@ -714,16 +820,67 @@ final class FileSearchControllerTests: XCTestCase {
             container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
         }
 
-        try await Task.sleep(nanoseconds: 300_000_000)
+        // Wait on the real completion signal (the debounce firing and issuing its one
+        // search) instead of sleeping for the debounce window. The seven synchronous
+        // keystrokes feed a single Combine `.debounce`, so it emits exactly once; this
+        // returns the instant that single search lands.
+        try await waitForSearchRequestCount(1, in: searchController)
 
-        XCTAssertLessThanOrEqual(
-            searchController.searchRequests.count,
-            1,
+        #expect(
+            searchController.searchRequests.count <= 1,
             "A burst of typing should coalesce into one ripgrep search per debounce window."
         )
-        XCTAssertEqual(searchController.searchRequests.last?.query, "private")
+        #expect(searchController.searchRequests.last?.query == "private")
     }
 
+    @Test
+    func testSearchFieldReturnCommitsWhenOpenSelectionShortcutsAreUnbound() throws {
+        try withIsolatedShortcutSettings {
+            let store = FileExplorerStore()
+            let state = FileExplorerState()
+            let searchController = SpyFileSearchController()
+            var openedPaths: [String] = []
+            let coordinator = FileExplorerPanelView.Coordinator(
+                store: store,
+                state: state,
+                onOpenFilePreview: { path in
+                    openedPaths.append(path)
+                }
+            )
+            let container = FileExplorerContainerView(
+                coordinator: coordinator,
+                presentation: .find,
+                searchController: searchController
+            )
+            store.provider = MockFileExplorerProvider(homePath: "/tmp")
+            store.setRootPath("/tmp/cmux-find-return-fallback-test")
+            container.updateHeader(store: store)
+            container.updatePresentation(.find)
+
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .fileExplorerOpenSelection)
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .fileExplorerOpenSelectionFinderAlias)
+
+            let searchField = try #require(Self.findSearchField(in: container))
+            let result = Self.searchResult(relativePath: "selected.txt")
+            searchController.publish(FileSearchSnapshot(
+                query: "needle",
+                results: [result],
+                status: .matches,
+                isSearching: false
+            ))
+
+            let handled = container.control(
+                searchField,
+                textView: NSTextView(),
+                doCommandBy: #selector(NSResponder.insertNewline(_:))
+            )
+
+            #expect(handled)
+            #expect(openedPaths == [result.path])
+        }
+    }
+
+    @Test
     func testContentRevisionChangeDoesNotRestartActiveFindSearch() async throws {
         let store = FileExplorerStore()
         let state = FileExplorerState()
@@ -743,12 +900,12 @@ final class FileSearchControllerTests: XCTestCase {
         container.updateHeader(store: store)
         container.updatePresentation(.find)
 
-        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+        let searchField = try #require(Self.findSearchField(in: container))
         searchField.stringValue = "needle"
         container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
 
         try await waitForSearchRequestCount(1, in: searchController)
-        XCTAssertEqual(searchController.searchRequests.count, 1)
+        #expect(searchController.searchRequests.count == 1)
 
         searchController.publish(FileSearchSnapshot(
             query: "needle",
@@ -762,9 +919,8 @@ final class FileSearchControllerTests: XCTestCase {
         container.updateHeader(store: store)
         container.updatePresentation(.find)
 
-        XCTAssertEqual(
-            searchController.searchRequests.count,
-            originalRequestCount,
+        #expect(
+            searchController.searchRequests.count == originalRequestCount,
             "A content revision while a search is active should not cancel and restart the result stream."
         )
 
@@ -775,10 +931,62 @@ final class FileSearchControllerTests: XCTestCase {
             isSearching: false
         ))
 
-        XCTAssertEqual(searchController.searchRequests.count, originalRequestCount + 1)
-        XCTAssertEqual(searchController.searchRequests.last?.contentRevision, store.contentRevision)
+        #expect(searchController.searchRequests.count == originalRequestCount + 1)
+        #expect(searchController.searchRequests.last?.contentRevision == store.contentRevision)
     }
 
+    @Test
+    func testRedundantVisibilityAndPresentationPassesDoNotInvalidateLayout() {
+        // Regression for #4931: redundant updateNSView passes must not invalidate layout,
+        // or the unconditional KVO/isHidden writes re-enter the SwiftUI graph and hang.
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setRootPath("/tmp/cmux-find-idempotent-layout-test")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+
+        // updateVisibility runs on every store/content update and is unguarded; a second
+        // identical pass must not invalidate layout.
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        container.needsLayout = false
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        #expect(
+            !container.needsLayout,
+            "A redundant updateVisibility pass must not invalidate layout; otherwise updateNSView re-enters the SwiftUI graph and loops (#4931)."
+        )
+
+        // The guard-else in updatePresentation(.find) re-runs updateSearchLayout on every
+        // redundant pass (the Cmd+Shift+F re-entry path); it must be a no-op too.
+        container.needsLayout = false
+        container.updatePresentation(.find)
+        #expect(
+            !container.needsLayout,
+            "A redundant updatePresentation(.find) pass must not invalidate layout (#4931)."
+        )
+
+        // Positive control: a genuine visibility change must still invalidate layout, so
+        // the no-op assertions above are meaningful rather than vacuous.
+        container.needsLayout = false
+        container.updateVisibility(hasContent: false, isLoading: false, statusMessage: nil)
+        #expect(
+            container.needsLayout,
+            "A genuine visibility change must still invalidate layout."
+        )
+    }
+
+    @Test
     func testRipgrepResolverPrefersConfiguredBinaryPath() {
         let configuredPath = "/nix/store/custom-ripgrep/bin/rg"
         let fallbackPath = "/usr/local/bin/rg"
@@ -791,9 +999,10 @@ final class FileSearchControllerTests: XCTestCase {
             isExecutable: { $0 == configuredPath || $0 == fallbackPath }
         )
 
-        XCTAssertEqual(executable?.url.path, configuredPath)
+        #expect(executable?.url.path == configuredPath)
     }
 
+    @Test
     func testRipgrepResolverExpandsTildeConfiguredBinaryPath() {
         let configuredPath = "~/.nix-profile/bin/rg"
         let expandedPath = "/Users/nixuser/.nix-profile/bin/rg"
@@ -806,9 +1015,10 @@ final class FileSearchControllerTests: XCTestCase {
             isExecutable: { $0 == expandedPath }
         )
 
-        XCTAssertEqual(executable?.url.path, expandedPath)
+        #expect(executable?.url.path == expandedPath)
     }
 
+    @Test
     func testRipgrepResolverChecksNixProfilePathsBeforePATHFallback() {
         let nixProfilePath = "/etc/profiles/per-user/nixuser/bin/rg"
         let pathFallback = "/tmp/bin/rg"
@@ -821,9 +1031,10 @@ final class FileSearchControllerTests: XCTestCase {
             isExecutable: { $0 == nixProfilePath || $0 == pathFallback }
         )
 
-        XCTAssertEqual(executable?.url.path, nixProfilePath)
+        #expect(executable?.url.path == nixProfilePath)
     }
 
+    @Test
     func testRipgrepResolverChecksHomeManagerProfilePathsBeforePATHFallback() {
         let homeManagerProfilePath = "/Users/nixuser/.nix-profile/bin/rg"
         let pathFallback = "/tmp/bin/rg"
@@ -836,9 +1047,10 @@ final class FileSearchControllerTests: XCTestCase {
             isExecutable: { $0 == homeManagerProfilePath || $0 == pathFallback }
         )
 
-        XCTAssertEqual(executable?.url.path, homeManagerProfilePath)
+        #expect(executable?.url.path == homeManagerProfilePath)
     }
 
+    @Test
     func testRipgrepResolverChecksNixPerUserProfilePathBeforePATHFallback() {
         let perUserProfilePath = "/nix/var/nix/profiles/per-user/nixuser/profile/bin/rg"
         let pathFallback = "/tmp/bin/rg"
@@ -851,9 +1063,10 @@ final class FileSearchControllerTests: XCTestCase {
             isExecutable: { $0 == perUserProfilePath || $0 == pathFallback }
         )
 
-        XCTAssertEqual(executable?.url.path, perUserProfilePath)
+        #expect(executable?.url.path == perUserProfilePath)
     }
 
+    @Test
     func testRipgrepResolverRejectsNonExecutableConfiguredBinaryPath() {
         let configuredPath = "/nix/store/missing-ripgrep/bin/rg"
         let fallbackPath = "/usr/local/bin/rg"
@@ -866,23 +1079,24 @@ final class FileSearchControllerTests: XCTestCase {
             isExecutable: { $0 == fallbackPath }
         )
 
-        XCTAssertEqual(resolution, .configuredPathNotExecutable(configuredPath))
-        XCTAssertNil(RipgrepExecutableResolver.resolve(
+        #expect(resolution == .configuredPathNotExecutable(configuredPath))
+        #expect(RipgrepExecutableResolver.resolve(
             configuredPath: configuredPath,
             environment: ["PATH": ""],
             userName: "nixuser",
             homeDirectory: "/Users/nixuser",
             isExecutable: { $0 == fallbackPath }
-        ))
+        ) == nil)
     }
 
+    @Test
     func testConfiguredRipgrepPathErrorMessageSubstitutesPath() {
         let configuredPath = "/nix/store/missing-ripgrep/bin/rg"
 
         let message = FileExplorerSearchMessages.configuredRipgrepPathNotExecutable(configuredPath)
 
-        XCTAssertTrue(message.contains(configuredPath))
-        XCTAssertFalse(message.contains("%@"))
+        #expect(message.contains(configuredPath))
+        #expect(!(message.contains("%@")))
     }
 
     private static func searchResult(relativePath: String) -> FileSearchResult {
@@ -893,6 +1107,19 @@ final class FileSearchControllerTests: XCTestCase {
             columnNumber: 1,
             preview: "needle"
         )
+    }
+
+    private func withIsolatedShortcutSettings(_ body: () throws -> Void) rethrows {
+        let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+            prefix: "cmux-file-explorer-store"
+        )
+        KeyboardShortcutSettings.resetAll()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        }
+
+        try body()
     }
 
     private func waitForSearchRequestCount(
@@ -909,11 +1136,7 @@ final class FileSearchControllerTests: XCTestCase {
             }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTFail(
-            "Timed out waiting for \(expectedCount) file search requests",
-            file: file,
-            line: line
-        )
+        Issue.record("Timed out waiting for \(expectedCount) file search requests")
         throw WaitTimeout()
     }
 
@@ -928,11 +1151,11 @@ final class FileSearchControllerTests: XCTestCase {
             }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTFail("Timed out waiting for file search to finish")
+        Issue.record("Timed out waiting for file search to finish")
         throw WaitTimeout()
     }
 
-    private static func hasRipgrep() -> Bool {
+    private nonisolated static func hasRipgrep() -> Bool {
         RipgrepExecutableResolver.resolve(configuredPath: nil) != nil
     }
 
