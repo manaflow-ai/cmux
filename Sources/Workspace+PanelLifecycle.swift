@@ -63,6 +63,22 @@ extension Workspace {
         return String(key[..<dotIndex])
     }
 
+    func sidebarStatusKey(forAgentPIDKey key: String) -> String {
+        agentStatusKey(forAgentPIDKey: key)
+    }
+
+    func agentPIDForSidebarStatusKey(_ statusKey: String) -> pid_t? {
+        if let pid = agentPIDs[statusKey], pid > 0 {
+            return pid
+        }
+        for key in agentPIDs.keys.sorted()
+        where agentStatusKey(forAgentPIDKey: key) == statusKey {
+            guard let pid = agentPIDs[key], pid > 0 else { continue }
+            return pid
+        }
+        return nil
+    }
+
     private func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
         for key in agentPIDs.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
             return true
@@ -160,9 +176,16 @@ extension Workspace {
 
     func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {
         let visibleStructuredStatusKeys = visibleStructuredAgentStatusKeysByPanel()
-        return statusEntries.values.filter { entry in
-            shouldDisplaySidebarStatusEntry(entry, visibleStructuredStatusKeys: visibleStructuredStatusKeys)
+        var entriesByKey: [String: SidebarStatusEntry] = [:]
+        for entry in statusEntries.values
+        where shouldDisplaySidebarStatusEntry(entry, visibleStructuredStatusKeys: visibleStructuredStatusKeys) {
+            entriesByKey[entry.key] = entry
         }
+        for (key, entry) in syntheticAgentStatusEntriesByKey()
+        where entriesByKey[key] == nil {
+            entriesByKey[key] = entry
+        }
+        return Array(entriesByKey.values)
     }
 
     private func shouldDisplaySidebarStatusEntry(
@@ -173,6 +196,82 @@ extension Workspace {
             return true
         }
         return visibleStructuredStatusKeys.contains(entry.key)
+    }
+
+    private func syntheticAgentStatusEntriesByKey() -> [String: SidebarStatusEntry] {
+        var entriesByKey: [String: SidebarStatusEntry] = [:]
+        for key in agentPIDs.keys.sorted() {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
+                  statusEntries[statusKey] == nil,
+                  let lifecycle = syntheticAgentStatusLifecycle(forAgentPIDKey: key) else {
+                continue
+            }
+            let entry = syntheticAgentStatusEntry(statusKey: statusKey, lifecycle: lifecycle)
+            if let existing = entriesByKey[statusKey] {
+                if isSidebarStatusEntryLessCurrent(existing, than: entry) {
+                    entriesByKey[statusKey] = entry
+                }
+            } else {
+                entriesByKey[statusKey] = entry
+            }
+        }
+        return entriesByKey
+    }
+
+    private func syntheticAgentStatusLifecycle(forAgentPIDKey key: String) -> AgentHibernationLifecycleState? {
+        if let panelId = agentPIDPanelIdsByKey[key] {
+            guard panels[panelId] != nil else { return nil }
+            return agentHibernationLifecycleState(panelId: panelId, fallback: .running)
+        }
+        return .running
+    }
+
+    private func syntheticAgentStatusEntry(
+        statusKey: String,
+        lifecycle: AgentHibernationLifecycleState
+    ) -> SidebarStatusEntry {
+        let value: String
+        let icon: String
+        let color: String
+        switch lifecycle {
+        case .idle:
+            value = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
+            icon = "pause.fill"
+            color = "#8E8E93"
+        case .needsInput:
+            value = String.localizedStringWithFormat(
+                String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+                Self.syntheticAgentDisplayName(forStatusKey: statusKey)
+            )
+            icon = "exclamationmark.circle.fill"
+            color = "#FF9F0A"
+        case .running, .unknown:
+            value = String(localized: "agent.generic.status.running", defaultValue: "Running")
+            icon = "play.fill"
+            color = "#34C759"
+        }
+        return SidebarStatusEntry(
+            key: statusKey,
+            value: value,
+            icon: icon,
+            color: color,
+            priority: -100,
+            timestamp: Date(timeIntervalSince1970: 0)
+        )
+    }
+
+    private static func syntheticAgentDisplayName(forStatusKey statusKey: String) -> String {
+        if statusKey == "claude_code" {
+            return "Claude Code"
+        }
+        if let definition = CmuxTaskManagerCodingAgentDefinition.builtIns.first(where: { $0.id == statusKey }) {
+            return definition.displayName
+        }
+        return statusKey
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .capitalized
     }
 
     private func visibleStructuredAgentStatusKeysByPanel() -> Set<String> {

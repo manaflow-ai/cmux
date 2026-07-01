@@ -2800,7 +2800,7 @@ class TerminalController {
         var seenKeys = Set<String>()
 
         for (index, entry) in workspace.sidebarStatusEntriesInDisplayOrder().enumerated() {
-            let pid = workspace.agentPIDs[entry.key].flatMap { $0 > 0 ? Int($0) : nil }
+            let pid = workspace.agentPIDForSidebarStatusKey(entry.key).flatMap { $0 > 0 ? Int($0) : nil }
             tags.append([
                 "kind": "tag",
                 "id": v2TopTagIdentifier(workspaceId: workspace.id, key: entry.key),
@@ -2819,7 +2819,8 @@ class TerminalController {
             seenKeys.insert(entry.key)
         }
 
-        for key in workspace.agentPIDs.keys.sorted() where !seenKeys.contains(key) {
+        for key in workspace.agentPIDs.keys.sorted()
+        where !seenKeys.contains(key) && !seenKeys.contains(workspace.sidebarStatusKey(forAgentPIDKey: key)) {
             let pid = workspace.agentPIDs[key].flatMap { $0 > 0 ? Int($0) : nil }
             tags.append([
                 "kind": "tag",
