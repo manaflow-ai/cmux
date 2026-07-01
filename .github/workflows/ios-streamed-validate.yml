@@ -190,6 +190,18 @@ jobs:
             cp ios/fastlane/streamed-sessions/claude/*.jsonl "$HOME/.claude/projects/$enc/"
           done
           echo "seeded claude session(s): $(ls "$HOME/.claude/projects/-private-tmp-cmux-stream-claude/")"
+          # codex: drop the rollout jsonl into its dated sessions tree; resumed by id.
+          mkdir -p "$HOME/.codex/sessions/2026/06/30"
+          cp ios/fastlane/streamed-sessions/codex/*.jsonl "$HOME/.codex/sessions/2026/06/30/"
+          echo "seeded codex: $(ls "$HOME/.codex/sessions/2026/06/30/")"
+          # pi: cwd-keyed jsonl; seed both /tmp spellings; resumed by --session <uuid>.
+          for enc in --private-tmp-cmux-stream-pi-- --tmp-cmux-stream-pi--; do
+            mkdir -p "$HOME/.pi/agent/sessions/$enc"
+            cp ios/fastlane/streamed-sessions/pi/*.jsonl "$HOME/.pi/agent/sessions/$enc/"
+          done
+          echo "seeded pi: $(ls "$HOME/.pi/agent/sessions/--private-tmp-cmux-stream-pi--/")"
+          # opencode: sessions live in a sqlite DB; import the exported JSON.
+          opencode import ios/fastlane/streamed-sessions/opencode/opencode-session.json 2>&1 | tail -3 || echo "warn: opencode import failed"
 
       - name: Pair simulator + capture one streamed terminal
         env:
@@ -242,7 +254,7 @@ jobs:
           xcrun simctl io "$SIM_ID" screenshot /tmp/streamed-ci/_diag/after-pair.png || true
           idb ui describe-all --udid "$SIM_ID" > /tmp/streamed-ci/_diag/after-pair-a11y.json 2>&1 || true
           set +e
-          python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents claude --out /tmp/streamed-ci
+          python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents claude,codex,opencode,pi --out /tmp/streamed-ci
           CAP_RC=$?
           set -e
           # Post-capture device diagnostics (always), so a failure tells us the

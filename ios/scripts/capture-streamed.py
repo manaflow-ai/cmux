@@ -47,9 +47,9 @@ PROMPT = ("Explain what main.swift does, then give 3 concrete improvements with 
 # are still set (the CLIs gate launch on them) but resuming makes no API call.
 AGENTS = {
     "claude": {"title": "App entry point", "launch": "claude --resume 21f5e73a-4a3a-42ac-bd73-bc8d88256d65", "order": 3},
-    "codex": {"title": "Readability pass", "launch": "codex resume --last", "order": 4},
-    "opencode": {"title": "String catalogs", "launch": "opencode --continue", "order": 5},
-    "pi": {"title": "Ship improvements", "launch": "pi --continue", "order": 6},
+    "codex": {"title": "Readability pass", "launch": "codex resume 019f1abc-b2cf-7571-bf39-6127d4ebaba2", "order": 4},
+    "opencode": {"title": "String catalogs", "launch": "opencode --session ses_0e5411393ffeCDprItbIm19S5J", "order": 5},
+    "pi": {"title": "Ship improvements", "launch": "pi --session 019f1abe", "order": 6},
 }
 # response is considered "settled" when the screen shows code + a cost/footer and
 # is no longer actively generating.
