@@ -122,7 +122,7 @@ extension Workspace {
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts, $panelDirectoryDisplayLabels)
+            .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
             .compactMap { [weak self] groupedFields, listeningPorts, panelDirectoryDisplayLabels -> SidebarObservationState? in
                 guard let self else { return nil }
                 let workspaceFields = groupedFields.0

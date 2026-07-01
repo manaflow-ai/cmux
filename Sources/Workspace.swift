@@ -2442,8 +2442,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// `report_pwd <label> --path=<real-path>`. Display-only: the File
     /// Explorer, Finder root, and git probing always use `panelDirectories`.
     /// An explicit label overwrites the previous one; a label-less directory
-    /// change clears it, while same-directory re-reports keep it.
-    @Published var panelDirectoryDisplayLabels: [UUID: String] = [:]
+    /// change clears it, while same-directory re-reports keep it. Stored in
+    /// ``sidebarMetadata`` so label-only updates refresh the sidebar pipeline
+    /// without workspace-wide invalidation.
+    var panelDirectoryDisplayLabels: [UUID: String] {
+        get { sidebarMetadata.panelDirectoryDisplayLabels }
+        set { sidebarMetadata.panelDirectoryDisplayLabels = newValue }
+    }
     @Published var panelTitles: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
