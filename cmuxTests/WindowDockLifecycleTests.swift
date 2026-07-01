@@ -84,6 +84,10 @@ struct WindowDockLifecycleTests {
         #expect(!dock.containsPanel(panelId))
         #expect(dock.panels.isEmpty)
         #expect(!dock.isVisibleInUI)
+        // A closed window's manager can never seed a NEW Dock (it would have
+        // no teardown owner); manager-based lookup fails closed instead.
+        #expect(appDelegate.windowDock(for: manager) == nil)
+        #expect(appDelegate.existingWindowDocks.isEmpty)
     }
 
     @Test("Docks in two windows render simultaneously without render-host gating")

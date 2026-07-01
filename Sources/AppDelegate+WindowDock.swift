@@ -81,12 +81,17 @@ extension AppDelegate {
         windowDockRegistry.dock(forWindowId: windowId)
     }
 
-    /// The Dock of `tabManager`'s window, created on first access. `nil` only
-    /// when the manager has no resolvable window (not registered, no
-    /// recoverable route).
+    /// The Dock of `tabManager`'s window, created on first access for a live
+    /// registered window. A recoverable (already-closed) window never seeds a
+    /// NEW Dock — its Dock was torn down with the window, and a fresh store
+    /// would have no teardown owner, leaving headless panels running until
+    /// quit. Only an existing store remains addressable during close races.
     func windowDock(for tabManager: TabManager) -> DockSplitStore? {
+        if let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
+            return windowDock(forWindowId: context.windowId)
+        }
         guard let windowId = windowId(for: tabManager) else { return nil }
-        return windowDock(forWindowId: windowId)
+        return existingWindowDock(forWindowId: windowId)
     }
 
     /// The window's Dock if it already exists, without creating it.
@@ -116,6 +121,13 @@ extension AppDelegate {
     }
 
     /// Tears down the window's Dock. Called when the owning window unregisters.
+    ///
+    /// Deliberately unconditional: window close is the containing lifecycle,
+    /// and a busy Dock panel does not veto it — exactly like the window's
+    /// workspace surfaces, which get no per-process veto on this path either.
+    /// The menu close path shows the unconditional "Close window?" dialog, and
+    /// the last-window/quit path is gated by
+    /// `hasQuitConfirmationDirtyWorkspaces()`, which counts window Docks.
     func teardownWindowDock(forWindowId windowId: UUID) {
         windowDockRegistry.teardownDock(forWindowId: windowId)
     }
