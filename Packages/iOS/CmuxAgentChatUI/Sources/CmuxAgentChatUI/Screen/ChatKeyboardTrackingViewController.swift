@@ -129,7 +129,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private func installLayoutConstraints() {
         let composerHeightConstraint = composerHostingController.view.heightAnchor.constraint(equalToConstant: 0)
         let transcriptClipTopConstraint = transcriptClipView.topAnchor.constraint(equalTo: keyboardContentView.topAnchor)
-        let transcriptClipBottomConstraint = transcriptClipView.bottomAnchor.constraint(equalTo: composerHostingController.view.topAnchor)
+        let transcriptClipBottomConstraint = transcriptClipView.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor)
         let transcriptHeightConstraint = transcriptHostingController.view.heightAnchor.constraint(equalToConstant: 0)
         let composerBottomConstraint = composerHostingController.view.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor)
         self.composerHeightConstraint = composerHeightConstraint
@@ -324,10 +324,14 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             bottomSafeAreaUnderlap: safeAreaUnderlap
         )
         let adjustedBottomInset = overlayBottomInset + keyboardOverlap
+        let clipBottomConstant = transcriptClipBottomConstant(
+            composerHeight: composerHeight,
+            bottomSafeAreaUnderlap: safeAreaUnderlap
+        )
         let fullTranscriptHeight = max(0, layoutHeight)
         updateConstraint(composerHeightConstraint, to: composerHeight)
         updateConstraint(transcriptClipTopConstraint, to: 0)
-        updateConstraint(transcriptClipBottomConstraint, to: 0)
+        updateConstraint(transcriptClipBottomConstraint, to: clipBottomConstant)
         updateConstraint(transcriptHeightConstraint, to: fullTranscriptHeight)
         if let transcriptOverlayGeometry,
            abs(transcriptOverlayGeometry.composerBottomInset - overlayBottomInset) > 0.5 {
@@ -380,6 +384,16 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     ) -> CGFloat {
         let visibleComposerHeight = showsComposer ? composerHeight : 0
         return max(0, ceil(visibleComposerHeight + bottomSafeAreaUnderlap))
+    }
+
+    private func transcriptClipBottomConstant(
+        composerHeight: CGFloat,
+        bottomSafeAreaUnderlap: CGFloat
+    ) -> CGFloat {
+        guard keyboardOverlap > 0.5 else {
+            return max(0, ceil(bottomSafeAreaUnderlap))
+        }
+        return -max(0, ceil(keyboardOverlap + composerHeight))
     }
 
     private func updateConstraint(_ constraint: NSLayoutConstraint?, to constant: CGFloat) {

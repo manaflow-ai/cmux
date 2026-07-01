@@ -2820,7 +2820,7 @@ final class cmuxUITests: XCTestCase {
         while Date() < deadline {
             if let metrics = transcriptMetrics(from: table),
                abs(metrics.keyboardOverlap) <= 0.5,
-               abs(metrics.presentationFrameMaxY - metrics.effectiveFrameMaxY) <= 6 {
+               metrics.presentationFrameMaxY >= metrics.effectiveFrameMaxY - 6 {
                 return true
             }
             if !didRequestDismiss {
