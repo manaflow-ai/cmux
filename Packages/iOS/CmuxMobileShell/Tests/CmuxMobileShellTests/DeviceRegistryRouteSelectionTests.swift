@@ -33,12 +33,50 @@ import Testing
         #expect(DeviceRegistryService.selectReconnectRoutes(local: routes, registry: routes) == nil)
     }
 
-    @Test func differentRegistryRoutesWin() throws {
-        // The Mac moved networks / changed port: registry has the current route.
-        let local = [try route(host: "100.0.0.1", port: 51000)]
-        let registry = [try route(host: "100.9.9.9", port: 51999)]
-        let selected = DeviceRegistryService.selectReconnectRoutes(local: local, registry: registry)
-        #expect(selected == registry)
+    @Test func differentRegistryRoutesReplaceLocal() throws {
+        // The Mac moved networks / changed port: the registry has the current
+        // route, which is authoritative and replaces the stale local one for the
+        // next dial (the single-dial reconnect path must not be left holding a
+        // dead address).
+        let local = [try route(host: "100.0.0.1", port: 51000, id: "old")]
+        let registry = [try route(host: "100.9.9.9", port: 51999, id: "new")]
+        let selected = try #require(
+            DeviceRegistryService.selectReconnectRoutes(local: local, registry: registry)
+        )
+        #expect(selected.count == 1)
+        if case let .hostPort(host, _) = selected.first?.endpoint {
+            #expect(host == "100.9.9.9")
+        } else {
+            Issue.record("expected a host_port route")
+        }
+    }
+
+    @Test func registryMetadataChangeOnSharedEndpointIsWritten() throws {
+        // The registry re-advertises an endpoint already cached, but with a
+        // changed priority. The endpoint is unchanged, yet the metadata changed,
+        // so the full-equality no-op check writes the update — otherwise the
+        // phone keeps dialing in the server's stale preferred order indefinitely.
+        let cached = try route(host: "100.96.0.9", port: 51000, id: "tailnet", priority: 0)
+        let updated = try route(host: "100.96.0.9", port: 51000, id: "tailnet", priority: 9)
+        let selected = DeviceRegistryService.selectReconnectRoutes(local: [cached], registry: [updated])
+        #expect(selected?.count == 1)
+        #expect(selected?.first?.priority == 9)
+    }
+
+    @Test func registryResponseReplacesLocalEvenIfNarrower() throws {
+        // Registry is authoritative when reachable: even a narrower response
+        // replaces the cached set for dialing (the registry re-adds routes as the
+        // Mac republishes). Retaining the dropped local route as a fallback needs
+        // the candidate-iterating follow-up; the single-dial path stays
+        // registry-led so it never dials a stale cached address.
+        let lan = try route(host: "192.168.1.50", port: 51000, id: "lan")
+        let tailnet = try route(host: "100.96.0.9", port: 51999, id: "tailnet")
+        let selected = DeviceRegistryService.selectReconnectRoutes(
+            local: [lan, tailnet],
+            registry: [tailnet]
+        )
+        #expect(selected?.count == 1)
+        #expect(selected?.first?.id == "tailnet")
     }
 
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
