@@ -138,11 +138,13 @@ struct WorkspaceDetailView: View {
     #if os(iOS)
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            HStack(spacing: 8) {
+        if backButtonConfiguration != nil {
+            ToolbarItem(placement: .topBarLeading) {
                 workspaceBackToolbarButton
-                workspaceTitleToolbarMenu
             }
+        }
+        ToolbarItem(placement: .topBarLeading) {
+            workspaceTitleToolbarMenu
         }
         ToolbarItem(placement: .topBarTrailing) {
             toolbarTrailingCluster
@@ -360,7 +362,7 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// Compact-stack back button rendered as its own leading toolbar island.
+    /// Native leading toolbar back button. SwiftUI supplies toolbar styling.
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
@@ -369,7 +371,6 @@ struct WorkspaceDetailView: View {
                 badgeContrast: backButtonConfiguration.badgeContrast,
                 action: backButtonConfiguration.action
             )
-            .mobileGlassCompactToolbarControl()
         }
     }
 

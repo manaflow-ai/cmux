@@ -1,4 +1,3 @@
-import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
@@ -18,11 +17,13 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
             } label: {
                 fittedLabel
             }
-            .mobileGlassCompactToolbarControl()
             .accessibilityIdentifier("MobileWorkspaceTitleMenu")
         } else {
-            fittedLabel
-                .mobileGlassCompactNavigationTitle()
+            Button {} label: {
+                fittedLabel
+            }
+                .allowsHitTesting(false)
+                .accessibilityRemoveTraits(.isButton)
                 .accessibilityIdentifier("MobileWorkspaceTitleMenu")
         }
     }
