@@ -157,6 +157,7 @@ extension CMUXCLI {
         var surface: String?
         var focus: String?
         var noFocus = false
+        var here = false
         var title: String?
         var layout: String?
         var fontSize: String?
@@ -931,7 +932,9 @@ extension CMUXCLI {
             }
             focus = parsed
         } else {
-            focus = false
+            // `--here` opens the diff in the current pane, so focus it by default
+            // (still overridable with --no-focus / --focus false).
+            focus = parsedArgs.here
         }
 
         let resolvedLayout = try resolveDiffViewerLayout(rawLayout: parsedArgs.layout)
@@ -1041,6 +1044,7 @@ extension CMUXCLI {
         if let windowHandle { params["window_id"] = windowHandle }
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
+        if parsedArgs.here { params["place_in_source_pane"] = true }
 
         let payload = try activeClient.sendV2(method: "browser.open_split", params: params)
 
@@ -1329,6 +1333,10 @@ extension CMUXCLI {
                     parsed.noFocus = true
                     index += 1
                     continue
+                case "--here":
+                    parsed.here = true
+                    index += 1
+                    continue
                 case "--title":
                     parsed.title = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
@@ -1375,7 +1383,7 @@ extension CMUXCLI {
                     continue
                 default:
                     if arg.hasPrefix("-"), arg != "-" {
-                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--session <id>] [--cwd <path>] [--base <ref>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
+                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--session <id>] [--cwd <path>] [--base <ref>] [--focus true|false] [--no-focus] [--here] [--title <text>] [--layout split|unified] [--font-size <points>]")
                     }
                 }
             }

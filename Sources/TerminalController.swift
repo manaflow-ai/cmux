@@ -6176,10 +6176,27 @@ class TerminalController {
             let transparentBackground = v2Bool(params, "transparent_background") ?? false
             let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
 
+            let placeInSourcePane = v2Bool(params, "place_in_source_pane") ?? false
             var createdSplit = true
             var placementStrategy = "split_right"
             let createdPanel: BrowserPanel?
-            if let targetPane = ws.preferredRightSideTargetPane(fromPanelId: sourceSurfaceId) {
+            if placeInSourcePane, let sourcePane = ws.paneId(forPanelId: sourceSurfaceId) {
+                // Caller asked to open the viewer as a tab in its OWN pane
+                // (e.g. `cmux diff --here`): skip the reuse-right-sibling heuristic
+                // so the diff lands where the command was run, not in a neighbour pane.
+                createdPanel = ws.newBrowserSurface(
+                    inPane: sourcePane,
+                    url: url,
+                    focus: focus,
+                    selectWhenNotFocused: true,
+                    creationPolicy: .automationPreload,
+                    omnibarVisible: omnibarVisible,
+                    transparentBackground: transparentBackground,
+                    bypassRemoteProxy: bypassRemoteProxy
+                )
+                createdSplit = false
+                placementStrategy = "source_pane_tab"
+            } else if let targetPane = ws.preferredRightSideTargetPane(fromPanelId: sourceSurfaceId) {
                 createdPanel = ws.newBrowserSurface(
                     inPane: targetPane,
                     url: url,
