@@ -252,6 +252,13 @@ jobs:
           # workspace shells (and the agents they run) inherit it.
           [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && launchctl setenv CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_CODE_OAUTH_TOKEN" || true
           [ -n "${DEEPSEEK_API_KEY:-}" ] && launchctl setenv DEEPSEEK_API_KEY "$DEEPSEEK_API_KEY" || true
+          # The fresh CI runner boots in Light Mode, so cmux resolves a LIGHT
+          # terminal theme and streams a white background -> the phone shows white
+          # bands on unpainted cells. Force cmux to a dark appearance for the
+          # screenshots (temporary CI setup) BEFORE launch so it reads it at start.
+          # System-wide dark mode + the app's own appearance override, both best-effort.
+          defaults write com.cmuxterm.app.debug.cistream appearanceMode dark 2>/dev/null || true
+          defaults write -g AppleInterfaceStyle Dark 2>/dev/null || true
           open "$MAC_APP"
           for i in $(seq 1 60); do CMUX_TAG=cistream ./scripts/cmux-debug-cli.sh identify >/dev/null 2>&1 && break; sleep 2; done
           CMUX_TAG=cistream ./scripts/cmux-debug-cli.sh identify >/dev/null 2>&1 || { echo "::error::tagged Mac app debug socket never came up"; exit 1; }

@@ -47,7 +47,7 @@ PROMPT = ("Explain what main.swift does, then give 3 concrete improvements with 
 # are still set (the CLIs gate launch on them) but resuming makes no API call.
 AGENTS = {
     "claude": {"title": "App entry point", "launch": "claude --resume 21f5e73a-4a3a-42ac-bd73-bc8d88256d65", "order": 3},
-    "codex": {"title": "Readability pass", "launch": "codex resume 019f1abc-b2cf-7571-bf39-6127d4ebaba2", "order": 4},
+    "codex": {"title": "Readability pass", "launch": "codex resume 019f1abc-b2cf-7571-bf39-6127d4ebaba2", "order": 4, "press_enter": True},
     "opencode": {"title": "String catalogs", "launch": "opencode --session ses_0e5411393ffeCDprItbIm19S5J", "order": 5},
     "pi": {"title": "Ship improvements", "launch": "pi --session 019f1abe", "order": 6},
 }
@@ -135,6 +135,13 @@ def setup_agent(tag, key, sandbox):
     if not ws:
         raise SystemExit(f"could not create workspace for {key}: {r.stdout}{r.stderr}")
     print(f"  {key}: {ws} ({info['title']})")
+    if info.get("press_enter"):
+        # codex resume opens a "Press enter to continue" welcome before showing
+        # the resumed session; advance past it with one Enter.
+        _wait_for(lambda: "press enter" in read_screen(tag, ws).lower()
+                  or "continue" in read_screen(tag, ws).lower(), 40)
+        cli(tag, "send-key", "--workspace", ws, "enter")
+        time.sleep(2)
     if info.get("type_prompt"):
         # opencode launches into a TUI; type the prompt after it is ready
         _wait_for(lambda: any(m in read_screen(tag, ws) for m in ("opencode", ">", "Tip", sandbox)), 60)
