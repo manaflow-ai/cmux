@@ -6,7 +6,7 @@ import Testing
 @Suite(.serialized)
 final class CodexTeamsWatcherRegressionTests {
     @Test
-    func watcherOpensBackfilledSubagentWithoutSubscribingToThreadStreams() throws {
+    func watcherOpensBackfilledAndLateSpawnedSubagentsWithoutThreadStreamSubscriptions() throws {
         let appServer = try FakeCodexTeamsAppServer()
         defer { appServer.stop() }
 
@@ -50,6 +50,10 @@ final class CodexTeamsWatcherRegressionTests {
         // that so a slow CI WebSocket connect still completes (and so a genuine
         // connect failure surfaces in stderr) instead of being killed mid-handshake.
         let openedSplit = cmuxSocket.waitForMethod("surface.split", timeout: 25)
+        // The late thread is announced by a bare-threadId notification right
+        // after the backfill reads, so its split needs only one more
+        // thread/read round-trip once the first split has opened.
+        let openedLateSplit = cmuxSocket.waitForCommand(containing: "late-subagent-thread", timeout: 10)
         process.terminate()
         process.waitUntilExit()
 
@@ -58,6 +62,10 @@ final class CodexTeamsWatcherRegressionTests {
         #expect(
             openedSplit,
             "Expected codex-teams watcher to open a subagent split. stdout=\(stdout) stderr=\(stderr) appServerMethods=\(appServer.methodSnapshot()) cmuxCommands=\(cmuxSocket.commandSnapshot())"
+        )
+        #expect(
+            openedLateSplit,
+            "Expected codex-teams watcher to open a split for a late-spawned thread announced only by a bare threadId notification. stdout=\(stdout) stderr=\(stderr) appServerMethods=\(appServer.methodSnapshot()) cmuxCommands=\(cmuxSocket.commandSnapshot())"
         )
         #expect(!appServer.methodSnapshot().contains("thread/resume"))
     }
@@ -163,6 +171,22 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
                 if let response = response(for: request, method: method) {
                     sendText(response, to: clientFD)
                 }
+                if method == "thread/read",
+                   ((request["params"] as? [String: Any])?["threadId"] as? String) == "subagent-thread" {
+                    // Mirror current Codex app-servers: a thread spawned after
+                    // the watcher connected is announced only by a bare-threadId
+                    // status notification, never by a full thread object.
+                    sendText(
+                        [
+                            "method": "thread/status/changed",
+                            "params": [
+                                "threadId": "late-subagent-thread",
+                                "status": ["type": "active"]
+                            ]
+                        ],
+                        to: clientFD
+                    )
+                }
             case 0x8:
                 return
             case 0x9:
@@ -203,18 +227,19 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
     }
 
     private func threadObject(id: String) -> [String: Any] {
-        if id == "subagent-thread" {
+        if id == "subagent-thread" || id == "late-subagent-thread" {
+            let nickname = id == "subagent-thread" ? "Zeno" : "Hopper"
             return [
-                "id": "subagent-thread",
+                "id": id,
                 "cwd": "/tmp",
                 "status": ["type": "idle"],
-                "agentNickname": "Zeno",
+                "agentNickname": nickname,
                 "source": [
                     "subAgent": [
                         "thread_spawn": [
                             "parent_thread_id": "root-thread",
                             "depth": 1,
-                            "agent_nickname": "Zeno"
+                            "agent_nickname": nickname
                         ]
                     ]
                 ]
