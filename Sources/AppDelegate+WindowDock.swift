@@ -99,6 +99,15 @@ extension AppDelegate {
         windowDockRegistry.existingDock(forWindowId: windowId)
     }
 
+    /// The `TabManager` owning the live window Dock whose owner id is `id`
+    /// (== its window id), or `nil` when `id` is not a live Dock owner. Lets
+    /// tab-manager resolution route a Dock-scoped `workspace_id` to the owning
+    /// window instead of the caller's.
+    func tabManagerForWindowDockOwner(_ id: UUID) -> TabManager? {
+        guard existingWindowDock(forWindowId: id) != nil else { return nil }
+        return tabManagerFor(windowId: id)
+    }
+
     /// The Dock of `tabManager`'s window if it already exists, without creating it.
     func existingWindowDock(for tabManager: TabManager) -> DockSplitStore? {
         guard let windowId = windowId(for: tabManager) else { return nil }

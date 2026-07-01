@@ -1042,10 +1042,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
 
-    /// Per-window Docks keyed by the owning window's `windowId` (which is also
-    /// each store's `workspaceId`). Created lazily when a window first shows the
-    /// Dock, torn down when that window unregisters. All mutation is inside the
-    /// registry type. See AppDelegate+WindowDock.swift.
+    /// Per-window Docks; all mutation is inside the registry type. See AppDelegate+WindowDock.swift.
     let windowDockRegistry = WindowDockRegistry()
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -4600,7 +4597,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    private func notifyMainWindowContextsDidChange() {
+    // Internal (not private): the testing-support seams in
+    // AppDelegate+MainWindowTestingSupport.swift drive the same registration paths.
+    func notifyMainWindowContextsDidChange() {
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
@@ -4729,32 +4728,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
-    @discardableResult
-    func registerMainWindowContextForTesting(
-        windowId: UUID = UUID(),
-        tabManager: TabManager,
-        cmuxConfigStore: CmuxConfigStore? = nil,
-        fileExplorerState: FileExplorerState? = nil
-    ) -> UUID {
-        tabManager.windowId = windowId
-        mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
-            windowId: windowId,
-            tabManager: tabManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: fileExplorerState,
-            cmuxConfigStore: cmuxConfigStore,
-            window: nil
-        )
-        ensureMobileWorkspaceListObserver(for: tabManager)
-        notifyMainWindowContextsDidChange()
-        return windowId
-    }
-
     func sessionSnapshotForTesting(includeScrollback: Bool = false) -> AppSessionSnapshot? {
         buildSessionSnapshot(includeScrollback: includeScrollback)
     }
-
 #endif
 
     /// Lifted to ``CmuxWindowing/MainWindowSummary``; aliased so existing
@@ -6032,7 +6008,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return removed
     }
 
-    private func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+    // Internal (not private): see notifyMainWindowContextsDidChange.
+    func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
         }
@@ -6063,11 +6040,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-#if DEBUG
-    func unregisterMainWindowContextForTesting(windowId: UUID) {
-        mainWindowContexts.values.filter { $0.windowId == windowId }.forEach { discardOrphanedMainWindowContext($0, allowWindowlessFallback: true) }
-    }
-#endif
 
     private func mainWindowId(for window: NSWindow) -> UUID? {
         if let context = mainWindowContexts[ObjectIdentifier(window)] {

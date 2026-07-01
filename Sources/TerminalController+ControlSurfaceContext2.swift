@@ -422,31 +422,8 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let windowDock = windowDockForRouting(routing, tabManager: tabManager) {
-            let resolved = resolvedWindowDockSurfaceId(
-                explicitSurfaceID: surfaceID,
-                hasSurfaceIDParam: false,
-                routing: routing,
-                dock: windowDock
-            )
-            guard let surfaceId = resolved.surfaceID else {
-                return .noFocusedSurface
-            }
-            guard windowDock.containsPanel(surfaceId) else {
-                return .closeFailed(surfaceId)
-            }
-            guard windowDock.closePanel(surfaceId, force: true) else {
-                return .closeFailed(surfaceId)
-            }
-            AppDelegate.shared?.notificationStore?.clearNotifications(
-                forTabId: windowDock.workspaceId,
-                surfaceId: surfaceId
-            )
-            return .closed(
-                windowID: dockResultWindowId(for: windowDock, tabManager: tabManager),
-                workspaceID: windowDock.workspaceId,
-                surfaceID: surfaceId
-            )
+        if let resolution = controlWindowDockSurfaceClose(routing: routing, surfaceID: surfaceID, tabManager: tabManager) {
+            return resolution
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
@@ -459,9 +436,7 @@ extension TerminalController {
             return .noFocusedSurface
         }
         if let windowDock = windowDockContainingPanel(surfaceId) {
-            // An explicit window_id naming a different window fails closed.
-            if routing.hasWindowIDParam, let requestedWindowID = routing.windowID,
-               requestedWindowID != windowDock.workspaceId {
+            if windowDockMismatchesExplicitWindow(routing, dock: windowDock) {
                 return .surfaceNotFound(surfaceId)
             }
             guard windowDock.closePanel(surfaceId, force: true) else {

@@ -105,27 +105,91 @@ extension TerminalController {
     /// routed surface/pane then fails the downstream `containsPanel`/
     /// `containsPane` guards.
     func windowDockForRouting(_ routing: ControlRoutingSelectors, tabManager: TabManager) -> DockSplitStore? {
-        func matchesRequestedWindow(_ dock: DockSplitStore) -> Bool {
-            guard routing.hasWindowIDParam, let requestedWindowID = routing.windowID else { return true }
-            return dock.workspaceId == requestedWindowID
+        func matches(_ dock: DockSplitStore) -> Bool {
+            !windowDockMismatchesExplicitWindow(routing, dock: dock)
         }
         if let workspaceID = routing.workspaceID {
             if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
                 return AppDelegate.shared?.windowDock(for: tabManager)
             }
             if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: workspaceID) {
-                return matchesRequestedWindow(dock) ? dock : nil
+                return matches(dock) ? dock : nil
             }
         }
         if let surfaceID = routing.surfaceID,
            let dock = windowDockContainingPanel(surfaceID) {
-            return matchesRequestedWindow(dock) ? dock : nil
+            return matches(dock) ? dock : nil
         }
         if let paneID = routing.paneID,
            let dock = windowDockContainingPane(paneID) {
-            return matchesRequestedWindow(dock) ? dock : nil
+            return matches(dock) ? dock : nil
         }
         return nil
+    }
+
+    /// Whether an explicit `window_id` contradicts `dock`'s owning window (a
+    /// window Dock's owner id IS its window id). Contradictions fail closed.
+    func windowDockMismatchesExplicitWindow(_ routing: ControlRoutingSelectors, dock: DockSplitStore) -> Bool {
+        guard routing.hasWindowIDParam, let requestedWindowID = routing.windowID else { return false }
+        return dock.workspaceId != requestedWindowID
+    }
+
+    /// Focuses the Dock's owning window, makes it the active manager, and
+    /// reveals the Dock there, returning the owning manager. A Dock surface or
+    /// pane renders only in its owning window (the registry is the source of
+    /// truth), so Dock focus operations anchor there even when the caller's
+    /// routed context resolved another window.
+    @discardableResult
+    func focusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> TabManager {
+        let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
+        _ = AppDelegate.shared?.focusMainWindow(windowId: dock.workspaceId)
+        setActiveTabManager(owningTabManager)
+        revealDockForFocus(tabManager: owningTabManager)
+        return owningTabManager
+    }
+
+    /// Focus-allowance-respecting variant of `focusAndRevealWindowDock` for
+    /// flash-style operations: window focus stays behind `v2MaybeFocusWindow`.
+    func maybeFocusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) {
+        let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
+        v2MaybeFocusWindow(for: owningTabManager)
+        revealDockForFocus(tabManager: owningTabManager)
+    }
+
+    /// The window-Dock branch of `controlSurfaceClose`: closes the routed
+    /// Dock's resolved surface and reports the Dock's owning window. Returns
+    /// `nil` when the routing does not target a window Dock (the caller falls
+    /// through to the workspace close path).
+    func controlWindowDockSurfaceClose(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        tabManager: TabManager
+    ) -> ControlSurfaceCloseResolution? {
+        guard let windowDock = windowDockForRouting(routing, tabManager: tabManager) else { return nil }
+        let resolved = resolvedWindowDockSurfaceId(
+            explicitSurfaceID: surfaceID,
+            hasSurfaceIDParam: false,
+            routing: routing,
+            dock: windowDock
+        )
+        guard let surfaceId = resolved.surfaceID else {
+            return .noFocusedSurface
+        }
+        guard windowDock.containsPanel(surfaceId) else {
+            return .closeFailed(surfaceId)
+        }
+        guard windowDock.closePanel(surfaceId, force: true) else {
+            return .closeFailed(surfaceId)
+        }
+        AppDelegate.shared?.notificationStore?.clearNotifications(
+            forTabId: windowDock.workspaceId,
+            surfaceId: surfaceId
+        )
+        return .closed(
+            windowID: dockResultWindowId(for: windowDock, tabManager: tabManager),
+            workspaceID: windowDock.workspaceId,
+            surfaceID: surfaceId
+        )
     }
 
     /// The window id Dock-scoped results report and Dock-scoped focus targets.

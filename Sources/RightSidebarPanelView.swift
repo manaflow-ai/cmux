@@ -413,9 +413,8 @@ struct RightSidebarPanelView: View {
         sessionIndexStore.currentDirectory
     }
 
-    /// Renders this window's own Dock. Every window hosts an independent Dock
-    /// store (created lazily here on first show), so no window ever defers to a
-    /// Dock rendered elsewhere.
+    /// Renders this window's own Dock (created lazily on first show); no
+    /// window ever defers to a Dock rendered elsewhere.
     @ViewBuilder
     private func dockPanel(windowAppearance: WindowAppearanceSnapshot) -> some View {
         if let app = AppDelegate.shared, let dock = app.windowDock(for: tabManager) {

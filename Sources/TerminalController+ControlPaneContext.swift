@@ -183,15 +183,7 @@ extension TerminalController: ControlPaneContext {
             guard let paneId = dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID }) else {
                 return .paneNotFound(paneID)
             }
-            // A Dock pane renders only in its owning window (the Dock registry
-            // is the source of truth), so focus and reveal there even if the
-            // caller's routed context named another window.
-            let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
-            if let windowId = dockResultWindowId(for: dock, tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(owningTabManager)
-            }
-            revealDockForFocus(tabManager: owningTabManager)
+            focusAndRevealWindowDock(for: dock, fallback: tabManager)
             dock.bonsplitController.focusPane(paneId)
             return .focused(windowID: dockResultWindowId(for: dock, tabManager: tabManager), workspaceID: dock.workspaceId, paneID: paneId.id)
         }

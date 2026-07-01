@@ -187,11 +187,7 @@ extension TerminalController {
             guard dock.panels[surfaceId] != nil else {
                 return .surfaceNotFound(surfaceId)
             }
-            // A Dock surface renders only in its owning window (the Dock
-            // registry is the source of truth), so reveal and flash there.
-            let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
-            v2MaybeFocusWindow(for: owningTabManager)
-            revealDockForFocus(tabManager: owningTabManager)
+            maybeFocusAndRevealWindowDock(for: dock, fallback: tabManager)
             dock.focusPanel(surfaceId)
             return .flashed(
                 windowID: dockResultWindowId(for: dock, tabManager: tabManager),
