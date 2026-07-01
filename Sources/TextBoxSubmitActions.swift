@@ -117,8 +117,8 @@ extension TextBoxInputContainer {
     func clearPendingProviderLaunch() {
         pendingProviderLaunchAction = nil
         pendingProviderLaunchStartedAt = nil
-        pendingProviderLaunchTimeoutTimer?.invalidate()
-        pendingProviderLaunchTimeoutTimer = nil
+        pendingProviderLaunchTimeoutTask?.cancel()
+        pendingProviderLaunchTimeoutTask = nil
     }
 
     func cancelPendingProviderLaunch() {
@@ -144,14 +144,16 @@ extension TextBoxInputContainer {
     }
 
     func schedulePendingProviderLaunchTimeout() {
-        pendingProviderLaunchTimeoutTimer?.invalidate()
-        pendingProviderLaunchTimeoutTimer = Timer.scheduledTimer(
-            withTimeInterval: Self.pendingProviderLaunchTimeoutSeconds,
-            repeats: false
-        ) { _ in
-            MainActor.assumeIsolated {
-                reconcilePendingProviderLaunch()
+        pendingProviderLaunchTimeoutTask?.cancel()
+        pendingProviderLaunchTimeoutTask = Task { @MainActor in
+            let nanoseconds = UInt64(Self.pendingProviderLaunchTimeoutSeconds * 1_000_000_000)
+            do {
+                try await Task.sleep(nanoseconds: nanoseconds)
+            } catch {
+                return
             }
+            guard !Task.isCancelled else { return }
+            reconcilePendingProviderLaunch()
         }
     }
 

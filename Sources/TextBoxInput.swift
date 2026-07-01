@@ -2451,7 +2451,7 @@ struct TextBoxInputContainer: View {
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
     @State var pendingProviderLaunchStartedAt: Date?
-    @State var pendingProviderLaunchTimeoutTimer: Timer?
+    @State var pendingProviderLaunchTimeoutTask: Task<Void, Never>?
     @State private var preservePendingProviderLaunchForDefaultActionReset = false
     @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
 
