@@ -99,13 +99,7 @@ public struct ChatComposerView: View {
     #if os(iOS)
     @ViewBuilder
     private var composerSurface: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer {
-                composerStack
-            }
-        } else {
-            composerStack
-        }
+        composerStack
     }
     #endif
 
