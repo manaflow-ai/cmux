@@ -17,11 +17,12 @@ import Foundation
 /// `swift test` without launching the app.
 public struct AgentBackgroundWorkStatus: Equatable, Sendable {
     /// Background tasks whose status is not a known terminal state (running/pending/
-    /// unknown all count — see `terminalStatuses`).
+    /// unknown all count — see `agentBackgroundTerminalStatuses`).
     public let runningBackgroundTaskCount: Int
     /// Scheduled cron jobs the session will wake itself for.
     public let scheduledCronCount: Int
 
+    /// Create a status from explicit counts (used by tests and the parsing initializer).
     public init(runningBackgroundTaskCount: Int, scheduledCronCount: Int) {
         self.runningBackgroundTaskCount = runningBackgroundTaskCount
         self.scheduledCronCount = scheduledCronCount
@@ -33,13 +34,13 @@ public struct AgentBackgroundWorkStatus: Equatable, Sendable {
     /// work is still running; any `session_crons` entry means the session expects to
     /// wake itself later. Wrong-typed or missing fields yield "no work" and never crash.
     public init(hookObject object: [String: Any]?) {
-        let tasks = Self.arrayOfObjects(object?["background_tasks"])
-        let crons = Self.arrayOfObjects(object?["session_crons"])
+        let tasks = agentHookArrayOfObjects(object?["background_tasks"])
+        let crons = agentHookArrayOfObjects(object?["session_crons"])
         let running = tasks.reduce(into: 0) { count, task in
             let status = ((task["status"] as? String) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            if !Self.terminalStatuses.contains(status) { count += 1 }
+            if !agentBackgroundTerminalStatuses.contains(status) { count += 1 }
         }
         self.init(runningBackgroundTaskCount: running, scheduledCronCount: crons.count)
     }
@@ -48,20 +49,21 @@ public struct AgentBackgroundWorkStatus: Equatable, Sendable {
     public var isActive: Bool {
         runningBackgroundTaskCount > 0 || scheduledCronCount > 0
     }
+}
 
-    /// Statuses that mean a background task has finished and is safe to hibernate
-    /// through. Anything else (running, pending, queued, in_progress, or an
-    /// unrecognized value) is treated as live — the safe direction is to keep the
-    /// pane alive rather than risk killing real work.
-    static let terminalStatuses: Set<String> = [
-        "completed", "complete", "done", "finished", "succeeded", "success",
-        "failed", "failure", "error", "errored",
-        "cancelled", "canceled", "killed", "terminated", "stopped",
-        "exited", "timeout", "timedout",
-    ]
+/// Statuses that mean a background task has finished and is safe to hibernate through.
+/// Anything else (running, pending, queued, in_progress, or an unrecognized value) is
+/// treated as live — the safe direction is to keep the pane alive rather than risk
+/// killing real work.
+private let agentBackgroundTerminalStatuses: Set<String> = [
+    "completed", "complete", "done", "finished", "succeeded", "success",
+    "failed", "failure", "error", "errored",
+    "cancelled", "canceled", "killed", "terminated", "stopped",
+    "exited", "timeout", "timedout",
+]
 
-    private static func arrayOfObjects(_ value: Any?) -> [[String: Any]] {
-        guard let array = value as? [Any] else { return [] }
-        return array.compactMap { $0 as? [String: Any] }
-    }
+/// Coerce a JSON value into an array of objects, tolerating wrong/missing types.
+private func agentHookArrayOfObjects(_ value: Any?) -> [[String: Any]] {
+    guard let array = value as? [Any] else { return [] }
+    return array.compactMap { $0 as? [String: Any] }
 }

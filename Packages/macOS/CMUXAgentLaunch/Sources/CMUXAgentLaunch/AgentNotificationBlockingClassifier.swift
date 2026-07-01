@@ -19,6 +19,7 @@ public struct AgentNotification {
     /// The free-text notification message.
     public let message: String
 
+    /// Create a notification from its structured signal/reason field and free-text message.
     public init(signal: String, message: String) {
         self.signal = signal
         self.message = message
@@ -42,29 +43,29 @@ public struct AgentNotification {
             || lower.contains("exception") {
             return true
         }
-        return Self.containsGenuineQuestionCue(lower)
+        return agentNotificationContainsGenuineQuestionCue(lower)
     }
+}
 
-    /// A genuine prompt the user must answer, as opposed to a routine "waiting for input"
-    /// nudge. Detected from high-confidence signals only: a direct interrogative (contains
-    /// `?`), or the literal `question` token paired with an interaction word.
-    ///
-    /// Deliberately NOT keyed on bare verbs like `confirm`/`choose`/`continue`/`proceed`:
-    /// those collide with routine agent chatter ("continue when ready", "proceed to the
-    /// next step"), and blocking on them would clobber the Stop hook's `.idle` so the pane
-    /// never hibernates — the exact bug this lane exists to prevent. Routine idle/waiting
-    /// reminders never carry a `?`, so they stay non-blocking. A genuine but
-    /// punctuation-free imperative ("Choose an option") is intentionally left to the
-    /// authoritative structured signal (`notification_type`), not this free-text
-    /// heuristic. Mirrors the CLI classifier's `containsWaitingCue` so the blocking
-    /// decision and the `.needsInput` classification stay in lockstep.
-    private static func containsGenuineQuestionCue(_ lowercasedText: String) -> Bool {
-        if lowercasedText.contains("?") { return true }
-        let tokens = lowercasedText.split { !$0.isLetter && !$0.isNumber }.map(String.init)
-        guard tokens.contains("question") else { return false }
-        let interactionCues: Set<String> = [
-            "answer", "respond", "response", "reply", "choose", "confirm", "continue",
-        ]
-        return tokens.contains { interactionCues.contains($0) }
-    }
+/// A genuine prompt the user must answer, as opposed to a routine "waiting for input"
+/// nudge. Detected from high-confidence signals only: a direct interrogative (contains
+/// `?`), or the literal `question` token paired with an interaction word.
+///
+/// Deliberately NOT keyed on bare verbs like `confirm`/`choose`/`continue`/`proceed`:
+/// those collide with routine agent chatter ("continue when ready", "proceed to the
+/// next step"), and blocking on them would clobber the Stop hook's `.idle` so the pane
+/// never hibernates — the exact bug this lane exists to prevent. Routine idle/waiting
+/// reminders never carry a `?`, so they stay non-blocking. A genuine but
+/// punctuation-free imperative ("Choose an option") is intentionally left to the
+/// authoritative structured signal (`notification_type`), not this free-text heuristic.
+/// Mirrors the CLI classifier's `containsWaitingCue` so the blocking decision and the
+/// `.needsInput` classification stay in lockstep.
+private func agentNotificationContainsGenuineQuestionCue(_ lowercasedText: String) -> Bool {
+    if lowercasedText.contains("?") { return true }
+    let tokens = lowercasedText.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+    guard tokens.contains("question") else { return false }
+    let interactionCues: Set<String> = [
+        "answer", "respond", "response", "reply", "choose", "confirm", "continue",
+    ]
+    return tokens.contains { interactionCues.contains($0) }
 }
