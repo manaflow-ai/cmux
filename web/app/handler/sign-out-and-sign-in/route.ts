@@ -11,6 +11,8 @@ type SignOutAndSignInDependencies = {
 
 const STACK_ACCESS_COOKIE = "stack-access";
 const LEGACY_STACK_REFRESH_COOKIE = "stack-refresh";
+const STACK_CUSTOM_REFRESH_COOKIE_MARKER = "--custom-";
+const CROCKFORD_BASE32_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 function sameOriginURL(value: string | null, request: NextRequest): URL | null {
   if (!value) return null;
@@ -55,11 +57,38 @@ function isStackAuthCookie(name: string, projectId: string): boolean {
   );
 }
 
+function decodeStackBase32Text(value: string): string | null {
+  let bits = 0;
+  let buffer = 0;
+  const bytes: number[] = [];
+
+  for (const character of value) {
+    const index = CROCKFORD_BASE32_ALPHABET.indexOf(character.toUpperCase());
+    if (index === -1) return null;
+    buffer = (buffer << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((buffer >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+function stackCustomRefreshCookieDomain(name: string, projectId: string): string | null {
+  const prefix = `stack-refresh-${projectId}${STACK_CUSTOM_REFRESH_COOKIE_MARKER}`;
+  if (!name.startsWith(prefix)) return null;
+  return decodeStackBase32Text(name.slice(prefix.length));
+}
+
 function clearStackAuthCookies(response: NextResponse, request: NextRequest, projectId: string) {
   const secure = request.nextUrl.protocol === "https:";
   for (const cookie of request.cookies.getAll()) {
     if (!isStackAuthCookie(cookie.name, projectId)) continue;
+    const domain = stackCustomRefreshCookieDomain(cookie.name, projectId);
     response.cookies.set(cookie.name, "", {
+      ...(domain ? { domain } : {}),
       maxAge: 0,
       path: "/",
       sameSite: "lax",

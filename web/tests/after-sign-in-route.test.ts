@@ -151,7 +151,7 @@ describe("sign out and sign back in", () => {
       {
         headers: {
           cookie:
-            "stack-access=access-token; __Host-stack-access=secure-access-token; stack-refresh-test-project=refresh-token; __Host-stack-refresh-test-project=host-refresh-token; __Secure-stack-refresh-test-project=secure-refresh-token; stack-refresh-test-project--default=branch-refresh-token; __Host-stack-refresh-test-project--default=secure-branch-refresh-token; unrelated=value",
+            "stack-access=access-token; __Host-stack-access=secure-access-token; stack-refresh-test-project=refresh-token; __Host-stack-refresh-test-project=host-refresh-token; __Secure-stack-refresh-test-project=secure-refresh-token; stack-refresh-test-project--default=branch-refresh-token; __Host-stack-refresh-test-project--default=secure-branch-refresh-token; stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=custom-refresh-token; unrelated=value",
           ...headers,
         },
       }
@@ -178,6 +178,8 @@ describe("sign out and sign back in", () => {
     expect(setCookie).toContain("__Secure-stack-refresh-test-project=;");
     expect(setCookie).toContain("stack-refresh-test-project--default=;");
     expect(setCookie).toContain("__Host-stack-refresh-test-project--default=;");
+    expect(setCookie).toContain("stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=;");
+    expect(setCookie).toContain("Domain=example.com");
     expect(setCookie).not.toContain("unrelated=;");
   });
 
