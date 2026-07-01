@@ -235,6 +235,32 @@ struct ChatConversationStorePromptEchoPreviewTests {
         #expect(await waitForPromptEchoPreview { Self.messageIDs(store.rows) == [preview.id] })
     }
 
+    @Test("queued prompt match does not preserve stale live preview")
+    func queuedPromptMatchDoesNotPreserveStaleLivePreview() async {
+        let source = PromptEchoSilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await waitForPromptEchoPreview { store.isConnected })
+        await source.emit(.stateChanged(.working(since: Self.baseTime)))
+        #expect(await waitForPromptEchoPreview { store.agentState == .working(since: Self.baseTime) })
+        await store.send(text: "queued duplicate")
+        #expect(await waitForPromptEchoPreview {
+            Self.pendingItems(store.rows).contains { $0.delivery == .queued }
+        })
+
+        await source.emit(.streamingProse(Self.streamingMessage(text: "valid preview")))
+        #expect(await waitForPromptEchoPreview { Self.proseTexts(store.rows) == ["valid preview"] })
+
+        let realUser = Self.prose(seq: 0, role: .user, text: "queued duplicate")
+        await source.emit(.appended([realUser]))
+        #expect(await waitForPromptEchoPreview {
+            Self.proseTexts(store.rows) == ["queued duplicate"]
+                && Self.pendingItems(store.rows).contains { $0.delivery == .queued }
+        })
+    }
+
     @Test("live preview suppresses a bounded tail from a large prompt")
     func livePreviewSuppressesBoundedLargePromptTail() async {
         let source = FixtureChatEventSource()
