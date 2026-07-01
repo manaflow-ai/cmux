@@ -125,6 +125,10 @@ struct WorkspaceContentView: View {
     /// (`isWorkspaceInputActive`) or drag interactivity — only the visual/active
     /// focus state — so the terminal stays visible (via `isSelectedInPane`).
     var rightSidebarOwnsInputFocus: Bool = false
+    /// Whether iTerm2-style input broadcast is enabled for this workspace.
+    /// Drives the per-pane broadcast dot. Sourced from the observed
+    /// `TabManager.broadcastInputWorkspaceIds` in `ContentView`.
+    let isInputBroadcastActive: Bool
     let isFullScreen: Bool
     let workspacePortalPriority: Int
     let windowAppearance: WindowAppearanceSnapshot
@@ -241,6 +245,9 @@ struct WorkspaceContentView: View {
                         isSplit: isSplit,
                         appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                        // Show on every visible pane while broadcast is on (not just
+                        // splits) so the mode stays visible with the sidebar closed.
+                        showsBroadcastDot: isInputBroadcastActive && isVisibleInUI,
                         terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the

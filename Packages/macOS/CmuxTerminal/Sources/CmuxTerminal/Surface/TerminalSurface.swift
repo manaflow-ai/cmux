@@ -97,6 +97,17 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// a surface whose portal is visible.
     var rendererPortalVisible = false
 
+    /// Whether workspace input broadcast is currently enabled for the workspace
+    /// that owns this surface.
+    ///
+    /// This is a derived hot-path cache pushed down by the single mutation path
+    /// (``TabManager`` → `Workspace.applyInputBroadcastEnabled(_:)` →
+    /// ``setInputBroadcastEnabled(_:)``); the authoritative state is the per-window
+    /// `TabManager.broadcastInputWorkspaceIds` set. `keyDown`/IME/paste reads this
+    /// flag to skip the workspace lookup entirely while broadcast is off (the
+    /// common case), so it must stay a single cheap `Bool` read.
+    public internal(set) var inputBroadcastEnabled = false
+
     /// Whether the runtime Ghostty surface exists and has not begun teardown.
     ///
     /// Use this as a quick availability check. Before passing `surface` to
