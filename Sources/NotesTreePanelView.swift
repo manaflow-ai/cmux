@@ -13,6 +13,11 @@ import SwiftUI
 /// injected as closures from the composition root.
 struct NotesTreePanelView: NSViewRepresentable {
     let store: NotesTreeStore
+    /// The store's revision, read in the hosting SwiftUI body so Observation
+    /// re-runs `updateNSView` on async reloads (watchers, session refreshes);
+    /// reads made only inside `updateNSView` are not a guaranteed tracking
+    /// scope on every supported macOS.
+    let contentRevision: Int
     /// Open a note file in a markdown surface.
     let onOpenNote: (NotesTreeNode, _ editImmediately: Bool) -> Void
     /// Resume the Claude session backing a session folder.

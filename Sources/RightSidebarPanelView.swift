@@ -403,7 +403,7 @@ struct RightSidebarPanelView: View {
                 )
             case .notes:
                 NotesTreePanelView(
-                    store: notesTreeStore,
+                    store: notesTreeStore, contentRevision: notesTreeStore.contentRevision,
                     onOpenNote: onOpenNote,
                     onResumeMarker: onResumeNoteSession,
                     onFocusTerminalPanel: onFocusNoteTerminal,
