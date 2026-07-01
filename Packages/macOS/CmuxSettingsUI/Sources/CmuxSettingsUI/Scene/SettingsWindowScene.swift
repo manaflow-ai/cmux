@@ -361,15 +361,6 @@ public struct SettingsWindowRoot: View {
                 .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
                     applyScrollNavigation(notification, proxy: proxy)
                 }
-                // DEBUG scroll-jump sampler. Backs the OUTER ScrollView (a safe
-                // placement that does not perturb the Settings scene); it resolves
-                // the page NSScrollView by walking the window, not via
-                // enclosingScrollView — see ShortcutListScrollDiagnostics.
-                .background {
-                    #if DEBUG
-                    ShortcutListScrollDiagnostics()
-                    #endif
-                }
             }
         }
     }
