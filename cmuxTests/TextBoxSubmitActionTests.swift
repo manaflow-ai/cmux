@@ -263,6 +263,36 @@ struct TextBoxSubmitActionTests {
         XCTAssertFalse(keys.contains("path:/tmp/custom-\(TextBoxSubmitActionImageSupport.maximumCachedImageCount).png"))
     }
 
+    @Test
+    func testCustomSubmitActionImageDecodesAsBoundedIcon() throws {
+        let representation = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 128,
+            pixelsHigh: 64,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: representation)
+        NSColor.black.setFill()
+        NSRect(x: 0, y: 0, width: 128, height: 64).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let data = try #require(representation.representation(using: .png, properties: [:]))
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-textbox-submit-icon-\(UUID().uuidString).png")
+        try data.write(to: url, options: [.atomic])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let image = try #require(TextBoxSubmitActionImageSupport.image(atPath: url.path))
+        XCTAssertEqual(image.size, NSSize(width: 16, height: 16))
+    }
+
 
     @Test
     func testCustomTextBoxSubmitActionCatalogKeepsTextEntrySelectable() throws {

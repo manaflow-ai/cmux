@@ -418,13 +418,12 @@ extension TextBoxInputContainer {
 
         for key in keys where submitActionImageCache[key] == nil {
             if let path = submitActionPath(fromCacheKey: key) {
-                let data = await Task.detached(priority: .utility) {
-                    TextBoxSubmitActionImageSupport.imageData(atPath: path)
+                let image = await Task.detached(priority: .utility) {
+                    TextBoxSubmitActionImageSupport.image(atPath: path)
                 }.value
                 guard !Task.isCancelled else { return }
-                if let data,
-                   let image = NSImage(data: data) {
-                    submitActionImageCache[key] = TextBoxSubmitActionImageSupport.fixedSizeImage(image)
+                if let image {
+                    submitActionImageCache[key] = image
                 }
             } else if let assetName = submitActionAssetName(fromCacheKey: key),
                       let image = NSImage(named: assetName) {
