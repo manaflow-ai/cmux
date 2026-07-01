@@ -1562,6 +1562,7 @@ struct ShortcutStroke: Equatable, Hashable {
 
     var keyEquivalent: KeyEquivalent? {
         if key == "space" { return KeyEquivalent(Character(" ")) }
+        if key == "\t" { return .tab }
 
         if Self.usesDirectKeyCodeMatching(key) {
             return nil
@@ -1576,8 +1577,6 @@ struct ShortcutStroke: Equatable, Hashable {
             return .upArrow
         case "↓":
             return .downArrow
-        case "\t":
-            return .tab
         case "\r":
             return KeyEquivalent(Character("\r"))
         default:
@@ -1606,6 +1605,7 @@ struct ShortcutStroke: Equatable, Hashable {
 
     var menuItemKeyEquivalent: String? {
         if key == "space" { return " " }
+        if key == "\t" { return "\t" }
 
         if Self.usesDirectKeyCodeMatching(key) {
             return nil
@@ -1624,8 +1624,6 @@ struct ShortcutStroke: Equatable, Hashable {
         case "↓":
             guard let scalar = UnicodeScalar(NSDownArrowFunctionKey) else { return nil }
             return String(Character(scalar))
-        case "\t":
-            return "\t"
         case "\r":
             return "\r"
         default:
