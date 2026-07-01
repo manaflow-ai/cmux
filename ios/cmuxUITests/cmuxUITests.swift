@@ -97,6 +97,30 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["refreshPreservedEmptyList=true"].exists)
     }
 
+    @MainActor
+    func testWorkspaceMacPickerUsesComputerCopy() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["All Computers"].exists)
+
+        picker.tap()
+
+        XCTAssertTrue(app.staticTexts["Choose Computer"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["All Computers"].exists)
+        XCTAssertFalse(app.staticTexts["Choose Mac"].exists)
+        XCTAssertFalse(app.staticTexts["All Macs"].exists)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-mac-picker-computer-copy"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not
@@ -654,7 +678,7 @@ final class cmuxUITests: XCTestCase {
     /// stays full height behind a keyboard-owned clip view, so the bottom content
     /// remains visible and keyboard motion clips only from the top.
     @MainActor
-    func testAgentChatTranscriptFrameMovesUpWithKeyboardAcrossScrollPositions() throws {
+    func testAgentChatTranscriptKeepsTopEdgeVisibleWithKeyboardAcrossScrollPositions() throws {
         do {
             let app = launchAgentChatInlinePreviewApp()
             let table = app.tables["ChatTranscriptTableView"]
@@ -861,18 +885,16 @@ final class cmuxUITests: XCTestCase {
             minimumDistinctFrameBuckets: 2
         )
         let maxVisibleMotion = animationSamples
-            .map { abs($0.metrics.presentationFrameMaxY - $0.metrics.effectiveFrameMaxY) }
+            .map { activeKeyboardPresentationMotion($0.metrics) }
             .max() ?? 0
         XCTAssertGreaterThan(
             maxVisibleMotion,
             80,
             "Interrupted show-dismiss must capture partially visible keyboard motion, not only down state. samples=\(animationSamples)"
         )
-        guard let keyboardDown = animationSamples.reversed().first(where: {
-            $0.metrics.keyboardOverlap == 0
-                && abs($0.metrics.presentationFrameMaxY - $0.metrics.effectiveFrameMaxY) < 4
-                && abs($0.metrics.frameMaxY - beforeKeyboard.frameMaxY) < 8
-        })?.metrics else {
+        guard let keyboardDown = animationSamples.last?.metrics,
+              isKeyboardDownClipSettled(keyboardDown),
+              abs(keyboardDown.frameMaxY - beforeKeyboard.frameMaxY) < 8 else {
             XCTFail("Interrupted show-dismiss evidence must end with the keyboard down. samples=\(animationSamples)")
             return
         }
@@ -1012,10 +1034,8 @@ final class cmuxUITests: XCTestCase {
                 scrollPosition: refocusCase.label,
                 minimumDistinctFrameBuckets: 2
             )
-            guard let refocused = interruptedSamples.reversed().first(where: {
-                $0.metrics.keyboardOverlap > 120
-                    && abs($0.metrics.presentationFrameMaxY - $0.metrics.effectiveFrameMaxY) < 4
-            })?.metrics else {
+            guard let refocused = interruptedSamples.last?.metrics,
+                  isKeyboardUpClipSettled(refocused) else {
                 XCTFail("\(refocusCase.label) evidence must end with the keyboard visible. samples=\(interruptedSamples)")
                 return
             }
@@ -1093,10 +1113,8 @@ final class cmuxUITests: XCTestCase {
             // intentionally asserts the observed transition events and final
             // attachment/pinning. Dense in-flight frames come from the external
             // simulator recording used for dogfood evidence.
-            guard let refocused = samples.reversed().first(where: {
-                $0.metrics.keyboardOverlap > 120
-                    && abs($0.metrics.presentationFrameMaxY - $0.metrics.effectiveFrameMaxY) < 4
-            })?.metrics else {
+            guard let refocused = samples.last?.metrics,
+                  isKeyboardUpClipSettled(refocused) else {
                 XCTFail("\(refocusCase.label) evidence must end with the keyboard visible. samples=\(samples)")
                 return
             }
@@ -1204,6 +1222,49 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatTranscriptFastSwipeEvidence() throws {
+        let app = launchAgentChatInlinePreviewApp(environment: [
+            "CMUX_UITEST_CHAT_INITIAL_SCROLL": "middle",
+        ])
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+
+        let before = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.frameHeight > 240
+                && $0.contentHeight > $0.boundsHeight * 1.6
+                && $0.offsetY > 80
+                && $0.distanceFromBottom > 220
+        }
+        captureKeyboardEvidenceFrame(
+            prefix: "scroll-deceleration-before",
+            index: 0,
+            startedAt: Date(),
+            metrics: before
+        )
+
+        table.swipeUp(velocity: .fast)
+        let afterSwipe = try waitForTranscriptMetrics(table, timeout: 1.5) {
+            $0.offsetY > before.offsetY + 40
+        }
+        captureKeyboardEvidenceFrame(
+            prefix: "scroll-deceleration-after",
+            index: 0,
+            startedAt: Date(),
+            metrics: afterSwipe
+        )
+        XCTAssertGreaterThan(
+            afterSwipe.offsetY,
+            before.offsetY + 40,
+            "A fast transcript swipe should move through the chat history instead of being swallowed by parent gesture handling. before=\(before) after=\(afterSwipe)"
+        )
+        XCTAssertGreaterThan(
+            afterSwipe.distanceFromBottom,
+            80,
+            "A single fast swipe from the middle fixture must not snap to the live bottom. before=\(before) after=\(afterSwipe)"
+        )
+    }
+
+    @MainActor
     func testAgentChatExpansionControlsPreserveTranscriptScrollPosition() throws {
         let app = launchAgentChatInlinePreviewApp()
         let table = app.tables["ChatTranscriptTableView"]
@@ -1246,6 +1307,11 @@ final class cmuxUITests: XCTestCase {
             metrics.frameMaxY,
             windowFrame.maxY - 2,
             "The transcript table must physically extend to the device bottom so the bottom scroll-edge effect can continue through the safe area. metrics=\(metrics) window=\(windowFrame)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            metrics.presentationFrameMaxY,
+            windowFrame.maxY - 2,
+            "The rendered transcript clip must also reach the device bottom when the keyboard is down. Clipping at the composer top hides the iOS 26 bottom underlap even when the table frame is full height. metrics=\(metrics) window=\(windowFrame)"
         )
         XCTAssertLessThanOrEqual(
             composerBar.frame.maxY,
@@ -1315,15 +1381,18 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
-        assertChatKeyboardVisibleBottomStayedPinned(
-            animationSamples,
-            baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
-            scrollPosition: scrollPosition,
-            file: file,
-            line: line
-        )
+        if beforeKeyboard.distanceFromBottom <= 40 {
+            assertChatKeyboardVisibleBottomStayedPinned(
+                animationSamples,
+                baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
+                scrollPosition: scrollPosition,
+                file: file,
+                line: line
+            )
+        }
         let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
-            $0.frameMaxY < beforeKeyboard.frameMaxY - 120
+            $0.keyboardOverlap > 120
+                && $0.presentationFrameMaxY < beforeKeyboard.presentationFrameMaxY - 120
         }
         let metricsAttachment = XCTAttachment(
             string: "scrollPosition=\(scrollPosition)\nbefore=\(beforeKeyboard)\nafter=\(afterKeyboard)"
@@ -1347,6 +1416,14 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+        XCTAssertEqual(
+            afterKeyboard.frameMinY,
+            beforeKeyboard.frameMinY,
+            accuracy: 4,
+            "Chat transcript UITableView top must stay at the visible nav underlap while the keyboard is up from \(scrollPosition). Moving the table to a negative Y keeps the flags enabled but renders the native top edge blur offscreen. before=\(beforeKeyboard) after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
         let keyboardFrame = keyboardFrameAfterFocus(
             in: app,
             overlap: afterKeyboard.keyboardOverlap,
@@ -1363,9 +1440,9 @@ final class cmuxUITests: XCTestCase {
         }
 
         XCTAssertLessThan(
-            afterKeyboard.frameMaxY,
-            beforeKeyboard.frameMaxY - 120,
-            "Chat transcript UITableView bottom must move up with the keyboard from \(scrollPosition). before=\(beforeKeyboard) after=\(afterKeyboard) keyboard=\(keyboardFrame)",
+            afterKeyboard.presentationFrameMaxY,
+            beforeKeyboard.presentationFrameMaxY - 120,
+            "Chat transcript visible clipped bottom must move up with the keyboard from \(scrollPosition). The table frame itself stays at the top so the native top scroll-edge blur remains visible. before=\(beforeKeyboard) after=\(afterKeyboard) keyboard=\(keyboardFrame)",
             file: file,
             line: line
         )
@@ -1399,6 +1476,14 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+        XCTAssertEqual(
+            afterKeyboard.adjustedBottomInset,
+            afterKeyboard.composerOverlayBottomInset + afterKeyboard.keyboardOverlap,
+            accuracy: 6,
+            "Keyboard-up transcript inset must include the keyboard-clipped viewport below the composer. Otherwise bottom-pinned state can report success while the newest content is hidden. after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
         XCTAssertGreaterThan(
             composerBarFrame.height,
             52,
@@ -1417,14 +1502,6 @@ final class cmuxUITests: XCTestCase {
             composerFieldFrame.height,
             18,
             "Chat composer field must retain a usable text-entry frame after keyboard opens from \(scrollPosition). field=\(composerFieldFrame)",
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            afterKeyboard.visibleBottomY,
-            beforeKeyboard.visibleBottomY,
-            accuracy: 36,
-            "Visible transcript bottom should stay pinned while the keyboard opens from \(scrollPosition). before=\(beforeKeyboard) after=\(afterKeyboard)",
             file: file,
             line: line
         )
@@ -2202,13 +2279,16 @@ final class cmuxUITests: XCTestCase {
         let topEdgeEffectSoft: Bool
         let bottomEdgeEffectSoft: Bool
         let topContentScrollViewRegistered: Bool
+        let scrollTracking: Bool
+        let scrollDragging: Bool
+        let scrollDecelerating: Bool
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered), scrollTracking=\(scrollTracking), scrollDragging=\(scrollDragging), scrollDecelerating=\(scrollDecelerating)"
         }
 
         var effectiveFrameMaxY: CGFloat {
-            frameMaxY - composerOverlayBottomInset
+            composerPresentationMinY
         }
 
         init?(_ rawValue: String) {
@@ -2259,6 +2339,9 @@ final class cmuxUITests: XCTestCase {
             self.topEdgeEffectSoft = (values["topEdgeEffectSoft"] ?? 0) >= 0.5
             self.bottomEdgeEffectSoft = (values["bottomEdgeEffectSoft"] ?? 0) >= 0.5
             self.topContentScrollViewRegistered = (values["topContentScrollViewRegistered"] ?? 0) >= 0.5
+            self.scrollTracking = (values["scrollTracking"] ?? 0) >= 0.5
+            self.scrollDragging = (values["scrollDragging"] ?? 0) >= 0.5
+            self.scrollDecelerating = (values["scrollDecelerating"] ?? 0) >= 0.5
         }
     }
 
@@ -2603,7 +2686,7 @@ final class cmuxUITests: XCTestCase {
     ) {
         let capturedPresentationMotion = samples.contains {
             isChatKeyboardVisiblyMoving($0.metrics)
-                && abs($0.metrics.presentationFrameMaxY - $0.metrics.effectiveFrameMaxY) > 8
+                && activeKeyboardPresentationMotion($0.metrics) > 8
         }
         XCTAssertTrue(
             capturedPresentationMotion,
@@ -2616,7 +2699,25 @@ final class cmuxUITests: XCTestCase {
     private func isChatKeyboardVisiblyMoving(_ metrics: ChatTranscriptMetrics) -> Bool {
         metrics.keyboardAnimationActive
             || metrics.keyboardOverlap > 0
-            || abs(metrics.presentationFrameMaxY - metrics.effectiveFrameMaxY) > 4
+    }
+
+    private func activeKeyboardPresentationMotion(_ metrics: ChatTranscriptMetrics) -> CGFloat {
+        guard isChatKeyboardVisiblyMoving(metrics) else { return 0 }
+        return abs(metrics.presentationFrameMaxY - metrics.effectiveFrameMaxY)
+    }
+
+    private func isKeyboardUpClipSettled(_ metrics: ChatTranscriptMetrics) -> Bool {
+        metrics.keyboardOverlap > 120
+            && abs(metrics.presentationFrameMaxY - metrics.effectiveFrameMaxY) < 4
+    }
+
+    private func isKeyboardDownClipSettled(_ metrics: ChatTranscriptMetrics) -> Bool {
+        abs(metrics.keyboardOverlap) <= 0.5
+            && metrics.presentationFrameMaxY >= metrics.frameMaxY - 6
+    }
+
+    private struct TranscriptMetricsWaitError: Error, CustomStringConvertible {
+        let description: String
     }
 
     @MainActor
@@ -2645,17 +2746,12 @@ final class cmuxUITests: XCTestCase {
             object: table
         )
         let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
-        XCTAssertEqual(
-            result,
-            .completed,
-            "Timed out waiting for transcript metrics. Last metrics: \(String(describing: lastMetrics)); raw: \(lastRawValue)",
-            file: file,
-            line: line
-        )
-        if let metrics = lastMetrics {
-            return metrics
+        guard result == .completed, let metrics = lastMetrics else {
+            let message = "Timed out waiting for transcript metrics. Last metrics: \(String(describing: lastMetrics)); raw: \(lastRawValue)"
+            XCTFail(message, file: file, line: line)
+            throw TranscriptMetricsWaitError(description: message)
         }
-        throw XCTSkip("Transcript metrics were unavailable")
+        return metrics
     }
 
     @MainActor
@@ -2803,8 +2899,7 @@ final class cmuxUITests: XCTestCase {
         var didRequestDismiss = false
         while Date() < deadline {
             if let metrics = transcriptMetrics(from: table),
-               abs(metrics.keyboardOverlap) <= 0.5,
-               abs(metrics.presentationFrameMaxY - metrics.effectiveFrameMaxY) <= 6 {
+               isKeyboardDownClipSettled(metrics) {
                 return true
             }
             if !didRequestDismiss {

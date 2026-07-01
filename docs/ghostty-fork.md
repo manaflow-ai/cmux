@@ -12,13 +12,39 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `1b454eb99`, which merges
-`79b5bb6ee` from manaflow-ai/ghostty#89. That render-grid change keeps
-wide or grapheme-backed cells in their own `cmux.render-grid.v1` spans so
-mobile replay receives the producer's exact start column and `cell_width`
-instead of inferring per-grapheme columns from an aggregate same-style span.
-It is based on `49cb510f7` and retains the Darwin-only
-`ghostty_surface_set_renderer_realized` C API (a
+Current cmux pinned fork head: `541e5e89d`, which merges the render-grid span
+preservation head `1b454eb99` from manaflow-ai/ghostty#89 with the
+Arabic/Hebrew RTL shaping head `7a5179843` from manaflow-ai/ghostty#88.
+
+The render-grid change keeps wide or grapheme-backed cells in their own
+`cmux.render-grid.v1` spans so mobile replay receives the producer's exact
+start column and `cell_width` instead of inferring per-grapheme columns from an
+aggregate same-style span.
+
+The RTL series is based on ghostty-org/ghostty#11079 and adds the `itijah` bidi
+resolver, extends the shared `uucode` tables with bidi fields, resolves visual
+shaping runs per row, sets RTL shaping direction for CoreText/HarfBuzz, and
+anchors Arabic combining marks/tashkeel to the correct base cluster. The
+cmux-only follow-up commit adapts the new shaper tests to this pinned fork's
+`vtStream().nextSlice` void-returning API. The RTL series was validated locally
+with:
+
+```bash
+cd ghostty
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=arabic
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=hebrew
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=bidi
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=RTL
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=mixed
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=Bengali
+```
+
+The corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-541e5e89db0448d5cd85a7b348d8f6a64618c900-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+The previous cmux pinned fork head was `1b454eb99`, which retained the
+Darwin-only `ghostty_surface_set_renderer_realized` C API (a
 `display_realized` renderer-thread mailbox message that drives
 `displayUnrealized()`/`displayRealized()`) on top of `5697db81`. cmux uses it to
 release an occluded terminal's GPU renderer resources (Metal swap chain /
@@ -32,9 +58,12 @@ the copy-mode read branches `issue-6170-surface-read-screen-text-main` and
 https://github.com/manaflow-ai/cmux/issues/4607. The corresponding prebuilt
 archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-49cb510f759aa109a5b1d30329583195155e58a4-crashsubdir-cmux-crash-v1
-and pinned in `scripts/ghosttykit-checksums.txt`. The `1b454eb99`
-render-grid head's corresponding prebuilt archive is published at
+and pinned in `scripts/ghosttykit-checksums.txt`. The `1b454eb99` render-grid
+head's corresponding prebuilt archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-1b454eb999d6f4aea28a18ca0e1500c0477383ef-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`. The `7a5179843` RTL shaping
+head's corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-7a51798436fa2cfcfcc9a2ed1e109ba69bdb68f9-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 The prior head was refreshed from upstream `main` on May 1, 2026.
