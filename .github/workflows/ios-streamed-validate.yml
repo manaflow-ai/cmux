@@ -211,8 +211,23 @@ jobs:
             cp ios/fastlane/streamed-sessions/pi/*.jsonl "$HOME/.pi/agent/sessions/$enc/"
           done
           echo "seeded pi: $(ls "$HOME/.pi/agent/sessions/--private-tmp-cmux-stream-pi--/")"
+          # pi: fake auth for the recorded provider (openai-codex / gpt-5.5) so it
+          # restores that model instead of falling back to another provider. Resume
+          # makes no API call; expires set far ahead so it never tries to refresh.
+          mkdir -p "$HOME/.pi/agent"
+          cat > "$HOME/.pi/agent/auth.json" <<'JSON'
+          {"openai-codex": {"type": "oauth", "access": "ci-fake-unused", "refresh": "ci-fake-unused", "expires": 4102444800000, "accountId": "ci"}}
+          JSON
+          echo "wrote fake ~/.pi/agent/auth.json (openai-codex)"
           # opencode: sessions live in a sqlite DB; import the exported JSON.
           opencode import ios/fastlane/streamed-sessions/opencode/opencode-session.json 2>&1 | tail -3 || echo "warn: opencode import failed"
+          # opencode: fake auth for the recorded provider (zai / glm-5.2) so it
+          # renders with that model, not a fallback. Resume makes no API call.
+          mkdir -p "$HOME/.local/share/opencode"
+          cat > "$HOME/.local/share/opencode/auth.json" <<'JSON'
+          {"zai": {"type": "api", "key": "ci-fake-unused"}}
+          JSON
+          echo "wrote fake opencode auth.json (zai)"
 
       - name: Pair simulator + capture one streamed terminal
         env:
@@ -222,9 +237,9 @@ jobs:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           # Agent auth for the real streamed sessions. claude uses the OAuth token
-          # natively; DeepSeek (OpenAI-compatible) backs the others.
+          # natively; codex/opencode/pi get FAKE per-provider auth (seeded below)
+          # so each resumes its own recorded model (no DeepSeek fallback).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="/tmp/idbvenv/bin:$HOME/.bun/bin:$PATH"
@@ -249,7 +264,6 @@ jobs:
           # Push the agent auth into the GUI session env BEFORE launching so the
           # workspace shells (and the agents they run) inherit it.
           [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && launchctl setenv CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_CODE_OAUTH_TOKEN" || true
-          [ -n "${DEEPSEEK_API_KEY:-}" ] && launchctl setenv DEEPSEEK_API_KEY "$DEEPSEEK_API_KEY" || true
           # The fresh CI runner boots in Light Mode, so cmux resolves a LIGHT
           # terminal theme and streams a white background -> the phone shows white
           # bands on unpainted cells. Force cmux to a dark appearance for the
