@@ -13,6 +13,10 @@ struct ClaudeBackgroundWorkNotifyTests {
         snapshot.first { $0.hasPrefix("notify_target_async ") && $0.contains(needle) }
     }
 
+    private func statusLine(_ snapshot: [String], value: String) -> String? {
+        snapshot.first { $0.hasPrefix("set_status claude_code \(value) ") }
+    }
+
     private func runStopHook(
         name: String,
         sessionId: String,
@@ -68,6 +72,10 @@ struct ClaudeBackgroundWorkNotifyTests {
             "Stop with a running background task must tag the done-ping pending; saw \(snapshot)"
         )
         #expect(cached == true)
+        // Sidebar pill must not say "Idle" while background work is live.
+        #expect(statusLine(snapshot, value: "Running") != nil,
+                "Pending stop must show a Running pill, not Idle; saw \(snapshot)")
+        #expect(statusLine(snapshot, value: "Idle") == nil)
     }
 
     @Test func stopWithEmptyArraysTagsIdleAndCachesFalse() throws {
@@ -79,6 +87,9 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(notifyLine(snapshot, containing: "c=turn-complete;p=0") != nil,
                 "Truly-idle stop must tag pending=0; saw \(snapshot)")
         #expect(cached == false)
+        // Truly-idle turn end keeps the "Idle" pill.
+        #expect(statusLine(snapshot, value: "Idle") != nil,
+                "Truly-idle stop must show the Idle pill; saw \(snapshot)")
     }
 
     @Test func stopWithPendingCronTagsPending() throws {

@@ -23271,14 +23271,28 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
-                try? setClaudeStatus(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    value: "Idle",
-                    icon: "pause.circle.fill",
-                    color: "#8E8E93"
-                )
+                if hasPendingBackgroundWork {
+                    // The turn ended but a background task or scheduled wakeup is
+                    // still live, so the pane is not idle — show it as still
+                    // running rather than the misleading "Idle".
+                    try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: "Running",
+                        icon: "bolt.fill",
+                        color: "#4C8DFF"
+                    )
+                } else {
+                    try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: "Idle",
+                        icon: "pause.circle.fill",
+                        color: "#8E8E93"
+                    )
+                }
                 if let completion {
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
