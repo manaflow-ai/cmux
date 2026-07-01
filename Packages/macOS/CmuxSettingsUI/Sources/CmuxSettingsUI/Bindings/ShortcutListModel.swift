@@ -38,10 +38,6 @@ public final class ShortcutListModel {
     /// Per-action "rejected attempt" snapshot used to drive the red validation
     /// banner. Never written to disk; Undo simply clears this entry.
     public private(set) var conflictRejections: [String: ShortcutAction] = [:]
-    /// SwiftUI-diffable trigger the table representable observes to know a row's
-    /// measured height may have changed (banner/caption appeared or disappeared).
-    public private(set) var heightRevision: Int = 0
-    public private(set) var rowsNeedingRemeasure: Set<String> = []
 
     // MARK: - Observation-ignored internals
 
@@ -74,14 +70,8 @@ public final class ShortcutListModel {
             { [jsonStore, whenKey] in jsonStore.values(for: whenKey) },
             sink: { [weak self] whenMap in
                 guard let self else { return }
-                let oldClauses = self.whenOverrideClauses
                 self.whenOverrideRawStrings = whenMap
                 self.whenOverrideClauses = whenMap.compactMapValues { ShortcutWhenClause.parse($0) }
-                // Bump remeasure for rows whose scopeCaption visibility changed.
-                let allIds = Set(oldClauses.keys).union(self.whenOverrideClauses.keys)
-                for id in allIds where oldClauses[id] != self.whenOverrideClauses[id] {
-                    self.bumpRemeasure(id)
-                }
             }
         )
     }
@@ -96,18 +86,6 @@ public final class ShortcutListModel {
         pruneRestoreShortcuts()
         pruneConflictRejections()
         pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
-    }
-
-    // MARK: - Row-height remeasure
-
-    private func bumpRemeasure(_ actionID: String) {
-        rowsNeedingRemeasure.insert(actionID)
-        heightRevision &+= 1
-    }
-
-    public func consumeRemeasure() -> Set<String> {
-        defer { rowsNeedingRemeasure.removeAll() }
-        return rowsNeedingRemeasure
     }
 
     // MARK: - Display helpers (lifted from actionRow inline computations)
@@ -237,22 +215,19 @@ public final class ShortcutListModel {
         return nil
     }
 
-    // MARK: - Mutators (moved verbatim from section, bumpRemeasure added on banner-toggling writes)
+    // MARK: - Mutators (moved verbatim from section)
 
     /// Dismisses all rejection banners for the action (the Undo button handler).
     public func clearRejections(for action: ShortcutAction) {
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
-        bumpRemeasure(action.rawValue)
     }
 
-    /// Records a bare-key rejection for the given action and bumps the remeasure
-    /// counter so the hosting NSTableView can invalidate the row's height.
-    /// Called by ``ShortcutListRowView``'s `onBareKeyRejected` callback.
+    /// Records a bare-key rejection for the given action. Called by
+    /// ``ShortcutListRowView``'s `onBareKeyRejected` callback.
     public func markBareKeyRejected(_ action: ShortcutAction) {
         bareKeyRejections.insert(action.rawValue)
-        bumpRemeasure(action.rawValue)
     }
 
     /// The X/restore button handler: clears rejections then either restores a
@@ -264,7 +239,6 @@ public final class ShortcutListModel {
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
-        bumpRemeasure(action.rawValue)
         if canRestoreAction, let restore = restoreShortcuts[action.rawValue] {
             Task { await self.restoreBinding(restore, for: action) }
         } else if let eff, !eff.isUnbound {
@@ -283,7 +257,6 @@ public final class ShortcutListModel {
             // row falsely render an active ⌃1…9 range).
             guard isNumberedDigitKey(stroke.key) else {
                 numberedDigitRejections.insert(action.rawValue)
-                bumpRemeasure(action.rawValue)
                 bareKeyRejections.remove(action.rawValue)
                 conflictRejections.removeValue(forKey: action.rawValue)
                 return
@@ -304,7 +277,6 @@ public final class ShortcutListModel {
             // through `conflictRejections` so the banner + Undo button
             // can drive the user back to a usable state.
             conflictRejections[action.rawValue] = conflict
-            bumpRemeasure(action.rawValue)
             bareKeyRejections.remove(action.rawValue)
             numberedDigitRejections.remove(action.rawValue)
             return
@@ -315,7 +287,6 @@ public final class ShortcutListModel {
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
-        bumpRemeasure(action.rawValue)
         await write(updated)
     }
 
@@ -326,7 +297,6 @@ public final class ShortcutListModel {
         }
         guard let proposed = normalizedNumberedShortcutIfNeeded(chord, for: action) else {
             numberedDigitRejections.insert(action.rawValue)
-            bumpRemeasure(action.rawValue)
             chordModeActions.remove(action.rawValue)
             bareKeyRejections.remove(action.rawValue)
             conflictRejections.removeValue(forKey: action.rawValue)
@@ -334,7 +304,6 @@ public final class ShortcutListModel {
         }
         if let conflict = detectConflict(for: action, stroke: proposed) {
             conflictRejections[action.rawValue] = conflict
-            bumpRemeasure(action.rawValue)
             chordModeActions.remove(action.rawValue)
             bareKeyRejections.remove(action.rawValue)
             numberedDigitRejections.remove(action.rawValue)
@@ -347,7 +316,6 @@ public final class ShortcutListModel {
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
-        bumpRemeasure(action.rawValue)
         await write(updated)
     }
 
@@ -400,14 +368,10 @@ public final class ShortcutListModel {
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
-        bumpRemeasure(action.rawValue)
         await write(updated)
     }
 
     public func resetAll() async {
-        for key in bareKeyRejections { bumpRemeasure(key) }
-        for key in numberedDigitRejections { bumpRemeasure(key) }
-        for key in conflictRejections.keys { bumpRemeasure(key) }
         restoreShortcuts.removeAll()
         bareKeyRejections.removeAll()
         numberedDigitRejections.removeAll()
@@ -431,7 +395,6 @@ public final class ShortcutListModel {
         guard !numberedDigitRejections.isEmpty else { return }
         for key in Array(numberedDigitRejections) where changedActionIds.contains(key) {
             numberedDigitRejections.remove(key)
-            bumpRemeasure(key)
         }
     }
 
@@ -444,16 +407,13 @@ public final class ShortcutListModel {
         for key in Array(conflictRejections.keys) {
             guard let action = ShortcutAction(rawValue: key) else {
                 conflictRejections.removeValue(forKey: key)
-                bumpRemeasure(key)
                 continue
             }
             let effective = bindings[action.rawValue] ?? action.defaultShortcut
             if let effective, detectConflict(for: action, stroke: effective) == nil {
                 conflictRejections.removeValue(forKey: key)
-                bumpRemeasure(key)
             } else if effective == nil {
                 conflictRejections.removeValue(forKey: key)
-                bumpRemeasure(key)
             }
         }
     }

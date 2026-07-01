@@ -153,48 +153,17 @@ import CmuxSettings
         #expect(model.conflictRejections[targetAction.rawValue] == nil)
     }
 
-    @Test func bannerToggleBumpsHeightRevision() async throws {
-        // WHY: the NSTableView representable (Task 2) needs to know which rows
-        // changed height; a conflict banner appearing must increment heightRevision
-        // and record the row ID so the table can invalidate only that row.
-        let (store, catalog, errorLog) = makeStore()
-        let conflictAction = ShortcutAction.closeWindow
-        let targetAction = ShortcutAction.openSettings
-        let stroke = ShortcutStroke(key: "q", command: true, shift: false, option: false, control: false)
-
-        try await store.set(
-            [conflictAction.rawValue: StoredShortcut(first: stroke)],
-            for: catalog.shortcuts.bindings
-        )
-
-        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
-        model.startObserving()
-        await spin(until: { model.bindings[conflictAction.rawValue] != nil })
-
-        let initialRevision = model.heightRevision
-
-        // Trigger conflict → banner appears → heightRevision must increment
-        await model.assign(stroke: stroke, to: targetAction)
-
-        #expect(model.heightRevision > initialRevision)
-        #expect(model.rowsNeedingRemeasure.contains(targetAction.rawValue))
-    }
-
-    @Test func markBareKeyRejectedInsertsAndBumpsRemeasure() {
+    @Test func markBareKeyRejectedInserts() {
         // WHY: markBareKeyRejected is the onBareKeyRejected callback path for
         // ShortcutListRowView; it must insert the action id into bareKeyRejections
-        // AND bump heightRevision so the NSTableView row can be remeasured when the
-        // bare-key error banner appears.
+        // so the row renders the bare-key error banner.
         let (store, catalog, errorLog) = makeStore()
         let action = ShortcutAction.openSettings
         let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
-        let initialRevision = model.heightRevision
 
         model.markBareKeyRejected(action)
 
         #expect(model.bareKeyRejections.contains(action.rawValue))
-        #expect(model.heightRevision > initialRevision)
-        #expect(model.consumeRemeasure().contains(action.rawValue))
     }
 
     @Test func assignChordWritesValidTwoStrokeChord() async throws {
@@ -227,12 +196,11 @@ import CmuxSettings
         #expect(model.conflictRejections[action.rawValue] == nil)
     }
 
-    @Test func whenOverrideIsParsedRetainedVerbatimAndBumpsRemeasureOnChange() async throws {
+    @Test func whenOverrideIsParsedAndRetainedVerbatim() async throws {
         // WHY: the whenDriver branch of startObserving parses shortcuts.when
-        // overrides used by conflict detection, keeps the raw expression verbatim
-        // so the row can render the user's own clause text in its scope caption,
-        // and must bump remeasure when an action's effective clause changes so the
-        // caption re-lays-out. None of this observation path was covered before.
+        // overrides used by conflict detection and keeps the raw expression
+        // verbatim so the row can render the user's own clause text in its scope
+        // caption. None of this observation path was covered before.
         let (store, catalog, errorLog) = makeStore()
         let action = ShortcutAction.openSettings
 
@@ -247,13 +215,10 @@ import CmuxSettings
         #expect(model.whenOverrideClauses[action.rawValue] == .not(.atom(.sidebarFocus)))
         #expect(model.whenOverrideRawStrings[action.rawValue] == "!sidebarFocus")
 
-        // A change to the effective clause must bump remeasure for that row.
-        let revisionBeforeChange = model.heightRevision
+        // An external edit re-parses and re-captures the raw expression.
         try await store.set([action.rawValue: "sidebarFocus"], for: catalog.shortcuts.when)
         await spin(until: { model.whenOverrideClauses[action.rawValue] == .atom(.sidebarFocus) })
 
         #expect(model.whenOverrideRawStrings[action.rawValue] == "sidebarFocus")
-        #expect(model.heightRevision > revisionBeforeChange)
-        #expect(model.rowsNeedingRemeasure.contains(action.rawValue))
     }
 }
