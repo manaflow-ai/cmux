@@ -37,6 +37,7 @@ import {
 import { parseHello, type SyncServerFrame } from "./sync";
 import {
   gcTombstones,
+  listTombstonedCollections,
   markBackfillDone,
   nextTombstoneGcTime,
   readBackfillDone,
@@ -51,6 +52,19 @@ import {
   reconcileSingleDevice,
   type DeviceRecord,
 } from "./syncDevices";
+import {
+  applyBackupOps,
+  listBackupSnapshotWithUnscopedFallback,
+  normalizeClientScope,
+  pairedMacsCollection,
+  PairedMacBackupApplyError,
+  PAIRED_MACS_COLLECTION,
+  PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
+  relabelDelta,
+  relabelSnapshot,
+  type PairedMacBackupOp,
+  type PairedMacBackupRecord,
+} from "./syncPairedMacs";
 
 const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
@@ -89,6 +103,12 @@ interface WsAttachment {
    * presence decoder throws on unknown message types). Persisted on the socket
    * attachment so it survives DO hibernation. */
   syncCollections?: string[];
+  /** The VERIFIED Stack user id of this connection (forwarded by the worker as
+   * `x-presence-user-id`). Required to scope the per-user `pairedMacs` backup
+   * collection: a socket can only ever read its own user's saved hosts. Absent
+   * for an old client/worker that did not forward it; such a socket simply does
+   * not get served `pairedMacs`. Persisted so it survives DO hibernation. */
+  userId?: string;
 }
 
 /** Whether a socket has subscribed to a given sync collection. A legacy
@@ -109,6 +129,17 @@ function wsExpiresAt(ws: WebSocket): number {
     return typeof attachment?.expiresAt === "number" ? attachment.expiresAt : 0;
   } catch {
     return 0;
+  }
+}
+
+/** The verified Stack user id pinned on this socket's attachment, or null for a
+ * legacy connection that predates user-id forwarding. */
+function wsUserId(ws: WebSocket): string | null {
+  try {
+    const attachment = ws.deserializeAttachment() as WsAttachment | null;
+    return typeof attachment?.userId === "string" && attachment.userId ? attachment.userId : null;
+  } catch {
+    return null;
   }
 }
 
@@ -168,6 +199,7 @@ export class TeamPresence extends DurableObject {
         tag: beat.tag,
         platform: beat.platform,
         displayName: beat.displayName,
+        bundleId: beat.bundleId,
         capabilities: beat.capabilities ?? [],
         online: false,
         lastSeenAt: now,
@@ -242,6 +274,7 @@ export class TeamPresence extends DurableObject {
     if (ownerPinned) return true;                 // owner pin is list-shape (display/trust)
     if (existing.platform !== instance.platform) return true;
     if (existing.displayName !== instance.displayName) return true;
+    if (existing.bundleId !== instance.bundleId) return true;
     if (!routesEqual(existing.routes, instance.routes)) return true; // covers goodbye-with-routes
     // `online` means the instance came back (a re-add into the list). A pure
     // `seen` event with unchanged identity and routes is the no-op case.
@@ -288,6 +321,55 @@ export class TeamPresence extends DurableObject {
     return JSON.stringify(buildSnapshot(teamId, await this.allInstances(), Date.now()));
   }
 
+  /** Back up a user's saved-host (paired-Mac) list. Called only by the worker
+   * after it verifies the token, so `userId` is trusted, exactly like
+   * `heartbeat`. Writes into the per-user physical `pairedMacs:<userId>`
+   * collection (so one team member never sees another's saved hosts). Unscoped
+   * writes broadcast relabeled deltas to that user's `pairedMacs` subscribers.
+   * Scoped writes are not broadcast over the legacy unscoped live-sync channel;
+   * scoped clients restore/push through the scoped HTTP backup API until scoped
+   * WebSocket subscriptions exist. Returns the number of records changed (no-op
+   * upserts of an unchanged payload are not counted). */
+  async backupPairedMacs(
+    teamId: string,
+    userId: string,
+    ops: readonly PairedMacBackupOp[],
+    clientScope?: string | null,
+  ): Promise<{ ok: true; changed: number } | { ok: false; error: string; status: number }> {
+    await this.rememberTeamId(teamId);
+    let deltas;
+    try {
+      deltas = await applyBackupOps(this.syncStorage(), userId, ops, Date.now(), clientScope);
+    } catch (error) {
+      if (error instanceof PairedMacBackupApplyError) {
+        return { ok: false, error: error.code, status: 409 };
+      }
+      throw error;
+    }
+    if (!normalizeClientScope(clientScope)) {
+      for (const delta of deltas) this.broadcastSyncToUser(userId, delta);
+    }
+    // A delete creates a tombstone the alarm GCs, but an idle team (no presence
+    // instances or subscribers) may never schedule an alarm otherwise, so a
+    // create/delete churn would grow DO storage without bound. Schedule the
+    // next tombstone-GC deadline for this user's collection now.
+    const gcTime = await nextTombstoneGcTime(this.syncStorage(), pairedMacsCollection(userId, clientScope));
+    if (gcTime !== null) await this.ensureAlarmAt(gcTime);
+    return { ok: true, changed: deltas.length };
+  }
+
+  /** Read a user's backed-up saved-host list (the GET restore path). Called only
+   * by the worker after it verifies the token, so `userId` is trusted. Returns
+   * live records plus retained delete tombstones for the per-user collection. */
+  async listPairedMacs(
+    teamId: string,
+    userId: string,
+    clientScope?: string | null,
+  ): Promise<{ records: PairedMacBackupRecord[]; deletedMacDeviceIDs: string[] }> {
+    await this.rememberTeamId(teamId);
+    return await listBackupSnapshotWithUnscopedFallback(this.syncStorage(), userId, clientScope);
+  }
+
   // ---- Subscribe transports (worker forwards the original Request) ----
 
   override async fetch(request: Request): Promise<Response> {
@@ -320,6 +402,12 @@ export class TeamPresence extends DurableObject {
       });
     }
 
+    // The verified Stack user id, forwarded by the worker. Pinned on the socket
+    // so the per-user `pairedMacs` backup collection can be scoped to its owner.
+    // Absent for an old worker that does not forward it (the socket then never
+    // gets served `pairedMacs`).
+    const userId = request.headers.get("x-presence-user-id")?.trim() || undefined;
+
     if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
       const pair = new WebSocketPair();
       const client = pair[0];
@@ -327,7 +415,7 @@ export class TeamPresence extends DurableObject {
       // Hibernation API: the DO can be evicted while sockets stay connected.
       // The deadline rides the socket attachment so it survives hibernation.
       this.ctx.acceptWebSocket(server);
-      server.serializeAttachment({ expiresAt } satisfies WsAttachment);
+      server.serializeAttachment({ expiresAt, userId } satisfies WsAttachment);
       server.send(await this.snapshot(teamId));
       await this.ensureAlarmAt(expiresAt);
       return new Response(null, { status: 101, webSocket: client });
@@ -404,7 +492,9 @@ export class TeamPresence extends DurableObject {
     const already = new Set(wsSyncCollections(ws));
     const subscribed: string[] = [];
     for (const { name, cursor, epoch } of collections) {
-      if (name !== DEVICES_COLLECTION) continue; // phase 1 serves only `devices`
+      // Phase serves `devices` (team-wide, server-derived) and `pairedMacs`
+      // (per-user, client-owned). Any other name is ignored.
+      if (name !== DEVICES_COLLECTION && name !== PAIRED_MACS_COLLECTION) continue;
       if (already.has(name)) continue;            // duplicate hello; reconnect to resync
       // Mark as seen IMMEDIATELY so a hello that repeats the same collection name
       // N times within one message does the backfill + snapshot/delta serialization
@@ -412,43 +502,71 @@ export class TeamPresence extends DurableObject {
       // separate hellos, and N duplicates in one hello still amplify into N
       // storage scans + N snapshot serializations (a resource-exhaustion vector).
       already.add(name);
-      subscribed.push(name);
-      // Rollout backfill: an existing DO has `inst:*` presence but no
-      // `synced:devices:*` projection yet (it is built lazily on heartbeat/alarm
-      // after this code deploys). If a client subscribes before the projection
-      // is complete, it would get a partial/empty snapshot, hiding currently-
-      // present devices. Gate on a one-time `syncbackfill:` marker, NOT on
-      // `head === 0`: a single device's change makes the head nonzero while
-      // other devices that only `seen`-heartbeat remain unprojected, so head !=0
-      // is not proof the projection is complete. Reconcile the whole presence map
-      // once, then mark backfill done. Additive and idempotent.
-      if (!(await readBackfillDone(this.syncStorage(), name))) {
-        await this.syncDeviceRecords(Date.now());
-        await markBackfillDone(this.syncStorage(), name);
+
+      if (name === DEVICES_COLLECTION) {
+        subscribed.push(name);
+        // Rollout backfill: an existing DO has `inst:*` presence but no
+        // `synced:devices:*` projection yet (it is built lazily on heartbeat/alarm
+        // after this code deploys). If a client subscribes before the projection
+        // is complete, it would get a partial/empty snapshot, hiding currently-
+        // present devices. Gate on a one-time `syncbackfill:` marker, NOT on
+        // `head === 0`: a single device's change makes the head nonzero while
+        // other devices that only `seen`-heartbeat remain unprojected, so head !=0
+        // is not proof the projection is complete. Reconcile the whole presence map
+        // once, then mark backfill done. Additive and idempotent.
+        if (!(await readBackfillDone(this.syncStorage(), name))) {
+          await this.syncDeviceRecords(Date.now());
+          await markBackfillDone(this.syncStorage(), name);
+        }
+        const resolved = await resolveHelloFrames<DeviceRecord>(
+          this.syncStorage(),
+          name,
+          cursor,
+          undefined,
+          epoch ?? 0,
+        );
+        if (resolved.mode === "snapshot") {
+          for (const page of resolved.pages) this.sendSync(ws, page);
+        } else if (resolved.delta !== null) {
+          this.sendSync(ws, resolved.delta);
+        }
+        continue;
       }
-      const resolved = await resolveHelloFrames<DeviceRecord>(
+
+      // `pairedMacs`: scope to the connection's verified user. Without a pinned
+      // user id (old worker that didn't forward it) we cannot safely scope, so
+      // we do not serve it. The physical collection is `pairedMacs:<userId>`;
+      // outgoing frames are relabeled to the logical `pairedMacs` so the client
+      // never sees the user-id suffix.
+      const userId = wsUserId(ws);
+      if (!userId) continue;
+      subscribed.push(name);
+      const physical = pairedMacsCollection(userId);
+      const resolved = await resolveHelloFrames<PairedMacBackupRecord>(
         this.syncStorage(),
-        name,
+        physical,
         cursor,
         undefined,
         epoch ?? 0,
       );
       if (resolved.mode === "snapshot") {
-        for (const page of resolved.pages) this.sendSync(ws, page);
+        for (const page of resolved.pages) this.sendSync(ws, relabelSnapshot(page));
       } else if (resolved.delta !== null) {
-        this.sendSync(ws, resolved.delta);
+        this.sendSync(ws, relabelDelta(resolved.delta));
       }
     }
     // Mark this socket as sync-subscribed so future delta broadcasts reach it.
     // A legacy presence-only client never sends a hello, so its attachment keeps
     // `syncCollections` absent and it never receives a sync frame (its presence
-    // decoder would throw on the unknown type). Preserve the deadline.
+    // decoder would throw on the unknown type). Preserve the deadline and the
+    // pinned user id (needed to scope future `pairedMacs` broadcasts).
     if (subscribed.length > 0) {
       const expiresAt = wsExpiresAt(ws);
+      const userId = wsUserId(ws) ?? undefined;
       const existing = wsSyncCollections(ws);
       const merged = [...new Set([...existing, ...subscribed])];
       try {
-        ws.serializeAttachment({ expiresAt, syncCollections: merged } satisfies WsAttachment);
+        ws.serializeAttachment({ expiresAt, userId, syncCollections: merged } satisfies WsAttachment);
       } catch {
         // attachment write failed; the socket is likely gone
       }
@@ -476,6 +594,28 @@ export class TeamPresence extends DurableObject {
     const json = JSON.stringify(frame);
     for (const ws of this.ctx.getWebSockets()) {
       if (wsExpiresAt(ws) <= now) continue;
+      if (!wsSyncCollections(ws).includes(collection)) continue; // not subscribed
+      try {
+        ws.send(json);
+      } catch {
+        // Socket already gone; hibernation cleans it up.
+      }
+    }
+  }
+
+  /** Broadcast a sync frame ONLY to sockets that belong to `userId` AND
+   * subscribed to its (logical) collection. Used for the per-user `pairedMacs`
+   * collection: the frames are labeled with the logical name, so without the
+   * user-id check a co-member's socket subscribed to `pairedMacs` would receive
+   * another user's backup. The connection user id is pinned from the verified
+   * `x-presence-user-id` at subscribe time, never from client input. */
+  private broadcastSyncToUser(userId: string, frame: SyncServerFrame): void {
+    const collection = frame.collection;
+    const now = Date.now();
+    const json = JSON.stringify(frame);
+    for (const ws of this.ctx.getWebSockets()) {
+      if (wsExpiresAt(ws) <= now) continue;
+      if (wsUserId(ws) !== userId) continue; // not this user's socket
       if (!wsSyncCollections(ws).includes(collection)) continue; // not subscribed
       try {
         ws.send(json);
@@ -524,6 +664,18 @@ export class TeamPresence extends DurableObject {
       // instances left to schedule a heartbeat-driven alarm) still wakes to GC
       // its tombstones and advance the GC floor (DESIGN.md §3.5).
       tombGc = await nextTombstoneGcTime(this.syncStorage(), DEVICES_COLLECTION);
+      // Each Stack user's paired-Mac backup is its OWN physical collection,
+      // including build-scoped variants. GC every collection that currently holds
+      // tombstones; otherwise authenticated create/delete churn grows
+      // `synced:`/`synctomb:` storage without bound. Fold each collection's next
+      // GC deadline into the alarm schedule.
+      for (const prefix of PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES) {
+        for (const collection of await listTombstonedCollections(this.syncStorage(), prefix)) {
+          await gcTombstones(this.syncStorage(), collection, now);
+          const next = await nextTombstoneGcTime(this.syncStorage(), collection);
+          if (next !== null) tombGc = tombGc === null ? next : Math.min(tombGc, next);
+        }
+      }
     } catch (err) {
       console.error("sync projection/GC failed (alarm); presence unaffected", err);
     }

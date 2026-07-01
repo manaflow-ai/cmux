@@ -1,72 +1,111 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// The hierarchical device tree: the team's registered devices (Macs/hosts) →
-/// their cmux app instances (tags) → that instance's workspaces → tap to open.
+/// The Computers screen: the Macs signed in to the user's account, each shown
+/// with its name, live/last-seen status, and workspace count. The main workspace
+/// list owns the Mac picker; this screen manages the saved computer set and lets
+/// users inspect or remove one. The data is the durable-object–backed device
+/// registry (with a paired-Mac fallback) plus live presence.
 ///
-/// This is the new primary multi-device navigation, built on the merged device
-/// registry (`GET /api/devices`, the `devices` + `device_app_instances` tables).
-/// Each top-level row is a registered device with its live or last-seen state;
-/// expanding a device reveals its tagged builds; expanding a tag reveals that
-/// build's workspaces. Workspaces only populate for the *currently connected*
-/// instance (the registry carries routes, not workspaces); tapping a tag that is
-/// not connected connects to it first, after which its workspaces appear.
-///
-/// Snapshot boundary (see AGENTS.md): every row below the `List` boundary takes
-/// immutable value snapshots plus a closure action bundle (``DeviceTreeActions``)
-/// only — no `@Observable`/`store` reference crosses into a row, so an orthogonal
-/// `@Published` change can't thrash the lazy list. The single `@Bindable store`
-/// lives here at the boundary; below it everything is values.
+/// Snapshot boundary (see AGENTS.md): every row below the `List` takes an
+/// immutable ``MacComputerSnapshot`` value only — no `@Observable`/`store`
+/// reference crosses into a row. The single `@Bindable store` lives here at the
+/// boundary; actions are plain closures.
 struct DeviceTreeView: View {
     @Bindable var store: CMUXMobileShellStore
-    /// Open a workspace (the existing tap-to-open path). Forwarded from the shell.
+    /// Open a workspace (forwarded from the shell). Unused by the management list
+    /// today; kept so a future "show this computer's workspaces" tap can use it.
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
+    /// Present the add-device (pairing) flow. `nil` hides the add affordance.
+    var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
-    /// Display preferences (title wrapping, preview line count) shared with the
-    /// flat workspace list, read here at the snapshot boundary and passed down
-    /// as values so tree workspace rows render identically to flat-list rows.
-    @Environment(MobileDisplaySettings.self) private var displaySettings
 
-    /// Persisted expansion shape, encoded as a newline-separated id string.
-    @AppStorage("cmux.mobile.deviceTree.expanded") private var expandedStorage = ""
-    @State private var isRefreshing = false
-    /// The active workspace-row filter (All / Unread), the same shared model the
-    /// flat list uses, applied to every expanded instance's workspace leaves.
-    @State private var filter: MobileWorkspaceListFilter = .all
+    /// The computer whose destructive remove action is awaiting confirmation.
+    /// Stored at list scope so reusable rows do not own transient presentation
+    /// state while `List` is recycling swipe-action rows.
+    @State private var computerPendingRemovalID: String?
 
-    private var expansion: DeviceTreeExpansionStore {
-        DeviceTreeExpansionStore(storage: expandedStorage)
-    }
-
-    /// Devices the phone can attach to (mac/linux/windows hosts). The phone never
-    /// controls itself, so an `ios` row is filtered out rather than shown as a
-    /// tappable, dead host. Sourced from ``CMUXMobileShellStore/deviceTreeDevices``
-    /// so it falls back to locally paired Macs when the registry is unavailable.
-    private var controllableDevices: [RegistryDevice] {
-        store.deviceTreeDevices.filter(\.isControllableHost)
+    /// The user's computers as immutable snapshots, sourced from the paired-Mac
+    /// backup (`pairedMacs`) — this feature's source of truth, the same set that
+    /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/forgetMac``
+    /// actually removes. (Building from `deviceTreeDevices`, which prefers the team
+    /// registry, would make Remove ineffective: a registry-backed row reappears on
+    /// the next registry load.) Each is enriched with presence, live status, and how
+    /// many aggregated workspaces it contributes.
+    private var computers: [MacComputerSnapshot] {
+        let colorIndex = store.machineColorIndex
+        // The PHONE's own per-Mac connection (foreground or live secondary) — the
+        // source of truth for the dot, distinct from presence.
+        let connectionStatuses = store.macConnectionStatuses
+        return store.displayPairedMacs.map { mac in
+            let aliases = store.pairedMacAliasIDs(for: mac.macDeviceID)
+            let summary = store.presenceSummary(for: mac.macDeviceID)
+            let presence: DeviceTreePresence? = summary
+                .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
+            return MacComputerSnapshot(
+                deviceId: mac.macDeviceID,
+                title: mac.resolvedName,
+                platform: "mac",
+                colorIndex: aliases.compactMap { colorIndex[$0] }.first,
+                customColor: mac.customColor,
+                customIcon: mac.customIcon,
+                connectionStatus: connectionStatuses[mac.macDeviceID],
+                presence: presence,
+                buildLabel: summary?.buildLabel,
+                routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
+                lastSeenAt: mac.lastSeenAt,
+                workspaceCount: store.workspaceCount(for: mac.macDeviceID),
+                aliasIDs: aliases
+            )
+        }
     }
 
     var body: some View {
         NavigationStack {
             List {
-                if controllableDevices.isEmpty {
+                if computers.isEmpty {
                     emptySection
                 } else {
-                    ForEach(controllableDevices) { device in
-                        deviceSection(device)
+                    Section {
+                        ForEach(computers) { computer in
+                            MacComputerRow(
+                                computer: computer,
+                                requestRemove: requestComputerRemoval,
+                                isConfirmingRemove: removalConfirmationBinding(for: computer.deviceId),
+                                confirmRemove: { _ in confirmComputerRemoval() }
+                            )
+                        }
+                        if showAddDevice != nil {
+                            addComputerRow
+                        }
+                    } footer: {
+                        Text(L10n.string(
+                            "mobile.computers.footer",
+                            defaultValue: "The computers signed in to your account. Use the workspace title picker to focus one computer or show All Computers."
+                        ))
                     }
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle(L10n.string("mobile.deviceTree.title", defaultValue: "Devices"))
+            .navigationDestination(for: String.self) { deviceId in
+                MacComputerDetailView(store: store, macDeviceID: deviceId)
+            }
+            .navigationTitle(L10n.string("mobile.computers.title", defaultValue: "Computers"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    WorkspaceListFilterMenu(filter: $filter)
+                if showAddDevice != nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: addComputer) {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel(L10n.string("mobile.computers.add", defaultValue: "Add Computer"))
+                        .accessibilityIdentifier("MobileComputersAddButton")
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
@@ -75,226 +114,90 @@ struct DeviceTreeView: View {
                     .accessibilityIdentifier("MobileDeviceTreeDone")
                 }
             }
-            .refreshable {
-                await store.loadPairedMacs()
-                await store.loadRegistryDevices()
-            }
+            .refreshable { await reload() }
             .task {
-                // Load the local paired Macs first so the tree has a fallback
-                // source the instant it appears, then refresh from the registry.
-                await store.loadPairedMacs()
-                await store.loadRegistryDevices()
+                // This screen is the user's connection-debug view. The online dots
+                // (presence) and secondary workspace counts already update live via
+                // push subscriptions, so keeping it "live" just needs a gentle,
+                // timer-driven refresh of the local rows + connected foreground state.
+                // `refreshComputersScreen()` deliberately does NOT dial offline Macs
+                // on the timer (that would fan out a reconnect storm to every saved
+                // Mac); presence-push recovery and the explicit pull-to-refresh /
+                // per-Mac Reconnect button handle reconnects. The timer sequence is
+                // cancelled on dismiss by the surrounding SwiftUI `.task`.
+                await reload()
+                for await _ in Timer.publish(every: 10, on: .main, in: .common).autoconnect().values {
+                    await store.refreshComputersScreen()
+                }
             }
         }
         .accessibilityIdentifier("MobileDeviceTree")
+    }
+
+    /// End-of-list affordance mirroring the top-left toolbar button, so users who
+    /// scroll past their Macs can add another without scrolling back up. Same
+    /// action path (`addComputer`) as the toolbar button.
+    private var addComputerRow: some View {
+        Button(action: addComputer) {
+            Label(
+                L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                systemImage: "plus"
+            )
+        }
+        .accessibilityIdentifier("MobileComputersAddRow")
+    }
+
+    /// Present the add-device (pairing) flow, then dismiss this screen. Shared by
+    /// the top-left toolbar button and the end-of-list row.
+    private func addComputer() {
+        showAddDevice?()
+        dismiss()
     }
 
     @ViewBuilder
     private var emptySection: some View {
         Section {
             Text(L10n.string(
-                "mobile.deviceTree.empty",
-                defaultValue: "No registered devices yet. Pair a Mac to see it here."
+                "mobile.computers.empty",
+                defaultValue: "No computers yet. Add one to see its workspaces here."
             ))
             .foregroundStyle(.secondary)
-        } footer: {
-            Text(L10n.string(
-                "mobile.deviceTree.footer",
-                defaultValue: "Devices and their cmux builds come from your team's registry. Tap a build to connect, then a workspace to open it."
-            ))
         }
     }
 
-    @ViewBuilder
-    private func deviceSection(_ device: RegistryDevice) -> some View {
-        let connectedID = store.connectedMacDeviceID
-        let isConnectedDevice = device.deviceId == connectedID
-        // Live status only exists for the connected device. Every other device
-        // is described by live presence from the heartbeat service (online /
-        // offline within the missed-heartbeat window) when available, falling
-        // back to the registry "last seen" hint when presence has no record.
-        // The live *tag* on a multi-tag device is identified by route match (see
-        // instanceMatchesActiveRoute), so per-instance liveness is correct.
-        let liveStatus: MobileMacConnectionStatus? = isConnectedDevice ? store.macConnectionStatus : nil
-        let presence: DeviceTreePresence? = store.presenceMap.deviceSummary(deviceId: device.deviceId)
-            .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
+    private func requestComputerRemoval(_ deviceID: String) {
+        computerPendingRemovalID = deviceID
+    }
 
-        Section {
-            DeviceTreeDeviceRow(
-                device: DeviceTreeDeviceSnapshot(
-                    deviceId: device.deviceId,
-                    title: device.title,
-                    platform: device.platform,
-                    lastSeenAt: device.lastSeenAt,
-                    instanceCount: device.instances.count,
-                    isConnected: isConnectedDevice,
-                    liveStatus: liveStatus,
-                    presence: presence
-                ),
-                isExpanded: expansion.isExpanded(deviceExpansionID(device)),
-                setExpanded: { expanded in setExpanded(deviceExpansionID(device), expanded) }
-            )
-
-            if expansion.isExpanded(deviceExpansionID(device)) {
-                ForEach(device.instances) { instance in
-                    instanceRows(
-                        device: device,
-                        instance: instance,
-                        isConnectedDevice: isConnectedDevice
-                    )
+    private func removalConfirmationBinding(for deviceID: String) -> Binding<Bool> {
+        Binding(
+            get: { computerPendingRemovalID == deviceID },
+            set: { isPresented in
+                if isPresented {
+                    computerPendingRemovalID = deviceID
+                } else if computerPendingRemovalID == deviceID {
+                    computerPendingRemovalID = nil
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private func instanceRows(
-        device: RegistryDevice,
-        instance: RegistryAppInstance,
-        isConnectedDevice: Bool
-    ) -> some View {
-        let expansionID = instanceExpansionID(device: device, instance: instance)
-        // Attribute the live workspace list to the ONE instance whose route
-        // matches the live connection, not to every tag on the connected device.
-        // The attach ticket carries no tag, so we identify the active build by
-        // route identity (`activeRoute` endpoint ⊂ this instance's routes). A
-        // multi-tag Mac therefore shows workspaces only under the build that is
-        // actually connected; the other tags offer a Connect affordance instead
-        // of (wrongly) mirroring another build's workspaces.
-        let isActiveInstance = isConnectedDevice && instanceMatchesActiveRoute(instance)
-        let allWorkspaces = isActiveInstance ? store.workspaces : []
-        // The same shared row filter the flat list applies; the instance row's
-        // workspace count keeps describing the build (all workspaces), only the
-        // visible leaves narrow.
-        let workspaces = allWorkspaces.filter { filter.matches($0) }
-        let captured = DeviceTreeInstanceCapture(
-            deviceId: device.deviceId,
-            displayName: device.displayName,
-            tag: instance.tag,
-            routes: instance.routes
         )
-        // No Connect affordance for the build that is already live; every other
-        // route-bearing tag gets one.
-        let connect = isActiveInstance ? nil : connectClosure(for: captured)
+    }
 
-        DeviceTreeInstanceRow(
-            instance: DeviceTreeInstanceSnapshot(
-                tag: instance.tag,
-                lastSeenAt: instance.lastSeenAt,
-                hasRoutes: instance.hasRoutes,
-                workspaceCount: allWorkspaces.count,
-                isActiveInstance: isActiveInstance
-            ),
-            isExpanded: expansion.isExpanded(expansionID),
-            setExpanded: { expanded in setExpanded(expansionID, expanded) },
-            connect: connect
-        )
-
-        if expansion.isExpanded(expansionID) {
-            if workspaces.isEmpty {
-                if filter.isActive && !allWorkspaces.isEmpty {
-                    // The filter (not the build) emptied the leaves; offer the
-                    // shared way back instead of the connect placeholder.
-                    WorkspaceListFilterEmptyRow(filter: filter) { filter = .all }
-                } else {
-                    DeviceTreeWorkspacePlaceholderRow(
-                        isActiveInstance: isActiveInstance,
-                        hasRoutes: instance.hasRoutes,
-                        connect: connect
-                    )
-                }
-            } else {
-                ForEach(workspaces) { workspace in
-                    WorkspaceNavigationRow(
-                        workspace: workspace,
-                        connectionStatus: store.macConnectionStatus,
-                        isSelected: false,
-                        navigationStyle: .sidebar,
-                        wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
-                        previewLineLimit: displaySettings.workspacePreviewLineCount,
-                        unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-                        profilePictureLeftShift: displaySettings.profilePictureLeftShift,
-                        profilePictureSize: displaySettings.profilePictureSize,
-                        selectWorkspace: { id in
-                            selectWorkspace(id)
-                            dismiss()
-                        },
-                        renameWorkspace: nil,
-                        setPinned: nil
-                    )
-                    .listRowInsets(EdgeInsets(top: 4, leading: 36, bottom: 4, trailing: 12))
-                }
-            }
+    private func confirmComputerRemoval() {
+        guard let deviceID = computerPendingRemovalID else {
+            return
+        }
+        computerPendingRemovalID = nil
+        Task {
+            await store.forgetMac(macDeviceID: deviceID)
+            await reload()
         }
     }
 
-    /// A connect-on-tap closure for a non-connected instance. `nil` when the
-    /// instance is the connected device's own running build (nothing to connect)
-    /// or advertises no reachable route.
-    private func connectClosure(for capture: DeviceTreeInstanceCapture) -> (() -> Void)? {
-        guard capture.hasReachableRoute else { return nil }
-        let store = store
-        return {
-            Task {
-                await store.connectToRegistryInstance(
-                    device: RegistryDevice(
-                        deviceId: capture.deviceId,
-                        platform: "mac",
-                        displayName: capture.displayName,
-                        lastSeenAt: .distantPast,
-                        instances: []
-                    ),
-                    instance: RegistryAppInstance(
-                        tag: capture.tag,
-                        routes: capture.routes,
-                        lastSeenAt: .distantPast
-                    )
-                )
-            }
-        }
+    private func reload() async {
+        // Load the local paired Macs first so the list has a fallback source the
+        // instant it appears, then refresh from the registry.
+        await store.loadPairedMacs()
+        await store.loadRegistryDevices()
     }
-
-    /// Whether this instance is the build the live connection currently targets,
-    /// matched by route identity (the live `activeRoute` endpoint appears in this
-    /// instance's routes). Used to attribute the live workspace list to exactly
-    /// one tag on a multi-tag device. Returns `false` when not connected or the
-    /// live route is not a host/port endpoint.
-    private func instanceMatchesActiveRoute(_ instance: RegistryAppInstance) -> Bool {
-        guard store.connectionState == .connected,
-              case let .hostPort(liveHost, livePort)? = store.activeRoute?.endpoint else {
-            return false
-        }
-        let normalizedLiveHost = MobileShellRouteAuthPolicy.normalizedManualHost(liveHost) ?? liveHost
-        return instance.routes.contains { route in
-            guard case let .hostPort(host, port) = route.endpoint else { return false }
-            let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) ?? host
-            return normalizedHost == normalizedLiveHost && port == livePort
-        }
-    }
-
-    private func deviceExpansionID(_ device: RegistryDevice) -> String {
-        "device:\(device.deviceId)"
-    }
-
-    private func instanceExpansionID(device: RegistryDevice, instance: RegistryAppInstance) -> String {
-        "instance:\(device.deviceId):\(instance.tag)"
-    }
-
-    private func setExpanded(_ id: String, _ expanded: Bool) {
-        var store = expansion
-        store.setExpanded(id, expanded)
-        expandedStorage = store.storage
-    }
-}
-
-/// The immutable connect payload for one instance, captured out of the
-/// `@Observable` store so the row's action closure never holds a store reference.
-private struct DeviceTreeInstanceCapture {
-    let deviceId: String
-    let displayName: String?
-    let tag: String
-    let routes: [CmxAttachRoute]
-
-    var hasReachableRoute: Bool { !routes.isEmpty }
 }
 #endif

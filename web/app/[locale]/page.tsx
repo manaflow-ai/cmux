@@ -1,10 +1,10 @@
 import { useTranslations, useLocale } from "next-intl";
-import { FadeImage } from "./components/fade-image";
+import { HeroScreenshot } from "./components/hero-screenshot";
 import Balancer from "react-wrap-balancer";
-import landingImage from "./assets/landing-image.png";
 import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
+import { WaitlistCallout } from "./components/waitlist-callout";
 import { SiteHeader } from "./components/site-header";
 import { BrandLogoLink } from "./components/brand-logo-link";
 import {
@@ -28,8 +28,34 @@ function HomeContent() {
   const linkClass =
     "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
 
+  // FAQPage structured data, built from the same FAQ copy rendered below so the
+  // Q&As are eligible for Google rich results and AI answer engines.
+  const faqKeys = [
+    "Ghostty", "Platform", "Ios", "Agents", "Orchestration", "Remote",
+    "Notifications", "Scriptable", "Browser", "Skills", "Shortcuts",
+    "Customize", "Sessions", "Tmux", "Free", "Support", "Feature",
+  ];
+  const stripTags = (s: string) => s.replace(/<\/?[a-zA-Z]+>/g, "");
+  const faqJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqKeys.map((k) => ({
+      "@type": "Question",
+      name: stripTags(t.raw(`faq${k}Q`) as string),
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: stripTags(t.raw(`faq${k}A`) as string),
+      },
+    })),
+  };
+  const faqJsonLdScript = JSON.stringify(faqJsonLd).replace(/</g, "\\u003c");
+
   return (
     <div className="min-h-screen">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: faqJsonLdScript }}
+      />
       <SiteHeader hideLogo />
 
       <main className="w-full max-w-2xl mx-auto px-6 py-16 sm:py-24">
@@ -49,10 +75,7 @@ function HomeContent() {
 
         {/* Tagline */}
         <p className="text-lg leading-relaxed mb-3 text-foreground">
-          <span className="sr-only">
-            {t("taglinePrefix")}
-            {t("typingCodingAgents")}, {t("typingMultitasking")}
-          </span>
+          <span className="sr-only">{t("taglineStatic")}</span>
           <span aria-hidden="true">
             {t("taglinePrefix")}
             <TypingTagline />
@@ -139,24 +162,37 @@ function HomeContent() {
                 </span>
               </span>
             </li>
+            <li className="flex gap-3">
+              <span className="text-muted shrink-0">-</span>
+              <span>
+                <strong className="font-medium">
+                  <a
+                    href="https://github.com/manaflow-ai/cmux#founders-edition"
+                    className={linkClass}
+                  >
+                    {t("feature.ios")}
+                  </a>
+                </strong>
+                <span className="text-muted">{t("feature.iosDesc")}</span>
+              </span>
+            </li>
           </ul>
         </section>
 
-        {/* Screenshot */}
+        {/* Screenshot: bleeds wider than the text column but stays bounded to
+            the viewport so it always fits on screen with a left/right gutter.
+            The width tracks the viewport minus a 1.5rem gutter on each side and
+            is capped at 90rem; left-1/2 + -translate-x-1/2 keeps it centered
+            over the narrower text column. */}
         <div
           data-dev="screenshot"
-          className="mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
+          className="mt-12 mb-12 relative left-1/2 -translate-x-1/2 w-[min(90rem,100vw_-_3rem)]"
         >
-          <FadeImage
-            src={landingImage}
-            alt="cmux terminal app screenshot"
-            priority
-            className="w-full rounded-xl"
-          />
+          <HeroScreenshot />
         </div>
 
         {/* FAQ */}
-        <div data-dev="faq-top-spacer" style={{ height: 0 }} />
+        <div data-dev="faq-top-spacer" style={{ height: 32 }} />
         <section data-dev="faq" className="mb-10">
           <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
             {t("faq")}
@@ -186,7 +222,18 @@ function HomeContent() {
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqIosQ")}</p>
-              <p className="text-muted">{t("faqIosA")}</p>
+              <p className="text-muted">
+                {t.rich("faqIosA", {
+                  foundersLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux#founders-edition"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
+              </p>
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqAgentsQ")}</p>
@@ -489,6 +536,9 @@ function HomeContent() {
         <div className="flex flex-wrap items-center justify-center gap-3 mt-12">
           <DownloadButton location="bottom" />
           <GitHubButton />
+        </div>
+        <div className="mt-3 flex justify-center">
+          <WaitlistCallout location="bottom" />
         </div>
         <div className="flex justify-center gap-4 mt-6">
           <Link
