@@ -25,8 +25,11 @@ enum HeaderChromeIconStyle {
     }
 
     static func symbol(_ systemName: String) -> some View {
-        Image(systemName: systemName)
-            .cmuxSymbolRasterSize(RightSidebarChromeMetrics.headerIconSize, weight: weight)
+        CmuxSystemSymbolImage(
+            systemName: systemName,
+            pointSize: RightSidebarChromeMetrics.headerIconSize,
+            weight: weight
+        )
     }
 
     static func foregroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool = true) -> Double {
@@ -345,12 +348,12 @@ struct ModeBarButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                Image(systemName: item.symbolName)
-                    .symbolRenderingMode(.monochrome)
-                    .cmuxFont(
-                        size: RightSidebarChromeControlStyle.modeIconSize,
-                        weight: RightSidebarChromeControlStyle.iconWeight
-                    )
+                CmuxSystemSymbolImage(
+                    systemName: item.symbolName,
+                    pointSize: RightSidebarChromeControlStyle.modeIconSize,
+                    weight: RightSidebarChromeControlStyle.iconWeight,
+                    appliesGlobalFontMagnification: true
+                )
                     .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
                         keyPrefix: "rightSidebarModeIcon_\(item.id)",
                         isVisible: true

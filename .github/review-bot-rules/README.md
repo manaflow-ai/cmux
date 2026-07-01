@@ -15,6 +15,7 @@ Current rules:
 - `hot-path-allocating-formatting.md`
 - `no-ambient-global-state.md`
 - `no-test-debug-seam-in-production-source.md`
+- `react-base-ui-accessibility.md`
 - `reliability-single-source-of-truth.md`
 - `runtime-no-hacky-sleeps.md`
 - `source-control-artifacts.md`
