@@ -524,12 +524,12 @@ jobs:
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
             test
 
-      - name: Run browser session history restore regression
+      - name: Run agent hibernation planner regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # Heavy WKWebView provisional-navigation-race suite, isolated in its own
-          # app-host so WebProcess exhaustion can't cascade into a shared shard and
-          # so its pass/fail is independent of sharding order. See the note in
+          # Pure hibernation-planner selection tests, run isolated so this new
+          # suite does not perturb the greedy shard packing (which carries
+          # order/load-sensitive WKWebView suites). See the note in
           # scripts/ci/cmux_unit_test_shard.py FOCUSED_GATE_SELECTORS.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -541,7 +541,7 @@ jobs:
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/BrowserSessionHistoryRestoreTests \
+            -only-testing:cmuxTests/AgentHibernationPlannerTests \
             test
 
       - name: Run unit tests

@@ -26,13 +26,14 @@ LARGE_SUITE_METHOD_THRESHOLD = 40
 FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserSystemProxyMirrorTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
-    # Heavy WKWebView provisional-navigation-race suite: real WebProcesses plus a
-    # local race server. Under a shared shard it can exhaust WebKit and get its
-    # WebProcess killed ("WebProcess does not exist"), which aborts the app-host
-    # and cascades to later suites in the same shard. Its shard membership is also
-    # sharding-order-dependent, so adding unrelated test files can reshuffle it into
-    # a shard where it crashes. Run it isolated (own app-host) like the other gates.
-    "cmuxTests/BrowserSessionHistoryRestoreTests",
+    # Pure, fast hibernation-planner selection tests. Excluded from the shared
+    # shards so adding this new suite does not perturb the greedy shard packing:
+    # the app-host shards carry heavy WKWebView suites (e.g.
+    # BrowserSessionHistoryRestoreTests) whose pass/fail is order- and
+    # load-sensitive, and reshuffling them into a different shard can exhaust
+    # WebKit and abort the app-host. Keeping this suite out of the shards leaves
+    # the shard composition identical to main; the suite still runs isolated below.
+    "cmuxTests/AgentHibernationPlannerTests",
 }
 
 
