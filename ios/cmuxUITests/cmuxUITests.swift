@@ -1228,6 +1228,49 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatTranscriptFastSwipeEvidence() throws {
+        let app = launchAgentChatInlinePreviewApp(environment: [
+            "CMUX_UITEST_CHAT_INITIAL_SCROLL": "middle",
+        ])
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+
+        let before = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.frameHeight > 240
+                && $0.contentHeight > $0.boundsHeight * 1.6
+                && $0.offsetY > 80
+                && $0.distanceFromBottom > 220
+        }
+        captureKeyboardEvidenceFrame(
+            prefix: "scroll-deceleration-before",
+            index: 0,
+            startedAt: Date(),
+            metrics: before
+        )
+
+        table.swipeUp(velocity: .fast)
+        let afterSwipe = try waitForTranscriptMetrics(table, timeout: 1.5) {
+            $0.offsetY > before.offsetY + 40
+        }
+        captureKeyboardEvidenceFrame(
+            prefix: "scroll-deceleration-after",
+            index: 0,
+            startedAt: Date(),
+            metrics: afterSwipe
+        )
+        XCTAssertGreaterThan(
+            afterSwipe.offsetY,
+            before.offsetY + 40,
+            "A fast transcript swipe should move through the chat history instead of being swallowed by parent gesture handling. before=\(before) after=\(afterSwipe)"
+        )
+        XCTAssertGreaterThan(
+            afterSwipe.distanceFromBottom,
+            80,
+            "A single fast swipe from the middle fixture must not snap to the live bottom. before=\(before) after=\(afterSwipe)"
+        )
+    }
+
+    @MainActor
     func testAgentChatExpansionControlsPreserveTranscriptScrollPosition() throws {
         let app = launchAgentChatInlinePreviewApp()
         let table = app.tables["ChatTranscriptTableView"]
@@ -2226,9 +2269,12 @@ final class cmuxUITests: XCTestCase {
         let topEdgeEffectSoft: Bool
         let bottomEdgeEffectSoft: Bool
         let topContentScrollViewRegistered: Bool
+        let scrollTracking: Bool
+        let scrollDragging: Bool
+        let scrollDecelerating: Bool
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered), scrollTracking=\(scrollTracking), scrollDragging=\(scrollDragging), scrollDecelerating=\(scrollDecelerating)"
         }
 
         var effectiveFrameMaxY: CGFloat {
@@ -2283,6 +2329,9 @@ final class cmuxUITests: XCTestCase {
             self.topEdgeEffectSoft = (values["topEdgeEffectSoft"] ?? 0) >= 0.5
             self.bottomEdgeEffectSoft = (values["bottomEdgeEffectSoft"] ?? 0) >= 0.5
             self.topContentScrollViewRegistered = (values["topContentScrollViewRegistered"] ?? 0) >= 0.5
+            self.scrollTracking = (values["scrollTracking"] ?? 0) >= 0.5
+            self.scrollDragging = (values["scrollDragging"] ?? 0) >= 0.5
+            self.scrollDecelerating = (values["scrollDecelerating"] ?? 0) >= 0.5
         }
     }
 
