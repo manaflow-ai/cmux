@@ -163,104 +163,123 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(overrides["AuthEnvironment"] == nil)
     }
 
-    // MARK: - Environment-switch detection (stale cross-project auth state)
+    // MARK: - Project-switch detection (stale cross-project auth state)
 
     private func freshDefaults() throws -> UserDefaults {
         try #require(UserDefaults(suiteName: "cmux-auth-env-switch-\(UUID().uuidString)"))
     }
 
-    @Test func firstLaunchOfPlainBuildStoresEnvironmentWithoutRequestingClear() throws {
+    @Test func firstLaunchOfPlainBuildStoresProjectWithoutRequestingClear() throws {
         // Every existing install upgrades with no stored value; when the
-        // resolved environment matches the build default (no override), the
+        // resolved project matches the build default (no override), the
         // upgrade itself must never sign anyone out.
         let defaults = try freshDefaults()
         defaults.set(true, forKey: MobileAuthComposition.sessionCacheDefaultsKey)
-        #expect(MobileAuthComposition.detectAuthEnvironmentSwitch(
-            resolved: .development,
-            isDevelopmentBuild: true,
+        #expect(MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: Self.developmentProjectID,
+            buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
         ) == false)
-        #expect(defaults.string(forKey: MobileAuthComposition.storedAuthEnvironmentKey) == "development")
+        #expect(defaults.string(forKey: MobileAuthComposition.storedStackProjectIDKey) == Self.developmentProjectID)
     }
 
     @Test func firstProdAuthLaunchOverSignedInDevInstallClears() throws {
-        // Autoreview regression: no stored environment key exists on the
-        // first launch of the build that introduced it, but a signed-in dev
-        // install's session can only belong to the build-default channel —
+        // Autoreview regression: no stored project key exists on the first
+        // launch of the build that introduced it, but a signed-in dev
+        // install's session can only belong to the build-default project —
         // so the first --prod-auth launch must still clear, or the stale
         // dev-project identity primes under production auth and the pairing
         // preflight reads the wrong user id.
         let defaults = try freshDefaults()
         defaults.set(true, forKey: MobileAuthComposition.sessionCacheDefaultsKey)
-        #expect(MobileAuthComposition.detectAuthEnvironmentSwitch(
-            resolved: .production,
-            isDevelopmentBuild: true,
+        #expect(MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: Self.productionProjectID,
+            buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
         ) == true)
     }
 
     @Test func firstProdAuthLaunchOnFreshInstallDoesNotRequestClear() throws {
-        // A fresh container switching channels has nothing stale to drop.
+        // A fresh container switching projects has nothing stale to drop.
         let defaults = try freshDefaults()
-        #expect(MobileAuthComposition.detectAuthEnvironmentSwitch(
-            resolved: .production,
-            isDevelopmentBuild: true,
+        #expect(MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: Self.productionProjectID,
+            buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
         ) == false)
-        #expect(defaults.string(forKey: MobileAuthComposition.storedAuthEnvironmentKey) == "production")
+        #expect(defaults.string(forKey: MobileAuthComposition.storedStackProjectIDKey) == Self.productionProjectID)
     }
 
-    @Test func sameEnvironmentRelaunchDoesNotRequestClear() throws {
+    @Test func sameProjectRelaunchDoesNotRequestClear() throws {
         let defaults = try freshDefaults()
         defaults.set(true, forKey: MobileAuthComposition.sessionCacheDefaultsKey)
-        _ = MobileAuthComposition.detectAuthEnvironmentSwitch(
-            resolved: .production,
-            isDevelopmentBuild: true,
+        _ = MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: Self.productionProjectID,
+            buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
         )
-        #expect(MobileAuthComposition.detectAuthEnvironmentSwitch(
-            resolved: .production,
-            isDevelopmentBuild: true,
+        #expect(MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: Self.productionProjectID,
+            buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
         ) == false)
     }
 
-    @Test func environmentFlipWithLocalAuthStateRequestsClearBothWays() throws {
+    @Test func projectFlipWithLocalAuthStateRequestsClearBothWays() throws {
         // dev -> prod (a --prod-auth rebuild over a signed-in dev install) and
         // prod -> dev must both clear: tokens/user ids are per-Stack-project,
         // so restoring the other project's session can only fail validation
         // and flash the wrong cached user.
         let defaults = try freshDefaults()
         defaults.set(true, forKey: MobileAuthComposition.sessionCacheDefaultsKey)
-        _ = MobileAuthComposition.detectAuthEnvironmentSwitch(
-            resolved: .development,
-            isDevelopmentBuild: true,
+        _ = MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: Self.developmentProjectID,
+            buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
         )
-        #expect(MobileAuthComposition.detectAuthEnvironmentSwitch(
-            resolved: .production,
-            isDevelopmentBuild: true,
+        #expect(MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: Self.productionProjectID,
+            buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
         ) == true)
-        #expect(MobileAuthComposition.detectAuthEnvironmentSwitch(
-            resolved: .development,
-            isDevelopmentBuild: true,
+        #expect(MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: Self.developmentProjectID,
+            buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
         ) == true)
     }
 
-    @Test func environmentFlipWithoutLocalAuthStateDoesNotRequestClear() throws {
+    @Test func sameEnvironmentProjectIDOverrideChangeStillClears() throws {
+        // Autoreview regression: STACK_PROJECT_ID_DEV can repoint the dev
+        // channel at another Stack project while the environment label stays
+        // "development" — the switch detection must key on the PROJECT ID,
+        // not the environment name, or the old project's session survives.
+        let defaults = try freshDefaults()
+        defaults.set(true, forKey: MobileAuthComposition.sessionCacheDefaultsKey)
+        _ = MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: "personal-dev-project",
+            buildDefaultProjectID: "personal-dev-project",
+            defaults: defaults
+        )
+        #expect(MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: Self.developmentProjectID,
+            buildDefaultProjectID: Self.developmentProjectID,
+            defaults: defaults
+        ) == true)
+    }
+
+    @Test func projectFlipWithoutLocalAuthStateDoesNotRequestClear() throws {
         // Signed out before the rebuild: nothing stale to drop, so the next
         // launch keeps its normal flow (including dev auto-login).
         let defaults = try freshDefaults()
-        _ = MobileAuthComposition.detectAuthEnvironmentSwitch(
-            resolved: .development,
-            isDevelopmentBuild: true,
+        _ = MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: Self.developmentProjectID,
+            buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
         )
-        #expect(MobileAuthComposition.detectAuthEnvironmentSwitch(
-            resolved: .production,
-            isDevelopmentBuild: true,
+        #expect(MobileAuthComposition.detectAuthProjectSwitch(
+            resolvedProjectID: Self.productionProjectID,
+            buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
         ) == false)
     }

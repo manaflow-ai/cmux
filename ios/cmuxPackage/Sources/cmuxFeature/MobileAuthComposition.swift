@@ -86,16 +86,20 @@ public struct MobileAuthComposition {
             keyValueStore: defaults,
             key: "auth_selected_team"
         )
-        // Switching auth environments on one install (a dev build rebuilt with
-        // --prod-auth, or back) must not restore the other Stack project's
-        // session: tokens, user ids, and teams are per-project, so the stale
-        // state could only fail validation and flash the wrong cached user.
-        // This rides its own launch flag (NOT clearAuthRequested, whose
-        // UI-test semantics stop priming and would suppress the dogfood
+        // Switching the resolved Stack project on one install (a dev build
+        // rebuilt with --prod-auth, or back — or a STACK_PROJECT_ID_* override
+        // changing within the same environment) must not restore the previous
+        // project's session: tokens, user ids, and teams are per-project, so
+        // the stale state could only fail validation and flash the wrong
+        // cached user. This rides its own launch flag (NOT clearAuthRequested,
+        // whose UI-test semantics stop priming and would suppress the dogfood
         // auto-login on the very next normal reload).
-        let authEnvironmentSwitched = Self.detectAuthEnvironmentSwitch(
-            resolved: resolvedEnvironment,
-            isDevelopmentBuild: Self.isDevelopmentBuild,
+        let authProjectSwitched = Self.detectAuthProjectSwitch(
+            resolvedProjectID: resolvedConfig.stack.projectId,
+            buildDefaultProjectID: AuthConfig(
+                environment: Self.isDevelopmentBuild ? .development : .production,
+                overrides: overrides
+            ).stack.projectId,
             defaults: defaults
         )
         let launch = AuthLaunchOptions(
@@ -103,7 +107,7 @@ public struct MobileAuthComposition {
             mockDataEnabled: UITestConfig.mockDataEnabled,
             environment: environment,
             includesDevAuth: policy.includesFortyTwoShortcut,
-            clearStaleAuthOnLaunch: authEnvironmentSwitched
+            clearStaleAuthOnLaunch: authProjectSwitched
         )
         // Break the coordinator <-> push cycle: the coordinator is built first
         // and reaches the push service (for its post-sign-in token re-upload)
@@ -199,9 +203,12 @@ public struct MobileAuthComposition {
         }
     }
 
-    /// The defaults key persisting which auth environment this install last
-    /// launched with, so an environment switch is detectable.
-    nonisolated static let storedAuthEnvironmentKey = "auth_environment"
+    /// The defaults key persisting which Stack project id this install last
+    /// launched with, so a project switch is detectable. The PROJECT ID, not
+    /// the environment name: `STACK_PROJECT_ID_DEV/PROD` overrides can change
+    /// the actual project while the environment label stays constant, and the
+    /// per-project session state is what goes stale.
+    nonisolated static let storedStackProjectIDKey = "auth_stack_project_id"
 
     /// The session cache defaults key (whether Stack tokens are persisted).
     nonisolated static let sessionCacheDefaultsKey = "auth_has_tokens"
@@ -209,38 +216,34 @@ public struct MobileAuthComposition {
     /// The cached-identity defaults key (the last signed-in user snapshot).
     nonisolated static let cachedUserDefaultsKey = "auth_cached_user"
 
-    /// Persist `resolved` and report whether the auth environment changed
-    /// since the last launch, requiring the stale local auth state to be
-    /// cleared.
+    /// Persist `resolvedProjectID` and report whether the resolved Stack
+    /// project changed since the last launch, requiring the stale local auth
+    /// state to be cleared.
     ///
     /// Installs that predate the override plumbing never stored the key, but
-    /// any session they hold can only belong to the BUILD-DEFAULT channel —
-    /// so a missing value is inferred as that default. Ordinary upgrades and
-    /// first launches therefore never clear, while the FIRST `--prod-auth`
-    /// launch over a signed-in dev install correctly does (its cached
-    /// dev-project identity must not prime under production auth). The clear
-    /// is only requested when local auth state actually exists; a fresh
-    /// container switching channels has nothing stale to drop. (Keychain
-    /// tokens surviving an app reinstall are the one case this misses: the
-    /// defaults — including any cached identity — died with the container,
-    /// so the worst outcome is one failed restore that the coordinator's
-    /// stale-clear path already handles, with no wrong identity shown.)
-    nonisolated static func detectAuthEnvironmentSwitch(
-        resolved: CMUXAuthEnvironment,
-        isDevelopmentBuild: Bool,
+    /// any session they hold can only belong to `buildDefaultProjectID` (the
+    /// project the build-default environment resolves to under the same
+    /// override table) — so a missing value is inferred as that default.
+    /// Ordinary upgrades and first launches therefore never clear, while the
+    /// FIRST `--prod-auth` launch over a signed-in dev install correctly does
+    /// (its cached dev-project identity must not prime under production
+    /// auth). The clear is only requested when local auth state actually
+    /// exists; a fresh container switching projects has nothing stale to
+    /// drop. (Keychain tokens surviving an app reinstall are the one case
+    /// this misses: the defaults — including any cached identity — died with
+    /// the container, so the worst outcome is one failed restore that the
+    /// coordinator's stale-clear path already handles, with no wrong identity
+    /// shown.)
+    nonisolated static func detectAuthProjectSwitch(
+        resolvedProjectID: String,
+        buildDefaultProjectID: String,
         defaults: UserDefaults
     ) -> Bool {
-        let current = authEnvironmentName(resolved)
-        let previous = defaults.string(forKey: storedAuthEnvironmentKey)
-            ?? authEnvironmentName(isDevelopmentBuild ? .development : .production)
-        defaults.set(current, forKey: storedAuthEnvironmentKey)
-        guard previous != current else { return false }
+        let previous = defaults.string(forKey: storedStackProjectIDKey) ?? buildDefaultProjectID
+        defaults.set(resolvedProjectID, forKey: storedStackProjectIDKey)
+        guard previous != resolvedProjectID else { return false }
         return defaults.bool(forKey: sessionCacheDefaultsKey)
             || defaults.object(forKey: cachedUserDefaultsKey) != nil
-    }
-
-    private nonisolated static func authEnvironmentName(_ environment: CMUXAuthEnvironment) -> String {
-        environment == .development ? "development" : "production"
     }
 
     private static var apnsEnvironment: String {
