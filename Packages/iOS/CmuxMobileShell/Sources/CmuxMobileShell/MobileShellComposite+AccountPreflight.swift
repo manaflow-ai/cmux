@@ -1,10 +1,11 @@
 internal import CMUXMobileCore
+import Foundation
 
 extension MobileShellComposite {
     /// The account-binding preflight for a scanned/pasted pairing code: decide,
     /// before any route is dialed, whether the ticket's owner identity can
     /// belong to the signed-in user. Pure and unit-tested; the call site only
-    /// supplies the live identity.
+    /// supplies the live identity and the scanned URL's scheme.
     ///
     /// Precedence mirrors the QR grammar (#6028): when the ticket carries the
     /// opaque Stack user id binding (`ub`), that id must equal the phone's —
@@ -14,16 +15,23 @@ extension MobileShellComposite {
     /// still restoring) returns `nil` and leaves rejection to the host's
     /// Stack-token verification.
     ///
-    /// `isDevelopmentAuthEnvironment` names the channel the phone's user id
-    /// belongs to: a development-project id can never equal the production id
-    /// a release Mac stamps into its QR, so on a dev-channel build an id
-    /// mismatch is reported as ``MobilePairingFailureCategory/authEnvironmentMismatch``
-    /// (the truthful "dev build vs release Mac" explanation) instead of
-    /// ``MobilePairingFailureCategory/authFailed``'s "check your email" copy
-    /// (https://github.com/manaflow-ai/cmux/issues/7145). Production builds
-    /// keep the #6028 behavior unchanged.
+    /// A user-id mismatch is explained as
+    /// ``MobilePairingFailureCategory/authEnvironmentMismatch`` only when the
+    /// two auth channels are DECLARED to differ — never inferred from the
+    /// phone alone. The emitting Mac stamps its channel into the pairing URL's
+    /// scheme (release Macs emit ``CmxPairingURLScheme/release``, dev Macs
+    /// ``CmxPairingURLScheme/development``; #6038), so `scannedScheme` is an
+    /// explicit Mac-side signal: a development-auth phone
+    /// (`isDevelopmentAuthEnvironment`) scanning a release-Mac QR can never
+    /// match its production `ub` — Stack user ids are per-project — and gets
+    /// the truthful cross-channel copy
+    /// (https://github.com/manaflow-ai/cmux/issues/7145). Every other mismatch
+    /// (prod phone, dev↔dev with genuinely different accounts, or an unknown
+    /// scheme) keeps ``MobilePairingFailureCategory/authFailed``, so the #6028
+    /// binding and its copy are unchanged on same-channel paths.
     static func emailFailure(
         for ticket: CmxAttachTicket,
+        scannedScheme: String?,
         actualUserID: String?,
         actualEmail: String?,
         isDevelopmentAuthEnvironment: Bool
@@ -31,7 +39,12 @@ extension MobileShellComposite {
         if let expectedUserID = Self.mobileShellNormalizedNonEmpty(ticket.macUserID) {
             guard let actualUserID = Self.mobileShellNormalizedNonEmpty(actualUserID) else { return nil }
             guard actualUserID == expectedUserID else {
-                return isDevelopmentAuthEnvironment ? .authEnvironmentMismatch : .authFailed
+                let macDeclaresReleaseChannel = scannedScheme.map {
+                    CmxPairingURLScheme.release.caseInsensitiveCompare($0) == .orderedSame
+                } ?? false
+                return (isDevelopmentAuthEnvironment && macDeclaresReleaseChannel)
+                    ? .authEnvironmentMismatch
+                    : .authFailed
             }
             return nil
         }

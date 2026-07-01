@@ -48,14 +48,18 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The owner's account could not be verified with the Mac (stale/invalid
     /// token, or a release-vs-development build mismatch).
     case authFailed
-    /// The QR's account binding (`ub`) cannot match because this build signs
-    /// in to cmux's development auth environment: Stack user ids are
+    /// The QR's account binding (`ub`) cannot match because the two auth
+    /// channels differ: this build signs in to cmux's development auth
+    /// environment while the scanned URL's scheme declares a release-channel
+    /// Mac (release Macs emit `cmux-ios`, #6038). Stack user ids are
     /// per-project, so a development-environment id never equals the
     /// production id a release Mac stamps into its QR — even for the same
     /// email. Telling the user to "sign in with the same email" would be
     /// wrong; the fix is rebuilding the phone app with production auth
     /// (`ios/scripts/reload.sh --prod-auth`) or pairing with a dev-channel
-    /// Mac (https://github.com/manaflow-ai/cmux/issues/7145).
+    /// Mac (https://github.com/manaflow-ai/cmux/issues/7145). A dev↔dev
+    /// user-id mismatch is a genuine different-account failure and stays
+    /// ``authFailed``.
     case authEnvironmentMismatch
     /// The pairing link/QR expired; a fresh one is needed.
     case ticketExpired

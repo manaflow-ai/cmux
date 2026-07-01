@@ -3131,6 +3131,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         if let emailFailure = Self.emailFailure(
             for: ticket,
+            scannedScheme: URLComponents(string: rawURL)?.scheme,
             actualUserID: identityProvider?.currentUserID,
             actualEmail: identityProvider?.currentUserEmail,
             isDevelopmentAuthEnvironment: identityProvider?.isDevelopmentAuthEnvironment ?? false
