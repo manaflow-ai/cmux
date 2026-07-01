@@ -92,6 +92,11 @@ extension TerminalController {
     /// The window Dock a command routes to, if any: an explicit dock-owner
     /// `workspace_id` (or the legacy alias, resolved against `tabManager`'s
     /// window), else the Dock containing the routed surface or pane.
+    ///
+    /// An explicit owner id wins over surface/pane containment; if the routed
+    /// surface/pane lives in a DIFFERENT window's Dock, the downstream
+    /// `containsPanel`/`containsPane` guards fail closed rather than acting on
+    /// a Dock the caller did not name.
     func windowDockForRouting(_ routing: ControlRoutingSelectors, tabManager: TabManager) -> DockSplitStore? {
         if let workspaceID = routing.workspaceID {
             if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
@@ -110,6 +115,23 @@ extension TerminalController {
             return dock
         }
         return nil
+    }
+
+    /// The window id Dock-scoped results report and Dock-scoped focus targets.
+    /// A window Dock's owner id IS its window id, and the registry is the single
+    /// source of truth for which window renders a Dock surface — the routed
+    /// `tabManager` can be a different window when the caller's context
+    /// (injected workspace/window selectors) disagrees with the surface's home.
+    func dockResultWindowId(for dock: DockSplitStore, tabManager: TabManager) -> UUID? {
+        dock.scope == .global ? dock.workspaceId : v2ResolveWindowId(tabManager: tabManager)
+    }
+
+    /// The `TabManager` Dock-scoped focus/reveal should act on: the Dock's
+    /// owning window. Falls back to the routed manager only for workspace Docks
+    /// (whose reveal semantics are unchanged) — see `dockResultWindowId`.
+    func dockOwnerTabManager(for dock: DockSplitStore, fallback: TabManager) -> TabManager {
+        guard dock.scope == .global else { return fallback }
+        return AppDelegate.shared?.tabManagerFor(windowId: dock.workspaceId) ?? fallback
     }
 
     func orderedPanels(in dock: DockSplitStore) -> [any Panel] {

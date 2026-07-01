@@ -753,6 +753,34 @@ struct DockSocketLifecycleTests {
             let otherPane = try #require(otherWindowDock.resolvePane(requestedPaneID: nil))
             let otherDockSurfaceId = try #require(otherWindowDock.newSurface(kind: .terminal, inPane: otherPane, focus: true))
 
+            // Dock-scoped reads anchor to the Dock's owning window: an explicit
+            // foreign window_id cannot re-home the report.
+            let crossList = try v2Result(method: "surface.list", params: [
+                "workspace_id": activeWindowId.uuidString,
+                "window_id": dockWindowId.uuidString,
+            ])
+            #expect(crossList["workspace_id"] as? String == activeWindowId.uuidString)
+            #expect(crossList["window_id"] as? String == activeWindowId.uuidString)
+
+            // Explicitly naming two different windows' Docks fails closed.
+            let conflictEnvelope = try v2Envelope(method: "browser.tab.list", params: [
+                "workspace_id": activeWindowId.uuidString,
+                "surface_id": otherDockSurfaceId.uuidString,
+            ])
+            #expect(conflictEnvelope["ok"] as? Bool == false)
+            let conflictError = try #require(conflictEnvelope["error"] as? [String: Any])
+            #expect(conflictError["message"] as? String == "Conflicting Dock routing selectors")
+
+            // Focusing a Dock surface targets its owning window even when the
+            // caller's routing names the other window.
+            let focusResult = try v2Result(method: "surface.focus", params: [
+                "surface_id": dockSurfaceId.uuidString,
+                "window_id": dockWindowId.uuidString,
+            ])
+            #expect(focusResult["window_id"] as? String == activeWindowId.uuidString)
+            #expect(focusResult["workspace_id"] as? String == activeWindowId.uuidString)
+            #expect(activeWindowDock.focusedPanelId == dockSurfaceId)
+
             let closeAction = KeyboardShortcutSettings.Action.closeTab
             let hadCloseShortcut = UserDefaults.standard.object(forKey: closeAction.defaultsKey) != nil
             let originalCloseShortcut = KeyboardShortcutSettings.shortcut(for: closeAction)

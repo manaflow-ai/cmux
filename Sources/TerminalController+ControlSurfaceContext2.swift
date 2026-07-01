@@ -443,7 +443,7 @@ extension TerminalController {
                 surfaceId: surfaceId
             )
             return .closed(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: windowDock, tabManager: tabManager),
                 workspaceID: windowDock.workspaceId,
                 surfaceID: surfaceId
             )
@@ -467,7 +467,7 @@ extension TerminalController {
                 surfaceId: surfaceId
             )
             return .closed(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: windowDock, tabManager: tabManager),
                 workspaceID: windowDock.workspaceId,
                 surfaceID: surfaceId
             )

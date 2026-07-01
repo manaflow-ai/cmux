@@ -1044,8 +1044,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Per-window Docks keyed by the owning window's `windowId` (which is also
     /// each store's `workspaceId`). Created lazily when a window first shows the
-    /// Dock, torn down when that window unregisters. See AppDelegate+WindowDock.swift.
-    var windowDocksById: [UUID: DockSplitStore] = [:]
+    /// Dock, torn down when that window unregisters. All mutation is inside the
+    /// registry type. See AppDelegate+WindowDock.swift.
+    let windowDockRegistry = WindowDockRegistry()
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.

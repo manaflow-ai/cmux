@@ -183,7 +183,7 @@ extension TerminalController: ControlSurfaceContext {
 
         return ControlSurfaceListSnapshot(
             workspaceID: dock.workspaceId,
-            windowID: v2ResolveWindowId(tabManager: tabManager),
+            windowID: dockResultWindowId(for: dock, tabManager: tabManager),
             surfaces: surfaces
         )
     }
@@ -198,7 +198,7 @@ extension TerminalController: ControlSurfaceContext {
             let surfaceId = dock.focusedPanelId ?? orderedPanels(in: dock).first?.id
             let paneId = surfaceId.flatMap { dock.paneId(forPanelId: $0)?.id }
             return ControlSurfaceCurrentSnapshot(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
                 paneID: paneId,
                 surfaceID: surfaceId,
@@ -239,7 +239,7 @@ extension TerminalController: ControlSurfaceContext {
             }
             return ControlSurfaceHealthSnapshot(
                 workspaceID: dock.workspaceId,
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 surfaces: items
             )
         }
@@ -274,14 +274,16 @@ extension TerminalController: ControlSurfaceContext {
             return .tabManagerUnavailable
         }
         if let windowDock = windowDockContainingPanel(surfaceID) {
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            revealDockForFocus(tabManager: tabManager)
+            // A Dock surface renders only in its owning window (the Dock
+            // registry is the source of truth), so focus and reveal there even
+            // if the caller's routed context named another window.
+            let owningTabManager = dockOwnerTabManager(for: windowDock, fallback: tabManager)
+            _ = AppDelegate.shared?.focusMainWindow(windowId: windowDock.workspaceId)
+            setActiveTabManager(owningTabManager)
+            revealDockForFocus(tabManager: owningTabManager)
             windowDock.focusPanel(surfaceID)
             return .focused(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: windowDock.workspaceId,
                 workspaceID: windowDock.workspaceId,
                 surfaceID: surfaceID
             )

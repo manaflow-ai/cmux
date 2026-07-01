@@ -21,10 +21,11 @@ extension AppDelegate {
         guard context.keyboardFocusCoordinator.activeRightSidebarMode == .dock else {
             return nil
         }
-        if let windowDock = existingWindowDock(forWindowId: context.windowId) {
-            return windowDock
-        }
-        return context.tabManager.selectedWorkspace?.dockSplit
+        // Dock mode showing means the right sidebar rendered this window's own
+        // Dock (which created it), so this resolves the store already on screen.
+        // No workspace-Dock fallback: the sidebar never renders one, so routing
+        // a creation shortcut there would target an invisible tree.
+        return windowDock(forWindowId: context.windowId)
     }
 
     /// Creates a New Terminal / New Browser surface in the focused Dock pane.

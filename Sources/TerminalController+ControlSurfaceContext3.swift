@@ -87,7 +87,7 @@ extension TerminalController {
                 }
             }
             return .refreshed(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
                 refreshedCount: refreshedCount
             )
@@ -140,7 +140,7 @@ extension TerminalController {
             }
             terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory.windowDock")
             return .cleared(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
                 surfaceID: surfaceId
             )
@@ -187,11 +187,14 @@ extension TerminalController {
             guard dock.panels[surfaceId] != nil else {
                 return .surfaceNotFound(surfaceId)
             }
-            v2MaybeFocusWindow(for: tabManager)
-            revealDockForFocus(tabManager: tabManager)
+            // A Dock surface renders only in its owning window (the Dock
+            // registry is the source of truth), so reveal and flash there.
+            let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
+            v2MaybeFocusWindow(for: owningTabManager)
+            revealDockForFocus(tabManager: owningTabManager)
             dock.focusPanel(surfaceId)
             return .flashed(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
                 surfaceID: surfaceId
             )
@@ -301,7 +304,7 @@ extension TerminalController {
                 return .processExited(surfaceId)
             }
             return .sent(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
                 surfaceID: surfaceId,
                 queued: queued
@@ -381,7 +384,7 @@ extension TerminalController {
                 return .processExited(surfaceId)
             }
             return .sent(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
                 surfaceID: surfaceId,
                 queued: sendResult == .queued
@@ -465,7 +468,7 @@ extension TerminalController {
                 return .read(
                     text: payload.text,
                     base64: payload.base64,
-                    windowID: v2ResolveWindowId(tabManager: tabManager),
+                    windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                     workspaceID: dock.workspaceId,
                     surfaceID: surfaceId
                 )

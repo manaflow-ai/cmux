@@ -163,7 +163,7 @@ extension TerminalController: ControlPaneContext {
 
         return ControlPaneListSnapshot(
             workspaceID: dock.workspaceId,
-            windowID: v2ResolveWindowId(tabManager: tabManager),
+            windowID: dockResultWindowId(for: dock, tabManager: tabManager),
             panes: panes,
             containerWidth: snapshot.containerFrame.width,
             containerHeight: snapshot.containerFrame.height
@@ -183,13 +183,17 @@ extension TerminalController: ControlPaneContext {
             guard let paneId = dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID }) else {
                 return .paneNotFound(paneID)
             }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+            // A Dock pane renders only in its owning window (the Dock registry
+            // is the source of truth), so focus and reveal there even if the
+            // caller's routed context named another window.
+            let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
+            if let windowId = dockResultWindowId(for: dock, tabManager: tabManager) {
                 _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
+                setActiveTabManager(owningTabManager)
             }
-            revealDockForFocus(tabManager: tabManager)
+            revealDockForFocus(tabManager: owningTabManager)
             dock.bonsplitController.focusPane(paneId)
-            return .focused(windowID: v2ResolveWindowId(tabManager: tabManager), workspaceID: dock.workspaceId, paneID: paneId.id)
+            return .focused(windowID: dockResultWindowId(for: dock, tabManager: tabManager), workspaceID: dock.workspaceId, paneID: paneId.id)
         }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
@@ -243,7 +247,7 @@ extension TerminalController: ControlPaneContext {
             return ControlPaneSurfacesSnapshot(
                 workspaceID: dock.workspaceId,
                 paneID: paneId.id,
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 surfaces: surfaces
             )
         }
