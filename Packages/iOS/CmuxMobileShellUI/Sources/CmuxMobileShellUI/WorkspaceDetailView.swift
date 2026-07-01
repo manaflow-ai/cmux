@@ -142,6 +142,9 @@ struct WorkspaceDetailView: View {
             ToolbarItem(placement: .topBarLeading) {
                 workspaceBackToolbarButton
             }
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .topBarLeading)
+            }
         }
         ToolbarItem(placement: .topBarLeading) {
             workspaceTitleToolbarMenu
