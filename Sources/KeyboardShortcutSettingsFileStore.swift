@@ -596,7 +596,7 @@ final class CmuxSettingsFileStore {
                 withJSONObject: section["textBoxSubmitActions"] as Any,
                 options: [.withoutEscapingSlashes]
             ),
-               (try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data)) != nil,
+               let actions = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data), actions.allSatisfy(\.isValid),
                let json = String(data: data, encoding: .utf8) {
                 snapshot.managedUserDefaults[TerminalTextBoxInputSettings.submitActionsKey] = .string(json)
             } else {
