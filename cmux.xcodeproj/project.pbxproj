@@ -25,6 +25,7 @@
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00020000000000000002 /* AgentHibernationTests.swift */; };
+		A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */; };
 		A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */; };
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
 		D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */; };
@@ -1320,6 +1321,7 @@
 		D36A00010000000000000002 /* AgentHibernationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationController.swift; sourceTree = "<group>"; };
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
 		D36A00020000000000000002 /* AgentHibernationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTests.swift; sourceTree = "<group>"; };
+		A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGate.swift; sourceTree = "<group>"; };
 		A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGateTests.swift; sourceTree = "<group>"; };
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
 		D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSwiftTests.swift; sourceTree = "<group>"; };
@@ -3055,6 +3057,7 @@
 				A5001541 /* PortScanner.swift */,
 				6313B1A1 /* PaneMemoryDescriptor.swift */,
 				6313A1A1 /* PaneMemoryGuardrail.swift */,
+				A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */,
 				6313B2A1 /* PaneMemoryGuardrailEngine.swift */,
 				6313B3A1 /* PaneMemoryGuardrailEngineOutput.swift */,
 				6313C6A1 /* PaneMemoryGuardrailSampleBatch.swift */,
@@ -4249,6 +4252,7 @@
 				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
 				D36A00010000000000000001 /* AgentHibernationController.swift in Sources */,
 				D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */,
+				A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */,
 				A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */,
 				A9F20000000000000000000B /* AgentSessionBridgeError.swift in Sources */,
 				A9F20000000000000000000C /* AgentSessionBridgeRequest.swift in Sources */,

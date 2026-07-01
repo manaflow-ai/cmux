@@ -1,4 +1,5 @@
 import Testing
+@testable import cmux_DEV
 @testable import cmux
 
 /// Exhaustive decision-table coverage for the app-side agent notification gate
