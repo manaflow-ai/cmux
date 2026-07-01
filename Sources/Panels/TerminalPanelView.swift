@@ -99,6 +99,7 @@ struct TerminalPanelView: View {
                     text: $panel.textBoxContent,
                     attachments: $panel.textBoxAttachments,
                     pendingProviderLaunchAction: $textBoxState.pendingProviderLaunchAction,
+                    pendingProviderLaunchStartedAt: $textBoxState.pendingProviderLaunchStartedAt,
                     surface: panel.surface,
                     terminalBackgroundColor: appearance.backgroundColor,
                     terminalForegroundColor: appearance.foregroundColor,

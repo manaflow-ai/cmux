@@ -1,10 +1,12 @@
 import CmuxWorkspaces
+import Foundation
 import Observation
 
 @MainActor
 @Observable
 final class TerminalPanelTextBoxState {
     var pendingProviderLaunchAction: TextBoxSubmitAction?
+    var pendingProviderLaunchStartedAt: Date?
     private(set) var launchCommand: String?
     private var observedCommandRunningSinceLaunch = false
 

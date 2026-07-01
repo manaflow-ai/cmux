@@ -145,8 +145,9 @@ extension TextBoxInputContainer {
 
     func schedulePendingProviderLaunchTimeout() {
         pendingProviderLaunchTimeoutTask?.cancel()
+        let remainingSeconds = Self.pendingProviderLaunchTimeoutDelay(startedAt: pendingProviderLaunchStartedAt)
         pendingProviderLaunchTimeoutTask = Task { @MainActor in
-            let nanoseconds = UInt64(Self.pendingProviderLaunchTimeoutSeconds * 1_000_000_000)
+            let nanoseconds = UInt64(remainingSeconds * 1_000_000_000)
             do {
                 try await Task.sleep(nanoseconds: nanoseconds)
             } catch {
@@ -181,6 +182,15 @@ extension TextBoxInputContainer {
     ) -> Bool {
         guard let startedAt else { return false }
         return now.timeIntervalSince(startedAt) >= timeoutSeconds
+    }
+
+    static func pendingProviderLaunchTimeoutDelay(
+        startedAt: Date?,
+        now: Date = Date(),
+        timeoutSeconds: TimeInterval = Self.pendingProviderLaunchTimeoutSeconds
+    ) -> TimeInterval {
+        guard let startedAt else { return timeoutSeconds }
+        return max(0, timeoutSeconds - now.timeIntervalSince(startedAt))
     }
 
     static func shouldClearLaunchCommandWhenClearingPending(terminalAgentContext: String) -> Bool {

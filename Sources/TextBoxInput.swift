@@ -2428,6 +2428,7 @@ struct TextBoxInputContainer: View {
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
     @Binding var pendingProviderLaunchAction: TextBoxSubmitAction?
+    @Binding var pendingProviderLaunchStartedAt: Date?
     let surface: TerminalSurface
     let terminalBackgroundColor: NSColor
     let terminalForegroundColor: NSColor
@@ -2450,7 +2451,6 @@ struct TextBoxInputContainer: View {
     @State private var hasMarkedText = false
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
-    @State var pendingProviderLaunchStartedAt: Date?
     @State var pendingProviderLaunchTimeoutTask: Task<Void, Never>?
     @State private var preservePendingProviderLaunchForDefaultActionReset = false
     @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
@@ -2578,6 +2578,14 @@ struct TextBoxInputContainer: View {
         }
         .onAppear {
             refreshSubmitActionsCacheIfNeeded()
+            reconcilePendingProviderLaunch()
+            if pendingProviderLaunchAction != nil {
+                schedulePendingProviderLaunchTimeout()
+            }
+        }
+        .onDisappear {
+            pendingProviderLaunchTimeoutTask?.cancel()
+            pendingProviderLaunchTimeoutTask = nil
         }
         .onChange(of: configuredSubmitActionsJSON) { _, _ in
             refreshSubmitActionsCacheIfNeeded()

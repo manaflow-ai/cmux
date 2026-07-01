@@ -772,6 +772,22 @@ struct TextBoxSubmitActionTests {
                 now: Date(timeIntervalSinceReferenceDate: 112)
             )
         )
+        XCTAssertEqual(
+            TextBoxInputContainer.pendingProviderLaunchTimeoutDelay(
+                startedAt: startedAt,
+                now: Date(timeIntervalSinceReferenceDate: 105),
+                timeoutSeconds: 12
+            ),
+            7
+        )
+        XCTAssertEqual(
+            TextBoxInputContainer.pendingProviderLaunchTimeoutDelay(
+                startedAt: startedAt,
+                now: Date(timeIntervalSinceReferenceDate: 113),
+                timeoutSeconds: 12
+            ),
+            0
+        )
         XCTAssertTrue(
             TextBoxInputContainer.isPendingProviderLaunchAwaitingAgent(
                 pendingProviderLaunchAction: TextBoxSubmitAction.builtInActions[0],
