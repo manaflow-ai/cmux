@@ -49,7 +49,6 @@
     "taglinePrefix": "Şunun için tasarlanmış terminal: ",
     "typingCodingAgents": "kodlama ajanları",
     "typingMultitasking": "çoklu görev",
-    "subtitle": "Ghostty üzerine kurulu ücretsiz ve açık kaynaklı yerel macOS terminali. Dikey sekmeler, ajanlar ilgi gerektirdiğinde bildirim halkaları, bölünmüş paneller ve programlanabilirlik için bir <cliLink>CLI</cliLink>.",
     "features": "Özellikler",
     "faq": "SSS",
     "communitySection": "Topluluk",
@@ -1519,7 +1518,6 @@
   },
   "nightly": {
     "title": "cmux NIGHTLY",
-    "subtitle": "main dalından güncel derlemeler",
     "metaTitle": "cmux NIGHTLY — Nightly Derlemeler",
     "metaDescription": "cmux NIGHTLY indirin. main deki en son commit ten otomatik olarak derlenen bağımsız bir uygulama. Kararlı sürümle yan yana çalışır ve kendi otomatik güncellemelerine sahiptir.",
     "description": "cmux NIGHTLY, main deki en son commit ten otomatik olarak derlenir. Kendi bundle ID sine sahip olduğundan kararlı sürümle çakışmadan yan yana çalışır. Yeni özellikleri yayınlanmadan önce test etmek için kullanın.",
@@ -1595,6 +1593,18 @@
     "title": "cmux oturumu açıldı",
     "body": "cmux otomatik olarak açılmadıysa aşağıdaki düğmeyi kullanın.",
     "button": "cmux’a dön"
+  },
+  "signInChooser": {
+    "title": "cmux oturumu aç",
+    "continueProduct": "Devam etmek için bir hesap seçin.",
+    "continueAction": "Devam et",
+    "useAnotherAccount": "Başka bir hesapla devam et",
+    "loading": "Oturum açma açılıyor...",
+    "signInFailed": "Oturum açılamadı. Tekrar deneyin.",
+    "privacyPrefix": "Devam ederek cmux",
+    "privacyPolicy": "Gizlilik Politikası",
+    "privacyMiddle": "ve",
+    "termsOfService": "Hizmet Şartlarını inceleyebilirsiniz"
   },
   "landing": {
     "bestTerminal": {

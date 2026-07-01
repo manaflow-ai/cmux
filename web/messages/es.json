@@ -49,7 +49,6 @@
     "taglinePrefix": "La terminal diseñada para ",
     "typingCodingAgents": "agentes de código",
     "typingMultitasking": "multitarea",
-    "subtitle": "Terminal nativa de macOS open source y gratuita basada en Ghostty. Pestañas verticales, anillos de notificación cuando los agentes necesitan atención, paneles divididos y una <cliLink>CLI</cliLink> para programabilidad.",
     "features": "Características",
     "faq": "FAQ",
     "communitySection": "Comunidad",
@@ -1519,7 +1518,6 @@
   },
   "nightly": {
     "title": "cmux NIGHTLY",
-    "subtitle": "Compilaciones de última hora desde main",
     "metaTitle": "cmux NIGHTLY — Compilaciones Nightly",
     "metaDescription": "Descarga cmux NIGHTLY, una app independiente compilada automáticamente desde el último commit en main. Funciona junto a la versión estable con sus propias actualizaciones automáticas.",
     "description": "cmux NIGHTLY se compila automáticamente desde el último commit en main. Tiene su propio bundle ID, así que funciona junto a la versión estable sin conflictos. Úsala para probar nuevas funciones antes de su lanzamiento.",
@@ -1595,6 +1593,18 @@
     "title": "Sesión iniciada en cmux",
     "body": "Si cmux no se abrió automáticamente, usa el botón de abajo.",
     "button": "Volver a cmux"
+  },
+  "signInChooser": {
+    "title": "Inicia sesión en cmux",
+    "continueProduct": "Elige una cuenta para continuar.",
+    "continueAction": "Continuar",
+    "useAnotherAccount": "Continuar con otra cuenta",
+    "loading": "Abriendo inicio de sesión...",
+    "signInFailed": "No se pudo iniciar sesión. Inténtalo de nuevo.",
+    "privacyPrefix": "Al continuar, aceptas la",
+    "privacyPolicy": "Política de privacidad",
+    "privacyMiddle": "y los",
+    "termsOfService": "Términos del servicio de cmux"
   },
   "landing": {
     "bestTerminal": {

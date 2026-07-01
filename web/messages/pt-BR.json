@@ -49,7 +49,6 @@
     "taglinePrefix": "O terminal feito para ",
     "typingCodingAgents": "agentes de código",
     "typingMultitasking": "multitarefa",
-    "subtitle": "Terminal nativo macOS gratuito e de código aberto construído sobre o Ghostty. Abas verticais, anéis de notificação quando agentes precisam de atenção, painéis divididos e uma <cliLink>CLI</cliLink> para programabilidade.",
     "features": "Recursos",
     "faq": "Perguntas Frequentes",
     "communitySection": "Comunidade",
@@ -1519,7 +1518,6 @@
   },
   "nightly": {
     "title": "cmux NIGHTLY",
-    "subtitle": "Builds de ponta do branch main",
     "metaTitle": "cmux NIGHTLY — Builds Nightly",
     "metaDescription": "Baixe o cmux NIGHTLY, um app separado compilado automaticamente do commit mais recente no main. Funciona ao lado da versão estável com suas próprias atualizações automáticas.",
     "description": "O cmux NIGHTLY é compilado automaticamente do commit mais recente no main. Ele tem seu próprio bundle ID, então funciona ao lado da versão estável sem conflitos. Use-o para testar novos recursos antes do lançamento.",
@@ -1595,6 +1593,18 @@
     "title": "Conectado ao cmux",
     "body": "Se o cmux não abriu automaticamente, use o botão abaixo.",
     "button": "Voltar ao cmux"
+  },
+  "signInChooser": {
+    "title": "Entrar no cmux",
+    "continueProduct": "Escolha uma conta para continuar.",
+    "continueAction": "Continuar",
+    "useAnotherAccount": "Continuar com outra conta",
+    "loading": "Abrindo entrada...",
+    "signInFailed": "Falha ao entrar. Tente novamente.",
+    "privacyPrefix": "Ao continuar, você concorda com a",
+    "privacyPolicy": "Política de Privacidade",
+    "privacyMiddle": "e os",
+    "termsOfService": "Termos de Serviço do cmux"
   },
   "landing": {
     "bestTerminal": {

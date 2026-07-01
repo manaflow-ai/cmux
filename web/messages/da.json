@@ -49,7 +49,6 @@
     "taglinePrefix": "Terminalen bygget til ",
     "typingCodingAgents": "kodningsagenter",
     "typingMultitasking": "multitasking",
-    "subtitle": "Gratis og open source nativ macOS-terminal bygget på Ghostty. Lodrette faner, notifikationsringe når agenter har brug for opmærksomhed, delte paneler og en <cliLink>CLI</cliLink> til programmerbarhed.",
     "features": "Funktioner",
     "faq": "FAQ",
     "communitySection": "Fællesskab",
@@ -1519,7 +1518,6 @@
   },
   "nightly": {
     "title": "cmux NIGHTLY",
-    "subtitle": "Seneste builds fra main",
     "metaTitle": "cmux NIGHTLY — Nightly Builds",
     "metaDescription": "Download cmux NIGHTLY, en separat app bygget automatisk fra det seneste main-commit. Kører ved siden af den stabile version med egne automatiske opdateringer.",
     "description": "cmux NIGHTLY bygges automatisk fra det seneste commit på main. Den har sit eget bundle-ID, så den kører ved siden af den stabile version uden konflikter. Brug den til at teste nye funktioner før de udkommer.",
@@ -1595,6 +1593,18 @@
     "title": "Logget ind på cmux",
     "body": "Hvis cmux ikke åbnede automatisk, skal du bruge knappen nedenfor.",
     "button": "Tilbage til cmux"
+  },
+  "signInChooser": {
+    "title": "Log ind på cmux",
+    "continueProduct": "Vælg en konto for at fortsætte.",
+    "continueAction": "Fortsæt",
+    "useAnotherAccount": "Fortsæt med en anden konto",
+    "loading": "Åbner login...",
+    "signInFailed": "Login mislykkedes. Prøv igen.",
+    "privacyPrefix": "Ved at fortsætte accepterer du cmuxs",
+    "privacyPolicy": "Privatlivspolitik",
+    "privacyMiddle": "og",
+    "termsOfService": "Servicevilkår"
   },
   "landing": {
     "bestTerminal": {

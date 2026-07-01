@@ -49,7 +49,6 @@
     "taglinePrefix": "Terminal napravljen za ",
     "typingCodingAgents": "agente za kodiranje",
     "typingMultitasking": "multitasking",
-    "subtitle": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
     "features": "Funkcionalnosti",
     "faq": "Česta pitanja",
     "communitySection": "Zajednica",
@@ -1519,7 +1518,6 @@
   },
   "nightly": {
     "title": "cmux NIGHTLY",
-    "subtitle": "Najnovije verzije iz main grane",
     "metaTitle": "cmux NIGHTLY — Nightly verzije",
     "metaDescription": "Preuzmite cmux NIGHTLY, zasebnu aplikaciju koja se automatski kompajlira iz posljednjeg commita na main. Radi uporedo sa stabilnom verzijom s vlastitim automatskim ažuriranjima.",
     "description": "cmux NIGHTLY se automatski kompajlira iz posljednjeg commita na main. Ima vlastiti bundle ID, pa radi uporedo sa stabilnom verzijom bez konflikata. Koristite ga za testiranje novih funkcija prije objavljivanja.",
@@ -1595,6 +1593,18 @@
     "title": "Prijavljeni ste u cmux",
     "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
     "button": "Vrati se u cmux"
+  },
+  "signInChooser": {
+    "title": "Prijavite se u cmux",
+    "continueProduct": "Odaberite račun za nastavak.",
+    "continueAction": "Nastavi",
+    "useAnotherAccount": "Nastavi s drugim računom",
+    "loading": "Otvaranje prijave...",
+    "signInFailed": "Prijava nije uspjela. Pokušajte ponovo.",
+    "privacyPrefix": "Nastavkom prihvatate cmux",
+    "privacyPolicy": "Pravila privatnosti",
+    "privacyMiddle": "i",
+    "termsOfService": "Uslove korištenja"
   },
   "landing": {
     "bestTerminal": {

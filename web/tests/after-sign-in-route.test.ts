@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
+import { RECENT_SIGN_IN_ACCOUNTS_STORAGE_KEY } from "../app/handler/sign-in/recent-accounts";
 
 process.env.SKIP_ENV_VALIDATION = "1";
 process.env.NEXT_PUBLIC_STACK_PROJECT_ID = "test-project";
@@ -10,7 +11,19 @@ const HANDOFF_COOKIE = "cmux-native-auth-handoff";
 let handoffCookie: string | undefined;
 let rawRefreshCookie: string;
 let rawAccessCookie: string;
-const getUser = mock(async () => null);
+type TestStackUser = {
+  id?: string | null;
+  primaryEmail?: string | null;
+  displayName?: string | null;
+  createSession: () => Promise<{
+    getTokens: () => Promise<{
+      refreshToken?: string | null;
+      accessToken?: string | null;
+    }>;
+  }>;
+};
+let getUserImpl: () => Promise<TestStackUser | null> = async () => null;
+const getUser = mock(async () => getUserImpl());
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
 
@@ -53,6 +66,7 @@ describe("after sign-in native handoff", () => {
     handoffCookie = undefined;
     rawRefreshCookie = "refresh-token";
     rawAccessCookie = "access-token";
+    getUserImpl = async () => null;
   });
 
   test("keeps a fallback page for verified native auto-open handoffs", async () => {
@@ -81,6 +95,39 @@ describe("after sign-in native handoff", () => {
     expect(setCookie).toContain(`${HANDOFF_COOKIE}=;`);
     expect(setCookie).toContain("Max-Age=0");
     expect(setCookie).toContain("Path=/handler/after-sign-in");
+  });
+
+  test("stores a remembered account summary before native auto-open", async () => {
+    getUserImpl = async () => ({
+      id: "user-1",
+      primaryEmail: "Lawrence@Manaflow.ai",
+      displayName: "Lawrence Chen",
+      createSession: async () => ({
+        getTokens: async () => ({
+          refreshToken: "fresh-refresh-token",
+          accessToken: "fresh-access-token",
+        }),
+      }),
+    });
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain(RECENT_SIGN_IN_ACCOUNTS_STORAGE_KEY);
+    expect(html).toContain("Lawrence@Manaflow.ai");
+    expect(html).toContain("Lawrence Chen");
+    expect(html.indexOf(RECENT_SIGN_IN_ACCOUNTS_STORAGE_KEY)).toBeLessThan(
+      html.indexOf("window.location.replace")
+    );
+
+    const callbackURL = new URL(returnHref(html));
+    expect(callbackURL.searchParams.get("stack_refresh")).toBe("fresh-refresh-token");
+    expect(callbackURL.searchParams.get("stack_access")).toBe(
+      JSON.stringify(["fresh-refresh-token", "fresh-access-token"])
+    );
   });
 
   test("keeps the manual return page when the handoff nonce is not verified", async () => {

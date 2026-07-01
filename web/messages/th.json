@@ -49,7 +49,6 @@
     "taglinePrefix": "เทอร์มินัลที่สร้างมาเพื่อ",
     "typingCodingAgents": "เอเจนต์เขียนโค้ด",
     "typingMultitasking": "มัลติทาสกิ้ง",
-    "subtitle": "แอป macOS เนทีฟที่เป็นโอเพนซอร์สและใช้งานได้ฟรี สร้างบน Ghostty แท็บแนวตั้ง, วงแหวนแจ้งเตือนเมื่อ agent ต้องการความสนใจ, แยกหน้าจอ และ <cliLink>CLI</cliLink> สำหรับการเขียนโปรแกรม",
     "features": "ฟีเจอร์",
     "faq": "คำถามที่พบบ่อย",
     "communitySection": "ชุมชน",
@@ -1515,7 +1514,6 @@
   },
   "nightly": {
     "title": "cmux NIGHTLY",
-    "subtitle": "บิลด์ล่าสุดจาก main",
     "metaTitle": "cmux NIGHTLY — บิลด์ Nightly",
     "metaDescription": "ดาวน์โหลด cmux NIGHTLY แอปแยกที่สร้างอัตโนมัติจาก commit ล่าสุดบน main ทำงานควบคู่กับเวอร์ชันเสถียรพร้อมอัปเดตอัตโนมัติของตัวเอง",
     "description": "cmux NIGHTLY สร้างอัตโนมัติจาก commit ล่าสุดบน main มี bundle ID เป็นของตัวเอง จึงทำงานควบคู่กับเวอร์ชันเสถียรได้โดยไม่ขัดแย้ง ใช้เพื่อทดสอบฟีเจอร์ใหม่ก่อนเปิดตัว",
@@ -1595,6 +1593,18 @@
     "title": "ลงชื่อเข้าใช้ cmux แล้ว",
     "body": "หาก cmux ไม่เปิดโดยอัตโนมัติ ให้ใช้ปุ่มด้านล่าง",
     "button": "กลับไปที่ cmux"
+  },
+  "signInChooser": {
+    "title": "ลงชื่อเข้าใช้ cmux",
+    "continueProduct": "เลือกบัญชีเพื่อดำเนินการต่อ",
+    "continueAction": "ดำเนินการต่อ",
+    "useAnotherAccount": "ดำเนินการต่อด้วยบัญชีอื่น",
+    "loading": "กำลังเปิดการลงชื่อเข้าใช้...",
+    "signInFailed": "ลงชื่อเข้าใช้ไม่สำเร็จ ลองอีกครั้ง",
+    "privacyPrefix": "เมื่อดำเนินการต่อ คุณยอมรับ",
+    "privacyPolicy": "นโยบายความเป็นส่วนตัว",
+    "privacyMiddle": "และ",
+    "termsOfService": "ข้อกำหนดในการให้บริการของ cmux"
   },
   "landing": {
     "bestTerminal": {

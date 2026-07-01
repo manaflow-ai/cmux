@@ -4,7 +4,6 @@
     "metaDescription": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime, over your own Tailscale or local network. Drive your coding agents from anywhere.",
     "title": "cmux iOS",
     "tagline": "Your terminals, in your pocket.",
-    "subtitle": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime. Drive your coding agents, watch builds, and switch workspaces from anywhere, over your own Tailscale or local network.",
     "ctaBeta": "Download on TestFlight",
     "ctaDocs": "Read the iOS docs",
     "screenshotAlt": "cmux iOS app showing a live agent terminal",
@@ -80,7 +79,6 @@
     "typingOrganization": "organization",
     "typingProgrammability": "programmability",
     "taglineStatic": "The terminal built for multitasking, organization, and programmability.",
-    "subtitle": "Free and open source native macOS terminal built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a <cliLink>CLI</cliLink> for programmability.",
     "features": "Features",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -1968,7 +1966,6 @@
   },
   "nightly": {
     "title": "cmux NIGHTLY",
-    "subtitle": "Bleeding-edge builds from main",
     "metaTitle": "cmux NIGHTLY — Nightly Builds",
     "metaDescription": "Download cmux NIGHTLY, a separate app built automatically from the latest main commit. Runs alongside the stable version with its own auto-updates.",
     "description": "cmux NIGHTLY is built automatically from the latest commit on main. It has its own bundle ID, so it runs alongside the stable version without conflicts. Use it to test new features before they ship.",
@@ -2002,6 +1999,18 @@
     "title": "Signed in to cmux",
     "body": "If cmux did not open automatically, use the button below.",
     "button": "Return to cmux"
+  },
+  "signInChooser": {
+    "title": "Sign in to cmux",
+    "continueProduct": "Choose an account to continue.",
+    "continueAction": "Continue",
+    "useAnotherAccount": "Continue with another account",
+    "loading": "Opening sign-in...",
+    "signInFailed": "Sign-in failed. Try again.",
+    "privacyPrefix": "By continuing, you agree to cmux's",
+    "privacyPolicy": "Privacy Policy",
+    "privacyMiddle": "and",
+    "termsOfService": "Terms of Service"
   },
   "landing": {
     "bestTerminal": {

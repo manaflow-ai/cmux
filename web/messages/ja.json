@@ -4,7 +4,6 @@
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
     "title": "cmux iOS",
     "tagline": "ターミナルを、ポケットに。",
-    "subtitle": "cmux iOS アプリは、Mac のターミナルを iPhone と iPad にリアルタイムでミラーリングします。自分の Tailscale やローカルネットワーク経由で、どこからでもコーディングエージェントの操作、ビルドの確認、ワークスペースの切り替えができます。",
     "ctaBeta": "TestFlight でダウンロード",
     "ctaDocs": "iOS ドキュメントを読む",
     "screenshotAlt": "ライブのエージェントターミナルを表示する cmux iOS アプリ",
@@ -80,7 +79,6 @@
     "typingOrganization": "整理",
     "typingProgrammability": "プログラマビリティ",
     "taglineStatic": "マルチタスク、整理、プログラマビリティのために作られたターミナル。",
-    "subtitle": "無料・オープンソースのGhosttyベースのネイティブmacOSターミナル。縦タブ、エージェントが注意を必要とするときの通知リング、分割ペイン、プログラマビリティのための<cliLink>CLI</cliLink>を搭載。",
     "features": "機能",
     "faq": "FAQ",
     "communitySection": "コミュニティ",
@@ -1845,7 +1843,6 @@
   },
   "nightly": {
     "title": "cmux NIGHTLY",
-    "subtitle": "mainブランチからの最新ビルド",
     "metaTitle": "cmux NIGHTLY — ナイトリービルド",
     "metaDescription": "cmux NIGHTLYをダウンロード。mainの最新コミットから自動ビルドされる独立アプリ。安定版と並行して動作し、独自の自動アップデート機能付き。",
     "description": "cmux NIGHTLYはmainの最新コミットから自動ビルドされます。独自のバンドルIDを持つため、安定版と競合せず並行して動作します。新機能をリリース前にテストできます。",
@@ -1948,6 +1945,18 @@
     "title": "cmux にサインインしました",
     "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
     "button": "cmux に戻る"
+  },
+  "signInChooser": {
+    "title": "cmux にサインイン",
+    "continueProduct": "続行するアカウントを選択してください。",
+    "continueAction": "続行",
+    "useAnotherAccount": "別のアカウントで続行",
+    "loading": "サインインを開いています...",
+    "signInFailed": "サインインに失敗しました。もう一度お試しください。",
+    "privacyPrefix": "続行すると、cmux の",
+    "privacyPolicy": "プライバシーポリシー",
+    "privacyMiddle": "と",
+    "termsOfService": "利用規約を確認できます"
   },
   "landing": {
     "bestTerminal": {
