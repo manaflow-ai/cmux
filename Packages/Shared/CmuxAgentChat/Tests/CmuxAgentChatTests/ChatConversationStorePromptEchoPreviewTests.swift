@@ -4,51 +4,15 @@ import Testing
 @testable import CmuxAgentChat
 
 @MainActor
-private enum PromptEchoPreviewPoller {
-    static func waitUntil(iterations: Int = 400, _ condition: () -> Bool) async -> Bool {
-        for iteration in 0..<iterations {
-            if condition() { return true }
-            await Task.yield()
-            if iteration % 20 == 19 {
-                try? await Task.sleep(nanoseconds: 2_000_000)
-            }
-        }
-        return condition()
-    }
-}
-
-private actor PromptEchoSilentSendEventSource: ChatEventSource {
-    private var continuations: [Int: AsyncStream<ChatSessionEvent>.Continuation] = [:]
-    private var nextContinuationID = 0
-
-    func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
-        ChatHistoryPage(messages: [], hasMore: false)
-    }
-
-    func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
-        let id = nextContinuationID
-        nextContinuationID += 1
-        return AsyncStream { continuation in
-            continuations[id] = continuation
-            continuation.onTermination = { [weak self] _ in
-                Task { await self?.removeContinuation(id) }
-            }
+private func waitForPromptEchoPreview(iterations: Int = 400, _ condition: () -> Bool) async -> Bool {
+    for iteration in 0..<iterations {
+        if condition() { return true }
+        await Task.yield()
+        if iteration % 20 == 19 {
+            try? await Task.sleep(nanoseconds: 2_000_000)
         }
     }
-
-    func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {}
-    func interrupt(sessionID: String, hard: Bool) async throws {}
-    func answer(optionIndex: Int, sessionID: String) async throws {}
-
-    func emit(_ event: ChatSessionEvent) {
-        for continuation in continuations.values {
-            continuation.yield(event)
-        }
-    }
-
-    private func removeContinuation(_ id: Int) {
-        continuations[id] = nil
-    }
+    return condition()
 }
 
 @MainActor
@@ -62,17 +26,17 @@ struct ChatConversationStorePromptEchoPreviewTests {
         let runTask = Task { await store.run() }
         defer { runTask.cancel() }
 
-        #expect(await PromptEchoPreviewPoller.waitUntil { store.isConnected })
+        #expect(await waitForPromptEchoPreview { store.isConnected })
         let user = Self.prose(seq: 0, role: .user, text: "hihiiii\ntell me a story")
         await source.emit(.appended([user]))
-        #expect(await PromptEchoPreviewPoller.waitUntil { Self.messageIDs(store.rows) == [user.id] })
+        #expect(await waitForPromptEchoPreview { Self.messageIDs(store.rows) == [user.id] })
 
         await source.emit(.streamingProse(Self.streamingMessage(text: "tell me a story")))
-        #expect(await PromptEchoPreviewPoller.waitUntil { Self.messageIDs(store.rows) == [user.id] })
+        #expect(await waitForPromptEchoPreview { Self.messageIDs(store.rows) == [user.id] })
 
         let realPreview = Self.streamingMessage(text: "Once upon a time, a tiny terminal learned to listen.")
         await source.emit(.streamingProse(realPreview))
-        #expect(await PromptEchoPreviewPoller.waitUntil { Self.messageIDs(store.rows) == [user.id, realPreview.id] })
+        #expect(await waitForPromptEchoPreview { Self.messageIDs(store.rows) == [user.id, realPreview.id] })
     }
 
     @Test("live preview suppresses a suffix copied from a pending multi-line user prompt")
@@ -82,19 +46,19 @@ struct ChatConversationStorePromptEchoPreviewTests {
         let runTask = Task { await store.run() }
         defer { runTask.cancel() }
 
-        #expect(await PromptEchoPreviewPoller.waitUntil { store.isConnected })
+        #expect(await waitForPromptEchoPreview { store.isConnected })
         await store.send(text: "hi\ntell me a stiyr")
-        #expect(await PromptEchoPreviewPoller.waitUntil { Self.pendingItems(store.rows).count == 1 })
+        #expect(await waitForPromptEchoPreview { Self.pendingItems(store.rows).count == 1 })
 
         await source.emit(.streamingProse(Self.streamingMessage(text: "tell me a stiyr")))
-        #expect(await PromptEchoPreviewPoller.waitUntil {
+        #expect(await waitForPromptEchoPreview {
             Self.snapshots(store.rows).isEmpty
                 && Self.pendingItems(store.rows).map(\.text) == ["hi\ntell me a stiyr"]
         })
 
         let realPreview = Self.streamingMessage(text: "Once upon a time, a terminal started typing.")
         await source.emit(.streamingProse(realPreview))
-        #expect(await PromptEchoPreviewPoller.waitUntil { Self.messageIDs(store.rows) == [realPreview.id] })
+        #expect(await waitForPromptEchoPreview { Self.messageIDs(store.rows) == [realPreview.id] })
     }
 
     @Test("queued prompts do not suppress the active turn live preview")
@@ -104,17 +68,17 @@ struct ChatConversationStorePromptEchoPreviewTests {
         let runTask = Task { await store.run() }
         defer { runTask.cancel() }
 
-        #expect(await PromptEchoPreviewPoller.waitUntil { store.isConnected })
+        #expect(await waitForPromptEchoPreview { store.isConnected })
         await source.emit(.stateChanged(.working(since: Self.baseTime)))
-        #expect(await PromptEchoPreviewPoller.waitUntil { store.agentState == .working(since: Self.baseTime) })
+        #expect(await waitForPromptEchoPreview { store.agentState == .working(since: Self.baseTime) })
         await store.send(text: "queued follow-up\nsame suffix")
-        #expect(await PromptEchoPreviewPoller.waitUntil {
+        #expect(await waitForPromptEchoPreview {
             Self.pendingItems(store.rows).contains { $0.delivery == .queued }
         })
 
         let preview = Self.streamingMessage(text: "same suffix")
         await source.emit(.streamingProse(preview))
-        #expect(await PromptEchoPreviewPoller.waitUntil { Self.messageIDs(store.rows) == [preview.id] })
+        #expect(await waitForPromptEchoPreview { Self.messageIDs(store.rows) == [preview.id] })
     }
 
     @Test("live preview suppresses a bounded tail from a large prompt")
@@ -124,14 +88,14 @@ struct ChatConversationStorePromptEchoPreviewTests {
         let runTask = Task { await store.run() }
         defer { runTask.cancel() }
 
-        #expect(await PromptEchoPreviewPoller.waitUntil { store.isConnected })
+        #expect(await waitForPromptEchoPreview { store.isConnected })
         let tail = "final visible line"
         let user = Self.prose(seq: 0, role: .user, text: String(repeating: "large paste\n", count: 800) + tail)
         await source.emit(.appended([user]))
-        #expect(await PromptEchoPreviewPoller.waitUntil { Self.messageIDs(store.rows) == [user.id] })
+        #expect(await waitForPromptEchoPreview { Self.messageIDs(store.rows) == [user.id] })
 
         await source.emit(.streamingProse(Self.streamingMessage(text: tail)))
-        #expect(await PromptEchoPreviewPoller.waitUntil { Self.messageIDs(store.rows) == [user.id] })
+        #expect(await waitForPromptEchoPreview { Self.messageIDs(store.rows) == [user.id] })
     }
 
     private static func makeStore(source: some ChatEventSource) -> ChatConversationStore {

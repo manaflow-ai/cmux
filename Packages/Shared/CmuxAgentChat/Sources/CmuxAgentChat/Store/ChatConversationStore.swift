@@ -618,7 +618,7 @@ public final class ChatConversationStore {
             // The preview is a whole-value replace; an agent session only. A
             // terminal session has no agent prose, so ignore it there.
             guard descriptor.kind != .terminal else { break }
-            let next = message.flatMap { Self.isProse($0) && !Self.previewEchoesLatestUserPrompt($0, in: messages, pending: pending) ? $0 : nil }
+            let next = message.flatMap { Self.isProse($0) && !chatConversationPreviewEchoesLatestUserPrompt($0, in: messages, pending: pending) ? $0 : nil }
             guard next != streamingMessage else { break }
             streamingMessage = next
             reproject()
