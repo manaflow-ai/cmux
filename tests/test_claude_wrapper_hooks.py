@@ -909,7 +909,24 @@ def computer_use_sandbox(
             shim_dir = tmp / "cmux-cli-shims" / "surface-test"
             shim_dir.mkdir(parents=True, exist_ok=True)
             make_executable(shim_dir / "codex", "#!/usr/bin/env bash\nexit 0\n")
-            env["PATH"] = f"{shim_dir}:{env['PATH']}"
+            # Hermetic shim-only PATH: drop every inherited entry that carries a
+            # real codex (the runner may have one, e.g. an nvm bin dir), while
+            # keeping node reachable via a node-only dir (nvm ships node and
+            # codex side by side, so filtering alone would lose node).
+            node_dir = tmp / "node-only"
+            node_dir.mkdir(parents=True, exist_ok=True)
+            node_real = shutil.which("node")
+            if node_real:
+                (node_dir / "node").symlink_to(node_real)
+            kept_entries = []
+            for entry in env["PATH"].split(":"):
+                if not entry:
+                    continue
+                candidate = Path(entry) / "codex"
+                if candidate.exists() and os.access(candidate, os.X_OK):
+                    continue
+                kept_entries.append(entry)
+            env["PATH"] = ":".join([str(shim_dir), str(node_dir), *kept_entries])
         if disabled:
             env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
         if codex_override is not None:

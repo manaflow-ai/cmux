@@ -40,11 +40,13 @@ const execFileP = promisify(execFile);
 function positiveIntegerEnv(name, fallback) {
   const raw = process.env[name];
   if (raw == null || raw.trim() === "") return fallback;
-  const value = Number(raw);
+  // Floor before validating so sub-1 values (e.g. "0.5") are rejected instead
+  // of collapsing to 0 (which would mean instant timeouts / no tree output).
+  const value = Math.floor(Number(raw));
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`${name} must be a positive number, got: ${raw}`);
   }
-  return Math.floor(value);
+  return value;
 }
 
 const TIMEOUT_MS = positiveIntegerEnv("CMUX_CU_TIMEOUT_MS", 180000);
@@ -104,7 +106,13 @@ class AppServerSession {
     this.threadId = null;
     this.nextId = 1;
     this.pending = new Map();
-    this.primedApps = new Set();
+    // Apps bound in the current thread by any successful get_app_state
+    // (including internal priming): enough for non-element input actions.
+    this.boundApps = new Set();
+    // Apps whose CURRENT element-index table was actually returned to the
+    // agent by computer_state. Only this set authorizes element-index
+    // actions — internal priming and screenshot-only captures must not.
+    this.snapshotApps = new Set();
     this.startPromise = null;
     this.exitError = null;
     // Latest `mcpServer/startupStatus/updated` for the computer-use server,
@@ -167,7 +175,8 @@ class AppServerSession {
   onExit(message) {
     if (this.exitError === null) this.exitError = message;
     this.threadId = null;
-    this.primedApps.clear();
+    this.boundApps.clear();
+    this.snapshotApps.clear();
     const pending = [...this.pending.values()];
     this.pending.clear();
     for (const entry of pending) {
@@ -281,7 +290,8 @@ class AppServerSession {
     const child = this.child;
     this.child = null;
     this.threadId = null;
-    this.primedApps.clear();
+    this.boundApps.clear();
+    this.snapshotApps.clear();
     if (child) {
       child.removeAllListeners("exit");
       child.kill();
@@ -335,26 +345,26 @@ async function callReadOnlyTool(tool, args) {
 // Input actions require the app to be bound in the current app-server thread.
 // A `get_app_state` in the same thread does that binding (and builds the
 // element-index table), so prime once per app — matching the engine's own
-// state -> act loop. Element-index actions fail closed instead: silently
-// priming would execute the caller's index against a snapshot the agent never
-// saw (wrong-control clicks after an app-server restart), so they require a
-// computer_state in the current session first.
+// state -> act loop. Element-index actions are stricter: they run only when
+// the agent has seen the CURRENT table via computer_state (snapshotApps, never
+// set by internal priming or screenshot-only captures), because executing a
+// caller's index against a table it never saw can click the wrong control.
 async function callInputTool(tool, args) {
   const s = await session();
   const app = typeof args.app === "string" ? args.app.trim() : "";
   if (app) {
     await s.ensureStarted();
-    if (!s.primedApps.has(app)) {
-      if (args.element_index != null) {
-        return err(
-          `no computer_state snapshot for "${app}" in the current session; run computer_state first — element indices are snapshot-specific`
-        );
-      }
+    if (args.element_index != null && !s.snapshotApps.has(app)) {
+      return err(
+        `no computer_state snapshot for "${app}" in the current session; run computer_state first — element indices are snapshot-specific`
+      );
+    }
+    if (!s.boundApps.has(app)) {
       const primed = await s.callTool("get_app_state", { app });
       if (primed?.isError) {
         return primed;
       }
-      s.primedApps.add(app);
+      s.boundApps.add(app);
     }
   }
   return s.callTool(tool, args);
@@ -406,7 +416,12 @@ async function perceive(app) {
   const result = await callReadOnlyTool("get_app_state", { app });
   if (result?.isError) return { content: result.content ?? [text("(error)")], isError: true };
   const s = await session();
-  if (s.alive) s.primedApps.add(app);
+  if (s.alive) {
+    s.boundApps.add(app);
+    // The agent receives this element-index table, so element actions may
+    // reference it — the only place snapshotApps is granted.
+    s.snapshotApps.add(app);
+  }
   const tree = truncateTree(firstText(result));
   const image = firstImage(result);
   const content = [
@@ -585,7 +600,9 @@ const TOOLS = [
       const result = await callReadOnlyTool("get_app_state", { app });
       if (result?.isError) return { content: result.content ?? [text("(error)")], isError: true };
       const s = await session();
-      if (s.alive) s.primedApps.add(app);
+      // Screenshot-only capture: the agent sees the image but NOT the element
+      // table, so this binds the app without authorizing element indices.
+      if (s.alive) s.boundApps.add(app);
       const image = firstImage(result);
       return ok(image ? [image] : [text("(captured, no image)")]);
     },
