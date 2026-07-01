@@ -9,10 +9,9 @@ type commandOverride struct {
 	// server when they differ (e.g. "--name" must be sent as "title").
 	paramKeyOverrides map[string]string
 
-	// positionalKey is the param key for a positional argument. Takes precedence
-	// over the positionalKey in the generated spec (for cases where the override
-	// needs to differ from the Mac CLI convention).
-	positionalKey string
+	// disablePositional clears any positionalKey inherited from commands.go,
+	// making the command accept the positional value only via an explicit flag.
+	disablePositional bool
 
 	// defaultParams are params always included in the RPC call even when the
 	// corresponding flag is absent.
@@ -22,10 +21,8 @@ type commandOverride struct {
 	// in cli.go. runCLI dispatches to it instead of the generic relay path.
 	specialDispatch bool
 
-	// clientOnlyFlags are flag names that are handled client-side and must NOT
-	// be forwarded to the server as RPC params. They are still accepted by
-	// parseFlags so the user can pass them; the special dispatch function reads
-	// them from parsedFlags.flags before building the params map.
+	// clientOnlyFlags are flag names handled client-side that must NOT be
+	// forwarded as RPC params. execV2 filters these out before building params.
 	clientOnlyFlags []string
 }
 
@@ -42,10 +39,10 @@ var commandOverrides = map[string]commandOverride{
 		specialDispatch:   true,
 	},
 
-	// Mac CLI help shows "title" as a positional arg; relay accepts --title as a
-	// flag instead (both paths exist on the server side).
+	// Mac CLI shows "title" as a positional arg; relay accepts --title as a
+	// flag instead, so positional args should be rejected.
 	"rename-workspace": {
-		positionalKey: "", // flag only in relay; positional not wired
+		disablePositional: true,
 	},
 
 	// new-pane defaults direction to "right" when the flag is omitted, matching
@@ -56,6 +53,12 @@ var commandOverrides = map[string]commandOverride{
 
 	// --panel is an alias for --surface that maps to surface_id.
 	"focus-panel": {
+		paramKeyOverrides: map[string]string{"panel": "surface_id"},
+	},
+	"close-surface": {
+		paramKeyOverrides: map[string]string{"panel": "surface_id"},
+	},
+	"new-split": {
 		paramKeyOverrides: map[string]string{"panel": "surface_id"},
 	},
 

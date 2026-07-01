@@ -301,13 +301,8 @@ func TestNewWorkspaceCommand(t *testing.T) {
 			}
 			go func(conn net.Conn) {
 				defer conn.Close()
-				buf := make([]byte, 4096)
-				n, _ := conn.Read(buf)
-				if n == 0 {
-					return
-				}
 				var req map[string]any
-				if err := json.Unmarshal(buf[:n], &req); err != nil {
+				if err := json.NewDecoder(conn).Decode(&req); err != nil {
 					conn.Write([]byte(`{"ok":false,"error":{"code":"parse","message":"bad json"}}` + "\n"))
 					return
 				}

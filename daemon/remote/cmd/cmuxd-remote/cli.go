@@ -101,8 +101,8 @@ func init() {
 		if ov.paramKeyOverrides != nil {
 			commands[i].paramKeyOverrides = ov.paramKeyOverrides
 		}
-		if ov.positionalKey != "" {
-			commands[i].positionalKey = ov.positionalKey
+		if ov.disablePositional {
+			commands[i].positionalKey = ""
 		}
 		if ov.defaultParams != nil {
 			commands[i].defaultParams = ov.defaultParams
@@ -245,9 +245,21 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 			boolFlagSet[k] = struct{}{}
 		}
 
+		// Build clientOnlyFlags set so they are accepted by parseFlags but never forwarded.
+		clientOnly := make(map[string]struct{})
+		if ov, ok := commandOverrides[spec.name]; ok {
+			for _, f := range ov.clientOnlyFlags {
+				clientOnly[f] = struct{}{}
+			}
+		}
+
 		// Map flag keys to JSON param keys (e.g. "workspace" → "workspace_id" where appropriate).
 		// Flags listed in boolFlags are coerced to JSON booleans instead of sent as strings.
+		// Flags listed in clientOnlyFlags are skipped — they are consumed client-side only.
 		for _, key := range spec.flagKeys {
+			if _, skip := clientOnly[key]; skip {
+				continue
+			}
 			if val, ok := parsed.flags[key]; ok {
 				paramKey := flagToParamKey(key)
 				if override, ok := spec.paramKeyOverrides[key]; ok {
@@ -266,6 +278,20 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 				} else {
 					params[paramKey] = val
 				}
+			}
+		}
+
+		// Forward repeated flag values (e.g. --env KEY=VALUE accumulates into a list).
+		for _, key := range spec.repeatKeys {
+			if _, skip := clientOnly[key]; skip {
+				continue
+			}
+			if vals, ok := parsed.repeated[key]; ok {
+				paramKey := flagToParamKey(key)
+				if override, ok := spec.paramKeyOverrides[key]; ok {
+					paramKey = override
+				}
+				params[paramKey] = vals
 			}
 		}
 
@@ -400,19 +426,24 @@ func runNewWorkspaceRelay(socketPath string, args []string, jsonOutput bool, ref
 	// --command: send text + Enter to the new workspace's surface.
 	if cmd, ok := parsed.flags["command"]; ok {
 		var result map[string]any
-		if err := json.Unmarshal([]byte(resp), &result); err == nil {
-			if surfaceID, _ := result["surface_id"].(string); surfaceID != "" {
-				sendParams := map[string]any{"surface_id": surfaceID, "text": cmd}
-				if _, err := socketRoundTripV2(socketPath, "surface.send_text", sendParams, refreshAddr); err != nil {
-					fmt.Fprintf(os.Stderr, "cmux new-workspace: --command send failed: %v\n", err)
-					return 1
-				}
-				keyParams := map[string]any{"surface_id": surfaceID, "key": "return"}
-				if _, err := socketRoundTripV2(socketPath, "surface.send_key", keyParams, refreshAddr); err != nil {
-					fmt.Fprintf(os.Stderr, "cmux new-workspace: --command send-key failed: %v\n", err)
-					return 1
-				}
-			}
+		if err := json.Unmarshal([]byte(resp), &result); err != nil {
+			fmt.Fprintf(os.Stderr, "cmux new-workspace: --command skipped: could not parse create response: %v\n", err)
+			return 1
+		}
+		surfaceID, _ := result["surface_id"].(string)
+		if surfaceID == "" {
+			fmt.Fprintf(os.Stderr, "cmux new-workspace: --command skipped: workspace.create response missing surface_id\n")
+			return 1
+		}
+		sendParams := map[string]any{"surface_id": surfaceID, "text": cmd}
+		if _, err := socketRoundTripV2(socketPath, "surface.send_text", sendParams, refreshAddr); err != nil {
+			fmt.Fprintf(os.Stderr, "cmux new-workspace: --command send failed: %v\n", err)
+			return 1
+		}
+		keyParams := map[string]any{"surface_id": surfaceID, "key": "return"}
+		if _, err := socketRoundTripV2(socketPath, "surface.send_key", keyParams, refreshAddr); err != nil {
+			fmt.Fprintf(os.Stderr, "cmux new-workspace: --command send-key failed: %v\n", err)
+			return 1
 		}
 	}
 
