@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -935,56 +934,6 @@ func computeRelayMAC(token []byte, relayID, nonce string, version int) []byte {
 	mac := hmac.New(sha256.New, token)
 	_, _ = io.WriteString(mac, fmt.Sprintf("relay_id=%s\nnonce=%s\nversion=%d", relayID, nonce, version))
 	return mac.Sum(nil)
-}
-
-// socketRoundTrip sends a raw text line and reads a raw text response (v1).
-func socketRoundTrip(socketPath, command string, refreshAddr func() string) (string, error) {
-	conn, err := dialSocket(socketPath, refreshAddr)
-	if err != nil {
-		return "", fmt.Errorf("failed to connect to %s: %w", socketPath, err)
-	}
-	defer conn.Close()
-
-	if _, err := fmt.Fprintf(conn, "%s\n", command); err != nil {
-		return "", fmt.Errorf("failed to send command: %w", err)
-	}
-
-	// V1 handlers may return multiple lines (e.g. list_windows). Read until
-	// the stream goes idle briefly after seeing at least one newline.
-	reader := bufio.NewReader(conn)
-	var response strings.Builder
-	sawNewline := false
-
-	for {
-		readTimeout := 15 * time.Second
-		if sawNewline {
-			readTimeout = 120 * time.Millisecond
-		}
-		_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
-
-		chunk, err := reader.ReadString('\n')
-		if chunk != "" {
-			response.WriteString(chunk)
-			if strings.Contains(chunk, "\n") {
-				sawNewline = true
-			}
-		}
-
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				if sawNewline {
-					break
-				}
-				return "", fmt.Errorf("failed to read response: timeout waiting for response")
-			}
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return "", fmt.Errorf("failed to read response: %w", err)
-		}
-	}
-
-	return strings.TrimRight(response.String(), "\n"), nil
 }
 
 // socketRoundTripV2 sends a JSON-RPC request and returns the result JSON.
