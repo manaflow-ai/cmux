@@ -97,6 +97,30 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["refreshPreservedEmptyList=true"].exists)
     }
 
+    @MainActor
+    func testWorkspaceMacPickerUsesComputerCopy() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["All Computers"].exists)
+
+        picker.tap()
+
+        XCTAssertTrue(app.staticTexts["Choose Computer"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["All Computers"].exists)
+        XCTAssertFalse(app.staticTexts["Choose Mac"].exists)
+        XCTAssertFalse(app.staticTexts["All Macs"].exists)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-mac-picker-computer-copy"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not
