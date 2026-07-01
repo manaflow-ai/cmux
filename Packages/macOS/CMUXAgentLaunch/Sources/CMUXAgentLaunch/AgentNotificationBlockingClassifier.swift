@@ -26,11 +26,45 @@ public struct AgentNotification {
 
     /// Whether this notification describes a genuinely blocking prompt (the user must
     /// act now) rather than a routine waiting/idle reminder or a completion.
+    ///
+    /// Blocking == a permission/approval request, an error, or a genuine question the
+    /// user must answer. A routine "waiting for input" / "idle" reminder is NOT blocking
+    /// (it fires after every turn end, so blocking on it would clobber the Stop hook's
+    /// `.idle` and the pane would never hibernate). The genuine-question rule mirrors the
+    /// CLI notification classifier's question branch (`containsWaitingCue`), so a prompt
+    /// that surfaces only through a Notification hook (agents without a dedicated
+    /// needs-input path) still keeps its pane live while the user answers.
     public var isBlockingPrompt: Bool {
         let lower = "\(signal) \(message)".lowercased()
-        return lower.contains("permission") || lower.contains("approve") || lower.contains("approval")
+        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval")
             || lower.contains("permission_prompt")
             || lower.contains("error") || lower.contains("failed") || lower.contains("failure")
-            || lower.contains("exception")
+            || lower.contains("exception") {
+            return true
+        }
+        return Self.containsGenuineQuestionCue(lower)
+    }
+
+    /// A genuine prompt the user must answer, as opposed to a routine "waiting for input"
+    /// nudge. Detected from high-confidence signals only: a direct interrogative (contains
+    /// `?`), or the literal `question` token paired with an interaction word.
+    ///
+    /// Deliberately NOT keyed on bare verbs like `confirm`/`choose`/`continue`/`proceed`:
+    /// those collide with routine agent chatter ("continue when ready", "proceed to the
+    /// next step"), and blocking on them would clobber the Stop hook's `.idle` so the pane
+    /// never hibernates — the exact bug this lane exists to prevent. Routine idle/waiting
+    /// reminders never carry a `?`, so they stay non-blocking. A genuine but
+    /// punctuation-free imperative ("Choose an option") is intentionally left to the
+    /// authoritative structured signal (`notification_type`), not this free-text
+    /// heuristic. Mirrors the CLI classifier's `containsWaitingCue` so the blocking
+    /// decision and the `.needsInput` classification stay in lockstep.
+    private static func containsGenuineQuestionCue(_ lowercasedText: String) -> Bool {
+        if lowercasedText.contains("?") { return true }
+        let tokens = lowercasedText.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        guard tokens.contains("question") else { return false }
+        let interactionCues: Set<String> = [
+            "answer", "respond", "response", "reply", "choose", "confirm", "continue",
+        ]
+        return tokens.contains { interactionCues.contains($0) }
     }
 }

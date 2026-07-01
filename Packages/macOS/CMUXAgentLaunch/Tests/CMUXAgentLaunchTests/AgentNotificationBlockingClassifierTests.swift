@@ -73,4 +73,57 @@ struct AgentNotificationBlockingClassifierTests {
         #expect(AgentNotification(signal: "error", message: "something happened").isBlockingPrompt)
         #expect(!AgentNotification(signal: "notification", message: "waiting").isBlockingPrompt)
     }
+
+    @Test("Genuine prompts are blocking")
+    func genuinePromptsAreBlocking() {
+        // An agent whose only needs-input signal is a Notification hook must keep its
+        // pane live while the user answers. Blocking is keyed on high-confidence signals:
+        // a direct interrogative (`?`), or the `question` token paired with an interaction
+        // word. Note real y/n prompts carry a `?` ("Overwrite? (y/n)"), so `?` covers them.
+        let blocking = [
+            "Proceed with changes?",
+            "Which option do you want? Type 1 or 2.",
+            "Overwrite the file? (y/n)",
+            "Apply this migration? [y/N]",
+            "Claude has a question for you, please answer",
+            "Question: which approach do you want?",
+            "The agent has a question — reply to continue",
+        ]
+        for message in blocking {
+            #expect(
+                AgentNotification(signal: "", message: message).isBlockingPrompt,
+                "Expected blocking for genuine prompt \(message.debugDescription)"
+            )
+        }
+        // The structured signal field carries the cue too.
+        #expect(AgentNotification(signal: "question", message: "reply to continue").isBlockingPrompt)
+    }
+
+    @Test("Routine reminders without an interrogative stay non-blocking")
+    func routineRemindersStayNonBlocking() {
+        // Regression guard for the primary fix: a routine idle/waiting reminder must NOT
+        // be blocking even though it mentions input/response/continue, or it clobbers the
+        // Stop hook's `.idle` and the pane never hibernates. None carry a `?` or the
+        // `question` token.
+        let nonBlocking = [
+            "Claude is waiting for your input",
+            "Claude is waiting for your response",
+            "waiting for input",
+            "idle prompt",
+            "needs your input",
+            "continue when ready",
+            "proceed to the next step",
+            // Punctuation-free imperatives are INTENTIONALLY non-blocking here: keying on
+            // bare "confirm"/"choose" verbs collides with routine chatter and re-breaks
+            // hibernation. These are left to the authoritative structured signal.
+            "Please confirm to continue",
+            "Choose an option",
+        ]
+        for message in nonBlocking {
+            #expect(
+                !AgentNotification(signal: "", message: message).isBlockingPrompt,
+                "Expected NOT blocking for routine reminder \(message.debugDescription)"
+            )
+        }
+    }
 }
