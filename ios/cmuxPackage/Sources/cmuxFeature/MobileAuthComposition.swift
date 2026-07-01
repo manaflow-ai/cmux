@@ -76,11 +76,11 @@ public struct MobileAuthComposition {
         )
         let sessionCache = CMUXAuthSessionCache(
             keyValueStore: defaults,
-            key: "auth_has_tokens"
+            key: Self.sessionCacheDefaultsKey
         )
         let userCache = CMUXAuthIdentityStore(
             keyValueStore: defaults,
-            key: "auth_cached_user"
+            key: Self.cachedUserDefaultsKey
         )
         let teamSelection = CMUXAuthTeamSelectionStore(
             keyValueStore: defaults,
@@ -90,16 +90,20 @@ public struct MobileAuthComposition {
         // --prod-auth, or back) must not restore the other Stack project's
         // session: tokens, user ids, and teams are per-project, so the stale
         // state could only fail validation and flash the wrong cached user.
-        // Reuse the coordinator's local clear-on-launch path for that switch.
+        // This rides its own launch flag (NOT clearAuthRequested, whose
+        // UI-test semantics stop priming and would suppress the dogfood
+        // auto-login on the very next normal reload).
         let authEnvironmentSwitched = Self.detectAuthEnvironmentSwitch(
             resolved: resolvedEnvironment,
+            isDevelopmentBuild: Self.isDevelopmentBuild,
             defaults: defaults
         )
         let launch = AuthLaunchOptions(
-            clearAuthRequested: environment["CMUX_UITEST_CLEAR_AUTH"] == "1" || authEnvironmentSwitched,
+            clearAuthRequested: environment["CMUX_UITEST_CLEAR_AUTH"] == "1",
             mockDataEnabled: UITestConfig.mockDataEnabled,
             environment: environment,
-            includesDevAuth: policy.includesFortyTwoShortcut
+            includesDevAuth: policy.includesFortyTwoShortcut,
+            clearStaleAuthOnLaunch: authEnvironmentSwitched
         )
         // Break the coordinator <-> push cycle: the coordinator is built first
         // and reaches the push service (for its post-sign-in token re-upload)
@@ -147,21 +151,21 @@ public struct MobileAuthComposition {
     /// `"production"` / `"development"` (case-insensitive); anything else keeps
     /// the build default. Sourced from `LocalConfig.plist` or the Info.plist
     /// bake (see ``authEnvironmentInfoPlistKey``).
-    static let authEnvironmentOverrideKey = "AuthEnvironment"
+    nonisolated static let authEnvironmentOverrideKey = "AuthEnvironment"
 
     /// The Info.plist key carrying the baked auth environment. A tapped device
     /// build sees no shell env, so `ios/scripts/reload.sh --prod-auth` bakes
     /// the channel into the build via the `CMUX_IOS_AUTH_ENV` build setting —
     /// the same mechanism as `CMUXPresenceBaseURL`. Keep in sync with
     /// `ios/Config/Info.plist` and `ios/Config/Shared.xcconfig`.
-    static let authEnvironmentInfoPlistKey = "CMUXAuthEnvironment"
+    nonisolated static let authEnvironmentInfoPlistKey = "CMUXAuthEnvironment"
 
     /// Merge the Info.plist-baked auth environment into the `LocalConfig.plist`
     /// override table. An explicit LocalConfig entry wins over the bake
     /// (mirroring presence resolution, where the local override table beats the
     /// baked Info.plist value); blank baked values are ignored so the empty
     /// `$(CMUX_IOS_AUTH_ENV)` expansion in a normal build contributes nothing.
-    static func authOverrides(
+    nonisolated static func authOverrides(
         localConfig: [String: String],
         bakedAuthEnvironment: String?
     ) -> [String: String] {
@@ -179,7 +183,7 @@ public struct MobileAuthComposition {
     /// default to development and Release builds to production. Unrecognized
     /// values keep the build default (fail toward the channel the build was
     /// compiled for).
-    static func resolvedAuthEnvironment(
+    nonisolated static func resolvedAuthEnvironment(
         isDevelopmentBuild: Bool,
         overrides: [String: String]
     ) -> CMUXAuthEnvironment {
@@ -197,22 +201,46 @@ public struct MobileAuthComposition {
 
     /// The defaults key persisting which auth environment this install last
     /// launched with, so an environment switch is detectable.
-    static let storedAuthEnvironmentKey = "auth_environment"
+    nonisolated static let storedAuthEnvironmentKey = "auth_environment"
 
-    /// Persist `resolved` and report whether it changed from the previous
-    /// launch. First launches (no stored value — including every existing
-    /// install upgrading to the build that introduced the key) report no
-    /// switch, so nobody is signed out by the upgrade itself; only a real
-    /// flip (development ↔ production on the same install) requests the
-    /// clear-on-launch path.
-    static func detectAuthEnvironmentSwitch(
+    /// The session cache defaults key (whether Stack tokens are persisted).
+    nonisolated static let sessionCacheDefaultsKey = "auth_has_tokens"
+
+    /// The cached-identity defaults key (the last signed-in user snapshot).
+    nonisolated static let cachedUserDefaultsKey = "auth_cached_user"
+
+    /// Persist `resolved` and report whether the auth environment changed
+    /// since the last launch, requiring the stale local auth state to be
+    /// cleared.
+    ///
+    /// Installs that predate the override plumbing never stored the key, but
+    /// any session they hold can only belong to the BUILD-DEFAULT channel —
+    /// so a missing value is inferred as that default. Ordinary upgrades and
+    /// first launches therefore never clear, while the FIRST `--prod-auth`
+    /// launch over a signed-in dev install correctly does (its cached
+    /// dev-project identity must not prime under production auth). The clear
+    /// is only requested when local auth state actually exists; a fresh
+    /// container switching channels has nothing stale to drop. (Keychain
+    /// tokens surviving an app reinstall are the one case this misses: the
+    /// defaults — including any cached identity — died with the container,
+    /// so the worst outcome is one failed restore that the coordinator's
+    /// stale-clear path already handles, with no wrong identity shown.)
+    nonisolated static func detectAuthEnvironmentSwitch(
         resolved: CMUXAuthEnvironment,
+        isDevelopmentBuild: Bool,
         defaults: UserDefaults
     ) -> Bool {
-        let current = resolved == .development ? "development" : "production"
+        let current = authEnvironmentName(resolved)
         let previous = defaults.string(forKey: storedAuthEnvironmentKey)
+            ?? authEnvironmentName(isDevelopmentBuild ? .development : .production)
         defaults.set(current, forKey: storedAuthEnvironmentKey)
-        return previous != nil && previous != current
+        guard previous != current else { return false }
+        return defaults.bool(forKey: sessionCacheDefaultsKey)
+            || defaults.object(forKey: cachedUserDefaultsKey) != nil
+    }
+
+    private nonisolated static func authEnvironmentName(_ environment: CMUXAuthEnvironment) -> String {
+        environment == .development ? "development" : "production"
     }
 
     private static var apnsEnvironment: String {
