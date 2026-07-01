@@ -406,6 +406,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserProfilePopoverDebugSettings.verticalPaddingKey)
     private var browserProfilePopoverVerticalPaddingRaw = BrowserProfilePopoverDebugSettings.defaultVerticalPadding
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeModeRaw = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(BrowserAutoFocusModeSettings.enabledKey) private var autoFocusModeEnabled = BrowserAutoFocusModeSettings.defaultEnabled
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
@@ -762,7 +763,11 @@ struct BrowserPanelView: View {
     }
 
     private func handleBrowserFocusModeButtonAction() {
-        if !panel.toggleBrowserFocusMode(reason: "toolbarButton", focusWebView: true) {
+        if !panel.toggleBrowserFocusMode(
+            reason: "toolbarButton",
+            focusWebView: true,
+            suppressAutoFocusUntilFocusGainOnExit: true
+        ) {
             NSSound.beep()
         }
     }
@@ -805,25 +810,21 @@ struct BrowserPanelView: View {
     }
 
     private func handleBrowserPanelAppear() {
-        // One-time setup must not re-run on every commit; `.onAppear` can re-fire
-        // repeatedly for a portal-hosted pane (issue #5303). Everything below the
-        // setup call is idempotent and cheap, and genuine state transitions are
-        // already handled by the dedicated `.onChange` observers on `body`, so
-        // re-running this per appear is harmless once the heavy/one-time work is
-        // gated out.
+        // `.onAppear` can re-fire for portal-hosted panes (issue #5303); only first-appearance setup is gated.
+        // Other work below is idempotent, with real state changes handled by `.onChange` observers.
+        let isInitialAppearance = !didCompleteInitialBrowserPanelSetup
         performInitialBrowserPanelSetupIfNeeded()
         startOmnibarSuggestionRefreshConsumer()
         refreshBrowserChromeStyle()
-        panel.noteWebViewVisibility(
-            isVisibleInUI && isCurrentPaneOwner,
-            reason: "view.onAppear"
-        )
+        let effectiveVisibility = isVisibleInUI && isCurrentPaneOwner
+        panel.noteWebViewVisibility(effectiveVisibility, reason: "view.onAppear")
+        if isInitialAppearance && effectiveVisibility && isFocused {
+            panel.clearBrowserAutoFocusModeSuppression(reason: "view.onAppear.focused")
+        }
         panel.refreshAppearanceDrivenColors()
         panel.setBrowserThemeMode(browserThemeMode)
-        applyPendingAddressBarFocusRequestIfNeeded()
         syncURLFromPanel()
-        // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
-        autoFocusOmnibarIfBlank()
+        reconcileFocusedPanelState(reason: "autoFocusMode.onAppear", isPanelFocused: isFocused)
         syncWebViewResponderPolicyWithViewState(reason: "onAppear")
         panel.historyStore.loadIfNeeded()
 #if DEBUG
@@ -832,9 +833,7 @@ struct BrowserPanelView: View {
         startFocusModeShortcutHintMonitorIfNeeded()
     }
 
-    /// Runs the view-state initialization that should happen on first appearance,
-    /// independent of how many times SwiftUI fires `.onAppear` for the same view
-    /// instance.
+    /// Runs the view-state initialization that should happen once per view instance.
     ///
     /// `.onAppear` is not a reliable once-or-on-transition signal for a portal-hosted
     /// browser pane — it can re-fire on every CoreAnimation commit (issue #5303).
@@ -927,6 +926,7 @@ struct BrowserPanelView: View {
 
     private func handleRenderWebViewChange() {
         refreshBrowserChromeStyle()
+        retryAutoFocusModeAfterAddressBarBlurIfNeeded(reason: "autoFocusMode.renderWebView")
         if panel.isShowingNewTabPage {
             refreshEmptyStateImportBrowsers()
         }
@@ -948,6 +948,8 @@ struct BrowserPanelView: View {
     private func handleCommandPaletteVisibilityChange(_ notification: Notification) {
         guard commandPaletteVisibilityNotificationMatchesPanelWindow(notification) else { return }
         applyPendingAddressBarFocusRequestIfNeeded()
+        guard notification.userInfo?["visible"] as? Bool == false, isFocused, isVisibleInUI, isCurrentPaneOwner else { return }
+        reconcileFocusedPanelState(reason: "autoFocusMode.commandPaletteClosed", isPanelFocused: true)
     }
 
     private func handleProfileChange() {
@@ -959,10 +961,11 @@ struct BrowserPanelView: View {
 
     private func handlePanelVisibilityChange(_ visibleInUI: Bool) {
         let effectiveVisibility = visibleInUI && isCurrentPaneOwner
-        panel.noteWebViewVisibility(
-            effectiveVisibility,
-            reason: effectiveVisibility ? "view.visible" : "view.hidden"
-        )
+        panel.noteWebViewVisibility(effectiveVisibility, reason: effectiveVisibility ? "view.visible" : "view.hidden")
+        if effectiveVisibility && isFocused {
+            panel.clearBrowserAutoFocusModeSuppression(reason: "view.visible.focused")
+            reconcileFocusedPanelState(reason: "autoFocusMode.viewVisible", isPanelFocused: true)
+        }
         if visibleInUI {
             panel.cancelPendingDeveloperToolsVisibilityLossCheck()
             return
@@ -989,8 +992,8 @@ struct BrowserPanelView: View {
 #endif
         // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
         if focused {
-            applyPendingAddressBarFocusRequestIfNeeded()
-            autoFocusOmnibarIfBlank()
+            panel.clearBrowserAutoFocusModeSuppression(reason: "panelFocus.onChange.focused")
+            reconcileFocusedPanelState(reason: "autoFocusMode.panelFocus", isPanelFocused: focused)
         } else {
             panel.invalidateAddressBarPageFocusRestoreAttempts()
             panel.clearBrowserFocusMode(reason: "panelFocus.onChange.unfocused")
@@ -1008,6 +1011,37 @@ struct BrowserPanelView: View {
             reason: "panelFocusChanged",
             isPanelFocusedOverride: focused
         )
+    }
+
+    private func reconcileFocusedPanelState(reason: String, isPanelFocused: Bool) {
+        applyPendingAddressBarFocusRequestIfNeeded()
+        // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
+        autoFocusOmnibarIfBlank()
+        // Skip auto-activation when the omnibar just claimed focus (blank tabs):
+        // focus mode and address-bar focus are mutually exclusive states.
+        activateAutoFocusModeIfNeeded(reason: reason, isPanelFocused: isPanelFocused)
+    }
+
+    private func retryAutoFocusModeAfterAddressBarBlurIfNeeded(reason: String) {
+        guard BrowserAutoFocusModeActivation.shouldRetryAfterAddressBarBlur(
+            isPageRenderable: panel.shouldRenderWebView,
+            isContentBlank: isBrowserContentBlankForOmnibar()
+        ) else {
+            return
+        }
+        activateAutoFocusModeIfNeeded(reason: reason, isPanelFocused: isFocused)
+    }
+
+    private func activateAutoFocusModeIfNeeded(reason: String, isPanelFocused: Bool) {
+        if BrowserAutoFocusModeActivation.shouldActivate(
+            isEnabled: autoFocusModeEnabled,
+            isPanelFocused: isPanelFocused,
+            isBrowserFocusModeActive: panel.isBrowserFocusModeActive,
+            isAddressBarFocused: addressBarFocused,
+            isAutoFocusModeSuppressedUntilFocusGain: panel.isBrowserAutoFocusModeSuppressedUntilFocusGain
+        ) && !isCommandPaletteVisibleForPanelWindow() {
+            panel.setBrowserFocusModeActive(true, reason: reason, focusWebView: true)
+        }
     }
 
     private func handleAddressBarFocusedChange(_ focused: Bool) {
@@ -1050,6 +1084,7 @@ struct BrowserPanelView: View {
                 applyOmnibarEffects(effects)
             }
             inlineCompletion = nil
+            retryAutoFocusModeAfterAddressBarBlurIfNeeded(reason: "autoFocusMode.addressBarBlur")
         }
         syncWebViewResponderPolicyWithViewState(reason: "addressBarFocusChanged")
 #if DEBUG
@@ -2366,9 +2401,9 @@ struct BrowserPanelView: View {
         isBrowserImportHintPopoverPresented = false
     }
 
-    /// Treat content as blank only if neither WebKit nor the panel model has a nonblank URL.
+    /// Treat content as blank only if there is no live, committed, or pending nonblank URL.
     private func isBrowserContentBlankForOmnibar() -> Bool {
-        panel.preferredURLStringForOmnibar() == nil
+        panel.isShowingBlankBrowserPage
     }
 
     private func autoFocusOmnibarIfBlank() {

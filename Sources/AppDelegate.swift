@@ -15943,7 +15943,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func toggleBrowserFocusModeFromContextMenu(for webView: CmuxWebView) -> Bool {
         guard let panel = browserPanelOwning(webView) else { return false }
-        return panel.toggleBrowserFocusMode(reason: "contextMenu", focusWebView: true)
+        return panel.toggleBrowserFocusMode(
+            reason: "contextMenu",
+            focusWebView: true,
+            suppressAutoFocusUntilFocusGainOnExit: true
+        )
     }
 
     private func shouldLetFocusedBrowserOwnFindShortcut(_ event: NSEvent) -> Bool {

@@ -1012,6 +1012,7 @@
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
+          "autoFocusMode": "Automatically enter Browser Focus Mode when a browser pane gains focus, so Cmd-shortcuts reach the page instead of cmux.",
           "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads."
         },
         "workspaceGroups": {

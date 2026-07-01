@@ -300,6 +300,7 @@ enum BrowserSettingsFileMapping {
             defaultsKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey
         ),
         .init(jsonKey: "showImportHintOnBlankTabs", defaultsKey: BrowserImportHintSettings.showOnBlankTabsKey),
+        .init(jsonKey: "autoFocusMode", defaultsKey: BrowserAutoFocusModeSettings.enabledKey),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
@@ -437,6 +438,7 @@ extension CmuxSettingsFileStore {
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
+        "browser.autoFocusMode",
         "markdown.fontSize",
         "markdown.fontFamily",
         "markdown.maxWidth",

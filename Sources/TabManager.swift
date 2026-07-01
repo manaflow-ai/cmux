@@ -2937,13 +2937,26 @@ class TabManager: ObservableObject {
     @discardableResult
     func toggleBrowserFocusModeForFocusedBrowser(reason: String) -> Bool {
         guard let browserPanel = focusedBrowserPanel else { return false }
-        return browserPanel.toggleBrowserFocusMode(reason: reason, focusWebView: true)
+        return browserPanel.toggleBrowserFocusMode(
+            reason: reason,
+            focusWebView: true,
+            suppressAutoFocusUntilFocusGainOnExit: true
+        )
     }
 
     @discardableResult
-    func setFocusedBrowserFocusModeActive(_ active: Bool, reason: String) -> Bool {
+    func setFocusedBrowserFocusModeActive(
+        _ active: Bool,
+        reason: String,
+        suppressAutoFocusUntilFocusGain: Bool = false
+    ) -> Bool {
         guard let browserPanel = focusedBrowserPanel else { return false }
-        return browserPanel.setBrowserFocusModeActive(active, reason: reason, focusWebView: active)
+        return browserPanel.setBrowserFocusModeActive(
+            active,
+            reason: reason,
+            focusWebView: active,
+            suppressAutoFocusUntilFocusGain: suppressAutoFocusUntilFocusGain
+        )
     }
 
     @discardableResult

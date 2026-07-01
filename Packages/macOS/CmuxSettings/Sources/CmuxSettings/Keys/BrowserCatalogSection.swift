@@ -94,6 +94,16 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "reactGrabVersion"
     )
 
+    /// Controls whether focusing a browser pane automatically enters Browser Focus Mode.
+    ///
+    /// Defaults to `false` and persists to `UserDefaults` under
+    /// `browserAutoFocusModeEnabled`.
+    public let autoFocusMode = DefaultsKey<Bool>(
+        id: "browser.autoFocusMode",
+        defaultValue: false,
+        userDefaultsKey: "browserAutoFocusModeEnabled"
+    )
+
     /// Stored under `browserDisabledOverride` — the key the runtime
     /// gate `BrowserAvailabilitySettings.isDisabled()` actually reads.
     /// (The intuitive `browserDisabled` is read by nothing, so the

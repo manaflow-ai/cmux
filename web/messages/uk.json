@@ -826,7 +826,8 @@
         "browser": {
           "defaultSearchEngine": "Пошукова система за замовчуванням для запитів в адресному рядку браузера, які не є URL. Для інших провайдерів використовуйте custom з customSearchEngineURLTemplate.",
           "customSearchEngineName": "Назва для показу, коли defaultSearchEngine має значення custom.",
-          "customSearchEngineURLTemplate": "URL пошуку, який використовується коли defaultSearchEngine має значення custom. Додайте заповнювач запиту або %s для закодованого запиту. Без заповнювача cmux додасть q= до URL."
+          "customSearchEngineURLTemplate": "URL пошуку, який використовується коли defaultSearchEngine має значення custom. Додайте заповнювач запиту або %s для закодованого запиту. Без заповнювача cmux додасть q= до URL.",
+          "autoFocusMode": "Якщо увімкнено, перехід до панелі браузера автоматично вмикає режим фокуса, щоб Cmd-скорочення надходили на сторінку, а не до cmux."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Глобальне значення за замовчуванням для того, куди Cmd-N у групі, кнопка + у заголовку групи та налаштовані дії групи розміщують новий workspace: `afterCurrent` (після активного workspace у групі, з fallback до top), `top` (друга позиція одразу після якоря) або `end` (після останнього учасника).",

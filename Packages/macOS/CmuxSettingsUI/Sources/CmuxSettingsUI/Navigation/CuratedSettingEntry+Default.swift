@@ -183,6 +183,14 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider engine name url template"),
             .init(section: .browser, id: "search-suggestions", title: "Show Search Suggestions", synonyms: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
             .init(section: .browser, id: "theme", title: "Browser Theme", synonyms: "browser.theme web page theme color scheme light dark system"),
+            .init(
+                section: .browser,
+                id: "auto-focus-mode",
+                title: String(localized: "settings.browser.autoFocusMode", defaultValue: "Auto Focus Mode"),
+                detailText: String(localized: "settings.browser.autoFocusMode.subtitle", defaultValue: "When on, entering a browser pane automatically enables Browser Focus Mode so Cmd-shortcuts reach the page instead of cmux."),
+                paths: ["browser.autoFocusMode"],
+                synonyms: "auto focus mode browser focus mode pane focus webview keyboard shortcuts cmd command passthrough vscode code-server web ide"
+            ),
             .init(section: .browser, id: "hidden-webview-discard", title: "Browser Memory Saver", synonyms: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
             .init(section: .browser, id: "hidden-webview-discard-delay", title: "Memory Saver Delay", synonyms: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
             .init(

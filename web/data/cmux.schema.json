@@ -1101,6 +1101,12 @@
           "type": "string",
           "default": "0.1.29",
           "description": "Pinned react-grab version for the browser toolbar helper."
+        },
+        "autoFocusMode": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.browser.autoFocusMode",
+          "description": "Automatically enter Browser Focus Mode when a browser pane gains focus, so Cmd-shortcuts reach the page instead of cmux."
         }
       }
     },

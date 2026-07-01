@@ -7944,9 +7944,18 @@ class TerminalController {
             if enterAliases.contains(mode) {
                 handled = target.panel.setBrowserFocusModeActive(true, reason: "cli.focusMode", focusWebView: true)
             } else if exitAliases.contains(mode) {
-                handled = target.panel.setBrowserFocusModeActive(false, reason: "cli.focusMode", focusWebView: false)
+                handled = target.panel.setBrowserFocusModeActive(
+                    false,
+                    reason: "cli.focusMode",
+                    focusWebView: false,
+                    suppressAutoFocusUntilFocusGain: true
+                )
             } else {
-                handled = target.panel.toggleBrowserFocusMode(reason: "cli.focusMode", focusWebView: true)
+                handled = target.panel.toggleBrowserFocusMode(
+                    reason: "cli.focusMode",
+                    focusWebView: true,
+                    suppressAutoFocusUntilFocusGainOnExit: true
+                )
             }
             result = .ok(v2BrowserActionPayload(
                 workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
