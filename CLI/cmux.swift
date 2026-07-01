@@ -28375,12 +28375,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         print("\nProceed? [y/N] ", terminator: "")
                         guard readLine()?.lowercased().hasPrefix("y") == true else {
                             if wroteHookFile {
-                                if let previousHookFileData {
-                                    try previousHookFileData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-                                } else if fm.fileExists(atPath: filePath) {
-                                    try fm.removeItem(atPath: filePath)
+                                do {
+                                    if let previousHookFileData {
+                                        try previousHookFileData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+                                    } else if fm.fileExists(atPath: filePath) {
+                                        try fm.removeItem(atPath: filePath)
+                                    }
+                                } catch {
+                                    cliWriteStderr("Warning: failed to restore hook configuration after abort; hook setup may be incomplete.\n")
                                 }
-                                print("Rolled back \(def.displayName) hooks at \(filePath).")
                             }
                             print("Aborted (\(configPath) unchanged).")
                             return
