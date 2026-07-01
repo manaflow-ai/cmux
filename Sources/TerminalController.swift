@@ -6180,10 +6180,20 @@ class TerminalController {
             var createdSplit = true
             var placementStrategy = "split_right"
             let createdPanel: BrowserPanel?
-            if placeInSourcePane, let sourcePane = ws.paneId(forPanelId: sourceSurfaceId) {
+            if placeInSourcePane {
                 // Caller asked to open the viewer as a tab in its OWN pane
                 // (e.g. `cmux diff --here`): skip the reuse-right-sibling heuristic
                 // so the diff lands where the command was run, not in a neighbour pane.
+                // If the source pane can't be resolved, fail loudly instead of
+                // silently falling back to a neighbour (which would ignore --here).
+                guard let sourcePane = ws.paneId(forPanelId: sourceSurfaceId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Could not resolve the pane for the current surface.",
+                        data: ["surface_id": sourceSurfaceId.uuidString]
+                    )
+                    return
+                }
                 createdPanel = ws.newBrowserSurface(
                     inPane: sourcePane,
                     url: url,
