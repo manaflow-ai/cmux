@@ -733,6 +733,51 @@ encode_launch_argv() {
     } | base64 | tr -d '\n'
 }
 
+# cmux computer use: attach the bundled cmux-computer-use MCP server so any
+# Claude session cmux launches can drive the local Mac with the same
+# AX-tree+screenshot engine as Codex Computer Use (codex agents have it
+# natively; see Resources/computer-use-mcp/README.md). Prints the --mcp-config
+# JSON, or returns nonzero to skip injection so sessions never see
+# always-failing tools when the standard Codex machinery is absent.
+cmux_computer_use_json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    printf '%s' "$value"
+}
+
+cmux_computer_use_mcp_config() {
+    [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --strict-mcp-config|--strict-mcp-config=*)
+                # Respect explicit MCP isolation (e.g. cmux's headless
+                # auto-naming summarizers pass --strict-mcp-config).
+                return 1
+                ;;
+        esac
+    done
+    command -v node >/dev/null 2>&1 || return 1
+    [[ -f "${CODEX_HOME:-$HOME/.codex}/auth.json" ]] || return 1
+    if ! command -v codex >/dev/null 2>&1 &&
+        [[ ! -x "/Applications/Codex.app/Contents/Resources/codex" ]]; then
+        return 1
+    fi
+    local self_dir candidate
+    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
+    for candidate in \
+        "$self_dir/../cmux-computer-use-mcp.mjs" \
+        "$self_dir/../computer-use-mcp/cmux-computer-use-mcp.mjs"; do
+        if [[ -f "$candidate" ]]; then
+            printf '{"mcpServers":{"cmux-computer-use":{"command":"node","args":["%s"]}}}' \
+                "$(cmux_computer_use_json_escape "$candidate")"
+            return 0
+        fi
+    done
+    return 1
+}
+
 claude_interactive_entry_flag() {
     case "$1" in
         --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
@@ -997,6 +1042,15 @@ process.stdout.write(JSON.stringify(acc));
         printf 'cmux: warning: --settings merge failed; your --settings was ignored\n' >&2
     fi
     unset CMUX_MERGED_SETTINGS cmux_merge_status
+fi
+
+# Attach the cmux computer use MCP server. Prepended so a user-supplied
+# --mcp-config still applies as an additional config (the CLI merges repeated
+# --mcp-config flags). Injected after launch-argv capture on purpose: resume
+# re-runs the wrapper, which re-injects against the machinery present then.
+CMUX_COMPUTER_USE_MCP_CONFIG="$(cmux_computer_use_mcp_config "$@")" || CMUX_COMPUTER_USE_MCP_CONFIG=""
+if [[ -n "$CMUX_COMPUTER_USE_MCP_CONFIG" ]]; then
+    set -- --mcp-config "$CMUX_COMPUTER_USE_MCP_CONFIG" "$@"
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
