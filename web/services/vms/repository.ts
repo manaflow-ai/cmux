@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -256,9 +256,26 @@ function accountScopeWhere(input: {
 }) {
   const billingTeamId = input.billingTeamId?.trim();
   if (!billingTeamId) {
-    return and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId));
+    return and(
+      eq(cloudVms.userId, input.userId),
+      or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, input.userId)),
+    );
   }
   return eq(cloudVms.billingTeamId, billingTeamId);
+}
+
+function accountUsageScopeWhere(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+}) {
+  const billingTeamId = input.billingTeamId?.trim();
+  if (!billingTeamId) {
+    return and(
+      eq(cloudVmUsageEvents.userId, input.userId),
+      or(isNull(cloudVmUsageEvents.billingTeamId), eq(cloudVmUsageEvents.billingTeamId, input.userId)),
+    );
+  }
+  return eq(cloudVmUsageEvents.billingTeamId, billingTeamId);
 }
 
 function baseScope(input: {
@@ -1021,15 +1038,12 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   hasOwnedSnapshot: (input) =>
     dbEffect("hasOwnedSnapshot", async () => {
       const db = cloudDb();
-      const teamScope = input.billingTeamId
-        ? eq(cloudVmUsageEvents.billingTeamId, input.billingTeamId)
-        : and(isNull(cloudVmUsageEvents.billingTeamId), eq(cloudVmUsageEvents.userId, input.userId));
       const [event] = await db
         .select({ id: cloudVmUsageEvents.id })
         .from(cloudVmUsageEvents)
         .where(
           and(
-            teamScope,
+            accountUsageScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
             eq(cloudVmUsageEvents.provider, input.provider),
             eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
             sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${input.snapshotId}`,

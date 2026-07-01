@@ -1884,6 +1884,34 @@ describe("VM Effect workflows", () => {
     expect(wrongAccountError).toBeInstanceOf(VmNotFoundError);
   });
 
+  dbTest("lists migrated account-scoped personal VMs by default", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, created_at)
+      values
+        ('user-workflow-personal', 'user-workflow-personal', 'free', 'freestyle', 'provider-vm-personal-migrated', 'snapshot-test', 'running', now()),
+        ('user-workflow-personal', null, 'free', 'freestyle', 'provider-vm-personal-legacy', 'snapshot-test', 'running', now()),
+        ('user-workflow-other', 'user-workflow-other', 'free', 'freestyle', 'provider-vm-personal-other', 'snapshot-test', 'running', now())
+    `;
+
+    const listed = await Effect.runPromise(
+      listUserVms("user-workflow-personal").pipe(Effect.provide(providerLayer({
+        create: () => Effect.fail(new Error("unused") as never),
+        destroy: () => Effect.void,
+        exec: () => Effect.fail(new Error("unused") as never),
+        openAttach: () => Effect.fail(new Error("unused") as never),
+        openSSH: () => Effect.fail(new Error("unused") as never),
+        revokeSSHIdentity: () => Effect.void,
+      }))),
+    );
+
+    expect(listed.map((entry) => entry.providerVmId).sort()).toEqual([
+      "provider-vm-personal-legacy",
+      "provider-vm-personal-migrated",
+    ]);
+  });
+
   dbTest("does not destroy, exec, or mint SSH for another user's VM", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
