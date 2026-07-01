@@ -301,6 +301,10 @@ public struct SidebarBranchOrdering: Sendable {
 
     /// Unique branch+directory rows in first-seen panel order, one row per
     /// canonical directory; falls back to the workspace branch/directory.
+    /// `panelDirectoryDisplayLabels` optionally maps panels to
+    /// reporter-supplied display labels: a label replaces the row's displayed
+    /// directory text (first label wins) while dedup keys keep deriving from
+    /// the real directory in `panelDirectories`.
     public func orderedUniqueBranchDirectoryEntries(
         orderedPanelIds: [UUID],
         panelBranches: [UUID: SidebarGitBranchState],

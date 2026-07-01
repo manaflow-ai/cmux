@@ -4,6 +4,11 @@ internal import CmuxGit
 // MARK: - Externally reported surface events (directory and branch changes).
 
 extension SidebarGitMetadataService {
+    /// Records a panel's directory change and reschedules probes when the
+    /// effective probe directory changed (see ``SidebarGitMetadataServing``).
+    /// `displayLabel` optionally carries a human-friendly sidebar label
+    /// reported alongside the real path; it is stored by the host only when
+    /// the directory write is accepted.
     public func updateSurfaceDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) {
         guard let host, host.workspaceExists(workspaceId) else { return }
         let previousDirectory = host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId)
