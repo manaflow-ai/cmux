@@ -19,18 +19,18 @@ public struct TerminalOpenURLFileRoutingPolicy: Sendable {
         rawOpenURLValue: String,
         target: TerminalOpenURLTarget
     ) -> Bool {
-        guard !Self.hasExplicitURLScheme(rawOpenURLValue) else { return false }
+        guard !hasExplicitURLScheme(rawOpenURLValue) else { return false }
         guard target.url.isFileURL else { return false }
-        return Self.isLocalFileURL(target.url)
+        return isLocalFileURL(target.url)
     }
 
-    private static func hasExplicitURLScheme(_ rawValue: String) -> Bool {
+    private func hasExplicitURLScheme(_ rawValue: String) -> Bool {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let scheme = URL(string: trimmed)?.scheme else { return false }
         return !scheme.isEmpty
     }
 
-    private static func isLocalFileURL(_ url: URL) -> Bool {
+    private func isLocalFileURL(_ url: URL) -> Bool {
         let host = url.host
         return host == nil || host?.isEmpty == true || host == "localhost"
     }
