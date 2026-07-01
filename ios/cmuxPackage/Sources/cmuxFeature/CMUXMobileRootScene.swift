@@ -165,7 +165,12 @@ public struct CMUXMobileRootScene: View {
     /// the current session and selected team.
     @MainActor
     private func makePresenceClient() -> PresenceClient? {
-        guard let baseURL = PresenceClient.resolvedServiceBaseURL() else { return nil }
+        // Presence follows the resolved auth channel (not the build config):
+        // a --prod-auth dev build must subscribe to the production worker its
+        // production Macs heartbeat to (issue 7145).
+        guard let baseURL = PresenceClient.resolvedServiceBaseURL(
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        ) else { return nil }
         let coordinator = auth.coordinator
         return PresenceClient(
             serviceBaseURL: baseURL,
@@ -198,7 +203,9 @@ public struct CMUXMobileRootScene: View {
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
         guard MobilePairedMacBackup.resolved().isEnabled,
-              let baseURL = PresenceClient.resolvedServiceBaseURL() else {
+              let baseURL = PresenceClient.resolvedServiceBaseURL(
+                  isDevelopmentAuthChannel: auth.authEnvironment == .development
+              ) else {
             return scopedStore
         }
         let client = PairedMacBackupClient(

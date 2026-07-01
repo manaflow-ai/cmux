@@ -1,4 +1,5 @@
 import CMUXAuthCore
+import CmuxMobileShell
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -160,5 +161,91 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
             bakedAuthEnvironment: "  "
         )
         #expect(overrides["AuthEnvironment"] == nil)
+    }
+
+    // MARK: - Environment-switch detection (stale cross-project auth state)
+
+    private func freshDefaults() throws -> UserDefaults {
+        try #require(UserDefaults(suiteName: "cmux-auth-env-switch-\(UUID().uuidString)"))
+    }
+
+    @Test func firstLaunchStoresEnvironmentWithoutRequestingClear() throws {
+        // Every existing install upgrades with no stored value; the upgrade
+        // itself must never sign anyone out.
+        let defaults = try freshDefaults()
+        #expect(MobileAuthComposition.detectAuthEnvironmentSwitch(
+            resolved: .development,
+            defaults: defaults
+        ) == false)
+        #expect(defaults.string(forKey: MobileAuthComposition.storedAuthEnvironmentKey) == "development")
+    }
+
+    @Test func sameEnvironmentRelaunchDoesNotRequestClear() throws {
+        let defaults = try freshDefaults()
+        _ = MobileAuthComposition.detectAuthEnvironmentSwitch(resolved: .production, defaults: defaults)
+        #expect(MobileAuthComposition.detectAuthEnvironmentSwitch(
+            resolved: .production,
+            defaults: defaults
+        ) == false)
+    }
+
+    @Test func environmentFlipRequestsClearBothWays() throws {
+        // dev -> prod (a --prod-auth rebuild over a signed-in dev install) and
+        // prod -> dev must both clear: tokens/user ids are per-Stack-project,
+        // so restoring the other project's session can only fail validation
+        // and flash the wrong cached user.
+        let defaults = try freshDefaults()
+        _ = MobileAuthComposition.detectAuthEnvironmentSwitch(resolved: .development, defaults: defaults)
+        #expect(MobileAuthComposition.detectAuthEnvironmentSwitch(
+            resolved: .production,
+            defaults: defaults
+        ) == true)
+        #expect(MobileAuthComposition.detectAuthEnvironmentSwitch(
+            resolved: .development,
+            defaults: defaults
+        ) == true)
+    }
+
+    // MARK: - Presence follows the auth channel
+
+    @Test func presenceDefaultFollowsAuthChannelNotBuildConfig() throws {
+        // A --prod-auth dev build (Debug config, production channel) must
+        // subscribe to the production worker its real Macs heartbeat to; the
+        // worker URLs live only in PresenceClient so build scripts cannot
+        // bake a stale copy.
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [:],
+            defaults: try freshDefaults(),
+            infoPlistValue: nil,
+            isDebugBuild: true,
+            isDevelopmentAuthChannel: false
+        ) == PresenceClient.productionServiceURL)
+        // Plain dev build: unchanged dev worker.
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [:],
+            defaults: try freshDefaults(),
+            infoPlistValue: nil,
+            isDebugBuild: true,
+            isDevelopmentAuthChannel: true
+        ) == PresenceClient.debugDefaultServiceURL)
+        // No channel supplied: the pre-existing build-config default.
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [:],
+            defaults: try freshDefaults(),
+            infoPlistValue: nil,
+            isDebugBuild: true,
+            isDevelopmentAuthChannel: nil
+        ) == PresenceClient.debugDefaultServiceURL)
+    }
+
+    @Test func explicitPresenceOverrideStillBeatsChannelDefault() throws {
+        // Per-developer isolated workers keep working with --prod-auth.
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
+            defaults: try freshDefaults(),
+            infoPlistValue: nil,
+            isDebugBuild: true,
+            isDevelopmentAuthChannel: false
+        ) == "https://cmux-presence-dev-alice.acct.workers.dev")
     }
 }

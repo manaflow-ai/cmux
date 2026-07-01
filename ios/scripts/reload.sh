@@ -19,8 +19,8 @@ the tagged Mac app. Opt out granularly:
   --no-setup     plain install + launch (today's behavior)
 
   --prod-auth    sign this DEV build in against PRODUCTION auth (bakes
-                 CMUXAuthEnvironment=production into Info.plist and defaults
-                 the presence worker to the production instance), so it can
+                 CMUXAuthEnvironment=production into Info.plist; the presence
+                 worker and API base follow the channel in-app), so it can
                  pair with a real beta/stable Mac via QR. A plain dev build
                  uses the development Stack project, whose user ids can never
                  match a release Mac's QR account binding. Implies
@@ -169,17 +169,13 @@ fi
 # --prod-auth: point the build at the production auth channel so it can pair
 # with a real beta/stable Mac (https://github.com/manaflow-ai/cmux/issues/7145).
 # The value lands in the CMUXAuthEnvironment Info.plist key (a tapped device
-# build sees no shell env), read by MobileAuthComposition.
+# build sees no shell env), read by MobileAuthComposition. Presence needs no
+# URL here: PresenceClient.resolvedServiceBaseURL follows the resolved auth
+# channel, so the worker URLs live only in Swift and cannot drift; an explicit
+# CMUX_PRESENCE_BASE_URL still wins as before.
 CMUX_IOS_AUTH_ENV_VALUE=""
 if [[ "$PROD_AUTH" -eq 1 ]]; then
   CMUX_IOS_AUTH_ENV_VALUE="production"
-  # Presence follows the auth channel: the dev worker verifies dev-project
-  # tokens, so a prod-auth build must subscribe to the production worker for
-  # real Macs to appear in Computers. An explicit CMUX_PRESENCE_BASE_URL still
-  # wins. Keep the URL in sync with PresenceClient.productionServiceURL.
-  if [[ -z "${CMUX_PRESENCE_BASE_URL:-}" ]]; then
-    CMUX_PRESENCE_BASE_URL="https://presence.cmux.dev"
-  fi
   # The dogfood auto-login creds are dev-Stack-project accounts; against
   # production auth they cannot sign in. Launch plain and sign in in-app with
   # the same account as the Mac you want to pair with.

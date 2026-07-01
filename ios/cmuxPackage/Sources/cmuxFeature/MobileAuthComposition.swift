@@ -86,8 +86,17 @@ public struct MobileAuthComposition {
             keyValueStore: defaults,
             key: "auth_selected_team"
         )
+        // Switching auth environments on one install (a dev build rebuilt with
+        // --prod-auth, or back) must not restore the other Stack project's
+        // session: tokens, user ids, and teams are per-project, so the stale
+        // state could only fail validation and flash the wrong cached user.
+        // Reuse the coordinator's local clear-on-launch path for that switch.
+        let authEnvironmentSwitched = Self.detectAuthEnvironmentSwitch(
+            resolved: resolvedEnvironment,
+            defaults: defaults
+        )
         let launch = AuthLaunchOptions(
-            clearAuthRequested: environment["CMUX_UITEST_CLEAR_AUTH"] == "1",
+            clearAuthRequested: environment["CMUX_UITEST_CLEAR_AUTH"] == "1" || authEnvironmentSwitched,
             mockDataEnabled: UITestConfig.mockDataEnabled,
             environment: environment,
             includesDevAuth: policy.includesFortyTwoShortcut
@@ -184,6 +193,26 @@ public struct MobileAuthComposition {
         default:
             return isDevelopmentBuild ? .development : .production
         }
+    }
+
+    /// The defaults key persisting which auth environment this install last
+    /// launched with, so an environment switch is detectable.
+    static let storedAuthEnvironmentKey = "auth_environment"
+
+    /// Persist `resolved` and report whether it changed from the previous
+    /// launch. First launches (no stored value — including every existing
+    /// install upgrading to the build that introduced the key) report no
+    /// switch, so nobody is signed out by the upgrade itself; only a real
+    /// flip (development ↔ production on the same install) requests the
+    /// clear-on-launch path.
+    static func detectAuthEnvironmentSwitch(
+        resolved: CMUXAuthEnvironment,
+        defaults: UserDefaults
+    ) -> Bool {
+        let current = resolved == .development ? "development" : "production"
+        let previous = defaults.string(forKey: storedAuthEnvironmentKey)
+        defaults.set(current, forKey: storedAuthEnvironmentKey)
+        return previous != nil && previous != current
     }
 
     private static var apnsEnvironment: String {

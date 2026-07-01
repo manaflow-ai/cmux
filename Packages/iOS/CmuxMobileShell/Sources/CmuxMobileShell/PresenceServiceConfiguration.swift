@@ -31,11 +31,20 @@ extension PresenceClient {
     /// (dev worker on Debug, production worker on Release). Never `nil` now — the
     /// phone always has a presence service to subscribe to; whether a given Mac
     /// shows up depends on that Mac heartbeating (mobile enabled) to the same one.
+    ///
+    /// The default follows the AUTH CHANNEL when the composition root supplies
+    /// one (`isDevelopmentAuthChannel`), not just the build config: each worker
+    /// verifies its own Stack project's tokens, so a Debug build resolved to
+    /// production auth (`ios/scripts/reload.sh --prod-auth`, issue 7145) must
+    /// subscribe to the production worker or no release Mac could ever appear
+    /// in Computers. The worker URLs live only here — build scripts bake no
+    /// copy — so they cannot drift from the runtime.
     public static func resolvedServiceBaseURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard,
         infoPlistValue: String? = Bundle.main.object(forInfoDictionaryKey: serviceURLInfoPlistKey) as? String,
-        isDebugBuild: Bool = PresenceClient.isDebugBuild
+        isDebugBuild: Bool = PresenceClient.isDebugBuild,
+        isDevelopmentAuthChannel: Bool? = nil
     ) -> String? {
         let override = environment[serviceURLEnvKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -46,7 +55,9 @@ extension PresenceClient {
         if let override, !override.isEmpty {
             return override
         }
-        return isDebugBuild ? debugDefaultServiceURL : productionServiceURL
+        return (isDevelopmentAuthChannel ?? isDebugBuild)
+            ? debugDefaultServiceURL
+            : productionServiceURL
     }
 
     /// Whether this is a Debug build (compile-time; parameterized above so the

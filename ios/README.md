@@ -44,12 +44,18 @@ What `--prod-auth` does:
   `CMUX_IOS_AUTH_ENV` build setting), so the build signs in against the
   production Stack project and uses `https://cmux.com` for the device
   registry/API and the magic-link callback.
-- Defaults the presence worker to the production instance
-  (`https://presence.cmux.dev`) so your real Macs appear in Computers. An
-  explicit `CMUX_PRESENCE_BASE_URL` still wins.
+- Makes the presence worker follow the auth channel: the app resolves the
+  production presence instance (see `PresenceClient.productionServiceURL`) so
+  your real Macs appear in Computers. The worker URLs live only in Swift —
+  the script bakes no copy — and an explicit `CMUX_PRESENCE_BASE_URL` still
+  wins.
 - Skips the dogfood auto sign-in/auto-pair (those credentials belong to the
   development Stack project). Sign in in-app with the same account as your
   Mac.
+- On first launch after switching auth environments on the same install, the
+  app clears the previous environment's session/caches (tokens and user ids
+  are per-Stack-project), so you start signed out instead of restoring a
+  stale identity.
 
 Scan the Mac's pairing QR with the **in-app** scanner. The system Camera app
 routes release QR links (`cmux-ios://…`) to the beta/App Store app because
