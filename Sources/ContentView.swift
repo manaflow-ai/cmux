@@ -10308,10 +10308,6 @@ struct VerticalTabsSidebar: View {
         SidebarWorkspaceListMetrics.bottomScrimHeight
     }
 
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
-    }
-
     private var showCommandModifierHoldHints: Bool {
         showModifierHoldHints && showCommandHoldHints
     }
