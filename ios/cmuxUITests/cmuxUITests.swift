@@ -861,7 +861,7 @@ final class cmuxUITests: XCTestCase {
             minimumDistinctFrameBuckets: 2
         )
         let maxVisibleMotion = animationSamples
-            .map { abs($0.metrics.presentationFrameMaxY - $0.metrics.effectiveFrameMaxY) }
+            .map { activeKeyboardPresentationMotion($0.metrics) }
             .max() ?? 0
         XCTAssertGreaterThan(
             maxVisibleMotion,
@@ -2613,7 +2613,7 @@ final class cmuxUITests: XCTestCase {
     ) {
         let capturedPresentationMotion = samples.contains {
             isChatKeyboardVisiblyMoving($0.metrics)
-                && abs($0.metrics.presentationFrameMaxY - $0.metrics.effectiveFrameMaxY) > 8
+                && activeKeyboardPresentationMotion($0.metrics) > 8
         }
         XCTAssertTrue(
             capturedPresentationMotion,
@@ -2626,7 +2626,11 @@ final class cmuxUITests: XCTestCase {
     private func isChatKeyboardVisiblyMoving(_ metrics: ChatTranscriptMetrics) -> Bool {
         metrics.keyboardAnimationActive
             || metrics.keyboardOverlap > 0
-            || abs(metrics.presentationFrameMaxY - metrics.effectiveFrameMaxY) > 4
+    }
+
+    private func activeKeyboardPresentationMotion(_ metrics: ChatTranscriptMetrics) -> CGFloat {
+        guard isChatKeyboardVisiblyMoving(metrics) else { return 0 }
+        return abs(metrics.presentationFrameMaxY - metrics.effectiveFrameMaxY)
     }
 
     private func isKeyboardUpClipSettled(_ metrics: ChatTranscriptMetrics) -> Bool {
