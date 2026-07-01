@@ -4,13 +4,10 @@ import Testing
 @testable import CmuxAgentChat
 
 @MainActor
-private func waitForPromptEchoPreview(iterations: Int = 400, _ condition: () -> Bool) async -> Bool {
-    for iteration in 0..<iterations {
+private func waitForPromptEchoPreview(iterations: Int = 2_000, _ condition: () -> Bool) async -> Bool {
+    for _ in 0..<iterations {
         if condition() { return true }
         await Task.yield()
-        if iteration % 20 == 19 {
-            try? await Task.sleep(nanoseconds: 2_000_000)
-        }
     }
     return condition()
 }
@@ -77,6 +74,22 @@ struct ChatConversationStorePromptEchoPreviewTests {
             Self.snapshots(store.rows).isEmpty
                 && Self.pendingItems(store.rows).map(\.text) == ["please explain the design constraints clearly"]
         })
+    }
+
+    @Test("live preview does not suppress text spanning explicit prompt line breaks")
+    func livePreviewDoesNotSuppressAcrossPromptLines() async {
+        let source = PromptEchoSilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await waitForPromptEchoPreview { store.isConnected })
+        await store.send(text: "A\nB\nC")
+        #expect(await waitForPromptEchoPreview { Self.pendingItems(store.rows).count == 1 })
+
+        let preview = Self.streamingMessage(text: "B C")
+        await source.emit(.streamingProse(preview))
+        #expect(await waitForPromptEchoPreview { Self.messageIDs(store.rows) == [preview.id] })
     }
 
     @Test("queued prompts do not suppress the active turn live preview")

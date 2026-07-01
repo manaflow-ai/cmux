@@ -41,10 +41,19 @@ extension ChatConversationStore {
     }
 
     private func promptText(_ text: String, hasSuffixPreview previewText: String) -> Bool {
-        let promptText = normalizedPromptEchoText(String(text.unicodeScalars.suffix(promptEchoScanLimit)))
-        guard promptText.count > previewText.count,
-              promptText.hasSuffix(previewText) else { return false }
-        guard let boundary = promptText.dropLast(previewText.count).last else { return false }
+        let promptTail = String(text.unicodeScalars.suffix(promptEchoScanLimit))
+        return promptTail.split(whereSeparator: \.isNewline).contains { line in
+            promptLine(String(line), hasSuffixPreview: previewText)
+        }
+    }
+
+    private func promptLine(_ line: String, hasSuffixPreview previewText: String) -> Bool {
+        let lineText = normalizedPromptEchoText(line)
+        guard !lineText.isEmpty else { return false }
+        guard lineText != previewText else { return true }
+        guard lineText.count > previewText.count,
+              lineText.hasSuffix(previewText) else { return false }
+        guard let boundary = lineText.dropLast(previewText.count).last else { return false }
         return boundary.isWhitespace || boundary.isNewline
     }
 
