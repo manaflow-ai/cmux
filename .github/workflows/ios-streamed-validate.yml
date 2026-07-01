@@ -194,19 +194,17 @@ jobs:
           mkdir -p "$HOME/.codex/sessions/2026/06/30"
           cp ios/fastlane/streamed-sessions/codex/*.jsonl "$HOME/.codex/sessions/2026/06/30/"
           echo "seeded codex: $(ls "$HOME/.codex/sessions/2026/06/30/")"
-          # codex has no CI login (it showed the "Sign in with ChatGPT" onboarding),
-          # which blocks `codex resume`. Configure a DeepSeek (OpenAI-compatible)
-          # provider so codex is authenticated and resumes the seeded session. The
-          # key comes from DEEPSEEK_API_KEY (propagated into the GUI session).
-          cat > "$HOME/.codex/config.toml" <<'TOML'
-          model = "deepseek-chat"
-          model_provider = "deepseek"
-          [model_providers.deepseek]
-          name = "DeepSeek"
-          base_url = "https://api.deepseek.com/v1"
-          env_key = "DEEPSEEK_API_KEY"
-          TOML
-          echo "wrote ~/.codex/config.toml (deepseek provider)"
+          # codex resume hits the "Sign in with ChatGPT" wall on the runner (no
+          # login), which blocks it from opening the recorded session. It only
+          # needs SOME auth present to proceed, and resume makes no API call, so a
+          # FAKE OpenAI credential lets codex authenticate "as itself" (the real
+          # openai/gpt-5 model from the recorded transcript renders), skip
+          # onboarding, and show NO DeepSeek anywhere. The key is never validated.
+          mkdir -p "$HOME/.codex"
+          cat > "$HOME/.codex/auth.json" <<'JSON'
+          {"OPENAI_API_KEY": "sk-ci-resume-only-unused", "auth_mode": "apikey"}
+          JSON
+          echo "wrote fake ~/.codex/auth.json (resume gate only, no API calls)"
           # pi: cwd-keyed jsonl; seed both /tmp spellings; resumed by --session <uuid>.
           for enc in --private-tmp-cmux-stream-pi-- --tmp-cmux-stream-pi--; do
             mkdir -p "$HOME/.pi/agent/sessions/$enc"
