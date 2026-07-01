@@ -168,6 +168,17 @@ def idb_tap(sim, x, y):
     run(["idb", "ui", "tap", "--udid", sim, str(int(x)), str(int(y))])
 
 
+def idb_swipe(sim, x1, y1, x2, y2, duration=0.25):
+    run(["idb", "ui", "swipe", "--udid", sim, "--duration", str(duration),
+         str(int(x1)), str(int(y1)), str(int(x2)), str(int(y2))])
+
+
+def _terminal_row_count(sim):
+    """Number of 'Terminal' row buttons visible — the workspace list has several;
+    a terminal screen has none, so this distinguishes list from terminal."""
+    return sum(1 for e in idb_describe(sim) if str(e.get("AXLabel")) == "Terminal")
+
+
 def reconnect_if_needed(sim):
     hit = find_element(sim, "Retry")
     if hit:
@@ -190,10 +201,19 @@ def set_font(tag, size):
 
 
 def navigate_back(sim):
-    hit = find_element(sim, "‹", "Back", "chevron")
-    if hit:
-        idb_tap(sim, hit[1], hit[2])
-        time.sleep(1.5)
+    """Return to the workspace list. The nav-bar back chevron has no
+    accessibility label, so tap its known position (top-left of the nav bar) and
+    fall back to the iOS interactive-pop edge swipe; verify we reached the list."""
+    for _ in range(3):
+        if _terminal_row_count(sim) >= 2:
+            return True
+        idb_tap(sim, 28, 89)
+        time.sleep(1.3)
+        if _terminal_row_count(sim) >= 2:
+            return True
+        idb_swipe(sim, 1, 430, 320, 430)
+        time.sleep(1.3)
+    return _terminal_row_count(sim) >= 2
 
 
 def capture_agent(tag, sim, key, out_dir, device_name, font):
