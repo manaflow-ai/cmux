@@ -180,6 +180,8 @@ final class CmuxMainWindow: NSWindow {
         }
         return Self.recoveredOffscreenFrame(
             frameRect,
+            styleMask: styleMask,
+            windowMinSize: minSize,
             mouseLocation: NSEvent.mouseLocation
         ) ?? super.constrainFrameRect(frameRect, to: screen)
     }
@@ -248,7 +250,12 @@ extension CmuxMainWindow {
             return
         }
 
-        guard let recovered = recoveredOffscreenFrame(window.frame, mouseLocation: mouseLocation) else {
+        guard let recovered = recoveredOffscreenFrame(
+            window.frame,
+            styleMask: window.styleMask,
+            windowMinSize: window.minSize,
+            mouseLocation: mouseLocation
+        ) else {
             return
         }
         guard recovered != window.frame else { return }
@@ -257,13 +264,15 @@ extension CmuxMainWindow {
 
     static func recoveredOffscreenFrame(
         _ frame: NSRect,
+        styleMask: NSWindow.StyleMask,
+        windowMinSize: NSSize = .zero,
         mouseLocation: NSPoint?
     ) -> NSRect? {
         let screens = NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) }
         let fallbackVisibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
-        let minimumFrameSize = NSSize(
-            width: minimumContentSize.width,
-            height: minimumContentSize.height
+        let minimumFrameSize = minimumFrameSize(
+            for: styleMask,
+            windowMinSize: windowMinSize
         )
         return MultiMonitorWindowGeometry.recoveredFrame(
             frame,
@@ -272,6 +281,21 @@ extension CmuxMainWindow {
             mouseLocation: mouseLocation,
             fallbackVisibleFrame: fallbackVisibleFrame,
             inset: 0
+        )
+    }
+
+    private static func minimumFrameSize(
+        for styleMask: NSWindow.StyleMask,
+        windowMinSize: NSSize
+    ) -> NSSize {
+        let contentMinimum = NSRect(origin: .zero, size: minimumContentSize)
+        let convertedMinimum = NSWindow.frameRect(
+            forContentRect: contentMinimum,
+            styleMask: styleMask
+        ).size
+        return NSSize(
+            width: max(windowMinSize.width, convertedMinimum.width),
+            height: max(windowMinSize.height, convertedMinimum.height)
         )
     }
 }
