@@ -55,15 +55,20 @@ verify_ipa_aps_environment_production() {
 usage() {
   cat <<'EOF'
 Usage:
-  ios/scripts/upload-testflight.sh [--lane beta] [--build-number <number>]
+  ios/scripts/upload-testflight.sh [--lane beta|appstore] [--build-number <number>]
                                   [--signing manual|automatic] [--external]
                                   [--archive-path <path>] [--export-only]
 
 Archives cmux iOS, exports an App Store Connect IPA, and uploads it to
 TestFlight. The default lane is beta:
 
-  bundle id: dev.cmux.app.beta
-  profile:   cmux Beta Distribution
+  beta     bundle id: dev.cmux.app.beta   profile: cmux Beta Distribution  name: "cmux BETA"
+  appstore bundle id: com.cmux.app        profile: cmux Distribution       name: "cmux"
+
+The appstore lane uploads to the public iOS app record's TestFlight; attach the
+processed build to the App Store version in App Store Connect (it does not
+auto-submit). Override profile names with IOS_BETA_PROVISIONING_PROFILE_NAME /
+IOS_PROD_PROVISIONING_PROFILE_NAME.
 
 On the manual signing path the exported app is RE-SIGNED with the full
 entitlements before upload. The archive is built unsigned (to avoid
@@ -99,7 +104,8 @@ or:
   APPLE_PROVIDER_PUBLIC_ID
 
 Options:
-  --lane <beta>             Distribution lane. Only beta is currently defined.
+  --lane <beta|appstore>    Distribution lane. beta (default) = dev.cmux.app.beta;
+                            appstore/prod = com.cmux.app (public App Store record).
   --build-number <number>   CFBundleVersion. Defaults to UTC yyyyMMddHHmmss.
                             Self-healed up to (App Store Connect max + 1) if it
                             would not be the highest build (TestFlight only offers
@@ -260,10 +266,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Per-lane on-device display name. Empty keeps the xcconfig default
+# (Release.xcconfig = "cmux BETA"); the appstore lane overrides it to "cmux" so
+# the public build ships with the clean brand name while beta stays "cmux BETA".
+PRODUCT_DISPLAY_NAME_OVERRIDE=""
 case "$LANE" in
   beta)
     PRODUCT_BUNDLE_IDENTIFIER="dev.cmux.app.beta"
     PROVISIONING_PROFILE_NAME="${IOS_BETA_PROVISIONING_PROFILE_NAME:-cmux Beta Distribution}"
+    ;;
+  appstore|prod)
+    # Public App Store build. Distinct bundle id (clean reverse-DNS of cmux.com)
+    # and a dedicated App Store distribution profile, so it ships side-by-side
+    # with the beta channel. Keep com.cmux.app in lockstep with the APNs route
+    # policy (web/services/apns/routePolicy.ts) and MobileBuildType.
+    PRODUCT_BUNDLE_IDENTIFIER="com.cmux.app"
+    PROVISIONING_PROFILE_NAME="${IOS_PROD_PROVISIONING_PROFILE_NAME:-cmux Distribution}"
+    PRODUCT_DISPLAY_NAME_OVERRIDE="cmux"
     ;;
   *)
     echo "error: unsupported lane '$LANE'" >&2
@@ -271,6 +290,13 @@ case "$LANE" in
     exit 2
     ;;
 esac
+
+# Built once, injected into both archive invocations. Empty array = no override
+# (xcconfig display name wins).
+DISPLAY_NAME_ARGS=()
+if [[ -n "$PRODUCT_DISPLAY_NAME_OVERRIDE" ]]; then
+  DISPLAY_NAME_ARGS=( "PRODUCT_DISPLAY_NAME=$PRODUCT_DISPLAY_NAME_OVERRIDE" )
+fi
 
 case "$SIGNING" in
   manual|automatic) ;;
@@ -520,6 +546,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       "${XCODE_AUTH_ARGS[@]}" \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      "${DISPLAY_NAME_ARGS[@]}" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       "${MARKETING_VERSION_ARGS[@]}" \
       CODE_SIGN_STYLE=Automatic \
@@ -542,6 +569,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -derivedDataPath "$DERIVED_DATA" \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      "${DISPLAY_NAME_ARGS[@]}" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       "${MARKETING_VERSION_ARGS[@]}" \
       CODE_SIGNING_ALLOWED=NO \

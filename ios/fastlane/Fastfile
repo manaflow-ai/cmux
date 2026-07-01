@@ -1,0 +1,100 @@
+default_platform(:ios)
+
+# cmux iOS fastlane lanes. Scope is App Store screenshots for now; build/upload
+# of the binary lives in ios/scripts/upload-testflight.sh (--lane appstore).
+
+platform :ios do
+  desc "Capture App Store screenshots (en-US + ja; iPhone 6.9\" + iPad 13\")"
+  desc "Uses a DEBUG build with CMUX_UITEST_MOCK_DATA; no Apple signing required."
+  desc "CI overrides device names per Xcode version via SNAPSHOT_DEVICES (the model"
+  desc "names in Snapfile drift between Xcode releases, so CI resolves them at runtime)."
+  lane :screenshots do
+    # Devices/languages are the single source here (NOT the Snapfile) so the
+    # action params always win. CI sets SNAPSHOT_DEVICES to the exact simulators
+    # available on the runner (model names drift across Xcode versions); the
+    # local defaults below cover a typical current Xcode and can be overridden
+    # via env.
+    devices = (ENV["SNAPSHOT_DEVICES"] || "iPhone 16 Pro Max,iPad Pro 13-inch (M4)")
+              .split(",").map(&:strip).reject(&:empty?)
+    languages = (ENV["SNAPSHOT_LANGUAGES"] || "en-US,ja")
+                .split(",").map(&:strip).reject(&:empty?)
+    capture_screenshots(
+      scheme: "cmux-ios",
+      devices: devices,
+      languages: languages,
+      # Clean, deterministic status bar (9:41, full battery/wifi) on every shot.
+      override_status_bar: true,
+      # Capture in dark mode.
+      dark_mode: true
+    )
+    UI.message("Screenshots written to ios/fastlane/screenshots/<lang>/")
+    frame unless ENV["SNAPSHOT_SKIP_FRAME"] == "1"
+  end
+
+  desc "Frame captured screenshots with the device shell, tranquil background, and"
+  desc "localized titles (fastlane frameit). Requires imagemagick."
+  lane :frame do
+    ss = File.expand_path("screenshots", __dir__)
+    # Capture only shoots en-US + ja (the only localized app UI). Fan those raws
+    # out to every App Store locale before framing so all ~39 locales get a
+    # localized-title screenshot. No-op when the locale dirs are already present.
+    sh("python3", File.expand_path("frame_assets/propagate_locales.py", __dir__), ss)
+    # Premium composition: stitch the screenshot into the real iPhone device
+    # frame (frameit's frame PNG) and place it large under a bold header; iPad is
+    # a large bezel-less landscape screen with a bold header. (Plain frameit
+    # shrinks the tall device under the title and leaves big dead margins.)
+    sh("python3", File.expand_path("frame_assets/compose_shots.py", __dir__), ss)
+    # Build the HTML gallery (screenshots/index.html) for review; CI uploads it
+    # inside the screenshots artifact.
+    sh("python3", File.expand_path("frame_assets/generate_preview.py", __dir__), ss)
+    UI.message("Framed screenshots + gallery written")
+  end
+
+  desc "Upload the captured screenshots to the com.cmux.app App Store listing"
+  desc "Screenshots only: does not touch the binary, metadata, or version state."
+  lane :upload_screenshots do
+    deliver(
+      api_key: asc_api_key,
+      app_identifier: "com.cmux.app",
+      screenshots_path: "./fastlane/screenshots",
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_app_version_update: true,
+      overwrite_screenshots: true,
+      run_precheck_before_submit: false,
+      force: true # non-interactive
+    )
+  end
+end
+
+# Resolve an App Store Connect API key from env (CI / agents) or the repo-local
+# plist used by ios/scripts. Mirrors the resolution in upload-testflight.sh.
+def asc_api_key
+  # Accept both the fastlane-style names (ASC_API_*) and the names used by the
+  # machine-wide secret store ~/.secrets/cmux-appstoreconnect.env
+  # (ASC_KEY_ID / ASC_ISSUER_ID / ASC_PRIVATE_KEY_PATH).
+  key_id = ENV["ASC_API_KEY_ID"] || ENV["ASC_KEY_ID"]
+  issuer_id = ENV["ASC_API_ISSUER_ID"] || ENV["ASC_ISSUER_ID"]
+  key_path = ENV["ASC_API_KEY_PATH"] || ENV["ASC_PRIVATE_KEY_PATH"]
+
+  if key_id.nil? || issuer_id.nil?
+    plist = File.expand_path("../Config/AppStoreConnect.local.plist", __dir__)
+    if File.exist?(plist)
+      require "plist"
+      data = Plist.parse_xml(plist) || {}
+      key_id ||= data["ASC_API_KEY_ID"]
+      issuer_id ||= data["ASC_API_ISSUER_ID"]
+      key_path ||= data["ASC_API_KEY_PATH"]
+    end
+  end
+
+  key_path ||= File.expand_path("~/.appstoreconnect/private_keys/AuthKey_#{key_id}.p8") if key_id
+  UI.user_error!("App Store Connect API key not found (set ASC_API_KEY_ID/ASC_API_ISSUER_ID/ASC_API_KEY_PATH)") unless key_id && issuer_id && key_path && File.exist?(key_path)
+
+  app_store_connect_api_key(
+    key_id: key_id,
+    issuer_id: issuer_id,
+    key_filepath: key_path,
+    in_house: false
+  )
+end

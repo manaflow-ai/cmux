@@ -1,0 +1,5 @@
+# fastlane run artifacts (screenshots are uploaded to App Store Connect, not committed)
+screenshots/
+report.xml
+README.md
+test_output/

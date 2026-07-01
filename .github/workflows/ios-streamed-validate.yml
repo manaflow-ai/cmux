@@ -1,0 +1,310 @@
+name: iOS streamed-screenshot CI validation
+
+# Validates the REAL Mac-streamed screenshot pipeline headless on a Blacksmith
+# macOS runner: stand up the dev web backend (local Postgres + Next.js), build +
+# run the desktop cmux Mac app, pair an iOS simulator to it, and capture the live
+# streamed terminal. Proves the pipeline works in CI before wiring it into the
+# App Store screenshot flow.
+#
+# Backend: the DEBUG build signs into localhost:3000 + the dev Stack project, so
+# we run the dev web app locally on the runner (no prod, no email verification).
+# The dev secret bundle (Stack keys etc., dogfood creds swapped to a DEDICATED CI
+# test account) is provided as CMUXTERM_DEV_ENV_B64.
+on:
+  workflow_dispatch:
+    inputs:
+      ref: { description: Branch or SHA, required: false, default: "" }
+  push:
+    branches: [feat-ios-appstore-prod-lane]
+    paths: [".github/workflows/ios-streamed-validate.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    # Blacksmith macOS-26 (Xcode 26 / iOS 26 sims). Pinned directly rather than
+    # via vars.MACOS_RUNNER_IOS: that repo var currently routes the iOS lane to a
+    # Depot macOS image whose default Xcode is 16.4, under which cmux's iOS
+    # targets fail to compile (Swift 6 actor-isolation + interpolation errors)
+    # and the iPhone 17 sim does not exist. Blacksmith macos-26 ships Xcode 26.
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 120
+    env:
+      CMUX_PORT: "3000"
+      # GhosttyKit comes prebuilt; skip the ghostty CLI helper zig build.
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+      # Web env required by web/app/env.ts but unused by sign-in/pairing.
+      RESEND_API_KEY: "ci-dummy"
+      CMUX_FEEDBACK_FROM_EMAIL: "ci@cmux.com"
+      CMUX_FEEDBACK_RATE_LIMIT_ID: "ci-dummy"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode
+        # Canonical fleet selector: ranks by macOS SDK version (picks 26.x over
+        # the old /Applications/Xcode.app 16.x symlink) and aligns the
+        # xcode-select default. cmux's iOS + macOS targets need the Xcode 26
+        # toolchain.
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Ensure iOS simulator runtime
+        run: xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
+
+      - name: Provision GhosttyKit
+        # Prefer the SHA-pinned prebuilt xcframework (the path ci.yml/reload-build
+        # use); fall back to a local build only if the prebuilt is unavailable.
+        run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+
+      - name: Install tools (bun, idb, postgres)
+        run: |
+          set -euo pipefail
+          command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash
+          command -v postgres >/dev/null 2>&1 || brew install postgresql@16 || true
+          # idb_companion lives in the facebook/fb tap, not core (bare
+          # "idb-companion" => "No available formula"). The python `idb` client
+          # auto-spawns it from the hardcoded /usr/local/bin/idb_companion, but
+          # arm64 brew installs to /opt/homebrew/bin, so symlink it there.
+          command -v idb_companion >/dev/null 2>&1 || brew install facebook/fb/idb-companion || true
+          COMP="$(command -v idb_companion || true)"
+          if [ -n "$COMP" ] && [ ! -e /usr/local/bin/idb_companion ]; then
+            sudo mkdir -p /usr/local/bin && sudo ln -sf "$COMP" /usr/local/bin/idb_companion || \
+              { mkdir -p /usr/local/bin && ln -sf "$COMP" /usr/local/bin/idb_companion; } || true
+          fi
+          echo "idb_companion: ${COMP:-<not found>} ; /usr/local/bin symlink: $(ls -l /usr/local/bin/idb_companion 2>/dev/null || echo none)"
+          # fb-idb (the `idb` CLI) needs a Python it supports; the runner's default
+          # python3 may be too new (3.14). Install it into a dedicated venv on a
+          # pinned Python and put that venv's bin on PATH for later steps, so `idb`
+          # resolves deterministically regardless of the system python.
+          brew install python@3.12 || true
+          PY312="$(brew --prefix python@3.12 2>/dev/null)/bin/python3.12"
+          [ -x "$PY312" ] || PY312="$(command -v python3.12 || true)"
+          [ -x "$PY312" ] || PY312="$(command -v python3.11 || true)"
+          [ -x "$PY312" ] || PY312="python3"
+          echo "using python for fb-idb: $PY312 ($($PY312 --version 2>&1))"
+          "$PY312" -m venv /tmp/idbvenv
+          /tmp/idbvenv/bin/pip install --quiet --upgrade pip
+          /tmp/idbvenv/bin/pip install --quiet fb-idb
+          echo "/tmp/idbvenv/bin" >> "$GITHUB_PATH"
+          /tmp/idbvenv/bin/idb --version || true
+
+      - name: Materialize dev secret bundle
+        env:
+          CMUXTERM_DEV_ENV_B64: ${{ secrets.CMUXTERM_DEV_ENV_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CMUXTERM_DEV_ENV_B64:-}" ]; then
+            echo "::error::CMUXTERM_DEV_ENV_B64 secret missing (dev Stack bundle + dedicated CI account)." >&2; exit 1
+          fi
+          mkdir -p "$HOME/.secrets"
+          printf '%s' "$CMUXTERM_DEV_ENV_B64" | base64 --decode > "$HOME/.secrets/cmuxterm-dev.env"
+          chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
+
+      - name: Stand up dev web backend (native Postgres + Next.js)
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.bun/bin:/opt/homebrew/opt/postgresql@16/bin:$PATH"
+          # Blacksmith macOS runners have no Docker, so run NATIVE Postgres on the
+          # port/user/db db-local.sh would use (cmux:cmux@localhost:13000/cmux for
+          # CMUX_PORT=3000 + offset 10000), then apply migrations with drizzle.
+          export PGDATA=/tmp/cmuxpg PGPORT=13000
+          rm -rf "$PGDATA"; mkdir -p "$PGDATA"
+          initdb -U cmux -A trust "$PGDATA" >/dev/null
+          pg_ctl -D "$PGDATA" -o "-p $PGPORT" -l /tmp/pg.log -w start
+          createdb -h localhost -p "$PGPORT" -U cmux cmux
+          export DATABASE_URL="postgres://cmux:cmux@localhost:${PGPORT}/cmux"
+          export DIRECT_DATABASE_URL="$DATABASE_URL"
+          cd web && bun install
+          bunx drizzle-kit migrate --config drizzle.config.ts
+          # load dev secrets (Stack keys + dedicated CI account); keep our DB url
+          set -a; source scripts/load-dev-env.sh; set +a
+          export DATABASE_URL="postgres://cmux:cmux@localhost:${PGPORT}/cmux"
+          export DIRECT_DATABASE_URL="$DATABASE_URL"
+          # Run next dev directly (NOT `bun dev`/dev-local.sh, which call the
+          # Docker db-local.sh). Detach with nohup + disown (macOS has no setsid)
+          # so the server survives into later steps.
+          nohup bunx next dev --port 3000 > /tmp/webdev.log 2>&1 < /dev/null &
+          disown || true
+          for i in $(seq 1 90); do curl -fsS http://localhost:3000/ >/dev/null 2>&1 && break; sleep 4; done
+          curl -fsS http://localhost:3000/handler/sign-in >/dev/null || { echo "=== webdev.log ==="; cat /tmp/webdev.log; exit 1; }
+
+      - name: Build desktop Mac app (tag cistream)
+        # --swift-frontend-workaround disables AArch64 GlobalISel (the codegen
+        # path that produces the "undefined symbol: _abort/_free/..." link
+        # failure under Xcode 26); this is exactly how reload-build.yml builds the
+        # tagged dev app on the Blacksmith fleet.
+        run: ./scripts/reload.sh --tag cistream --swift-frontend-workaround
+
+      - name: Build + install iOS sim app (tag cistream)
+        # Same GlobalISel workaround as the Mac build: the iOS sim build forces
+        # -O/wholemodule, which hits the Xcode 26 codegen bug without it.
+        run: ./ios/scripts/reload.sh --tag cistream --simulator "iPhone 17 Pro Max" --no-attach --swift-frontend-workaround
+
+      - name: Install agent CLIs (claude, codex, opencode, pi)
+        # The streamed terminals run real agents on this runner. Install the CLIs
+        # and symlink them onto the default PATH: cmux workspace shells launch from
+        # the GUI Mac app and do NOT have ~/.bun/bin or ~/.local/bin on PATH (the
+        # earlier capture showed `zsh: command not found: opencode`), but they do
+        # have /usr/local/bin.
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.bun/bin:$PATH"
+          # Claude Code (authenticates in CI via CLAUDE_CODE_OAUTH_TOKEN).
+          curl -fsSL https://claude.ai/install.sh | bash || npm install -g @anthropic-ai/claude-code || true
+          # bun-global agents (package names verified from a working install).
+          command -v bun >/dev/null || curl -fsSL https://bun.sh/install | bash
+          export PATH="$HOME/.bun/bin:$PATH"
+          bun install -g opencode-ai @openai/codex @earendil-works/pi-coding-agent || true
+          sudo mkdir -p /usr/local/bin || mkdir -p /usr/local/bin || true
+          link() { [ -x "$2" ] && { sudo ln -sf "$2" "/usr/local/bin/$1" 2>/dev/null || ln -sf "$2" "/usr/local/bin/$1"; } || echo "warn: $1 not found at $2"; }
+          link claude   "$HOME/.local/bin/claude"
+          link opencode "$HOME/.bun/bin/opencode"
+          link codex    "$HOME/.bun/bin/codex"
+          link pi       "$HOME/.bun/bin/pi"
+          for a in claude opencode codex pi; do printf '%s: ' "$a"; command -v "$a" >/dev/null && { command -v "$a"; "$a" --version 2>&1 | head -1; } || echo MISSING; done
+          # Pre-seed claude config so the fresh-$HOME onboarding (theme picker) and
+          # the per-folder trust prompt don't block the headless run. The sandbox
+          # path is deterministic (capture-streamed uses /tmp/cmux-stream-<agent>).
+          # Trust both path spellings: macOS resolves /tmp -> /private/tmp, and
+          # claude keys the trust map by the realpath it sees (/private/tmp/...).
+          cat > "$HOME/.claude.json" <<'JSON'
+          {"hasCompletedOnboarding": true, "theme": "dark", "projects": {"/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}, "/private/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}}}
+          JSON
+          echo "seeded ~/.claude.json"
+          # Seed the recorded claude session into its on-disk store. Seed BOTH cwd
+          # encodings: macOS /tmp is a symlink to /private/tmp and claude may key
+          # the project dir by either the logical or the resolved path. The launch
+          # uses `claude --resume <id>` (opens the jsonl by id) rather than
+          # --continue (which needs the ~/.claude.json history index we don't seed).
+          for enc in -private-tmp-cmux-stream-claude -tmp-cmux-stream-claude; do
+            mkdir -p "$HOME/.claude/projects/$enc"
+            cp ios/fastlane/streamed-sessions/claude/*.jsonl "$HOME/.claude/projects/$enc/"
+          done
+          echo "seeded claude session(s): $(ls "$HOME/.claude/projects/-private-tmp-cmux-stream-claude/")"
+          # codex: drop the rollout jsonl into its dated sessions tree; resumed by id.
+          mkdir -p "$HOME/.codex/sessions/2026/06/30"
+          cp ios/fastlane/streamed-sessions/codex/*.jsonl "$HOME/.codex/sessions/2026/06/30/"
+          echo "seeded codex: $(ls "$HOME/.codex/sessions/2026/06/30/")"
+          # codex resume hits the "Sign in with ChatGPT" wall on the runner (no
+          # login), which blocks it from opening the recorded session. It only
+          # needs SOME auth present to proceed, and resume makes no API call, so a
+          # FAKE OpenAI credential lets codex authenticate "as itself" (the real
+          # openai/gpt-5 model from the recorded transcript renders), skip
+          # onboarding, and show NO DeepSeek anywhere. The key is never validated.
+          mkdir -p "$HOME/.codex"
+          cat > "$HOME/.codex/auth.json" <<'JSON'
+          {"OPENAI_API_KEY": "sk-ci-resume-only-unused", "auth_mode": "apikey"}
+          JSON
+          echo "wrote fake ~/.codex/auth.json (resume gate only, no API calls)"
+          # pi: cwd-keyed jsonl; seed both /tmp spellings; resumed by --session <uuid>.
+          for enc in --private-tmp-cmux-stream-pi-- --tmp-cmux-stream-pi--; do
+            mkdir -p "$HOME/.pi/agent/sessions/$enc"
+            cp ios/fastlane/streamed-sessions/pi/*.jsonl "$HOME/.pi/agent/sessions/$enc/"
+          done
+          echo "seeded pi: $(ls "$HOME/.pi/agent/sessions/--private-tmp-cmux-stream-pi--/")"
+          # pi: fake auth for the recorded provider (openai-codex / gpt-5.5) so it
+          # restores that model instead of falling back to another provider. Resume
+          # makes no API call; expires set far ahead so it never tries to refresh.
+          mkdir -p "$HOME/.pi/agent"
+          cat > "$HOME/.pi/agent/auth.json" <<'JSON'
+          {"openai-codex": {"type": "oauth", "access": "ci-fake-unused", "refresh": "ci-fake-unused", "expires": 4102444800000, "accountId": "ci"}}
+          JSON
+          echo "wrote fake ~/.pi/agent/auth.json (openai-codex)"
+          # opencode: sessions live in a sqlite DB; import the exported JSON.
+          opencode import ios/fastlane/streamed-sessions/opencode/opencode-session.json 2>&1 | tail -3 || echo "warn: opencode import failed"
+          # opencode: fake auth for the recorded provider (zai / glm-5.2) so it
+          # renders with that model, not a fallback. Resume makes no API call.
+          mkdir -p "$HOME/.local/share/opencode"
+          cat > "$HOME/.local/share/opencode/auth.json" <<'JSON'
+          {"zai": {"type": "api", "key": "ci-fake-unused"}}
+          JSON
+          echo "wrote fake opencode auth.json (zai)"
+
+      - name: Pair simulator + capture one streamed terminal
+        env:
+          # Dedicated CI screenshot account (NOT a personal account). dev-secrets
+          # resolution reads CMUX_DOGFOOD_STACK_* from the environment first, so
+          # mobile-dev-launch signs the device in with this account.
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          # Agent auth for the real streamed sessions. claude uses the OAuth token
+          # natively; codex/opencode/pi get FAKE per-provider auth (seeded below)
+          # so each resumes its own recorded model (no DeepSeek fallback).
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          export PATH="/tmp/idbvenv/bin:$HOME/.bun/bin:$PATH"
+          # Prereqs: idb on PATH + the web backend still serving sign-in/pairing.
+          command -v idb >/dev/null || { echo "::error::idb not on PATH"; exit 1; }
+          command -v idb_companion >/dev/null || [ -x /usr/local/bin/idb_companion ] || { echo "::error::idb_companion not installed (facebook/fb tap)"; exit 1; }
+          # Smoke-test the companion path the python client uses.
+          idb list-targets >/dev/null 2>&1 || echo "warning: idb list-targets failed (will retry in capture)"
+          curl -fsS http://localhost:3000/handler/sign-in >/dev/null || {
+            echo "::error::web backend not reachable from capture step"; cat /tmp/webdev.log || true; exit 1; }
+          SIM_ID="$(xcrun simctl list devices booted -j | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(x["udid"] for r in d["devices"].values() for x in r if "Pro Max" in x["name"]))')"
+          echo "sim: $SIM_ID"
+          xcrun simctl ui "$SIM_ID" appearance dark || true
+          # Launch the tagged Mac app FIRST: mobile-dev-launch --ensure-mac mints
+          # the pairing ticket from the running Mac app's pairing host, so it must
+          # already be up or the device lands signed-in-only (never paired, no
+          # workspaces to stream).
+          MAC_APP="$(ls -d "$HOME/Library/Developer/Xcode/DerivedData/cmux-cistream/Build/Products/Debug/"*.app 2>/dev/null | head -1)"
+          [ -n "$MAC_APP" ] || { echo "::error::tagged Mac app not found"; exit 1; }
+          # `open` launches the Mac app with launchd's environment, not this
+          # shell's, so agent terminals spawned by the app won't see step env vars.
+          # Push the agent auth into the GUI session env BEFORE launching so the
+          # workspace shells (and the agents they run) inherit it.
+          [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && launchctl setenv CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_CODE_OAUTH_TOKEN" || true
+          # The fresh CI runner boots in Light Mode, so cmux resolves a LIGHT
+          # terminal theme and streams a white background -> the phone shows white
+          # bands on unpainted cells. Force cmux to a dark appearance for the
+          # screenshots (temporary CI setup) BEFORE launch so it reads it at start.
+          # System-wide dark mode + the app's own appearance override, both best-effort.
+          defaults write com.cmuxterm.app.debug.cistream appearanceMode dark 2>/dev/null || true
+          defaults write -g AppleInterfaceStyle Dark 2>/dev/null || true
+          open "$MAC_APP"
+          for i in $(seq 1 60); do CMUX_TAG=cistream ./scripts/cmux-debug-cli.sh identify >/dev/null 2>&1 && break; sleep 2; done
+          CMUX_TAG=cistream ./scripts/cmux-debug-cli.sh identify >/dev/null 2>&1 || { echo "::error::tagged Mac app debug socket never came up"; exit 1; }
+          # Sign in + pair the device to the tagged Mac. --detach returns after
+          # launch (no --console-pty stdio attach, which would block the step).
+          ./scripts/mobile-dev-launch.sh --tag cistream --simulator-id "$SIM_ID" --ensure-mac --detach
+          # Let sign-in + pairing + the first stream frames settle.
+          sleep 45
+          mkdir -p /tmp/streamed-ci /tmp/streamed-ci/_diag
+          # Snapshot the device state right after pairing, before capture, so we
+          # can see whether it's the login screen, an empty workspace list, or a
+          # list missing the just-created workspace.
+          xcrun simctl io "$SIM_ID" screenshot /tmp/streamed-ci/_diag/after-pair.png || true
+          idb ui describe-all --udid "$SIM_ID" > /tmp/streamed-ci/_diag/after-pair-a11y.json 2>&1 || true
+          set +e
+          python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents claude,codex,opencode,pi --out /tmp/streamed-ci
+          CAP_RC=$?
+          set -e
+          # Post-capture device diagnostics (always), so a failure tells us the
+          # exact on-device state instead of guessing across CI iterations.
+          CMUX_TAG=cistream ./scripts/cmux-debug-cli.sh list-workspaces > /tmp/streamed-ci/_diag/mac-workspaces.txt 2>&1 || true
+          xcrun simctl io "$SIM_ID" screenshot /tmp/streamed-ci/_diag/post-capture.png || true
+          idb ui describe-all --udid "$SIM_ID" > /tmp/streamed-ci/_diag/post-capture-a11y.json 2>&1 || true
+          echo "=== captured files ==="; ls -laR /tmp/streamed-ci || true
+          # Assert on an AGENT shot at the top level (_diag/*.png are diagnostics).
+          ls /tmp/streamed-ci/*.png >/dev/null 2>&1 || { echo "::error::no streamed screenshot was captured (capture rc=$CAP_RC); see _diag artifacts"; exit 1; }
+
+      - name: Upload validation artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-streamed-validation
+          path: |
+            /tmp/streamed-ci
+            /tmp/webdev.log
+          if-no-files-found: warn
+          retention-days: 7
