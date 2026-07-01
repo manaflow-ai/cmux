@@ -167,6 +167,7 @@ final class ChatTranscriptUITableView: UITableView {
         indicatorInsets.bottom = resolvedOverlayBottomInset
         verticalScrollIndicatorInsets = indicatorInsets
         if isUserScrollMomentumActive {
+            // Preserve UIKit's live inset compensation while drag/deceleration owns the offset.
             recordCurrentViewport()
             isViewportInsetsExternallyDriven = false
             return
