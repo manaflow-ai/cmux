@@ -868,10 +868,9 @@ final class cmuxUITests: XCTestCase {
             80,
             "Interrupted show-dismiss must capture partially visible keyboard motion, not only down state. samples=\(animationSamples)"
         )
-        guard let keyboardDown = animationSamples.reversed().first(where: {
-            isKeyboardDownClipSettled($0.metrics)
-                && abs($0.metrics.frameMaxY - beforeKeyboard.frameMaxY) < 8
-        })?.metrics else {
+        guard let keyboardDown = animationSamples.last?.metrics,
+              isKeyboardDownClipSettled(keyboardDown),
+              abs(keyboardDown.frameMaxY - beforeKeyboard.frameMaxY) < 8 else {
             XCTFail("Interrupted show-dismiss evidence must end with the keyboard down. samples=\(animationSamples)")
             return
         }
@@ -1011,9 +1010,8 @@ final class cmuxUITests: XCTestCase {
                 scrollPosition: refocusCase.label,
                 minimumDistinctFrameBuckets: 2
             )
-            guard let refocused = interruptedSamples.reversed().first(where: {
-                isKeyboardUpClipSettled($0.metrics)
-            })?.metrics else {
+            guard let refocused = interruptedSamples.last?.metrics,
+                  isKeyboardUpClipSettled(refocused) else {
                 XCTFail("\(refocusCase.label) evidence must end with the keyboard visible. samples=\(interruptedSamples)")
                 return
             }
@@ -1091,9 +1089,8 @@ final class cmuxUITests: XCTestCase {
             // intentionally asserts the observed transition events and final
             // attachment/pinning. Dense in-flight frames come from the external
             // simulator recording used for dogfood evidence.
-            guard let refocused = samples.reversed().first(where: {
-                isKeyboardUpClipSettled($0.metrics)
-            })?.metrics else {
+            guard let refocused = samples.last?.metrics,
+                  isKeyboardUpClipSettled(refocused) else {
                 XCTFail("\(refocusCase.label) evidence must end with the keyboard visible. samples=\(samples)")
                 return
             }
@@ -2639,7 +2636,7 @@ final class cmuxUITests: XCTestCase {
 
     private func isKeyboardDownClipSettled(_ metrics: ChatTranscriptMetrics) -> Bool {
         abs(metrics.keyboardOverlap) <= 0.5
-            && metrics.presentationFrameMaxY >= metrics.effectiveFrameMaxY - 6
+            && metrics.presentationFrameMaxY >= metrics.frameMaxY - 6
     }
 
     private struct TranscriptMetricsWaitError: Error, CustomStringConvertible {
@@ -2825,8 +2822,7 @@ final class cmuxUITests: XCTestCase {
         var didRequestDismiss = false
         while Date() < deadline {
             if let metrics = transcriptMetrics(from: table),
-               abs(metrics.keyboardOverlap) <= 0.5,
-               metrics.presentationFrameMaxY >= metrics.effectiveFrameMaxY - 6 {
+               isKeyboardDownClipSettled(metrics) {
                 return true
             }
             if !didRequestDismiss {
