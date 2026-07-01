@@ -77,9 +77,10 @@ function decodeStackBase32Text(value: string): string | null {
 }
 
 function stackCustomRefreshCookieDomain(name: string, projectId: string): string | null {
+  const cookieName = name.startsWith("__Secure-") ? name.slice("__Secure-".length) : name;
   const prefix = `stack-refresh-${projectId}${STACK_CUSTOM_REFRESH_COOKIE_MARKER}`;
-  if (!name.startsWith(prefix)) return null;
-  return decodeStackBase32Text(name.slice(prefix.length));
+  if (!cookieName.startsWith(prefix)) return null;
+  return decodeStackBase32Text(cookieName.slice(prefix.length));
 }
 
 function clearStackAuthCookies(response: NextResponse, request: NextRequest, projectId: string) {

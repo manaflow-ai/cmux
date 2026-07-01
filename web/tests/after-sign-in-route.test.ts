@@ -156,7 +156,7 @@ describe("sign out and sign back in", () => {
         headers: {
           ...(includeDefaultFetchSite ? { "sec-fetch-site": "same-origin" } : {}),
           cookie:
-            "stack-access=access-token; __Host-stack-access=secure-access-token; stack-refresh-test-project=refresh-token; __Host-stack-refresh-test-project=host-refresh-token; __Secure-stack-refresh-test-project=secure-refresh-token; stack-refresh-test-project--default=branch-refresh-token; __Host-stack-refresh-test-project--default=secure-branch-refresh-token; stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=custom-refresh-token; unrelated=value",
+            "stack-access=access-token; __Host-stack-access=secure-access-token; stack-refresh-test-project=refresh-token; __Host-stack-refresh-test-project=host-refresh-token; __Secure-stack-refresh-test-project=secure-refresh-token; stack-refresh-test-project--default=branch-refresh-token; __Host-stack-refresh-test-project--default=secure-branch-refresh-token; stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=custom-refresh-token; __Secure-stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=secure-custom-refresh-token; unrelated=value",
           ...headers,
         },
       }
@@ -185,6 +185,9 @@ describe("sign out and sign back in", () => {
     expect(setCookie).toContain("__Host-stack-refresh-test-project--default=;");
     expect(setCookie).toMatch(
       /stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=;[^,]*Domain=example\.com/
+    );
+    expect(setCookie).toMatch(
+      /__Secure-stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=;[^,]*Domain=example\.com/
     );
     expect(setCookie).not.toContain("unrelated=;");
   });
