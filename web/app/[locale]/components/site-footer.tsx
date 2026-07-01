@@ -14,6 +14,7 @@ export async function SiteFooter() {
     {
       heading: t("product"),
       links: [
+        { label: t("pricing"), href: "/pricing" },
         { label: t("blog"), href: "/blog" },
         { label: t("community"), href: "/community" },
         { label: t("nightly"), href: "/nightly" },

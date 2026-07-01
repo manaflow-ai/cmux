@@ -48,6 +48,7 @@
     "blog": "ブログ",
     "changelog": "変更履歴",
     "community": "コミュニティ",
+    "pricing": "料金",
     "github": "GitHub"
   },
   "footer": {
@@ -55,6 +56,7 @@
     "resources": "リソース",
     "legal": "法的事項",
     "social": "ソーシャル",
+    "pricing": "料金",
     "blog": "ブログ",
     "community": "コミュニティ",
     "docs": "ドキュメント",
@@ -72,6 +74,278 @@
     "assets": "アセット",
     "openSource": "オープンソース",
     "guides": "ガイド"
+  },
+  "pricing": {
+    "metaTitle": "料金 — cmux",
+    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、モデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "title": "料金",
+    "perMonth": "/月",
+    "perUserMonth": "/ユーザー/月",
+    "free": {
+      "name": "Free",
+      "price": "$0",
+      "cta": "Mac版をダウンロード",
+      "featuresLead": "含まれるもの:",
+      "features": [
+        "Ghostty 上に構築された、完全オープンソースのネイティブ macOS ターミナル",
+        "Claude Code、Codex、Gemini など任意の CLI エージェントを自分のキーで実行",
+        "縦型タブ、ワークスペース、分割ペイン、完了通知",
+        "ブラウザパネル、スクリプト可能なソケット API、カスタムスキル",
+        "ローカルのセッション履歴と Cloud VM の1回限りのトライアル",
+        "Discord と GitHub でのコミュニティサポート"
+      ]
+    },
+    "pro": {
+      "name": "Pro",
+      "price": "$30",
+      "cta": "Pro を入手",
+      "featuresLead": "Free のすべてに加えて:",
+      "features": [
+        "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
+        "4 vCPU / 16 GB の VM で毎月20時間のアクティブ計算時間、超過分は従量課金",
+        "モデルゲートウェイ: 複数プロバイダーへのルーティングと使用量・コスト分析",
+        "iOS アプリから Mac に接続するホスト型ネットワーク、Tailscale の設定不要",
+        "cmux iOS アプリとメールサポート"
+      ],
+      "vaultFeatures": [
+        "cmux Vault: すべてのセッションをクラウドにバックアップし検索可能に",
+        "すべてのマシンをまたいだ無制限のセッション履歴"
+      ]
+    },
+    "team": {
+      "name": "Team",
+      "price": "$35",
+      "cta": "チームを始める",
+      "featuresLead": "Pro のすべてに加えて:",
+      "features": [
+        "一元請求: チーム全体をまとめて1つの請求書に",
+        "シート管理: メンバーをいつでも追加・削除",
+        "チームで共有する Cloud VM のプール計算時間",
+        "共有のチームルール、設定、ワークスペーステンプレート",
+        "メンバーごとの使用量・コスト分析付きのチーム全体モデルゲートウェイ",
+        "一元管理と優先メールサポート"
+      ]
+    },
+    "enterprise": {
+      "name": "Enterprise",
+      "price": "カスタム",
+      "cta": "営業に問い合わせ",
+      "featuresLead": "Team のすべてに加えて:",
+      "features": [
+        "セルフホストのクラウド実行とネットワーク、ネットワーク外に何も出ません",
+        "組織全体の使用量・コスト分析を備えたセルフホストのモデルゲートウェイ",
+        "SSO と SAML サインイン",
+        "一元管理と共有チームルール",
+        "ターミナルセッション、ネットワークリクエスト、ブラウザ操作の監査ログ",
+        "コミット型のクラウド利用とボリューム価格",
+        "SOC 2 と SLA、専任サポート付き"
+      ]
+    },
+    "compare": {
+      "title": "プラン比較",
+      "rows": [
+        {
+          "label": "ネイティブ macOS ターミナル、オープンソース",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "自分のキーで使うローカル CLI エージェント",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "縦型タブ、分割、通知、ソケット API",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "セッション履歴",
+          "free": "ローカル",
+          "pro": "無制限",
+          "team": "無制限",
+          "enterprise": "無制限",
+          "vault": true
+        },
+        {
+          "label": "cmux Vault: クラウドセッションバックアップ",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "すべてのセッションを横断検索",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "Cloud VM 上のクラウドエージェント",
+          "free": "VM 1台トライアル",
+          "pro": "月20時間、以降従量課金",
+          "team": "プール制・従量課金",
+          "enterprise": "コミット利用"
+        },
+        {
+          "label": "同時 Cloud VM 数",
+          "free": "1",
+          "pro": "従量制",
+          "team": "従量制",
+          "enterprise": "カスタム"
+        },
+        {
+          "label": "モデルゲートウェイ: ルーティングと使用量分析",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "iOS アプリ",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Mac に接続するネットワーク",
+          "free": "持ち込み",
+          "pro": "ホスト型",
+          "team": "ホスト型",
+          "enterprise": "セルフホスト"
+        },
+        {
+          "label": "一元請求とシート管理",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "SSO と SAML サインイン",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "セルフホストとエアギャップ実行",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "一元管理と共有チームルール",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "監査ログ: セッション、ネットワーク、ブラウザ",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "コミット利用とボリューム価格",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "SOC 2 と SLA",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "サポート",
+          "free": "コミュニティ",
+          "pro": "メール",
+          "team": "優先",
+          "enterprise": "専任"
+        }
+      ]
+    },
+    "sizes": {
+      "title": "Cloud VM サイズ",
+      "body": "エージェントごとに VM サイズを選べます。アクティブな計算時間に対して課金され、アイドルの VM は自動的に一時停止します。Pro には 4 vCPU / 16 GB サイズで毎月20時間が含まれます。",
+      "colSize": "サイズ",
+      "colUse": "おすすめ用途",
+      "colRate": "アクティブ1時間あたり",
+      "rows": [
+        {
+          "size": "2 vCPU / 8 GB",
+          "use": "軽いエージェントと短いタスク",
+          "rate": "$0.20"
+        },
+        {
+          "size": "4 vCPU / 16 GB",
+          "use": "標準的な開発",
+          "rate": "$0.40"
+        },
+        {
+          "size": "8 vCPU / 32 GB",
+          "use": "重いビルドと並列エージェント",
+          "rate": "$0.80"
+        }
+      ]
+    },
+    "help": "ご質問は <discord>Discord</discord> へ、<github>GitHub の Issue</github> を立てるか、<email>メール</email>でどうぞ。",
+    "faq": {
+      "title": "よくある質問",
+      "items": [
+        {
+          "q": "ターミナルは本当に無料ですか?",
+          "a": "はい。macOS アプリはオープンソースで永久に無料です。ローカルエージェントは自分の API キーで動き、追加費用はかかりません。料金が発生するのは Cloud VM でエージェントを実行したときだけです。"
+        },
+        {
+          "q": "Cloud VM とは何ですか?",
+          "a": "エージェントがリポジトリをクローンし、コマンドを実行し、プルリクエストをクラウド上で開くためのリモート Linux サンドボックスで、お使いのマシンには触れません。並列作業、バックグラウンドジョブ、PR レビューに対応します。アイドルの VM は自動的に一時停止するため、課金されるのはアクティブな計算時間だけです。"
+        },
+        {
+          "q": "cmux Vault とは何ですか?",
+          "a": "Vault はすべてのターミナルセッションをクラウドにバックアップし、それらを横断検索できるようにします。マシンをまたいだ無制限の履歴を保持します。Free では履歴は各マシンのローカルに残り、Pro でクラウドバックアップと検索が追加されます。",
+          "vault": true
+        },
+        {
+          "q": "モデルゲートウェイとは何ですか?",
+          "a": "各リクエストを複数プロバイダーの強力なモデルにルーティングし、使用量とコストの分析を1か所で提供するホスト型ゲートウェイです。自分のプロバイダーキーを持ち込めます。Enterprise では組織全体の管理のためにゲートウェイをセルフホストできます。"
+        },
+        {
+          "q": "iOS アプリにまだ Tailscale が必要ですか?",
+          "a": "どのプランでも Tailscale などの自前のネットワークを持ち込めます。Pro ではホスト型ネットワークが追加され、iOS アプリが設定なしで Mac に接続できます。Enterprise ではセルフホストも可能です。"
+        },
+        {
+          "q": "課金はどのように行われますか?",
+          "a": "Pro は月額 $30 で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます(上記の Cloud VM サイズを参照)。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
+        },
+        {
+          "q": "クラウドをセルフホストできますか?",
+          "a": "はい、Enterprise で可能です。エージェントの実行を自社インフラ上で、または完全なエアギャップで動かせるため、ソースコードがネットワーク外に出ることはありません。"
+        },
+        {
+          "q": "チームプランはありますか?",
+          "a": "はい。Team は1ユーザーあたり月額 $35 です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
+        }
+      ]
+    }
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",

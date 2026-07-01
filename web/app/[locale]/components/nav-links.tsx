@@ -32,6 +32,12 @@ export function NavLinks() {
       >
         {t("community")}
       </Link>
+      <Link
+        href="/pricing"
+        className="hover:text-foreground transition-colors"
+      >
+        {t("pricing")}
+      </Link>
       <a
         href="https://github.com/manaflow-ai/cmux"
         target="_blank"
