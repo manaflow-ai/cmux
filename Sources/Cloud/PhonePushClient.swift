@@ -30,6 +30,9 @@ final class PhonePushClient {
     static let shared = PhonePushClient()
 
     private let session: URLSession = .shared
+    /// Keeps the forward POST from silently becoming a body-less GET on a
+    /// same-origin redirect (see ``RedirectMethodPreservingDelegate``).
+    private let redirectDelegate = RedirectMethodPreservingDelegate()
     /// Injected once via `configure(auth:)` at app startup. Forwarding is a
     /// best-effort path; until configured, sends are silently skipped.
     private var auth: AuthCoordinator?
@@ -262,7 +265,13 @@ final class PhonePushClient {
         req.httpBody = try? JSONSerialization.data(withJSONObject: bodyDict, options: [])
 
         do {
-            let (_, response) = try await session.data(for: req)
+            // Route through the redirect-preserving delegate so a canonicalizing
+            // 301/302 keeps this POST a POST instead of silently becoming a
+            // body-less GET that delivers nothing to the phone (#6270).
+            let (_, response) = try await session.data(
+                for: req,
+                delegate: redirectDelegate
+            )
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 NSLog("cmux.phonepush failed kind=%@ status=%d", payload.kind.rawValue, http.statusCode)
             }
