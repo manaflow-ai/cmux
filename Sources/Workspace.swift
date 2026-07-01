@@ -5252,7 +5252,25 @@ final class Workspace: Identifiable, ObservableObject {
         return resolved
     }
 
+    /// One sidebar directory row: the text to render and whether it is a
+    /// reporter-supplied display label. Labels are opaque text and must not go
+    /// through path shortening or `~` abbreviation.
+    struct SidebarDisplayedDirectory: Equatable {
+        let text: String
+        let isDisplayLabel: Bool
+    }
+
     func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID], includeFallback: Bool = true) -> [String] {
+        sidebarDisplayedDirectoriesInDisplayOrder(
+            orderedPanelIds: orderedPanelIds,
+            includeFallback: includeFallback
+        ).map(\.text)
+    }
+
+    func sidebarDisplayedDirectoriesInDisplayOrder(
+        orderedPanelIds: [UUID],
+        includeFallback: Bool = true
+    ) -> [SidebarDisplayedDirectory] {
         sidebarOrderedUniqueDirectories(
             orderedPanelIds: orderedPanelIds,
             includeFallback: includeFallback,
@@ -5270,7 +5288,7 @@ final class Workspace: Identifiable, ObservableObject {
             orderedPanelIds: orderedPanelIds,
             includeFallback: includeFallback,
             preferDisplayLabels: false
-        )
+        ).map(\.text)
     }
 
     func sidebarFilesystemDirectoriesInDisplayOrder() -> [String] {
@@ -5285,14 +5303,13 @@ final class Workspace: Identifiable, ObservableObject {
         orderedPanelIds: [UUID],
         includeFallback: Bool,
         preferDisplayLabels: Bool
-    ) -> [String] {
+    ) -> [SidebarDisplayedDirectory] {
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
         let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
             resolvedPanelDirectories: resolvedDirectories
         )
-        var ordered: [String] = []
+        var ordered: [SidebarDisplayedDirectory] = []
         var orderedIndexByKey: [String: Int] = [:]
-        var labeledKeys: Set<String> = []
 
         for panelId in orderedPanelIds {
             guard let directory = resolvedDirectories[panelId],
@@ -5306,19 +5323,20 @@ final class Workspace: Identifiable, ObservableObject {
             if let existingIndex = orderedIndexByKey[key] {
                 // A label wins over an unlabeled path spelling for a shared
                 // directory; the first reported label wins over later ones.
-                if let displayLabel, !labeledKeys.contains(key) {
-                    ordered[existingIndex] = displayLabel
-                    labeledKeys.insert(key)
+                if let displayLabel, !ordered[existingIndex].isDisplayLabel {
+                    ordered[existingIndex] = SidebarDisplayedDirectory(text: displayLabel, isDisplayLabel: true)
                 }
                 continue
             }
             orderedIndexByKey[key] = ordered.count
-            if displayLabel != nil { labeledKeys.insert(key) }
-            ordered.append(displayLabel ?? directory)
+            ordered.append(SidebarDisplayedDirectory(
+                text: displayLabel ?? directory,
+                isDisplayLabel: displayLabel != nil
+            ))
         }
 
         if includeFallback, ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
-            return [fallbackDirectory]
+            return [SidebarDisplayedDirectory(text: fallbackDirectory, isDisplayLabel: false)]
         }
 
         return ordered

@@ -323,8 +323,18 @@ final class SidebarBranchOrderingTests: XCTestCase {
         XCTAssertEqual(
             rows,
             [
-                SidebarBranchOrdering.BranchDirectoryEntry(branch: nil, isDirty: false, directory: "Repo A  main"),
-                SidebarBranchOrdering.BranchDirectoryEntry(branch: nil, isDirty: false, directory: "Repo B  main")
+                SidebarBranchOrdering.BranchDirectoryEntry(
+                    branch: nil,
+                    isDirty: false,
+                    directory: "Repo A  main",
+                    directoryIsDisplayLabel: true
+                ),
+                SidebarBranchOrdering.BranchDirectoryEntry(
+                    branch: nil,
+                    isDirty: false,
+                    directory: "Repo B  main",
+                    directoryIsDisplayLabel: true
+                )
             ]
         )
     }
@@ -350,7 +360,14 @@ final class SidebarBranchOrderingTests: XCTestCase {
 
         XCTAssertEqual(
             rows,
-            [SidebarBranchOrdering.BranchDirectoryEntry(branch: nil, isDirty: false, directory: "Repo A  main")]
+            [
+                SidebarBranchOrdering.BranchDirectoryEntry(
+                    branch: nil,
+                    isDirty: false,
+                    directory: "Repo A  main",
+                    directoryIsDisplayLabel: true
+                )
+            ]
         )
     }
 

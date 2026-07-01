@@ -6768,6 +6768,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             ["Shared  main"]
         )
         XCTAssertEqual(
+            workspace.sidebarDisplayedDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            [Workspace.SidebarDisplayedDirectory(text: "Shared  main", isDisplayLabel: true)]
+        )
+        XCTAssertEqual(
             workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
             [sharedDirectory]
         )

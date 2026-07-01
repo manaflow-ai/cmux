@@ -29,12 +29,17 @@ public struct SidebarBranchOrdering: Sendable {
         public let isDirty: Bool
         /// The displayed directory (tilde-form preferred), if known.
         public let directory: String?
+        /// Whether `directory` is a reporter-supplied display label rather
+        /// than a path spelling. Labels are opaque text and must not go
+        /// through path shortening or `~` abbreviation.
+        public let directoryIsDisplayLabel: Bool
 
         /// Creates a branch+directory row.
-        public init(branch: String?, isDirty: Bool, directory: String?) {
+        public init(branch: String?, isDirty: Bool, directory: String?, directoryIsDisplayLabel: Bool = false) {
             self.branch = branch
             self.isDirty = isDirty
             self.directory = directory
+            self.directoryIsDisplayLabel = directoryIsDisplayLabel
         }
     }
 
@@ -410,7 +415,8 @@ public struct SidebarBranchOrdering: Sendable {
             return BranchDirectoryEntry(
                 branch: entry.branch,
                 isDirty: entry.isDirty,
-                directory: entry.directory
+                directory: entry.directory,
+                directoryIsDisplayLabel: entry.directoryIsDisplayLabel
             )
         }
     }
