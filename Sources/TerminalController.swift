@@ -5324,12 +5324,13 @@ class TerminalController {
         // rather than silently acting on one of them. (The legacy alias pins no
         // specific Dock, so it never conflicts.)
         if windowDockSelectorsConflict(
+            requestedWorkspaceID: requestedWorkspaceID,
             requestedWindowID: v2UUID(params, "window_id"),
             dockByOwner: dockByOwner,
             dockBySurface: dockBySurface,
             dockByPane: dockByPane
         ) {
-            return (true, nil, .err(code: "invalid_params", message: "Conflicting Dock routing selectors", data: nil))
+            return (true, nil, .err(code: "invalid_params", message: dockConflictingRoutingSelectorsMessage(), data: nil))
         }
         guard let dock = dockBySurface ?? dockByPane ?? dockByOwner
                 ?? AppDelegate.shared?.existingWindowDock(for: tabManager) else {
@@ -5395,12 +5396,13 @@ class TerminalController {
         // rather than silently acting on one of them. (The legacy alias pins no
         // specific Dock, so it never conflicts.)
         if windowDockSelectorsConflict(
+            requestedWorkspaceID: requestedWorkspaceID,
             requestedWindowID: v2UUID(params, "window_id"),
             dockByOwner: dockByOwner,
             dockBySurface: dockBySurface,
             dockByPane: dockByPane
         ) {
-            return (true, nil, .err(code: "invalid_params", message: "Conflicting Dock routing selectors", data: nil))
+            return (true, nil, .err(code: "invalid_params", message: dockConflictingRoutingSelectorsMessage(), data: nil))
         }
         let dock = dockBySurface
             ?? dockByPane
@@ -5414,8 +5416,13 @@ class TerminalController {
 
     /// Whether explicit Dock selectors name more than one distinct window's
     /// Dock: owner `workspace_id` vs surface vs pane vs an explicit `window_id`
-    /// (a window Dock's owner id IS its window id).
+    /// (a window Dock's owner id IS its window id). A `workspace_id` that names
+    /// a NON-Dock scope (neither the legacy alias nor a Dock owner) likewise
+    /// contradicts a Dock resolved from surface/pane selectors. Browser CLI
+    /// commands never inject the caller's workspace context (unlike e.g.
+    /// `close-surface`), so this stays fail-closed without breaking the CLI.
     private func windowDockSelectorsConflict(
+        requestedWorkspaceID: UUID?,
         requestedWindowID: UUID?,
         dockByOwner: DockSplitStore?,
         dockBySurface: DockSplitStore?,
@@ -5425,6 +5432,11 @@ class TerminalController {
         guard let first = resolved.first else { return false }
         if resolved.contains(where: { $0 !== first }) { return true }
         if let requestedWindowID, first.workspaceId != requestedWindowID { return true }
+        if let requestedWorkspaceID,
+           requestedWorkspaceID != AppDelegate.windowDockAliasWorkspaceId,
+           dockByOwner == nil {
+            return true
+        }
         return false
     }
 

@@ -22,6 +22,10 @@ extension TerminalController {
         String(localized: "dock.error.unavailable", defaultValue: "Dock placement is disabled")
     }
 
+    func dockConflictingRoutingSelectorsMessage() -> String {
+        String(localized: "dock.error.conflictingRoutingSelectors", defaultValue: "Conflicting Dock routing selectors")
+    }
+
     /// Creates a surface (tab) in the routed window's right-sidebar Dock. The
     /// Dock hosts terminal and browser surfaces only; agent-session is unsupported.
     func dockSurfaceCreate(

@@ -778,6 +778,14 @@ struct DockSocketLifecycleTests {
             let conflictError = try #require(conflictEnvelope["error"] as? [String: Any])
             #expect(conflictError["message"] as? String == "Conflicting Dock routing selectors")
 
+            // A workspace_id naming a NON-Dock scope contradicts a Dock surface
+            // selector the same way.
+            let workspaceScopeConflict = try v2Envelope(method: "browser.tab.list", params: [
+                "workspace_id": dockWorkspace.id.uuidString,
+                "surface_id": otherDockSurfaceId.uuidString,
+            ])
+            #expect(workspaceScopeConflict["ok"] as? Bool == false)
+
             // Focusing a Dock surface by id targets its owning window even when
             // the caller's context resolved elsewhere; an explicit contradictory
             // window_id fails closed instead.
