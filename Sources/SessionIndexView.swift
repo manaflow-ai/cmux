@@ -605,8 +605,8 @@ private struct SessionRow: View, Equatable {
             .padding(.vertical, 5)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
-        .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: onResume)
+        .cmuxAppKitContextMenu {
+            sessionRowMenuElements(entry: entry, onResume: onResume)
         }
     }
 
@@ -659,63 +659,59 @@ private struct SessionRow: View, Equatable {
 
 // MARK: - Shared row actions
 
-/// Right-click menu items for any session row (full or popover). Built as a
-/// free `@ViewBuilder` so SessionRow and PopoverRow both attach the same set
+/// Right-click menu elements for any session row (full or popover). Built as a
+/// free function returning value-typed ``CmuxContextMenuElement``s so SessionRow
+/// and PopoverRow both attach the same set via ``View/cmuxAppKitContextMenu(_:)``
 /// without duplicating the button list or the action helpers.
-@ViewBuilder
-private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)?) -> some View {
+///
+/// Uses the AppKit `NSMenu` bridge instead of SwiftUI `.contextMenu` to avoid the
+/// per-attachment `ContextMenuResponder` retain cycle on these churny rows
+/// (https://github.com/manaflow-ai/cmux/issues/5953).
+@MainActor
+private func sessionRowMenuElements(
+    entry: SessionEntry,
+    onResume: ((SessionEntry) -> Void)?
+) -> [CmuxContextMenuElement] {
+    var elements: [CmuxContextMenuElement] = []
     if let onResume {
-        Button {
+        elements.append(.button(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab")) {
             onResume(entry)
-        } label: {
-            Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab"))
-        }
-        Divider()
+        })
+        elements.append(.separator)
     }
     if let url = entry.fileURL {
-        Button {
+        elements.append(.button(String(localized: "sessionIndex.row.open", defaultValue: "Open")) {
             NSWorkspace.shared.open(url)
-        } label: {
-            Text(String(localized: "sessionIndex.row.open", defaultValue: "Open"))
-        }
-        Button {
+        })
+        elements.append(.button(String(localized: "sessionIndex.row.reveal", defaultValue: "Reveal in Finder")) {
             NSWorkspace.shared.activateFileViewerSelecting([url])
-        } label: {
-            Text(String(localized: "sessionIndex.row.reveal", defaultValue: "Reveal in Finder"))
-        }
-        Divider()
-        Button {
+        })
+        elements.append(.separator)
+        elements.append(.button(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path")) {
             let pb = NSPasteboard.general
             pb.clearContents()
             pb.setString(url.path, forType: .string)
-        } label: {
-            Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
-        }
+        })
     }
     if let resumeCommand = entry.resumeCommand {
-        Button {
+        elements.append(.button(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command")) {
             let pb = NSPasteboard.general
             pb.clearContents()
             pb.setString(resumeCommand, forType: .string)
-        } label: {
-            Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
-        }
+        })
     }
     if let cwd = entry.cwd, !cwd.isEmpty {
-        Button {
+        elements.append(.button(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory")) {
             NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
-        } label: {
-            Text(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory"))
-        }
+        })
     }
     if let pr = entry.pullRequest, let url = URL(string: pr.url) {
-        Divider()
-        Button {
+        elements.append(.separator)
+        elements.append(.button(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request")) {
             NSWorkspace.shared.open(url)
-        } label: {
-            Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request"))
-        }
+        })
     }
+    return elements
 }
 
 // MARK: - Session transcript preview
@@ -2517,8 +2513,8 @@ private struct PopoverRow: View, Equatable {
             sessionDragItemProvider(for: entry)
         }
         .help(entry.cwdLabel ?? entry.displayTitle)
-        .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
+        .cmuxAppKitContextMenu {
+            sessionRowMenuElements(entry: entry, onResume: { _ in onActivate() })
         }
     }
 }
