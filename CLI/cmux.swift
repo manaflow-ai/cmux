@@ -5317,28 +5317,27 @@ struct CMUXCLI {
         // Build the routing params shared by all socket-backed subcommands.
         func buildRoutingParams(includeDefaultSurface: Bool = false) throws -> [String: Any] {
             var params: [String: Any] = [:]
+            // Resolve window/workspace first so an indexed `--surface` is looked
+            // up inside the requested scope, matching sibling commands.
+            let windowId = try windowOpt.flatMap { try normalizeWindowHandle($0, client: client) }
+            if let windowId { params["window_id"] = windowId }
+            let workspaceRaw = workspaceOpt
+                ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            var workspaceId: String?
+            if let workspaceRaw {
+                workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client)
+                if let workspaceId { params["workspace_id"] = workspaceId }
+            }
             // Only inherit the caller's ambient surface when no explicit
             // workspace/window was given. With `--workspace <other>`, the caller's
             // CMUX_SURFACE_ID belongs to a different workspace and the server would
             // reject it as sourceSurfaceNotFound.
             let surfaceRaw = surfaceOpt
                 ?? (includeDefaultSurface && windowOpt == nil && workspaceOpt == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            if let surfaceRaw {
-                if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
-                    params["surface_id"] = surface
-                }
-            }
-            let workspaceRaw = workspaceOpt
-                ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            if let workspaceRaw {
-                if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
-                    params["workspace_id"] = workspace
-                }
-            }
-            if let windowRaw = windowOpt {
-                if let window = try normalizeWindowHandle(windowRaw, client: client) {
-                    params["window_id"] = window
-                }
+            if let surfaceRaw, let surface = try normalizeSurfaceHandle(
+                surfaceRaw, client: client, workspaceHandle: workspaceId, windowHandle: windowId
+            ) {
+                params["surface_id"] = surface
             }
             if let attachOpt {
                 params["attach"] = attachOpt
