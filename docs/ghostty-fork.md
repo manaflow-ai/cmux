@@ -12,18 +12,21 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `5697db81`, which adds the Darwin-only
-`ghostty_surface_set_renderer_realized` C API (a `display_realized` renderer-thread
-mailbox message that drives `displayUnrealized()`/`displayRealized()`) on top of
-`34cbf180d`. cmux uses it to release an occluded terminal's GPU renderer
-resources (Metal swap chain / IOSurface) while keeping its PTY alive, then
-rebuild them on re-show. The API returns whether the message was enqueued (a
-`.forever` `BlockingQueue.push` can still drop on a spurious wakeup while full) so
-the embedder only advances its realize/unrealize mirror state on success. The push is `.instant` (non-blocking) so it never stalls the embedder's main thread waiting on the renderer. See
-manaflow-ai/ghostty branch `feat-renderer-realized-offscreen` and
-https://github.com/manaflow-ai/cmux/issues/4607. The prebuilt archive is
-published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5697db813b1b0fe14873093e9028f36513ddc187-crashsubdir-cmux-crash-v1
+Current cmux pinned fork head: `05c3e2908`, which adds
+the Darwin-only `ghostty_surface_set_renderer_realized` C API (a
+`display_realized` renderer-thread mailbox message that drives
+`displayUnrealized()`/`displayRealized()`) on top of `5697db81`. cmux uses it to
+release an occluded terminal's GPU renderer resources (Metal swap chain /
+IOSurface) while keeping its PTY alive, then rebuild them on re-show. The API
+returns whether the message was enqueued so the embedder only advances its
+realize/unrealize mirror state on success. The push is `.instant`
+(non-blocking) so it never stalls the embedder's main thread waiting on the
+renderer. See manaflow-ai/ghostty branch `feat-renderer-realized-offscreen`,
+the copy-mode read branches `issue-6170-surface-read-screen-text-main` and
+`issue-6170-screen-clipboard-text`, and
+https://github.com/manaflow-ai/cmux/issues/4607. The corresponding prebuilt
+archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-49cb510f759aa109a5b1d30329583195155e58a4-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 The prior head was refreshed from upstream `main` on May 1, 2026.
@@ -127,11 +130,15 @@ tend to conflict together during rebases.
 
 ### 6) Keyboard copy mode selection C API
 
-- Commit: `0b231db94` (Re-export cmux selection APIs removed from upstream)
+- Commits:
+  - `0b231db94` (Re-export cmux selection APIs removed from upstream)
+  - `46bd03a7` (surface: add absolute screen row text read)
+  - `edad0cfec` (surface: format screen row clipboard text)
+  - `e81fb65f` (surface: bound screen clipboard text formatting)
 - Files:
   - `include/ghostty.h`
-  - `src/Surface.zig`
   - `src/apprt/embedded.zig`
+  - `src/Surface.zig`
 - Summary:
   - Restores `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection`.
   - Keeps cmux keyboard copy mode working against the refreshed Ghostty base after upstream removed those exports.

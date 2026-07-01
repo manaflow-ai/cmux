@@ -33,6 +33,156 @@ cmux_claude_wrapper_is_self_or_shim() {
     return 1
 }
 
+cmux_claude_wrapper_reexec_guard_limit=16
+cmux_claude_wrapper_reexec_hops=0
+# Newline-delimited, not PATH/colon-delimited: custom executable paths can
+# legally contain ':' even though PATH entries cannot.
+cmux_claude_wrapper_reexec_target_history=""
+
+cmux_claude_wrapper_is_nonnegative_integer() {
+    case "$1" in
+        ''|*[!0-9]*)
+            return 1
+            ;;
+    esac
+    return 0
+}
+
+cmux_claude_wrapper_fail_reexec_guard() {
+    cat >&2 <<'EOF'
+cmux: stopped a possible infinite claude shim loop.
+cmux's per-surface claude shim re-entered before the real binary started.
+This is usually caused by a conflicting `claude` shim from another tool on PATH.
+Set CMUX_CUSTOM_CLAUDE_PATH, or set Automation > Claude Binary Path to the real
+claude binary, then start a new surface.
+EOF
+    exit 126
+}
+
+cmux_claude_wrapper_init_reexec_guard() {
+    local guard="${cmux_claude_wrapper_reexec_guard:-}"
+    local hops
+
+    case "$guard" in
+        *[!0-9]*|'')
+            unset cmux_claude_wrapper_reexec_guard
+            unset cmux_claude_wrapper_reexec_targets
+            cmux_claude_wrapper_reexec_hops=0
+            cmux_claude_wrapper_reexec_target_history=""
+            ;;
+        *)
+            hops="$guard"
+            cmux_claude_wrapper_is_nonnegative_integer "$hops" || hops=0
+            cmux_claude_wrapper_reexec_hops="$hops"
+            cmux_claude_wrapper_reexec_target_history="${cmux_claude_wrapper_reexec_targets:-}"
+            ;;
+    esac
+}
+
+cmux_claude_wrapper_reexec_target_seen() {
+    local target="$1"
+    local seen
+    while IFS= read -r seen; do
+        [[ "$seen" == "$target" ]] && return 0
+    done <<< "$cmux_claude_wrapper_reexec_target_history"
+    return 1
+}
+
+cmux_claude_wrapper_target_looks_like_reexec_shim() {
+    local target="$1"
+    cmux_claude_wrapper_is_self_or_shim "$target" && return 0
+    [[ -f "$target" && -r "$target" ]] || return 1
+
+    case "$target" in
+        */.asdf/shims/claude|*/.mise/shims/claude|*/.local/share/mise/shims/claude|*/.volta/bin/claude)
+            return 1
+            ;;
+    esac
+
+    local magic
+    magic="$(od -An -N2 -tx1 "$target" 2>/dev/null | tr -d '[:space:]')"
+    [[ "$magic" == "2321" ]] || return 1
+
+    local first_line snippet
+    IFS= read -r first_line < "$target" || first_line=""
+    snippet="$(sed -n '1,160p' "$target" 2>/dev/null || true)"
+
+    case "$snippet" in
+        *"exec claude"*|*"exec \"claude\""*|*"exec 'claude'"*|\
+        *"exec env claude"*|*"exec /usr/bin/env claude"*|\
+        *"env claude"*|*"env \"claude\""*|*"env 'claude'"*|\
+        *"command claude"*|*"command \"claude\""*|*"command 'claude'"*|\
+        *"spawn(\"claude\""*|*"spawn('claude'"*|\
+        *"spawnSync(\"claude\""*|*"spawnSync('claude'"*|\
+        *"execFile(\"claude\""*|*"execFile('claude'"*|\
+        *"execFileSync(\"claude\""*|*"execFileSync('claude'"*|\
+        *"execSync(\"claude"*|*"execSync('claude"*|\
+        *"os.execvp(\"claude\""*|*"os.execvp('claude'"*|\
+        *"os.execlp(\"claude\""*|*"os.execlp('claude'"*|\
+        *"subprocess.run([\"claude\""*|*"subprocess.run(['claude'"*|\
+        *"subprocess.call([\"claude\""*|*"subprocess.call(['claude'"*|\
+        *"subprocess.Popen([\"claude\""*|*"subprocess.Popen(['claude'"*)
+            return 0
+            ;;
+    esac
+    case "$snippet" in
+        *'=claude'*|*'="claude"'*|*"='claude'"*|\
+        *':-claude}'*|*':-"claude"}'*|*":-'claude'}"*)
+            case "$snippet" in
+                *'exec "$'*|*'exec ${'*)
+                    return 0
+                    ;;
+            esac
+            ;;
+    esac
+    case "$snippet" in
+        *'@anthropic-ai/claude-code'*|*'claude-code/cli.js'*)
+            return 1
+            ;;
+    esac
+    case "$first_line" in
+        *node*|*Node*)
+            return 1
+            ;;
+    esac
+    return 1
+}
+
+cmux_claude_wrapper_exec_resolved_claude() {
+    local target="$1"
+    shift
+
+    if ! cmux_claude_wrapper_target_looks_like_reexec_shim "$target"; then
+        # A non-shim target is the boundary where a real Claude process starts.
+        # Clear the shim-bounce guard so real Claude children that invoke
+        # `claude` later begin a fresh wrapper resolution.
+        unset cmux_claude_wrapper_reexec_guard
+        unset cmux_claude_wrapper_reexec_targets
+        exec "$target" "$@"
+    fi
+    if cmux_claude_wrapper_reexec_target_seen "$target"; then
+        cmux_claude_wrapper_fail_reexec_guard "$target"
+    fi
+    if (( cmux_claude_wrapper_reexec_hops >= cmux_claude_wrapper_reexec_guard_limit )); then
+        cmux_claude_wrapper_fail_reexec_guard
+    fi
+
+    local hops="${cmux_claude_wrapper_reexec_hops:-0}"
+    cmux_claude_wrapper_is_nonnegative_integer "$hops" || hops=0
+    hops=$((hops + 1))
+    export cmux_claude_wrapper_reexec_guard="$hops"
+    if [[ -n "$cmux_claude_wrapper_reexec_target_history" ]]; then
+        cmux_claude_wrapper_reexec_target_history="$cmux_claude_wrapper_reexec_target_history"$'\n'"$target"
+    else
+        cmux_claude_wrapper_reexec_target_history="$target"
+    fi
+    cmux_claude_wrapper_reexec_targets="$cmux_claude_wrapper_reexec_target_history"
+    export cmux_claude_wrapper_reexec_targets
+    exec "$target" "$@"
+}
+
+cmux_claude_wrapper_init_reexec_guard
+
 # Find the real claude binary, skipping cmux's wrapper and temp shell shims.
 find_real_claude() {
     # Honor custom path from Settings > Automation > Claude Code > Claude Binary Path.
@@ -113,6 +263,24 @@ case "${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV:-}" in
     1|true|TRUE|yes|YES) PRESERVE_CLAUDE_AUTH_SELECTION_ENV=true ;;
 esac
 
+# Return 0 when an ANTHROPIC_MODEL / ANTHROPIC_SMALL_FAST_MODEL value carries a
+# Vertex/Bedrock-specific shape that is only valid against those backends and
+# would mis-route (or be rejected) on the default Anthropic API:
+#   - Vertex pins the publisher date with '@', e.g. claude-sonnet-4-5@20250929
+#   - Bedrock uses the dotted vendor namespace + version/profile suffix, e.g.
+#     us.anthropic.claude-sonnet-4-5-20250929-v1:0 (and regional eu./apac./
+#     us-gov. variants), bare anthropic.<model>-v1:0, or an arn:aws:bedrock ARN.
+# Plain ids such as claude-opus-4-8 or claude-opus-4-8[1m] carry none of these
+# markers and are valid on the default Anthropic path, so they are NOT
+# backend-qualified. https://github.com/manaflow-ai/cmux/issues/7047
+claude_model_id_is_backend_qualified() {
+    case "$1" in
+        *@*|*:*|*/*) return 0 ;;
+        *anthropic.*) return 0 ;;
+    esac
+    return 1
+}
+
 should_preserve_claude_auth_selection_key() {
     if [[ "$PRESERVE_CLAUDE_AUTH_SELECTION_ENV" == true ]]; then
         local configured_keys="${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS:-}"
@@ -157,10 +325,22 @@ should_preserve_claude_auth_selection_key() {
             # Vertex and Bedrock require backend-specific full model ids
             # (e.g. "claude-sonnet-4-5@20250929" for Vertex,
             # "us.anthropic.claude-sonnet-4-5-20250929-v1:0" for Bedrock).
-            # Preserve the user's selection only when one of those
-            # backends is active; otherwise stale ids would leak into the
-            # default Anthropic API path.
+            # Preserve the user's selection when one of those backends is
+            # active.
             if [[ "$vertex_on" == true || "$bedrock_on" == true ]]; then
+                return 0
+            fi
+            # Default Anthropic API path (no Vertex/Bedrock backend active):
+            # preserve a user-pinned PLAIN model id (e.g. "claude-opus-4-8[1m]")
+            # so cmux behaves like a plain Terminal and a Max-plan 1M context
+            # window selection survives every new pane/reboot. Still strip
+            # backend-qualified ids: a stale "...@<date>" / "...anthropic...:..."
+            # value is invalid on the Anthropic path and is exactly the leak the
+            # scrub guards against. https://github.com/manaflow-ai/cmux/issues/7047
+            local model_key="$1"
+            local model_value="${!model_key-}"
+            if [[ -n "$model_value" ]] &&
+               ! claude_model_id_is_backend_qualified "$model_value"; then
                 return 0
             fi
             ;;
@@ -395,7 +575,7 @@ exec_real_claude_passthrough() {
         done
         unset TERMINFO
     fi
-    exec "$REAL_CLAUDE" "$@"
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 }
 
 if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
@@ -408,7 +588,7 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
         reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
     fi
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
-    exec "$REAL_CLAUDE" "$@"
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 fi
 
 if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
@@ -527,6 +707,23 @@ normalize_node_options_for_restore() {
     fi
 }
 
+install_cmux_node_options() {
+    local guard_path
+    if guard_path="$(ensure_node_options_restore_module)"; then
+        if [[ ${NODE_OPTIONS+x} && "${NODE_OPTIONS:-}" == *"--require=$guard_path"* ]]; then
+            return 0
+        fi
+        if [[ ${NODE_OPTIONS+x} ]]; then
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
+            export CMUX_ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
+        else
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
+            unset CMUX_ORIGINAL_NODE_OPTIONS
+        fi
+        export NODE_OPTIONS="$(merge_node_options "$guard_path")"
+    fi
+}
+
 encode_launch_argv() {
     {
         printf '%s\0' "$REAL_CLAUDE"
@@ -616,6 +813,22 @@ should_inject_claude_hooks() {
     return 0
 }
 
+if (( cmux_claude_wrapper_reexec_hops > 0 )); then
+    # A previous wrapper pass already made the cmux launch decision and may have
+    # injected --session-id/--settings. While resolving a finite shim chain,
+    # refresh per-process hook metadata, then forward argv unchanged so hooks are
+    # not merged again on re-entry.
+    unset CLAUDECODE
+    clear_inherited_claude_auth_selection_env
+    export CMUX_CLAUDE_PID=$$
+    export CMUX_CLAUDE_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+    export CMUX_AGENT_LAUNCH_KIND="claude"
+    export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
+    export CMUX_AGENT_LAUNCH_CWD="$PWD"
+    install_cmux_node_options
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
+fi
+
 # Only inject hooks for Claude session entrypoints. Command-like invocations
 # pass through so Claude subcommands do not receive session/hook flags.
 if ! should_inject_claude_hooks "$@"; then
@@ -648,16 +861,7 @@ export CMUX_AGENT_LAUNCH_KIND="claude"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
 export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
-if GUARD_PATH="$(ensure_node_options_restore_module)"; then
-    if [[ ${NODE_OPTIONS+x} ]]; then
-        export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
-        export CMUX_ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
-    else
-        export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
-        unset CMUX_ORIGINAL_NODE_OPTIONS
-    fi
-    export NODE_OPTIONS="$(merge_node_options "$GUARD_PATH")"
-fi
+install_cmux_node_options
 
 # Build Claude settings JSON.
 # Claude Code merges --settings additively with the user's own settings.json.
@@ -667,12 +871,17 @@ fi
 # - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't fire)
 # - UserPromptSubmit: clears "Needs input" and sets "Running" on new prompt
 # - PreToolUse: rejects unsupported durable cron requests synchronously, then
-#   clears "Needs input" and captures AskUserQuestion text for notifications
-#   (async status only)
+#   (async) clears "Needs input" / sets "Running" for ordinary tools, and flags
+#   "Needs input" for the blocking AskUserQuestion / ExitPlanMode tools. With
+#   --dangerously-skip-permissions (permission_mode "bypassPermissions") Claude
+#   fires no PermissionRequest/Notification for those two, so the handler also
+#   publishes the full needs-input status + bell itself. See
+#   https://github.com/manaflow-ai/cmux/issues/6606
 # - PermissionRequest: cmux hooks feed. SYNC with a 125s timeout.
-#   This is Claude Code's native blocking decision hook. It covers
-#   permissions, ExitPlanMode, and AskUserQuestion without using
-#   PreToolUse denial as a side channel.
+#   This is Claude Code's native blocking decision hook. Outside
+#   bypassPermissions it covers permissions, ExitPlanMode, and AskUserQuestion
+#   without using PreToolUse denial as a side channel; under bypassPermissions it
+#   does not fire, and PreToolUse is the needs-input fallback (see above).
 # - SubagentStop: feed telemetry only. It must not run the visible Stop
 #   hook because a subagent finishing should not notify like the parent.
 # - Stop auto-name: opt-in AI workspace/tab naming. ASYNC with a long
@@ -791,8 +1000,8 @@ process.stdout.write(JSON.stringify(acc));
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
-    exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-    exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi

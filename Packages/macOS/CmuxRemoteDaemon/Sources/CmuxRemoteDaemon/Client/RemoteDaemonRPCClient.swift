@@ -96,7 +96,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var webSocketSession: URLSession?
     var webSocketTask: URLSessionWebSocketTask?
     var webSocketDelegate: RemoteDaemonWebSocketDelegate?
-    var webSocketKeepaliveTimer: DispatchSourceTimer?
+    var webSocketKeepaliveTimer: (any DispatchSourceTimer)?
     var webSocketKeepaliveTimeoutWorkItem: DispatchWorkItem?
     var webSocketKeepaliveInFlight = false
     var isClosed = true

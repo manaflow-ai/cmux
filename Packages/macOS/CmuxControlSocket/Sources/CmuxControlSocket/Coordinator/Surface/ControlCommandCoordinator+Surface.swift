@@ -49,8 +49,8 @@ extension ControlCommandCoordinator {
             return surfaceSendText(request.params)
         case "surface.send_key":
             return surfaceSendKey(request.params)
-        case "surface.report_tty":
-            return surfaceReportTTY(request.params)
+        case "surface.report_tty": return surfaceReportTTY(request.params)
+        case "surface.report_pwd": return surfaceReportPWD(request.params)
         case "surface.report_shell_state":
             return surfaceReportShellState(request.params)
         case "surface.ports_kick":
@@ -405,7 +405,8 @@ extension ControlCommandCoordinator {
             remoteContextRaw: optionalTrimmedRawString(params, "remote_context"),
             startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"]),
             requestedPaneID: uuid(params, "pane_id"),
-            requestedFocus: bool(params, "focus") ?? false
+            requestedFocus: bool(params, "focus") ?? false,
+            placementRaw: string(params, "placement")
         )
 
         let resolution = context?.controlSurfaceCreate(routing: routing, inputs: inputs)
@@ -425,6 +426,12 @@ extension ControlCommandCoordinator {
                 message: "Invalid renderer (react|solid)",
                 data: .object(["renderer": .string(rawValue)])
             )
+        case .invalidPlacement(let rawValue):
+            return .err(code: "invalid_params", message: "placement must be one of: workspace, dock", data: .object(["placement": .string(rawValue)]))
+        case .dockUnsupportedType(let typeRawValue, let message):
+            return .err(code: "invalid_params", message: message, data: .object(["type": .string(typeRawValue)]))
+        case .dockUnavailable(let message):
+            return .err(code: "invalid_params", message: message, data: .object(["placement": .string("dock")]))
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)
         case .workspaceNotFound:
@@ -441,6 +448,21 @@ extension ControlCommandCoordinator {
                 workspaceID: workspaceID,
                 typeRawValue: typeRawValue
             )
+        case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):
+            return .ok(.object([
+                "window_id": orNull(windowID?.uuidString),
+                "window_ref": ref(.window, windowID),
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "placement": .string("dock"),
+                "pane_id": .null,
+                "pane_ref": .null,
+                "surface_id": .null,
+                "surface_ref": .null,
+                "dock_pane_id": .string(dockPaneID.uuidString),
+                "dock_surface_id": .string(dockSurfaceID.uuidString),
+                "type": .string(typeRawValue),
+            ]))
         case .created(let windowID, let workspaceID, let paneID, let surfaceID, let typeRawValue):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),
@@ -499,38 +521,4 @@ extension ControlCommandCoordinator {
         }
     }
 
-    // MARK: - browser-disabled shared payload
-
-    /// The shared `surface.split` / `surface.create` browser-disabled external-open
-    /// result (byte-faithful twin of `v2BrowserDisabledExternalOpenResult`).
-    func browserDisabledResult(_ outcome: ControlSurfaceBrowserDisabledOutcome) -> ControlCallResult {
-        switch outcome {
-        case .invalidURL(let rawURL):
-            return .err(code: "invalid_params", message: "Invalid URL", data: .object(["url": .string(rawURL)]))
-        case .noURL:
-            return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
-        case .externalOpenFailed(let url):
-            return .err(
-                code: "external_open_failed",
-                message: "Failed to open URL externally",
-                data: .object(["url": .string(url)])
-            )
-        case .openedExternally(let windowID, let url):
-            return .ok(.object([
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-                "workspace_id": .null,
-                "workspace_ref": .null,
-                "pane_id": .null,
-                "pane_ref": .null,
-                "surface_id": .null,
-                "surface_ref": .null,
-                "created_split": .bool(false),
-                "opened_externally": .bool(true),
-                "browser_disabled": .bool(true),
-                "placement_strategy": .string("external_browser_disabled"),
-                "url": .string(url),
-            ]))
-        }
-    }
 }

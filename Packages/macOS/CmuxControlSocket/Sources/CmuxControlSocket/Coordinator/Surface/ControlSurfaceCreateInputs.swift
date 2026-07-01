@@ -33,6 +33,10 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
     public let requestedPaneID: UUID?
     /// Whether the request asked to focus the new surface.
     public let requestedFocus: Bool
+    /// The raw `placement` string, if present. The seam resolves it to the
+    /// target container (main workspace vs. right-sidebar Dock), defaulting to
+    /// the workspace when absent.
+    public let placementRaw: String?
 
     /// Creates surface-create inputs.
     public init(
@@ -47,7 +51,8 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         remoteContextRaw: String?,
         startupEnvironment: [String: String],
         requestedPaneID: UUID?,
-        requestedFocus: Bool
+        requestedFocus: Bool,
+        placementRaw: String? = nil
     ) {
         self.typeRaw = typeRaw
         self.providerRaw = providerRaw
@@ -61,5 +66,6 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         self.startupEnvironment = startupEnvironment
         self.requestedPaneID = requestedPaneID
         self.requestedFocus = requestedFocus
+        self.placementRaw = placementRaw
     }
 }

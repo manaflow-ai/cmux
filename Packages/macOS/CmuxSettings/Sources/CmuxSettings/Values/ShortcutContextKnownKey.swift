@@ -29,6 +29,8 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     case commandPaletteVisible
     /// The focused terminal's find overlay is open.
     case terminalFindVisible
+    /// The focused workspace is using the freeform canvas layout.
+    case workspaceCanvasLayout
     /// The right sidebar's active mode (`files`, `find`, `sessions`, `feed`, `dock`).
     case sidebarMode
     /// The number of panes in the focused workspace.
@@ -40,7 +42,7 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     public var valueType: ShortcutContextValueType {
         switch self {
         case .sidebarFocus, .browserFocus, .markdownFocus, .terminalFocus,
-             .commandPaletteVisible, .terminalFindVisible:
+             .commandPaletteVisible, .terminalFindVisible, .workspaceCanvasLayout:
             return .bool
         case .sidebarMode:
             return .string

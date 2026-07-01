@@ -66,8 +66,39 @@ struct MobileSettingsView: View {
                 } footer: {
                     Text(L10n.string(
                         "mobile.settings.accountFooter",
-                        defaultValue: "This device must be signed in to the same cmux account as the Mac you pair with."
+                        defaultValue: "This device must be signed in to the same cmux account as the computer you pair with."
                     ))
+                }
+
+                // Stack team switcher. Only shown when the user belongs to more than
+                // one team. Rendered as an INLINE picker — each team is a row with a
+                // checkmark on the current one — so every team is visible at a glance
+                // and one tap switches (clearer than a menu/navigation push for a
+                // small set). Selecting a team writes `selectedTeamID`, which the root
+                // view observes to re-scope the team-bound surfaces (paired Macs,
+                // presence, backup) to that team without dropping the live terminal.
+                if authManager.availableTeams.count > 1 {
+                    Section {
+                        Picker(selection: teamSelection) {
+                            ForEach(authManager.availableTeams) { team in
+                                Text(team.displayName).tag(team.id as String?)
+                            }
+                        } label: {
+                            EmptyView()
+                        }
+                        .pickerStyle(.inline)
+                        .accessibilityIdentifier("MobileSettingsTeamPicker")
+                    } header: {
+                        Label(
+                            L10n.string("mobile.settings.team", defaultValue: "Team"),
+                            systemImage: "person.2"
+                        )
+                    } footer: {
+                        Text(L10n.string(
+                            "mobile.settings.teamFooter",
+                            defaultValue: "Switches which Stack team's computers and devices this app shows."
+                        ))
+                    }
                 }
 
                 // Hidden entirely when there is nothing to show (no connected
@@ -77,7 +108,7 @@ struct MobileSettingsView: View {
                     Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
                         if !connectedHostName.isEmpty {
                             LabeledContent(
-                                L10n.string("mobile.settings.mac", defaultValue: "Mac"),
+                                L10n.string("mobile.settings.mac", defaultValue: "Computer"),
                                 value: connectedHostName
                             )
                         }
@@ -86,7 +117,7 @@ struct MobileSettingsView: View {
                                 showingHostPicker = true
                             } label: {
                                 Label(
-                                    L10n.string("mobile.settings.switchMac", defaultValue: "Switch Mac"),
+                                    L10n.string("mobile.settings.switchMac", defaultValue: "Switch Computer"),
                                     systemImage: "macbook.and.iphone"
                                 )
                             }
@@ -109,7 +140,7 @@ struct MobileSettingsView: View {
                         showingSetupHelp = true
                     } label: {
                         Label(
-                            L10n.string("mobile.settings.setUpYourMac", defaultValue: "Set up your Mac"),
+                            L10n.string("mobile.settings.setUpYourMac", defaultValue: "Set Up Computer"),
                             systemImage: "macbook.and.iphone"
                         )
                     }
@@ -301,6 +332,21 @@ struct MobileSettingsView: View {
     /// switch with, and no rescan action, so the section is omitted entirely.
     private var hasConnectionSection: Bool {
         !connectedHostName.isEmpty || store != nil || rescanQR != nil
+    }
+
+    /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
+    /// which falls back to the first team when nothing is explicitly selected) so
+    /// the picker always shows a concrete selection, and writes the user's choice
+    /// to `selectedTeamID` (persisted; observed by the root for the lazy re-scope).
+    private var teamSelection: Binding<String?> {
+        Binding(
+            get: { authManager.resolvedTeamID },
+            set: { newValue in
+                if let newValue, newValue != authManager.selectedTeamID {
+                    authManager.selectedTeamID = newValue
+                }
+            }
+        )
     }
 
     private var accountEmail: String {

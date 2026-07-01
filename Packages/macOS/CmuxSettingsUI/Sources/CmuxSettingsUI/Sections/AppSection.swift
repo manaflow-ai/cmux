@@ -2,7 +2,6 @@ import AppKit
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// **App** section — mirrors the legacy in-app section row-for-row
 /// inside a single `SettingsCard`: Language, Appearance, App Icon,
@@ -800,13 +799,7 @@ public struct AppSection: View {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "aiff"),
-            UTType(filenameExtension: "wav"),
-            UTType(filenameExtension: "caf"),
-            UTType(filenameExtension: "m4a"),
-            UTType(filenameExtension: "mp3"),
-        ].compactMap { $0 }
+        panel.allowedContentTypes = Self.customNotificationSoundAllowedContentTypes
         panel.title = String(localized: "settings.notifications.sound.custom.panelTitle", defaultValue: "Choose Notification Sound")
         if panel.runModal() == .OK, let url = panel.url {
             model.set(url.path)

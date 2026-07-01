@@ -34,6 +34,7 @@ const originalEnv = Object.fromEntries(
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
+  stackServerApp: { getUser },
 }));
 
 mock.module("../services/vms/workflows", () => ({
