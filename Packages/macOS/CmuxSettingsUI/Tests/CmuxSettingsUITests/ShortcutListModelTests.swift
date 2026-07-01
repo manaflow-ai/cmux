@@ -22,6 +22,7 @@ import CmuxSettings
             await Task.yield()
             spins += 1
         }
+        #expect(condition(), "spin(until:) timed out after 100 000 yields")
     }
 
     @Test func conflictingStrokeIsRejectedNotWritten() async throws {

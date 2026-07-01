@@ -5,16 +5,14 @@ import Observation
 import SwiftUI
 
 /// `@Observable` view-model that owns all state and mutation logic for the
-/// Keyboard Shortcuts settings section, extracted from ``KeyboardShortcutsSection``
-/// as the first step in replacing the LazyVStack with a virtualized NSTableView.
+/// Keyboard Shortcuts settings section.
 ///
 /// **Lifecycle** matches ``DefaultsValueModel``: call ``startObserving()`` once
 /// from the owning view's `.task` (or from tests). The two ``SettingReadDriver``
 /// instances cancel their underlying tasks on `deinit`, so no explicit stop is needed.
 ///
-/// **Staged extraction**: `KeyboardShortcutsSection` still holds its own `@State`
-/// copies of all these fields. They are removed in Task 6 once the NSTableView
-/// representable is wired up.
+/// **Threading**: all reads and writes must happen on `@MainActor`; the two
+/// ``SettingReadDriver`` sinks are delivered on the main actor automatically.
 @MainActor
 @Observable
 public final class ShortcutListModel {
@@ -462,7 +460,9 @@ public final class ShortcutListModel {
 
     private func pruneRestoreShortcuts() {
         guard !restoreShortcuts.isEmpty else { return }
-        for (key, _) in restoreShortcuts {
+        // Iterate a key snapshot — the loop mutates `restoreShortcuts`, and
+        // mutating a dictionary mid-iteration is undefined (see sibling prunes).
+        for key in Array(restoreShortcuts.keys) {
             let override = bindings[key]
             // If there is no override at all, the action is back to its
             // default stroke (also non-unbound for most actions), so the
