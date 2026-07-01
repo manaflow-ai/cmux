@@ -77,12 +77,7 @@ struct WorkspaceListView: View {
     /// disclosure indicator. Grouped rendering itself is gated on `groups`, not
     /// on this closure.
     var toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
-    /// Whether the root scene is still trying the first stored-Mac reconnect.
-    /// The list stays visible and owns this loading state so startup never gets
-    /// trapped behind a full-screen spinner.
     var isInitialConnectionLoading = false
-    /// Whether the first stored-Mac reconnect exceeded the root-scene deadline.
-    /// The status row then exposes recovery actions instead of staying silent.
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
     @State private var searchText = ""
@@ -127,6 +122,10 @@ struct WorkspaceListView: View {
         macTitlePickerPendingSelection ?? visibleMacSelection
     }
 
+    var macTitlePickerShowsProgress: Bool {
+        macTitlePickerPendingSelection != nil
+    }
+
     /// Whether the list renders grouped sections. Groups are honored whenever the
     /// Mac actually emitted group sections and the user is not searching. The
     /// gate is the payload itself, not `toggleGroupCollapsed`: a Mac that emits
@@ -138,7 +137,7 @@ struct WorkspaceListView: View {
     /// group is acceptable while filtering. An active filter-menu dimension
     /// flattens the same way, for the same reason. A single-Mac picker scope
     /// still renders groups only for the foreground Mac whose group metadata is
-    /// available here; "All Macs" and secondary Mac selections flatten because
+    /// available here; "All Computers" and secondary computer selections flatten because
     /// group ids are Mac-local. Non-iOS builds keep the pre-picker behavior.
     private var rendersGroupedSections: Bool {
         !groups.isEmpty
@@ -224,7 +223,7 @@ struct WorkspaceListView: View {
                         descriptionOverride: initialConnectionTimedOut
                             ? L10n.string(
                                 "mobile.loading.timeout.message",
-                                defaultValue: "cmux could not finish restoring this session. Check that the Mac app is running, then retry or add this Mac again."
+                                defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
                             )
                             : nil,
                         retry: initialConnectionTimedOut ? retryInitialConnection : nil,
