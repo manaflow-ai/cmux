@@ -44,7 +44,13 @@ enum TerminalInputDebugLog {
 @MainActor
 public protocol GhosttySurfaceViewDelegate: AnyObject {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data)
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize)
+    /// The surface's natural grid changed (keyboard, rotation, zoom settle).
+    /// `reportID` is a monotonically increasing stamp for THIS report; a host
+    /// that round-trips the report to the Mac must hand the same ID back to
+    /// `applyConfirmedViewSize(cols:rows:reportID:)` so an echo that resolves
+    /// after a newer report was emitted is recognized as stale and dropped
+    /// instead of re-pinning the grid the surface already outgrew.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64)
     /// Forward a scroll gesture to the Mac's real surface. `lines` is signed
     /// (sign = direction), `col`/`row` is the grid cell under the finger (so
     /// alt-screen mouse-wheel reports at the right cell). Optional.
@@ -829,6 +835,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// so a transient drop self-heals; a confirmed result resets the count.
     private var viewportReportRetries = 0
     private static let maxViewportReportRetries = 3
+    /// Monotonic stamp for each natural-grid report handed to the delegate.
+    /// `applyConfirmedViewSize(cols:rows:reportID:)` applies an echo only when
+    /// its ID is still the newest, so an out-of-order RPC reply for an older
+    /// (e.g. keyboard-up) report cannot re-pin a grid the surface outgrew —
+    /// the natural grid would be unchanged afterwards, nothing would ever
+    /// re-report, and the letterbox gap above the terminal would be permanent.
+    private var viewportReportID: UInt64 = 0
     /// Frames of "no zoom in progress" required before the natural grid is
     /// reported to the Mac. Active zoom is already gated separately
     /// (`zoomSettleFrames != nil` holds the report during a pinch), so this is
@@ -3167,8 +3180,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 if viewportReportSettleFrames >= Self.viewportReportSettleThreshold {
                     pendingViewportReport = nil
                     viewportReportSettleFrames = 0
-                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows)")
-                    delegate?.ghosttySurfaceView(self, didResize: pending)
+                    viewportReportID &+= 1
+                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
+                    delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
                 }
             }
         }
@@ -3414,7 +3428,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return true
     }
 
-    public func applyConfirmedViewSize(cols: Int, rows: Int) {
+    /// Apply the daemon's effective-grid ECHO for the natural-grid report
+    /// stamped `reportID` (see `GhosttySurfaceViewDelegate`'s `didResize`).
+    ///
+    /// Echoes resolve asynchronously, so the reply to an older report can land
+    /// after a newer report was already emitted (keyboard closed while the
+    /// keyboard-up report was in flight). Applying that stale echo would pin
+    /// the surface to a grid it already outgrew — and because the natural grid
+    /// is unchanged afterwards, nothing re-reports and the letterbox gap above
+    /// the terminal becomes permanent. Drop everything but the newest report's
+    /// echo; the in-flight newer report's own echo is the one that settles the
+    /// grid.
+    public func applyConfirmedViewSize(cols: Int, rows: Int, reportID: UInt64) {
+        guard reportID == viewportReportID else {
+            MobileDebugLog.anchormux(
+                "zoom.viewport.staleEcho id=\(reportID) latest=\(viewportReportID) grid=\(cols)x\(rows)"
+            )
+            return
+        }
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: true)
     }
 

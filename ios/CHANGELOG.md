@@ -53,7 +53,8 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 - Sign-out is local-first and works offline; revocation is best-effort and bounded (#5776).
 - Workspace list: groups, unread dots, last-activity previews, shared Unread filter (#5726).
 - Watchdog fix: render-grid liveness probes before teardown, fixing a false-fire replay loop (#5869).
-- Dogfood focus: hit the composer (send + drafts), View as Text, pair a Mac via the new QR, lock the phone and confirm a forwarded notification taps through to the right workspace, sign out with airplane mode on.
+- Terminal fills its full height again after closing the keyboard: viewport reports are now serialized and stale echoes dropped, so a late keyboard-up reply can no longer pin the grid small and leave permanent empty space above a TUI (opencode top-gap bug).
+- Dogfood focus: hit the composer (send + drafts), View as Text, pair a Mac via the new QR, lock the phone and confirm a forwarded notification taps through to the right workspace, sign out with airplane mode on. Also open a full-screen TUI, open/close the keyboard rapidly a few times, and confirm no dead band stays above the content.
 
 ### External
 

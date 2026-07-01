@@ -33,11 +33,16 @@ import UIKit
 private final class ViewportSpacingDelegate: NSObject, GhosttySurfaceViewDelegate {
     /// Every natural-grid report the view has emitted, in order.
     private(set) var reports: [TerminalGridSize] = []
+    /// The report ID stamped on each grid (last write wins per grid value),
+    /// captured exactly like the production coordinator captures it, so a
+    /// test echo answers the same report the coordinator's RPC would answer.
+    private(set) var reportIDs: [TerminalGridSize: UInt64] = [:]
 
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
 
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
         reports.append(size)
+        reportIDs[size] = reportID
     }
 }
 
@@ -135,12 +140,15 @@ private final class ViewportSpacingHarness {
     }
 
     /// Play the Mac's role for one report: confirm it and echo the effective
-    /// grid (`min` against the Mac's own grid, the daemon policy).
+    /// grid (`min` against the Mac's own grid, the daemon policy) tagged with
+    /// the ID the view stamped on that report — exactly what the production
+    /// coordinator hands back when the RPC for that report resolves.
     func echo(_ report: TerminalGridSize, macColumns: Int = .max, macRows: Int = .max) {
         view.markViewportReportConfirmed()
         view.applyConfirmedViewSize(
             cols: min(report.columns, macColumns),
-            rows: min(report.rows, macRows)
+            rows: min(report.rows, macRows),
+            reportID: delegate.reportIDs[report] ?? 0
         )
     }
 
