@@ -851,7 +851,12 @@ fi
 # For an explicit `--resume <id>`, point CLAUDE_CONFIG_DIR at the config root that
 # actually holds the transcript so an inherited/foreign config dir cannot turn the
 # resume into "No conversation found". https://github.com/manaflow-ai/cmux/issues/6194
-reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+# Account managers such as `sr claude` can intentionally pin CLAUDE_CONFIG_DIR to
+# a different auth/profile root and ask cmux to preserve it.
+if ! should_preserve_claude_auth_selection_key "CLAUDE_CONFIG_DIR"; then
+    resume_session_id="$(extract_claude_resume_session_id "$@" || true)"
+    reconcile_claude_config_dir_for_resume "$resume_session_id"
+fi
 
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
