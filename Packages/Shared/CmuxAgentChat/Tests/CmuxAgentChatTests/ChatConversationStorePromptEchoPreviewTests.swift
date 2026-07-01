@@ -97,6 +97,26 @@ struct ChatConversationStorePromptEchoPreviewTests {
         #expect(await PromptEchoPreviewPoller.waitUntil { Self.messageIDs(store.rows) == [realPreview.id] })
     }
 
+    @Test("queued prompts do not suppress the active turn live preview")
+    func queuedPromptDoesNotSuppressActivePreview() async {
+        let source = PromptEchoSilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await PromptEchoPreviewPoller.waitUntil { store.isConnected })
+        await source.emit(.stateChanged(.working(since: Self.baseTime)))
+        #expect(await PromptEchoPreviewPoller.waitUntil { store.agentState == .working(since: Self.baseTime) })
+        await store.send(text: "queued follow-up\nsame suffix")
+        #expect(await PromptEchoPreviewPoller.waitUntil {
+            Self.pendingItems(store.rows).contains { $0.delivery == .queued }
+        })
+
+        let preview = Self.streamingMessage(text: "same suffix")
+        await source.emit(.streamingProse(preview))
+        #expect(await PromptEchoPreviewPoller.waitUntil { Self.messageIDs(store.rows) == [preview.id] })
+    }
+
     private static func makeStore(source: some ChatEventSource) -> ChatConversationStore {
         ChatConversationStore(
             descriptor: ChatSessionDescriptor(id: "session", agentKind: .claude, title: "Session"),

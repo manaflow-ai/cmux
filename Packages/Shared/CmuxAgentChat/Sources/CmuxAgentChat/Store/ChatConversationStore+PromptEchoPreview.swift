@@ -11,7 +11,7 @@ extension ChatConversationStore {
         guard case .prose(let previewProse) = preview.kind else { return false }
         let previewText = normalizedPromptEchoText(previewProse.text)
         guard !previewText.isEmpty else { return false }
-        if let latestPending = pending.last(where: { !$0.text.isEmpty }),
+        if let latestPending = pending.last(where: { !$0.text.isEmpty && canEchoFromTerminal($0) }),
            promptText(latestPending.text, hasSuffixPreview: previewText) {
             return true
         }
@@ -27,6 +27,15 @@ extension ChatConversationStore {
     private static func messageContainsProse(_ message: ChatMessage) -> Bool {
         if case .prose = message.kind { return true }
         return false
+    }
+
+    private static func canEchoFromTerminal(_ item: ChatPendingOutbound) -> Bool {
+        switch item.delivery {
+        case .sending, .delivered:
+            return true
+        case .queued, .failed:
+            return false
+        }
     }
 
     private static func promptText(_ text: String, hasSuffixPreview previewText: String) -> Bool {
