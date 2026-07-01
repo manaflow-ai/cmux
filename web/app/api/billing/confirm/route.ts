@@ -27,6 +27,9 @@ export async function GET(request: NextRequest) {
   for (let attempt = 0; attempt < VERIFY_ATTEMPTS; attempt++) {
     if (attempt > 0) {
       await new Promise((resolve) => setTimeout(resolve, VERIFY_SPACING_MS));
+      // Client gone (edge timeout, closed tab): stop polling. The pending
+      // banner's "check again" link re-runs this route, so nothing is lost.
+      if (request.signal.aborted) break;
     }
     // App-level lookup each attempt so no per-object store caching can
     // return a stale product list mid-poll.
@@ -39,6 +42,9 @@ export async function GET(request: NextRequest) {
 
   await syncProPlanMetadata(user, isPro);
   return NextResponse.redirect(
-    new URL(isPro ? "/pro?welcome=1" : "/pro?welcome=pending", request.url),
+    new URL(
+      isPro ? "/pro?welcome=success" : "/pro?welcome=pending",
+      request.url,
+    ),
   );
 }

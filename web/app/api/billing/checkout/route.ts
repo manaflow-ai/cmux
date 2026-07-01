@@ -44,8 +44,14 @@ export async function GET(request: NextRequest) {
     }
     // return_url must be on a domain the Stack project trusts; previews and
     // local dev ports may not be. The purchase still works without it — the
-    // buyer just stays on the hosted receipt instead of bouncing to /pro.
-    checkoutUrl = await user.createCheckoutUrl({ productId: PRO_PRODUCT_ID });
+    // buyer stays on the hosted receipt, and Pro state is picked up by the
+    // read-time reconcile on VM create or the next visit to this route.
+    try {
+      checkoutUrl = await user.createCheckoutUrl({ productId: PRO_PRODUCT_ID });
+    } catch (retryError) {
+      console.error("[Billing] createCheckoutUrl failed", error, retryError);
+      return NextResponse.redirect(new URL("/pro?billing=error", request.url));
+    }
   }
   return NextResponse.redirect(checkoutUrl);
 }

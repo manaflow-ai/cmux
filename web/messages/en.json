@@ -2310,6 +2310,9 @@
     "cancelNote": "One click with your cmux account. Cancel anytime.",
     "welcomeSuccess": "Welcome to cmux Pro. Your subscription is active.",
     "welcomeActive": "cmux Pro is already active on your account.",
-    "welcomePending": "Payment received. Pro activates on your account within a minute; refresh to check."
+    "welcomePending": "Payment received. Pro can take a minute to activate on your account.",
+    "welcomePendingAction": "Check again",
+    "billingError": "Something went wrong starting checkout. Please try again in a moment.",
+    "billingUnavailable": "Billing is not available right now. Please try again later."
   }
 }

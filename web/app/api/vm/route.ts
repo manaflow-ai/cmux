@@ -23,6 +23,8 @@ import {
   isVmBillingTeamResolutionError,
   resolveVmEntitlements,
 } from "../../../services/vms/entitlements";
+import { reconcileProPlanMetadata } from "../../../services/billing/pro";
+import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { resolveVmImage } from "../../../services/vms/images/resolver";
 import {
   jsonResponse,
@@ -235,6 +237,26 @@ export async function POST(request: Request): Promise<Response> {
           );
           if (!refreshedUser) return unauthorized();
           user = refreshedUser;
+        }
+        // Read-time reconcile: a Pro purchase that never hit
+        // /api/billing/confirm, or a lapsed subscription, is corrected here
+        // right before paid limits apply. Best-effort — billing reads must
+        // not block VM creation.
+        try {
+          if (isStackConfigured()) {
+            const changed = await measureVmAsync(timing, "billing_reconcile", async () => {
+              const serverUser = await getStackServerApp().getUser(user.id);
+              return serverUser ? reconcileProPlanMetadata(serverUser) : false;
+            });
+            if (changed) {
+              const reconciledUser = await measureVmAsync(timing, "auth", () =>
+                verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
+              );
+              if (reconciledUser) user = reconciledUser;
+            }
+          }
+        } catch (err) {
+          console.error("[VM] Pro plan reconcile failed", err);
         }
         let entitlements;
         try {

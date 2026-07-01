@@ -70,7 +70,11 @@ export async function hasActiveProSubscription(
     });
     for (const product of products) {
       if (product.id !== PRO_PRODUCT_ID) continue;
-      if (product.subscription !== null) return true;
+      if (product.subscription !== null) {
+        const end = product.subscription.currentPeriodEnd;
+        if (!end || end.getTime() > Date.now()) return true;
+        continue;
+      }
       if (product.quantity > 0) return true;
     }
     if (!products.nextCursor) return false;
@@ -103,4 +107,31 @@ export async function syncProPlanMetadata(
   }
   // Existing metadata came from Stack as JSON; the only value added is a string.
   await user.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
+}
+
+export type ProReconcileUser = ProductsCustomer & ProMetadataCustomer;
+
+/**
+ * Read-time reconciliation: compares the `cmuxPlan` metadata against the
+ * actual Pro subscription state and syncs it in either direction (upgrade
+ * that never hit /api/billing/confirm, or a lapse the user never revisited
+ * billing to observe). Skipped when a manual `cmuxVmPlan` override is set —
+ * that key wins in plan resolution and is operator-owned. Returns true when
+ * metadata was changed.
+ */
+export async function reconcileProPlanMetadata(
+  user: ProReconcileUser,
+): Promise<boolean> {
+  const raw = user.clientReadOnlyMetadata;
+  const metadata: Record<string, unknown> =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const override = metadata.cmuxVmPlan;
+  if (typeof override === "string" && override.trim()) return false;
+
+  const isPro = await hasActiveProSubscription(user);
+  if (isPro === (metadata.cmuxPlan === PRO_PLAN_ID)) return false;
+  await syncProPlanMetadata(user, isPro);
+  return true;
 }

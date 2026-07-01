@@ -3,6 +3,7 @@ import {
   PRO_PLAN_ID,
   PRO_PRODUCT_ID,
   hasActiveProSubscription,
+  reconcileProPlanMetadata,
   syncProPlanMetadata,
 } from "../services/billing/pro";
 import type { ProMetadataJson } from "../services/billing/pro";
@@ -79,6 +80,36 @@ describe("hasActiveProSubscription", () => {
   test("manual grant (quantity, no subscription) counts", async () => {
     const customer = customerWithPages([
       productsPage([{ id: PRO_PRODUCT_ID, quantity: 1 }]),
+    ]);
+    expect(await hasActiveProSubscription(customer)).toBe(true);
+  });
+
+  test("subscription past its period end does not count", async () => {
+    const customer = customerWithPages([
+      productsPage([
+        {
+          id: PRO_PRODUCT_ID,
+          subscription: {
+            cancelAtPeriodEnd: true,
+            currentPeriodEnd: new Date(Date.now() - 60_000),
+          },
+        },
+      ]),
+    ]);
+    expect(await hasActiveProSubscription(customer)).toBe(false);
+  });
+
+  test("subscription with future period end counts", async () => {
+    const customer = customerWithPages([
+      productsPage([
+        {
+          id: PRO_PRODUCT_ID,
+          subscription: {
+            cancelAtPeriodEnd: true,
+            currentPeriodEnd: new Date(Date.now() + 60_000),
+          },
+        },
+      ]),
     ]);
     expect(await hasActiveProSubscription(customer)).toBe(true);
   });
@@ -167,5 +198,42 @@ describe("syncProPlanMetadata", () => {
     const user = metadataUser("bogus");
     await syncProPlanMetadata(user, true);
     expect(user.updates).toEqual([{ cmuxPlan: PRO_PLAN_ID }]);
+  });
+});
+
+describe("reconcileProPlanMetadata", () => {
+  function reconcileUser(metadata: unknown, products: ProductInput[]) {
+    const base = metadataUser(metadata);
+    const pages = customerWithPages([productsPage(products)]);
+    return { ...base, listProducts: pages.listProducts };
+  }
+
+  const activePro: ProductInput = {
+    id: PRO_PRODUCT_ID,
+    subscription: { cancelAtPeriodEnd: false, currentPeriodEnd: null },
+  };
+
+  test("upgrades metadata when subscribed but unsynced", async () => {
+    const user = reconcileUser({}, [activePro]);
+    expect(await reconcileProPlanMetadata(user)).toBe(true);
+    expect(user.updates).toEqual([{ cmuxPlan: PRO_PLAN_ID }]);
+  });
+
+  test("clears metadata when subscription lapsed", async () => {
+    const user = reconcileUser({ cmuxPlan: PRO_PLAN_ID }, []);
+    expect(await reconcileProPlanMetadata(user)).toBe(true);
+    expect(user.updates).toEqual([{}]);
+  });
+
+  test("no-op when already in sync", async () => {
+    const user = reconcileUser({ cmuxPlan: PRO_PLAN_ID }, [activePro]);
+    expect(await reconcileProPlanMetadata(user)).toBe(false);
+    expect(user.updates).toEqual([]);
+  });
+
+  test("skips when manual cmuxVmPlan override is set", async () => {
+    const user = reconcileUser({ cmuxVmPlan: "enterprise" }, []);
+    expect(await reconcileProPlanMetadata(user)).toBe(false);
+    expect(user.updates).toEqual([]);
   });
 });

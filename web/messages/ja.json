@@ -2256,6 +2256,9 @@
     "cancelNote": "cmuxアカウントでワンクリック。いつでも解約できます。",
     "welcomeSuccess": "cmux Proへようこそ。サブスクリプションが有効になりました。",
     "welcomeActive": "cmux Proはすでに有効です。",
-    "welcomePending": "決済を受け付けました。Proは1分ほどで有効になります。ページを再読み込みして確認してください。"
+    "welcomePending": "決済を受け付けました。Proの有効化には1分ほどかかることがあります。",
+    "welcomePendingAction": "再確認",
+    "billingError": "チェックアウトの開始中に問題が発生しました。しばらくしてからもう一度お試しください。",
+    "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。"
   }
 }
