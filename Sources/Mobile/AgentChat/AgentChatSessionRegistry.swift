@@ -505,6 +505,10 @@ final class AgentChatSessionRegistry {
                 records[entry.sessionID] = record
                 syncProcessExitWatch(for: record)
                 updateLiveSessionIndex(previous: nil, current: record)
+                // Startup-seeded sessions are a registry transition like any
+                // other — emit so observers (transcript service, sidebar bridge)
+                // see them instead of only catching later mutations.
+                notifyRecordChange(record, nil)
             }
         }
     }
