@@ -793,8 +793,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
     private let agentChatTranscriptService = AgentChatTranscriptService()
-    /// Bridges the session registry to the sidebar `claude_code` row. Retained so its Combine
-    /// subscription to `recordChangesPublisher` stays alive for the app lifetime.
+    /// Bridges the session registry to the sidebar `claude_code` row. Retained so its
+    /// `addRecordChangeObserver` registration stays alive for the app lifetime.
     private var claudeSidebarStatusBridge: ClaudeSidebarStatusBridge?
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
@@ -2028,13 +2028,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
-    /// Wires the registry -> sidebar bridge: it subscribes to the registry's
-    /// `recordChangesPublisher` and writes the `claude_code` row through `TerminalController`'s
-    /// control-sidebar seam — the SAME dict the CLI writes — so the two arbitrate by
-    /// last-writer-wins. The registry's own per-PID exit watcher drives `.ended` (which clears the
-    /// row), so no separate reaper is needed. Uses the single registry
+    /// Wires the registry -> sidebar bridge: it registers a record-change observer on the
+    /// registry (`addRecordChangeObserver`) and writes the `claude_code` row through
+    /// `TerminalController`'s control-sidebar seam — the SAME dict the CLI writes — so the two
+    /// arbitrate by last-writer-wins. The registry's own per-PID exit watcher drives `.ended`
+    /// (which clears the row), so no separate reaper is needed. Uses the single registry
     /// (`agentChatTranscriptService.registry`); called once from `configure` before the service
-    /// starts, so the subscription catches every edit.
+    /// starts, so the observer catches every edit.
     private func wireClaudeSidebarStatusBridge() {
         let registry = agentChatTranscriptService.registry
         claudeSidebarStatusBridge = ClaudeSidebarStatusBridge(
