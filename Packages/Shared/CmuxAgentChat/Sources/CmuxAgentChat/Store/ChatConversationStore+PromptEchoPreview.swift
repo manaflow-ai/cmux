@@ -49,10 +49,9 @@ extension ChatConversationStore {
     }
 
     private func normalizedPromptEchoText(_ text: String) -> String {
-        text.split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+        text.split(whereSeparator: \.isWhitespace)
+            .map(String.init)
             .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .joined(separator: " ")
     }
 }

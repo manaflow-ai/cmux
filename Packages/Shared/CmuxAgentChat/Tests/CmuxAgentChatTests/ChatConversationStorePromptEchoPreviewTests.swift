@@ -61,6 +61,24 @@ struct ChatConversationStorePromptEchoPreviewTests {
         #expect(await waitForPromptEchoPreview { Self.messageIDs(store.rows) == [realPreview.id] })
     }
 
+    @Test("live preview suppresses a soft-wrapped suffix copied from a pending prompt")
+    func livePreviewSuppressesSoftWrappedPendingPromptSuffix() async {
+        let source = PromptEchoSilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await waitForPromptEchoPreview { store.isConnected })
+        await store.send(text: "please explain the design constraints clearly")
+        #expect(await waitForPromptEchoPreview { Self.pendingItems(store.rows).count == 1 })
+
+        await source.emit(.streamingProse(Self.streamingMessage(text: "design constraints\nclearly")))
+        #expect(await waitForPromptEchoPreview {
+            Self.snapshots(store.rows).isEmpty
+                && Self.pendingItems(store.rows).map(\.text) == ["please explain the design constraints clearly"]
+        })
+    }
+
     @Test("queued prompts do not suppress the active turn live preview")
     func queuedPromptDoesNotSuppressActivePreview() async {
         let source = PromptEchoSilentSendEventSource()
