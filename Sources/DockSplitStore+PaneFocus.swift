@@ -65,6 +65,29 @@ extension DockSplitStore {
         forEachPanel { _, panel in applyVisibility(to: panel) }
     }
 
+    func withCoalescedTerminalViewReattach(_ body: () -> Void) {
+        terminalViewReattachCoalescingDepth += 1
+        defer {
+            terminalViewReattachCoalescingDepth -= 1
+            if terminalViewReattachCoalescingDepth == 0 {
+                let pendingPanelIds = pendingTerminalViewReattachPanelIds
+                pendingTerminalViewReattachPanelIds.removeAll()
+                for panelId in pendingPanelIds {
+                    (panels[panelId] as? TerminalPanel)?.requestViewReattach()
+                }
+            }
+        }
+        body()
+    }
+
+    func requestTerminalViewReattach(_ terminal: TerminalPanel) {
+        if terminalViewReattachCoalescingDepth > 0 {
+            pendingTerminalViewReattachPanelIds.insert(terminal.id)
+        } else {
+            terminal.requestViewReattach()
+        }
+    }
+
     func applyFocusedDockSelection() {
         guard let paneId = bonsplitController.focusedPaneId,
               let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
@@ -162,7 +185,11 @@ extension DockSplitStore {
             if shouldBeVisible {
                 terminal.hostedView.setVisibleInUI(true)
                 terminal.hostedView.setActive(shouldBeActive)
-                TerminalWindowPortalRegistry.updateEntryVisibility(for: terminal.hostedView, visibleInUI: true)
+                let needsPortalReattach = TerminalWindowPortalRegistry
+                    .updateEntryVisibility(for: terminal.hostedView, visibleInUI: true)
+                if needsPortalReattach {
+                    requestTerminalViewReattach(terminal)
+                }
             } else {
                 terminal.unfocus()
                 terminal.hostedView.setVisibleInUI(false)

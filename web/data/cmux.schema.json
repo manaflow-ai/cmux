@@ -1045,6 +1045,12 @@
           "default": 300,
           "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
         },
+        "askWhereToSaveDownloads": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.browser.askWhereToSaveDownloads",
+          "description": "Show a save panel for browser downloads instead of saving directly to Downloads."
+        },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,
@@ -1262,6 +1268,7 @@
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
+              "newWorkspaceGroup",
               "groupSelectedWorkspaces",
               "toggleFocusedWorkspaceGroupCollapsed",
               "reopenClosedBrowserPanel",

@@ -48,14 +48,14 @@ struct DisconnectedWorkspaceShellView: View {
                 Label(
                     savedMacs.isEmpty
                         ? L10n.string("mobile.devices.emptyTitle", defaultValue: "No devices")
-                        : L10n.string("mobile.devices.savedTitle", defaultValue: "Your Macs"),
+                        : L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"),
                     systemImage: "desktopcomputer.and.iphone"
                 )
             } description: {
                 Text(
                     savedMacs.isEmpty
-                        ? L10n.string("mobile.devices.emptyDescription", defaultValue: "Add a Mac to start syncing terminal workspaces.")
-                        : L10n.string("mobile.devices.savedDescription", defaultValue: "Tap a saved Mac to reconnect, or add another.")
+                        ? L10n.string("mobile.devices.emptyDescription", defaultValue: "Add a computer to start syncing terminal workspaces.")
+                        : L10n.string("mobile.devices.savedDescription", defaultValue: "Tap a saved computer to reconnect, or add another.")
                 )
             } actions: {
                 // When a paired Mac is unreachable and this device has no
@@ -92,7 +92,7 @@ struct DisconnectedWorkspaceShellView: View {
                     Text(
                         savedMacs.isEmpty
                             ? L10n.string("mobile.addDevice.title", defaultValue: "Add Computer")
-                            : L10n.string("mobile.addDevice.another", defaultValue: "Add another Mac")
+                            : L10n.string("mobile.addDevice.another", defaultValue: "Add another Computer")
                     )
                 }
                 .buttonStyle(.borderedProminent)
