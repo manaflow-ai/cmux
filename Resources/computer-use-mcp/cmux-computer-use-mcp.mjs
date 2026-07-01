@@ -35,8 +35,20 @@ import process from "node:process";
 
 const execFileP = promisify(execFile);
 
-const TIMEOUT_MS = Number(process.env.CMUX_CU_TIMEOUT_MS || 180000);
-const MAX_TREE = Number(process.env.CMUX_CU_MAX_TREE || 60000);
+// Fail fast on malformed numeric config: silently coercing to NaN would break
+// request timeouts and AX-tree truncation in confusing ways.
+function positiveIntegerEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${name} must be a positive number, got: ${raw}`);
+  }
+  return Math.floor(value);
+}
+
+const TIMEOUT_MS = positiveIntegerEnv("CMUX_CU_TIMEOUT_MS", 180000);
+const MAX_TREE = positiveIntegerEnv("CMUX_CU_MAX_TREE", 60000);
 const CODEX_APP_BINARY = "/Applications/Codex.app/Contents/Resources/codex";
 
 async function isExecutable(path) {
@@ -95,6 +107,9 @@ class AppServerSession {
     this.primedApps = new Set();
     this.startPromise = null;
     this.exitError = null;
+    // Latest `mcpServer/startupStatus/updated` for the computer-use server,
+    // kept for diagnosability (appended to cold-start error reports).
+    this.computerUseStatus = null;
   }
 
   get alive() {
@@ -114,6 +129,7 @@ class AppServerSession {
   async start() {
     this.dispose();
     this.exitError = null;
+    this.computerUseStatus = null;
     const child = spawn(this.codexBinary, ["app-server"], {
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -195,6 +211,10 @@ class AppServerSession {
       this.write({ id: message.id, result });
       return;
     }
+    if (message.method === "mcpServer/startupStatus/updated" && message.params?.name === "computer-use") {
+      this.computerUseStatus = message.params;
+      return;
+    }
     if (message.id == null || !this.pending.has(message.id)) return;
     const entry = this.pending.get(message.id);
     this.pending.delete(message.id);
@@ -226,8 +246,13 @@ class AppServerSession {
       }
       const id = this.nextId++;
       const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`${method} timed out after ${TIMEOUT_MS}ms`));
+        // Fail closed: a timed-out call (an input action especially) may still
+        // land later, so the session state is unknown. Kill the app-server;
+        // onExit rejects this and every other pending request, and the next
+        // perception call starts a fresh thread.
+        const child = this.child;
+        this.onExit(`${method} timed out after ${TIMEOUT_MS}ms; restarting the codex app-server`);
+        child?.kill();
       }, TIMEOUT_MS);
       this.pending.set(id, { resolve, reject, timer, method });
       try {
@@ -280,32 +305,51 @@ function isColdStartError(error) {
   return /exited before returning a response|-10005/.test(String(error?.message ?? error));
 }
 
-// The first Computer Use call after the app-server (re)starts can fail while
-// the bundled computer-use service warms up. Retry once — but only for
-// read-only perception commands, never for input actions.
+// The first Computer Use call after the app-server (re)starts can fail if the
+// bundled computer-use service dies while warming up. Retry once — but only
+// for read-only perception commands, never for input actions. No wall-clock
+// wait is needed: the app-server respawns the computer-use server for the
+// retry call and queues it until that server reports ready, so the retry is
+// driven by the engine's own readiness signal. Its startupStatus is appended
+// to persistent failures for diagnosability.
 async function callReadOnlyTool(tool, args) {
   const s = await session();
   try {
     return await s.callTool(tool, args);
   } catch (error) {
     if (!isColdStartError(error)) throw error;
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    return s.callTool(tool, args);
+    try {
+      return await s.callTool(tool, args);
+    } catch (retryError) {
+      if (isColdStartError(retryError) && s.computerUseStatus) {
+        const { status, error: statusError } = s.computerUseStatus;
+        throw new Error(
+          `${retryError.message} (computer-use server status: ${status}${statusError ? `, error: ${statusError}` : ""})`
+        );
+      }
+      throw retryError;
+    }
   }
 }
 
 // Input actions require the app to be bound in the current app-server thread.
 // A `get_app_state` in the same thread does that binding (and builds the
 // element-index table), so prime once per app — matching the engine's own
-// state -> act loop. Element indices still come from the agent's latest
-// computer_state; tools tell agents to re-capture before element actions.
+// state -> act loop. Element-index actions fail closed instead: silently
+// priming would execute the caller's index against a snapshot the agent never
+// saw (wrong-control clicks after an app-server restart), so they require a
+// computer_state in the current session first.
 async function callInputTool(tool, args) {
   const s = await session();
   const app = typeof args.app === "string" ? args.app.trim() : "";
-  if (app && !s.alive) s.primedApps.clear();
   if (app) {
     await s.ensureStarted();
     if (!s.primedApps.has(app)) {
+      if (args.element_index != null) {
+        return err(
+          `no computer_state snapshot for "${app}" in the current session; run computer_state first — element indices are snapshot-specific`
+        );
+      }
       const primed = await s.callTool("get_app_state", { app });
       if (primed?.isError) {
         return primed;

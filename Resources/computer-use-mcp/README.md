@@ -66,8 +66,11 @@ Inside the cmux app bundle the script is at
 
 ## Config (env)
 
-- `CMUX_CU_CODEX` — path to the codex binary. Default: `codex` on PATH, then
-  `/Applications/Codex.app/Contents/Resources/codex`.
+- `CMUX_CU_CODEX` — path to the codex binary. Default: `codex` on PATH
+  (skipping cmux's own per-surface shims), then
+  `/Applications/Codex.app/Contents/Resources/codex`. When set it decides
+  alone — no fallback — and the cmux-claude-wrapper availability gate honors
+  it the same way.
 - `CMUX_CU_TIMEOUT_MS` — per-command timeout (default `180000`).
 - `CMUX_CU_MAX_TREE` — max AX-tree characters returned by `computer_state`
   (default `60000`).
@@ -119,11 +122,13 @@ direct-app-server implementation before it landed.
   expired, or revoked. That is how Codex Computer Use works; log in with
   `codex login`.
 - Cold start: the first perception call after the app-server starts can fail
-  while the computer-use service warms up. Read-only calls retry once;
-  input actions are never auto-retried.
-- Element indices are snapshot-specific. Re-run `computer_state` before
-  element-index actions; after an app-server restart the previous indices are
-  re-primed from a fresh snapshot and may have shifted.
+  if the computer-use service dies while warming up. Read-only calls retry
+  once (the app-server queues the retry until the respawned service reports
+  ready — no wall-clock waits); input actions are never auto-retried.
+- Element indices are snapshot-specific. Element-index actions fail closed
+  when the current session has no `computer_state` snapshot for the app (for
+  example after an app-server restart): re-run `computer_state` and use the
+  fresh indices.
 - Full-desktop `computer_screenshot` uses `screencapture`, which needs Screen
   Recording permission for the hosting terminal app. Per-app capture goes
   through the engine's helper and does not.

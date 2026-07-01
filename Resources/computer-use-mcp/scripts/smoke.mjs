@@ -29,9 +29,32 @@ const transport = new StdioClientTransport({
 const client = new Client({ name: "cmux-cu-smoke", version: "0.2.0" });
 await client.connect(transport);
 
+const REQUIRED_TOOLS = [
+  "computer_target",
+  "computer_apps",
+  "computer_open",
+  "computer_state",
+  "computer_screenshot",
+  "computer_click",
+  "computer_type",
+  "computer_key",
+  "computer_scroll",
+  "computer_drag",
+  "computer_action",
+  "computer_windows",
+];
+
 const { tools } = await client.listTools();
 console.log(`tools/list -> ${tools.length} tools:`);
 for (const t of tools) console.log(`  - ${t.name}`);
+const missing = REQUIRED_TOOLS.filter((name) => !tools.some((t) => t.name === name));
+if (missing.length > 0) {
+  console.error(`FAIL: missing required tools: ${missing.join(", ")}`);
+  await client.close();
+  process.exit(1);
+}
+
+let failed = false;
 
 async function call(name, args = {}) {
   console.log(`\ntools/call ${name} ${JSON.stringify(args)}`);
@@ -44,7 +67,10 @@ async function call(name, args = {}) {
       console.log(`  ${t.length > 800 ? t.slice(0, 800) + "\n  …[truncated]" : t}`);
     }
   }
-  if (res.isError) console.log("  (isError: true)");
+  if (res.isError) {
+    console.log("  (isError: true)");
+    failed = true;
+  }
   return res;
 }
 
@@ -52,3 +78,7 @@ await call("computer_target");
 if (toolName) await call(toolName, toolArgsJson ? JSON.parse(toolArgsJson) : {});
 
 await client.close();
+if (failed) {
+  console.error("FAIL: a tool call returned isError");
+  process.exit(1);
+}
