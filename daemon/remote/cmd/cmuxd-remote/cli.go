@@ -60,36 +60,6 @@ type browserCommandSpec struct {
 	useSurfaceEnv         bool
 }
 
-var commands = []commandSpec{
-	// V1 text protocol commands
-	{name: "ping", proto: protoV1, v1Cmd: "ping", noParams: true},
-	{name: "new-window", proto: protoV1, v1Cmd: "new_window", noParams: true},
-	{name: "current-window", proto: protoV1, v1Cmd: "current_window", noParams: true},
-	{name: "close-window", proto: protoV1, v1Cmd: "close_window", flagKeys: []string{"window"}},
-	{name: "focus-window", proto: protoV1, v1Cmd: "focus_window", flagKeys: []string{"window"}},
-	{name: "list-windows", proto: protoV1, v1Cmd: "list_windows", noParams: true},
-
-	// V2 JSON-RPC commands
-	{name: "capabilities", proto: protoV2, v2Method: "system.capabilities", noParams: true},
-	{name: "list-workspaces", proto: protoV2, v2Method: "workspace.list", noParams: true},
-	{name: "new-workspace", proto: protoV2, v2Method: "workspace.create", flagKeys: []string{"command", "working-directory", "name"}},
-	{name: "close-workspace", proto: protoV2, v2Method: "workspace.close", flagKeys: []string{"workspace"}},
-	{name: "select-workspace", proto: protoV2, v2Method: "workspace.select", flagKeys: []string{"workspace"}},
-	{name: "current-workspace", proto: protoV2, v2Method: "workspace.current", noParams: true},
-	{name: "list-panels", proto: protoV2, v2Method: "surface.list", flagKeys: []string{"workspace"}},
-	{name: "focus-panel", proto: protoV2, v2Method: "surface.focus", flagKeys: []string{"panel", "workspace"}, paramKeyOverrides: map[string]string{"panel": "surface_id"}},
-	{name: "list-panes", proto: protoV2, v2Method: "pane.list", flagKeys: []string{"workspace"}},
-	{name: "list-pane-surfaces", proto: protoV2, v2Method: "pane.surfaces", flagKeys: []string{"pane"}},
-	{name: "new-pane", proto: protoV2, v2Method: "pane.create", flagKeys: []string{"workspace", "direction", "type", "url"}, defaultParams: map[string]any{"direction": "right"}},
-	{name: "new-surface", proto: protoV2, v2Method: "surface.create", flagKeys: []string{"workspace", "pane", "type", "url"}},
-	{name: "new-split", proto: protoV2, v2Method: "surface.split", flagKeys: []string{"surface", "direction"}},
-	{name: "close-surface", proto: protoV2, v2Method: "surface.close", flagKeys: []string{"surface"}},
-	{name: "send", proto: protoV2, v2Method: "surface.send_text", flagKeys: []string{"surface", "text"}},
-	{name: "send-key", proto: protoV2, v2Method: "surface.send_key", flagKeys: []string{"surface", "key"}},
-	{name: "notify", proto: protoV2, v2Method: "notification.create", flagKeys: []string{"title", "body", "workspace"}},
-	{name: "refresh-surfaces", proto: protoV2, v2Method: "surface.refresh", noParams: true},
-}
-
 var browserCommands = map[string]browserCommandSpec{
 	"open":       {method: "browser.open_split", flagKeys: []string{"url", "workspace", "surface"}, allowPositionalURL: true, useWorkspaceEnv: true},
 	"open-split": {method: "browser.open_split", flagKeys: []string{"url", "workspace", "surface"}, allowPositionalURL: true, useWorkspaceEnv: true},
@@ -123,6 +93,22 @@ var browserCommands = map[string]browserCommandSpec{
 var commandIndex map[string]*commandSpec
 
 func init() {
+	// Apply per-command overrides from cli_overrides.go onto the generated specs.
+	for i := range commands {
+		ov, ok := commandOverrides[commands[i].name]
+		if !ok {
+			continue
+		}
+		if ov.paramKeyOverrides != nil {
+			commands[i].paramKeyOverrides = ov.paramKeyOverrides
+		}
+		if ov.positionalKey != "" {
+			commands[i].positionalKey = ov.positionalKey
+		}
+		if ov.defaultParams != nil {
+			commands[i].defaultParams = ov.defaultParams
+		}
+	}
 	commandIndex = make(map[string]*commandSpec, len(commands))
 	for i := range commands {
 		commandIndex[commands[i].name] = &commands[i]
@@ -183,6 +169,15 @@ doneFlags:
 	// Special case: "rpc" passthrough
 	if cmdName == "rpc" {
 		return runRPC(socketPath, cmdArgs, jsonOutput, refreshAddr)
+	}
+
+	// Commands with specialDispatch=true in cli_overrides.go have dedicated
+	// handler functions for client-side logic the generic path cannot express.
+	if commandOverrides[cmdName].specialDispatch {
+		switch cmdName {
+		case "new-workspace":
+			return runNewWorkspaceRelay(socketPath, cmdArgs, jsonOutput, refreshAddr)
+		}
 	}
 
 	// Browser subcommand delegation
@@ -749,19 +744,31 @@ func flagToParamKey(key string) string {
 
 // parsedFlags holds the results of flag parsing.
 type parsedFlags struct {
-	flags      map[string]string // --key value pairs
-	positional []string          // non-flag arguments
+	flags      map[string]string   // --key value pairs (last wins for duplicates)
+	repeated   map[string][]string // --key values for repeat-allowed keys
+	positional []string            // non-flag arguments
 }
 
 // parseFlags extracts --key value pairs from args for the given allowed keys.
-// Non-flag arguments are collected in positional.
-func parseFlags(args []string, keys []string) (parsedFlags, error) {
+// Keys listed in repeatKeys may appear more than once; their values accumulate
+// in repeated rather than flags. Non-flag arguments are collected in positional.
+func parseFlags(args []string, keys []string, repeatKeys ...[]string) (parsedFlags, error) {
 	allowed := make(map[string]bool, len(keys))
 	for _, k := range keys {
 		allowed[k] = true
 	}
+	repeat := make(map[string]bool)
+	if len(repeatKeys) > 0 {
+		for _, k := range repeatKeys[0] {
+			repeat[k] = true
+			allowed[k] = true
+		}
+	}
 
-	result := parsedFlags{flags: make(map[string]string)}
+	result := parsedFlags{
+		flags:    make(map[string]string),
+		repeated: make(map[string][]string),
+	}
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--" {
 			result.positional = append(result.positional, args[i+1:]...)
@@ -778,8 +785,13 @@ func parseFlags(args []string, keys []string) (parsedFlags, error) {
 		if i+1 >= len(args) {
 			return parsedFlags{}, fmt.Errorf("flag --%s requires a value", key)
 		}
-		result.flags[key] = args[i+1]
+		val := args[i+1]
 		i++
+		if repeat[key] {
+			result.repeated[key] = append(result.repeated[key], val)
+		} else {
+			result.flags[key] = val
+		}
 	}
 	return result, nil
 }
@@ -1008,26 +1020,66 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "Usage: cmux [--socket <path>] [--json] <command> [args...]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Commands:")
-	fmt.Fprintln(os.Stderr, "  ping                     Check connectivity")
+	fmt.Fprintln(os.Stderr, "  ping                      Check connectivity")
 	fmt.Fprintln(os.Stderr, "  capabilities              List server capabilities")
 	fmt.Fprintln(os.Stderr, "  list-workspaces           List all workspaces")
-	fmt.Fprintln(os.Stderr, "  new-window                Create a new window")
 	fmt.Fprintln(os.Stderr, "  new-workspace             Create a new workspace")
+	fmt.Fprintln(os.Stderr, "    --name <title>          Workspace title")
+	fmt.Fprintln(os.Stderr, "    --cwd <dir>             Working directory")
+	fmt.Fprintln(os.Stderr, "    --description <text>    Workspace description")
+	fmt.Fprintln(os.Stderr, "    --focus true|false      Focus the workspace after creation")
+	fmt.Fprintln(os.Stderr, "    --window <id>           Target window")
+	fmt.Fprintln(os.Stderr, "    --group <id>            Workspace group to place into")
+	fmt.Fprintln(os.Stderr, "    --group-placement <p>   Placement within the group (before|after|...)")
+	fmt.Fprintln(os.Stderr, "    --group-reference <id>  Reference workspace for placement")
+	fmt.Fprintln(os.Stderr, "    --layout <json>         Pane layout JSON object")
+	fmt.Fprintln(os.Stderr, "    --env KEY=VALUE         Environment variable (repeatable)")
+	fmt.Fprintln(os.Stderr, "    --env-file <path>       File of KEY=VALUE environment variables")
+	fmt.Fprintln(os.Stderr, "    --command <cmd>         Command to send to the new workspace after creation")
+	fmt.Fprintln(os.Stderr, "  rename-workspace          Rename a workspace")
+	fmt.Fprintln(os.Stderr, "  close-workspace           Close a workspace")
+	fmt.Fprintln(os.Stderr, "  select-workspace          Select a workspace")
+	fmt.Fprintln(os.Stderr, "  next-workspace            Switch to next workspace")
+	fmt.Fprintln(os.Stderr, "  previous-workspace        Switch to previous workspace")
+	fmt.Fprintln(os.Stderr, "  last-workspace            Switch to last-used workspace")
+	fmt.Fprintln(os.Stderr, "  current-workspace         Show the active workspace ID")
+	fmt.Fprintln(os.Stderr, "  move-workspace-to-window  Move workspace to another window")
+	fmt.Fprintln(os.Stderr, "  equalize-splits           Equalize pane splits in a workspace")
+	fmt.Fprintln(os.Stderr, "  list-panes                List panes in a workspace")
+	fmt.Fprintln(os.Stderr, "  new-pane                  Create a new pane")
+	fmt.Fprintln(os.Stderr, "  last-pane                 Switch to last-used pane")
+	fmt.Fprintln(os.Stderr, "  join-pane                 Join a pane into another")
+	fmt.Fprintln(os.Stderr, "  swap-pane                 Swap two panes")
+	fmt.Fprintln(os.Stderr, "  break-pane                Break a pane into its own workspace")
+	fmt.Fprintln(os.Stderr, "  resize-pane               Resize a pane")
+	fmt.Fprintln(os.Stderr, "  list-panels               List surfaces in a workspace")
+	fmt.Fprintln(os.Stderr, "  list-pane-surfaces        List surfaces in a pane")
 	fmt.Fprintln(os.Stderr, "  new-surface               Create a new surface")
 	fmt.Fprintln(os.Stderr, "  new-split                 Split an existing surface")
 	fmt.Fprintln(os.Stderr, "  close-surface             Close a surface")
-	fmt.Fprintln(os.Stderr, "  close-workspace           Close a workspace")
-	fmt.Fprintln(os.Stderr, "  select-workspace          Select a workspace")
+	fmt.Fprintln(os.Stderr, "  focus-panel               Focus a surface")
+	fmt.Fprintln(os.Stderr, "  refresh-surfaces          Refresh all surfaces")
 	fmt.Fprintln(os.Stderr, "  send                      Send text to a surface")
 	fmt.Fprintln(os.Stderr, "  send-key                  Send a key to a surface")
+	fmt.Fprintln(os.Stderr, "  read-screen               Read terminal output from a surface")
+	fmt.Fprintln(os.Stderr, "  clear-history             Clear scrollback history for a surface")
+	fmt.Fprintln(os.Stderr, "  list-windows              List all windows")
+	fmt.Fprintln(os.Stderr, "  new-window                Create a new window")
+	fmt.Fprintln(os.Stderr, "  close-window              Close a window")
+	fmt.Fprintln(os.Stderr, "  current-window            Show the active window ID")
+	fmt.Fprintln(os.Stderr, "  focus-window              Focus a window")
 	fmt.Fprintln(os.Stderr, "  notify                    Create a notification")
+	fmt.Fprintln(os.Stderr, "  jump-to-unread            Jump to first unread notification")
+	fmt.Fprintln(os.Stderr, "  dismiss-notification      Dismiss a notification")
+	fmt.Fprintln(os.Stderr, "  mark-notification-read    Mark a notification as read")
+	fmt.Fprintln(os.Stderr, "  open-notification         Open a notification")
 	fmt.Fprintln(os.Stderr, "  workspace group <sub>     Manage sidebar workspace groups (list, create, ungroup,")
 	fmt.Fprintln(os.Stderr, "                            delete, rename, collapse, expand, pin, unpin, add, remove,")
 	fmt.Fprintln(os.Stderr, "                            set-anchor, new-workspace, set-color, set-icon, move, focus)")
 	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands through the local cmux browser relay")
-	fmt.Fprintln(os.Stderr, "  claude-teams [args...]     Launch Claude Code in teammate mode")
-	fmt.Fprintln(os.Stderr, "  omo [args...]              Launch OpenCode with cmux integration")
-	fmt.Fprintln(os.Stderr, "  omx [args...]              Launch Oh My Codex with cmux integration")
-	fmt.Fprintln(os.Stderr, "  omc [args...]              Launch Oh My Claude Code with cmux integration")
+	fmt.Fprintln(os.Stderr, "  claude-teams [args...]    Launch Claude Code in teammate mode")
+	fmt.Fprintln(os.Stderr, "  omo [args...]             Launch OpenCode with cmux integration")
+	fmt.Fprintln(os.Stderr, "  omx [args...]             Launch Oh My Codex with cmux integration")
+	fmt.Fprintln(os.Stderr, "  omc [args...]             Launch Oh My Claude Code with cmux integration")
 	fmt.Fprintln(os.Stderr, "  rpc <method> [json-params] Send arbitrary JSON-RPC")
 }
