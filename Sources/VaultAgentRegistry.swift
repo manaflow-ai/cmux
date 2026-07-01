@@ -185,6 +185,18 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             sessionDirectory: "~/.grok/sessions"
         )
     }
+
+    static var builtInDroid: CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: "droid",
+            name: "Droid",
+            detect: CmuxVaultAgentDetectRule(processName: "droid", argvContains: ["droid"]),
+            sessionIdSource: .argvOption("--resume"),
+            resumeCommand: "droid --resume {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: "~/.factory/sessions"
+        )
+    }
 }
 
 struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
@@ -402,6 +414,7 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInOmp,
             CmuxVaultAgentRegistration.builtInAntigravity,
             CmuxVaultAgentRegistration.builtInGrok,
+            CmuxVaultAgentRegistration.builtInDroid,
         ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }

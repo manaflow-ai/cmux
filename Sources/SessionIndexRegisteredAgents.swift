@@ -817,7 +817,7 @@ extension SessionIndexStore {
     }
 
     nonisolated private static func firstTopLevelTitle(in object: [String: Any]) -> String? {
-        if let title = firstText(in: object, keys: ["title", "prompt"]) {
+        if let title = firstText(in: object, keys: ["title", "sessionTitle", "prompt"]) {
             return title
         }
         guard shouldUseMessageAsTitle(object) else { return nil }
