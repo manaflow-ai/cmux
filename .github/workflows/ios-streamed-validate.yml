@@ -194,6 +194,19 @@ jobs:
           mkdir -p "$HOME/.codex/sessions/2026/06/30"
           cp ios/fastlane/streamed-sessions/codex/*.jsonl "$HOME/.codex/sessions/2026/06/30/"
           echo "seeded codex: $(ls "$HOME/.codex/sessions/2026/06/30/")"
+          # codex has no CI login (it showed the "Sign in with ChatGPT" onboarding),
+          # which blocks `codex resume`. Configure a DeepSeek (OpenAI-compatible)
+          # provider so codex is authenticated and resumes the seeded session. The
+          # key comes from DEEPSEEK_API_KEY (propagated into the GUI session).
+          cat > "$HOME/.codex/config.toml" <<'TOML'
+          model = "deepseek-chat"
+          model_provider = "deepseek"
+          [model_providers.deepseek]
+          name = "DeepSeek"
+          base_url = "https://api.deepseek.com/v1"
+          env_key = "DEEPSEEK_API_KEY"
+          TOML
+          echo "wrote ~/.codex/config.toml (deepseek provider)"
           # pi: cwd-keyed jsonl; seed both /tmp spellings; resumed by --session <uuid>.
           for enc in --private-tmp-cmux-stream-pi-- --tmp-cmux-stream-pi--; do
             mkdir -p "$HOME/.pi/agent/sessions/$enc"
