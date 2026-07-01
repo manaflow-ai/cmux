@@ -28295,6 +28295,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         let previousHookFileData = fm.contents(atPath: filePath)
         var wroteHookFile = false
+        func restoreHookFileAfterFailedPostInstallAction() {
+            guard wroteHookFile else { return }
+            do {
+                if let previousHookFileData {
+                    try previousHookFileData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+                } else if fm.fileExists(atPath: filePath) {
+                    try fm.removeItem(atPath: filePath)
+                }
+            } catch {
+                cliWriteStderr("Warning: failed to restore hook configuration; hook setup may be incomplete.\n")
+            }
+        }
 
         let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
         let newString = String(data: newData, encoding: .utf8) ?? "{}"
@@ -28344,57 +28356,52 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             switch action {
             case .codexConfigToml:
                 let configPath = "\(configDir)/config.toml"
-                let existingContent: String
-                if fm.fileExists(atPath: configPath) {
-                    existingContent = try String(contentsOfFile: configPath, encoding: .utf8)
-                } else {
-                    existingContent = ""
-                }
-                let trustClean = Self.codexConfigTomlRemovingHookTrust(
-                    in: existingContent,
-                    entries: codexHookTrustEntries,
-                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes,
-                    removingTrustedHashes: codexLegacyHookTrustHashes
-                )
-                let featureContent = Self.codexConfigTomlInstallingHooksFeature(in: trustClean)
-                let trustInstall = Self.codexConfigTomlInstallingHookTrust(
-                    in: featureContent,
-                    entries: codexHookTrustEntries,
-                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes,
-                    removingTrustedHashes: codexLegacyHookTrustHashes
-                )
-                let newContent = trustInstall.content
-                if newContent != existingContent {
-                    if !skipConfirm {
-                        Self.printInstallPreview(
-                            path: configPath,
-                            oldContent: existingContent,
-                            newContent: newContent,
-                            fallbackContent: newContent
-                        )
-                        print("\nProceed? [y/N] ", terminator: "")
-                        guard readLine()?.lowercased().hasPrefix("y") == true else {
-                            if wroteHookFile {
-                                do {
-                                    if let previousHookFileData {
-                                        try previousHookFileData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-                                    } else if fm.fileExists(atPath: filePath) {
-                                        try fm.removeItem(atPath: filePath)
-                                    }
-                                } catch {
-                                    cliWriteStderr("Warning: failed to restore hook configuration after abort; hook setup may be incomplete.\n")
-                                }
+                do {
+                    let existingContent: String
+                    if fm.fileExists(atPath: configPath) {
+                        existingContent = try String(contentsOfFile: configPath, encoding: .utf8)
+                    } else {
+                        existingContent = ""
+                    }
+                    let trustClean = Self.codexConfigTomlRemovingHookTrust(
+                        in: existingContent,
+                        entries: codexHookTrustEntries,
+                        removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes,
+                        removingTrustedHashes: codexLegacyHookTrustHashes
+                    )
+                    let featureContent = Self.codexConfigTomlInstallingHooksFeature(in: trustClean)
+                    let trustInstall = Self.codexConfigTomlInstallingHookTrust(
+                        in: featureContent,
+                        entries: codexHookTrustEntries,
+                        removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes,
+                        removingTrustedHashes: codexLegacyHookTrustHashes
+                    )
+                    let newContent = trustInstall.content
+                    if newContent != existingContent {
+                        if !skipConfirm {
+                            Self.printInstallPreview(
+                                path: configPath,
+                                oldContent: existingContent,
+                                newContent: newContent,
+                                fallbackContent: newContent
+                            )
+                            print("\nProceed? [y/N] ", terminator: "")
+                            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                                restoreHookFileAfterFailedPostInstallAction()
+                                print("Aborted (\(configPath) unchanged).")
+                                return
                             }
-                            print("Aborted (\(configPath) unchanged).")
-                            return
+                        }
+                        try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
+                        if def.name == "codex", !codexHookTrustEntries.isEmpty, trustInstall.installedTrust {
+                            print("Enabled hooks and approved cmux hooks in \(configPath)")
+                        } else {
+                            print("Enabled hooks in \(configPath)")
                         }
                     }
-                    try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    if def.name == "codex", !codexHookTrustEntries.isEmpty, trustInstall.installedTrust {
-                        print("Enabled hooks and approved cmux hooks in \(configPath)")
-                    } else {
-                        print("Enabled hooks in \(configPath)")
-                    }
+                } catch {
+                    restoreHookFileAfterFailedPostInstallAction()
+                    throw error
                 }
             }
         }
