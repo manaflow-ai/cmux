@@ -1247,6 +1247,11 @@ final class cmuxUITests: XCTestCase {
             windowFrame.maxY - 2,
             "The transcript table must physically extend to the device bottom so the bottom scroll-edge effect can continue through the safe area. metrics=\(metrics) window=\(windowFrame)"
         )
+        XCTAssertGreaterThanOrEqual(
+            metrics.presentationFrameMaxY,
+            windowFrame.maxY - 2,
+            "The rendered transcript clip must also reach the device bottom when the keyboard is down. Clipping at the composer top hides the iOS 26 bottom underlap even when the table frame is full height. metrics=\(metrics) window=\(windowFrame)"
+        )
         XCTAssertLessThanOrEqual(
             composerBar.frame.maxY,
             metrics.frameMaxY - 20,
