@@ -70,6 +70,22 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowStreamingChatPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.streamingChatPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder private var streamingChatPreview: some View {
+        #if os(iOS) && DEBUG
+        StreamingChatPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
@@ -78,12 +94,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    /// DEBUG-only wrapper so Release/iOS archives never reference the
-    /// `#if DEBUG`-gated `WorkspaceListLayoutPreviewView` type directly (a
-    /// simulator screenshot fixture). Swift type-checks every `rootContent`
-    /// branch even when `shouldShowWorkspaceListLayoutPreview` is statically
-    /// false in Release, so gate the reference here, the same way
-    /// `terminalLayoutPreview` does, and Release compiles to `EmptyView`.
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
@@ -186,10 +196,16 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowTerminalLayoutPreview {
+        if shouldShowDeleteComputersVerifier {
+            deleteComputersVerifier
+        } else if shouldShowAgentChatDemoPreview {
+            agentChatDemoPreview
+        } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
+        } else if shouldShowStreamingChatPreview {
+            streamingChatPreview
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
@@ -322,7 +338,7 @@ struct CMUXMobileRootView: View {
     }
 
     private var shouldShowRestoringStoredMac: Bool {
-        MobileRootAuthGate.shouldShowRestoringStoredMac(
+        store.workspaceListConnectionStatus != .connected && MobileRootAuthGate.shouldShowRestoringStoredMac(
             authenticated: isAuthenticated,
             connectionState: store.connectionState,
             isReconnectingStoredMac: store.isReconnectingStoredMac,
