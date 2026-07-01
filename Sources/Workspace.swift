@@ -9583,12 +9583,18 @@ final class Workspace: Identifiable, ObservableObject {
             maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
         }
 
-        if trigger == .terminalFirstResponder,
-           panels[panelId] is TerminalPanel {
-            beginEventDrivenLayoutFollowUp(
-                reason: "workspace.focusPanel.terminal",
-                terminalFocusPanelId: panelId
-            )
+        if let terminalPanel = panels[panelId] as? TerminalPanel {
+            // Always set up a focus follow-up when the terminal's preferred keyboard target
+            // is not yet active. That target can be either the surface view or the terminal
+            // find field, so surface-first-responder alone is too strict here.
+            let needsFocusFollowUp = trigger == .terminalFirstResponder
+                || terminalPanelKeyboardFocusNeedsFollowUp(panelId: panelId, terminalPanel: terminalPanel)
+            if needsFocusFollowUp {
+                beginEventDrivenLayoutFollowUp(
+                    reason: "workspace.focusPanel.terminal",
+                    terminalFocusPanelId: panelId
+                )
+            }
         }
     }
 
@@ -10297,7 +10303,19 @@ final class Workspace: Identifiable, ObservableObject {
               let terminalPanel = terminalPanel(for: panelId) else {
             return false
         }
-        return focusedPanelId != panelId || !terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        return terminalPanelKeyboardFocusNeedsFollowUp(panelId: panelId, terminalPanel: terminalPanel)
+    }
+
+    private func terminalPanelKeyboardFocusNeedsFollowUp(
+        panelId: UUID,
+        terminalPanel: TerminalPanel
+    ) -> Bool {
+        guard focusedPanelId == panelId else { return true }
+        guard let window = terminalPanel.hostedView.window,
+              let firstResponder = window.firstResponder else {
+            return true
+        }
+        return !terminalPanel.hostedView.responderMatchesPreferredKeyboardFocus(firstResponder)
     }
 
     private func browserPanelNeedsFollowUp() -> Bool {
@@ -10336,8 +10354,16 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalFocusPanelId = layoutFollowUpTerminalFocusPanelId {
             if let terminalPanel = terminalPanel(for: terminalFocusPanelId),
                focusedPanelId == terminalFocusPanelId {
-                terminalPanel.hostedView.ensureFocus(for: id, surfaceId: terminalFocusPanelId)
-                if terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+                if terminalPanelKeyboardFocusNeedsFollowUp(
+                    panelId: terminalFocusPanelId,
+                    terminalPanel: terminalPanel
+                ) {
+                    terminalPanel.hostedView.ensureFocus(for: id, surfaceId: terminalFocusPanelId)
+                }
+                if !terminalPanelKeyboardFocusNeedsFollowUp(
+                    panelId: terminalFocusPanelId,
+                    terminalPanel: terminalPanel
+                ) {
                     layoutFollowUpTerminalFocusPanelId = nil
                 }
             } else if terminalPanel(for: terminalFocusPanelId) == nil {
@@ -12199,7 +12225,23 @@ extension Workspace: BonsplitDelegate {
         if bonsplitController.allPaneIds.contains(pane) {
             normalizePinnedTabs(in: pane)
         }
-        scheduleTerminalGeometryReconcile()
+        // When a pane was auto-closed (e.g. N→1 panes), the SwiftUI split view rebuilds
+        // asynchronously, transiently detaching the surviving terminal surface. The synchronous
+        // ensureFocus from applyTabSelection may succeed on the old layout but the first responder
+        // is lost when SwiftUI tears down the split and recreates a single-pane wrapper. Include
+        // the surviving panel in the layout follow-up so the retry loop re-applies focus once the
+        // view is reattached (#2665).
+        if !isDetaching && !bonsplitController.allPaneIds.contains(pane),
+           let survivingPanelId = focusedPanelId,
+           terminalPanel(for: survivingPanelId) != nil {
+            beginEventDrivenLayoutFollowUp(
+                reason: "workspace.paneCollapse",
+                terminalFocusPanelId: survivingPanelId,
+                includeGeometry: true
+            )
+        } else {
+            scheduleTerminalGeometryReconcile()
+        }
         if !isDetaching {
             scheduleFocusReconcile()
         }
@@ -12353,7 +12395,19 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        scheduleTerminalGeometryReconcile()
+        // Same pane-collapse focus fix as didCloseTab (#2665): the SwiftUI split view
+        // rebuild can transiently detach the surviving terminal, losing first responder.
+        if shouldScheduleFocusReconcile,
+           let survivingPanelId = focusedPanelId,
+           terminalPanel(for: survivingPanelId) != nil {
+            beginEventDrivenLayoutFollowUp(
+                reason: "workspace.paneCollapse",
+                terminalFocusPanelId: survivingPanelId,
+                includeGeometry: true
+            )
+        } else {
+            scheduleTerminalGeometryReconcile()
+        }
         if shouldScheduleFocusReconcile {
             scheduleFocusReconcile()
         }
