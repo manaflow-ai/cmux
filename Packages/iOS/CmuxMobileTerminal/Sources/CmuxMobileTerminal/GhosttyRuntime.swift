@@ -47,6 +47,9 @@ public final class GhosttyRuntime {
     private static var sharedResult: Result<GhosttyRuntime, Error>?
     private static var clipboardReader: @MainActor () -> String? = { UIPasteboard.general.string }
     private static var clipboardWriter: @MainActor (String?) -> Void = { UIPasteboard.general.string = $0 }
+    #if DEBUG
+    private static var appTickSuspendedForTesting = false
+    #endif
 
     // libghostty handles are opaque C pointers (typedef `void *`). They
     // aren't Sendable in Swift's type system, but `GhosttyRuntime` is a
@@ -147,6 +150,12 @@ public final class GhosttyRuntime {
 
     func tick() {
         guard let app else { return }
+        #if DEBUG
+        guard !Self.appTickSuspendedForTesting else {
+            MobileDebugLog.anchormux("runtime.tick.suspended_for_test")
+            return
+        }
+        #endif
         MobileDebugLog.anchormux("runtime.tick")
         ghostty_app_tick(app)
     }
@@ -511,6 +520,13 @@ public final class GhosttyRuntime {
         clipboardReader = { UIPasteboard.general.string }
         clipboardWriter = { UIPasteboard.general.string = $0 }
     }
+
+    #if DEBUG
+    @MainActor
+    static func setAppTickSuspendedForTesting(_ suspended: Bool) {
+        appTickSuspendedForTesting = suspended
+    }
+    #endif
 }
 
 extension Optional where Wrapped == String {

@@ -164,6 +164,58 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
     }
 
+    /// Regression repro for the Send Feedback report: iOS terminal appears
+    /// frozen while scrolling the phone still scrolls the Mac side. The harness
+    /// makes the local Ghostty output/render queue busy, then this test performs
+    /// a real XCUITest swipe. Correct behavior is that a visible-terminal
+    /// snapshot still completes; current broken behavior reports
+    /// `snapshot=busy` while `scrollEvents > 0`.
+    @MainActor
+    func testScrollForwardingDoesNotOutliveLocalRenderLiveness() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_SCROLL_FREEZE_STRESS": "1",
+        ])
+        defer { app.terminate() }
+
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let probe = app.descendants(matching: .any)["MobileScrollFreezeProbe"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 4))
+
+        app.buttons["MobileScrollFreezeArmButton"].tap()
+        surface.swipeUp(velocity: .fast)
+        surface.swipeDown(velocity: .fast)
+
+        let completed = XCTNSPredicateExpectation(
+            predicate: NSPredicate { [weak self] object, _ in
+                guard let self, let element = object as? XCUIElement else { return false }
+                let state = self.parseProbe(element.value as? String ?? "")
+                let scrollEvents = state["scrollEvents"].flatMap(Int.init) ?? 0
+                let snapshot = state["snapshot"] ?? "missing"
+                return scrollEvents > 0 && snapshot != "pending" && snapshot != "idle"
+            },
+            object: probe
+        )
+        let waitResult = XCTWaiter.wait(for: [completed], timeout: 6)
+        let state = parseProbe(probe.value as? String ?? "")
+        XCTAssertEqual(
+            waitResult,
+            .completed,
+            "Timed out waiting for scroll/render repro evidence. state=\(state)"
+        )
+        XCTAssertGreaterThan(
+            state["scrollEvents"].flatMap(Int.init) ?? 0,
+            0,
+            "Swipe must forward scroll events before this is a valid repro. state=\(state)"
+        )
+        XCTAssertEqual(
+            state["snapshot"],
+            "ok",
+            "Reproduced iOS frozen-local-render symptom: scroll reached the Mac-side delegate, but visibleTerminalSnapshot timed out as render busy. state=\(state)"
+        )
+    }
+
     /// Freeze fuzzing for the keyboard + layout interactions, modeled on
     /// `testFastPinchZoomDoesNotHangOrCorrupt`. The user report: "Sometimes the
     /// terminal on iOS freezes; we should do some fuzzing around here." The
