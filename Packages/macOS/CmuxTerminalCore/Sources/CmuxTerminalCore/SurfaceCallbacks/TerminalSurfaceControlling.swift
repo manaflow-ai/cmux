@@ -17,4 +17,10 @@ public protocol TerminalSurfaceControlling: AnyObject {
     /// The live runtime surface pointer, or `nil` when the runtime surface
     /// does not currently exist.
     var runtimeSurfacePointer: ghostty_surface_t? { get }
+
+    /// Whether the surface was configured to stay open after its startup
+    /// command exits (`wait-after-command`). When `true` the host should
+    /// decline to handle `SHOW_CHILD_EXITED` so Ghostty can display its
+    /// built-in "Process exited. Press any key…" prompt.
+    var waitAfterCommand: Bool { get }
 }

@@ -258,7 +258,6 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         let originalTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(originalPanelId))
         let originalPaneCount = workspace.bonsplitController.allPaneIds.count
         let originalTabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
-        let originalWaitAfterCommand = placeholderPanel.surface.debugWaitAfterCommand()
 
         let respawnedPanel = try XCTUnwrap(workspace.respawnTerminalSurface(
             panelId: originalPanelId,
@@ -279,7 +278,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(respawnedPanel.requestedWorkingDirectory, requestedDirectory)
         XCTAssertEqual(respawnedPanel.surface.debugInitialCommand(), attachCommand)
         XCTAssertEqual(respawnedPanel.surface.debugTmuxStartCommand(), attachCommand)
-        XCTAssertEqual(respawnedPanel.surface.debugWaitAfterCommand(), originalWaitAfterCommand)
+        XCTAssertTrue(respawnedPanel.surface.waitAfterCommand)
         for (key, value) in startupEnvironment {
             XCTAssertEqual(respawnedPanel.surface.startupEnvironmentValue(key), value)
         }

@@ -68,6 +68,19 @@ extension TerminalSurface {
 
         var env = baseConfig.environmentVariables
 
+        // Seed PATH from a caller-supplied override before the managed PATH
+        // logic below runs. The managed logic reads env["PATH"] first and only
+        // prepends cmux's own bin dir on top, so seeding here lets a respawn
+        // caller (e.g. the __tmux-compat respawn-pane shim forwarding the omo
+        // launcher PATH) contribute provider bin dirs that the app process's
+        // own PATH lacks when launched from Finder. PATH is a managed/protected
+        // key, so without this seed the override would be dropped by
+        // mergedStartupEnvironment.
+        if let overridePath = initialEnvironmentOverrides["PATH"],
+           !overridePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            env["PATH"] = overridePath
+        }
+
         var protectedStartupEnvironmentKeys: Set<String> = []
         Self.applyManagedTerminalIdentityEnvironment(
             to: &env,

@@ -451,8 +451,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
-    /// Whether the surface stays open after its startup command exits.
-    public func debugWaitAfterCommand() -> Bool {
+    public var waitAfterCommand: Bool {
         configTemplate?.waitAfterCommand ?? false
     }
 

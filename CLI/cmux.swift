@@ -21984,6 +21984,24 @@ struct CMUXCLI {
                !cwd.isEmpty {
                 params["working_directory"] = resolvePath(cwd)
             }
+            // The respawned surface runs the command (e.g. an omo
+            // `opencode attach …` line) through a non-login `/bin/sh -c`, which
+            // does not load the user's shell rc files. Forward the caller
+            // process PATH (populated with provider bin dirs by the omo
+            // launcher) plus OPENCODE_PORT so the attach command resolves the
+            // `opencode` binary and reaches the right server.
+            var respawnStartupEnv: [String: String] = [:]
+            if let path = ProcessInfo.processInfo.environment["PATH"],
+               !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                respawnStartupEnv["PATH"] = path
+            }
+            if let port = ProcessInfo.processInfo.environment["OPENCODE_PORT"],
+               !port.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                respawnStartupEnv["OPENCODE_PORT"] = port
+            }
+            if !respawnStartupEnv.isEmpty {
+                params["startup_environment"] = respawnStartupEnv
+            }
             _ = try client.sendV2(method: "surface.respawn", params: params)
 
         case "send-keys", "send":

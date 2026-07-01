@@ -2712,7 +2712,12 @@ class GhosttyApp {
             // The child (shell) exited. Ghostty will fall back to printing
             // "Process exited. Press any key..." into the terminal unless the host
             // handles this action. For cmux, the correct behavior is to close
-            // the panel immediately (no prompt).
+            // the panel immediately (no prompt) — UNLESS the surface was
+            // configured with wait-after-command, in which case we let Ghostty
+            // display its own exit prompt so the user can read any error output.
+            if callbackContext?.surfaceController?.waitAfterCommand == true {
+                return false
+            }
 #if DEBUG
             cmuxDebugLog(
                 "surface.action.showChildExited tab=\(callbackTabId?.uuidString.prefix(5) ?? "nil") " +

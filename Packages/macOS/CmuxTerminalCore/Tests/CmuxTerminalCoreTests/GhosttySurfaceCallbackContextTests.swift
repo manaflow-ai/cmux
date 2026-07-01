@@ -7,15 +7,18 @@ private final class FakeSurfaceController: TerminalSurfaceControlling {
     let surfaceId: UUID
     let owningTabId: UUID
     var runtimeSurfacePointer: ghostty_surface_t?
+    var waitAfterCommand: Bool
 
     init(
         surfaceId: UUID = UUID(),
         owningTabId: UUID = UUID(),
-        runtimeSurfacePointer: ghostty_surface_t? = nil
+        runtimeSurfacePointer: ghostty_surface_t? = nil,
+        waitAfterCommand: Bool = false
     ) {
         self.surfaceId = surfaceId
         self.owningTabId = owningTabId
         self.runtimeSurfacePointer = runtimeSurfacePointer
+        self.waitAfterCommand = waitAfterCommand
     }
 }
 
