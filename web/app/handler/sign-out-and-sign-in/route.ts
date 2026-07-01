@@ -30,6 +30,8 @@ function validatedNativeSignInTarget(request: NextRequest): string | null {
 
   const afterAuth = sameOriginURL(target.searchParams.get("after_auth_return_to"), request);
   if (!afterAuth || afterAuth.pathname !== "/handler/after-sign-in") return null;
+  if (!afterAuth.searchParams.has("native_app_return_to")) return null;
+  if (afterAuth.searchParams.has("after_auth_return_to")) return null;
 
   return `${target.pathname}${target.search}${target.hash}`;
 }

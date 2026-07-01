@@ -64,7 +64,7 @@ describe("after sign-in native handoff", () => {
     signOut.mockClear();
   });
 
-  test("keeps a fallback page for verified native auto-open handoffs", async () => {
+  test("keeps an interactive return page for verified native handoffs", async () => {
     handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
 
@@ -75,7 +75,7 @@ describe("after sign-in native handoff", () => {
     const html = await response.text();
     expect(html).toContain("Signed in to cmux");
     expect(html).toContain("Return to cmux");
-    expect(html).toContain("window.location.replace");
+    expect(html).not.toContain("window.location.replace");
     expect(html).not.toContain("http-equiv=\"refresh\"");
 
     const callbackURL = new URL(returnHref(html));
@@ -104,6 +104,7 @@ describe("after sign-in native handoff", () => {
     );
     expect(afterSignInTarget.pathname).toBe("/handler/after-sign-in");
     expect(afterSignInTarget.searchParams.get("native_app_return_to")).toBe(nativeReturnTo);
+    expect(afterSignInTarget.searchParams.has("after_auth_return_to")).toBe(false);
   });
 
   test("keeps the manual return page when the handoff nonce is not verified", async () => {
@@ -213,6 +214,18 @@ describe("sign out and sign back in", () => {
 
   test("rejects non-native sign-in redirect targets", async () => {
     const response = await GET(switchRequest("/docs"));
+
+    expect(signOut).not.toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
+  test("rejects nested after-sign-in redirect targets", async () => {
+    const afterSignIn =
+      "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123&after_auth_return_to=%2Fdocs";
+    const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+
+    const response = await GET(switchRequest(nativeSignIn));
 
     expect(signOut).not.toHaveBeenCalled();
     expect(response.status).toBe(307);

@@ -211,20 +211,16 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
 function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
-  autoOpen: boolean,
+  clearHandoffCookie: boolean,
   switchAccountHref: string
 ): NextResponse {
   const { locale, messages } = localized;
   const escapedHref = escapeHtml(href);
   const escapedSwitchAccountHref = escapeHtml(switchAccountHref);
-  const scriptHref = JSON.stringify(href).replaceAll("<", "\\u003c");
   const escapedTitle = escapeHtml(messages.title);
   const escapedBody = escapeHtml(messages.body);
   const escapedButton = escapeHtml(messages.button);
   const escapedSwitchAccountButton = escapeHtml(messages.switchAccountButton);
-  const autoOpenScript = autoOpen
-    ? `  <script>\n    window.location.replace(${scriptHref});\n  </script>\n`
-    : "";
   const response = new NextResponse(
     `<!doctype html>
 <html lang="${escapeHtml(locale)}">
@@ -290,7 +286,6 @@ function nativeReturnResponse(
       <a class="secondary" href="${escapedSwitchAccountHref}">${escapedSwitchAccountButton}</a>
     </div>
   </main>
-${autoOpenScript}
 </body>
 </html>`,
     {
@@ -300,7 +295,7 @@ ${autoOpenScript}
       },
     }
   );
-  if (autoOpen) {
+  if (clearHandoffCookie) {
     response.cookies.set(NATIVE_HANDOFF_COOKIE, "", {
       httpOnly: true,
       maxAge: 0,
@@ -313,7 +308,10 @@ ${autoOpenScript}
 }
 
 function currentAfterSignInPath(request: NextRequest): string {
-  return `${request.nextUrl.pathname}${request.nextUrl.search}`;
+  const afterSignIn = new URL(request.nextUrl.pathname, request.nextUrl.origin);
+  const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
+  if (nativeReturnTo) afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
+  return `${afterSignIn.pathname}${afterSignIn.search}`;
 }
 
 function switchAccountHref(request: NextRequest): string {
@@ -371,9 +369,9 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     ) {
       if (isAllowedNativeReturnTo(nativeReturnTo, request)) {
         const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
-        const autoOpen = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
+        const clearHandoffCookie = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
         if (href) {
-          return nativeReturnResponse(href, localizedMessages, autoOpen, switchAccountHref(request));
+          return nativeReturnResponse(href, localizedMessages, clearHandoffCookie, switchAccountHref(request));
         }
       }
       return NextResponse.redirect(new URL("/", request.url));
