@@ -15,7 +15,7 @@ const CHECKOUT_PATH = "/api/billing/checkout";
 // site always ends on the hosted purchase page.
 export async function GET(request: NextRequest) {
   if (!stackServerApp) {
-    return NextResponse.redirect(new URL("/pro?billing=unavailable", request.url));
+    return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
   }
 
   const user = await stackServerApp.getUser({ or: "return-null" });
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
   if (await hasActiveProSubscription(user)) {
     await syncProPlanMetadata(user, true);
-    return NextResponse.redirect(new URL("/pro?welcome=active", request.url));
+    return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
   }
 
   const returnUrl = new URL("/api/billing/confirm", request.url).toString();
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     if (isAlreadyGrantedError(error)) {
       await syncProPlanMetadata(user, true);
-      return NextResponse.redirect(new URL("/pro?welcome=active", request.url));
+      return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
     }
     // return_url must be on a domain the Stack project trusts; previews and
     // local dev ports may not be. The purchase still works without it — the
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
       checkoutUrl = await user.createCheckoutUrl({ productId: PRO_PRODUCT_ID });
     } catch (retryError) {
       console.error("[Billing] createCheckoutUrl failed", error, retryError);
-      return NextResponse.redirect(new URL("/pro?billing=error", request.url));
+      return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
     }
   }
   return NextResponse.redirect(checkoutUrl);

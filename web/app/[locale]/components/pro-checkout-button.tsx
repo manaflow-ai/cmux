@@ -18,7 +18,7 @@ export function ProCheckoutButton({
   size?: "default" | "sm";
   location?: string;
 }) {
-  const t = useTranslations("pro");
+  const t = useTranslations("pricing");
   return (
     <a
       href={CHECKOUT_HREF}

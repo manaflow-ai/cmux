@@ -49,7 +49,7 @@
     "changelog": "Changelog",
     "community": "Community",
     "github": "GitHub",
-    "pro": "Pro"
+    "pricing": "Pricing"
   },
   "footer": {
     "product": "Product",
@@ -140,11 +140,7 @@
     "faqSupportQ": "How can I support cmux?",
     "faqSupportA": "cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqBrowserQ": "What can the built-in browser do?",
-    "faqBrowserA": "cmux can split a real browser pane next to your terminal, and it is fully programmable: navigate, snapshot the DOM, click, type, evaluate JavaScript, and read console and network activity over the same socket API. Agents use it to verify their own web changes without leaving cmux. See <link>browser automation</link>.",
-    "proSection": "Pro",
-    "proTitle": "cmux Pro.",
-    "proDesc": "Cloud dev boxes you can attach terminals to from your Mac or iPhone, plus the iOS app and cmux AI. <link>See everything included</link>.",
-    "proPrice": "$20/month billed yearly, or $30 month-to-month."
+    "faqBrowserA": "cmux can split a real browser pane next to your terminal, and it is fully programmable: navigate, snapshot the DOM, click, type, evaluate JavaScript, and read console and network activity over the same socket API. Agents use it to verify their own web changes without leaving cmux. See <link>browser automation</link>."
   },
   "community": {
     "title": "Community",
@@ -2286,26 +2282,32 @@
       "faqA4": "Yes. cmux is free and open source for macOS."
     }
   },
-  "pro": {
-    "section": "Pro",
-    "metaTitle": "cmux Pro",
-    "metaDescription": "Cloud dev boxes, the cmux iOS app, and cmux AI. $20/month billed yearly.",
-    "title": "cmux Pro",
-    "tagline": "The terminal stays free and open source. Pro adds the cloud: dev boxes to run your agents on, the iOS app to take them with you, and cmux AI.",
-    "value": {
-      "cloudVms": "Cloud dev boxes.",
-      "cloudVmsDesc": "Create a Cloud VM in one click and attach terminals to it from cmux. Run up to 10 at once, double the free limit.",
-      "vmCreates": "Unlimited VM creates.",
-      "vmCreatesDesc": "The free plan includes 20 VM creates total. Pro removes the cap.",
-      "ios": "iOS app.",
-      "iosDesc": "Attach to your Mac's terminals from your iPhone, with terminal notifications forwarded to your phone.",
-      "ai": "cmux AI.",
-      "aiDesc": "Early access to cmux AI features as they ship.",
-      "support": "Priority support.",
-      "supportDesc": "A direct line to the founders for bugs and requests."
+  "pricing": {
+    "section": "Pricing",
+    "metaTitle": "Pricing",
+    "metaDescription": "cmux is free and open source. Pro adds Cloud VMs, the iOS app, and cmux AI for $20/month billed yearly.",
+    "title": "Pricing",
+    "subtitle": "cmux is free and open source, and always will be. Pro adds the cloud.",
+    "free": {
+      "name": "Free",
+      "price": "$0",
+      "tagline": "The full terminal, forever.",
+      "f1": "Everything in the cmux terminal: vertical tabs, notifications, splits, in-app browser",
+      "f2": "Unlimited local terminals and agents",
+      "f3": "5 active Cloud VMs, 20 VM creates included",
+      "f4": "Community support on GitHub and Discord"
     },
-    "priceHeadline": "$20/month",
-    "priceDetail": "Billed yearly at $240. Month-to-month is $30/month.",
+    "pro": {
+      "name": "cmux Pro",
+      "price": "$20",
+      "priceUnit": "/month",
+      "priceNote": "Billed yearly ($240/year), or $30 month-to-month.",
+      "p1": "Everything in Free",
+      "p2": "Cloud dev boxes: 10 active at once, unlimited creates",
+      "p3": "iOS app: your Mac's terminals on your iPhone",
+      "p4": "cmux AI early access",
+      "p5": "Priority support, direct line to the founders"
+    },
     "cta": "Get cmux Pro",
     "cancelNote": "One click with your cmux account. Cancel anytime.",
     "welcomeSuccess": "Welcome to cmux Pro. Your subscription is active.",

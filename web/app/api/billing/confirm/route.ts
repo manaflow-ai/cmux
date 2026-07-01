@@ -15,11 +15,11 @@ const VERIFY_SPACING_MS = 1500;
 // poll briefly (bounded, external system) before deciding.
 export async function GET(request: NextRequest) {
   if (!stackServerApp) {
-    return NextResponse.redirect(new URL("/pro", request.url));
+    return NextResponse.redirect(new URL("/pricing", request.url));
   }
   const user = await stackServerApp.getUser({ or: "return-null" });
   if (!user) {
-    return NextResponse.redirect(new URL("/pro", request.url));
+    return NextResponse.redirect(new URL("/pricing", request.url));
   }
 
   const app = stackServerApp;
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
   await syncProPlanMetadata(user, isPro);
   return NextResponse.redirect(
     new URL(
-      isPro ? "/pro?welcome=success" : "/pro?welcome=pending",
+      isPro ? "/pricing?welcome=success" : "/pricing?welcome=pending",
       request.url,
     ),
   );

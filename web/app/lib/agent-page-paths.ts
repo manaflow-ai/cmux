@@ -32,6 +32,7 @@ const englishOnlyPages = [
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
+  { path: "/pricing", title: "Pricing" },
   { path: "/blog", title: "Blog" },
   { path: "/blog/cmux-home", title: "cmux home" },
   { path: "/blog/cmux-history", title: "cmux history" },

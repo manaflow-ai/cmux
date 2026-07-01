@@ -7,7 +7,7 @@ import { useSearchParams } from "next/navigation";
 // /api/billing/confirm so the /pro page itself can stay static.
 // Render inside <Suspense> (useSearchParams requirement).
 export function ProWelcomeBanner() {
-  const t = useTranslations("pro");
+  const t = useTranslations("pricing");
   const params = useSearchParams();
   const welcome = params.get("welcome");
   const billing = params.get("billing");
