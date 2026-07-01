@@ -54,6 +54,7 @@ extension DockSplitStore {
             isLoading: isLoading,
             isPinned: false,
             directory: nil,
+            directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: nil,
             customTitle: nil,
