@@ -14,13 +14,13 @@
 		CDFE000000000000000000B1 /* AgentChatProseStreamingFlag.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDFE000000000000000000B2 /* AgentChatProseStreamingFlag.swift */; };
 		ACA7C4A70000000000000001 /* AgentChatSessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */; };
 		ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */; };
-		ACA7C4A70000000000000109 /* AgentChatRecordChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000010A /* AgentChatRecordChange.swift */; };
 		ACA7C4A70000000000000113 /* ClaudeSidebarStatusBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000114 /* ClaudeSidebarStatusBridge.swift */; };
 		ACA7C4A70000000000000103 /* ClaudeSidebarStatusConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000104 /* ClaudeSidebarStatusConstants.swift */; };
 		ACA7C4A70000000000000105 /* ClaudeSidebarStatusMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000106 /* ClaudeSidebarStatusMapper.swift */; };
-		ACA7C4A7000000000000010B /* AgentChatSessionRegistryPublisherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000010C /* AgentChatSessionRegistryPublisherTests.swift */; };
+		ACA7C4A7000000000000010B /* AgentChatSessionRegistryObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000010C /* AgentChatSessionRegistryObserverTests.swift */; };
 		ACA7C4A70000000000000107 /* ClaudeSidebarStatusMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000108 /* ClaudeSidebarStatusMapperTests.swift */; };
 		ACA7C4A70000000000000115 /* ClaudeSidebarStatusBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000116 /* ClaudeSidebarStatusBridgeTests.swift */; };
+		ACA7C4A70000000000000201 /* AgentChatSessionRegistryTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000202 /* AgentChatSessionRegistryTestSupport.swift */; };
 		ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */; };
 		ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */; };
 		ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */; };
@@ -1268,13 +1268,13 @@
 		CDFE000000000000000000B2 /* AgentChatProseStreamingFlag.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatProseStreamingFlag.swift"; sourceTree = "<group>"; };
 		ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRecord.swift"; sourceTree = "<group>"; };
 		ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry.swift"; sourceTree = "<group>"; };
-		ACA7C4A7000000000000010A /* AgentChatRecordChange.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatRecordChange.swift"; sourceTree = "<group>"; };
 		ACA7C4A70000000000000114 /* ClaudeSidebarStatusBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "ClaudeSidebarStatusBridge.swift"; sourceTree = "<group>"; };
 		ACA7C4A70000000000000104 /* ClaudeSidebarStatusConstants.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "ClaudeSidebarStatusConstants.swift"; sourceTree = "<group>"; };
 		ACA7C4A70000000000000106 /* ClaudeSidebarStatusMapper.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "ClaudeSidebarStatusMapper.swift"; sourceTree = "<group>"; };
-		ACA7C4A7000000000000010C /* AgentChatSessionRegistryPublisherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistryPublisherTests.swift; sourceTree = "<group>"; };
+		ACA7C4A7000000000000010C /* AgentChatSessionRegistryObserverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistryObserverTests.swift; sourceTree = "<group>"; };
 		ACA7C4A70000000000000108 /* ClaudeSidebarStatusMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeSidebarStatusMapperTests.swift; sourceTree = "<group>"; };
 		ACA7C4A70000000000000116 /* ClaudeSidebarStatusBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeSidebarStatusBridgeTests.swift; sourceTree = "<group>"; };
+		ACA7C4A70000000000000202 /* AgentChatSessionRegistryTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistryTestSupport.swift; sourceTree = "<group>"; };
 		ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptResolver.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptTailer.swift"; sourceTree = "<group>"; };
@@ -2562,7 +2562,6 @@
 				ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */,
 				ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */,
 				ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */,
-				ACA7C4A7000000000000010A /* AgentChatRecordChange.swift */,
 				ACA7C4A70000000000000114 /* ClaudeSidebarStatusBridge.swift */,
 				ACA7C4A70000000000000104 /* ClaudeSidebarStatusConstants.swift */,
 				ACA7C4A70000000000000106 /* ClaudeSidebarStatusMapper.swift */,
@@ -3641,9 +3640,10 @@
 				A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */,
 				A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */,
 				A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */,
-				ACA7C4A7000000000000010C /* AgentChatSessionRegistryPublisherTests.swift */,
+				ACA7C4A7000000000000010C /* AgentChatSessionRegistryObserverTests.swift */,
 				ACA7C4A70000000000000108 /* ClaudeSidebarStatusMapperTests.swift */,
 				ACA7C4A70000000000000116 /* ClaudeSidebarStatusBridgeTests.swift */,
+				ACA7C4A70000000000000202 /* AgentChatSessionRegistryTestSupport.swift */,
 				A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */,
 				A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */,
 				6379A0026379A0026379A002 /* CLISSHPTYResizeInputTests.swift */,
@@ -4114,7 +4114,6 @@
 				CDFE000000000000000000B1 /* AgentChatProseStreamingFlag.swift in Sources */,
 				ACA7C4A70000000000000001 /* AgentChatSessionRecord.swift in Sources */,
 				ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */,
-				ACA7C4A70000000000000109 /* AgentChatRecordChange.swift in Sources */,
 				ACA7C4A70000000000000113 /* ClaudeSidebarStatusBridge.swift in Sources */,
 				ACA7C4A70000000000000103 /* ClaudeSidebarStatusConstants.swift in Sources */,
 				ACA7C4A70000000000000105 /* ClaudeSidebarStatusMapper.swift in Sources */,
@@ -4979,9 +4978,10 @@
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,
 				C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */,
 				A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */,
-				ACA7C4A7000000000000010B /* AgentChatSessionRegistryPublisherTests.swift in Sources */,
+				ACA7C4A7000000000000010B /* AgentChatSessionRegistryObserverTests.swift in Sources */,
 				ACA7C4A70000000000000107 /* ClaudeSidebarStatusMapperTests.swift in Sources */,
 				ACA7C4A70000000000000115 /* ClaudeSidebarStatusBridgeTests.swift in Sources */,
+				ACA7C4A70000000000000201 /* AgentChatSessionRegistryTestSupport.swift in Sources */,
 				A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */,
 				A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */,
 					CA11E4D0FA017DE500000B101 /* CLICallerWorkspaceDefaultTests.swift in Sources */,

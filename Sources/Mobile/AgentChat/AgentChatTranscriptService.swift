@@ -40,7 +40,7 @@ final class AgentChatTranscriptService {
     ) {
         self.registry = registry
         self.resolver = resolver
-        registry.onRecordChanged = { [weak self] record, previous in
+        registry.addRecordChangeObserver { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
         }
         self.proseStreamer = AgentChatProseStreamer(

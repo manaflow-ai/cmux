@@ -1,6 +1,5 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
-import Combine
 import Foundation
 
 /// A coding-agent session discovered by observing the process table, with no
@@ -20,24 +19,29 @@ nonisolated struct ObservedAgentSession: Sendable {
 /// hook events and the on-disk hook session stores.
 @MainActor
 final class AgentChatSessionRegistry {
-    private var records: [String: AgentChatSessionRecord] = [:]
+    /// `internal` (not `private`) so the test target can seed records via `@testable`
+    /// (see AgentChatSessionRegistryTestSupport). Production code uses the mutation methods.
+    var records: [String: AgentChatSessionRecord] = [:]
     private var liveSessionIDBySurfaceID: [String: String] = [:]
     private let hookStore: AgentChatHookSessionStore
 
-    /// Called after a record mutation with the previous value (nil for a
-    /// brand-new record), so the owner derives state/descriptor deltas in
-    /// one place instead of hand-maintained flags.
-    var onRecordChanged: ((AgentChatSessionRecord, _ previous: AgentChatSessionRecord?) -> Void)?
+    /// Observers notified — synchronously, on the main actor — after every record
+    /// mutation, with the previous value (nil for a brand-new record). Replaces the
+    /// former single-owner `onRecordChanged` closure so multiple consumers (the
+    /// transcript service and the sidebar bridge) can subscribe without contending
+    /// for one slot.
+    private var recordChangeObservers: [(AgentChatSessionRecord, _ previous: AgentChatSessionRecord?) -> Void] = []
 
-    /// Backing subject for `recordChangesPublisher`, fired alongside the single-owner
-    /// `onRecordChanged` slot at every record-change site so additional consumers (the sidebar
-    /// bridge) can observe edits without contending for that closure.
-    private let recordChangesSubject = PassthroughSubject<AgentChatRecordChange, Never>()
+    /// Register a consumer for record-change notifications. Observers are retained for
+    /// the registry's lifetime (no removal API — consumers are app-lifetime singletons).
+    func addRecordChangeObserver(_ observer: @escaping (AgentChatSessionRecord, AgentChatSessionRecord?) -> Void) {
+        recordChangeObservers.append(observer)
+    }
 
-    /// Combine stream of record changes, mirroring `onRecordChanged`. Additive — does not disturb
-    /// the closure slot already owned by `AgentChatTranscriptService`.
-    var recordChangesPublisher: AnyPublisher<AgentChatRecordChange, Never> {
-        recordChangesSubject.eraseToAnyPublisher()
+    /// Fan a record change out to all observers. `internal` (not `private`) so the test
+    /// target can drive it via `@testable` — see AgentChatSessionRegistryTestSupport.
+    func notifyRecordChange(_ record: AgentChatSessionRecord, _ previous: AgentChatSessionRecord?) {
+        for observer in recordChangeObservers { observer(record, previous) }
     }
 
     /// Per-session timestamp of the last hook-store file consult, bounding
@@ -205,8 +209,7 @@ final class AgentChatSessionRegistry {
                 records[session.sessionID] = record
                 syncProcessExitWatch(for: record)
                 updateLiveSessionIndex(previous: nil, current: record)
-                onRecordChanged?(record, nil)
-                recordChangesSubject.send(AgentChatRecordChange(record: record, previous: nil))
+                notifyRecordChange(record, nil)
             } else {
                 update(sessionID: session.sessionID) { rec in
                     if rec.surfaceID == nil { rec.surfaceID = session.surfaceID }
@@ -443,8 +446,7 @@ final class AgentChatSessionRegistry {
         #endif
         syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: previous, current: record)
-        onRecordChanged?(record, previous)
-        recordChangesSubject.send(AgentChatRecordChange(record: record, previous: previous))
+        notifyRecordChange(record, previous)
     }
 
     #if DEBUG
@@ -582,8 +584,7 @@ final class AgentChatSessionRegistry {
         records[sessionID] = record
         syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: previous, current: record)
-        onRecordChanged?(record, previous)
-        recordChangesSubject.send(AgentChatRecordChange(record: record, previous: previous))
+        notifyRecordChange(record, previous)
         if shouldConsultStore {
             backfillBindingsFromStore(sessionID: sessionID, agentSource: event.source)
         }
@@ -652,8 +653,7 @@ final class AgentChatSessionRegistry {
         records[sessionID] = record
         syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: nil, current: record)
-        onRecordChanged?(record, nil)
-        recordChangesSubject.send(AgentChatRecordChange(record: record, previous: nil))
+        notifyRecordChange(record, nil)
     }
 
     /// Reads one session's hook-store entry OFF the main actor and applies any
@@ -775,20 +775,4 @@ final class AgentChatSessionRegistry {
         }
     }
 
-    #if DEBUG
-    /// Test-only: insert/replace a record through the real change-notification path so both
-    /// `onRecordChanged` and `recordChangesPublisher` fire. Mirrors the create path
-    /// (`update` is mutate-existing-only, so it would no-op on a fresh sessionID).
-    func applyForTesting(sessionID: String, kind: ChatAgentKind, workspaceID: String?,
-                         state: ChatAgentState, pid: Int?) {
-        let previous = records[sessionID]
-        let record = AgentChatSessionRecord(
-            sessionID: sessionID, agentKind: kind, workspaceID: workspaceID,
-            surfaceID: nil, workingDirectory: nil, transcriptPath: nil,
-            state: state, lastActivityAt: Date(), title: nil, pid: pid)
-        records[sessionID] = record
-        onRecordChanged?(record, previous)
-        recordChangesSubject.send(AgentChatRecordChange(record: record, previous: previous))
-    }
-    #endif
 }

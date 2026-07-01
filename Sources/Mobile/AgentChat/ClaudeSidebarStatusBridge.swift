@@ -1,4 +1,3 @@
-import Combine
 import CmuxAgentChat
 import CmuxControlSocket
 import CmuxSidebar
@@ -10,7 +9,6 @@ import Foundation
 /// last-writer-wins lands on one dict). Scoped to `.claude` with a parseable workspace UUID.
 @MainActor
 final class ClaudeSidebarStatusBridge {
-    private var cancellables = Set<AnyCancellable>()
     private let upsert: (ControlSidebarTabTarget, SidebarStatusEntry) -> Void
     private let clear: (ControlSidebarTabTarget, String) -> Void
     private let mapper: ClaudeSidebarStatusMapper
@@ -22,9 +20,7 @@ final class ClaudeSidebarStatusBridge {
         self.upsert = upsert
         self.clear = clear
         self.mapper = mapper
-        registry.recordChangesPublisher
-            .sink { [weak self] change in self?.apply(change.record) }
-            .store(in: &cancellables)
+        registry.addRecordChangeObserver { [weak self] record, _ in self?.apply(record) }
     }
 
     private func apply(_ record: AgentChatSessionRecord) {
