@@ -98,6 +98,7 @@ struct TerminalPanelView: View {
                 TextBoxInputContainer(
                     text: $panel.textBoxContent,
                     attachments: $panel.textBoxAttachments,
+                    selectedSubmitActionID: $textBoxState.selectedSubmitActionID,
                     pendingProviderLaunchAction: $textBoxState.pendingProviderLaunchAction,
                     pendingProviderLaunchStartedAt: $textBoxState.pendingProviderLaunchStartedAt,
                     surface: panel.surface,

@@ -54,10 +54,12 @@ extension TextBoxInputContainer {
 
     var selectedSubmitAction: TextBoxSubmitAction {
         Self.selectedSubmitAction(
-            defaultSubmitActionID: defaultSubmitActionID,
+            defaultSubmitActionID: effectiveSubmitActionID,
             submitActions: submitActions
         )
     }
+
+    var effectiveSubmitActionID: String { selectedSubmitActionID ?? configuredDefaultSubmitActionID }
 
     static func selectedSubmitAction(
         defaultSubmitActionID: String,
@@ -333,7 +335,7 @@ extension TextBoxInputContainer {
             if allowsSubmitActionSelection {
                 ForEach(submitActions) { action in
                     Button {
-                        defaultSubmitActionID = action.id
+                        selectedSubmitActionID = action.id
                     } label: {
                         submitActionMenuLabel(action)
                     }
@@ -570,23 +572,21 @@ extension TextBoxInputContainer {
             return
         }
         guard let nextID = Self.nextCycledSubmitActionID(
-            defaultSubmitActionID: defaultSubmitActionID,
+            defaultSubmitActionID: effectiveSubmitActionID,
             submitActions: submitActions,
             shouldForceTextEntrySubmit: shouldForceTextEntrySubmit
         ) else {
             return
         }
-        defaultSubmitActionID = nextID
+        selectedSubmitActionID = nextID
     }
 
-    static func defaultSubmitActionIDAfterSuccessfulSubmit(
-        currentDefaultSubmitActionID: String,
+    static func panelSubmitActionIDAfterSuccessfulSubmit(
+        currentSubmitActionID: String,
         submittedAction: TextBoxSubmitAction
     ) -> String {
-        guard submittedAction.kind == .commandTemplate else {
-            return currentDefaultSubmitActionID
-        }
-        return TerminalTextBoxInputSettings.defaultSubmitActionID
+        guard submittedAction.kind == .commandTemplate else { return currentSubmitActionID }
+        return TextBoxSubmitAction.textEntryAction.id
     }
 
     static func nextCycledSubmitActionID(

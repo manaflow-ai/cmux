@@ -5,6 +5,7 @@ import Observation
 @MainActor
 @Observable
 final class TerminalPanelTextBoxState {
+    var selectedSubmitActionID: String?
     var pendingProviderLaunchAction: TextBoxSubmitAction?
     var pendingProviderLaunchStartedAt: Date?
     private(set) var launchCommand: String?

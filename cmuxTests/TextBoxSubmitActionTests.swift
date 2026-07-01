@@ -939,19 +939,19 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testSuccessfulCommandTemplateSubmitResetsDefaultActionToTextEntry() throws {
+    func testSuccessfulCommandTemplateSubmitResetsPanelActionToTextEntry() throws {
         let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
 
         XCTAssertEqual(
-            TextBoxInputContainer.defaultSubmitActionIDAfterSuccessfulSubmit(
-                currentDefaultSubmitActionID: codex.id,
+            TextBoxInputContainer.panelSubmitActionIDAfterSuccessfulSubmit(
+                currentSubmitActionID: codex.id,
                 submittedAction: codex
             ),
             TextBoxSubmitAction.textEntryAction.id
         )
         XCTAssertEqual(
-            TextBoxInputContainer.defaultSubmitActionIDAfterSuccessfulSubmit(
-                currentDefaultSubmitActionID: codex.id,
+            TextBoxInputContainer.panelSubmitActionIDAfterSuccessfulSubmit(
+                currentSubmitActionID: codex.id,
                 submittedAction: TextBoxSubmitAction.textEntryAction
             ),
             codex.id

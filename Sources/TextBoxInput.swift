@@ -2418,7 +2418,7 @@ private final class TextBoxSubmitEventRunner {
 
 struct TextBoxInputContainer: View {
     @AppStorage(TerminalTextBoxInputSettings.defaultSubmitActionKey)
-    var defaultSubmitActionID = TerminalTextBoxInputSettings.defaultSubmitActionID
+    var configuredDefaultSubmitActionID = TerminalTextBoxInputSettings.defaultSubmitActionID
     @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
     var configuredSubmitActionsJSON = ""
     @State var submitActionImageCache: [String: NSImage] = [:]
@@ -2427,6 +2427,7 @@ struct TextBoxInputContainer: View {
 
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
+    @Binding var selectedSubmitActionID: String?
     @Binding var pendingProviderLaunchAction: TextBoxSubmitAction?
     @Binding var pendingProviderLaunchStartedAt: Date?
     let surface: TerminalSurface
@@ -2452,7 +2453,6 @@ struct TextBoxInputContainer: View {
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
     @State var pendingProviderLaunchTimeoutTask: Task<Void, Never>?
-    @State private var preservePendingProviderLaunchForDefaultActionReset = false
     @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
 
     private var pendingCommentCount: Int {
@@ -2599,11 +2599,8 @@ struct TextBoxInputContainer: View {
         .onChange(of: allowsCommandTemplateSubmit) { _, _ in
             reconcilePendingProviderLaunch()
         }
-        .onChange(of: defaultSubmitActionID) { _, _ in
-            if preservePendingProviderLaunchForDefaultActionReset {
-                preservePendingProviderLaunchForDefaultActionReset = false
-                return
-            }
+        .onChange(of: configuredDefaultSubmitActionID) { _, _ in
+            guard selectedSubmitActionID == nil else { return }
             cancelPendingProviderLaunch()
         }
     }
@@ -2845,7 +2842,7 @@ struct TextBoxInputContainer: View {
                     DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
                 }
             }
-            resetDefaultSubmitActionAfterSuccessfulSubmit(submittedAction: launchAction)
+            resetPanelSubmitActionAfterSuccessfulSubmit(submittedAction: launchAction)
             let submittedAttachments = submittedParts.compactMap { part -> TextBoxAttachment? in
                 if case .attachment(let attachment) = part { return attachment }
                 return nil
@@ -2860,14 +2857,13 @@ struct TextBoxInputContainer: View {
         }
     }
 
-    private func resetDefaultSubmitActionAfterSuccessfulSubmit(submittedAction: TextBoxSubmitAction) {
-        let nextID = Self.defaultSubmitActionIDAfterSuccessfulSubmit(
-            currentDefaultSubmitActionID: defaultSubmitActionID,
+    private func resetPanelSubmitActionAfterSuccessfulSubmit(submittedAction: TextBoxSubmitAction) {
+        let nextID = Self.panelSubmitActionIDAfterSuccessfulSubmit(
+            currentSubmitActionID: effectiveSubmitActionID,
             submittedAction: submittedAction
         )
-        guard nextID != defaultSubmitActionID else { return }
-        preservePendingProviderLaunchForDefaultActionReset = true
-        defaultSubmitActionID = nextID
+        guard nextID != effectiveSubmitActionID else { return }
+        selectedSubmitActionID = nextID
     }
 
     private func markContentChanged() {
