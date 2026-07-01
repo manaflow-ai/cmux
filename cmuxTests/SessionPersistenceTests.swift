@@ -3,6 +3,7 @@ import CmuxCore
 import CmuxFoundation
 import CmuxWorkspaces
 import Darwin
+import Testing
 import XCTest
 import CmuxTerminal
 
@@ -6355,5 +6356,97 @@ extension SessionPersistenceTests {
         XCTAssertNil(MarkdownPanelFileLinkResolver.resolve(rawPath: "missing.md", relativeToMarkdownFile: openedFile.path))
         XCTAssertNil(MarkdownPanelFileLinkResolver.resolve(rawPath: "notes.txt", relativeToMarkdownFile: openedFile.path))
         XCTAssertNil(MarkdownPanelFileLinkResolver.resolve(rawPath: "https://example.com/notes.md", relativeToMarkdownFile: openedFile.path))
+    }
+}
+
+@Suite("Window reconciliation on display reconfiguration")
+struct ScreenParameterReconciliationTests {
+    private static let minWidth = CGFloat(SessionPersistencePolicy.minimumWindowWidth)
+    private static let minHeight = CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+
+    // Regression for the screen-sharing / virtual-display resize bug: a main window
+    // sized for the previous (larger) display geometry must be refit inside the new
+    // (smaller) visible frame when the display is reconfigured, the way macOS does
+    // automatically for ordinary movable windows.
+    @Test func fitsOversizedWindowToShrunkDisplay() throws {
+        // The window was valid on a larger display; the display is now 1280x800
+        // (same display ID, e.g. a Screen Sharing window that got smaller).
+        let shrunkDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_280, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_280, height: 800)
+        )
+
+        let reconciled = try #require(AppDelegate.reconciledFrameAfterScreenChange(
+            currentFrame: CGRect(x: 100, y: 100, width: 1_600, height: 900),
+            windowDisplayID: 1,
+            availableDisplays: [shrunkDisplay],
+            fallbackDisplay: shrunkDisplay,
+            minWidth: Self.minWidth,
+            minHeight: Self.minHeight
+        ))
+
+        // Window is capped to the new visible frame and pulled fully on-screen.
+        #expect(reconciled.width == 1_280)
+        #expect(reconciled.height == 800)
+        #expect(reconciled.minX == 0)
+        #expect(reconciled.minY == 0)
+        #expect(shrunkDisplay.visibleFrame.contains(reconciled))
+    }
+
+    @Test func leavesFittingWindowUntouched() {
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_280, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_280, height: 800)
+        )
+        let currentFrame = CGRect(x: 100, y: 50, width: 800, height: 600)
+
+        let reconciled = AppDelegate.reconciledFrameAfterScreenChange(
+            currentFrame: currentFrame,
+            windowDisplayID: 1,
+            availableDisplays: [display],
+            fallbackDisplay: display,
+            minWidth: Self.minWidth,
+            minHeight: Self.minHeight
+        )
+
+        #expect(reconciled == currentFrame)
+    }
+
+    @Test func pullsOffscreenWindowBackOnDisplay() throws {
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_280, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_280, height: 800)
+        )
+
+        // Window left entirely off every screen (its display disappeared), so it no
+        // longer reports a screen of its own.
+        let reconciled = try #require(AppDelegate.reconciledFrameAfterScreenChange(
+            currentFrame: CGRect(x: 3_000, y: 3_000, width: 800, height: 600),
+            windowDisplayID: nil,
+            availableDisplays: [display],
+            fallbackDisplay: display,
+            minWidth: Self.minWidth,
+            minHeight: Self.minHeight
+        ))
+
+        #expect(display.visibleFrame.contains(reconciled))
+        #expect(reconciled.width == 800)
+        #expect(reconciled.height == 600)
+    }
+
+    @Test func returnsNilWithoutDisplays() {
+        let reconciled = AppDelegate.reconciledFrameAfterScreenChange(
+            currentFrame: CGRect(x: 0, y: 0, width: 800, height: 600),
+            windowDisplayID: 1,
+            availableDisplays: [],
+            fallbackDisplay: nil,
+            minWidth: Self.minWidth,
+            minHeight: Self.minHeight
+        )
+
+        #expect(reconciled == nil)
     }
 }
