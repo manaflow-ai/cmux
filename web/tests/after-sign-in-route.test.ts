@@ -145,11 +145,16 @@ describe("sign out and sign back in", () => {
     signOut.mockClear();
   });
 
-  function switchRequest(afterAuthReturnTo: string, headers: Record<string, string> = {}): NextRequest {
+  function switchRequest(
+    afterAuthReturnTo: string,
+    headers: Record<string, string> = {},
+    includeDefaultFetchSite = true
+  ): NextRequest {
     return new NextRequest(
       `https://cmux.test/handler/sign-out-and-sign-in?after_auth_return_to=${encodeURIComponent(afterAuthReturnTo)}`,
       {
         headers: {
+          ...(includeDefaultFetchSite ? { "sec-fetch-site": "same-origin" } : {}),
           cookie:
             "stack-access=access-token; __Host-stack-access=secure-access-token; stack-refresh-test-project=refresh-token; __Host-stack-refresh-test-project=host-refresh-token; __Secure-stack-refresh-test-project=secure-refresh-token; stack-refresh-test-project--default=branch-refresh-token; __Host-stack-refresh-test-project--default=secure-branch-refresh-token; stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=custom-refresh-token; unrelated=value",
           ...headers,
@@ -178,8 +183,9 @@ describe("sign out and sign back in", () => {
     expect(setCookie).toContain("__Secure-stack-refresh-test-project=;");
     expect(setCookie).toContain("stack-refresh-test-project--default=;");
     expect(setCookie).toContain("__Host-stack-refresh-test-project--default=;");
-    expect(setCookie).toContain("stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=;");
-    expect(setCookie).toContain("Domain=example.com");
+    expect(setCookie).toMatch(
+      /stack-refresh-test-project--custom-CNW62VBGDHJJWRVFDM=;[^,]*Domain=example\.com/
+    );
     expect(setCookie).not.toContain("unrelated=;");
   });
 
@@ -215,6 +221,17 @@ describe("sign out and sign back in", () => {
     const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
 
     const response = await GET(switchRequest(nativeSignIn, { "sec-fetch-site": "cross-site" }));
+
+    expect(signOut).not.toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
+  test("rejects sign-out attempts without a fetch metadata signal", async () => {
+    const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
+    const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+
+    const response = await GET(switchRequest(nativeSignIn, {}, false));
 
     expect(signOut).not.toHaveBeenCalled();
     expect(response.status).toBe(307);

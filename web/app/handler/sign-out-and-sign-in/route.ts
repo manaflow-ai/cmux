@@ -36,7 +36,7 @@ function validatedNativeSignInTarget(request: NextRequest): string | null {
 
 function canStartSignOut(request: NextRequest): boolean {
   const fetchSite = request.headers.get("sec-fetch-site");
-  return fetchSite === null || fetchSite === "none" || fetchSite === "same-origin" || fetchSite === "same-site";
+  return fetchSite === "none" || fetchSite === "same-origin" || fetchSite === "same-site";
 }
 
 function isStackAuthCookie(name: string, projectId: string): boolean {
