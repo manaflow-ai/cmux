@@ -323,6 +323,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             composerHeight: composerHeight,
             bottomSafeAreaUnderlap: safeAreaUnderlap
         )
+        let adjustedBottomInset = overlayBottomInset + keyboardOverlap
         let fullTranscriptHeight = max(0, layoutHeight)
         updateConstraint(composerHeightConstraint, to: composerHeight)
         updateConstraint(transcriptClipTopConstraint, to: 0)
@@ -333,7 +334,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             transcriptOverlayGeometry.composerBottomInset = overlayBottomInset
         }
         updateTranscriptViewportInsets(
-            adjustedBottomInset: overlayBottomInset,
+            adjustedBottomInset: adjustedBottomInset,
             composerOverlayBottomInset: overlayBottomInset
         )
     }
@@ -349,6 +350,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
             applyKeyboardOverlap(overlap)
+            updateMeasuredGeometryConstants()
             view.layoutIfNeeded()
             removeKeyboardTrackingAnimations()
         }

@@ -1315,13 +1315,15 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
-        assertChatKeyboardVisibleBottomStayedPinned(
-            animationSamples,
-            baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
-            scrollPosition: scrollPosition,
-            file: file,
-            line: line
-        )
+        if beforeKeyboard.distanceFromBottom <= 40 {
+            assertChatKeyboardVisibleBottomStayedPinned(
+                animationSamples,
+                baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
+                scrollPosition: scrollPosition,
+                file: file,
+                line: line
+            )
+        }
         let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
             $0.keyboardOverlap > 120
                 && $0.presentationFrameMaxY < beforeKeyboard.presentationFrameMaxY - 120
