@@ -123,6 +123,7 @@ extension Workspace {
             customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
             customColor: customColor,
+            sidebarStatusId: sidebarStatusId,
             isPinned: isPinned,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
@@ -212,6 +213,7 @@ extension Workspace {
         setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
+        setSidebarStatusId(snapshot.sidebarStatusId)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
 
@@ -2219,6 +2221,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    @Published private(set) var sidebarStatusId: String?
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
@@ -4435,6 +4438,10 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             customColor = nil
         }
+    }
+
+    func setSidebarStatusId(_ statusId: String?) {
+        sidebarStatusId = WorkspaceSidebarStatusCatalog.normalizedStatusId(statusId)
     }
 
     func setTerminalScrollBarHidden(_ hidden: Bool) {

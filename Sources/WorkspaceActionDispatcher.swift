@@ -45,6 +45,12 @@ enum WorkspaceActionDispatcher {
         let pinned: Bool
     }
 
+    struct SidebarStatusResult: Equatable {
+        let targetWorkspaceIds: [UUID]
+        let changedWorkspaceIds: [UUID]
+        let statusId: String?
+    }
+
     @MainActor
     static func pinState(
         in tabManager: TabManager,
@@ -102,6 +108,46 @@ enum WorkspaceActionDispatcher {
             targetWorkspaceIds: targetWorkspaceIds,
             changedWorkspaceIds: changedWorkspaceIds,
             pinned: state.pinned
+        )
+    }
+
+    @discardableResult
+    @MainActor
+    static func setSidebarStatus(
+        _ statusId: String?,
+        in tabManager: TabManager,
+        target: Target
+    ) -> SidebarStatusResult? {
+        let targetWorkspaceIds = liveWorkspaceIds(in: tabManager, from: target.workspaceIds)
+        guard !targetWorkspaceIds.isEmpty else { return nil }
+        let normalizedStatusId = WorkspaceSidebarStatusCatalog.normalizedStatusId(statusId)
+        let changedWorkspaceIds = tabManager.applyWorkspaceSidebarStatus(
+            normalizedStatusId,
+            toWorkspaceIds: targetWorkspaceIds
+        )
+        return SidebarStatusResult(
+            targetWorkspaceIds: targetWorkspaceIds,
+            changedWorkspaceIds: changedWorkspaceIds,
+            statusId: normalizedStatusId
+        )
+    }
+
+    @discardableResult
+    @MainActor
+    static func cycleSidebarStatus(
+        in tabManager: TabManager,
+        target: Target
+    ) -> SidebarStatusResult? {
+        let targetWorkspaceIds = liveWorkspaceIds(in: tabManager, from: target.workspaceIds)
+        guard !targetWorkspaceIds.isEmpty else { return nil }
+        let anchorWorkspaceId = target.anchorWorkspaceId.flatMap { anchorId in
+            targetWorkspaceIds.contains(anchorId) ? anchorId : nil
+        } ?? targetWorkspaceIds[0]
+        let currentStatusId = tabManager.tabs.first { $0.id == anchorWorkspaceId }?.sidebarStatusId
+        return setSidebarStatus(
+            WorkspaceSidebarStatusCatalog.nextStatusId(after: currentStatusId),
+            in: tabManager,
+            target: Target(workspaceIds: targetWorkspaceIds, anchorWorkspaceId: anchorWorkspaceId)
         )
     }
 

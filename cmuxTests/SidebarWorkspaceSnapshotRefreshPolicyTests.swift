@@ -107,6 +107,33 @@ import Testing
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
+    @Test func contextMenuStatusChangeUpdatesDisplayedBadgeImmediately() throws {
+        let done = try #require(WorkspaceSidebarStatusCatalog.status(for: "done"))
+        let current = Self.snapshot(
+            sidebarStatus: nil,
+            remoteConnectionStatusText: "Connected",
+            latestConversationMessage: "old message"
+        )
+        let next = Self.snapshot(
+            sidebarStatus: done,
+            remoteConnectionStatusText: "Disconnected",
+            latestConversationMessage: "new message"
+        )
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        #expect(decision.workspaceSnapshotStorage?.sidebarStatus == done)
+        #expect(decision.workspaceSnapshotStorage?.remoteConnectionStatusText == "Connected")
+        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
+        #expect(decision.pendingWorkspaceSnapshot == next)
+        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
     @Test func closedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
@@ -129,6 +156,7 @@ import Testing
         customDescription: String? = nil,
         isPinned: Bool = false,
         customColorHex: String? = nil,
+        sidebarStatus: WorkspaceSidebarStatus? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
         listeningPorts: [Int] = [],
@@ -141,6 +169,7 @@ import Testing
             customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: customColorHex,
+            sidebarStatus: sidebarStatus,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",

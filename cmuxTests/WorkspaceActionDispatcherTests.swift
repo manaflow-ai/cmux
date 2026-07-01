@@ -96,4 +96,64 @@ final class WorkspaceActionDispatcherTests: XCTestCase {
         XCTAssertTrue(workspace.isPinned)
         XCTAssertTrue(result.changedWorkspaceIds.isEmpty)
     }
+
+    func testSidebarStatusActionAppliesToMultipleTargets() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+
+        let result = try XCTUnwrap(
+            WorkspaceActionDispatcher.setSidebarStatus(
+                "done",
+                in: manager,
+                target: WorkspaceActionDispatcher.Target(
+                    workspaceIds: [first.id, second.id],
+                    anchorWorkspaceId: first.id
+                )
+            )
+        )
+
+        XCTAssertEqual(result.targetWorkspaceIds, [first.id, second.id])
+        XCTAssertEqual(result.changedWorkspaceIds, [first.id, second.id])
+        XCTAssertEqual(result.statusId, "done")
+        XCTAssertEqual(first.sidebarStatusId, "done")
+        XCTAssertEqual(second.sidebarStatusId, "done")
+        XCTAssertNil(third.sidebarStatusId)
+    }
+
+    func testSidebarStatusActionNormalizesInvalidStatusToClear() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.tabs.first)
+        workspace.setSidebarStatusId("active")
+
+        let result = try XCTUnwrap(
+            WorkspaceActionDispatcher.setSidebarStatus(
+                "ship-it",
+                in: manager,
+                target: .single(workspace.id)
+            )
+        )
+
+        XCTAssertEqual(result.statusId, nil)
+        XCTAssertEqual(result.changedWorkspaceIds, [workspace.id])
+        XCTAssertNil(workspace.sidebarStatusId)
+    }
+
+    func testSidebarStatusCycleMovesThroughDefaultSlotsAndClearsAfterLast() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.tabs.first)
+
+        XCTAssertEqual(
+            WorkspaceActionDispatcher.cycleSidebarStatus(in: manager, target: .single(workspace.id))?.statusId,
+            "open"
+        )
+        XCTAssertEqual(
+            WorkspaceActionDispatcher.cycleSidebarStatus(in: manager, target: .single(workspace.id))?.statusId,
+            "active"
+        )
+        workspace.setSidebarStatusId("blocked")
+        XCTAssertNil(WorkspaceActionDispatcher.cycleSidebarStatus(in: manager, target: .single(workspace.id))?.statusId)
+        XCTAssertNil(workspace.sidebarStatusId)
+    }
 }
