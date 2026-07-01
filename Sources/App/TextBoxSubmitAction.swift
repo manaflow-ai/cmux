@@ -45,7 +45,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         builtInAgentAction(
             id: "claude",
             title: "Claude Dangerous",
-            commandPrefix: "claude --dangerously-skip-permissions",
+            commandPrefix: "claude --dangerously-skip-permissions --",
             systemImage: "sparkle",
             assetName: "AgentIcons/Claude",
             backgroundColorHex: "#F6D5C8"
@@ -53,7 +53,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         builtInAgentAction(
             id: "codex",
             title: "Codex --yolo",
-            commandPrefix: "codex --yolo",
+            commandPrefix: "codex --yolo --",
             systemImage: "sparkles",
             assetName: "AgentIcons/Codex",
             backgroundColorHex: "#8FDBFF"
@@ -69,7 +69,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         builtInAgentAction(
             id: "pi",
             title: "Pi",
-            commandPrefix: "pi",
+            commandPrefix: "pi --",
             systemImage: "brain.head.profile",
             assetName: "AgentIcons/Pi",
             backgroundColorHex: "#D0B3FF"

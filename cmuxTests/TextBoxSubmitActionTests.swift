@@ -128,16 +128,16 @@ struct TextBoxSubmitActionTests {
         let actionsByID = Dictionary(
             uniqueKeysWithValues: TextBoxSubmitAction.builtInActions.map { ($0.id, $0) }
         )
-        let prompt = "ship user's fix\nwith\ttabs"
-        let quotedPrompt = "'ship user'\\''s fix\nwith\ttabs'"
+        let prompt = "--help\nship user's fix\nwith\ttabs"
+        let quotedPrompt = "'--help\nship user'\\''s fix\nwith\ttabs'"
 
         XCTAssertEqual(
             try #require(actionsByID["claude"]).command(forPrompt: prompt),
-            "claude --dangerously-skip-permissions \(quotedPrompt)"
+            "claude --dangerously-skip-permissions -- \(quotedPrompt)"
         )
         XCTAssertEqual(
             try #require(actionsByID["codex"]).command(forPrompt: prompt),
-            "codex --yolo \(quotedPrompt)"
+            "codex --yolo -- \(quotedPrompt)"
         )
         XCTAssertEqual(
             try #require(actionsByID["opencode"]).command(forPrompt: prompt),
@@ -145,16 +145,16 @@ struct TextBoxSubmitActionTests {
         )
         XCTAssertEqual(
             try #require(actionsByID["pi"]).command(forPrompt: prompt),
-            "pi \(quotedPrompt)"
+            "pi -- \(quotedPrompt)"
         )
         XCTAssertTrue(launchCommandsByID.isEmpty)
     }
-
     @Test
     func testCommandTemplateSubmitPlanExposesAgentLaunchCommandForActiveSessionTracking() throws {
         let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
+        let prompt = "--help\nship user's fix\nwith\ttabs"
         let plan = TextBoxInputContainer.dispatchPlan(
-            [.text("ship user's fix\nwith\ttabs")],
+            [.text(prompt)],
             applying: codex,
             shouldForceTextEntrySubmit: false,
             allowsCommandTemplateSubmit: true,
@@ -162,9 +162,9 @@ struct TextBoxSubmitActionTests {
             pendingProviderLaunchAction: nil
         )
 
-        let expectedCommand = "codex --yolo 'ship user'\\''s fix\nwith\ttabs'"
+        let expectedCommand = "codex --yolo -- '--help\nship user'\\''s fix\nwith\ttabs'"
         XCTAssertEqual(plan.launchCommand, expectedCommand)
-        XCTAssertEqual(plan.launchContextCommand, "codex --yolo")
+        XCTAssertEqual(plan.launchContextCommand, "codex --yolo --")
         XCTAssertEqual(plan.events, TextBoxSubmit.dispatchEvents(for: [.text(expectedCommand)], terminalAgentContext: ""))
     }
 
@@ -365,9 +365,9 @@ struct TextBoxSubmitActionTests {
     func testDefaultConfigTemplateIncludesTextBoxLaunchPromptFlag() {
         let template = CmuxSettingsFileStore.defaultTemplate()
 
-        XCTAssertTrue(template.contains(#""commandTemplate" : "codex --yolo {{prompt}}""#))
+        XCTAssertTrue(template.contains(#""commandTemplate" : "codex --yolo -- {{prompt}}""#))
         XCTAssertTrue(template.contains(#""commandTemplate" : "opencode --prompt {{prompt}}""#))
-        XCTAssertTrue(template.contains(#""commandTemplate" : "pi {{prompt}}""#))
+        XCTAssertTrue(template.contains(#""commandTemplate" : "pi -- {{prompt}}""#))
         XCTAssertFalse(template.contains(#""preservePromptAfterLaunch" : true"#))
     }
 
@@ -1012,7 +1012,7 @@ struct TextBoxSubmitActionTests {
                 pendingProviderLaunchAction: nil
             ).events,
             TextBoxSubmit.dispatchEvents(
-                for: [.text("codex --yolo 'hi how are you'")],
+                for: [.text("codex --yolo -- 'hi how are you'")],
                 terminalAgentContext: ""
             )
         )
