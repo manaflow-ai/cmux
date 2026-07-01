@@ -1,6 +1,10 @@
 import Testing
+
+#if canImport(cmux_DEV)
 @testable import cmux_DEV
+#elseif canImport(cmux)
 @testable import cmux
+#endif
 
 /// Exhaustive decision-table coverage for the app-side agent notification gate
 /// and the `c=<category>;p=<0|1>` meta parser it consumes.
