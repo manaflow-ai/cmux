@@ -524,6 +524,26 @@ jobs:
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
             test
 
+      - name: Run browser session history restore regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Heavy WKWebView provisional-navigation-race suite, isolated in its own
+          # app-host so WebProcess exhaustion can't cascade into a shared shard and
+          # so its pass/fail is independent of sharding order. See the note in
+          # scripts/ci/cmux_unit_test_shard.py FOCUSED_GATE_SELECTORS.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/BrowserSessionHistoryRestoreTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail
