@@ -721,18 +721,9 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: ""
             )
         )
-        XCTAssertFalse(
-            TextBoxInputContainer.shouldClearPendingProviderLaunch(
-                shellActivityState: .promptIdle,
-                terminalAgentContext: "textBoxPendingLaunchCommand:codex"
-            )
-        )
-        XCTAssertFalse(
-            TextBoxInputContainer.shouldClearPendingProviderLaunch(
-                shellActivityState: .promptIdle,
-                terminalAgentContext: "restoredAgent:claude\ntextBoxPendingLaunchCommand:codex"
-            )
-        )
+        XCTAssertFalse(TextBoxInputContainer.shouldClearPendingProviderLaunch(shellActivityState: .promptIdle, terminalAgentContext: "textBoxPendingLaunchCommand:codex"))
+        XCTAssertFalse(TextBoxInputContainer.shouldClearPendingProviderLaunch(shellActivityState: .promptIdle, terminalAgentContext: "restoredAgent:claude\ntextBoxPendingLaunchCommand:codex"))
+        XCTAssertTrue(TextBoxInputContainer.shouldClearPendingProviderLaunch(shellActivityState: .commandRunning, terminalAgentContext: "textBoxPendingLaunchCommand:codex\nagentPIDKey:codex.12345"))
         XCTAssertFalse(
             TextBoxInputContainer.allowsSubmitActionSelection(
                 pendingProviderLaunchAction: TextBoxSubmitAction.builtInActions[0],

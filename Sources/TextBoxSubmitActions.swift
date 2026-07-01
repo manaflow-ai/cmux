@@ -158,7 +158,7 @@ extension TextBoxInputContainer {
         terminalAgentContext: String,
         pendingLaunchExpired: Bool = false
     ) -> Bool {
-        if pendingLaunchExpired {
+        if pendingLaunchExpired || TextBoxAgentDetection.supportsActiveAgentPrefixes(context: terminalAgentContext) {
             return true
         }
         if TextBoxAgentDetection.hasPendingTextBoxLaunchContext(terminalAgentContext) {
