@@ -5,8 +5,7 @@ import CmuxTerminalCore
 @Suite struct TerminalOpenURLFileRoutingPolicyTests {
     private let policy = TerminalOpenURLFileRoutingPolicy()
 
-    @Test(arguments: [true, false])
-    func explicitFileSchemeBypassesCmuxFileRouting(_: Bool) throws {
+    @Test func explicitFileSchemeBypassesCmuxFileRouting() throws {
         let url = try #require(URL(string: "file:///Users/dev/out/ab_cosyvoice_emo.wav"))
         #expect(
             policy.shouldAttemptCmuxFileRouting(

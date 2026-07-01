@@ -31,7 +31,6 @@ public struct TerminalOpenURLFileRoutingPolicy: Sendable {
     }
 
     private func isLocalFileURL(_ url: URL) -> Bool {
-        let host = url.host
-        return host == nil || host?.isEmpty == true || host == "localhost"
+        url.host?.isEmpty ?? true
     }
 }
