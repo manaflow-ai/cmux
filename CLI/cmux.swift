@@ -172,6 +172,12 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameLastAttemptAt: TimeInterval?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
+    /// Whether the most recent Stop reported unfinished background work
+    /// (a running `background_tasks` entry or a pending `session_crons`).
+    /// Cached here because the ~60s-later `idle_prompt` Notification payload
+    /// does not carry `background_tasks`, so the idle-reminder gate reads this.
+    /// Optional so stores written before this field decode unchanged.
+    var hadPendingBackgroundWorkAtStop: Bool?
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -670,6 +676,7 @@ final class ClaudeHookSessionStore {
         updateLastNotificationStatus: Bool = false,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
+        hadPendingBackgroundWorkAtStop: Bool? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false
@@ -718,6 +725,7 @@ final class ClaudeHookSessionStore {
                 updateLastNotificationStatus: updateLastNotificationStatus,
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
+                hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
                 now: now
             )
             state.sessions[normalized] = record
@@ -1088,6 +1096,7 @@ final class ClaudeHookSessionStore {
         updateLastNotificationStatus: Bool,
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
+        hadPendingBackgroundWorkAtStop: Bool? = nil,
         now: TimeInterval
     ) {
         record.workspaceId = workspaceId
@@ -1135,6 +1144,9 @@ final class ClaudeHookSessionStore {
         }
         if updateRuntimeStatus {
             record.runtimeStatus = runtimeStatus
+        }
+        if let hadPendingBackgroundWorkAtStop {
+            record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
         }
         record.updatedAt = now
     }
@@ -23214,6 +23226,12 @@ struct CMUXCLI {
                     return
                 }
 
+                // Whether this turn ended with unfinished background work (a running
+                // background task or a pending cron). Cached on the session record so
+                // the ~60s-later idle_prompt Notification can consult it, and forwarded
+                // to the app so it can suppress the done-ping until work truly drains.
+                let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
+
                 // Update session with transcript summary and send completion notification.
                 let completion = summarizeClaudeHookStop(
                     parsedInput: parsedInput,
@@ -23230,6 +23248,7 @@ struct CMUXCLI {
                         agentLifecycle: .idle,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
+                        hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
@@ -23265,7 +23284,12 @@ struct CMUXCLI {
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
-                    let payload = notificationPayload(title: title, subtitle: completion.subtitle, body: completion.body)
+                    let payload = notificationPayload(
+                        title: title,
+                        subtitle: completion.subtitle,
+                        body: completion.body,
+                        meta: notifyMeta(.turnComplete, pending: hasPendingBackgroundWork)
+                    )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
                 print("OK")
@@ -23474,7 +23498,34 @@ struct CMUXCLI {
                 localized: "cli.claude-hook.notification.title",
                 defaultValue: "Claude Code"
             )
-            let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
+
+            // Classify the Notification so the app can gate it by user config.
+            // `permission_prompt` = Claude is blocked on the user (always worth a
+            // ping); `idle_prompt` = the ~60s idle nag, which fires even while a
+            // background task runs — its payload lacks `background_tasks`, so read
+            // the pending flag cached by the most recent Stop.
+            let notificationType = parsedInput.rawObject.flatMap {
+                firstString(in: $0, keys: ["notification_type"])
+            }
+            let notifyCategory: ClaudeNotifyCategory
+            let notifyPending: Bool
+            switch notificationType {
+            case "permission_prompt":
+                notifyCategory = .needsPermission
+                notifyPending = false
+            case "idle_prompt":
+                notifyCategory = .idleReminder
+                notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
+            default:
+                notifyCategory = .other
+                notifyPending = false
+            }
+            let payload = notificationPayload(
+                title: title,
+                subtitle: summary.subtitle,
+                body: summary.body,
+                meta: notifyMeta(notifyCategory, pending: notifyPending)
+            )
 
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
@@ -26286,8 +26337,48 @@ struct CMUXCLI {
             .replacingOccurrences(of: "|", with: "¦")
     }
 
-    private func notificationPayload(title: String, subtitle: String, body: String) -> String {
-        "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+    private func notificationPayload(
+        title: String,
+        subtitle: String,
+        body: String,
+        meta: String? = nil
+    ) -> String {
+        let base = "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+        // `meta` is a structured, delimiter-safe tag (see `notifyMeta`): it has no
+        // "|" or spaces, so it is NOT sanitized and rides as a 4th pipe segment.
+        // Omitting it reproduces the exact 3-field payload every legacy caller sends.
+        guard let meta, !meta.isEmpty else { return base }
+        return base + "|" + meta
+    }
+
+    /// Category tag the app uses to gate agent notifications by user config.
+    /// Serialized into the `notify_target_async` payload's optional meta segment.
+    enum ClaudeNotifyCategory: String {
+        case turnComplete = "turn-complete"
+        case needsPermission = "needs-permission"
+        case idleReminder = "idle-reminder"
+        case other
+    }
+
+    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. No "|" and no spaces,
+    /// so it survives the pipe-delimited payload and the app's strict `c=` guard.
+    private func notifyMeta(_ category: ClaudeNotifyCategory, pending: Bool) -> String {
+        "c=\(category.rawValue);p=\(pending ? 1 : 0)"
+    }
+
+    /// True when a Claude `Stop`/`Notification` payload reports unfinished
+    /// background work: any `background_tasks` entry still `running`, or a
+    /// non-empty `session_crons`. A `nil` rawObject or absent keys (claude
+    /// < 2.1.145) yield `false`, so older clients behave exactly as before.
+    /// Pure over `rawObject` so both the notify gate and the hibernation
+    /// lifecycle decision can share it (mirrors `hasActiveAntigravityBackgroundWork`).
+    func hasActiveClaudeBackgroundWork(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let obj = parsedInput.rawObject else { return false }
+        if let crons = obj["session_crons"] as? [Any], !crons.isEmpty { return true }
+        if let tasks = obj["background_tasks"] as? [[String: Any]] {
+            return tasks.contains { ($0["status"] as? String) == "running" }
+        }
+        return false
     }
 
     private func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
