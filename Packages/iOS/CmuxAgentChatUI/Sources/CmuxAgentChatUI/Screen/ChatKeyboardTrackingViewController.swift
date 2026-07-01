@@ -302,12 +302,16 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private func stopKeyboardAnimation(removeAnimations: Bool) {
         isKeyboardAnimationActive = false
         if removeAnimations {
-            keyboardContentView.layer.removeAllAnimations()
-            transcriptClipView.layer.removeAllAnimations()
-            transcriptHostingController.view.layer.removeAllAnimations()
-            composerBackgroundView.layer.removeAllAnimations()
-            composerHostingController.view.layer.removeAllAnimations()
+            removeKeyboardTrackingAnimations()
         }
+    }
+
+    private func removeKeyboardTrackingAnimations() {
+        keyboardContentView.layer.removeAllAnimations()
+        transcriptClipView.layer.removeAllAnimations()
+        transcriptHostingController.view.layer.removeAllAnimations()
+        composerBackgroundView.layer.removeAllAnimations()
+        composerHostingController.view.layer.removeAllAnimations()
     }
 
     private func updateMeasuredGeometryConstants() {
@@ -346,7 +350,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         UIView.performWithoutAnimation {
             applyKeyboardOverlap(overlap)
             view.layoutIfNeeded()
-            keyboardContentView.layer.removeAllAnimations()
+            removeKeyboardTrackingAnimations()
         }
         CATransaction.commit()
     }
