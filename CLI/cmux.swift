@@ -19751,9 +19751,20 @@ struct CMUXCLI {
             }
             if message["id"] != nil { return }
             guard method.hasPrefix("thread/"),
-                  let params = message["params"] as? [String: Any],
-                  let threadObject = params["thread"] as? [String: Any],
+                  let params = message["params"] as? [String: Any] else {
+                return
+            }
+            guard let threadObject = params["thread"] as? [String: Any],
                   let thread = CMUXCLI.codexTeamsThread(from: threadObject) else {
+                // Current Codex app-servers announce thread lifecycle changes
+                // with a bare threadId and no thread object, so late-spawned
+                // threads are only discoverable by hydrating that id.
+                guard allowThreadSubscribe, let threadId = params["threadId"] as? String, !threadId.isEmpty else { return }
+                do {
+                    _ = try hydrateThreadIfNeeded(threadId, connection: connection)
+                } catch {
+                    cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
+                }
                 return
             }
             if allowThreadSubscribe {
