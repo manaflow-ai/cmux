@@ -277,11 +277,12 @@ struct TerminalViewportSpacingTests {
         #expect(harness.bottomGap <= 1)
     }
 
-    /// Mac window shrink (daemon push): the phone letterboxes with the content
-    /// bottom-pinned — ALL slack at the top, none at the bottom — and shows the
-    /// separator border. Mac window grows back: the phone reclaims the full
-    /// viewport.
-    @Test("mac window shrink letterboxes bottom-pinned, grow restores full height")
+    /// Mac window resize arriving as a DAEMON PUSH (`applyViewSize`, the
+    /// remote-grid output-stream path) rather than a report echo: a shrink
+    /// stretches via the font fit, a grow restores the base font, and a shrink
+    /// too deep for the maximum font falls back to the bottom-pinned letterbox
+    /// with the separator border (all slack at the top, none at the bottom).
+    @Test("daemon-push shrink stretches, grow restores, extreme shrink letterboxes")
     func macResizeShrinkGrowRestoresFill() async throws {
         let harness = try ViewportSpacingHarness()
         defer { harness.tearDown() }
@@ -290,26 +291,46 @@ struct TerminalViewportSpacingTests {
         harness.echo(initial)
         #expect(await harness.waitForFill())
 
-        // Mac window shrinks by 10 rows: daemon pushes the smaller grid.
-        let shrunkenRows = initial.rows - 10
-        await harness.view.applyViewSizeAndWait(cols: initial.columns, rows: shrunkenRows)
-        let pinned = await harness.pump {
+        // Mac window shrinks by 10 rows: daemon pushes the smaller grid; the
+        // renegotiation echoes flow automatically from here.
+        harness.delegate.autoEchoMacGrid = (cols: initial.columns + 100, rows: initial.rows - 10)
+        await harness.view.applyViewSizeAndWait(cols: initial.columns, rows: initial.rows - 10)
+        let stretched = await harness.pump(timeout: 8) {
             let snap = harness.snapshot
-            return snap.effectiveGrid?.rows == shrunkenRows && self.renderMatchesPin(harness)
+            return harness.topGap <= harness.cellHeightPoints * 1.5
+                && harness.bottomGap <= 1
+                && snap.liveFontSize > snap.baseFontSize + 0.25
         }
-        #expect(pinned, "never letterboxed to \(shrunkenRows) rows: eff \(harness.snapshot.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
+        #expect(stretched, "push shrink: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize)")
 
-        // The genuine letterbox: ~10 rows of slack, all of it at the top,
-        // content still attached to the keyboard/toolbar edge at the bottom.
-        let cell = harness.cellHeightPoints
-        #expect(harness.topGap >= cell * 8, "expected ~10 rows of top letterbox, got \(harness.topGap)pt")
-        #expect(harness.topGap <= cell * 12, "letterbox larger than the missing rows: \(harness.topGap)pt")
-        #expect(harness.bottomGap <= 1, "content must stay bottom-pinned, bottom gap \(harness.bottomGap)pt")
-        #expect(harness.snapshot.isLetterboxBorderVisible)
-
-        // Mac window grows back: daemon pushes the full grid again.
+        // Mac window grows back: daemon pushes the full grid again; the font
+        // decays to base and the phone still fills.
+        harness.delegate.autoEchoMacGrid = (cols: initial.columns + 100, rows: 10_000)
         await harness.view.applyViewSizeAndWait(cols: initial.columns, rows: initial.rows)
-        #expect(await harness.waitForFill(), "grow-back left top gap \(harness.topGap)pt")
+        let restored = await harness.pump(timeout: 8) {
+            let snap = harness.snapshot
+            return harness.topGap <= harness.cellHeightPoints * 1.5
+                && harness.bottomGap <= 1
+                && abs(snap.liveFontSize - snap.baseFontSize) < 0.5
+        }
+        #expect(restored, "push grow: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize)")
+
+        // Extreme shrink (8 rows) exceeds what the maximum font can fill: the
+        // residual letterbox stays bottom-pinned with the separator border.
+        harness.delegate.autoEchoMacGrid = (cols: initial.columns + 100, rows: 8)
+        await harness.view.applyViewSizeAndWait(cols: initial.columns, rows: 8)
+        let letterboxed = await harness.pump(timeout: 8) {
+            let snap = harness.snapshot
+            return snap.effectiveGrid?.rows == 8
+                && harness.bottomGap <= 1
+                && harness.topGap > harness.cellHeightPoints * 2
+                && snap.isLetterboxBorderVisible
+        }
+        #expect(letterboxed, """
+            extreme shrink: eff \(harness.snapshot.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil"), \
+            top gap \(harness.topGap)pt, bottom gap \(harness.bottomGap)pt, \
+            border \(harness.snapshot.isLetterboxBorderVisible)
+            """)
     }
 
     /// A dropped echo (RPC timeout) must self-heal: the coordinator calls

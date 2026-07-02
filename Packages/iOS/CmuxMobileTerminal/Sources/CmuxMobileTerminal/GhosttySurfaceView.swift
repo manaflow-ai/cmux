@@ -10,122 +10,6 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
-// lint:allow namespace-enum — file-local DEBUG input-trace logger on the off-limits typing-latency render path; type reshape deferred to the GhosttySurfaceView UI-god-object split wave.
-enum TerminalInputDebugLog {
-    private static let isEnabled = ProcessInfo.processInfo.environment["CMUX_INPUT_DEBUG"] == "1"
-    private static let logger = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.input")
-
-    static func log(_ message: String) {
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            return
-        }
-        #endif
-        guard isEnabled else { return }
-        logger.debug("input: \(message, privacy: .public)")
-    }
-
-    static func textSummary(_ text: String) -> String {
-        let summary = String(reflecting: text)
-        guard summary.count > 96 else { return summary }
-        return "\(summary.prefix(96))..."
-    }
-
-    static func dataSummary(_ data: Data) -> String {
-        let prefix = data.prefix(32)
-        let prefixData = Data(prefix)
-        let hex = prefix.map { String(format: "%02X", $0) }.joined(separator: " ")
-        let utf8 = String(data: prefixData, encoding: .utf8) ?? "<non-utf8>"
-        let suffix = data.count > prefix.count ? " ..." : ""
-        return "len=\(data.count) hex=\(hex)\(suffix) utf8=\(textSummary(utf8))"
-    }
-}
-
-@MainActor
-protocol TerminalSurfaceHosting: AnyObject {
-    var currentGridSize: TerminalGridSize { get }
-    func processOutput(_ data: Data)
-    func focusInput()
-    /// Apply the daemon's authoritative rendering grid for modes that cannot
-    /// reflow independently on the phone, such as alternate-screen TUIs.
-    func applyViewSize(cols: Int, rows: Int)
-    /// Return to the phone's natural viewport capacity.
-    func useNaturalViewSize()
-    #if DEBUG
-    var onOutputProcessedForTesting: (() -> Void)? { get set }
-    func accessibilityRenderedTextForTesting() -> String?
-    #endif
-}
-
-extension TerminalSurfaceHosting {
-    func focusInput() {}
-    func applyViewSize(cols _: Int, rows _: Int) {}
-    func useNaturalViewSize() {}
-    #if DEBUG
-    var onOutputProcessedForTesting: (() -> Void)? {
-        get { nil }
-        set {}
-    }
-    func accessibilityRenderedTextForTesting() -> String? { nil }
-    #endif
-}
-
-/// Bridges libghostty C callbacks (which run on the IO read thread or
-/// other Ghostty-internal threads) onto the main actor where the
-/// `GhosttySurfaceView` lives. The single mutable property is the
-/// `weak var surfaceView`; we serialise reads/writes through the main
-/// actor, which lets us conform to `Sendable` for the `Task { @MainActor }`
-/// hops below.
-final class GhosttySurfaceBridge: @unchecked Sendable {
-    // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding a single weak ref on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
-    private let lock = NSLock()
-    private var _surfaceView: GhosttySurfaceView?
-
-    var surfaceView: GhosttySurfaceView? {
-        get {
-            lock.lock()
-            defer { lock.unlock() }
-            return _surfaceView
-        }
-        set {
-            lock.lock()
-            _surfaceView = newValue
-            lock.unlock()
-        }
-    }
-
-    func attach(to surfaceView: GhosttySurfaceView) {
-        self.surfaceView = surfaceView
-    }
-
-    func detach() {
-        surfaceView = nil
-    }
-
-    func handleWrite(_ bytes: Data) {
-        Task { @MainActor [weak self] in
-            guard let surfaceView = self?.surfaceView else { return }
-            surfaceView.handleOutboundBytes(bytes)
-        }
-    }
-
-    func handleCloseSurface(processAlive: Bool) {
-        Task { @MainActor [weak self] in
-            guard let surfaceView = self?.surfaceView else { return }
-            NotificationCenter.default.post(
-                name: .ghosttySurfaceDidRequestClose,
-                object: surfaceView,
-                userInfo: ["process_alive": processAlive]
-            )
-        }
-    }
-
-    static func fromOpaque(_ userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceBridge? {
-        guard let userdata else { return nil }
-        return Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
-    }
-}
-
 public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     case control
     case alternate
@@ -499,6 +383,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// source of truth for the current size, so the size accumulates correctly
     /// across taps even though the actual libghostty apply is coalesced.
     private var liveFontSize: Float32
+    /// The user's EXPLICIT font choice: the init font until a pinch, accessory
+    /// zoom step, overlay reset, or Mac-pushed `set_font` changes it. The
+    /// stretch-to-fill auto-fit renders at a derived size but never moves this
+    /// baseline, and viewport reports advertise the row capacity at THIS size
+    /// (see `TerminalRowCapacityFit`) so the daemon negotiation can always
+    /// recover when the constraining device grows.
+    private var userBaseFontSize: Float32
     /// Latest zoom target awaiting a coalesced apply. The display link applies
     /// it once per frame via an absolute `set_font_size` so a burst of zoom
     /// taps becomes one libghostty push + resize per frame, instead of one per
@@ -861,7 +752,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             cellPixelSize: cellPixelSize,
             keyboardHeight: keyboardHeight,
             liveFontSize: liveFontSize,
-            baseFontSize: fontSize
+            baseFontSize: userBaseFontSize
         )
     }
 
@@ -1001,6 +892,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         self.delegate = delegate
         self.fontSize = fontSize
         self.liveFontSize = fontSize
+        self.userBaseFontSize = fontSize
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         bridge.attach(to: self)
         backgroundColor = .black
@@ -2030,6 +1922,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard surface != nil else { return false }
 
         pendingFontSize = target
+        // A pinch/accessory step is an explicit choice: it rebases the user
+        // font so the stretch-to-fill auto-fit re-derives from the new size
+        // instead of fighting the gesture.
+        userBaseFontSize = target
         MobileDebugLog.anchormux("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
         scheduleDisplayLinkWork()
         showZoomOverlay()
@@ -2087,13 +1983,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// zoom-control overlay, so there is one clamp + reflow path, then refreshes
     /// the zoom HUD so the on-screen size tracks the remote change.
     public func setLiveFontSize(_ points: Float32) {
-        applyAbsoluteFontSize(points)
+        applyUserFontSize(points)
         zoomOverlay?.updateZoom(points: pendingFontSize ?? liveFontSize)
     }
 
+    /// An EXPLICIT font choice (pinch step, overlay reset, Mac push): moves the
+    /// user baseline that capacity reports and the auto-fit derive from, then
+    /// drives the shared apply path.
+    private func applyUserFontSize(_ target: Float32) {
+        userBaseFontSize = min(
+            max(target, MobileTerminalFontPreference.minimumSize),
+            MobileTerminalFontPreference.maximumSize
+        )
+        applyAbsoluteFontSize(target)
+    }
+
     /// Set the live zoom to an absolute size (clamped to the font range),
-    /// driving the same coalesced apply path as a pinch step. Used by the
-    /// zoom-control overlay's reset / restore-built-in actions.
+    /// driving the same coalesced apply path as a pinch step. Does NOT move
+    /// the user baseline — the stretch-to-fill auto-fit funnels through here.
     private func applyAbsoluteFontSize(_ target: Float32) {
         guard surface != nil else { return }
         let clamped = min(
@@ -2145,7 +2052,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             let target = self.zoomPreference.savedFontSize
                 ?? MobileTerminalFontPreference.defaultSize
-            self.applyAbsoluteFontSize(target)
+            self.applyUserFontSize(target)
             self.zoomOverlay?.updateZoom(points: target)
         }
         overlay.onSaveAsDefault = { [weak self] in
@@ -2155,7 +2062,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         overlay.onRestoreBuiltIn = { [weak self] in
             guard let self else { return }
             self.zoomPreference.clear()
-            self.applyAbsoluteFontSize(MobileTerminalFontPreference.defaultSize)
+            self.applyUserFontSize(MobileTerminalFontPreference.defaultSize)
             self.zoomOverlay?.updateZoom(points: MobileTerminalFontPreference.defaultSize)
         }
         addSubview(overlay)
@@ -3685,17 +3592,90 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         syncSnapshotFallback()
 
         let naturalSize = result.naturalSize
+        // Stretch-to-fill: keep the RENDERED font tracking the daemon-granted
+        // rows so a Mac-constrained grid fills the phone instead of parking a
+        // letterbox band above the content.
+        autoFitFontToEffectiveRows(
+            renderedRows: naturalSize.rows,
+            containerPixelHeight: containerH * scale,
+            cellPixelHeight: result.cellPixelSize.height
+        )
+        // Report the row CAPACITY at the user's base font, not the rendered
+        // rows: a report derived from the fitted font would ratchet the
+        // negotiated minimum down and the phone could never learn when the
+        // constraining device grew back. Columns stay at the rendered font
+        // (the PTY must never be wider than the rendered grid can show).
+        let reportGrid = capacityReportGrid(
+            for: naturalSize,
+            containerPixelHeight: containerH * scale,
+            cellPixelHeight: result.cellPixelSize.height
+        )
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
-        let shouldReportNaturalSize = naturalSize != lastReportedSize ||
+        let shouldReportNaturalSize = reportGrid != lastReportedSize ||
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
-        guard shouldReportNaturalSize, naturalSize.columns > 0, naturalSize.rows > 0 else { return }
-        lastReportedSize = naturalSize
+        guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else { return }
+        lastReportedSize = reportGrid
         // Debounce the actual report (a PTY resize on the Mac) until the grid
         // settles; the display link fires it once it stops changing.
-        pendingViewportReport = naturalSize
+        pendingViewportReport = reportGrid
         viewportReportSettleFrames = 0
+    }
+
+    /// The viewport report for the current geometry: rendered columns plus the
+    /// base-font row capacity (see `TerminalRowCapacityFit.capacityRows`).
+    private func capacityReportGrid(
+        for natural: TerminalGridSize,
+        containerPixelHeight: CGFloat,
+        cellPixelHeight: CGFloat
+    ) -> TerminalGridSize {
+        guard let fit = TerminalRowCapacityFit(
+            containerPixelHeight: containerPixelHeight,
+            cellPixelHeight: cellPixelHeight,
+            liveFontSize: liveFontSize
+        ), let capacity = fit.capacityRows(atBaseFontSize: userBaseFontSize) else { return natural }
+        return TerminalGridSize(
+            columns: natural.columns,
+            rows: capacity,
+            pixelWidth: natural.pixelWidth,
+            pixelHeight: natural.pixelHeight
+        )
+    }
+
+    /// Re-derive the rendered font from the effective grid: raise it so a
+    /// smaller granted row count fills the container, decay it back toward the
+    /// user's base font when the grant returns to (or past) capacity or the
+    /// pin lifts. Floored at the user's base font — the fit only ever
+    /// stretches, and a stale oversized grant during a keyboard transition
+    /// steps to base instead of collapsing the font toward the minimum.
+    private func autoFitFontToEffectiveRows(
+        renderedRows: Int,
+        containerPixelHeight: CGFloat,
+        cellPixelHeight: CGFloat
+    ) {
+        // Never fight an in-flight explicit zoom step.
+        guard pendingFontSize == nil else { return }
+        guard let eff = effectiveGrid else {
+            if abs(liveFontSize - userBaseFontSize) >= 0.25 {
+                MobileDebugLog.anchormux("zoom.autofit.decay live=\(liveFontSize) base=\(userBaseFontSize)")
+                applyAbsoluteFontSize(userBaseFontSize)
+            }
+            return
+        }
+        guard TerminalRowCapacityFit.shouldRefit(renderedRows: renderedRows, effectiveRows: eff.rows),
+              let fit = TerminalRowCapacityFit(
+                  containerPixelHeight: containerPixelHeight,
+                  cellPixelHeight: cellPixelHeight,
+                  liveFontSize: liveFontSize
+              ),
+              let target = fit.fitFontSize(forEffectiveRows: eff.rows) else { return }
+        let clamped = min(max(target, userBaseFontSize), MobileTerminalFontPreference.maximumSize)
+        guard abs(clamped - liveFontSize) >= 0.25 else { return }
+        MobileDebugLog.anchormux(
+            "zoom.autofit eff=\(eff.cols)x\(eff.rows) rendered=\(renderedRows) font \(liveFontSize)->\(clamped)"
+        )
+        applyAbsoluteFontSize(clamped)
     }
 
     private func syncRendererLayerFrame(scale: CGFloat, renderRect: CGRect) {

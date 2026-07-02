@@ -54,6 +54,7 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 - Workspace list: groups, unread dots, last-activity previews, shared Unread filter (#5726).
 - Watchdog fix: render-grid liveness probes before teardown, fixing a false-fire replay loop (#5869).
 - Terminal fills its full height again after closing the keyboard: viewport reports are now serialized and stale echoes dropped, so a late keyboard-up reply can no longer pin the grid small and leave permanent empty space above a TUI (opencode top-gap bug).
+- Terminal stretches to fill the phone when the Mac window is the row constraint: the rendered font auto-fits to the granted grid (never below your chosen size), and reports keep advertising base-font capacity so the grid recovers when the Mac window grows.
 - Dogfood focus: hit the composer (send + drafts), View as Text, pair a Mac via the new QR, lock the phone and confirm a forwarded notification taps through to the right workspace, sign out with airplane mode on. Also open a full-screen TUI, open/close the keyboard rapidly a few times, and confirm no dead band stays above the content.
 
 ### External
