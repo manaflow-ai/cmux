@@ -115,7 +115,7 @@ public struct ShortcutDisplayFormatter: Sendable {
     /// - Returns: A localized key label when one exists, otherwise the uppercased key token.
     public func keyDisplayString(_ key: String) -> String {
         switch key {
-        case "\t":
+        case "\t", "tab", "Tab":
             return String(localized: "shortcut.key.tab", defaultValue: "Tab")
         case "space":
             return String(localized: "shortcut.key.space", defaultValue: "Space")
