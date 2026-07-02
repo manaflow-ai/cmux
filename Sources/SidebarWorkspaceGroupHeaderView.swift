@@ -167,7 +167,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                         .foregroundStyle(.white)
                         .padding(.horizontal, metrics.unreadHorizontalPadding)
                         .padding(.vertical, metrics.unreadVerticalPadding)
-                        .background(Capsule().fill(Color.accentColor))
+                        .background(Capsule().fill(cmuxAccentColor()))
                         .accessibilityLabel(Text(String.localizedStringWithFormat(
                             String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
                             anchorUnreadCount
@@ -260,7 +260,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ? Color.primary.opacity(0.08)
                 : Color.clear
         )
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: SidebarWorkspaceListMetrics.rowCornerRadius, style: .continuous))
         .sidebarShortcutHintOverlay(
             text: shortcutHintPillText,
             emphasis: isAnchorActive ? 1.0 : 0.9,

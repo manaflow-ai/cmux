@@ -13028,17 +13028,10 @@ private struct SidebarDevFooter: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
-    @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
-    private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-            if showSidebarDevBuildBanner {
-                Text(String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD"))
-                    .cmuxFont(size: 11, weight: .semibold)
-                    .foregroundColor(.red)
-            }
         }
         .padding(.leading, 6)
         .padding(.trailing, 10)
@@ -13486,7 +13479,11 @@ struct TabItemView: View, Equatable {
     }
 
     private var showsLeadingRail: Bool {
-        explicitRailColor != nil
+        if explicitRailColor != nil { return true }
+        // In the default left-rail style, the focused row is marked by an
+        // accent rail (instead of a loud full-accent fill), even without a
+        // per-workspace custom color.
+        return activeTabIndicatorStyle == .leftRail && isActive
     }
 
     private var activeBorderLineWidth: CGFloat {
@@ -13509,13 +13506,20 @@ struct TabItemView: View, Equatable {
     }
 
     private var usesInvertedActiveForeground: Bool {
-        isActive
+        // Only the opaque solid-fill style needs inverted (white-on-accent)
+        // text. The default left-rail style now uses a subtle wash, so text
+        // stays in normal primary/secondary colors for a calmer, denser read.
+        isActive && activeTabIndicatorStyle == .solidFill
     }
 
     private var activePrimaryTextColor: Color {
-        usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
-            : .primary
+        if usesInvertedActiveForeground {
+            return Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
+        }
+        // Let the sidebar recede: the focused row's title is full-strength,
+        // inactive rows are gently dimmed so the focused row and the terminal
+        // lead (Linear-refresh "muted inactive / sidebar recedes").
+        return isActive ? .primary : Color.primary.opacity(0.82)
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
@@ -13720,7 +13724,7 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: SidebarWorkspaceListMetrics.rowContentSpacing) {
             HStack(alignment: .top, spacing: 8) {
                 if unreadCount > 0 {
                     ZStack {
@@ -14049,17 +14053,17 @@ struct TabItemView: View, Equatable {
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
         .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: SidebarWorkspaceListMetrics.rowCornerRadius)
                 .fill(backgroundColor)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: SidebarWorkspaceListMetrics.rowCornerRadius)
                         .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
                 }
                 .overlay(alignment: .leading) {
                     if showsLeadingRail {
                         Capsule(style: .continuous)
                             .fill(railColor)
-                            .frame(width: 3)
+                            .frame(width: SidebarWorkspaceListMetrics.railWidth)
                             .padding(.leading, 4)
                             .padding(.vertical, 5)
                             .offset(x: -1)
@@ -14550,7 +14554,11 @@ struct TabItemView: View, Equatable {
     }
 
     private var railColor: Color {
-        explicitRailColor ?? .clear
+        if let explicitRailColor { return explicitRailColor }
+        if activeTabIndicatorStyle == .leftRail, isActive {
+            return Color(nsColor: selectedWorkspaceBackgroundNSColor).opacity(0.95)
+        }
+        return .clear
     }
 
     private var explicitRailColor: Color? {
@@ -15472,6 +15480,14 @@ private struct SidebarMetadataEntryRow: View {
     let fontScale: CGFloat
     let onFocus: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// A design-owned status presentation (one filled dot + semantic color)
+    /// for recognized statuses; `nil` falls back to the CLI icon/color.
+    private var resolvedStatusStyle: SidebarStatusStyle? {
+        SidebarStatusStyle.resolve(key: entry.key, value: entry.value, colorScheme: colorScheme)
+    }
+
     var body: some View {
         Group {
             if let url = entry.url {
@@ -15494,7 +15510,11 @@ private struct SidebarMetadataEntryRow: View {
     @ViewBuilder
     private func rowContent(underlined: Bool) -> some View {
         HStack(spacing: 4) {
-            if let icon = iconView {
+            if let status = resolvedStatusStyle {
+                Image(systemName: status.symbolName)
+                    .font(.system(size: 7))
+                    .foregroundColor(Color(nsColor: status.color))
+            } else if let icon = iconView {
                 icon
                     .foregroundColor(foregroundColor.opacity(0.95))
             }
@@ -15508,13 +15528,18 @@ private struct SidebarMetadataEntryRow: View {
     }
 
     private var foregroundColor: Color {
-        if isActive,
-           let raw = entry.color,
-           Color(hex: raw) != nil {
-            return activeForegroundColor
-        }
-        if let raw = entry.color, let explicit = Color(hex: raw) {
-            return explicit
+        // For recognized statuses the semantic color lives in the dot, so the
+        // label stays neutral. Only honor the CLI-supplied hex for entries we
+        // don't resolve.
+        if resolvedStatusStyle == nil {
+            if isActive,
+               let raw = entry.color,
+               Color(hex: raw) != nil {
+                return activeForegroundColor
+            }
+            if let raw = entry.color, let explicit = Color(hex: raw) {
+                return explicit
+            }
         }
         return isActive ? activeForegroundColor.opacity(0.84) : .secondary
     }

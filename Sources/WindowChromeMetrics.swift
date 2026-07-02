@@ -75,6 +75,21 @@ enum SidebarWorkspaceListMetrics {
     static var scrollTopInset: CGFloat {
         max(0, firstRowTopOffset - rowVerticalPadding)
     }
+
+    // MARK: Shared row + group-header geometry
+    //
+    // Canonical geometry so workspace rows and group headers share one visual
+    // language (corner radius, rhythm, selection) and their left edges align.
+
+    /// Corner radius shared by workspace rows and group headers.
+    static let rowCornerRadius: CGFloat = 6
+    /// Spacing between stacked blocks inside a row (title, status, branch…).
+    static let rowContentSpacing: CGFloat = 4
+    /// Width of the active-selection leading rail.
+    static let railWidth: CGFloat = 3
+    /// Opacity of the subtle accent wash behind the active row in the default
+    /// left-rail indicator style (Linear/Zed-like restrained selection).
+    static let activeSelectionFillOpacity: Double = 0.16
 }
 
 struct SidebarWorkspaceScrollInsets: Equatable {
