@@ -12,7 +12,7 @@
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8032	Sources/Panels/BrowserPanelView.swift
 8016	CLI/cmux_open.swift
-7843	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+7723	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7404	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
@@ -24,7 +24,7 @@
 4487	Sources/Panels/FilePreviewPanel.swift
 4483	Sources/cmuxApp.swift
 4367	cmuxTests/BrowserPanelTests.swift
-4257	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
+4239	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 4121	Sources/BrowserWindowPortal.swift
 3934	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
@@ -112,10 +112,10 @@
 864	Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
 859	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
-846	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 841	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/TerminalOutputDeliveryQueueTests.swift
 834	Sources/MainWindowFocusController.swift
+830	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTests.swift
 830	Sources/TaskManagerTypes.swift
 823	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 813	Sources/WorkspaceContentView.swift
@@ -149,7 +149,6 @@
 691	Sources/NotificationSoundSettings.swift
 691	cmuxTests/TaskManagerResourcesTests.swift
 690	cmuxTests/SessionIndexViewTests.swift
-688	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTestSupport.swift
 683	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 683	Sources/Panels/CodexAppServerSession.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
@@ -161,6 +160,7 @@
 667	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceListView.swift
 664	Sources/CmuxTopSnapshot.swift
 663	Sources/PortScanner.swift
+662	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTestSupport.swift
 655	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator.swift
 655	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 653	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Import/Detection/BrowserInstalledBrowserDetector.swift
