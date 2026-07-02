@@ -14,6 +14,8 @@ extension ShortcutAction {
         case .quit: return "Quit cmux"
         case .toggleSidebar: return "Toggle Left Sidebar"
         case .newTab: return "New Workspace"
+        case .newLocalWorkspace:
+            return String(localized: "shortcut.newLocalWorkspace.label", defaultValue: "New Local Workspace")
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
         case .saveLayoutTemplate:
