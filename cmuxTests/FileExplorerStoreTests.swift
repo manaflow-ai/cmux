@@ -987,6 +987,80 @@ struct FileSearchControllerTests {
     }
 
     @Test
+    func testFindReEntryWhileRootLoadingDoesNotToggleSearchVisibility() {
+        // Regression for #7090: the right sidebar restores in Find mode while the root
+        // is still loading on launch. The authoritative visibility pass hides the search
+        // UI (loading), but the focus-driven no-arg updateSearchLayout re-entry
+        // (registerFileExplorerHost -> focusSearchField, and updatePresentation(.find)'s
+        // guard-else) previously assumed the tree had finished loading and revealed the
+        // search bar. The next loading visibility pass hid it again, so every SwiftUI
+        // pass flipped NSView.isHidden; that KVO re-enters updateNSView on macOS 26 and
+        // pins the main thread at 100% CPU with runaway memory growth.
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let searchController = SpyFileSearchController()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setRootPath("/tmp/cmux-find-loading-loop-test")
+        container.updateHeader(store: store)
+
+        // Root still loading: the authoritative pass hides the search UI and the tree.
+        container.updateVisibility(hasContent: true, isLoading: true, statusMessage: nil)
+        container.needsLayout = false
+
+        // Entering Find while the root loads must NOT reveal the search bar; otherwise
+        // the next loading visibility pass hides it again and updateNSView loops (#7090).
+        container.updatePresentation(.find)
+        #expect(
+            !container.needsLayout,
+            "Find re-entry while the root loads must not flip search visibility; otherwise updateNSView loops at 100% CPU (#7090)."
+        )
+
+        // And the authoritative loading pass that follows the re-entry must also stay
+        // converged, proving neither direction of the oscillation writes isHidden.
+        container.updateVisibility(hasContent: true, isLoading: true, statusMessage: nil)
+        #expect(
+            !container.needsLayout,
+            "A redundant loading visibility pass after Find re-entry must not invalidate layout (#7090)."
+        )
+
+        // Positive control: once the root finishes loading, the same Find re-entry
+        // genuinely reveals the search bar and must invalidate layout — so the loading
+        // assertions above are meaningful rather than vacuous.
+        let loadedStore = FileExplorerStore()
+        let loadedController = SpyFileSearchController()
+        let loadedCoordinator = FileExplorerPanelView.Coordinator(
+            store: loadedStore,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let loadedContainer = FileExplorerContainerView(
+            coordinator: loadedCoordinator,
+            presentation: .find,
+            searchController: loadedController
+        )
+        loadedStore.provider = MockFileExplorerProvider(homePath: "/tmp")
+        loadedStore.setRootPath("/tmp/cmux-find-loaded-control-test")
+        loadedContainer.updateHeader(store: loadedStore)
+        loadedContainer.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        loadedContainer.needsLayout = false
+        loadedContainer.updatePresentation(.find)
+        #expect(
+            loadedContainer.needsLayout,
+            "With the root loaded, entering Find must reveal the search bar (positive control)."
+        )
+    }
+
+    @Test
     func testRipgrepResolverPrefersConfiguredBinaryPath() {
         let configuredPath = "/nix/store/custom-ripgrep/bin/rg"
         let fallbackPath = "/usr/local/bin/rg"
