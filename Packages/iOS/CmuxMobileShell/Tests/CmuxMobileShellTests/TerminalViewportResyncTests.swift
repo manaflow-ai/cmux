@@ -865,10 +865,26 @@ import Testing
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
     let workspaceID = try #require(store.workspaces.first?.id)
 
+    // Dropping the connection wipes cached dimensions together with their
+    // generations, so stale dimensions can never ride a generationless
+    // piggyback on the next connection.
+    let staleKey = MobileTerminalViewportKey(
+        workspaceID: workspaceID,
+        terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+    )
+    store.reportTerminalViewport(
+        workspaceID: workspaceID,
+        terminalID: MobileTerminalPreview.ID(rawValue: surfaceID),
+        viewportSize: MobileTerminalViewportSize(columns: 80, rows: 48)
+    )
+    #expect(store.reportedViewportSizesByTerminalKey[staleKey] != nil)
+    store.remoteClient = nil
+    #expect(store.reportedViewportSizesByTerminalKey[staleKey] == nil)
+    #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == nil)
+
     // A geometry report while the Mac connection is down must still update
     // the local dimension cache that replays and piggybacks size against;
     // only the RPC is skipped.
-    store.remoteClient = nil
     let offlineGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 90, rows: 33)
     #expect(offlineGrid == nil)
     let key = MobileTerminalViewportKey(
