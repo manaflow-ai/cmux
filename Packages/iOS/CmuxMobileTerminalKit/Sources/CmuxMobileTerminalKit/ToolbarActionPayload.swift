@@ -10,8 +10,9 @@ public import Foundation
 /// children each carry their own payload.
 ///
 /// The selection encoding (``output``) and menu accessors (``menuItems``,
-/// ``isMenu``) live here so ``CustomToolbarAction`` and ``ToolbarMenuItem`` share
-/// one implementation instead of each re-deriving the same bytes.
+/// ``isMenu``) live on this payload so ``CustomToolbarAction`` and
+/// ``ToolbarMenuItem`` share one implementation instead of each re-deriving the
+/// same bytes.
 public enum ToolbarActionPayload: Codable, Equatable, Sendable {
     /// Insert literal text. Newlines are normalized to carriage returns at send
     /// time (terminals expect `\r` for Return), so a trailing newline makes the
@@ -28,6 +29,14 @@ public enum ToolbarActionPayload: Codable, Equatable, Sendable {
     /// (the common ``text``/``keyCombo`` cases stay inline).
     indirect case menu([ToolbarMenuItem])
 
+    /// Whether this payload represents a dropdown menu instead of direct output.
+    public var isMenu: Bool {
+        if case .menu = self { return true }
+        return false
+    }
+}
+
+extension ToolbarActionPayload {
     /// The bytes sent to the terminal when a control carrying this payload is
     /// selected, or `nil` when the payload is a submenu or resolves to no bytes
     /// (empty text, or an unencodable key combo).
@@ -51,11 +60,5 @@ public enum ToolbarActionPayload: Codable, Equatable, Sendable {
     public var menuItems: [ToolbarMenuItem] {
         if case let .menu(items) = self { return items }
         return []
-    }
-
-    /// Whether this payload represents a dropdown menu instead of direct output.
-    public var isMenu: Bool {
-        if case .menu = self { return true }
-        return false
     }
 }
