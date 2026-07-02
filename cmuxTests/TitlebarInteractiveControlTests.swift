@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import Testing
 
@@ -137,6 +138,39 @@ struct TitlebarInteractiveControlTests {
             !region.mouseDownCanMoveWindow,
             "The region marker must not let a stray mouse-down move the window."
         )
+    }
+
+    @Test func titlebarHostWindowTrackingDoesNotPublishSwiftUIInvalidations() {
+        _ = NSApplication.shared
+
+        let viewModel = TitlebarControlsViewModel()
+        var invalidationCount = 0
+        let cancellable = viewModel.objectWillChange.sink {
+            invalidationCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 48),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        viewModel.setHostWindow(window)
+        #expect(viewModel.hostWindow === window)
+        #expect(viewModel.hostWindowNumber == window.windowNumber)
+        #expect(invalidationCount == 0)
+
+        viewModel.setHostWindow(window)
+        #expect(viewModel.hostWindow === window)
+        #expect(invalidationCount == 0)
+
+        viewModel.clearHostWindow(window)
+        #expect(viewModel.hostWindow == nil)
+        #expect(viewModel.hostWindowNumber == nil)
+        #expect(invalidationCount == 0)
     }
 
     @Test func emptyAccessoryChromeUsesExplicitWindowDragPath() {
