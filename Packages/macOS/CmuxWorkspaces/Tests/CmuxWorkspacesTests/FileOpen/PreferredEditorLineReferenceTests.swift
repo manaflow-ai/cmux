@@ -148,6 +148,18 @@ struct PreferredEditorInvocationTests {
         #expect(invocation.argument == "/tmp/main.swift:42:5")
     }
 
+    @Test func recognizesGotoEditorAfterWrapperPrefix() {
+        // A wrapper prefix (`arch -arm64`, `env VAR=1`, `nohup`) is a realistic
+        // way to launch a VS Code-family editor, so the goto editor is not
+        // necessarily the first shell word — every word is scanned.
+        let invocation = PreferredEditorService.editorInvocation(
+            forURL: fragmentURL(path: "/tmp/main.swift", fragment: "L42:5"),
+            command: "arch -arm64 code"
+        )
+        #expect(invocation.gotoFlag == " -g")
+        #expect(invocation.argument == "/tmp/main.swift:42:5")
+    }
+
     @Test func leavesUnknownEditorWithBarePath() {
         let invocation = PreferredEditorService.editorInvocation(
             forURL: fragmentURL(path: "/tmp/main.swift", fragment: "L42:5"),
