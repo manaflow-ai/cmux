@@ -1073,6 +1073,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func retryPendingFocus() {
         focusCoordinator.fulfillPendingFocusIfNeeded()
+        // Replay a find action that was queued while the editor had no window yet (see
+        // `performTextFinderAction`). Driven by `SavingTextView.viewDidMoveToWindow`, this is
+        // the point at which the text view is finally live enough to host the find interface.
+        performPendingTextFinderActionIfPossible()
     }
 
     func attachPDFPreview(root: NSView, primaryResponder: NSView) {
@@ -4524,7 +4528,12 @@ extension FilePreviewPanel: FindablePanel {
     @discardableResult
     private func performTextFinderAction(_ action: NSTextFinder.Action) -> Bool {
         guard previewMode == .text else { return false }
-        guard let textView else {
+        // See `MarkdownPanel.performTextFinderAction`: `FilePreviewTextEditor.makeNSView`
+        // attaches the text view before it has a window, so firing the action early lets
+        // AppKit drop the find interface while `pendingTextFinderAction` is cleared, silently
+        // swallowing the first Cmd-F. Keep it pending until `retryPendingFocus()` replays it
+        // once the editor is windowed (driven by `SavingTextView.viewDidMoveToWindow`).
+        guard let textView, textView.window != nil else {
             let queuedAction = action.queuedWithoutTextView
             pendingTextFinderAction = queuedAction
             isFindVisible = queuedAction.updatesFindVisibility(isFindVisible)

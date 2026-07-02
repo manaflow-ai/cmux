@@ -513,7 +513,14 @@ extension MarkdownPanel: FindablePanel {
         queueIfNeeded: Bool = true
     ) -> Bool {
         guard displayMode == .text else { return false }
-        guard let textView else {
+        // The find interface only attaches to a text view that is live in a window.
+        // `FilePreviewTextEditor.makeNSView` calls `attachTextView(_:)` before it assigns
+        // `scrollView.documentView` and before SwiftUI moves the view into a window, so firing
+        // the action there lets AppKit silently drop it (no find-bar host / first responder yet)
+        // while we clear `pendingTextFinderAction` — swallowing the first Cmd-F, the exact
+        // symptom this feature fixes. Keep it pending until `viewDidMoveToWindow` ->
+        // `retryPendingFocus()` -> `focus()` replays it once the editor is windowed.
+        guard let textView, textView.window != nil else {
             if queueIfNeeded {
                 let queuedAction = action.queuedWithoutTextView
                 pendingTextFinderAction = queuedAction
