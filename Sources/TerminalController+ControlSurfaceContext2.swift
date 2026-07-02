@@ -178,7 +178,8 @@ extension TerminalController {
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: dividerPosition,
-                remotePTYSessionID: inputs.remotePTYSessionID
+                remotePTYSessionID: inputs.remotePTYSessionID,
+                allowTextBoxFocusDefault: false
             ) {
             case .created(let panel):
                 newId = panel.id
@@ -259,7 +260,8 @@ extension TerminalController {
             command: inputs.command,
             workingDirectory: inputs.workingDirectory,
             tmuxStartCommand: inputs.tmuxStartCommand,
-            focus: focus
+            focus: focus,
+            allowTextBoxFocusDefault: focus == true
         ) else {
             return .respawnFailed(surfaceId)
         }
@@ -386,7 +388,8 @@ extension TerminalController {
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 remotePTYSessionID: inputs.remotePTYSessionID,
-                inheritWorkingDirectoryFallback: true
+                inheritWorkingDirectoryFallback: true,
+                allowTextBoxFocusDefault: false
             ) {
             case .created(let panel):
                 newPanelId = panel.id

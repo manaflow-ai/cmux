@@ -206,6 +206,37 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
 
     // MARK: - Sidebar drag planning
 
+    /// The row-id space a sidebar drag plans in (full rows, or top-level
+    /// rows when the drag involves group rows or promotion).
+    public func sidebarReorderWorkspaceIds(
+        forDraggedWorkspaceId draggedWorkspaceId: UUID?,
+        targetWorkspaceId: UUID? = nil,
+        usesTopLevelRows: Bool = false
+    ) -> [UUID] {
+        guard usesTopLevelRows || sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: draggedWorkspaceId,
+            targetWorkspaceId: targetWorkspaceId
+        ) else {
+            return model.tabs.map(\.id)
+        }
+        return model.sidebarTopLevelWorkspaceIds(promotingWorkspaceId: draggedWorkspaceId)
+    }
+
+    /// The pinned subset of the drag's row-id space.
+    public func sidebarReorderPinnedWorkspaceIds(
+        forDraggedWorkspaceId draggedWorkspaceId: UUID?,
+        targetWorkspaceId: UUID? = nil,
+        usesTopLevelRows: Bool = false
+    ) -> Set<UUID> {
+        guard usesTopLevelRows || sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: draggedWorkspaceId,
+            targetWorkspaceId: targetWorkspaceId
+        ) else {
+            return Set(model.tabs.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
+        }
+        return model.sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: draggedWorkspaceId)
+    }
+
     /// The legal insertion range for an in-group member drag, or `nil` when
     /// the drag is not constrained to a group section.
     public func sidebarReorderLegalInsertionRange(
@@ -215,6 +246,10 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         explicitGroupId: UUID? = nil
     ) -> ClosedRange<Int>? {
         guard !usesTopLevelRows,
+              (explicitGroupId != nil || !sidebarReorderUsesTopLevelRows(
+                  forDraggedWorkspaceId: draggedWorkspaceId,
+                  targetWorkspaceId: targetWorkspaceId
+              )),
               let draggedWorkspaceId,
               let draggedWorkspace = model.tabs.first(where: { $0.id == draggedWorkspaceId }),
               let groupId = explicitGroupId ?? draggedWorkspace.groupId,
@@ -314,6 +349,44 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         }
         host?.workspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
         return true
+    }
+
+    /// Whether a sidebar drag plans in top-level rows (group rows involved
+    /// or a grouped child being promoted out of its group).
+    public func sidebarReorderUsesTopLevelRows(
+        forDraggedWorkspaceId draggedWorkspaceId: UUID?,
+        targetWorkspaceId: UUID?
+    ) -> Bool {
+        sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: draggedWorkspaceId,
+            targetWorkspaceId: targetWorkspaceId,
+            workspaceGroupIdByWorkspaceId: Dictionary(uniqueKeysWithValues: model.tabs.map { ($0.id, $0.groupId) })
+        )
+    }
+
+    /// Snapshot variant of `sidebarReorderUsesTopLevelRows` over a caller-
+    /// provided membership map.
+    public func sidebarReorderUsesTopLevelRows(
+        forDraggedWorkspaceId draggedWorkspaceId: UUID?,
+        targetWorkspaceId: UUID?,
+        workspaceGroupIdByWorkspaceId: [UUID: UUID?]
+    ) -> Bool {
+        guard let draggedWorkspaceId else { return false }
+        if model.isWorkspaceGroupAnchor(draggedWorkspaceId) ||
+            targetWorkspaceId.map(model.isWorkspaceGroupAnchor) == true {
+            return true
+        }
+        guard let draggedWorkspaceGroupId = workspaceGroupIdByWorkspaceId[draggedWorkspaceId],
+              draggedWorkspaceGroupId != nil else {
+            return false
+        }
+        // A grouped child dragged over top-level space is leaving the group;
+        // plan in top-level rows so the promotion is explicit and ordered.
+        guard let targetWorkspaceId else { return true }
+        guard let targetWorkspaceGroupId = workspaceGroupIdByWorkspaceId[targetWorkspaceId] else {
+            return false
+        }
+        return targetWorkspaceGroupId == nil
     }
 
     /// After a drag-driven reorder, infer the dragged workspace's group

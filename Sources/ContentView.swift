@@ -10925,11 +10925,8 @@ struct VerticalTabsSidebar: View {
             return
         }
 
-        extensionSidebarImmediateObservationPublisher = Publishers.MergeMany(
-            tabs.map { $0.sidebarImmediateObservationPublisher }
-        )
-        .receive(on: RunLoop.main)
-        .eraseToAnyPublisher()
+        extensionSidebarImmediateObservationPublisher =
+            Workspace.mergedImmediateObservationPublisher(for: tabs)
         extensionSidebarDebouncedObservationPublisher = Publishers.MergeMany(
             tabs.map { $0.sidebarObservationPublisher }
         )
