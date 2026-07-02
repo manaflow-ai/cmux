@@ -1412,6 +1412,23 @@
         }
       }
     },
+    "mobile.computers.olderPairing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Older pairing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古いペアリング"
+          }
+        }
+      }
+    },
     "mobile.computers.presenceFooter": {
       "extractionState": "manual",
       "localizations": {

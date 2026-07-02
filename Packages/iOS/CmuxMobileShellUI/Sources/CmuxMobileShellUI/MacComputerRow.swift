@@ -324,18 +324,23 @@ struct MacComputerRow: View {
     /// seen) still shows, and the full presence state is always in the detail sheet.
     private var diagnosticLine: String {
         let route = computer.routeDescription ?? L10n.string("mobile.computers.noRoute", defaultValue: "no route")
+        var line: String
         // `.reconnect` rows lead with presence on the primary line, so repeating
         // it here would be noise — the diagnostic line is just the route.
-        if style == .reconnect {
-            return route
+        if style == .reconnect || (isConnected && computer.presence == nil) {
+            line = route
+        } else {
+            line = String(
+                format: L10n.string("mobile.computers.diagnosticFormat", defaultValue: "Presence: %@ · %@"),
+                presencePhrase, route
+            )
         }
-        if isConnected, computer.presence == nil {
-            return route
+        // A stale same-named record (usually an old dev-build pairing) says so,
+        // so several identically named rows stop looking interchangeable.
+        if computer.isOlderDuplicate {
+            line = "\(L10n.string("mobile.computers.olderPairing", defaultValue: "Older pairing")) · \(line)"
         }
-        return String(
-            format: L10n.string("mobile.computers.diagnosticFormat", defaultValue: "Presence: %@ · %@"),
-            presencePhrase, route
-        )
+        return line
     }
 
     private var presencePhrase: String {
