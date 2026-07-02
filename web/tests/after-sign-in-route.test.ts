@@ -77,6 +77,7 @@ describe("after sign-in native handoff", () => {
     expect(html).toContain("Return to cmux");
     expect(html).toContain("window.location.replace");
     expect(html).toContain("window.clearTimeout");
+    expect(html).toContain("document.querySelectorAll(\"a\")");
     expect(html).not.toContain("http-equiv=\"refresh\"");
 
     const callbackURL = new URL(returnHref(html));
@@ -194,6 +195,7 @@ describe("sign out and sign back in", () => {
 
     const setCookie = response.headers.get("set-cookie");
     expect(setCookie).toContain("stack-access=;");
+    expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("__Host-stack-access=;");
     expect(setCookie).toContain("stack-refresh-test-project=;");
     expect(setCookie).toContain("__Host-stack-refresh-test-project=;");

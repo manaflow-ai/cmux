@@ -92,6 +92,7 @@ function clearStackAuthCookies(response: NextResponse, request: NextRequest, pro
     const domain = stackCustomRefreshCookieDomain(cookie.name, projectId);
     response.cookies.set(cookie.name, "", {
       ...(domain ? { domain } : {}),
+      httpOnly: true,
       maxAge: 0,
       path: "/",
       sameSite: "lax",
