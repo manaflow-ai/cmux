@@ -14066,6 +14066,15 @@ class TerminalController {
             // dedicated report, so their piggyback recovery path is
             // unaffected.
             return nil
+        } else if reports[clientID]?.generation != nil {
+            // A generationless report cannot supersede a generation-carrying
+            // pin: modern clients attach generations to every dims-carrying
+            // request once a dedicated report exists, so a generationless
+            // arrival here is a stale pre-fence report (for example cached
+            // dimensions surviving a reconnect) that must not overwrite newer
+            // geometry. Legacy clients never record a generation, so their
+            // reports keep replacing each other freely.
+            return nil
         }
         let reportIsSticky = sticky || (reports[clientID]?.sticky ?? false)
         reports[clientID] = MobileViewportReport(

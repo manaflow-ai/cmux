@@ -5283,13 +5283,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelAllTerminalReplayTasks()
         effectiveViewportSizesBySurfaceID = [:]; reportedTerminalViewportSizesBySurfaceID = [:]
         viewportReportGenerationsBySurfaceID = [:]
-        // Cached dimensions must never outlive their generations: piggybacks
-        // send whatever this cache holds and attach a generation only when the
-        // map above has one, so clearing the generations alone would let the
-        // next cold replay send stale dimensions generationless and overwrite
-        // a newer dedicated report. The pair is written together and dies
-        // together; fresh reports repopulate both on remount.
-        reportedViewportSizesByTerminalKey = [:]
+        // reportedViewportSizesByTerminalKey deliberately survives this reset:
+        // geometry seeded before or between connections must still ride the
+        // next connection's piggybacks (pre-connect reports are part of the
+        // attach contract). Its dimensions may then travel generationless;
+        // the Mac side refuses to let a generationless report supersede a
+        // generation-carrying pin, so a stale survivor can pre-pin a fresh
+        // connection at worst until the first dedicated report lands.
         deliveredTerminalByteEndSeqBySurfaceID = [:]
         terminalPreBarrierDeliveredEndSeqBySurfaceID = [:]
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID = [:]
