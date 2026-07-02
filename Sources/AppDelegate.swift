@@ -6029,6 +6029,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if let store = notificationStore {
+            store.clearNotifications(forTabId: context.windowId)
             for tab in context.tabManager.tabs {
                 store.clearNotifications(forTabId: tab.id)
             }
@@ -16047,6 +16048,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
+            store.clearNotifications(forTabId: removed.windowId)
             for tab in removed.tabManager.tabs {
                 store.clearNotifications(forTabId: tab.id)
             }

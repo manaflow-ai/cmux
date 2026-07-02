@@ -219,7 +219,7 @@ struct WindowDockRoutingSocketTests {
             ])
             #expect(conflictEnvelope["ok"] as? Bool == false)
             let conflictError = try #require(conflictEnvelope["error"] as? [String: Any])
-            #expect(conflictError["message"] as? String == "Conflicting Dock routing selectors")
+            #expect(conflictError["code"] as? String == "invalid_params")
 
             // A workspace_id naming a NON-Dock scope contradicts a Dock surface
             // selector the same way.
