@@ -298,10 +298,18 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             guard let ticketRef = ticketReferenceRequiringRedemption(in: latest) else {
                 return latest
             }
+            // The gate shares one redemption across concurrent authorized requests, so bound
+            // the shared work by the gate — each waiter's own `timeoutNanoseconds` above, plus
+            // cancellation once the last waiter leaves — not by whichever request started it.
+            // Passing this request's `deadline` into `session.send` would time the shared redeem
+            // out at the first waiter's deadline and fail concurrent waiters that joined with a
+            // longer budget. Mirror RPCStackTokenGate, whose shared provider carries no caller
+            // deadline; `session.send` is cancellation-aware, so gate cancellation still tears an
+            // abandoned redemption down.
             let redeemed = try await redeemAttachTicket(
                 ticketRef: ticketRef,
                 baseTicket: latest,
-                deadline: deadline
+                deadline: RPCRequestDeadline(timeoutNanoseconds: .max)
             )
             await ticketState.replace(with: redeemed)
             return redeemed
