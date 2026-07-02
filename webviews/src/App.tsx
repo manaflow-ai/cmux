@@ -4,7 +4,7 @@ import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
+import { copyGitApplyCommand, copyStageCommitCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { BranchBasePicker, type BranchPickerPayload } from "./BranchBasePicker";
 import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
@@ -241,9 +241,15 @@ export function App({ config, initialStatus }: ConfigProps) {
   });
   const appearance = resolveDiffViewerAppearance(payload.appearance);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
+  const [stageCommitDialogOpen, setStageCommitDialogOpen] = useState(false);
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
+  // The stage/commit dialog opens as a modal (showModal), which inerts every
+  // element outside it — including copyFallbackRef. The execCommand("copy")
+  // fallback needs a selectable textarea, so the dialog renders its own inside
+  // the modal and the copy targets this ref instead of the inert outer one.
+  const stageCommitFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
@@ -334,6 +340,22 @@ export function App({ config, initialStatus }: ConfigProps) {
     persistDiffViewerLayout(layout);
     dispatch({ type: "set-option", key: "layout", value: layout });
   };
+  const openStageCommitDialog = () => {
+    dispatch({ type: "set-options-open", open: false });
+    setStageCommitDialogOpen(true);
+  };
+  const copyStageCommit = async (commitMessage: string) => {
+    if (repoRoot == null) {
+      return;
+    }
+    try {
+      const message = await copyStageCommitCommand(repoRoot, commitMessage, label, stageCommitFallbackRef.current);
+      dispatch({ type: "set-copy-feedback", message });
+      setStageCommitDialogOpen(false);
+    } catch {
+      dispatch({ type: "set-copy-feedback", message: label("copyFailedStageCommitCommand") });
+    }
+  };
 
   return (
     <div id="app">
@@ -348,6 +370,7 @@ export function App({ config, initialStatus }: ConfigProps) {
             dispatch({ type: "set-copy-feedback", message: label("copyFailedGitApplyCommand") });
           }
         }}
+        onCopyStageCommit={repoRoot == null ? null : openStageCommitDialog}
         onJump={scrollToItem}
         onNavigate={(url) => {
           setStatus(createDiffViewerStatus(label("loadingDiff"), { pending: true }));
@@ -398,8 +421,120 @@ export function App({ config, initialStatus }: ConfigProps) {
         tabIndex={-1}
         className="copy-fallback-textarea"
       />
+      {stageCommitDialogOpen ? (
+        <StageCommitDialog
+          cancelLabel={commentLabels.cancelComment}
+          fallbackRef={stageCommitFallbackRef}
+          label={label}
+          onCancel={() => setStageCommitDialogOpen(false)}
+          onSubmit={copyStageCommit}
+        />
+      ) : null}
     </div>
   );
+}
+
+function StageCommitDialog({
+  cancelLabel,
+  fallbackRef,
+  label,
+  onCancel,
+  onSubmit,
+}: {
+  cancelLabel: string;
+  fallbackRef: React.RefObject<HTMLTextAreaElement | null>;
+  label: DiffViewerLabelResolver;
+  onCancel: () => void;
+  onSubmit: (message: string) => Promise<void>;
+}) {
+  const handleEscapeKey: React.KeyboardEventHandler<HTMLElement> = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCancel();
+    }
+  };
+
+  return (
+    <>
+      <div className="stage-commit-dialog-backdrop" aria-hidden="true" />
+      <dialog
+        open
+        ref={presentStageCommitModal}
+        className="stage-commit-dialog"
+        aria-labelledby="stage-commit-dialog-title"
+        onCancel={(event) => {
+          event.preventDefault();
+          onCancel();
+        }}
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const commitMessage = new window.FormData(form).get("commitMessage");
+            void onSubmit(typeof commitMessage === "string" ? commitMessage : "");
+          }}
+        >
+          <h2 id="stage-commit-dialog-title">{label("copyStageCommitCommand")}</h2>
+          <label id="stage-commit-message-label" className="stage-commit-label" htmlFor="stage-commit-message">
+            {label("commitMessage")}
+          </label>
+          <textarea
+            ref={focusStageCommitInput}
+            id="stage-commit-message"
+            name="commitMessage"
+            className="stage-commit-input"
+            aria-labelledby="stage-commit-message-label"
+            required
+            rows={4}
+            onKeyDown={handleEscapeKey}
+          />
+          <div className="stage-commit-actions">
+            <button type="button" className="comment-button" onClick={onCancel} onKeyDown={handleEscapeKey}>
+              {cancelLabel}
+            </button>
+            <button type="submit" className="comment-button comment-button-primary" onKeyDown={handleEscapeKey}>
+              {label("commit")}
+            </button>
+          </div>
+        </form>
+        <textarea
+          ref={fallbackRef}
+          aria-hidden="true"
+          readOnly
+          tabIndex={-1}
+          className="copy-fallback-textarea"
+        />
+      </dialog>
+    </>
+  );
+}
+
+function focusStageCommitInput(input: HTMLTextAreaElement | null) {
+  input?.focus();
+}
+
+// Upgrade the rendered `<dialog open>` to a true top-layer modal where the
+// platform supports it (WKWebView), so the browser traps focus and inerts the
+// rest of the page. A bare `<dialog open>` is NON-modal — it never enters the
+// top layer or inerts the background — which would let keyboard/AT users tab
+// into the toolbar and sidebar behind the apparent modal. jsdom (the unit-test
+// DOM) has no showModal(), so this is a strict no-op there and the dialog stays
+// the declarative `open` element the tests already exercise.
+function presentStageCommitModal(node: HTMLDialogElement | null): void {
+  if (node == null || typeof node.showModal !== "function" || !node.open) {
+    return;
+  }
+  // Clear the declarative `open` first so showModal() does not throw
+  // InvalidStateError; showModal() re-sets `open`, so React's `open` prop and
+  // the DOM stay consistent.
+  node.removeAttribute("open");
+  try {
+    node.showModal();
+  } catch {
+    // Restore the non-modal open state if showModal() is unavailable in practice.
+    node.setAttribute("open", "");
+  }
 }
 
 function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
@@ -546,6 +681,7 @@ function Toolbar({
   dispatch,
   label,
   onCopyGitApply,
+  onCopyStageCommit,
   onJump,
   onNavigate,
   onReload,
@@ -556,6 +692,7 @@ function Toolbar({
   dispatch: React.Dispatch<AppAction>;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
+  onCopyStageCommit: (() => void) | null;
   onJump: (itemId: string) => void;
   onNavigate: (url: string) => void;
   onReload: () => void;
@@ -671,6 +808,7 @@ function Toolbar({
           externalURL={externalURL}
           label={label}
           onCopyGitApply={onCopyGitApply}
+          onCopyStageCommit={onCopyStageCommit}
           onReload={onReload}
           onSetLayout={onSetLayout}
           state={state}
@@ -913,6 +1051,7 @@ function OptionsMenu({
   externalURL,
   label,
   onCopyGitApply,
+  onCopyStageCommit,
   onReload,
   onSetLayout,
   state,
@@ -921,6 +1060,7 @@ function OptionsMenu({
   externalURL: string | null;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
+  onCopyStageCommit: (() => void) | null;
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
   state: AppState;
@@ -970,6 +1110,9 @@ function OptionsMenu({
       </div>
       <div className="menu-separator" />
       <MenuButton icon="clipboard" label={label("copyGitApplyCommand")} onClick={onCopyGitApply} />
+      {onCopyStageCommit ? (
+        <MenuButton icon="clipboard" label={label("copyStageCommitCommand")} onClick={onCopyStageCommit} />
+      ) : null}
     </div>
   );
 }
