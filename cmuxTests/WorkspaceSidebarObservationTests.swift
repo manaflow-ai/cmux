@@ -164,6 +164,38 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func coalesceLatestKeepsLeadingEdgeSynchronousAndEmitsLatestTrailing() {
+        let subject = PassthroughSubject<Int, Never>()
+        var received: [Int] = []
+        let cancellable = subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: RunLoop.main)
+            .sink { received.append($0) }
+        defer { cancellable.cancel() }
+
+        // First value models the @Published current-state replay: forwarded
+        // synchronously without opening a coalesce window.
+        subject.send(1)
+        #expect(received == [1])
+
+        // First change is the synchronous leading edge and opens the window.
+        subject.send(2)
+        #expect(received == [1, 2])
+
+        // Burst inside the window coalesces to the latest value.
+        subject.send(3)
+        subject.send(4)
+        subject.send(5)
+        #expect(received == [1, 2])
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        #expect(received == [1, 2, 5])
+
+        // After the window closes and the trailing window expires, the next
+        // value is synchronous again.
+        subject.send(6)
+        #expect(received == [1, 2, 5, 6])
+    }
+
     @Test func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
