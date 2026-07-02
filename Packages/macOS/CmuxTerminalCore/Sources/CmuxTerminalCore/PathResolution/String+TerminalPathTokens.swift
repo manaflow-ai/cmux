@@ -129,7 +129,7 @@ extension String {
         guard let lastColon = lastIndex(of: ":") else { return nil }
         let lastSuffix = self[index(after: lastColon)...]
         guard !lastSuffix.isEmpty,
-              lastSuffix.allSatisfy(\.isNumber),
+              lastSuffix.allSatisfy(\.isASCIIDigit),
               let lastNumber = Int(lastSuffix),
               lastNumber > 0 else {
             return nil
@@ -139,7 +139,7 @@ extension String {
         if let lineColon = beforeLastColon.lastIndex(of: ":") {
             let lineSuffix = beforeLastColon[beforeLastColon.index(after: lineColon)...]
             if !lineSuffix.isEmpty,
-               lineSuffix.allSatisfy(\.isNumber),
+               lineSuffix.allSatisfy(\.isASCIIDigit),
                let lineNumber = Int(lineSuffix),
                lineNumber > 0 {
                 let path = String(beforeLastColon[..<lineColon])
@@ -291,6 +291,14 @@ extension ArraySlice<Character> {
             }
         }
         return balance > 0
+    }
+}
+
+extension Character {
+    /// Whether the character is an ASCII digit `0`–`9`, excluding the Unicode
+    /// numerals (`²`, `½`, Devanagari digits, …) that `isNumber` also accepts.
+    fileprivate var isASCIIDigit: Bool {
+        isASCII && isNumber
     }
 }
 

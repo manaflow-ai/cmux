@@ -42,6 +42,11 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     @Test func returnsNilForEmptyPath() {
         #expect(":42".splitTerminalPathLineSuffix() == nil)
     }
+
+    @Test func returnsNilForNonASCIINumeralSuffix() {
+        // Full-width digits are `isNumber` but not editor line numbers.
+        #expect("/Users/dev/app/main.swift:４２".splitTerminalPathLineSuffix() == nil)
+    }
 }
 
 @Suite struct TerminalOpenURLFileReferenceTests {

@@ -126,6 +126,15 @@ struct PreferredEditorInvocationTests {
         #expect(invocation.argument == "/tmp/main.swift:42:5")
     }
 
+    @Test func recognizesBackslashEscapedBinaryPath() {
+        let invocation = PreferredEditorService.editorInvocation(
+            forURL: fragmentURL(path: "/tmp/main.swift", fragment: "L42:5"),
+            command: "/Applications/Visual\\ Studio\\ Code.app/Contents/Resources/app/bin/code --goto"
+        )
+        #expect(invocation.gotoFlag == "")
+        #expect(invocation.argument == "/tmp/main.swift:42:5")
+    }
+
     @Test func leavesUnknownEditorWithBarePath() {
         let invocation = PreferredEditorService.editorInvocation(
             forURL: fragmentURL(path: "/tmp/main.swift", fragment: "L42:5"),

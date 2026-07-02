@@ -156,16 +156,27 @@ extension PreferredEditorService {
     }
 
     /// Splits a configured editor command into shell words, honoring single and
-    /// double quotes so a quoted binary path (e.g. an app bundle with spaces)
-    /// stays one token. Escapes are not interpreted; command paths needing them
-    /// simply fall back to the non-goto argument.
+    /// double quotes and backslash escapes so a binary path with spaces — a
+    /// quoted app bundle or a backslash-escaped path — stays one token.
     private static func commandTokens(_ command: String) -> [String] {
         var tokens: [String] = []
         var current = ""
         var quote: Character?
+        var escaping = false
         var hasToken = false
 
         for character in command {
+            if escaping {
+                current.append(character)
+                escaping = false
+                hasToken = true
+                continue
+            }
+            if character == "\\", quote != "'" {
+                escaping = true
+                hasToken = true
+                continue
+            }
             if let active = quote {
                 if character == active {
                     quote = nil
@@ -190,6 +201,9 @@ extension PreferredEditorService {
             }
             current.append(character)
             hasToken = true
+        }
+        if escaping {
+            current.append("\\")
         }
         if hasToken {
             tokens.append(current)

@@ -46,20 +46,8 @@ public struct TerminalPathResolver: Sendable {
         for token in trimmed.pathResolutionCandidates() {
             let normalizedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !normalizedToken.isEmpty else { continue }
-
-            let expandedToken = (normalizedToken as NSString).expandingTildeInPath
-            let candidatePath: String
-            if expandedToken.hasPrefix("/") {
-                candidatePath = expandedToken
-            } else {
-                guard let cwd, !cwd.isEmpty else { continue }
-                candidatePath = (cwd as NSString).appendingPathComponent(expandedToken)
-            }
-
-            let standardizedPath = (candidatePath as NSString).standardizingPath
-            guard seenPaths.insert(standardizedPath).inserted else { continue }
-            if fileExists(standardizedPath) {
-                return standardizedPath
+            if let path = standardizedExistingPath(for: normalizedToken, cwd: cwd, seenPaths: &seenPaths) {
+                return path
             }
         }
 
@@ -175,6 +163,21 @@ public struct TerminalPathResolver: Sendable {
         cwd: String?,
         seenPaths: inout Set<String>
     ) -> TerminalFileReference? {
+        guard let path = standardizedExistingPath(for: token, cwd: cwd, seenPaths: &seenPaths) else {
+            return nil
+        }
+        return TerminalFileReference(path: path, line: line, column: column)
+    }
+
+    /// Expands `~`, resolves `token` against `cwd` when relative, standardizes,
+    /// and dedupes against `seenPaths`, returning the standardized path when the
+    /// file exists and has not already been probed. Shared by the QuickLook and
+    /// file-reference resolvers.
+    private func standardizedExistingPath(
+        for token: String,
+        cwd: String?,
+        seenPaths: inout Set<String>
+    ) -> String? {
         let expandedToken = (token as NSString).expandingTildeInPath
         let candidatePath: String
         if expandedToken.hasPrefix("/") {
@@ -187,7 +190,7 @@ public struct TerminalPathResolver: Sendable {
         let standardizedPath = (candidatePath as NSString).standardizingPath
         guard seenPaths.insert(standardizedPath).inserted else { return nil }
         guard fileExists(standardizedPath) else { return nil }
-        return TerminalFileReference(path: standardizedPath, line: line, column: column)
+        return standardizedPath
     }
 }
 
