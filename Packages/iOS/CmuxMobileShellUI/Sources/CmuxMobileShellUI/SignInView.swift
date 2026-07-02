@@ -48,11 +48,9 @@ struct SignInView: View {
     @ViewBuilder
     private var signInEntrySwitcher: some View {
         #if os(iOS)
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer {
-                signInEntryContent
-            }
-        } else {
+        MobileGlassEffectContainer {
+            signInEntryContent
+        } fallback: {
             signInEntryContent
         }
         #else

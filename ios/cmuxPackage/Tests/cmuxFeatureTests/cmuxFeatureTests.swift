@@ -15,13 +15,52 @@ import UIKit
 #endif
 @testable import cmuxFeature
 
+/// Error thrown by ``TerminalOutputCollector/waitForLineCount(_:timeoutNanoseconds:)``
+/// when the expected output never arrives, so tests fail fast with a diagnostic
+/// instead of hanging forever.
+enum LineCountWaitError: Error, CustomStringConvertible {
+    case timedOut(collected: Int, wanted: Int)
+
+    var description: String {
+        switch self {
+        case let .timedOut(collected, wanted):
+            return "waitForLineCount timed out after collecting \(collected) of \(wanted) expected output chunk(s)"
+        }
+    }
+}
+
 /// Test collector that mounts a surface's ``CMUXMobileShellStore`` output stream
 /// and accumulates each chunk's UTF-8 text, mirroring what a mounted
 /// `GhosttySurfaceView` would feed into libghostty.
 @MainActor
 final class TerminalOutputCollector {
+    /// One pending ``waitForLineCount(_:timeoutNanoseconds:)`` call. Resumed
+    /// exactly once — either when enough output arrives (`satisfied == true`)
+    /// or when the timeout fires (`satisfied == false`).
+    @MainActor
+    private final class LineCountWaiter {
+        let count: Int
+        private var continuation: CheckedContinuation<Bool, Never>?
+        var timeoutTask: Task<Void, Never>?
+
+        init(count: Int, continuation: CheckedContinuation<Bool, Never>) {
+            self.count = count
+            self.continuation = continuation
+        }
+
+        func resume(satisfied: Bool) {
+            guard let continuation else { return }
+            self.continuation = nil
+            timeoutTask?.cancel()
+            timeoutTask = nil
+            continuation.resume(returning: satisfied)
+        }
+    }
+
     private(set) var lines: [String] = []
     private var task: Task<Void, Never>?
+    private var lineCountWaiters: [Int: LineCountWaiter] = [:]
+    private var nextWaiterID = 0
 
     /// Begin consuming the surface's output stream into ``lines``.
     func mount(store: CMUXMobileShellStore, surfaceID: String) {
@@ -33,7 +72,35 @@ final class TerminalOutputCollector {
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
                 )
+                self.resumeLineCountWaiters()
             }
+        }
+    }
+
+    /// Wait until at least ``count`` output chunks have been collected, or throw
+    /// ``LineCountWaitError/timedOut(collected:wanted:)`` once
+    /// ``timeoutNanoseconds`` elapses, so a stream that undershoots fails fast
+    /// with a diagnostic instead of hanging forever.
+    func waitForLineCount(
+        _ count: Int,
+        timeoutNanoseconds: UInt64 = 5_000_000_000
+    ) async throws {
+        guard lines.count < count else { return }
+        let waiterID = nextWaiterID
+        nextWaiterID += 1
+        let satisfied = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let waiter = LineCountWaiter(count: count, continuation: continuation)
+            lineCountWaiters[waiterID] = waiter
+            waiter.timeoutTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                guard !Task.isCancelled, let self else { return }
+                if let waiter = self.lineCountWaiters.removeValue(forKey: waiterID) {
+                    waiter.resume(satisfied: false)
+                }
+            }
+        }
+        if !satisfied {
+            throw LineCountWaitError.timedOut(collected: lines.count, wanted: count)
         }
     }
 
@@ -41,6 +108,22 @@ final class TerminalOutputCollector {
     func unmount() {
         task?.cancel()
         task = nil
+        let waiters = lineCountWaiters
+        lineCountWaiters = [:]
+        // Deliberate teardown, not a timeout: resume as satisfied so callers
+        // don't spuriously throw during cleanup.
+        for waiter in waiters.values {
+            waiter.resume(satisfied: true)
+        }
+    }
+
+    private func resumeLineCountWaiters() {
+        guard !lineCountWaiters.isEmpty else { return }
+        let ready = lineCountWaiters.filter { lines.count >= $0.value.count }
+        for (id, waiter) in ready {
+            lineCountWaiters.removeValue(forKey: id)
+            waiter.resume(satisfied: true)
+        }
     }
 }
 
@@ -2458,12 +2541,7 @@ final class TerminalOutputCollector {
 
     await store.submitTerminalRawInput(Data("y".utf8), surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
-    // The request-count wait only proves the second replay REQUEST was sent;
-    // its response still flows back through the transport asynchronously.
-    // Poll for delivery like the sibling tests do, then assert content.
-    for _ in 0..<200 where collector.lines.count < 2 {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
+    try await collector.waitForLineCount(2)
 
     let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")

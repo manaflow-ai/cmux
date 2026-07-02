@@ -37,6 +37,7 @@ struct KeyboardDismissTap: UIViewRepresentable {
     /// in `didMoveToWindow` — the only reliable "I'm in a window now" hook
     /// (relying on `updateUIView` timing missed the attach when no input
     /// changed after mount, so the first version never fired).
+    @MainActor
     final class TapInstallerView: UIView {
         /// Region (window coords) whose taps dismiss the keyboard.
         var dismissRegion: CGRect = .zero
@@ -75,10 +76,6 @@ struct KeyboardDismissTap: UIViewRepresentable {
             guard let window else { return }
             window.addGestureRecognizer(recognizer)
             installedWindow = window
-        }
-
-        deinit {
-            installedWindow?.removeGestureRecognizer(recognizer)
         }
 
         @objc private func handleTap() {
