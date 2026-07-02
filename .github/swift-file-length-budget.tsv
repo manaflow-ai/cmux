@@ -216,10 +216,10 @@
 539	CLI/CodexTeamsApprovalBridge.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 537	Sources/TerminalController+ControlSurfaceContext2.swift
+536	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Vault/Providers/HermesAgent/HermesAgentIndex.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 535	Sources/App/WorkspaceRuntimeSettings.swift
 532	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
-531	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Vault/Providers/HermesAgent/HermesAgentIndex.swift
 530	Sources/BrowserPaneDropTargetView.swift
 530	Sources/TerminalController+ControlSurfaceContext3.swift
 529	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift

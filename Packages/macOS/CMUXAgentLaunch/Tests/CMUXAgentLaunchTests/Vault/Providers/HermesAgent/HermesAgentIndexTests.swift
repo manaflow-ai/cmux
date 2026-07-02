@@ -162,7 +162,6 @@ struct HermesAgentIndexTests {
         try makeHermesStateDB(at: dbURL)
         let repo = try makeDirectory(root.appendingPathComponent("repo", isDirectory: true))
         // 'ended-late' started early (10) but ended at 500; 'fresh-live' started later (100), active.
-        // The running pane is the fresh one; ordering by started_at must not let the later ended_at win.
         try exec(dbURL, """
         INSERT INTO sessions (id, source, model, started_at, ended_at, cwd)
         VALUES
@@ -171,6 +170,27 @@ struct HermesAgentIndexTests {
         """)
 
         #expect(HermesAgentIndex.latestSessionID(cwd: repo, stateDBPath: dbURL.path) == "fresh-live")
+    }
+
+    @Test("latestSessionID skips a newer ended session for an older still-active one")
+    func latestSessionIDSkipsNewerEndedSessionForActiveOne() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+        let repo = try makeDirectory(root.appendingPathComponent("repo", isDirectory: true))
+        // A long-running pane's session ('active-old', started 10, never ended) coexists with a newer
+        // session ('ended-new', started 100) that already ended. The live pane is the older active
+        // one; the newer *ended* session must be skipped (ended_at IS NULL filter), not picked by
+        // started_at ordering.
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, ended_at, cwd)
+        VALUES
+          ('active-old', 'tui', 'm', 10, NULL, '\(repo)'),
+          ('ended-new', 'cli', 'm', 100, 200, '\(repo)');
+        """)
+
+        #expect(HermesAgentIndex.latestSessionID(cwd: repo, stateDBPath: dbURL.path) == "active-old")
     }
 
     @Test("latestSessionID orders by session timestamps, not message recency (bounded restore path)")

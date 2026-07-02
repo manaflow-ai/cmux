@@ -165,13 +165,17 @@ public enum HermesAgentIndex {
     /// A purpose-built, bounded id-only query: it selects only `s.id` and touches only the
     /// `sessions` table — no `messages` join, `GROUP BY`, correlated aggregate, or preview subquery —
     /// so it stays O(cwd-matched sessions) regardless of how large `messages` grows, keeping the
-    /// process-scan restore path cheap. Ordering by `started_at` (never `ended_at`) is correct for
-    /// the only case that reaches this fallback: a *fresh* Hermes launch. A pane resuming a specific
-    /// session carries `--resume <id>` in argv, which the scanner honours before calling this, so the
-    /// running process here just minted a new row whose `started_at` is the newest for its cwd — newer
-    /// than any pre-existing session, including one that *ended* after this pane started (ordering by
-    /// `ended_at` could otherwise pick that ended session). Concurrent fresh panes in one cwd are
-    /// rejected upstream by the scanner's ambiguity guard.
+    /// process-scan restore path cheap.
+    ///
+    /// It considers only *active* sessions (`ended_at IS NULL`). Hermes writes `ended_at` only when a
+    /// session terminates (and clears it on reopen), so this excludes conversations that have already
+    /// ended — a live pane must never be bound to a completed session even if that session started
+    /// more recently. Among active sessions it takes the newest `started_at`: the only case that
+    /// reaches this fallback is a *fresh* launch (a pane resuming a specific session carries
+    /// `--resume <id>`, honoured by the scanner before this), whose just-minted row is the newest
+    /// active one for its cwd. If Hermes ever marked a live session ended, the worst case is a
+    /// recoverable miss (nil), never a wrong bind. Concurrent fresh panes in one cwd are rejected
+    /// upstream by the scanner's ambiguity guard.
     private static func latestSessionID(
         db: OpaquePointer,
         cwdCandidates: [String]
@@ -183,6 +187,7 @@ public enum HermesAgentIndex {
             FROM sessions s
             WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
               AND s.cwd IN (\(placeholders))
+              AND s.ended_at IS NULL
             ORDER BY s.started_at DESC, s.id DESC
             LIMIT 1
             """
