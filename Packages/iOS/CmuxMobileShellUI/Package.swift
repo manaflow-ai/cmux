@@ -64,6 +64,7 @@ let package = Package(
                 "CmuxAgentChat",
                 "CmuxMobileShell",
                 "CmuxMobileShellModel",
+                "CmuxMobileTerminalKit",
                 "CmuxMobileWorkspace",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],

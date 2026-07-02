@@ -3,7 +3,8 @@ import Foundation
 import Observation
 
 /// User-editable configuration of the terminal input-accessory bar: which
-/// buttons appear, in what order, and any user-defined ``CustomToolbarAction``s.
+/// buttons appear, in what order, and any user-defined ``CustomToolbarAction``s
+/// or dropdown menus.
 ///
 /// Every button on the bar is configurable: the modifier keys (⌃ ⌥ ⌘ ⇧), the zoom
 /// controls, paste, the shipped insertable shortcuts (Esc, Tab, arrows, the agent
