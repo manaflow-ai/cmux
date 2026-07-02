@@ -84,6 +84,9 @@ private struct ReplayPresentationProbe {
             presentIfUnsynchronized()
             return text.index(after: index)
         }
+        if text[index] == "]" {
+            return consumeOSC(in: text, from: text.index(after: index))
+        }
         guard text[index] == "[" else {
             while index < text.endIndex, isESCIntermediateByte(text[index]) {
                 index = text.index(after: index)
@@ -99,6 +102,23 @@ private struct ReplayPresentationProbe {
         let parameters = String(text[parametersStart..<index])
         consumeCSI(parameters: parameters, final: text[index])
         return text.index(after: index)
+    }
+
+    private mutating func consumeOSC(in text: String, from oscIndex: String.Index) -> String.Index {
+        var index = oscIndex
+        while index < text.endIndex {
+            if text[index] == "\u{07}" {
+                return text.index(after: index)
+            }
+            if text[index] == "\u{1B}" {
+                let next = text.index(after: index)
+                if next < text.endIndex, text[next] == "\\" {
+                    return text.index(after: next)
+                }
+            }
+            index = text.index(after: index)
+        }
+        return index
     }
 
     private mutating func consumeCSI(parameters: String, final: Character) {

@@ -104,11 +104,11 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             "\u{1B}[?1049l\u{1B}[H"
         ).utf8))
 
-        // Dynamic default colors (OSC 10/11/12). Cells already carry explicit
-        // RGB, so these mainly fix the cursor color and color queries.
-        if let osc = oscColorBytes(10, frame.terminalForeground) { bytes.append(osc) }
-        if let osc = oscColorBytes(11, frame.terminalBackground) { bytes.append(osc) }
-        if let osc = oscColorBytes(12, frame.terminalCursorColor) { bytes.append(osc) }
+        // Dynamic default colors (OSC 10/11/12). Nil frame values reset the
+        // previous override so a full snapshot behaves like the old RIS path.
+        bytes.append(oscColorOrResetBytes(10, reset: 110, frame.terminalForeground))
+        bytes.append(oscColorOrResetBytes(11, reset: 111, frame.terminalBackground))
+        bytes.append(oscColorOrResetBytes(12, reset: 112, frame.terminalCursorColor))
 
         // Paint with autowrap and the cursor off so a full-width row plus an
         // explicit newline cannot wrap into a phantom blank line, and so the
@@ -399,6 +399,10 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             rgb.blue
         )
         return Data("\u{1B}]\(ps);\(spec)\u{1B}\\".utf8)
+    }
+
+    private func oscColorOrResetBytes(_ ps: Int, reset resetPs: Int, _ hex: String?) -> Data {
+        oscColorBytes(ps, hex) ?? Data("\u{1B}]\(resetPs)\u{1B}\\".utf8)
     }
 
     private func appendVTPrintable(_ text: String, to bytes: inout Data) {

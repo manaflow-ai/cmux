@@ -28,6 +28,7 @@ import Testing
         "\u{1B}[H\u{1B}[2J\u{1B}[3J\u{1B}[?1049h" +
         "\u{1B}[1\"q\u{1B}[0\"q\u{1B}[999<u\u{1B}[0;1=u\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B" +
         "\u{1B}[H\u{1B}[2J\u{1B}[?1049l\u{1B}[H" +
+        "\u{1B}]110\u{1B}\\\u{1B}]111\u{1B}\\\u{1B}]112\u{1B}\\" +
         "\u{1B}[?7l\u{1B}[?25l\u{1B}[0m" +
         "\u{1B}[0m\u{1B}[1Galpha" +
         "\r\n\u{1B}[0m" +
@@ -382,6 +383,21 @@ import Testing
     #expect(vt.contains("\u{1B}]10;rgb:aa/bb/cc\u{1B}\\"))
     #expect(vt.contains("\u{1B}]11;rgb:10/20/30\u{1B}\\"))
     #expect(vt.contains("\u{1B}]12;rgb:ff/ee/dd\u{1B}\\"))
+}
+
+@Test func renderGridFullSnapshotResetsDefaultDynamicColors() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: []
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(vt.contains("\u{1B}]110\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]111\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]112\u{1B}\\"))
 }
 
 @Test func renderGridEncodesFullStateFields() throws {
