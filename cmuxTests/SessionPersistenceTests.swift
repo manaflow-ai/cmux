@@ -3274,6 +3274,41 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertFalse(supportsFork)
     }
 
+    // Regression: the Codex retry launcher (`/bin/zsh -lc '<multi-KB script>'`) must stay on local
+    // dispatch. A remote fork (`allowLauncherScript: false`) cannot ship a locally written launcher
+    // script and may not have `/bin/zsh`, and the wrapped command also blows past
+    // `maxInlineStartupInputBytes`, so wrapping it there returned nil and dropped the remote fork.
+    func testCodexRemoteForkStartupInputStaysInlineWithoutZshRetryLauncher() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/cmux/project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: "/Users/cmux/project",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        // Local dispatch can write a launcher script and is guaranteed /bin/zsh, so it still succeeds.
+        XCTAssertNotNil(snapshot.forkStartupInput(allowLauncherScript: true))
+        // Remote/inline dispatch stays a compact, zsh-independent command rather than nil.
+        let remoteInput = try XCTUnwrap(
+            snapshot.forkStartupInput(allowLauncherScript: false),
+            "remote codex fork must produce a compact inline command, not nil"
+        )
+        XCTAssertFalse(remoteInput.contains("/bin/zsh -lc"), remoteInput)
+        XCTAssertFalse(remoteInput.contains("_cmux_codex_retry_limit"), remoteInput)
+        XCTAssertTrue(remoteInput.contains("019dad34-d218-7943-b81a-eddac5c87951"), remoteInput)
+    }
+
     func testOpenCodeForkSupportRemoteContextBypassesLocalProbe() async {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .opencode,

@@ -314,7 +314,8 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         registrationOverride: CmuxVaultAgentRegistration? = nil,
-        includeWorkingDirectoryPrefix: Bool = true
+        includeWorkingDirectoryPrefix: Bool = true,
+        applyCodexRetryWrapper: Bool = true
     ) -> String? {
         let customRegistration = registrationOverride
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -335,7 +336,8 @@ enum AgentResumeCommandBuilder {
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
             customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            applyCodexRetryWrapper: applyCodexRetryWrapper
         )
     }
 
@@ -345,7 +347,8 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         registrationOverride: CmuxVaultAgentRegistration? = nil,
-        includeWorkingDirectoryPrefix: Bool = true
+        includeWorkingDirectoryPrefix: Bool = true,
+        applyCodexRetryWrapper: Bool = true
     ) -> String? {
         let customRegistration = registrationOverride
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -366,7 +369,8 @@ enum AgentResumeCommandBuilder {
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
             customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            applyCodexRetryWrapper: applyCodexRetryWrapper
         )
     }
 
@@ -376,7 +380,8 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?,
-        includeWorkingDirectoryPrefix: Bool
+        includeWorkingDirectoryPrefix: Bool,
+        applyCodexRetryWrapper: Bool
     ) -> String {
         var commandParts: [String] = []
         let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
@@ -416,13 +421,17 @@ enum AgentResumeCommandBuilder {
                 quote: shellSingleQuoted
             )
         case .codex:
-            shellCommand = CodexResumeRetryShell().wrappedCommand(
-                AgentResumeArgv.renderedPortableCodexResumeShellCommand(
-                    parts: sanitizedCommandParts,
-                    quote: shellSingleQuoted
-                ),
+            let renderedCodexCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: sanitizedCommandParts,
                 quote: shellSingleQuoted
             )
+            // Only wrap in the `/bin/zsh -lc` retry launcher for local launches, which can write a
+            // launcher script and are guaranteed `/bin/zsh`. Remote/inline dispatch passes
+            // `applyCodexRetryWrapper: false` (see `forkStartupInput`/`resumeStartupInput`) so the
+            // command stays small enough for inline startup input and portable to hosts without zsh.
+            shellCommand = applyCodexRetryWrapper
+                ? CodexResumeRetryShell().wrappedCommand(renderedCodexCommand, quote: shellSingleQuoted)
+                : renderedCodexCommand
         default:
             shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
         }
@@ -765,8 +774,19 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         allowLauncherScript: Bool = true,
         allowOversizedInlineInput: Bool = false
     ) -> String? {
+        // Retry-wrap the codex launch only when a launcher script can be written (local dispatch,
+        // guaranteed `/bin/zsh`). Remote/inline callers pass `allowLauncherScript: false`, where the
+        // multi-KB `/bin/zsh -lc` retry script would blow past `maxInlineStartupInputBytes` and cannot
+        // assume zsh on the target host, so they get the compact unwrapped command instead.
         startupInput(
-            command: resumeCommand,
+            command: AgentResumeCommandBuilder.resumeShellCommand(
+                kind: kind,
+                sessionId: sessionId,
+                launchCommand: launchCommand,
+                workingDirectory: workingDirectory,
+                registrationOverride: registration,
+                applyCodexRetryWrapper: allowLauncherScript
+            ),
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript,
@@ -802,8 +822,17 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         allowLauncherScript: Bool = true
     ) -> String? {
+        // See `resumeStartupInput`: retry-wrap only for local (launcher-script) dispatch so remote
+        // forks get a compact, zsh-independent inline command.
         startupInput(
-            command: forkCommand,
+            command: AgentResumeCommandBuilder.forkShellCommand(
+                kind: kind,
+                sessionId: sessionId,
+                launchCommand: launchCommand,
+                workingDirectory: workingDirectory,
+                registrationOverride: registration,
+                applyCodexRetryWrapper: allowLauncherScript
+            ),
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript
