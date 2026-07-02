@@ -737,13 +737,13 @@
       "layoutItem1": "Angeheftete Zeilen der obersten Ebene (Workspaces und Gruppen).",
       "layoutItem2": "Nicht angeheftete Zeilen der obersten Ebene (Workspaces und Gruppen).",
       "creatingTitle": "Eine Gruppe erstellen",
-      "creatingIntro": "Eine Gruppe wird auf eine von zwei Arten erstellt: über ein Tastenkürzel oder das Kontextmenü eines Workspace. Beide fügen einen neuen Anker-Workspace oberhalb der Auswahl ein und verschieben die ausgewählten Workspaces in die Gruppe. Sobald eine Gruppe existiert, verwalten Sie sie und fügen ihr Workspaces über die Gruppenkopfzeile hinzu (siehe Verwalten einer Gruppe weiter unten).",
-      "keyboardTitle": "Über die Tastatur ({shortcut})",
-      "keyboardDesc": "Wählen Sie zwei oder mehr Workspaces in der Seitenleiste aus und drücken Sie dann {shortcut}. Ein neuer Anker-Workspace wird oberhalb der Auswahl eingefügt, und alle ausgewählten Workspaces werden zu Kindern. Die Gruppe wird automatisch Group 1, Group 2 und so weiter benannt – benennen Sie sie jederzeit über das Kontextmenü der Kopfzeile um.",
+      "creatingIntro": "Eine Gruppe wird über eine Tastenkombination oder ein Kontextmenü in der Seitenleiste erstellt. Leere Gruppen fügen einen neuen Anker-Arbeitsbereich als Gruppenüberschrift ein. Auswahlbasierte Gruppen fügen diesen Anker oberhalb der Auswahl ein und verschieben die ausgewählten Arbeitsbereiche in die Gruppe. Sobald eine Gruppe vorhanden ist, verwaltest du sie und fügst Arbeitsbereiche über die Gruppenüberschrift hinzu (siehe Gruppe verwalten unten).",
+      "keyboardTitle": "Über Tastenkombinationen",
+      "keyboardDesc": "Drücke ⌃⌘G, um eine neue leere Arbeitsbereichsgruppe zu erstellen. Wähle zwei oder mehr Arbeitsbereiche in der Seitenleiste aus und drücke dann {shortcut}, um die Auswahl zu gruppieren. Beide Wege erstellen einen neuen Anker-Arbeitsbereich und benennen die Gruppe automatisch als Group 1, Group 2 usw. Du kannst sie jederzeit über das Kontextmenü der Überschrift umbenennen.",
       "keyboardNote": "{shortcut} kollidiert mit der Standardbelegung von React Grab. Der Gruppen-Handler verwendet den Tastenakkord nur, wenn es eine explizite Mehrfachauswahl von mindestens zwei Workspaces in der Seitenleiste gibt, sodass React Grab bei Einzelauswahl sowie in Browser- oder Terminalkontexten weiterhin auslöst. Belegen Sie es in Einstellungen → Tastatur neu, falls Sie nicht möchten, dass sich die beiden eine Taste teilen.",
       "keyboardSingle": "Gruppen mit nur einem Tab werden nicht über das Tastenkürzel erstellt. Verwenden Sie dafür den Eintrag „Neue Gruppe aus Arbeitsbereich“ im Kontextmenü des Arbeitsbereichs.",
       "contextMenuTitle": "Über ein Workspace-Kontextmenü",
-      "contextMenuDesc": "Klicken Sie mit der rechten Maustaste auf einen beliebigen Arbeitsbereich in der Seitenleiste und wählen Sie „Neue Gruppe aus Arbeitsbereich“ oder „Neue Gruppe aus Auswahl“, wenn mehrere Arbeitsbereiche ausgewählt sind. Dabei wird dasselbe automatische Benennungsverhalten wie beim Tastenkürzel verwendet.",
+      "contextMenuDesc": "Klicke mit der rechten Maustaste auf einen Arbeitsbereich in der Seitenleiste und wähle Neue leere Arbeitsbereichsgruppe, Neue Gruppe aus Arbeitsbereich oder, wenn mehrere Arbeitsbereiche ausgewählt sind, Neue Gruppe aus Auswahl. Der leere Bereich unter der Seitenleistenliste bietet ebenfalls Neue leere Arbeitsbereichsgruppe. Diese Wege verwenden dieselbe automatische Benennung wie die Tastenkombinationen.",
       "managingTitle": "Verwalten einer Gruppe",
       "managingIntro": "Sobald eine Gruppe existiert, können Sie über das Kontextmenü ihrer Kopfzeile und die Schaltfläche + in der Kopfzeile die Gruppe verwalten und ihr Workspaces hinzufügen. Keine der beiden Aktionen erstellt eine neue Gruppe.",
       "headerMenuTitle": "Über das Kontextmenü der Gruppenkopfzeile",
@@ -1596,7 +1596,8 @@
   "afterSignIn": {
     "title": "Bei cmux angemeldet",
     "body": "Wenn cmux nicht automatisch geöffnet wurde, verwende die Schaltfläche unten.",
-    "button": "Zurück zu cmux"
+    "button": "Zurück zu cmux",
+    "switchAccountButton": "Anderes Konto verwenden"
   },
   "landing": {
     "bestTerminal": {

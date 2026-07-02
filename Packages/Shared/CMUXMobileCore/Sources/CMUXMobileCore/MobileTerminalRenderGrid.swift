@@ -196,11 +196,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             guard includedRows.contains(row) else { return nil }
             let trimmed = trimmingTrailingGridBlanks(line)
             guard !trimmed.isEmpty else { return nil }
+            let clipped = trimmed.clippedToRenderGridColumns(columns)
+            guard !clipped.isEmpty else { return nil }
             return RowSpan(
                 row: row,
                 column: 0,
                 styleID: 0,
-                text: clippedToColumns(trimmed, columns: columns)
+                text: clipped
             )
         }
         return try MobileTerminalRenderGridFrame(
@@ -382,11 +384,6 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return String(String.UnicodeScalarView(scalars[..<end]))
     }
 
-    private static func clippedToColumns(_ text: String, columns: Int) -> String {
-        guard text.count > columns else { return text }
-        return String(text.prefix(columns))
-    }
-
     enum CodingKeys: String, CodingKey {
         case format
         case surfaceID = "surface_id"
@@ -551,10 +548,6 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             self.styleID = styleID
             self.text = text
             self.cellWidth = cellWidth
-        }
-
-        fileprivate var gridCellWidth: Int {
-            cellWidth ?? text.count
         }
 
         enum CodingKeys: String, CodingKey {
