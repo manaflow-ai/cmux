@@ -16,6 +16,7 @@ struct CmuxConfigExecutor {
         icon: CmuxButtonIcon? = nil,
         iconSourcePath: String? = nil,
         presentingWindow: NSWindow? = nil,
+        forcesSynchronousConfirmation: Bool = false,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
         if let workspace = command.workspace {
@@ -33,7 +34,8 @@ struct CmuxConfigExecutor {
                 globalConfigPath: globalConfigPath,
                 displayCommand: command.name,
                 displayTitle: displayTitle ?? command.name,
-                presentingWindow: presentingWindow
+                presentingWindow: presentingWindow,
+                forcesSynchronousConfirmation: forcesSynchronousConfirmation
             ) {
                 guard executeWorkspaceCommand(
                     command: command,
@@ -56,7 +58,8 @@ struct CmuxConfigExecutor {
                 displayTitle: displayTitle ?? command.name,
                 icon: icon,
                 iconSourcePath: iconSourcePath,
-                presentingWindow: presentingWindow
+                presentingWindow: presentingWindow,
+                forcesSynchronousConfirmation: forcesSynchronousConfirmation
             ) { shellInput in
                 targetTerminal.sendInput(shellInput)
                 onExecuted?()
@@ -74,6 +77,7 @@ struct CmuxConfigExecutor {
         baseCwd: String,
         globalConfigPath: String,
         presentingWindow: NSWindow? = nil,
+        forcesSynchronousConfirmation: Bool = false,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
         if let commandName = action.workspaceCommandName,
@@ -90,6 +94,7 @@ struct CmuxConfigExecutor {
                 icon: action.icon,
                 iconSourcePath: action.iconSourcePath,
                 presentingWindow: presentingWindow,
+                forcesSynchronousConfirmation: forcesSynchronousConfirmation,
                 onExecuted: onExecuted
             )
         }
@@ -108,7 +113,8 @@ struct CmuxConfigExecutor {
             displayTitle: action.title,
             icon: action.icon,
             iconSourcePath: action.iconSourcePath,
-            presentingWindow: presentingWindow
+            presentingWindow: presentingWindow,
+            forcesSynchronousConfirmation: forcesSynchronousConfirmation
         ) { shellInput in
             switch target {
             case .currentTerminal:
@@ -133,6 +139,7 @@ struct CmuxConfigExecutor {
         icon: CmuxButtonIcon? = nil,
         iconSourcePath: String? = nil,
         presentingWindow: NSWindow? = nil,
+        forcesSynchronousConfirmation: Bool = false,
         onAuthorized: @escaping (String) -> Void
     ) -> Bool {
         let shellCommand = sanitizeForDisplay(rawCommand)
@@ -154,7 +161,8 @@ struct CmuxConfigExecutor {
             globalConfigPath: globalConfigPath,
             displayCommand: shellCommand,
             displayTitle: displayTitle,
-            presentingWindow: presentingWindow
+            presentingWindow: presentingWindow,
+            forcesSynchronousConfirmation: forcesSynchronousConfirmation
         ) {
             onAuthorized(shellCommand + "\n")
         }
@@ -194,6 +202,7 @@ struct CmuxConfigExecutor {
         displayCommand: String,
         displayTitle: String?,
         presentingWindow: NSWindow?,
+        forcesSynchronousConfirmation: Bool = false,
         onAuthorized: @escaping () -> Void,
         onDenied: (() -> Void)? = nil
     ) -> Bool {
@@ -210,7 +219,12 @@ struct CmuxConfigExecutor {
             onAuthorized()
             return true
         }
-        if let resolvedPresentingWindow {
+        // Callers that need a definitive synchronous accept/deny result (e.g. the
+        // sidebar extension command API) opt into a modal confirmation instead of
+        // a window sheet. A sheet's async callback returns `true` before the user
+        // responds, which would let the action report success even if the trust
+        // prompt is later cancelled.
+        if let resolvedPresentingWindow, !forcesSynchronousConfirmation {
             presentConfirmDialog(
                 command: displayCommand,
                 displayTitle: displayTitle,

@@ -11262,13 +11262,18 @@ struct VerticalTabsSidebar: View {
         configStore: CmuxConfigStore,
         workingDirectory: String?
     ) -> CmuxSidebarActionResult {
+        // The extension action result must reflect whether the command actually
+        // ran. Force synchronous trust confirmation so a pending confirmation
+        // sheet cannot report `.accepted` before the user approves (or cancels)
+        // the prompt; `execute` then returns the true accept/deny outcome.
         let didRun = CmuxConfigExecutor.execute(
             action: action,
             commands: configStore.loadedCommands,
             commandSourcePaths: configStore.commandSourcePaths,
             tabManager: tabManager,
             baseCwd: cmuxSidebarExtensionCommandBaseCwd(workingDirectory),
-            globalConfigPath: configStore.globalConfigPath
+            globalConfigPath: configStore.globalConfigPath,
+            forcesSynchronousConfirmation: true
         )
         return didRun ? .accepted : .rejected(String(
             localized: "sidebar.extensions.action.commandRejected",
