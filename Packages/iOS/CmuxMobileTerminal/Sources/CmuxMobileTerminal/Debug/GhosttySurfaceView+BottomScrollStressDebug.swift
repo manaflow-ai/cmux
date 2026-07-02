@@ -4,15 +4,18 @@ import Foundation
 import GhosttyKit
 
 extension GhosttySurfaceView {
-    public func debugSetBottomScrollStressPhase(_ phase: String) {
+    /// Sets the accessibility-visible bottom-scroll stress phase.
+    public func setBottomScrollStressPhase(_ phase: String) {
         debugBottomScrollStressPhase = phase
     }
 
-    public var debugIsBottomScrollStressAtBottom: Bool {
+    /// Whether the last debug scrollbar callback reports the surface at bottom.
+    public var isBottomScrollStressAtBottom: Bool {
         bottomScrollDebugScrollbarAtBottom
     }
 
-    public func debugScrollToBottomForTesting() {
+    /// Sends Ghostty's scroll-to-bottom action for the bottom-scroll stress harness.
+    public func scrollToBottomForBottomScrollStress() {
         guard let surface else { return }
         let action = "scroll_to_bottom"
         outputQueue.async {
@@ -23,8 +26,8 @@ extension GhosttySurfaceView {
     }
 
     @MainActor
-    static func recordBottomScrollDebugScrollbar(total: Int, offset: Int, len: Int, for surface: ghostty_surface_t) {
-        view(for: surface)?.debugLastScrollbar = DebugScrollbarSnapshot(total: total, offset: offset, len: len)
+    func recordBottomScrollStressScrollbar(total: Int, offset: Int, len: Int) {
+        debugLastScrollbar = (total: total, offset: offset, len: len)
     }
 
     var bottomScrollDebugScrollbarAtBottom: Bool {

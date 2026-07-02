@@ -384,7 +384,7 @@ public final class GhosttyRuntime {
         }
 
         #if DEBUG
-        if Self.handleBottomScrollStressDebugAction(action, target: target) {
+        if handleBottomScrollStressDebugAction(action, target: target) {
             return true
         }
         #endif

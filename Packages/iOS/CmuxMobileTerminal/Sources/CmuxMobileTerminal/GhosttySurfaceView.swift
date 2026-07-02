@@ -747,8 +747,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// compose-button tap.
     fileprivate var lastComposerDockIntent: ComposerDockIntent?
 
-    struct DebugScrollbarSnapshot { let total: Int; let offset: Int; let len: Int }
-    var debugLastScrollbar: DebugScrollbarSnapshot?
+    var debugLastScrollbar: (total: Int, offset: Int, len: Int)?
     var debugBottomScrollStressPhase = "idle"
     var debugBottomViewportMismatchObserved = false
 
@@ -3590,7 +3589,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 sourceLayoutViewportHeight: snapshot.layoutViewportRect.height,
                 pinnedSize: pinnedSize
             )
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard let self else {
                     completion?(true)
                     return
