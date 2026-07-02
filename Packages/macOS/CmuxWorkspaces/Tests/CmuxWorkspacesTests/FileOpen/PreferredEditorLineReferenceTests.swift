@@ -135,6 +135,19 @@ struct PreferredEditorInvocationTests {
         #expect(invocation.argument == "/tmp/main.swift:42:5")
     }
 
+    @Test func doesNotTreatBackslashInsideDoubleQuotesAsGotoFlag() {
+        // `/bin/sh -c` preserves a literal backslash inside double quotes, so
+        // `code "\--goto"` passes `\--goto` (not `--goto`) to the editor. The
+        // tokenizer must match that; otherwise it wrongly reads an existing
+        // `--goto` and drops the `-g` the line jump needs.
+        let invocation = PreferredEditorService.editorInvocation(
+            forURL: fragmentURL(path: "/tmp/main.swift", fragment: "L42:5"),
+            command: "code \"\\--goto\""
+        )
+        #expect(invocation.gotoFlag == " -g")
+        #expect(invocation.argument == "/tmp/main.swift:42:5")
+    }
+
     @Test func leavesUnknownEditorWithBarePath() {
         let invocation = PreferredEditorService.editorInvocation(
             forURL: fragmentURL(path: "/tmp/main.swift", fragment: "L42:5"),
