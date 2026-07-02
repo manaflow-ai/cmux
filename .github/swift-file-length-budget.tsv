@@ -5,7 +5,7 @@
 17960	Sources/AppDelegate.swift
 16484	Sources/ContentView.swift
 14261	Sources/TerminalController.swift
-13071	Sources/Workspace.swift
+13240	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12212	Sources/GhosttyTerminalView.swift
 11671	Sources/Panels/BrowserPanel.swift
@@ -13,7 +13,7 @@
 8032	Sources/Panels/BrowserPanelView.swift
 8016	CLI/cmux_open.swift
 7727	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
-7404	cmuxTests/WorkspaceUnitTests.swift
+7405	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
@@ -63,6 +63,7 @@
 1500	cmuxUITests/MultiWindowNotificationsUITests.swift
 1499	cmuxTests/OmnibarAndToolsTests.swift
 1433	Sources/RemoteTmuxControlConnection.swift
+1428	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 1420	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1384	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
@@ -92,6 +93,7 @@
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1002	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/PairedMacBackupTests.swift
+1000	cmuxTests/DockSocketLifecycleTests.swift
 982	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
 974	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
@@ -101,13 +103,12 @@
 944	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 942	Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/WorkspaceMacSelectionTests.swift
 937	Sources/TextBoxMentionIndexStore.swift
-933	cmuxTests/DockSocketLifecycleTests.swift
 929	Sources/Panels/TerminalPanel.swift
 918	Sources/Panels/BrowserPopupWindowController.swift
 905	Sources/CmuxSSHURLRequest.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 885	cmuxTests/SidebarWorkspaceDropPlannerTests.swift
-879	Sources/DockSplitStore.swift
+882	Sources/DockSplitStore.swift
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 864	Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
@@ -170,7 +171,6 @@
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
 637	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTestSupport.swift
 635	cmuxUITests/RightSidebarChromeHeightUITests.swift
-632	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 627	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 620	cmuxTests/FinderFileDropRegressionTests.swift
