@@ -156,6 +156,7 @@ extension MobileShellComposite {
                 markMacConnectionUnavailableIfNeeded(after: error)
             }
             mobileShellLog.error("workspace mutation failed action=terminal_close id=\(workspaceID.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            await refreshAfterWorkspaceMutation(target)
             return
         }
         await refreshAfterWorkspaceMutation(target)
