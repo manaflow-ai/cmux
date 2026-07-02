@@ -7,9 +7,9 @@ import { ProWelcomeBanner } from "../components/pro-welcome-banner";
 import { DOWNLOAD_URL } from "../../lib/download";
 import { buildAlternates } from "../../../i18n/seo";
 
-// The Pro CTA destination is decided at runtime by the PostHog
-// `pro-checkout-enabled-release` flag inside <ProCtaLink> (see
-// app/lib/feature-flags.ts); the download link is the safe fallback.
+// The Pro CTA destination is decided at runtime by the proCheckout PostHog
+// flag inside <ProCtaLink> (see app/lib/feature-flags.ts); the download
+// link is the safe fallback.
 const PRO_CHECKOUT_URL = "/api/billing/checkout";
 // Team is per-seat ($35/user/month). Install is still the entry point, so the
 // Team CTA points at the download today; swap for the team checkout URL once

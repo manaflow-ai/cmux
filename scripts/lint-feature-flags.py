@@ -29,8 +29,10 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-WEB_REGISTRY = REPO / "web/app/lib/feature-flags.ts"
-SWIFT_REGISTRY = REPO / "Sources/FeatureFlags.swift"
+WEB_REGISTRY_REL = "web/app/lib/feature-flags.ts"
+SWIFT_REGISTRY_REL = "Sources/FeatureFlags.swift"
+WEB_REGISTRY = REPO / WEB_REGISTRY_REL
+SWIFT_REGISTRY = REPO / SWIFT_REGISTRY_REL
 RETIRED = REPO / "scripts/retired-feature-flags.txt"
 
 NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*-(release|experiment|permission)$")
@@ -48,7 +50,7 @@ def parse_web_registry(text: str) -> list[dict]:
     flags = []
     for block in re.finditer(r"\{[^{}]*key:\s*\"([^\"]+)\"[^{}]*\}", text, re.S):
         body = block.group(0)
-        flag = {"key": block.group(1), "source": str(WEB_REGISTRY)}
+        flag = {"key": block.group(1), "source": WEB_REGISTRY_REL}
         for field in ("owner", "reviewBy"):
             m = re.search(rf"{field}:\s*\"([^\"]+)\"", body)
             flag[field] = m.group(1) if m else None
@@ -70,14 +72,14 @@ def parse_swift_registry(text: str) -> list[dict]:
             "owner": fields.get("owner"),
             "reviewBy": fields.get("reviewBy"),
             "hasDefault": "defaultWhenUnavailable" in fields,
-            "source": str(SWIFT_REGISTRY),
+            "source": SWIFT_REGISTRY_REL,
         })
     return flags
 
 
 def grep_key_files(key: str) -> set[str]:
     out = subprocess.run(
-        ["git", "grep", "-l", "--fixed-strings", key, "--",
+        ["git", "grep", "-l", "--untracked", "--fixed-strings", key, "--",
          "web", "Sources", "Packages", "ios", "CLI",
          ":!*node_modules*"],
         cwd=REPO, capture_output=True, text=True,
@@ -98,7 +100,8 @@ def main() -> int:
 
     today = datetime.date.today()
     seen: dict[str, str] = {}
-    registries = {str(WEB_REGISTRY), str(SWIFT_REGISTRY)}
+    # git grep returns repo-relative paths.
+    registries = {WEB_REGISTRY_REL, SWIFT_REGISTRY_REL}
 
     retired = set()
     if RETIRED.exists():
