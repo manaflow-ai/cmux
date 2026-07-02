@@ -58,6 +58,10 @@ extension ControlDebugContext {
         focusFirstItem: Bool
     ) -> ControlDebugRightSidebarFocusResolution { .windowNotFound }
     func controlDebugSidebarVisibility(windowID: UUID) -> Bool? { nil }
+    func controlDebugSimulateSidebarSwipe(
+        workspaceID: UUID,
+        action: ControlDebugSidebarSwipeAction
+    ) -> ControlDebugSidebarSwipeResolution { .rowNotRegistered }
     func controlDebugSimulateTerminalFileDrop(
         surfaceArgument: String,
         paths: [String],

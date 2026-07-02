@@ -282,6 +282,18 @@ public protocol ControlDebugContext: AnyObject {
     ///   legacy `not_found` error).
     func controlDebugSidebarVisibility(windowID: UUID) -> Bool?
 
+    /// Drives a visible workspace row's swipe capture view for
+    /// `debug.sidebar.simulate_swipe`.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The workspace row to drive.
+    ///   - action: The synthetic swipe action to perform.
+    /// - Returns: The simulation outcome.
+    func controlDebugSimulateSidebarSwipe(
+        workspaceID: UUID,
+        action: ControlDebugSidebarSwipeAction
+    ) -> ControlDebugSidebarSwipeResolution
+
     /// Simulates a file drop onto a terminal for
     /// `debug.terminal.simulate_file_drop`.
     ///

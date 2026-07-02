@@ -34,6 +34,7 @@ struct SidebarSwipeableRow<Content: View>: View {
             .clipped()
             .overlay {
                 SidebarRowSwipeCaptureView(
+                    workspaceId: workspaceId,
                     onOffsetChanged: updateOffset(_:animated:),
                     onCommit: commit(_:)
                 )

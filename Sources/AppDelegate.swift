@@ -875,6 +875,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `SidebarDragState`, read by the `debug.sidebar.simulate_drag` handler.
     // TODO(de-singletonize): move SidebarDragStateRegistry off AppDelegate.shared when AppDelegate is decomposed.
     let sidebarDragStateRegistry = SidebarDragStateRegistry()
+    /// Debug-only registry mapping visible workspace rows to their swipe
+    /// capture views so automation can drive the real swipe model without HID.
+    // TODO(de-singletonize): move SidebarRowSwipeDebugRegistry off AppDelegate.shared when AppDelegate is decomposed.
+    let sidebarRowSwipeDebugRegistry = SidebarRowSwipeDebugRegistry()
     var debugFocusedTerminalKeyRepairObserverForTesting: ((NSWindow, NSEvent, NSResponder?) -> Void)?
     #endif
     private lazy var updateController = UpdateController(log: updateLog)

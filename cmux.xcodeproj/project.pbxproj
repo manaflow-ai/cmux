@@ -953,6 +953,7 @@
 		B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
 		7230AA20DCFC4BE5B7B83608 /* SidebarRowSwipeCaptureNSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2F672B6831940CC8B902CB6 /* SidebarRowSwipeCaptureNSView.swift */; };
 		554E8D4DA51C451FA8A8102A /* SidebarRowSwipeCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777E3D68E3AF472BBF0EAD64 /* SidebarRowSwipeCaptureView.swift */; };
+		B7A500000000000000000002 /* SidebarRowSwipeDebugRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A500000000000000000001 /* SidebarRowSwipeDebugRegistry.swift */; };
 		EE7DECEED1BA4665AA8ACF79 /* SidebarRowSwipeGestureModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE826BD4DFFA462F922FF6ED /* SidebarRowSwipeGestureModel.swift */; };
 		A83F90BF7F064BB181F9A3BB /* SidebarRowSwipeGestureModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6EBE86096A24430875B06EE /* SidebarRowSwipeGestureModelTests.swift */; };
 		C0DE35010000000000000001 /* SidebarScrim.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35010000000000000002 /* SidebarScrim.swift */; };
@@ -2232,6 +2233,7 @@
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		D2F672B6831940CC8B902CB6 /* SidebarRowSwipeCaptureNSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarRowSwipeCaptureNSView.swift; sourceTree = "<group>"; };
 		777E3D68E3AF472BBF0EAD64 /* SidebarRowSwipeCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarRowSwipeCaptureView.swift; sourceTree = "<group>"; };
+		B7A500000000000000000001 /* SidebarRowSwipeDebugRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarRowSwipeDebugRegistry.swift; sourceTree = "<group>"; };
 		FE826BD4DFFA462F922FF6ED /* SidebarRowSwipeGestureModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarRowSwipeGestureModel.swift; sourceTree = "<group>"; };
 		A6EBE86096A24430875B06EE /* SidebarRowSwipeGestureModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarRowSwipeGestureModelTests.swift; sourceTree = "<group>"; };
 		C0DE35010000000000000002 /* SidebarScrim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarScrim.swift; sourceTree = "<group>"; };
@@ -2891,6 +2893,7 @@
 				243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */,
 				D2F672B6831940CC8B902CB6 /* SidebarRowSwipeCaptureNSView.swift */,
 				777E3D68E3AF472BBF0EAD64 /* SidebarRowSwipeCaptureView.swift */,
+				B7A500000000000000000001 /* SidebarRowSwipeDebugRegistry.swift */,
 				FE826BD4DFFA462F922FF6ED /* SidebarRowSwipeGestureModel.swift */,
 				9D147A4AA674431FAAC60909 /* SidebarSwipeableRow.swift */,
 				D50D9BCE46701FBA91C2EFB6 /* SidebarWorkspaceSnapshotRefreshPolicy.swift */,
@@ -4915,6 +4918,7 @@
 				C0DEF0A30000000000000001 /* SidebarPortDisplayText.swift in Sources */,
 				7230AA20DCFC4BE5B7B83608 /* SidebarRowSwipeCaptureNSView.swift in Sources */,
 				554E8D4DA51C451FA8A8102A /* SidebarRowSwipeCaptureView.swift in Sources */,
+				B7A500000000000000000002 /* SidebarRowSwipeDebugRegistry.swift in Sources */,
 				EE7DECEED1BA4665AA8ACF79 /* SidebarRowSwipeGestureModel.swift in Sources */,
 				C0DE35010000000000000001 /* SidebarScrim.swift in Sources */,
 				E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */,

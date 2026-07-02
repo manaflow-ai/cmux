@@ -112,6 +112,55 @@ extension ControlCommandCoordinator {
         ]))
     }
 
+    /// `debug.sidebar.simulate_swipe` — drive a visible sidebar row's swipe
+    /// capture path without HID synthesis.
+    func debugSidebarSimulateSwipe(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let workspaceID = uuid(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let actionRaw = string(params, "action")?.lowercased(),
+              let action = ControlDebugSidebarSwipeAction(rawValue: actionRaw) else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid action",
+                data: .object([
+                    "actions": .array([
+                        .string(ControlDebugSidebarSwipeAction.revealLeading.rawValue),
+                        .string(ControlDebugSidebarSwipeAction.revealTrailing.rawValue),
+                        .string(ControlDebugSidebarSwipeAction.commitLeading.rawValue),
+                        .string(ControlDebugSidebarSwipeAction.commitTrailing.rawValue),
+                        .string(ControlDebugSidebarSwipeAction.release.rawValue),
+                    ])
+                ])
+            )
+        }
+
+        let resolution = debugContext?.controlDebugSimulateSidebarSwipe(
+            workspaceID: workspaceID,
+            action: action
+        ) ?? .rowNotRegistered
+        switch resolution {
+        case .rowNotRegistered:
+            return .err(
+                code: "not_found",
+                message: "Sidebar row is not registered",
+                data: .object([
+                    "workspace_id": .string(workspaceID.uuidString),
+                    "workspace_ref": ref(.workspace, workspaceID),
+                ])
+            )
+        case let .simulated(committed, offset, released):
+            return .ok(.object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "action": .string(action.rawValue),
+                "committed": .bool(committed),
+                "offset": .double(offset),
+                "released": .bool(released),
+            ]))
+        }
+    }
+
     // MARK: - debug.terminal.*
 
     /// `debug.terminal.is_focused` — whether a terminal surface has focus
