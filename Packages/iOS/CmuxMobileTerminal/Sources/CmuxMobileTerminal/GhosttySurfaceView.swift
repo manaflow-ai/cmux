@@ -162,38 +162,6 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         }
     }
 
-    /// VoiceOver label for icon-only accessory actions.
-    public var accessibilityLabel: String? {
-        switch self {
-        case .zoomOut:
-            return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
-        case .zoomIn:
-            return String(localized: "terminal.input_accessory.zoom_in", defaultValue: "Zoom In")
-        case .paste:
-            return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
-        case .composer:
-            return String(localized: "terminal.input_accessory.composer", defaultValue: "Composer")
-        default:
-            return nil
-        }
-    }
-
-    /// SF Symbol name for icon-only accessory actions.
-    public var symbolName: String? {
-        switch self {
-        case .zoomOut:
-            return "minus.magnifyingglass"
-        case .zoomIn:
-            return "plus.magnifyingglass"
-        case .paste:
-            return "doc.on.clipboard"
-        case .composer:
-            return "square.and.pencil"
-        default:
-            return nil
-        }
-    }
-
     var zoomDirection: TerminalFontZoomDirection? {
         switch self {
         case .zoomOut:

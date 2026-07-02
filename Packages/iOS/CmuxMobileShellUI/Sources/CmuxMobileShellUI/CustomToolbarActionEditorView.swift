@@ -2,6 +2,7 @@
 import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import SwiftUI
+import UIKit
 
 /// Create or edit a user-defined terminal toolbar action.
 ///
@@ -17,6 +18,8 @@ struct CustomToolbarActionEditorView: View {
     private let onSave: (CustomToolbarAction) -> Void
 
     @State private var title: String
+    /// Optional SF Symbol name shown instead of the text label when valid.
+    @State private var symbolName: String
     @State private var commandText: String
     @State private var runAfterTyping: Bool
 
@@ -29,6 +32,7 @@ struct CustomToolbarActionEditorView: View {
         self.onSave = onSave
         let seed = Self.seed(from: action)
         _title = State(initialValue: seed.title)
+        _symbolName = State(initialValue: seed.symbolName)
         _commandText = State(initialValue: seed.text)
         _runAfterTyping = State(initialValue: seed.runAfterTyping)
     }
@@ -50,6 +54,31 @@ struct CustomToolbarActionEditorView: View {
                         "mobile.toolbar.editor.titleFooter",
                         defaultValue: "Shown on the button in the keyboard toolbar."
                     ))
+                }
+
+                Section {
+                    TextField(
+                        L10n.string("mobile.toolbar.editor.iconPlaceholder", defaultValue: "SF Symbol name"),
+                        text: $symbolName
+                    )
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .accessibilityIdentifier("CustomActionIconField")
+                } header: {
+                    Text(L10n.string("mobile.toolbar.editor.iconHeader", defaultValue: "Icon"))
+                } footer: {
+                    if hasInvalidSymbolName {
+                        Text(L10n.string(
+                            "mobile.toolbar.editor.iconInvalidFooter",
+                            defaultValue: "Enter a valid SF Symbol name, or leave the field blank."
+                        ))
+                        .foregroundStyle(.red)
+                    } else {
+                        Text(L10n.string(
+                            "mobile.toolbar.editor.iconFooter",
+                            defaultValue: "Optional SF Symbol shown instead of the label. The label remains the accessibility name."
+                        ))
+                    }
                 }
 
                 Section {
@@ -107,17 +136,27 @@ struct CustomToolbarActionEditorView: View {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Icon name normalized for persistence; empty input means text-only.
+    private var trimmedSymbolName: String {
+        symbolName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasInvalidSymbolName: Bool {
+        !trimmedSymbolName.isEmpty && Self.validatedSymbolName(symbolName) == nil
+    }
+
     private var isValid: Bool {
-        !trimmedTitle.isEmpty && !commandText.isEmpty
+        !trimmedTitle.isEmpty && !commandText.isEmpty && !hasInvalidSymbolName
     }
 
     private func save() {
         guard isValid else { return }
         let text = runAfterTyping ? commandText + "\n" : commandText
+        let icon = Self.validatedSymbolName(symbolName)
         let action = CustomToolbarAction(
             id: existing?.id ?? UUID(),
             title: trimmedTitle,
-            symbolName: nil,
+            symbolName: icon,
             payload: .text(text)
         )
         onSave(action)
@@ -126,14 +165,23 @@ struct CustomToolbarActionEditorView: View {
 
     private static func seed(
         from action: CustomToolbarAction?
-    ) -> (title: String, text: String, runAfterTyping: Bool) {
+    ) -> (title: String, symbolName: String, text: String, runAfterTyping: Bool) {
         guard let action, case let .text(stored) = action.payload else {
-            return (action?.title ?? "", "", true)
+            return (action?.title ?? "", action?.symbolName ?? "", "", true)
         }
         if stored.hasSuffix("\n") {
-            return (action.title, String(stored.dropLast()), true)
+            return (action.title, action.symbolName ?? "", String(stored.dropLast()), true)
         }
-        return (action.title, stored, false)
+        return (action.title, action.symbolName ?? "", stored, false)
+    }
+
+    /// Returns a trimmed SF Symbol name only when UIKit can render it.
+    static func validatedSymbolName(_ rawValue: String) -> String? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, UIImage(systemName: trimmed) != nil else {
+            return nil
+        }
+        return trimmed
     }
 }
 #endif
