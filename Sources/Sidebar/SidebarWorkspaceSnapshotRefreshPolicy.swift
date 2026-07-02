@@ -1,3 +1,5 @@
+import CmuxWorkspaces
+
 extension SidebarWorkspaceSnapshotBuilder.Snapshot {
     struct ContextMenuImmediateFields: Equatable {
         let title: String
@@ -6,6 +8,12 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let customColorHex: String?
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
+        let taskStatus: WorkspaceTaskStatus?
+        let taskStatusHasOverride: Bool
+        let checklistItems: [WorkspaceChecklistItem]
+        let checklistCompletedCount: Int
+        let checklistTotalCount: Int
+        let checklistFirstUncheckedText: String?
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -15,7 +23,13 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             isPinned: isPinned,
             customColorHex: customColorHex,
             finderDirectoryPath: finderDirectoryPath,
-            mediaActivity: mediaActivity
+            mediaActivity: mediaActivity,
+            taskStatus: taskStatus,
+            taskStatusHasOverride: taskStatusHasOverride,
+            checklistItems: checklistItems,
+            checklistCompletedCount: checklistCompletedCount,
+            checklistTotalCount: checklistTotalCount,
+            checklistFirstUncheckedText: checklistFirstUncheckedText
         )
     }
 
@@ -47,7 +61,16 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             finderDirectoryPath: snapshot.finderDirectoryPath,
             // Media activity drives a leading row glyph, so stale values are
             // visually worse than ordinary telemetry text while the menu is open.
-            mediaActivity: snapshot.mediaActivity
+            mediaActivity: snapshot.mediaActivity,
+            // Todo status/checklist are mutated FROM this context menu (Status
+            // submenu, Mark as Done, checkbox clicks), so the glyph and
+            // checklist must reflect the change immediately, not on menu close.
+            taskStatus: snapshot.taskStatus,
+            taskStatusHasOverride: snapshot.taskStatusHasOverride,
+            checklistItems: snapshot.checklistItems,
+            checklistCompletedCount: snapshot.checklistCompletedCount,
+            checklistTotalCount: snapshot.checklistTotalCount,
+            checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText
         )
     }
 }

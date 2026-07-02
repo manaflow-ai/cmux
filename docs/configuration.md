@@ -155,3 +155,17 @@ Default: `unified`.
 ```
 
 The toolbar layout toggle persists the last user choice for future generated diff viewers. Passing `cmux diff --layout split` or `cmux diff --layout unified` overrides both the saved toolbar choice and this default for that invocation.
+
+## `sidebar.workspaceTodos`
+
+Shows a task-status glyph on each sidebar workspace row and a per-workspace checklist under the row details. Status is inferred from live signals (agent needs input / agent running / open PR / merged PRs / dirty tree) and can be pinned manually from the row's context menu (Status submenu, Mark as Done), the command palette, or `cmux workspace status set <lane|auto>`; checklists are managed inline, from `cmux todo ...`, or by agents over the control socket.
+
+```json
+{
+  "sidebar": {
+    "workspaceTodos": true
+  }
+}
+```
+
+Default: `false`. The setting turns on automatically the first time a status or checklist mutation succeeds from any entrypoint. The related `markWorkspaceDone` shortcut (`shortcuts.bindings.markWorkspaceDone`) is unbound by default because macOS reserves the natural Cmd+Ctrl+D chord; bind it from **Settings > Keyboard Shortcuts**.

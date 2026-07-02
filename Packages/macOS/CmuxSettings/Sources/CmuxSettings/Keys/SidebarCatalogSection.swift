@@ -21,6 +21,15 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowWorkspaceDescription"
     )
 
+    /// Workspace todo status: the per-row task-status glyph and checklist.
+    /// Off by default; the first successful status/checklist mutation from
+    /// any entrypoint (context menu, palette, socket, CLI) flips it on.
+    public let workspaceTodos = DefaultsKey<Bool>(
+        id: "sidebar.workspaceTodos",
+        defaultValue: false,
+        userDefaultsKey: "sidebarWorkspaceTodos"
+    )
+
     /// Bool-backed to match the legacy in-app store. The on-disk key
     /// `sidebarBranchVerticalLayout` is written as a Bool by every
     /// shipped cmux build; using an enum here would silently revert

@@ -1,0 +1,106 @@
+import CmuxSettings
+import CmuxWorkspaces
+import Foundation
+
+/// The `sidebar.workspaceTodos` feature gate and the shared UI entry points
+/// for mutating a workspace's todo state. Every UI surface (sidebar row,
+/// context menu, command palette, keyboard shortcut) funnels through
+/// ``WorkspaceTodoActions`` so the progressive-disclosure auto-enable and the
+/// backend caps/anti-rot apply identically everywhere; the socket handler in
+/// `TerminalController+ControlWorkspaceTodoContext.swift` calls
+/// ``WorkspaceTodoFeature/markUsed()`` on its own successful mutations.
+enum WorkspaceTodoFeature {
+    /// Synchronous read of the feature flag for on-demand paths. Reads only
+    /// the sidebar catalog section, not the whole `SettingCatalog`, so a
+    /// body-path access stays cheap (see issue #5970); reactive row reads go
+    /// through `SidebarTabItemSettingsSnapshot`.
+    static var isEnabled: Bool {
+        let key = SidebarCatalogSection().workspaceTodos
+        return Bool.decodeFromUserDefaults(
+            UserDefaults.standard.object(forKey: key.userDefaultsKey)
+        ) ?? key.defaultValue
+    }
+
+    /// Progressive disclosure: the first successful status/checklist mutation
+    /// from any entrypoint flips the feature on so the sidebar starts
+    /// rendering the glyph and checklist.
+    @MainActor
+    static func markUsed() {
+        guard !isEnabled else { return }
+        UserDefaultsSettingsClient(defaults: .standard)
+            .set(true, for: SidebarCatalogSection().workspaceTodos)
+    }
+}
+
+/// Shared todo mutations used by the context menu, command palette, and the
+/// `markWorkspaceDone` keyboard shortcut. All calls delegate to the
+/// `Workspace+Todos` entry points (the same path the socket and CLI use) and
+/// mark the feature used on success.
+@MainActor
+enum WorkspaceTodoActions {
+    /// Applies a manual status override (`nil` returns the status to
+    /// automatic) to every target workspace.
+    static func applyStatusOverride(_ status: WorkspaceTaskStatus?, to workspaces: [Workspace]) {
+        guard !workspaces.isEmpty else { return }
+        for workspace in workspaces {
+            if let status {
+                workspace.setTaskStatusOverride(status)
+            } else {
+                workspace.clearTaskStatusOverride()
+            }
+        }
+        WorkspaceTodoFeature.markUsed()
+    }
+
+    /// Adds a user checklist item; returns whether the add succeeded.
+    @discardableResult
+    static func addChecklistItem(text: String, to workspace: Workspace) -> Bool {
+        switch workspace.addChecklistItem(text: text, state: .pending, origin: .user) {
+        case .success:
+            WorkspaceTodoFeature.markUsed()
+            return true
+        case .failure:
+            return false
+        }
+    }
+
+    /// Sets one checklist item's state.
+    static func setChecklistItemState(
+        id: UUID,
+        state: WorkspaceChecklistItem.State,
+        in workspace: Workspace
+    ) {
+        guard workspace.setChecklistItemState(id: id, state: state) else { return }
+        WorkspaceTodoFeature.markUsed()
+    }
+
+    /// Removes one checklist item.
+    static func removeChecklistItem(id: UUID, from workspace: Workspace) {
+        guard workspace.removeChecklistItem(id: id) else { return }
+        WorkspaceTodoFeature.markUsed()
+    }
+
+    /// Asks the sidebar to expand a workspace row's checklist and focus its
+    /// add-item field (used by the context menu and the command palette,
+    /// which have no direct handle on the row's transient UI state). Also
+    /// enables the feature so the checklist UI is actually visible.
+    static func requestChecklistAddField(workspaceId: UUID) {
+        WorkspaceTodoFeature.markUsed()
+        NotificationCenter.default.post(
+            name: .workspaceChecklistAddItemRequested,
+            object: nil,
+            userInfo: [Self.workspaceIdUserInfoKey: workspaceId]
+        )
+    }
+
+    static let workspaceIdUserInfoKey = "workspaceId"
+}
+
+extension Notification.Name {
+    /// Posted by ``WorkspaceTodoActions/requestChecklistAddField(workspaceId:)``;
+    /// observed by the workspace sidebar, which expands the row's checklist
+    /// and arms its add-item field.
+    static let workspaceChecklistAddItemRequested = Notification.Name(
+        "cmux.workspaceChecklistAddItemRequested"
+    )
+}

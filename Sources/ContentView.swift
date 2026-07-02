@@ -6757,6 +6757,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
         )
+        contributions.append(contentsOf: WorkspaceTodoPaletteCommands.contributions(workspaceSubtitle: workspaceSubtitle))
         for entry in WorkspaceTabColorSettings.palette() {
             contributions.append(
                 CommandPaletteCommandContribution(
@@ -7857,6 +7858,7 @@ struct ContentView: View {
             tabManager.moveTabsToTop([workspace.id])
             tabManager.selectWorkspace(workspace)
         }
+        WorkspaceTodoPaletteCommands.registerHandlers(in: &registry, tabManager: tabManager)
         registry.register(commandId: "palette.closeOtherWorkspaces") {
             closeOtherSelectedWorkspaces()
         }
@@ -9583,6 +9585,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
+    let workspaceTodosEnabled: Bool
 
     init(
         defaults: UserDefaults = .standard,
@@ -9638,6 +9641,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
+        workspaceTodosEnabled = settings.value(for: catalog.sidebar.workspaceTodos)
     }
 
     private static func bool(
@@ -10050,6 +10054,13 @@ struct VerticalTabsSidebar: View {
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
+    // Per-workspace transient checklist UI state (never persisted): which
+    // rows show their expanded checklist, and a monotonically bumped token
+    // per workspace that arms the row's add-item field after a context-menu
+    // or palette "Add Checklist Item…". Held at the container so rows stay
+    // behind the snapshot boundary (they receive a Bool/Int + closures).
+    @State private var expandedChecklistWorkspaceIds: Set<UUID> = []
+    @State private var checklistAddFieldActivationTokens: [UUID: Int] = [:]
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
@@ -10593,6 +10604,12 @@ struct VerticalTabsSidebar: View {
                 frozenShortcutHintsTabId = nil
                 frozenShortcutHintsValue = false
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceChecklistAddItemRequested)) { notification in
+            guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
+                  tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
+            expandedChecklistWorkspaceIds.insert(workspaceId)
+            checklistAddFieldActivationTokens[workspaceId, default: 0] += 1
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
             SidebarDragLifecycleNotification().postStateDidChange(
@@ -12422,6 +12439,16 @@ struct VerticalTabsSidebar: View {
                 lastSidebarSelectionIndex = nil
             }
         }
+        let onToggleChecklistExpansion: () -> Void = { [tabId = tab.id] in
+            if expandedChecklistWorkspaceIds.contains(tabId) {
+                expandedChecklistWorkspaceIds.remove(tabId)
+            } else {
+                expandedChecklistWorkspaceIds.insert(tabId)
+            }
+        }
+        let onConsumeChecklistAddFieldActivation: () -> Void = { [tabId = tab.id] in
+            checklistAddFieldActivationTokens[tabId] = nil
+        }
         let row = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -12457,6 +12484,10 @@ struct VerticalTabsSidebar: View {
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
+            isChecklistExpanded: expandedChecklistWorkspaceIds.contains(tab.id),
+            checklistAddFieldActivationToken: checklistAddFieldActivationTokens[tab.id] ?? 0,
+            onToggleChecklistExpansion: onToggleChecklistExpansion,
+            onConsumeChecklistAddFieldActivation: onConsumeChecklistAddFieldActivation,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
         )
@@ -13256,6 +13287,14 @@ struct SidebarWorkspaceSnapshotBuilder {
         let listeningPorts: [Int]
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
+        // Workspace todo status/checklist; taskStatus is nil while the
+        // sidebar.workspaceTodos feature is disabled (no glyph slot reserved).
+        let taskStatus: WorkspaceTaskStatus?
+        let taskStatusHasOverride: Bool
+        let checklistItems: [WorkspaceChecklistItem]
+        let checklistCompletedCount: Int
+        let checklistTotalCount: Int
+        let checklistFirstUncheckedText: String?
     }
 }
 
@@ -13291,6 +13330,8 @@ struct TabItemView: View, Equatable {
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
         lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
         lhs.isBonsplitWorkspaceDropActive == rhs.isBonsplitWorkspaceDropActive &&
+        lhs.isChecklistExpanded == rhs.isChecklistExpanded &&
+        lhs.checklistAddFieldActivationToken == rhs.checklistAddFieldActivationToken &&
         lhs.settings == rhs.settings
     }
 
@@ -13344,6 +13385,14 @@ struct TabItemView: View, Equatable {
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
+    // Checklist expansion is per-workspace transient UI state owned by the
+    // sidebar container (a Set<UUID> there), passed in as a Bool + closures to
+    // respect the snapshot boundary. The activation token arms the checklist
+    // add-item field when a context-menu/palette "Add Checklist Item…" fires.
+    let isChecklistExpanded: Bool
+    let checklistAddFieldActivationToken: Int
+    let onToggleChecklistExpansion: () -> Void
+    let onConsumeChecklistAddFieldActivation: () -> Void
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
     /// modifier-key transitions from flipping the badges on the row sitting
@@ -13719,6 +13768,18 @@ struct TabItemView: View, Equatable {
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
+                if let taskStatus = workspaceSnapshot.taskStatus {
+                    SidebarWorkspaceTaskStatusGlyph(
+                        status: taskStatus,
+                        hasOverride: workspaceSnapshot.taskStatusHasOverride,
+                        usesMonochrome: usesInvertedActiveForeground,
+                        monochromeColor: activeSecondaryColor(0.85),
+                        neutralColor: activeSecondaryColor(0.6),
+                        fontScale: fontScale
+                    )
+                    .padding(.top, 2)
+                }
+
                 if unreadCount > 0 {
                     ZStack {
                         Circle()
@@ -14036,7 +14097,34 @@ struct TabItemView: View, Equatable {
                 .foregroundColor(activeSecondaryColor(0.75))
                 .lineLimit(1)
             }
+
+            // Checklist summary line + inline expansion. Rendered while the
+            // workspace-todos feature is on and there is either content or a
+            // pending "Add Checklist Item…" request (which needs the add
+            // field visible on an empty checklist).
+            if workspaceSnapshot.taskStatus != nil,
+               !workspaceSnapshot.checklistItems.isEmpty || checklistAddFieldActivationToken > 0 {
+                SidebarWorkspaceChecklistSection(
+                    items: workspaceSnapshot.checklistItems,
+                    completedCount: workspaceSnapshot.checklistCompletedCount,
+                    totalCount: workspaceSnapshot.checklistTotalCount,
+                    firstUncheckedText: workspaceSnapshot.checklistFirstUncheckedText,
+                    isExpanded: isChecklistExpanded,
+                    addFieldActivationToken: checklistAddFieldActivationToken,
+                    primaryColor: activeSecondaryColor(0.9),
+                    secondaryColor: activeSecondaryColor(0.65),
+                    summaryFont: magnifiedFont(scaledFontSize(10), weight: .semibold, monospacedDigit: true),
+                    itemFont: magnifiedFont(scaledFontSize(10)),
+                    fontScale: fontScale,
+                    onToggleExpansion: onToggleChecklistExpansion,
+                    onConsumeAddFieldActivation: onConsumeChecklistAddFieldActivation,
+                    actions: workspaceTodoChecklistActions
+                )
+            }
         }
+        // Done rows read as settled: dim the row content (not the selection
+        // background) to ~60%; hit-testing is unaffected by opacity.
+        .opacity(workspaceSnapshot.taskStatus == .done ? 0.6 : 1)
         // No implicit .animation(value:) on agent-mutable fields: animating a
         // row-height change interpolates the LazyVStack's measured height over
         // every frame of the 0.2s curve, and with dozens of agent sessions some
@@ -14328,6 +14416,10 @@ struct TabItemView: View, Equatable {
         .disabled(contextMenuPinState == nil)
 
         workspaceGroupContextMenuSection(targetIds: targetIds, isMulti: isMulti)
+
+        Divider()
+
+        workspaceTodoContextMenuSection
 
         Divider()
 
@@ -14831,6 +14923,16 @@ struct TabItemView: View, Equatable {
             guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
+        // Pure reads only: effective-status resolution never mutates; the
+        // expired-override cleanup happens at explicit mutation entry points.
+        let workspaceTodosEnabled = settings.workspaceTodosEnabled
+        let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = workspaceTodosEnabled
+            ? WorkspaceTaskStatusOverride.effectiveStatus(
+                override: tab.todoState.statusOverride,
+                inferred: tab.inferredTaskStatus
+            )
+            : nil
+        let checklistProgress = workspaceTodosEnabled ? tab.checklistProgressSummary : nil
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: workspaceSnapshotPresentationKey,
@@ -14857,7 +14959,15 @@ struct TabItemView: View, Equatable {
             pullRequestRows: pullRequestRows,
             listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
             finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab),
-            mediaActivity: tab.browserMediaActivity
+            mediaActivity: tab.browserMediaActivity,
+            taskStatus: taskStatusResolution?.effective,
+            taskStatusHasOverride: taskStatusResolution.map { resolution in
+                tab.todoState.statusOverride != nil && !resolution.shouldClearOverride
+            } ?? false,
+            checklistItems: workspaceTodosEnabled ? tab.todoState.checklist : [],
+            checklistCompletedCount: checklistProgress?.completedCount ?? 0,
+            checklistTotalCount: checklistProgress?.totalCount ?? 0,
+            checklistFirstUncheckedText: checklistProgress?.firstUncheckedText
         )
     }
 

@@ -121,6 +121,12 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
+      {
+        id: "markWorkspaceDone",
+        combos: [],
+        description: { en: "Mark workspace as done", ja: "ワークスペースを完了にする" },
+        note: { en: "unbound by default", ja: "デフォルトでは未割り当て" },
+      },
       { id: "newWorkspaceGroup", combos: [["⌃", "⌘", "G"]], description: { en: "New empty workspace group", ja: "空のワークスペースグループを作成" } },
       { id: "groupSelectedWorkspaces", combos: [["⌘", "⇧", "G"]], description: { en: "Group selected workspaces", ja: "選択したワークスペースをグループ化" } },
       {

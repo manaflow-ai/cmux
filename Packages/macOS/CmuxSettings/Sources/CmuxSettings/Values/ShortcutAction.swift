@@ -56,6 +56,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case renameTab
     case renameWorkspace
     case editWorkspaceDescription
+    /// Sets the workspace's todo status override to done.
+    case markWorkspaceDone
     case closeTab
     case closeOtherTabsInPane
     case closeWorkspace
@@ -185,7 +187,7 @@ extension ShortcutAction {
         case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
              .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
-             .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
+             .editWorkspaceDescription, .markWorkspaceDone, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
              .focusTextBoxInput, .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
@@ -365,6 +367,8 @@ extension ShortcutAction {
         case .renameTab: return "Rename Tab"
         case .renameWorkspace: return "Rename Workspace"
         case .editWorkspaceDescription: return "Edit Workspace Description"
+        case .markWorkspaceDone:
+            return String(localized: "shortcut.markWorkspaceDone.label", defaultValue: "Mark Workspace as Done")
         case .closeTab: return "Close Tab"
         case .closeOtherTabsInPane: return "Close Other Tabs in Pane"
         case .closeWorkspace: return "Close Workspace"

@@ -814,6 +814,11 @@
           "default": true,
           "description": "Show custom workspace descriptions in the sidebar."
         },
+        "workspaceTodos": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the workspace task-status glyph and checklist on sidebar rows. Turns on automatically after the first status or checklist mutation."
+        },
         "branchLayout": {
           "type": "string",
           "enum": ["vertical", "inline"],
@@ -1374,6 +1379,7 @@
               "renameTab",
               "renameWorkspace",
               "editWorkspaceDescription",
+              "markWorkspaceDone",
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
