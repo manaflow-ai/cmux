@@ -199,14 +199,18 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         ) == true)
     }
 
-    @Test func firstProdAuthLaunchOnFreshInstallDoesNotRequestClear() throws {
-        // A fresh container switching projects has nothing stale to drop.
+    @Test func firstProdAuthLaunchOnFreshInstallStillRequestsClear() throws {
+        // A fresh-looking container can still hide project-scoped keychain
+        // tokens (keychain survives app reinstalls), so a project change
+        // always requests the clear — a no-op when nothing is actually
+        // stored, and auto-login is unaffected (the clear rides
+        // clearStaleAuthOnLaunch, not the UI-test flag).
         let defaults = try freshDefaults()
         #expect(MobileAuthComposition.detectAuthProjectSwitch(
             resolvedProjectID: Self.productionProjectID,
             buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
-        ) == false)
+        ) == true)
         #expect(defaults.string(forKey: MobileAuthComposition.storedStackProjectIDKey) == Self.productionProjectID)
     }
 
@@ -268,9 +272,12 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         ) == true)
     }
 
-    @Test func projectFlipWithoutLocalAuthStateDoesNotRequestClear() throws {
-        // Signed out before the rebuild: nothing stale to drop, so the next
-        // launch keeps its normal flow (including dev auto-login).
+    @Test func projectFlipAfterSignOutStillRequestsClear() throws {
+        // Even signed out (empty defaults caches), the previous project's
+        // keychain tokens can linger — the token store is project-scoped and
+        // outlives the defaults — so a recorded project change always clears.
+        // Auto-login on the same launch is unaffected (covered by
+        // AuthCoordinatorEnvironmentSwitchClearTests).
         let defaults = try freshDefaults()
         _ = MobileAuthComposition.detectAuthProjectSwitch(
             resolvedProjectID: Self.developmentProjectID,
@@ -281,7 +288,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
             resolvedProjectID: Self.productionProjectID,
             buildDefaultProjectID: Self.developmentProjectID,
             defaults: defaults
-        ) == false)
+        ) == true)
     }
 
     // MARK: - Presence follows the auth channel
