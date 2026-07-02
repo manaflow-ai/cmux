@@ -930,4 +930,39 @@ struct DockSocketLifecycleTests {
         Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
     }
+
+    @Test("Dock transfer refreshes resumed-agent cwd rescue from trusted live cwd")
+    @MainActor
+    func dockTransferRefreshesResumedAgentCwdRescueFromTrustedLiveCwd() {
+        let sessionDirectory = "/tmp/cmux-dock-transfer-session"
+        let liveDirectory = "/tmp/cmux-dock-transfer-live"
+
+        #expect(DockSplitStore.dockRestoredResumeSessionWorkingDirectory(
+            preservedSessionDirectory: sessionDirectory,
+            detachedDirectory: liveDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: true,
+            agentProvenExited: false
+        ) == liveDirectory)
+
+        #expect(DockSplitStore.dockRestoredResumeSessionWorkingDirectory(
+            preservedSessionDirectory: sessionDirectory,
+            detachedDirectory: liveDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: false,
+            agentProvenExited: false
+        ) == sessionDirectory)
+
+        #expect(DockSplitStore.dockRestoredResumeSessionWorkingDirectory(
+            preservedSessionDirectory: nil,
+            detachedDirectory: liveDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: true,
+            agentProvenExited: false
+        ) == nil)
+
+        #expect(DockSplitStore.dockRestoredResumeSessionWorkingDirectory(
+            preservedSessionDirectory: sessionDirectory,
+            detachedDirectory: liveDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: true,
+            agentProvenExited: true
+        ) == nil)
+    }
 }

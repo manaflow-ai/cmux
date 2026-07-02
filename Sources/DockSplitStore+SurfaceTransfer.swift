@@ -17,6 +17,21 @@ extension DockSplitStore {
         result != 0 && errnoCode == ESRCH
     }
 
+    /// Computes the resume-cwd rescue value to carry out of the Dock. A nil
+    /// preserved value means cwd tracking was intentionally suppressed.
+    static func dockRestoredResumeSessionWorkingDirectory(
+        preservedSessionDirectory: String?,
+        detachedDirectory: String?,
+        detachedDirectoryWasReadFromLiveForegroundProcess: Bool,
+        agentProvenExited: Bool
+    ) -> String? {
+        guard !agentProvenExited else { return nil }
+        guard preservedSessionDirectory != nil else { return nil }
+        return detachedDirectoryWasReadFromLiveForegroundProcess
+            ? detachedDirectory
+            : preservedSessionDirectory
+    }
+
     private static func dockAgentPIDHasExited(_ pid: pid_t) -> Bool {
         errno = 0
         let result = Darwin.kill(pid, 0)
@@ -59,6 +74,8 @@ extension DockSplitStore {
         } else {
             detachedDirectory = preservedTransfer?.directory
         }
+        let detachedDirectoryWasReadFromLiveForegroundProcess =
+            liveTerminalDirectory != nil && detachedDirectory == liveTerminalDirectory
         // Agent resume metadata can likewise go stale while docked (the Dock
         // receives no shell-activity or agent lifecycle updates), so re-emit
         // it only while the agent is not proven dead: recorded agent pids
@@ -79,6 +96,12 @@ extension DockSplitStore {
             }
             return Self.dockAgentPIDHasExited(pid)
         }
+        let restoredResumeSessionWorkingDirectory = Self.dockRestoredResumeSessionWorkingDirectory(
+            preservedSessionDirectory: preservedTransfer?.restoredResumeSessionWorkingDirectory,
+            detachedDirectory: detachedDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
+            agentProvenExited: agentProvenExited
+        )
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
@@ -122,9 +145,7 @@ extension DockSplitStore {
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
             restorableAgent: agentProvenExited ? nil : preservedTransfer?.restorableAgent,
             restorableAgentResumeState: agentProvenExited ? nil : preservedTransfer?.restorableAgentResumeState,
-            restoredResumeSessionWorkingDirectory: agentProvenExited
-                ? nil
-                : preservedTransfer?.restoredResumeSessionWorkingDirectory,
+            restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: agentProvenExited ? nil : preservedTransfer?.resumeBinding,
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
