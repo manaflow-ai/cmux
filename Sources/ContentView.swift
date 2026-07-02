@@ -12422,47 +12422,63 @@ struct VerticalTabsSidebar: View {
                 lastSidebarSelectionIndex = nil
             }
         }
-        let row = TabItemView(
-            tabManager: tabManager,
-            notificationStore: notificationStore,
-            tab: tab,
-            index: index,
-            workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                at: index,
-                workspaceCount: renderContext.workspaceCount
-            ),
-            workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
-            canCloseWorkspace: renderContext.canCloseWorkspace,
-            accessibilityWorkspaceCount: renderContext.workspaceCount,
-            unreadCount: liveUnreadCount,
-            latestNotificationText: liveLatestNotificationText,
-            rowSpacing: tabRowSpacing,
-            setSelectionToTabs: { selection = .tabs },
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-            showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
-            dragAutoScrollController: dragAutoScrollController,
-            isBeingDragged: isBeingDragged,
-            topDropIndicatorVisible: topDropIndicatorVisible,
-            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive,
-            bonsplitSourceWorkspaceId: bonsplitSourceWorkspaceId,
-            moveBonsplitTabToWorkspace: moveBonsplitTabToWorkspace,
-            syncSidebarSelectionAfterBonsplitDrop: syncSidebarSelectionAfterBonsplitDrop,
-            onDragStart: onDragStart,
-            contextMenuWorkspaceIds: contextMenuWorkspaceIds,
-            remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
-            allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
-            allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
-            contextMenuPinState: contextMenuPinState,
-            workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
-            settings: renderContext.tabItemSettings,
-            onContextMenuAppear: onContextMenuAppear,
-            onContextMenuDisappear: onContextMenuDisappear
-        )
-        .equatable()
-        .id(tab.id)
-        .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
+        let workspaceIsUnread = liveUnreadCount > 0
+        let row = SidebarSwipeableRow(
+            workspaceId: tab.id,
+            isUnread: workspaceIsUnread,
+            onToggleReadState: { [notificationStore, tabId = tab.id, workspaceIsUnread] in
+                if workspaceIsUnread {
+                    notificationStore.markRead(forTabId: tabId)
+                } else {
+                    notificationStore.markUnread(forTabId: tabId)
+                }
+            },
+            onDelete: { [tabManager, tab] in
+                tabManager.closeWorkspaceWithConfirmation(tab)
+            }
+        ) {
+            TabItemView(
+                tabManager: tabManager,
+                notificationStore: notificationStore,
+                tab: tab,
+                index: index,
+                workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
+                    at: index,
+                    workspaceCount: renderContext.workspaceCount
+                ),
+                workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
+                canCloseWorkspace: renderContext.canCloseWorkspace,
+                accessibilityWorkspaceCount: renderContext.workspaceCount,
+                unreadCount: liveUnreadCount,
+                latestNotificationText: liveLatestNotificationText,
+                rowSpacing: tabRowSpacing,
+                setSelectionToTabs: { selection = .tabs },
+                selectedTabIds: $selectedTabIds,
+                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
+                dragAutoScrollController: dragAutoScrollController,
+                isBeingDragged: isBeingDragged,
+                topDropIndicatorVisible: topDropIndicatorVisible,
+                bottomDropIndicatorVisible: bottomDropIndicatorVisible,
+                isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive,
+                bonsplitSourceWorkspaceId: bonsplitSourceWorkspaceId,
+                moveBonsplitTabToWorkspace: moveBonsplitTabToWorkspace,
+                syncSidebarSelectionAfterBonsplitDrop: syncSidebarSelectionAfterBonsplitDrop,
+                onDragStart: onDragStart,
+                contextMenuWorkspaceIds: contextMenuWorkspaceIds,
+                remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
+                allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
+                allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
+                contextMenuPinState: contextMenuPinState,
+                workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
+                settings: renderContext.tabItemSettings,
+                onContextMenuAppear: onContextMenuAppear,
+                onContextMenuDisappear: onContextMenuDisappear
+            )
+            .equatable()
+            .id(tab.id)
+            .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
+        }
 
         row
             .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
