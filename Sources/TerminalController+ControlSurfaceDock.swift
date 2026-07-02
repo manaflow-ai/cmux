@@ -143,6 +143,18 @@ extension TerminalController {
         return dock.workspaceId != requestedWindowID
     }
 
+    /// Whether the routing explicitly names a DIFFERENT window Dock than
+    /// `dock` — via `window_id` or a Dock-owner `workspace_id`. Used by the
+    /// surface-containment paths that bypass `windowDockForRouting`; a
+    /// non-Dock `workspace_id` never conflicts (see `windowDockForRouting`).
+    func windowDockMismatchesExplicitSelectors(_ routing: ControlRoutingSelectors, dock: DockSplitStore) -> Bool {
+        if windowDockMismatchesExplicitWindow(routing, dock: dock) { return true }
+        guard let workspaceID = routing.workspaceID,
+              workspaceID != AppDelegate.windowDockAliasWorkspaceId,
+              AppDelegate.shared?.existingWindowDock(forWindowId: workspaceID) != nil else { return false }
+        return workspaceID != dock.workspaceId
+    }
+
     /// Focuses the Dock's owning window, makes it the active manager, and
     /// reveals the Dock there, returning the owning manager. A Dock surface or
     /// pane renders only in its owning window (the registry is the source of

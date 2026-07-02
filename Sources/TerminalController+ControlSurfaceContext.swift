@@ -274,7 +274,9 @@ extension TerminalController: ControlSurfaceContext {
             return .tabManagerUnavailable
         }
         if let windowDock = windowDockContainingPanel(surfaceID) {
-            if windowDockMismatchesExplicitWindow(routing, dock: windowDock) {
+            // An explicit window_id or Dock-owner workspace_id naming a
+            // different window's Dock fails closed.
+            if windowDockMismatchesExplicitSelectors(routing, dock: windowDock) {
                 return .surfaceNotFound(surfaceID)
             }
             focusAndRevealWindowDock(for: windowDock, fallback: tabManager)

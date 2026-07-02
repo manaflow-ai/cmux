@@ -231,12 +231,17 @@ struct WindowDockRoutingSocketTests {
 
             // Focusing a Dock surface by id targets its owning window even when
             // the caller's context resolved elsewhere; an explicit contradictory
-            // window_id fails closed instead.
+            // window_id or Dock-owner workspace_id fails closed instead.
             let crossFocusEnvelope = try v2Envelope(method: "surface.focus", params: [
                 "surface_id": dockSurfaceId.uuidString,
                 "window_id": dockWindowId.uuidString,
             ])
             #expect(crossFocusEnvelope["ok"] as? Bool == false)
+            let ownerConflictFocusEnvelope = try v2Envelope(method: "surface.focus", params: [
+                "surface_id": dockSurfaceId.uuidString,
+                "workspace_id": dockWindowId.uuidString,
+            ])
+            #expect(ownerConflictFocusEnvelope["ok"] as? Bool == false)
             let focusResult = try v2Result(method: "surface.focus", params: [
                 "surface_id": dockSurfaceId.uuidString,
             ])
