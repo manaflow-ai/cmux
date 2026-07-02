@@ -3,6 +3,46 @@ import CmuxControlSocket
 import Foundation
 
 extension TerminalController {
+    func validateDockSurfaceCreateRouting(
+        routing: ControlRoutingSelectors,
+        tabManager: TabManager,
+        panelType: PanelType
+    ) -> ControlSurfaceCreateResolution? {
+        guard panelType == .terminal || panelType == .browser else {
+            return .dockUnsupportedType(typeRawValue: panelType.rawValue, message: dockUnsupportedSurfaceTypeMessage())
+        }
+        guard RightSidebarMode.dock.isAvailable() else {
+            return .dockUnavailable(message: dockUnavailableMessage())
+        }
+        guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
+            return .workspaceNotFound
+        }
+        guard !windowDockCreateRoutingConflicts(routing, dockOwnerId: dockOwnerId, aliasTabManager: tabManager) else {
+            return .dockConflictingRoutingSelectors(message: dockConflictingRoutingSelectorsMessage())
+        }
+        return nil
+    }
+
+    func validateDockPaneCreateRouting(
+        routing: ControlRoutingSelectors,
+        tabManager: TabManager,
+        panelType: PanelType
+    ) -> ControlPaneCreateResolution? {
+        guard panelType == .terminal || panelType == .browser else {
+            return .dockUnsupportedType(typeRawValue: panelType.rawValue, message: dockUnsupportedSurfaceTypeMessage())
+        }
+        guard RightSidebarMode.dock.isAvailable() else {
+            return .dockUnavailable(message: dockUnavailableMessage())
+        }
+        guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
+            return .workspaceNotFound
+        }
+        guard !windowDockCreateRoutingConflicts(routing, dockOwnerId: dockOwnerId, aliasTabManager: tabManager) else {
+            return .dockConflictingRoutingSelectors(message: dockConflictingRoutingSelectorsMessage())
+        }
+        return nil
+    }
+
     @discardableResult
     func revealDockForFocus(tabManager: TabManager) -> Bool {
         let preferredWindow = v2ResolveWindowId(tabManager: tabManager)
@@ -35,17 +75,11 @@ extension TerminalController {
         url: URL?,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
-        guard panelType == .terminal || panelType == .browser else {
-            return .dockUnsupportedType(typeRawValue: panelType.rawValue, message: dockUnsupportedSurfaceTypeMessage())
-        }
-        guard RightSidebarMode.dock.isAvailable() else {
-            return .dockUnavailable(message: dockUnavailableMessage())
+        if let invalid = validateDockSurfaceCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
+            return invalid
         }
         guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
             return .workspaceNotFound
-        }
-        guard !windowDockCreateRoutingConflicts(routing, dockOwnerId: dockOwnerId, aliasTabManager: tabManager) else {
-            return .dockConflictingRoutingSelectors(message: dockConflictingRoutingSelectorsMessage())
         }
         guard let dock = AppDelegate.shared?.windowDockForRegisteredOwner(dockOwnerId) else {
             return .workspaceNotFound

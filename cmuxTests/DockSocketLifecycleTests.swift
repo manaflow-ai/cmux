@@ -358,6 +358,45 @@ struct DockSocketLifecycleTests {
         }
     }
 
+    @Test("Conflicting Dock create selectors beat browser-disabled external fallback")
+    @MainActor
+    func conflictingDockCreateSelectorsBeatBrowserDisabledExternalFallback() throws {
+        try withDockEnabled {
+            try withBrowserDisabled {
+                try withSocketAppContext { _, workspace, windowId in
+                    let appDelegate = try #require(AppDelegate.shared)
+                    let otherManager = TabManager(autoWelcomeIfNeeded: false)
+                    let otherWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: otherManager)
+                    defer {
+                        appDelegate.unregisterMainWindowContextForTesting(windowId: otherWindowId)
+                        otherManager.tabs.forEach { $0.teardownAllPanels() }
+                    }
+
+                    for method in ["surface.create", "pane.create"] {
+                        var params = [
+                            "placement": "dock",
+                            "type": "browser",
+                            "url": "https://example.com",
+                            "window_id": windowId.uuidString,
+                            "workspace_id": otherWindowId.uuidString,
+                        ]
+                        if method == "pane.create" {
+                            params["direction"] = "right"
+                        }
+
+                        let envelope = try v2Envelope(method: method, params: params)
+                        #expect(envelope["ok"] as? Bool == false)
+                        let error = try #require(envelope["error"] as? [String: Any])
+                        #expect(error["code"] as? String == "invalid_params")
+                        #expect(error["message"] as? String == "Conflicting Dock routing selectors")
+                        #expect(appDelegate.existingWindowDocks.isEmpty)
+                        #expect(workspace._dockSplit?.bonsplitController.allTabIds.isEmpty ?? true)
+                    }
+                }
+            }
+        }
+    }
+
     @Test("surface.close closes Dock surfaces")
     @MainActor
     func surfaceCloseClosesDockSurfaces() throws {

@@ -302,6 +302,9 @@ extension TerminalController: ControlPaneContext {
             return .dockUnavailable(message: dockUnavailableMessage())
         }
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
+        if case .dock = placement, let invalid = validateDockPaneCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
+            return invalid
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return browserDisabledCreateResolution(rawURL: inputs.urlRaw, url: url, tabManager: tabManager)
         }

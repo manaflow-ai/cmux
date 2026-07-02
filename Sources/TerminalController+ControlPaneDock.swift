@@ -17,20 +17,11 @@ extension TerminalController {
         initialDividerPosition: CGFloat?,
         inputs: ControlPaneCreateInputs
     ) -> ControlPaneCreateResolution {
-        guard panelType == .terminal || panelType == .browser else {
-            return .dockUnsupportedType(
-                typeRawValue: panelType.rawValue,
-                message: dockUnsupportedSurfaceTypeMessage()
-            )
-        }
-        guard RightSidebarMode.dock.isAvailable() else {
-            return .dockUnavailable(message: dockUnavailableMessage())
+        if let invalid = validateDockPaneCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
+            return invalid
         }
         guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
             return .workspaceNotFound
-        }
-        guard !windowDockCreateRoutingConflicts(routing, dockOwnerId: dockOwnerId, aliasTabManager: tabManager) else {
-            return .dockConflictingRoutingSelectors(message: dockConflictingRoutingSelectorsMessage())
         }
         guard let dock = AppDelegate.shared?.windowDockForRegisteredOwner(dockOwnerId) else {
             return .workspaceNotFound

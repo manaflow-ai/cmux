@@ -311,6 +311,10 @@ extension TerminalController {
         }
 
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
+        if case .dock = placement,
+           let invalid = validateDockSurfaceCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
+            return invalid
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return .browserDisabled(surfaceBrowserDisabledOutcome(
                 rawURL: inputs.urlRaw,
