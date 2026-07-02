@@ -840,6 +840,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "hideWorkspaceCloseButton": "Ukryj przycisk zamykania dla każdego obszaru roboczego na pasku bocznym, aby tytuły obszarów mogły wykorzystać odzyskaną szerokość.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },
         "fileExplorer": {

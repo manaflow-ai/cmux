@@ -21,6 +21,7 @@ struct UserDefaultsSettingsClientTests {
 
         #expect(client.value(for: catalog.app.reorderOnNotification) == true)
         #expect(client.value(for: catalog.sidebar.hideAllDetails) == false)
+        #expect(client.value(for: catalog.sidebar.hideWorkspaceCloseButton) == false)
         #expect(client.value(for: catalog.sidebar.showWorkspaceDescription) == true)
         #expect(client.value(for: catalog.sidebar.showNotificationMessage) == true)
         #expect(client.value(for: catalog.sidebar.branchVerticalLayout) == true)

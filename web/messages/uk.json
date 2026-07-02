@@ -840,6 +840,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "hideWorkspaceCloseButton": "Приховує кнопку закриття для кожного робочого простору на бічній панелі, щоб заголовки могли використовувати звільнену ширину.",
           "rightMaxWidth": "Максимальна ширина правої бічної панелі в пунктах. Якщо пропущено, застосовується вбудоване динамічне обмеження."
         },
         "fileExplorer": {

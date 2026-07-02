@@ -19,6 +19,7 @@ public struct SidebarSection: View {
     @State private var matchTerminal: DefaultsValueModel<Bool>
     @State private var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
+    @State private var hideWorkspaceCloseButton: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
     @State private var branchVerticalLayout: DefaultsValueModel<Bool>
     @State private var stackBranchDir: DefaultsValueModel<Bool>
@@ -45,6 +46,7 @@ public struct SidebarSection: View {
         _matchTerminal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground))
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
         _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))
+        _hideWorkspaceCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideWorkspaceCloseButton))
         _showDesc = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription))
         _branchVerticalLayout = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchVerticalLayout))
         _stackBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory))
@@ -78,6 +80,7 @@ public struct SidebarSection: View {
             matchTerminal,
             hideAll,
             wrapTitles,
+            hideWorkspaceCloseButton,
             showDesc,
             branchVerticalLayout,
             stackBranchDir,
@@ -249,7 +252,6 @@ public struct SidebarSection: View {
                 }
             }
             SettingsCardDivider()
-
             SettingsCardRow(
                 configurationReview: .json("sidebar.hideAllDetails"),
                 String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"),
@@ -275,7 +277,8 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             SettingsCardDivider()
-
+            SidebarWorkspaceCloseButtonSettingsRow(model: hideWorkspaceCloseButton)
+            SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("sidebar.showWorkspaceDescription"),
                 String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"),

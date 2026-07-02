@@ -15,6 +15,15 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarWrapWorkspaceTitles"
     )
 
+    /// When `true`, hides the per-workspace close button in the sidebar so
+    /// workspace titles reclaim its reserved width. Defaults to `false`,
+    /// which keeps the close-button column reserved on every closable row.
+    public let hideWorkspaceCloseButton = DefaultsKey<Bool>(
+        id: "sidebar.hideWorkspaceCloseButton",
+        defaultValue: false,
+        userDefaultsKey: "sidebarHideWorkspaceCloseButton"
+    )
+
     public let showWorkspaceDescription = DefaultsKey<Bool>(
         id: "sidebar.showWorkspaceDescription",
         defaultValue: true,

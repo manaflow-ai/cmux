@@ -278,6 +278,23 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testHideWorkspaceCloseButtonCommandTogglesDefaultAndReportsState() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.hideWorkspaceCloseButtonInSidebar"
+                )
+            )
+            let key = SettingCatalog().sidebar.hideWorkspaceCloseButton.userDefaultsKey
+
+            XCTAssertFalse(descriptor.isOn(defaults))
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, true)
+            XCTAssertTrue(descriptor.isOn(defaults))
+        }
+    }
+
     func testUnavailableCommandDoesNotToggleStoredValue() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(

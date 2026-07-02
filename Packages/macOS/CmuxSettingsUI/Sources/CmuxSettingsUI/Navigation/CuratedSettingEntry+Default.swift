@@ -140,6 +140,15 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "match-terminal", title: "Match Terminal Background", synonyms: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
             .init(section: .sidebarAppearance, id: "hide-sidebar-details", title: "Hide All Sidebar Details", synonyms: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
             .init(section: .sidebarAppearance, id: "wrap-workspace-titles", title: "Wrap Workspace Titles in Sidebar", synonyms: "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request"),
+            .init(
+                section: .sidebarAppearance,
+                id: "hide-workspace-close-button",
+                title: String(
+                    localized: "settings.sidebar.hideWorkspaceCloseButton",
+                    defaultValue: "Hide Workspace Close Button"
+                ),
+                synonyms: "sidebar.hideWorkspaceCloseButton workspace close x button title width reclaim"
+            ),
             .init(section: .sidebarAppearance, id: "show-workspace-description", title: "Show Workspace Description in Sidebar", synonyms: "sidebar.showWorkspaceDescription workspace description notes markdown sidebar"),
             .init(section: .sidebarAppearance, id: "sidebar-branch-layout", title: "Sidebar Branch Layout", synonyms: "sidebar.branchLayout sidebar.branchVerticalLayout git branch layout vertical inline cwd directory"),
             .init(section: .sidebarAppearance, id: "stack-branch-directory", title: "Stack Branch and Directory", synonyms: "sidebar.stackBranchDirectory git branch directory cwd path stack stacked separate lines two rows"),
