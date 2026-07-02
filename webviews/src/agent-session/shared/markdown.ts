@@ -1,3 +1,25 @@
+import hljs from "highlight.js/lib/core";
+import bash from "highlight.js/lib/languages/bash";
+import c from "highlight.js/lib/languages/c";
+import cpp from "highlight.js/lib/languages/cpp";
+import csharp from "highlight.js/lib/languages/csharp";
+import css from "highlight.js/lib/languages/css";
+import diff from "highlight.js/lib/languages/diff";
+import go from "highlight.js/lib/languages/go";
+import java from "highlight.js/lib/languages/java";
+import javascript from "highlight.js/lib/languages/javascript";
+import json from "highlight.js/lib/languages/json";
+import kotlin from "highlight.js/lib/languages/kotlin";
+import markdown from "highlight.js/lib/languages/markdown";
+import python from "highlight.js/lib/languages/python";
+import ruby from "highlight.js/lib/languages/ruby";
+import rust from "highlight.js/lib/languages/rust";
+import sql from "highlight.js/lib/languages/sql";
+import swift from "highlight.js/lib/languages/swift";
+import typescript from "highlight.js/lib/languages/typescript";
+import xml from "highlight.js/lib/languages/xml";
+import yaml from "highlight.js/lib/languages/yaml";
+
 type MarkedLike = {
   parse(source: string, options?: Record<string, unknown>): string | Promise<string>;
 };
@@ -21,6 +43,61 @@ const unsafeElementNames = new Set([
 ]);
 
 const passiveFetchAttributeNames = new Set(["poster", "src", "srcset", "xlink:href"]);
+
+const highlightLanguageAliases = new Map([
+  ["c++", "cpp"],
+  ["c#", "csharp"],
+  ["cc", "cpp"],
+  ["cjs", "javascript"],
+  ["cs", "csharp"],
+  ["cxx", "cpp"],
+  ["golang", "go"],
+  ["h", "cpp"],
+  ["hpp", "cpp"],
+  ["htm", "xml"],
+  ["html", "xml"],
+  ["js", "javascript"],
+  ["jsx", "javascript"],
+  ["kt", "kotlin"],
+  ["kts", "kotlin"],
+  ["mjs", "javascript"],
+  ["md", "markdown"],
+  ["py", "python"],
+  ["rb", "ruby"],
+  ["rs", "rust"],
+  ["sh", "bash"],
+  ["shell", "bash"],
+  ["svg", "xml"],
+  ["ts", "typescript"],
+  ["tsx", "typescript"],
+  ["yml", "yaml"],
+  ["zsh", "bash"],
+]);
+
+const highlightLanguages = [
+  ["bash", bash],
+  ["c", c],
+  ["cpp", cpp],
+  ["csharp", csharp],
+  ["css", css],
+  ["diff", diff],
+  ["go", go],
+  ["java", java],
+  ["javascript", javascript],
+  ["json", json],
+  ["kotlin", kotlin],
+  ["markdown", markdown],
+  ["python", python],
+  ["ruby", ruby],
+  ["rust", rust],
+  ["sql", sql],
+  ["swift", swift],
+  ["typescript", typescript],
+  ["xml", xml],
+  ["yaml", yaml],
+] as const;
+
+let highlightLanguagesRegistered = false;
 
 export function renderMarkdownHTML(source: string): string {
   const parser = typeof window === "undefined" ? undefined : window.marked;
@@ -176,7 +253,98 @@ function sanitizeRenderedHTML(html: string): string {
     }
   }
 
+  highlightRenderedCodeBlocks(template.content);
+
   return template.innerHTML;
+}
+
+function highlightRenderedCodeBlocks(root: ParentNode): void {
+  for (const codeElement of Array.from(root.querySelectorAll("pre > code"))) {
+    const language = highlightLanguageFromCodeClassName(codeElement.className);
+    const highlighted = highlightCodeHTML(codeElement.textContent ?? "", language);
+    if (!highlighted || !isSafeHighlightHTML(highlighted)) {
+      continue;
+    }
+    codeElement.innerHTML = highlighted;
+    codeElement.classList.add("hljs");
+    if (language) {
+      (codeElement as HTMLElement).dataset.highlightLanguage = language;
+    }
+  }
+}
+
+export function highlightLanguageFromCodeClassName(className: string): string | null {
+  for (const token of className.split(/\s+/)) {
+    const match = /^(?:lang|language)-(.+)$/.exec(token);
+    if (!match) {
+      continue;
+    }
+    return normalizeHighlightLanguage(match[1]);
+  }
+  return null;
+}
+
+export function normalizeHighlightLanguage(language: string | null | undefined): string | null {
+  const normalized = language?.trim().toLowerCase().split(/[\s,{:]/, 1)[0]?.replace(/^language-/, "") ?? "";
+  if (!normalized || !/^[a-z0-9#+._-]+$/.test(normalized)) {
+    return null;
+  }
+  return highlightLanguageAliases.get(normalized) ?? normalized;
+}
+
+export function highlightCodeHTML(code: string, language: string | null | undefined): string | null {
+  ensureHighlightLanguagesRegistered();
+  const highlightLanguage = highlightLanguageFor(language);
+  if (!highlightLanguage) {
+    return null;
+  }
+  try {
+    return hljs.highlight(code, {
+      language: highlightLanguage,
+      ignoreIllegals: true,
+    }).value;
+  } catch {
+    return null;
+  }
+}
+
+export function isSafeHighlightHTML(html: string): boolean {
+  let index = 0;
+  while ((index = html.indexOf("<", index)) !== -1) {
+    if (html.startsWith("</span>", index)) {
+      index += "</span>".length;
+      continue;
+    }
+    const openSpan = /^<span class="[ A-Za-z0-9_-]*">/.exec(html.slice(index));
+    if (!openSpan) {
+      return false;
+    }
+    index += openSpan[0].length;
+  }
+  return true;
+}
+
+function ensureHighlightLanguagesRegistered(): void {
+  if (highlightLanguagesRegistered && hljs.getLanguage("typescript")) {
+    return;
+  }
+  for (const [languageName, language] of highlightLanguages) {
+    if (!hljs.getLanguage(languageName)) {
+      hljs.registerLanguage(languageName, language);
+    }
+  }
+  highlightLanguagesRegistered = true;
+}
+
+function highlightLanguageFor(language: string | null | undefined): string | null {
+  if (typeof language === "string" && hljs.getLanguage(language)) {
+    return language;
+  }
+  const normalizedLanguage = normalizeHighlightLanguage(language);
+  if (!normalizedLanguage || !hljs.getLanguage(normalizedLanguage)) {
+    return null;
+  }
+  return normalizedLanguage;
 }
 
 export function sanitizedMarkdownURLAttribute(

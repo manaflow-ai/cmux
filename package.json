@@ -21,6 +21,7 @@
     "@biomejs/biome": "2.5.0",
     "@tailwindcss/cli": "^4.3.0",
     "esbuild": "0.27.0",
+    "highlight.js": "11.11.1",
     "tailwindcss": "^4.3.0"
   }
 }
