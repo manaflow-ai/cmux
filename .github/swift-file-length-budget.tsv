@@ -207,6 +207,7 @@
 561	cmuxTests/GhosttyConfigPathResolverTests.swift
 560	cmuxTests/CLISSHPTYResizeInputTests.swift
 558	Packages/macOS/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
+555	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/TerminalViewportResyncTests.swift
 553	Sources/RightSidebarPanelView.swift
 549	Sources/Panels/BrowserAutomation.swift
 547	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
