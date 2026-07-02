@@ -737,13 +737,13 @@
       "layoutItem1": "Filas de nivel superior fijadas (workspaces y grupos).",
       "layoutItem2": "Filas de nivel superior no fijadas (workspaces y grupos).",
       "creatingTitle": "Crear un grupo",
-      "creatingIntro": "Un grupo se crea de una de dos maneras: mediante un atajo de teclado o el menú contextual de un workspace. Ambas opciones insertan un nuevo workspace ancla por encima de la selección y mueven los workspaces seleccionados al grupo. Una vez que existe un grupo, lo gestionas y le agregas workspaces desde el encabezado del grupo (consulta Gestionar un grupo más abajo).",
-      "keyboardTitle": "Desde el teclado ({shortcut})",
-      "keyboardDesc": "Selecciona dos o más workspaces en la barra lateral y luego presiona {shortcut}. Se inserta un nuevo workspace de anclaje encima de la selección y todos los workspaces seleccionados se convierten en hijos. El grupo se nombra automáticamente como Group 1, Group 2, y así sucesivamente; renómbralo en cualquier momento mediante el menú contextual del encabezado.",
+      "creatingIntro": "Un grupo se crea desde un atajo de teclado o un menú contextual de la barra lateral. Los grupos vacíos insertan un nuevo espacio de trabajo ancla como encabezado del grupo. Los grupos basados en selección insertan ese ancla encima de la selección y mueven los espacios de trabajo seleccionados al grupo. Cuando el grupo existe, puedes administrarlo y agregarle espacios de trabajo desde el encabezado del grupo (consulta Administrar un grupo abajo).",
+      "keyboardTitle": "Desde atajos de teclado",
+      "keyboardDesc": "Pulsa ⌃⌘G para crear un nuevo grupo de espacios de trabajo vacío. Selecciona dos o más espacios de trabajo en la barra lateral y luego pulsa {shortcut} para agrupar la selección. Ambas rutas crean un nuevo espacio de trabajo ancla y nombran automáticamente el grupo como Group 1, Group 2, etc. Puedes cambiarle el nombre en cualquier momento desde el menú contextual del encabezado.",
       "keyboardNote": "{shortcut} entra en conflicto con el predeterminado de React Grab. El gestor de grupos solo consume la combinación cuando hay una multiselección explícita en la barra lateral de al menos dos workspaces, por lo que React Grab sigue activándose en selecciones individuales y en contextos de navegador o terminal. Reasígnalo en Configuración → Teclado si prefieres que ambos no compartan una tecla.",
       "keyboardSingle": "Los grupos de una sola pestaña no se crean desde el atajo. Para ello, usa la entrada Nuevo grupo desde el espacio de trabajo del menú contextual del espacio de trabajo.",
       "contextMenuTitle": "Desde el menú contextual de un workspace",
-      "contextMenuDesc": "Haz clic derecho en cualquier espacio de trabajo de la barra lateral y elige Nuevo grupo desde el espacio de trabajo, o Nuevo grupo desde la selección cuando haya varios espacios de trabajo seleccionados. Esto usa el mismo comportamiento de nombrado automático que el atajo.",
+      "contextMenuDesc": "Haz clic derecho en cualquier espacio de trabajo de la barra lateral y elige Nuevo grupo de espacios de trabajo vacío, Nuevo grupo desde espacio de trabajo o Nuevo grupo desde selección cuando haya varios espacios de trabajo seleccionados. El área en blanco debajo de la lista de la barra lateral también ofrece Nuevo grupo de espacios de trabajo vacío. Estas rutas usan el mismo comportamiento de nombre automático que los atajos.",
       "managingTitle": "Gestionar un grupo",
       "managingIntro": "Una vez que existe un grupo, el menú contextual de su encabezado y el botón + del encabezado te permiten gestionar el grupo y agregarle workspaces. Ninguno de los dos crea un grupo nuevo.",
       "headerMenuTitle": "Desde el menú contextual del encabezado del grupo",
@@ -819,6 +819,9 @@
           "scrollSpeed": "Multiplicador aplicado a los desplazamientos de la rueda de desplazamiento y del panel táctil en el terminal. Los valores más altos desplazan más rápido y los más bajos, más lento.",
           "showTextBoxOnNewTerminals": "Muestra la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados.",
           "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox."
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Cuando está activado, un banner de notificación se retira automáticamente solo cuando su superficie es exactamente la superficie enfocada. Un banner entregado para una superficie no enfocada en el workspace actualmente visible permanece visible hasta que enfoques esa superficie (o hagas clic en él/lo descartes), en lugar de retirarse cuando el workspace se vuelve visible. Desactivado conserva el comportamiento heredado de retirada según la visibilidad del workspace."
         },
         "browser": {
           "defaultSearchEngine": "Motor de búsqueda predeterminado para consultas de la barra de direcciones del navegador que no son URL. Usa custom con customSearchEngineURLTemplate para otros proveedores.",
@@ -1068,7 +1071,8 @@
       "closeWorkspaceDesc": "Cerrar un workspace.",
       "splitCommands": "Comandos de división",
       "newSplitDesc": "Crear un nuevo panel dividido. Direcciones: left, right, up, down.",
-      "listSurfacesDesc": "Listar todas las superficies en el workspace actual.",
+      "listPanelsDesc": "Listar todas las superficies en el workspace actual.",
+      "listPaneSurfacesDesc": "Listar las superficies en el panel enfocado.",
       "focusSurfaceDesc": "Enfocar una superficie específica.",
       "inputCommands": "Comandos de entrada",
       "sendDesc": "Enviar texto al terminal enfocado.",
@@ -1590,7 +1594,8 @@
   "afterSignIn": {
     "title": "Sesión iniciada en cmux",
     "body": "Si cmux no se abrió automáticamente, usa el botón de abajo.",
-    "button": "Volver a cmux"
+    "button": "Volver a cmux",
+    "switchAccountButton": "Usar otra cuenta"
   },
   "landing": {
     "bestTerminal": {
