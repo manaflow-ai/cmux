@@ -13634,6 +13634,13 @@ class TerminalController {
         )
     }
 
+    private func mobileTerminalCloseLastSurfaceMessage() -> String {
+        String(
+            localized: "mobile.terminal.closeLastSurface.message",
+            defaultValue: "This is the last item in the workspace. Close the workspace from the Mac instead."
+        )
+    }
+
     func v2MobileTerminalCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
@@ -13684,7 +13691,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
         guard resolved.workspace.panels.count > 1 else {
-            return .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
+            return .err(code: "invalid_state", message: mobileTerminalCloseLastSurfaceMessage(), data: nil)
         }
         if resolved.workspace.pinnedPanelIds.contains(surfaceId) {
             return .err(
@@ -13699,7 +13706,7 @@ class TerminalController {
         }
         if CloseTabWarningStore(defaults: resolved.workspace.closeTabWarningDefaults).shouldConfirmClose(
             requiresConfirmation: resolved.workspace.panelNeedsConfirmClose(panelId: surfaceId),
-            source: .shortcut
+            source: .tabCloseButton
         ) {
             return .err(
                 code: "confirmation_required",

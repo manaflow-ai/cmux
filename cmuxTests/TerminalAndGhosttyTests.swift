@@ -1525,6 +1525,44 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertNotNil(workspace.terminalPanel(for: pinnedPanel.id))
     }
 
+    func testMobileTerminalCloseRejectsLastSurfaceWithLocalizedMessage() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminal = try XCTUnwrap(workspace.focusedTerminalPanel)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-last-surface",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": terminal.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected terminal.close on the last surface to fail")
+            return
+        }
+        XCTAssertEqual(error.code, "invalid_state")
+        XCTAssertEqual(
+            error.message,
+            String(
+                localized: "mobile.terminal.closeLastSurface.message",
+                defaultValue: "This is the last item in the workspace. Close the workspace from the Mac instead."
+            )
+        )
+        XCTAssertNotNil(workspace.terminalPanel(for: terminal.id))
+    }
+
     func testMobileTerminalCloseRejectsRunningTerminalWhenCloseWarningEnabled() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let suiteName = "terminal-close-warning-\(UUID().uuidString)"
@@ -1564,6 +1602,48 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(data["surface_id"] as? String, runningPanel.id.uuidString)
         XCTAssertEqual(data["requires_confirmation"] as? Bool, true)
         XCTAssertNotNil(workspace.terminalPanel(for: runningPanel.id))
+    }
+
+    func testMobileTerminalCloseHonorsTabCloseButtonWarningForCleanTerminal() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let suiteName = "terminal-close-x-button-warning-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        AppCatalogSection().warnBeforeClosingTab.set(false, in: defaults)
+        AppCatalogSection().warnBeforeClosingTabXButton.set(true, in: defaults)
+        let manager = TabManager(closeTabWarningDefaults: defaults)
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let cleanPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
+        cleanPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-x-button-warning",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": cleanPanel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected terminal.close to honor the tab-close-button warning setting")
+            return
+        }
+        XCTAssertEqual(error.code, "confirmation_required")
+        let data = try XCTUnwrap(error.data as? [String: Any])
+        XCTAssertEqual(data["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(data["surface_id"] as? String, cleanPanel.id.uuidString)
+        XCTAssertEqual(data["requires_confirmation"] as? Bool, true)
+        XCTAssertNotNil(workspace.terminalPanel(for: cleanPanel.id))
     }
 
     func testMobileTerminalCloseClearsViewportReportsForClosedSurface() async throws {
