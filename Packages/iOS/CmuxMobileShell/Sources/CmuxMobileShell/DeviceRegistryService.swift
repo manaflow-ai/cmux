@@ -99,18 +99,30 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// Choose the routes to persist for the next reconnect.
     ///
     /// The reconnect path connects on `local` routes immediately (no added
-    /// latency on the common case) and only *replaces* the persisted routes when
+    /// latency on the common case) and only *rewrites* the persisted routes when
     /// the registry returns a usable, different set, so a stale-route Mac gets
     /// rescued on the next reconnect trigger. Returns `nil` to signal "no change
     /// needed" (registry unavailable, empty, or identical), letting callers skip
     /// a redundant store write and fall back to the locally persisted routes.
+    ///
+    /// Per route KIND the registry is authoritative (its host/port replaces a
+    /// stale local host/port), but local routes of kinds the registry does NOT
+    /// carry are preserved rather than dropped. A registry row can lag the Mac's
+    /// current single-lane publish (observed in dogfood: a Mac switched to
+    /// cmuxRelay whose registry row still held only an old tailscale host/port);
+    /// wholesale replacement deleted the freshly-paired iroh route from the
+    /// store, so every later cold open dialed the dead TCP port and auto-connect
+    /// never recovered without re-pairing.
     public static func selectReconnectRoutes(
         local: [CmxAttachRoute],
         registry: [CmxAttachRoute]?
     ) -> [CmxAttachRoute]? {
         guard let registry, !registry.isEmpty else { return nil }
-        guard registry != local else { return nil }
-        return registry
+        let registryKinds = Set(registry.map(\.kind))
+        let preservedLocal = local.filter { !registryKinds.contains($0.kind) }
+        let merged = registry + preservedLocal
+        guard merged != local else { return nil }
+        return merged
     }
 
     /// Whether a background registry refresh may write back into the paired-Mac

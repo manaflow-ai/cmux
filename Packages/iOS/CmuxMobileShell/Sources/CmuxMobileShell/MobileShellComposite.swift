@@ -1737,25 +1737,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // blocks the others.
         for mac in candidates {
             guard generation == storedMacReconnectGeneration,
-                  await isScopeCurrent(scope),
-                  let route = reachableRoute(mac) else { break }
+                  await isScopeCurrent(scope) else { break }
+            let dialRoutes = Self.reconnectRouteCandidates(
+                mac.routes,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            )
+            guard !dialRoutes.isEmpty else { break }
             let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
             guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope), !latestForgottenIDs.contains(mac.macDeviceID) else { break }
             // Best-effort registry refresh for this Mac in the background.
             refreshRoutesFromRegistry(for: mac, scope: scope)
-            if case let .hostPort(host, port) = route.endpoint {
-                await connectStoredMacHost(
-                    name: mac.displayName ?? host, host: host, port: port,
-                    pairedMacDeviceID: mac.macDeviceID)
-            } else {
-                // iroh peer route (cmuxRelay Macs publish only this): mint + attach
-                // over the stored route directly via the shared route core.
-                await connectManualRoute(
-                    displayName: mac.displayName ?? mac.macDeviceID,
-                    route: route,
-                    syntheticMacDeviceID: mac.macDeviceID,
-                    pairedMacDeviceID: mac.macDeviceID,
-                    recordsPairingAttempt: false)
+            // Try the Mac's routes in order (host/port first, then iroh peer):
+            // a stale host/port fails fast and the stored iroh route still
+            // connects, instead of one dead dial skipping the whole Mac.
+            for route in dialRoutes {
+                guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope) else { break }
+                if case let .hostPort(host, port) = route.endpoint {
+                    await connectStoredMacHost(
+                        name: mac.displayName ?? host, host: host, port: port,
+                        pairedMacDeviceID: mac.macDeviceID)
+                } else {
+                    // iroh peer route (cmuxRelay Macs publish only this): mint +
+                    // attach over the stored route via the shared route core.
+                    await connectManualRoute(
+                        displayName: mac.displayName ?? mac.macDeviceID,
+                        route: route,
+                        syntheticMacDeviceID: mac.macDeviceID,
+                        pairedMacDeviceID: mac.macDeviceID,
+                        recordsPairingAttempt: false)
+                }
+                if connectionState == .connected { break }
             }
             if connectionState == .connected { break }
         }
@@ -2829,6 +2841,40 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // policy-trusted (encrypted) peer routes qualify.
             return MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
         }
+    }
+
+    /// Ordered dial candidates for one stored Mac: the host/port pick first
+    /// (exact ``firstReconnectHostPortRoute`` behavior), then the trusted peer
+    /// (iroh) pick when it is a DIFFERENT route. The reconnect loop tries them
+    /// in order, so a stale host/port route (a Mac that moved to the iroh-only
+    /// cmuxRelay lane while its stored/registry host/port lagged) fails fast and
+    /// the stored iroh route still connects — instead of the whole Mac being
+    /// skipped after one dead dial.
+    static func reconnectRouteCandidates(
+        _ routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool = false
+    ) -> [CmxAttachRoute] {
+        let supported = Set(supportedKinds)
+        let ordered = routes.sorted(by: Self.routeSortsBefore)
+        var candidates: [CmxAttachRoute] = []
+        if let (host, port) = firstReconnectHostPortRoute(
+            routes, supportedKinds: supportedKinds, preferNonLoopback: preferNonLoopback
+        ), let hostPortPick = ordered.first(where: { route in
+            guard supported.isEmpty || supported.contains(route.kind) else { return false }
+            guard case let .hostPort(routeHost, routePort) = route.endpoint else { return false }
+            return routeHost == host && routePort == port
+        }) {
+            candidates.append(hostPortPick)
+        }
+        if let peerPick = ordered.first(where: { route in
+            guard supported.isEmpty || supported.contains(route.kind) else { return false }
+            guard case .peer = route.endpoint else { return false }
+            return MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
+        }) {
+            candidates.append(peerPick)
+        }
+        return candidates
     }
 
     /// Whether `host` is a numeric IP literal (IPv4 or IPv6) rather than a name

@@ -151,6 +151,28 @@ import Testing
         #expect(pick == nil)
     }
 
+    @Test func candidatesTryHostPortFirstThenIroh() throws {
+        // The dogfood failure mode: a stored STALE tailscale route (the Mac
+        // moved to iroh-only cmuxRelay) plus the freshly-paired iroh route. The
+        // dial order must be host/port first (existing behavior), then the iroh
+        // peer as fallback — so one dead TCP dial no longer skips the whole Mac.
+        let candidates = MobileShellComposite.reconnectRouteCandidates(
+            [try tailscale(), try iroh()],
+            supportedKinds: [.debugLoopback, .tailscale, .iroh],
+            preferNonLoopback: true
+        )
+        #expect(candidates.map(\.kind) == [.tailscale, .iroh])
+    }
+
+    @Test func candidatesAreIrohOnlyForACmuxRelayMac() throws {
+        let candidates = MobileShellComposite.reconnectRouteCandidates(
+            [try iroh()],
+            supportedKinds: [.debugLoopback, .tailscale, .iroh],
+            preferNonLoopback: true
+        )
+        #expect(candidates.map(\.kind) == [.iroh])
+    }
+
     @Test func fullRouteSelectionMatchesHostPortChoice() throws {
         // The route-returning selection must pick the SAME endpoint the legacy
         // host/port selection proved reachable (loopback deprioritized on device).
