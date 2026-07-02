@@ -5,6 +5,12 @@ import Darwin
 import Foundation
 import CmuxSidebar
 
+struct AgentPIDProcessIdentity: Equatable, Sendable {
+    let pid: pid_t
+    let startSeconds: Int64
+    let startMicroseconds: Int64
+}
+
 extension Workspace {
     private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
@@ -13,6 +19,11 @@ extension Workspace {
     var agentPIDs: [String: pid_t] {
         get { sidebarAgentRuntimeObservation.agentPIDs }
         set { sidebarAgentRuntimeObservation.setAgentPIDs(newValue) }
+    }
+
+    var agentPIDProcessIdentitiesByKey: [String: AgentPIDProcessIdentity] {
+        get { sidebarAgentRuntimeObservation.agentPIDProcessIdentitiesByKey }
+        set { sidebarAgentRuntimeObservation.setAgentPIDProcessIdentitiesByKey(newValue) }
     }
 
     var agentPIDPanelIdsByKey: [String: UUID] {
@@ -122,6 +133,7 @@ extension Workspace {
             didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
         }
         agentPIDs[key] = pid
+        agentPIDProcessIdentitiesByKey[key] = Self.agentPIDProcessIdentity(pid: pid)
         if let panelId {
             recordAgentPIDOwnership(key: key, panelId: panelId)
         } else {
@@ -131,6 +143,42 @@ extension Workspace {
             refreshTrackedAgentPorts()
         }
         return didClearOtherStructuredAgentRuntime
+    }
+
+    @discardableResult
+    func clearStaleAgentPIDs(refreshPorts: Bool = true) -> Bool {
+        var didChange = false
+        for (key, pid) in agentPIDs where !isRecordedAgentPIDLive(key: key, pid: pid) {
+            if clearAgentPID(key: key, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        if didChange, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+        return didChange
+    }
+
+    private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
+        guard pid > 0,
+              let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
+              let currentIdentity = Self.agentPIDProcessIdentity(pid: pid) else {
+            return false
+        }
+        return currentIdentity == recordedIdentity
+    }
+
+    private static func agentPIDProcessIdentity(pid: pid_t) -> AgentPIDProcessIdentity? {
+        guard pid > 0 else { return nil }
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        guard size == expectedSize else { return nil }
+        return AgentPIDProcessIdentity(
+            pid: pid,
+            startSeconds: Int64(info.pbi_start_tvsec),
+            startMicroseconds: Int64(info.pbi_start_tvusec)
+        )
     }
 
     func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
@@ -240,6 +288,9 @@ extension Workspace {
 
         var didChange = false
         if agentPIDs.removeValue(forKey: key) != nil {
+            didChange = true
+        }
+        if agentPIDProcessIdentitiesByKey.removeValue(forKey: key) != nil {
             didChange = true
         }
         if ownedPanelId != nil {

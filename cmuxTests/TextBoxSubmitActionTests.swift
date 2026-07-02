@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import Darwin
 import Testing
 
 #if canImport(cmux_DEV)
@@ -195,8 +196,19 @@ struct TextBoxSubmitActionTests {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
         workspace.recordAgentPID(key: "codex.dead-session", pid: 999_999, panelId: panel.id, refreshPorts: false)
+        workspace.clearStaleAgentPIDs(refreshPorts: false)
         let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
         XCTAssertTrue(TextBoxInputContainer.allowsSubmitActionSelection(pendingProviderLaunchAction: nil, shouldForceTextEntrySubmit: TextBoxInputContainer.shouldForceTextEntrySubmit(allowsCommandTemplateSubmit: true, terminalAgentContext: context)))
+    }
+
+    @Test
+    func testLiveHookPIDStillForcesActiveAgentTextEntryAfterSweep() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.recordAgentPID(key: "codex.current-process", pid: getpid(), panelId: panel.id, refreshPorts: false)
+        workspace.clearStaleAgentPIDs(refreshPorts: false)
+        let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+        XCTAssertFalse(TextBoxInputContainer.allowsSubmitActionSelection(pendingProviderLaunchAction: nil, shouldForceTextEntrySubmit: TextBoxInputContainer.shouldForceTextEntrySubmit(allowsCommandTemplateSubmit: true, terminalAgentContext: context)))
     }
 
     @Test

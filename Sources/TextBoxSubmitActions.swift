@@ -565,6 +565,7 @@ extension TextBoxInputContainer {
     }
 
     func cycleSubmitAction() {
+        surface.owningWorkspace()?.clearStaleAgentPIDs()
         guard Self.allowsSubmitActionSelection(
             pendingProviderLaunchAction: pendingProviderLaunchAction,
             shouldForceTextEntrySubmit: shouldForceTextEntrySubmit
