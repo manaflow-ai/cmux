@@ -115,6 +115,8 @@ extension MobileShellComposite {
         guard workspace.terminals.count > 1 else { return }
         var params = workspaceMutationParams(id: workspaceID)
         params["surface_id"] = terminalID.rawValue
+        beginSelectedTerminalCloseAutoFocusSuppression(for: terminalID)
+        defer { endSelectedTerminalCloseAutoFocusSuppression() }
         await sendWorkspaceMutation(
             method: "terminal.close",
             params: params,

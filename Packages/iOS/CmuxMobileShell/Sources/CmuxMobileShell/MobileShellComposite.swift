@@ -553,6 +553,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// keyboard, while push-notification navigation (``selectTerminal(_:)``) is
     /// intentionally left out of the set and allowed to autofocus.
     private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
+    /// Set while a chrome-initiated selected-terminal close is awaiting the
+    /// authoritative refresh. If that refresh repairs selection to a replacement
+    /// terminal, the replacement must mount without stealing the keyboard.
+    @ObservationIgnored private var suppressAutoFocusOnNextTerminalRepair = false
 
     let runtime: (any MobileSyncRuntime)?
     let pairedMacStore: (any MobilePairedMacStoring)?
@@ -4139,6 +4143,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = id
     }
 
+    /// Arms the selection-repair autofocus suppression when chrome closes the
+    /// currently selected terminal. Non-selected terminal closes do not rebuild
+    /// the visible surface, so they leave autofocus behavior unchanged.
+    func beginSelectedTerminalCloseAutoFocusSuppression(for terminalID: MobileTerminalPreview.ID) {
+        guard selectedTerminalID == terminalID else { return }
+        suppressAutoFocusOnNextTerminalRepair = true
+    }
+
+    func endSelectedTerminalCloseAutoFocusSuppression() {
+        suppressAutoFocusOnNextTerminalRepair = false
+    }
+
     /// Whether the surface for `terminalID` may grab the keyboard on its next
     /// window attach. False while a one-shot suppression is pending for it.
     public func shouldAutoFocusTerminalSurface(_ terminalID: String) -> Bool {
@@ -5642,7 +5658,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
             return
         }
-        selectedTerminalID = selectedWorkspace.preferredTerminal?.id
+        let repairedTerminalID = selectedWorkspace.preferredTerminal?.id
+        if suppressAutoFocusOnNextTerminalRepair {
+            suppressTerminalAutoFocusOnNextAttach(for: repairedTerminalID)
+            suppressAutoFocusOnNextTerminalRepair = false
+        }
+        selectedTerminalID = repairedTerminalID
     }
 
     // MARK: - Per-terminal composer drafts

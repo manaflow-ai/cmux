@@ -22,6 +22,9 @@ import Testing
         #expect(closes.map(\.surfaceID) == [RoutingHostRouter.terminalA])
         #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalB])
         #expect(store.selectedTerminalID == terminalB)
+        #expect(store.shouldAutoFocusTerminalSurface(terminalB.rawValue) == false)
+        store.consumeTerminalAutoFocusSuppression(for: terminalB.rawValue)
+        #expect(store.shouldAutoFocusTerminalSurface(terminalB.rawValue) == true)
     }
 
     /// A rejected close must not desync the list: the post-mutation refresh keeps
@@ -42,6 +45,8 @@ import Testing
         #expect(await router.recordedTerminalCloses().count == 1)
         #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalA, terminalB])
         #expect(store.selectedTerminalID == terminalA)
+        #expect(store.shouldAutoFocusTerminalSurface(terminalA.rawValue) == true)
+        #expect(store.shouldAutoFocusTerminalSurface(terminalB.rawValue) == true)
     }
 
     /// Closing a workspace's only terminal is not offered by the sheet and the
