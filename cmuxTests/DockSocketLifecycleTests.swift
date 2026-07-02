@@ -964,5 +964,19 @@ struct DockSocketLifecycleTests {
             detachedDirectoryWasReadFromLiveForegroundProcess: true,
             agentProvenExited: true
         ) == nil)
+
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "{ cd -- '\(sessionDirectory)' 2>/dev/null || [ ! -d '\(sessionDirectory)' ]; } && 'codex' 'resume' 'abc'",
+            cwd: sessionDirectory,
+            source: "agent-hook"
+        )
+        let retargetedBinding = DockSplitStore.dockResumeBinding(
+            preservedBinding: binding,
+            restoredResumeSessionWorkingDirectory: liveDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: true,
+            agentProvenExited: false
+        )
+        #expect(retargetedBinding?.cwd == liveDirectory)
+        #expect(retargetedBinding?.command.contains(liveDirectory) == true)
     }
 }

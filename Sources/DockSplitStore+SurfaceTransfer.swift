@@ -32,6 +32,20 @@ extension DockSplitStore {
             : preservedSessionDirectory
     }
 
+    static func dockResumeBinding(
+        preservedBinding: SurfaceResumeBindingSnapshot?,
+        restoredResumeSessionWorkingDirectory: String?,
+        detachedDirectoryWasReadFromLiveForegroundProcess: Bool,
+        agentProvenExited: Bool
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard !agentProvenExited, let preservedBinding else { return nil }
+        guard detachedDirectoryWasReadFromLiveForegroundProcess,
+              let restoredResumeSessionWorkingDirectory else {
+            return preservedBinding
+        }
+        return preservedBinding.retargetingWorkingDirectory(restoredResumeSessionWorkingDirectory)
+    }
+
     private static func dockAgentPIDHasExited(_ pid: pid_t) -> Bool {
         errno = 0
         let result = Darwin.kill(pid, 0)
@@ -102,6 +116,16 @@ extension DockSplitStore {
             detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
             agentProvenExited: agentProvenExited
         )
+        let resumeBinding = Self.dockResumeBinding(
+            preservedBinding: preservedTransfer?.resumeBinding,
+            restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
+            agentProvenExited: agentProvenExited
+        )
+        let trimmedCustomTitle = preservedTransfer?.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let transferTitle = trimmedCustomTitle?.isEmpty == false
+            ? preservedTransfer?.customTitle
+            : panel.displayTitle
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
@@ -127,7 +151,7 @@ extension DockSplitStore {
             sourceWorkspaceId: workspaceId,
             panelId: panelId,
             panel: panel,
-            title: panel.displayTitle,
+            title: transferTitle ?? panel.displayTitle,
             icon: icon,
             iconImageData: iconImageData,
             kind: kind,
@@ -146,7 +170,7 @@ extension DockSplitStore {
             restorableAgent: agentProvenExited ? nil : preservedTransfer?.restorableAgent,
             restorableAgentResumeState: agentProvenExited ? nil : preservedTransfer?.restorableAgentResumeState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
-            resumeBinding: agentProvenExited ? nil : preservedTransfer?.resumeBinding,
+            resumeBinding: resumeBinding,
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,

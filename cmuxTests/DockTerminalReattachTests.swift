@@ -44,6 +44,8 @@ extension DockSocketLifecycleTests {
         sourceWorkspaceId: UUID,
         directory: String? = nil,
         cachedTitle: String? = nil,
+        customTitle: String? = nil,
+        customTitleSource: Workspace.CustomTitleSource? = nil,
         restorableAgent: SessionRestorableAgentSnapshot? = nil,
         restorableAgentResumeState: Workspace.RestoredAgentResumeState? = nil,
         restoredResumeSessionWorkingDirectory: String? = nil,
@@ -64,8 +66,8 @@ extension DockSocketLifecycleTests {
             directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: cachedTitle,
-            customTitle: nil,
-            customTitleSource: nil,
+            customTitle: customTitle,
+            customTitleSource: customTitleSource,
             manuallyUnread: false,
             restoredUnreadIndicator: nil,
             restorableAgent: restorableAgent,
@@ -271,6 +273,8 @@ extension DockSocketLifecycleTests {
             sourceWorkspaceId: sourceWorkspaceId,
             directory: trackedDirectory,
             cachedTitle: "Stale Dock Title",
+            customTitle: "Pinned Agent",
+            customTitleSource: .user,
             restorableAgent: agent,
             restorableAgentResumeState: .autoResumeCommandRunning,
             restoredResumeSessionWorkingDirectory: sessionDirectory,
@@ -283,7 +287,9 @@ extension DockSocketLifecycleTests {
 
         let roundTripped = try #require(store.detachSurface(panelId: panel.id))
         #expect(roundTripped.panelId == panel.id)
+        #expect(roundTripped.title == "Pinned Agent")
         #expect(roundTripped.cachedTitle == "Current Dock Title")
+        #expect(roundTripped.customTitle == "Pinned Agent")
         #expect(roundTripped.directory == trackedDirectory)
         #expect(roundTripped.restorableAgent?.sessionId == sessionId)
         #expect(roundTripped.restorableAgentResumeState == .autoResumeCommandRunning)
