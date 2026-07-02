@@ -551,7 +551,10 @@ enum NotesTreeStorage {
         func walk(_ directory: String, depth: Int) {
             guard depth < maxDepth, remainingDirectories > 0, found.count < maxSessions else { return }
             remainingDirectories -= 1
-            for entry in listEntries(inDirectory: directory) where entry.kind.isDirectory {
+            // Cap each listing at the remaining directory budget: more entries
+            // than that can't all be visited, and an unbounded listing would
+            // let one huge directory dominate every 10s visible refresh.
+            for entry in listEntries(inDirectory: directory, limit: remainingDirectories + 1) where entry.kind.isDirectory {
                 if let marker = entry.kind.sessionMarker {
                     found.append(NotesSessionFolderRef(directory: entry.path, marker: marker))
                     if found.count >= maxSessions { return }
