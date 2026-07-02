@@ -3,11 +3,11 @@ extension CMUXCLI {
 }
 
 function sendHook(subcommand: string, ctx: ExtensionContext, extra: HookExtra = {}): boolean {
-  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return true;
-  if (!process.env.CMUX_SURFACE_ID) return true;
+  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return false;
+  if (!(process.env.CMUX_SOCKET_PATH || process.env.CMUX_SOCKET) || !["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID"].some((key) => process.env[key])) return false;
 
   const sessionId = sessionIdFrom(ctx);
-  if (!sessionId) return true;
+  if (!sessionId) return false;
 
   const cwd = cwdFrom(ctx);
   const payload: HookExtra = {
@@ -30,6 +30,7 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: HookExtra = 
 }
 
 function surfaceTargetArgs(): string[] | null {
+  if (!process.env.CMUX_SOCKET_PATH && !process.env.CMUX_SOCKET) return null;
   const surfaceId = firstString(process.env.CMUX_SURFACE_ID);
   if (!surfaceId) return null;
   const args: string[] = [];
@@ -196,7 +197,10 @@ function clearResumeBinding(ctx: ExtensionContext, sessionId: string, cwd: strin
 
 function sendFeed(eventName: "PreToolUse" | "PostToolUse", ctx: ExtensionContext, event: unknown, extra: HookExtra = {}): void {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+  // Unlike session hooks, `cmux hooks feed` records against a surface and no-ops
+  // without CMUX_SURFACE_ID, so keep telemetry surface-scoped to avoid spawning a
+  // cmux subprocess per tool event in no-surface (workspace-only) contexts.
+  if (!(process.env.CMUX_SOCKET_PATH || process.env.CMUX_SOCKET) || !process.env.CMUX_SURFACE_ID) return;
   const sessionId = sessionIdFrom(ctx);
   if (!sessionId) return;
   const cwd = cwdFrom(ctx);

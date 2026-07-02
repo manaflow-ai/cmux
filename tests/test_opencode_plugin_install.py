@@ -155,7 +155,11 @@ printf '\\n---\\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env = env.copy()
         check_env["CMUX_TEST_OPENCODE_PLUGIN_PATH"] = str(plugin_path)
         check_env["CMUX_TEST_OPENCODE_PLUGIN_COPY_PATH"] = str(plugin_copy_path)
-        check_env["CMUX_SURFACE_ID"] = "surface-opencode-test"
+        check_env.pop("CMUX_SOCKET_PATH", None)
+        check_env.pop("CMUX_SOCKET", None)
+        check_env.pop("CMUX_SURFACE_ID", None)
+        check_env.pop("CMUX_PANEL_ID", None)
+        check_env["CMUX_WORKSPACE_ID"] = "workspace-opencode-test"
         check_env["CMUX_OPENCODE_CMUX_BIN"] = str(fake_cmux)
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
@@ -199,6 +203,27 @@ await hooks.event({
   }
 });
 """
+        no_socket_check = subprocess.run(
+            [bun, "--eval", check_source],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=check_env,
+            timeout=20,
+        )
+        if no_socket_check.returncode != 0:
+            print("FAIL: generated OpenCode plugin failed without socket context")
+            print(f"exit={no_socket_check.returncode}")
+            print(f"stdout={no_socket_check.stdout.strip()}")
+            print(f"stderr={no_socket_check.stderr.strip()}")
+            return 1
+        if fake_args_log.exists() and fake_args_log.read_text(encoding="utf-8"):
+            print("FAIL: plugin invoked cmux without CMUX_SOCKET_PATH")
+            print(fake_args_log.read_text(encoding="utf-8"))
+            return 1
+
+        check_env["CMUX_SOCKET_PATH"] = str(root / "cmux-test.sock")
         check = subprocess.run(
             [bun, "--eval", check_source],
             cwd=root,
