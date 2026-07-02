@@ -103,9 +103,10 @@ import Testing
 
         await store.forgetMac(macDeviceID: "mac-fresh")
 
-        #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-old", "mac-other"])
-        #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-old", "mac-other"])
-        #expect(try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a").map(\.macDeviceID) == ["mac-old", "mac-other"])
+        #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-other"])
+        #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-other"])
+        #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue).isEmpty)
+        #expect(try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a").map(\.macDeviceID) == ["mac-other"])
     }
 
     @Test func presenceRoutesForHiddenDuplicateRefreshOnlyTheEmittingRow() async throws {
@@ -173,6 +174,109 @@ import Testing
         #expect(duplicateRows.first { $0.macDeviceID == "mac-old" }?.routes == [freshRoute])
         #expect(duplicateRows.first { $0.macDeviceID == "mac-fresh" }?.routes != [freshRoute])
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-fresh", "mac-other"])
+    }
+
+    @Test func switchRestoreTargetUsesLiveForegroundInsteadOfPersistedActiveMac() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-live",
+                        displayName: "Live Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 30),
+                        isActive: false
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-stale-active",
+                        displayName: "Stale Active Mac",
+                        host: "100.82.214.113",
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: true
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-target",
+                        displayName: "Target Mac",
+                        host: "100.82.214.114",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        await store.loadPairedMacs()
+        let storeMacs = try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a")
+
+        let restoreTarget = store.previousForegroundMacForSwitchRestore(
+            previousForegroundMacDeviceID: "mac-live",
+            switchingTo: "mac-target",
+            storeMacs: storeMacs
+        )
+
+        #expect(restoreTarget?.macDeviceID == "mac-live")
+    }
+
+    @Test func presenceRouteWriteFinishingAfterForgetDoesNotReviveDeletedMac() async throws {
+        let oldRoute = try CmxAttachRoute(
+            id: "old",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.82.214.112", port: 50922)
+        )
+        let freshRoute = try CmxAttachRoute(
+            id: "fresh",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.82.214.112", port: 50923)
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true,
+                        routes: [oldRoute]
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        await pairedStore.gateUpsert(macDeviceID: "mac-a")
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        await store.loadPairedMacs()
+
+        store.applyPresenceUpdate(
+            .online(PresenceInstance(
+                deviceId: "mac-a",
+                tag: "default",
+                platform: "mac",
+                online: true,
+                lastSeenAt: 1_000,
+                routes: [freshRoute]
+            )),
+            scope: MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+        )
+        await pairedStore.waitUntilUpsertStarted(macDeviceID: "mac-a")
+        await store.forgetMac(macDeviceID: "mac-a")
+        await pairedStore.releaseUpsert(macDeviceID: "mac-a")
+        await store.waitForPushedRouteSyncForTesting()
+
+        #expect(try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a").isEmpty)
+        #expect(store.pairedMacs.isEmpty)
+        #expect(store.displayPairedMacs.isEmpty)
     }
 
     @Test func presenceRoutesDoNotFanOutWhenLogicalDuplicatesBothAdvertiseRoutes() async throws {

@@ -237,6 +237,8 @@ public struct CMUXMobileRootScene: View {
             WorkspaceListLayoutPreviewView()
         } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
+        } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
+            MobileBottomScrollStressView()
         } else {
             CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
         }
@@ -255,6 +257,7 @@ public struct CMUXMobileRootScene: View {
         let deviceRegistry = makeDeviceRegistry()
         let restoreBoundary = PairedMacRestoreBoundary()
         let backedUpPairedMacStore = makeBackedUpPairedMacStore(restoreBoundary: restoreBoundary)
+        let forgottenMacStore = UserDefaultsPairedMacForgottenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
@@ -269,6 +272,7 @@ public struct CMUXMobileRootScene: View {
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
+            forgottenMacStore: forgottenMacStore,
             analytics: analytics,
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
@@ -285,6 +289,7 @@ public struct CMUXMobileRootScene: View {
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
+            forgottenMacStore: forgottenMacStore,
             analytics: analytics,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,

@@ -6,6 +6,25 @@ extension TabItemView {
         targetIds: [UUID],
         isMulti: Bool
     ) -> some View {
+        let newWorkspaceGroupShortcut = KeyboardShortcutSettings.shortcut(for: .newWorkspaceGroup)
+        let newWorkspaceGroupLabel = String(
+            localized: "contextMenu.workspaceGroup.newEmpty",
+            defaultValue: "New Empty Workspace Group"
+        )
+        let canCreateEmptyWorkspaceGroup = tabManager.selectedTab?.isRemoteTmuxMirror != true
+        if let key = newWorkspaceGroupShortcut.keyEquivalent {
+            Button(newWorkspaceGroupLabel) {
+                _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+            }
+            .keyboardShortcut(key, modifiers: newWorkspaceGroupShortcut.eventModifiers)
+            .disabled(!canCreateEmptyWorkspaceGroup)
+        } else {
+            Button(newWorkspaceGroupLabel) {
+                _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+            }
+            .disabled(!canCreateEmptyWorkspaceGroup)
+        }
+
         let targetWorkspaces = targetIds.compactMap { id in
             tabManager.tabs.first(where: { $0.id == id })
         }
