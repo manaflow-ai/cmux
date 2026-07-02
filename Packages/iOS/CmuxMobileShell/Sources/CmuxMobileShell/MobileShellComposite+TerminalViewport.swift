@@ -26,6 +26,13 @@ extension MobileShellComposite {
             return nil
         }
         let reportedGrid = MobileTerminalViewportSize(columns: columns, rows: rows)
+        // Track the natural size locally right away so the SwiftUI letterbox
+        // follows the reported grid instead of a stale viewport echo.
+        reportTerminalViewport(
+            workspaceID: workspaceID,
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID),
+            viewportSize: reportedGrid
+        )
         let previousReportedGrid = reportedTerminalViewportSizesBySurfaceID[surfaceID]
         let prearmedReplayBarrierToken = prearmTerminalViewportReplayBarrierIfNeeded(
             surfaceID: surfaceID,

@@ -79,7 +79,7 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
-    private var replayRenderGridFrames: [MobileTerminalRenderGridFrame] = []
+    private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
@@ -186,8 +186,18 @@ actor LivenessHostRouter {
         replayTexts.append(contentsOf: texts)
     }
 
+    func enqueueReplayPayload(text: String?, sequence: UInt64?) {
+        replayPayloads.append((text: text, sequence: sequence, renderGrid: nil))
+    }
+
+    func enqueueReplayRenderGrid(_ renderGrid: MobileTerminalRenderGridFrame) {
+        replayPayloads.append((text: nil, sequence: nil, renderGrid: renderGrid))
+    }
+
     func enqueueReplayRenderGridFrames(_ frames: [MobileTerminalRenderGridFrame]) {
-        replayRenderGridFrames.append(contentsOf: frames)
+        for frame in frames {
+            enqueueReplayRenderGrid(frame)
+        }
     }
 
     func failNextReplay(count: Int = 1) {
@@ -322,17 +332,25 @@ actor LivenessHostRouter {
                 emptyReplayResponsesRemaining -= 1
                 return try? Self.resultFrame(id: id, result: [:])
             }
-            if !replayRenderGridFrames.isEmpty {
-                let frame = replayRenderGridFrames.removeFirst()
-                guard let object = try? frame.jsonObject() else {
-                    return try? Self.errorFrame(id: id, message: "render grid encode failed")
+            if !replayPayloads.isEmpty {
+                let payload = replayPayloads.removeFirst()
+                var result: [String: Any] = [:]
+                if let text = payload.text {
+                    result["data_b64"] = Data(text.utf8).base64EncodedString()
                 }
-                return try? Self.resultFrame(id: id, result: [
-                    "seq": frame.stateSeq,
-                    "columns": frame.columns,
-                    "rows": frame.rows,
-                    "render_grid": object,
-                ])
+                if let sequence = payload.sequence {
+                    result["seq"] = sequence
+                }
+                if let renderGrid = payload.renderGrid,
+                   let renderGridObject = try? renderGrid.jsonObject() {
+                    result["render_grid"] = renderGridObject
+                    result["columns"] = renderGrid.columns
+                    result["rows"] = renderGrid.rows
+                    if result["seq"] == nil {
+                        result["seq"] = renderGrid.stateSeq
+                    }
+                }
+                return try? Self.resultFrame(id: id, result: result)
             }
             guard !replayTexts.isEmpty else {
                 return try? Self.resultFrame(id: id, result: [:])
