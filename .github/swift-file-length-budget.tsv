@@ -7,12 +7,12 @@
 14224	Sources/TerminalController.swift
 13018	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
-12214	Sources/GhosttyTerminalView.swift
+12212	Sources/GhosttyTerminalView.swift
 11671	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8032	Sources/Panels/BrowserPanelView.swift
 8016	CLI/cmux_open.swift
-7783	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+7833	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7400	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
@@ -44,7 +44,7 @@
 2242	Sources/TerminalNotificationStore.swift
 2229	Sources/TerminalWindowPortal.swift
 2126	cmuxTests/CmuxConfigTests.swift
-2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
+2085	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2078	Sources/SessionPersistence.swift
 1966	Sources/RestorableAgentSession.swift
 1952	Sources/KeyboardShortcutSettingsFileStore.swift

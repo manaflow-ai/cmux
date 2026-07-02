@@ -233,6 +233,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var workspacesByMac: [String: MacWorkspaceState] = [:] {
         didSet { recomputeDerivedWorkspaceState() }
     }
+    /// Mac-local ids (``MobileWorkspacePreview/rpcWorkspaceID``) the owning Mac has
+    /// CONFIRMED closed (`workspace.close` returned success), keyed by the owning
+    /// Mac's ``workspacesByMac`` key. A stale `workspace.list` snapshot can still
+    /// list a just-closed row; any match is filtered from the derived list. Scoped
+    /// by Mac because aggregated row ids are only Mac-local (two Macs can share an
+    /// id). Persists for the connection; cleared on disconnect. See issue #6349.
+    var confirmedClosedWorkspaceIDsByMac: [String: Set<String>] = [:]
     private let workspaceAggregation = MobileWorkspaceAggregation()
     /// The flat aggregated workspace list the UI renders. A materialized
     /// derivation of ``workspacesByMac``: only ``recomputeDerivedWorkspaceState``
@@ -3781,7 +3788,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let foregroundAnonymousKey = "__cmux_foreground__"
 
     /// The key the foreground Mac's state lives under in ``workspacesByMac``.
-    private var foregroundMacKey: String { foregroundMacDeviceID ?? Self.foregroundAnonymousKey }
+    var foregroundMacKey: String { foregroundMacDeviceID ?? Self.foregroundAnonymousKey }
 
     private func updateForegroundWorkspaceActionCapabilities() {
         guard var state = workspacesByMac[foregroundMacKey] else { return }
@@ -3792,7 +3799,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Recompute the derived ``workspaces`` / ``workspaceGroups`` from the per-Mac
     /// source of truth. Pure and cheap; the only place those two are assigned,
     /// called on any ``workspacesByMac`` or foreground change.
-    private func recomputeDerivedWorkspaceState() {
+    func recomputeDerivedWorkspaceState() {
         let previousSelection = selectedWorkspaceID.flatMap { id in
             workspaces.first { $0.id == id }
         }
@@ -3804,8 +3811,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             foregroundKey = nil
         }
+        // Retire close tombstones the owning Mac's authoritative state no longer
+        // lists: the only writer of a Mac's `workspaces` is a full-list ingest
+        // (foreground sync or ANY secondary path), so an id that has dropped out was
+        // confirmed closed. Reconciling here — where every ingest funnels through —
+        // bounds the set to the stale-refresh window without each ingest having to
+        // remember to reconcile (issue #6349).
+        if !confirmedClosedWorkspaceIDsByMac.isEmpty {
+            confirmedClosedWorkspaceIDsByMac = confirmedClosedWorkspaceIDsByMac.reduce(into: [:]) { kept, entry in
+                // No state for the Mac yet (not loaded / transient) carries no
+                // authoritative signal, so keep the tombstone until a real list lands.
+                guard let state = workspacesByMac[entry.key] else { kept[entry.key] = entry.value; return }
+                let present = Set(state.workspaces.map { $0.rpcWorkspaceID.rawValue })
+                let live = entry.value.intersection(present)
+                if !live.isEmpty { kept[entry.key] = live }
+            }
+        }
+        // Filter rows the owning Mac has CONFIRMED closed (and any group they
+        // anchor) out of the per-Mac source, so BOTH the flat list AND the group
+        // headers drop a just-deleted workspace while a stale `workspace.list` still
+        // reports it. A group whose anchor was closed dissolves on the Mac; dropping
+        // it lets its surviving members fall back to ungrouped rows, matching that.
+        let statesByMac = statesFilteringConfirmedClosed(workspacesByMac)
         var derived = workspaceAggregation.derivedWorkspaces(
-            statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+            statesByMac: statesByMac, foregroundMacDeviceID: foregroundKey)
         // Stamp per-Mac user color/icon overrides from pairedMacs so every
         // workspace avatar matches its computer's customization (same place the
         // aggregation already assigned the automatic color index).
@@ -3841,7 +3870,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
         }
         workspaceGroups = workspaceAggregation.derivedGroups(
-            statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+            statesByMac: statesByMac, foregroundMacDeviceID: foregroundKey)
+    }
+
+    /// Per-Mac state with each Mac's CONFIRMED-closed workspaces — and any group
+    /// they anchor — removed, so the flat list and group sections both exclude a
+    /// just-closed row while a stale list still reports it (#6349). A no-op (returns
+    /// the input) when nothing is tombstoned. Members of a dropped group survive and
+    /// degrade to ungrouped rows, matching the Mac's dissolve-on-anchor-close.
+    private func statesFilteringConfirmedClosed(
+        _ states: [String: MacWorkspaceState]
+    ) -> [String: MacWorkspaceState] {
+        guard !confirmedClosedWorkspaceIDsByMac.isEmpty else { return states }
+        var result = states
+        for (macKey, closedIDs) in confirmedClosedWorkspaceIDsByMac {
+            guard var state = result[macKey] else { continue }
+            state.workspaces.removeAll { closedIDs.contains($0.rpcWorkspaceID.rawValue) }
+            state.groups.removeAll { closedIDs.contains($0.anchorWorkspaceID.rawValue) }
+            result[macKey] = state
+        }
+        return result
     }
 
     private func pruneChatSessionSnapshots(to visibleWorkspaces: [MobileWorkspacePreview]) {
@@ -5192,6 +5240,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connections[foreground] = nil
         }
         foregroundMacDeviceID = nil
+        // A fresh connection gets its own authoritative list; drop stale tombstones.
+        confirmedClosedWorkspaceIDsByMac.removeAll()
         if !preservingOtherMacWorkspaceState {
             // Cancel the live secondary subscriptions (slice 3) and keep only the
             // now-offline foreground Mac's last-known workspaces for the offline
