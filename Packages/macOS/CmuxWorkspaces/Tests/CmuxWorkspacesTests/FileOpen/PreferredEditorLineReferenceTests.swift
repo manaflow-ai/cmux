@@ -177,4 +177,30 @@ struct PreferredEditorInvocationTests {
         #expect(invocation.gotoFlag == "")
         #expect(invocation.argument == "/tmp/main.swift")
     }
+
+    @Test func rejectsFragmentMissingLMarker() {
+        // The fragment contract is `L<line>[:<column>]`; a bare `#42` (e.g. a
+        // document anchor, not a line reference) must not be guessed into a
+        // line jump.
+        let invocation = PreferredEditorService.editorInvocation(
+            forURL: fragmentURL(path: "/tmp/main.swift", fragment: "42"),
+            command: "code"
+        )
+        #expect(invocation.gotoFlag == "")
+        #expect(invocation.argument == "/tmp/main.swift")
+    }
+
+    @Test func rejectsFragmentWithMalformedColumn() {
+        // A colon group with a missing or non-positive-integer column is
+        // malformed transport; fail closed rather than opening at a guessed
+        // line-only location.
+        for fragment in ["L42:", "L42:abc", "L42:0"] {
+            let invocation = PreferredEditorService.editorInvocation(
+                forURL: fragmentURL(path: "/tmp/main.swift", fragment: fragment),
+                command: "code"
+            )
+            #expect(invocation.gotoFlag == "", "\(fragment) should not resolve a goto")
+            #expect(invocation.argument == "/tmp/main.swift", "\(fragment) should open plain")
+        }
+    }
 }
