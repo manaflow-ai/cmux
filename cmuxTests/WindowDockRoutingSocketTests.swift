@@ -225,6 +225,22 @@ struct WindowDockRoutingSocketTests {
             let otherPane = try #require(otherWindowDock.resolvePane(requestedPaneID: nil))
             let otherDockSurfaceId = try #require(otherWindowDock.newSurface(kind: .terminal, inPane: otherPane, focus: true))
 
+            // The CLI injects the caller's main workspace_id even when the
+            // user explicitly targets a Dock pane. A non-Dock workspace_id
+            // must not override the globally-unique Dock pane selector.
+            let explicitForeignDockPaneCreate = try v2Result(method: "surface.create", params: [
+                "placement": "dock",
+                "type": "terminal",
+                "workspace_id": activeWorkspace.id.uuidString,
+                "pane_id": otherPane.id.uuidString,
+                "focus": false,
+            ])
+            let explicitForeignDockSurfaceIdRaw = try #require(explicitForeignDockPaneCreate["dock_surface_id"] as? String)
+            let explicitForeignDockSurfaceId = try #require(UUID(uuidString: explicitForeignDockSurfaceIdRaw))
+            #expect(explicitForeignDockPaneCreate["workspace_id"] as? String == dockWindowId.uuidString)
+            #expect(otherWindowDock.containsPanel(explicitForeignDockSurfaceId))
+            #expect(!activeWindowDock.containsPanel(explicitForeignDockSurfaceId))
+
             // An explicit window_id that contradicts the Dock named by
             // workspace_id fails closed instead of re-homing the report.
             let crossListEnvelope = try v2Envelope(method: "surface.list", params: [

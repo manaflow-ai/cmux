@@ -41,8 +41,7 @@ extension TerminalController {
         guard RightSidebarMode.dock.isAvailable() else {
             return .dockUnavailable(message: dockUnavailableMessage())
         }
-        guard let app = AppDelegate.shared,
-              let dock = app.windowDock(for: tabManager) else {
+        guard let dock = windowDockForCreateRouting(routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
         guard !windowDockCreateRoutingConflicts(routing, dock: dock) else {
@@ -141,6 +140,32 @@ extension TerminalController {
             return matches(dock) ? dock : nil
         }
         return nil
+    }
+
+    /// The window Dock targeted by a Dock create request. Explicit Dock-owner
+    /// selectors (including the legacy alias pinned to the caller window) still
+    /// choose the owner first, but a non-Dock `workspace_id` can be an injected
+    /// caller context; in that case an explicit Dock surface/pane selector is
+    /// more specific and chooses its containing window Dock before fallback.
+    func windowDockForCreateRouting(_ routing: ControlRoutingSelectors, tabManager: TabManager) -> DockSplitStore? {
+        guard let app = AppDelegate.shared else { return nil }
+        if let workspaceID = routing.workspaceID {
+            if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
+                return app.windowDock(for: tabManager)
+            }
+            if let dock = app.windowDockForRegisteredOwner(workspaceID) {
+                return dock
+            }
+        }
+        if let surfaceID = routing.surfaceID,
+           let dock = windowDockContainingPanel(surfaceID) {
+            return dock
+        }
+        if let paneID = routing.paneID,
+           let dock = windowDockContainingPane(paneID) {
+            return dock
+        }
+        return app.windowDock(for: tabManager)
     }
 
     /// Whether an explicit `window_id` contradicts `dock`'s owning window (a
