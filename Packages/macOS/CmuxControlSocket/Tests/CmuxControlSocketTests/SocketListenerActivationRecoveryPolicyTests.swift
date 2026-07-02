@@ -94,6 +94,47 @@ import Testing
         #expect(policy.listenerIsServing(health: Self.healthy, pingResponse: "  \(v1Challenge)\n"))
     }
 
+    // MARK: - Telemetry-safe ping classification
+
+    /// The breadcrumb kind is a bounded classification (never the raw response)
+    /// and stays coupled to the serving decision: exactly the kinds that prove a
+    /// live listener (`pong`, `authChallenge`) are the ones treated as serving.
+    @Test func pingResponseKindClassifiesEveryResponse() {
+        typealias Policy = SocketListenerActivationRecoveryPolicy
+        #expect(Policy.pingResponseKind(nil) == .missing)
+        #expect(Policy.pingResponseKind("") == .empty)
+        #expect(Policy.pingResponseKind("   \n") == .empty)
+        #expect(Policy.pingResponseKind("PONG") == .pong)
+        #expect(Policy.pingResponseKind("  PONG\n") == .pong)
+        #expect(
+            Policy.pingResponseKind("ERROR: Authentication required — send auth <password> first")
+                == .authChallenge
+        )
+        #expect(Policy.pingResponseKind("ERROR: unknown command") == .unexpected)
+
+        // Coupling guarantee: a kind proves the listener is serving iff it is one
+        // of the known live-listener replies.
+        for kind in Policy.PingResponseKind.allCases {
+            let proves = (kind == .pong || kind == .authChallenge)
+            switch kind {
+            case .pong:
+                #expect(Policy.pingResponseProvesListenerServing("PONG") == proves)
+            case .authChallenge:
+                #expect(
+                    Policy.pingResponseProvesListenerServing(
+                        "ERROR: Authentication required — send auth <password> first"
+                    ) == proves
+                )
+            case .empty:
+                #expect(Policy.pingResponseProvesListenerServing("") == proves)
+            case .unexpected:
+                #expect(Policy.pingResponseProvesListenerServing("nope") == proves)
+            case .missing:
+                break  // `missing` is the nil case, exercised via listenerIsServing.
+            }
+        }
+    }
+
     @Test func downListenerForcesRebindRegardlessOfPing() {
         let policy = SocketListenerActivationRecoveryPolicy()
         #expect(!policy.listenerIsServing(health: Self.down, pingResponse: nil))

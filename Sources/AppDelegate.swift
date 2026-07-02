@@ -510,6 +510,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSocketListenerActivationCheck: Date?
     /// True while an activation readiness probe is in flight, so checks never overlap (#6406).
     private var socketListenerActivationCheckInFlight = false
+    /// Dedicated owner for the blocking control-socket `ping` probe, so it runs on
+    /// a real background thread instead of occupying a Swift-concurrency cooperative
+    /// thread; the in-flight guard above serializes lifecycle (#6406).
+    private let socketListenerHealQueue = DispatchQueue(
+        label: "com.cmux.socket-listener-heal", qos: .utility
+    )
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
@@ -4008,19 +4014,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let transport = socketTransport
         let policy = socketListenerActivationRecoveryPolicy
         let preferredPath = config.path
-        Task.detached { [weak self] in
+        // Run the blocking `ping` probe on the dedicated utility queue (a real
+        // background thread), then hop back to the main actor to finish. The
+        // in-flight guard set above is the lifecycle owner: it is cleared in the
+        // completion, so at most one probe is ever outstanding.
+        socketListenerHealQueue.async { [weak self] in
             let path = controller.activeSocketPath(preferredPath: preferredPath)
             let health = controller.socketListenerHealth(expectedSocketPath: path)
             let pingResponse = health.isHealthy
                 ? transport.probeCommand("ping", at: path, timeout: 1.0)
                 : nil
             let shouldRebind = policy.shouldRebindListener(health: health, pingResponse: pingResponse)
-            await self?.finishSocketListenerActivationCheck(
-                shouldRebind: shouldRebind,
-                path: path,
-                health: health,
-                pingResponse: pingResponse
-            )
+            Task { @MainActor in
+                self?.finishSocketListenerActivationCheck(
+                    shouldRebind: shouldRebind,
+                    path: path,
+                    health: health,
+                    pingResponse: pingResponse
+                )
+            }
         }
     }
 
@@ -4038,11 +4050,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         socketListenerActivationCheckInFlight = false
         lastSocketListenerActivationCheck = Date()
         guard shouldRebind else { return }
+        // Never log the raw socket path or probe response: the path embeds the
+        // local username/home dir and the response is socket-controlled text.
+        // Emit only bounded classifications and a byte count (issue #6406 review).
         sentryBreadcrumb("socket.listener.heal", category: "socket", data: [
             "source": "app.didBecomeActive",
-            "path": path,
+            "socketPath": path.isEmpty ? "empty" : "configured",
             "failureSignals": health.failureSignals.joined(separator: ","),
-            "pingResponse": pingResponse ?? ""
+            "pingResponseKind": SocketListenerActivationRecoveryPolicy
+                .pingResponseKind(pingResponse).rawValue,
+            "pingResponseBytes": pingResponse?.utf8.count ?? 0
         ])
         restartSocketListenerIfEnabled(source: "app.didBecomeActive")
     }
