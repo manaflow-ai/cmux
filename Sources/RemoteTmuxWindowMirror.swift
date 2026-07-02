@@ -105,24 +105,79 @@ final class RemoteTmuxWindowMirror {
     @ObservationIgnored private var lastClientSize: (cols: Int, rows: Int)?
 
     /// Tells tmux to size this session's windows to the rendered cmux area, so
-    /// captured/live pane content matches the on-screen grid. Derives cols/rows
-    /// from the content pixel area and a live pane's cell size; sends
+    /// captured/live pane content matches the on-screen grid. Sends
     /// `refresh-client -C` only when the grid actually changes (no feedback loop:
-    /// the cmux area doesn't change when tmux reflows).
-    /// Returns `true` once the pane surface is live and the size was applied (sent, or
-    /// already current via the `lastClientSize` dedup); `false` when no pane has
-    /// reported its cell size yet, so the caller should retry. Idempotent.
+    /// the summed grid is derived from the surfaces, not from what tmux reflows to).
+    /// Returns `true` once every pane surface is live and the size was applied (sent,
+    /// or already current via the `lastClientSize` dedup); `false` while any surface
+    /// has no live grid yet, so the caller should retry. Idempotent.
     @discardableResult
-    func updateClientSize(contentSizePoints: CGSize) -> Bool {
-        guard contentSizePoints.width > 1, contentSizePoints.height > 1,
-              let cell = panelsByPaneId.values.lazy.compactMap({ $0.surface.cellSizePoints() }).first,
-              cell.width > 1, cell.height > 1 else { return false }
-        let cols = max(20, Int(contentSizePoints.width / cell.width))
-        let rows = max(5, Int(contentSizePoints.height / cell.height))
+    func updateClientSize() -> Bool {
+        // Size tmux from the ACTUAL rendered leaf grids, summed through the layout
+        // tree with tmux's 1-cell pane separators — NOT from the outer content area
+        // divided by cell size. The outer/cell math counts the local SwiftUI split
+        // dividers as columns, so tmux ends up ~1 col wider than the ghostty surfaces
+        // actually render; that width disagreement wraps zsh's PROMPT_SP "%" filler and
+        // misplaces the cursor in split panes. Reporting the real summed grid makes
+        // tmux's per-pane width equal each surface's rendered width, so live %output
+        // paints faithfully. Returns false (caller retries) until every leaf is live.
+        guard let grid = renderedLayoutGridCells(of: layout) else { return false }
+        let cols = max(20, grid.cols)
+        let rows = max(5, grid.rows)
         guard lastClientSize?.cols != cols || lastClientSize?.rows != rows else { return true }
         lastClientSize = (cols, rows)
         connection?.setClientSize(columns: cols, rows: rows)
         return true
+    }
+
+    /// The window grid size implied by the ACTUAL rendered leaf-pane grids, folded
+    /// through the layout tree via ``summedGridCells(of:leafGrid:)``. Returns `nil`
+    /// if any leaf surface has no live rendered grid yet, so the caller retries once
+    /// it does.
+    private func renderedLayoutGridCells(of node: RemoteTmuxLayoutNode) -> (cols: Int, rows: Int)? {
+        Self.summedGridCells(of: node) { paneId in
+            panelsByPaneId[paneId]?.surface.renderedGridCells()
+                .map { (cols: $0.columns, rows: $0.rows) }
+        }
+    }
+
+    /// Folds per-leaf grid sizes through the tmux split tree exactly as tmux lays a
+    /// window out: a horizontal split's width is the sum of its children's widths plus
+    /// one separator column between each (height = max child height); a vertical split
+    /// is the transpose (max width, summed heights + one separator row between each).
+    /// The `+ (count - 1)` separator term is what makes the window size we report equal
+    /// the leaves' rendered widths PLUS tmux's own divider columns, so tmux then splits
+    /// that window back into per-pane widths that match each surface — the invariant that
+    /// keeps zsh's PROMPT_SP "%" filler from wrapping. Returns `nil` if `leafGrid`
+    /// returns `nil` for any pane (its surface has no live grid yet), so the caller can
+    /// retry. Pure over `(node, leafGrid)` — no live-surface access — so it's
+    /// `nonisolated` and unit testable with stubbed leaf sizes.
+    nonisolated static func summedGridCells(
+        of node: RemoteTmuxLayoutNode,
+        leafGrid: (Int) -> (cols: Int, rows: Int)?
+    ) -> (cols: Int, rows: Int)? {
+        switch node.content {
+        case let .pane(paneId):
+            return leafGrid(paneId)
+        case let .horizontal(children):
+            var totalCols = 0
+            var maxRows = 0
+            for child in children {
+                guard let g = summedGridCells(of: child, leafGrid: leafGrid) else { return nil }
+                totalCols += g.cols
+                maxRows = max(maxRows, g.rows)
+            }
+            return (totalCols + max(0, children.count - 1), maxRows)
+        case let .vertical(children):
+            var maxCols = 0
+            var totalRows = 0
+            for child in children {
+                guard let g = summedGridCells(of: child, leafGrid: leafGrid) else { return nil }
+                maxCols = max(maxCols, g.cols)
+                totalRows += g.rows
+            }
+            return (maxCols, totalRows + max(0, children.count - 1))
+        }
     }
 
     /// Records the user-focused pane and asks tmux to make it active.

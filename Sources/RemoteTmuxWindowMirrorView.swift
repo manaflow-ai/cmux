@@ -28,8 +28,16 @@ struct RemoteTmuxWindowMirrorView: View {
             .frame(width: geo.size.width, height: geo.size.height)
             // Size the remote tmux window to the rendered area so pane content
             // matches the on-screen grid.
-            .onAppear { scheduleClientSize(geo.size) }
-            .onChange(of: geo.size) { _, newSize in scheduleClientSize(newSize) }
+            .onAppear { scheduleClientSize() }
+            .onChange(of: geo.size) { _, _ in scheduleClientSize() }
+            // The size we report to tmux now depends on the pane COUNT — each split
+            // adds a separator column/row to the summed grid — so a split/close must
+            // re-push it. But a split changes `mirror.layout` without changing the
+            // outer tab area, so onChange(geo.size) never fires for it. Re-arm on the
+            // layout itself; otherwise the new pane keeps the pre-split size and the
+            // "%" strands again. (onAppear covers the 1→N mount into the mirror; this
+            // covers N→N±1 splits/closes within an already-mounted mirror.)
+            .onChange(of: mirror.layout) { _, _ in scheduleClientSize() }
             .onDisappear { sizingRetryTask?.cancel() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -37,22 +45,22 @@ struct RemoteTmuxWindowMirrorView: View {
         .background(Color(nsColor: appearance.backgroundColor))
     }
 
-    /// Pushes the client size to tmux, retrying briefly while the pane surface hasn't
-    /// reported its cell size yet — so the initial `refresh-client -C` lands even when
-    /// the view size never changes after attach. Each call restarts the retry with the
-    /// LATEST size, so a resize arriving before the surface is live isn't lost and can't
-    /// be overwritten by a stale earlier size. `updateClientSize` dedups + reports
-    /// readiness, so the retry stops as soon as the surface goes live.
-    private func scheduleClientSize(_ size: CGSize) {
+    /// Pushes the client size to tmux, retrying briefly while a pane surface hasn't
+    /// reported a live grid yet — so the initial `refresh-client -C` lands even when
+    /// the view size never changes after attach. Each call restarts the retry, so a
+    /// trigger arriving before the surfaces are live isn't lost. `updateClientSize`
+    /// reads the summed rendered grids itself (no size argument needed), dedups, and
+    /// reports readiness, so the retry stops as soon as every surface goes live.
+    private func scheduleClientSize() {
         sizingRetryTask?.cancel()
-        if mirror.updateClientSize(contentSizePoints: size) { return }
+        if mirror.updateClientSize() { return }
         sizingRetryTask = Task { @MainActor in
-            // Retry until the pane surface reports its cell size (local layout timing,
+            // Retry until the pane surfaces report their grids (local layout timing,
             // normally a frame or two; budget generously for a loaded system). do/catch
             // (not try?) so a cancelled sleep returns immediately without a stale apply.
             for _ in 0..<20 {
                 do { try await ContinuousClock().sleep(for: .milliseconds(150)) } catch { return }
-                if mirror.updateClientSize(contentSizePoints: size) { return }
+                if mirror.updateClientSize() { return }
             }
         }
     }
