@@ -10969,23 +10969,8 @@ struct VerticalTabsSidebar: View {
             return
         }
 
-        // Per-workspace coalescing (coalesceLatest inside each workspace's
-        // immediate publisher) caps each stream, but this merge fans in every
-        // workspace: with N workspaces bursting concurrently (many agents
-        // finishing turns), the aggregate would still re-render the whole
-        // extension sidebar once per workspace per window. Coalesce again
-        // across the merge so a cross-workspace burst settles into one
-        // re-render per window; the leading edge stays synchronous so a lone
-        // change is as immediate as before.
-        extensionSidebarImmediateObservationPublisher = Publishers.MergeMany(
-            tabs.map { $0.sidebarImmediateObservationPublisher }
-        )
-        .receive(on: RunLoop.main)
-        .coalesceLatest(
-            for: Workspace.sidebarImmediateObservationCoalesceInterval,
-            scheduler: RunLoop.main
-        )
-        .eraseToAnyPublisher()
+        extensionSidebarImmediateObservationPublisher =
+            Workspace.mergedImmediateObservationPublisher(for: tabs)
         extensionSidebarDebouncedObservationPublisher = Publishers.MergeMany(
             tabs.map { $0.sidebarObservationPublisher }
         )

@@ -108,6 +108,22 @@ extension Workspace {
             .eraseToAnyPublisher()
     }
 
+    /// Merged immediate observation across workspaces for the extension
+    /// sidebar. Coalesced again across the merge: per-workspace coalescing
+    /// caps each stream, but N workspaces bursting concurrently would still
+    /// re-render the whole extension sidebar once per workspace per window.
+    /// The leading edge stays synchronous, so a lone change is as immediate
+    /// as before.
+    static func mergedImmediateObservationPublisher(for workspaces: [Workspace]) -> AnyPublisher<Void, Never> {
+        Publishers.MergeMany(workspaces.map { $0.sidebarImmediateObservationPublisher })
+            .receive(on: RunLoop.main)
+            .coalesceLatest(
+                for: sidebarImmediateObservationCoalesceInterval,
+                scheduler: RunLoop.main
+            )
+            .eraseToAnyPublisher()
+    }
+
     func makeSidebarObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
             $currentDirectory,
