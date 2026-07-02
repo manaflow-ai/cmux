@@ -118,6 +118,52 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func sidebarImmediateObservationPublisherDeliversFirstChangeSynchronously() {
+        let workspace = Workspace()
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+        publishCount = 0
+
+        workspace.title = "User Edit"
+
+        #expect(
+            publishCount == 1,
+            "The first immediate-field change after subscribing must reach the sidebar in the same run-loop turn; coalescing may only defer the tail of a burst."
+        )
+    }
+
+    @Test func sidebarImmediateObservationPublisherCoalescesTitleBursts() {
+        let workspace = Workspace()
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+        publishCount = 0
+
+        for turn in 0..<20 {
+            workspace.title = "Agent Turn \(turn)"
+        }
+
+        #expect(
+            publishCount == 1,
+            "A synchronous burst of distinct titles must deliver only its leading edge immediately."
+        )
+
+        // Generous pump so the 50ms trailing emission fires deterministically.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+
+        #expect(
+            publishCount == 2,
+            "A coalesced burst must settle with exactly one trailing emission carrying the latest state."
+        )
+    }
+
     @Test func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
