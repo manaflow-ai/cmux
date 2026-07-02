@@ -871,7 +871,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// second set_size round-trip.
     private var lastRenderRect: CGRect = .zero
     private var lastRenderLayoutViewportHeight: CGFloat?
-    private var lastRenderWasProducedForLayoutViewport = false
+    private var lastRenderHasSourceLayoutViewport = false
     private var viewportCoordinator = TerminalViewportCoordinator()
     private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
     private var keyboardHeightAnimationID = 0
@@ -1472,7 +1472,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func shouldClampStaleLiveViewport(using snapshot: TerminalViewportSnapshot) -> Bool {
-        guard lastRenderWasProducedForLayoutViewport,
+        guard lastRenderHasSourceLayoutViewport,
               let height = lastRenderLayoutViewportHeight else { return false }
         return abs(height - snapshot.layoutViewportRect.height) <= 1
     }
@@ -2934,7 +2934,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         cellPixelSize = .zero
         lastRenderRect = .zero
         lastRenderLayoutViewportHeight = nil
-        lastRenderWasProducedForLayoutViewport = false
+        lastRenderHasSourceLayoutViewport = false
         lastAppliedContentScale = 0
 
         surfaceGeneration &+= 1
@@ -3475,6 +3475,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private struct GeometryResult: Sendable {
         let cellPixelSize: CGSize
         let naturalSize: TerminalGridSize
+        let sourceLayoutViewportHeight: CGFloat
         /// Pinned render size in points when letterboxed to an effective
         /// grid; nil means fill the container.
         let pinnedSize: CGSize?
@@ -3583,7 +3584,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 pixelWidth: Int(measured.width_px),
                 pixelHeight: Int(measured.height_px)
             )
-            let result = GeometryResult(cellPixelSize: cell, naturalSize: natural, pinnedSize: pinnedSize)
+            let result = GeometryResult(
+                cellPixelSize: cell,
+                naturalSize: natural,
+                sourceLayoutViewportHeight: snapshot.layoutViewportRect.height,
+                pinnedSize: pinnedSize
+            )
             DispatchQueue.main.async {
                 guard let self else {
                     completion?(true)
@@ -3635,11 +3641,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ?? CGRect(origin: .zero, size: naturalRenderSize)
         let snapshot = viewportSnapshot()
         layoutBottomDock(using: snapshot)
-        lastRenderLayoutViewportHeight = snapshot.layoutViewportRect.height
-        lastRenderWasProducedForLayoutViewport = true
+        lastRenderLayoutViewportHeight = result.sourceLayoutViewportHeight
+        lastRenderHasSourceLayoutViewport = true
         let renderRect = snapshot.renderRect(
             forRenderSize: measuredRenderRect.size,
-            clampsStaleLiveViewport: lastRenderWasProducedForLayoutViewport
+            clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
         )
         lastRenderRect = renderRect
         #if DEBUG
