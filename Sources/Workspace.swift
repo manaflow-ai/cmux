@@ -4858,6 +4858,9 @@ final class Workspace: Identifiable, ObservableObject {
              (.promptIdle, .some(.observedAgentCommandRunning)):
             restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+            if surfaceResumeBindingsByPanelId[panelId]?.isAgentHookBinding == true {
+                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+            }
         default:
             break
         }
@@ -6998,7 +7001,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// local process inspection or existence check can validate.
     private func resumedAgentPaneWorkingDirectoryRescue(panelId: UUID) -> String? {
         guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return nil }
-        guard !isRemoteWorkspace, !isRemoteTerminalSurface(panelId) else { return nil }
+        guard !isRemoteTerminalSurface(panelId) else { return nil }
         let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
             restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
         )

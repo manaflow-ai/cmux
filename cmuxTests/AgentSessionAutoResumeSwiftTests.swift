@@ -272,6 +272,7 @@ struct AgentSessionAutoResumeSwiftTests {
             restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
             try #require(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
             #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
+            #expect(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding == nil)
             restored.updatePanelDirectory(panelId: restoredPanelId, directory: repairedDir)
 
             var providerConsulted = false
@@ -287,6 +288,42 @@ struct AgentSessionAutoResumeSwiftTests {
             ))
             #expect(split.requestedWorkingDirectory == repairedDir)
             #expect(!providerConsulted)
+        }
+    }
+
+    @MainActor
+    @Test func splitFromLocalResumedAgentPaneInsideRemoteWorkspaceUsesSessionCwdRescue() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-remote-local-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId, _) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
+                projectDir: projectDir
+            )
+            restored.remoteConfiguration = WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64000,
+                relayID: "relay-local-resume",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-local-resume.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            )
+            try #require(restored.isRemoteWorkspace)
+            try #require(!restored.isRemoteTerminalSurface(restoredPanelId))
+            restored.foregroundProcessWorkingDirectoryProvider = { _ in nil }
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == projectDir)
         }
     }
 
