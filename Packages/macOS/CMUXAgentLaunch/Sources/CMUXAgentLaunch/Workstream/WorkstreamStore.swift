@@ -279,16 +279,22 @@ public final class WorkstreamStore {
     ) -> (WorkstreamKind, WorkstreamPayload) {
         let toolInput = event.toolInputJSON ?? "{}"
         switch event.hookEventName {
+        // Codex CLI hook `PermissionRequest`s are non-blocking telemetry: Codex
+        // resolves them with its own approval reviewer, so cmux records the
+        // request as `.toolUse` rather than a pending approval card. Codex
+        // app-server (Teams) approvals share the same event name + source but
+        // are real decisions cmux owns, so they must fall through to the
+        // actionable `.permissionRequest` arm below.
+        case .permissionRequest where event.isCodexHookPermissionTelemetry:
+            return (.toolUse, .toolUse(toolName: event.toolName ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
         case .permissionRequest:
-            return (
-                .permissionRequest,
-                .permissionRequest(
-                    requestId: event.requestId ?? event.sessionId,
-                    toolName: event.toolName ?? "unknown",
-                    toolInputJSON: toolInput,
-                    pattern: nil
-                )
+            let payload = WorkstreamPayload.permissionRequest(
+                requestId: event.requestId ?? event.sessionId,
+                toolName: event.toolName ?? "unknown",
+                toolInputJSON: toolInput,
+                pattern: nil
             )
+            return (.permissionRequest, payload)
         case .askUserQuestion:
             let parsed = parseQuestions(fromToolInput: event.toolInputJSON)
             return (

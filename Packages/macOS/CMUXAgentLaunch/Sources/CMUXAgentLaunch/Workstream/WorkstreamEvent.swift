@@ -157,6 +157,55 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     }
 }
 
+extension WorkstreamEvent {
+    /// True when this `PermissionRequest` is a Codex app-server (Teams)
+    /// approval that cmux owns and resolves through a blocking Feed decision,
+    /// as opposed to a Codex CLI hook `PermissionRequest` — which is
+    /// non-blocking telemetry that Codex resolves with its own approval
+    /// reviewer (see `FeedEventClassifier`'s `permissionTelemetry` mapping).
+    ///
+    /// Both producers emit `hook_event_name == "PermissionRequest"` with
+    /// `_source == "codex"`, so source alone cannot tell them apart. The
+    /// codex-teams approval bridge stamps every app-server approval with two
+    /// unconditional markers the hook telemetry path never produces: a
+    /// `codex-app-server-`-prefixed request id and an `app_server_method`
+    /// field in `tool_input` (the same marker `FeedPermissionActionPolicy`
+    /// keys off). Both are required so an opaque hook `tool_input` that merely
+    /// happens to carry `app_server_method` can't be promoted to an actionable
+    /// — and, on the non-blocking path, unresolvable — pending approval card.
+    /// Used to keep app-server approvals on the actionable, blocking path while
+    /// routing hook telemetry to non-blocking tool-use.
+    public var isCodexAppServerApproval: Bool {
+        guard source == WorkstreamSource.codex.rawValue,
+              hookEventName == .permissionRequest,
+              requestId?.hasPrefix("codex-app-server-") == true,
+              let toolInputJSON,
+              let data = toolInputJSON.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else {
+            return false
+        }
+        return (object["app_server_method"] as? String) != nil
+    }
+
+    /// True when this `PermissionRequest` is Codex CLI hook telemetry — the
+    /// non-blocking counterpart to ``isCodexAppServerApproval``.
+    ///
+    /// Codex CLI emits a `PermissionRequest` hook before its own approval
+    /// reviewer runs, so it is *not* a pending cmux decision: cmux records it
+    /// as tool-use activity, never a needs-input/approval state. This is the
+    /// single canonical predicate every raw-`WorkstreamEvent` consumer must
+    /// use to tell hook telemetry apart from a real app-server approval, so
+    /// that renaming the wire event to `PermissionRequest` cannot leak a false
+    /// actionable/needs-input signal into any consumer (store decode, blocking
+    /// Feed ingest, or agent-chat session-state derivation).
+    public var isCodexHookPermissionTelemetry: Bool {
+        source == WorkstreamSource.codex.rawValue
+            && hookEventName == .permissionRequest
+            && !isCodexAppServerApproval
+    }
+}
+
 private struct JSONDynamicKey: CodingKey {
     let stringValue: String
     init?(stringValue: String) { self.stringValue = stringValue }
