@@ -1418,6 +1418,47 @@ struct ProcessSSHFileExplorerListingTests {
         #expect(names(from: output, path: root.path, showHidden: false).map(\.name) == ["inside.txt"])
     }
 
+    @Test
+    func testRemoteListingExitsNonZeroWhenListingCommandFails() throws {
+        // A wholesale listing failure — e.g. a remote `find` that lacks
+        // `-mindepth`/`-maxdepth`, or a `stat` format the probe did not exercise —
+        // must surface as a non-zero exit (→ sshCommandFailed), never a silently
+        // empty directory. Shadow `find` with a stub that exits non-zero while the
+        // real `stat`/`base64` stay resolvable through the inherited PATH.
+        let root = try makeListingFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "x".write(to: root.appendingPathComponent("present.txt"), atomically: true, encoding: .utf8)
+
+        let binDir = try makeListingFixtureDirectory(name: "fakebin-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: binDir) }
+        let fakeFind = binDir.appendingPathComponent("find")
+        try "#!/bin/sh\nexit 3\n".write(to: fakeFind, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeFind.path)
+
+        let command = ProcessSSHFileExplorerTransport.posixShellBootstrap(
+            script: ProcessSSHFileExplorerTransport.remoteListingScript(path: root.path, showHidden: false)
+        )
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        // Prepend the stub directory so `find` resolves to the failing stub while
+        // the real `stat`/`base64` remain reachable via the inherited PATH.
+        var environment = ProcessInfo.processInfo.environment
+        let inheritedPath = environment["PATH"] ?? "/usr/bin:/bin"
+        environment["PATH"] = "\(binDir.path):\(inheritedPath)"
+        process.environment = environment
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        // Without `|| exit 1` on the `find`, the failure is swallowed and the
+        // script reaches the trailing `exit 0` with empty output — the regression.
+        #expect(process.terminationStatus != 0)
+        #expect(String(decoding: data, as: UTF8.self).isEmpty)
+    }
+
     // MARK: POSIX shell bootstrap (login-shell independence, base64 dependency)
 
     @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: "/bin/zsh"),

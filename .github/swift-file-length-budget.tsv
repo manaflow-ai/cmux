@@ -59,8 +59,8 @@
 1670	Sources/FileExplorerView.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1649	cmuxTests/TerminalControllerSocketSecurityTests.swift
+1609	cmuxTests/FileExplorerStoreTests.swift
 1581	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
-1568	cmuxTests/FileExplorerStoreTests.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1500	cmuxUITests/MultiWindowNotificationsUITests.swift
 1499	cmuxTests/OmnibarAndToolsTests.swift
