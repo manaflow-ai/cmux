@@ -163,7 +163,8 @@ enum NotificationSettingsFileMapping {
     static let stringSettings: [SettingsFileStringMapping] = [
         .init(jsonKey: "customSoundFilePath", defaultsKey: NotificationSoundSettings.customFilePathKey),
         .init(jsonKey: "command", defaultsKey: NotificationSoundSettings.customCommandKey),
-        .init(jsonKey: "agentTurnComplete", defaultsKey: notifications.agentTurnComplete.userDefaultsKey),
+        // agentTurnComplete is enum-valued and validated explicitly in
+        // parseNotificationsSection, like notifications.sound.
     ]
 }
 
