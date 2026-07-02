@@ -132,7 +132,8 @@ import Testing
         surfaceID: "live-terminal",
         seq: 98,
         text: "older-than-delivered",
-        full: false
+        full: false,
+        columns: 40
     ))
     let staleFrameDelivered = try await pollUntil(attempts: 50) {
         collector.lines.contains { $0.contains("older-than-delivered") }
@@ -199,7 +200,8 @@ import Testing
         surfaceID: "live-terminal",
         seq: 100,
         text: "incomplete-target",
-        full: false
+        full: false,
+        columns: 40
     ))
     let incompleteTargetDelivered = try await pollUntil(attempts: 50) {
         collector.lines.contains { $0.contains("incomplete-target") }
@@ -257,7 +259,8 @@ import Testing
         surfaceID: "live-terminal",
         seq: 100,
         text: "incomplete-while-replay",
-        full: false
+        full: false,
+        columns: 40
     ))
     let incompleteTargetDelivered = try await pollUntil(attempts: 50) {
         collector.lines.contains { $0.contains("incomplete-while-replay") }
@@ -350,7 +353,8 @@ import Testing
         surfaceID: surfaceID,
         seq: 99,
         text: "dropped-event-delta",
-        full: false
+        full: false,
+        columns: 40
     ))
     let droppedDeltaDelivered = try await pollUntil(attempts: 50) {
         collector.lines.contains { $0.contains("dropped-event-delta") }
@@ -413,7 +417,8 @@ import Testing
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,
         seq: 100,
-        text: "target-after-exhaustion"
+        text: "target-after-exhaustion",
+        columns: 40
     ))
     let targetFrameDelivered = try await pollUntil {
         collector.lines.contains { $0.contains("target-after-exhaustion") }
@@ -426,7 +431,9 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
     try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
         stateSeq: seq,
-        columns: 16,
+        // Wide enough for the descriptive marker texts these tests paint;
+        // frame validation rejects spans wider than the grid.
+        columns: 40,
         rows: 4,
         rowSpans: [
             .init(row: 0, column: 0, text: text),

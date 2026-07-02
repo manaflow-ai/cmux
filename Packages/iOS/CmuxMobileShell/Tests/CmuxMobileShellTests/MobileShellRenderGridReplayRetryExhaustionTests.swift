@@ -38,7 +38,8 @@ import Testing
         surfaceID: surfaceID,
         seq: 99,
         text: "dropped-event-before-exhaustion",
-        full: false
+        full: false,
+        columns: 40
     ))
 
     try await router.enqueueReplayRenderGrids([
@@ -62,7 +63,8 @@ import Testing
         surfaceID: surfaceID,
         seq: 100,
         text: "delta-after-exhaustion",
-        full: false
+        full: false,
+        columns: 40
     ))
     let replayAfterExhaustion = await router.waitForCount(
         of: "mobile.terminal.replay",
@@ -82,7 +84,9 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
     try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
         stateSeq: seq,
-        columns: 16,
+        // Wide enough for the descriptive marker texts these tests paint;
+        // frame validation rejects spans wider than the grid.
+        columns: 40,
         rows: 4,
         rowSpans: [
             .init(row: 0, column: 0, text: text),
