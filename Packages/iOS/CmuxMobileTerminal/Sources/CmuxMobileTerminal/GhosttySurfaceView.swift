@@ -2325,7 +2325,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   or `false` when the caller should reset its delivery queue and replay.
     @discardableResult
     public func processFullReplacementOutputAndWait(_ data: Data) async -> Bool {
-        await processOutputAndWait(data)
+        let offsetFromBottom = scrollbackOffsetFromBottom
+        let applied = await processOutputAndWait(data)
+        guard applied else { return false }
+        if offsetFromBottom > 0 {
+            scrollLocalViewportRows(-offsetFromBottom)
+        }
+        return true
     }
 
     private func makeSurfaceOperationID() -> UInt64 {
