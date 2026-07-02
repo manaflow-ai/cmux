@@ -739,6 +739,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
+    /// The natural terminal grid this phone last reported per surface via
+    /// `mobile.terminal.viewport`. The Mac caps the shared surface grid to
+    /// min(all device reports, pane size), so a faithful producer frame can
+    /// never exceed this (after the Mac-side clamp floors); the render-grid
+    /// ingest uses it to detect a diverged producer grid (issue #7202).
+    var reportedTerminalViewportGridsBySurfaceID: [String: (columns: Int, rows: Int)] = [:]
+    /// Last oversized-grid recovery attempt per surface, pacing viewport
+    /// re-assertion and barrier re-arming while a producer stays diverged.
+    var oversizedTerminalGridRecoveryLastAttemptsBySurfaceID: [String: Date] = [:]
     /// Per-surface continuations for the Mac-pushed live font-size signal. A
     /// mounted surface obtains ``terminalLiveFontStream(surfaceID:)`` and applies
     /// each yielded point size; the Mac emits `terminal.set_font` to drive a live
@@ -5247,6 +5256,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalActiveScreenBySurfaceID = [:]
+        oversizedTerminalGridRecoveryLastAttemptsBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
         terminalReplayBarrierTokensInFlightBySurfaceID = [:]
@@ -6880,6 +6890,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return
         }
+        // A producer grid larger than this phone's reported viewport can never
+        // replay faithfully (issue #7202): rows beyond the local grid clamp
+        // onto the bottom row and over-wide rows wrap, splicing adjacent rows.
+        // Hold the surface's output and drive the Mac back to a capped grid
+        // instead of painting the divergence.
+        guard renderGridFrameFitsReportedViewport(renderGrid, surfaceID: renderGrid.surfaceID) else {
+            holdTerminalOutputForOversizedGrid(renderGrid, surfaceID: renderGrid.surfaceID, source: source)
+            return
+        }
+        clearOversizedTerminalGridRecovery(surfaceID: renderGrid.surfaceID)
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
         let deliveryDecision: RenderGridEventDeliveryDecision = source == "event"
             ? renderGridEventDeliveryDecision(renderGrid, previous: previousScreen)
@@ -6951,6 +6971,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
+        reportedTerminalViewportGridsBySurfaceID.removeValue(forKey: surfaceID)
+        oversizedTerminalGridRecoveryLastAttemptsBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
         clearTerminalViewport(surfaceID: surfaceID)
@@ -7011,8 +7033,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         columns: Int,
         rows: Int
     ) async -> (columns: Int, rows: Int)? {
-        guard columns > 0, rows > 0,
-              let client = remoteClient,
+        guard columns > 0, rows > 0 else { return nil }
+        // Remember the report before the round-trip: it is this phone's own
+        // natural grid, valid even when the RPC is dropped, and it is the
+        // ceiling the render-grid ingest checks producer frames against.
+        reportedTerminalViewportGridsBySurfaceID[surfaceID] = (columns: columns, rows: rows)
+        guard let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return nil
         }

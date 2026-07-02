@@ -41,6 +41,19 @@ extension MobileShellComposite {
         surfaceID: String,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
+        // Never paint a frame authored for a grid larger than this phone's
+        // reported viewport — it splices adjacent rows (issue #7202). A replay
+        // response still oversized means the Mac has not re-applied the cap
+        // yet: consume a bounded retry so the barrier keeps polling for the
+        // converged grid; other callers restart the paced recovery.
+        guard renderGridFrameFitsReportedViewport(frame, surfaceID: surfaceID) else {
+            if bypassReplayBarrier, terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
+                retryTerminalReplayForOversizedGrid(surfaceID: surfaceID)
+            } else {
+                holdTerminalOutputForOversizedGrid(frame, surfaceID: surfaceID, source: "delivery")
+            }
+            return false
+        }
         return deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,
