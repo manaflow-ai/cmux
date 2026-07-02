@@ -1,4 +1,5 @@
 import Foundation
+internal import CmuxMobileDiagnostics
 
 extension MobileShellComposite {
     func prepareTerminalReplayFailureRetry(
