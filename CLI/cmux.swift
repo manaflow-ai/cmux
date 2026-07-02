@@ -22201,14 +22201,26 @@ struct CMUXCLI {
                 boolFlags: ["-g", "-q", "-s", "-v", "-w"]
             )
             let optionName = parsed.positional.last ?? ""
-            guard optionName == "extended-keys" else {
-                throw CLIError(message: "Unsupported tmux compatibility command: \(command) \(optionName)")
-            }
-            let value = "on"
-            if parsed.hasFlag("-v") {
-                print(value)
-            } else {
-                print("\(optionName) \(value)")
+            // Tolerant defaults so external probes (Codex's extended-keys
+            // check, etc.) don't error: known options return tmux-compatible
+            // values; unknown or unnamed options emit no output at all
+            // (matching real tmux's -q behavior — not even a trailing
+            // newline). See #3239.
+            let defaults: [String: String] = [
+                "extended-keys": "on",
+                "extended-keys-format": "csi-u",
+                "default-terminal": "tmux-256color",
+                "mouse": "off",
+                "status": "off",
+                "mode-keys": "emacs",
+                "prefix": "C-b",
+            ]
+            if !optionName.isEmpty, let value = defaults[optionName] {
+                if parsed.hasFlag("-v") {
+                    print(value)
+                } else {
+                    print("\(optionName) \(value)")
+                }
             }
 
         case "save-buffer", "saveb":
