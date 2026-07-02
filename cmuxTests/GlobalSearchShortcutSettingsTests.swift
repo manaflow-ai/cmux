@@ -292,4 +292,77 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
 
         XCTAssertNil(store.override(for: .globalSearch))
     }
+
+    func testSystemWideHotkeyClassificationMatchesCarbonRegisteredSet() {
+        // `isSystemWideHotkey` is the single source of truth that
+        // `currentConfiguredShortcutChordActions()` (chord-prefix arming) and
+        // `isMenuBackedShortcutAction(_:)` (stale-menu suppression) consume to
+        // exclude Carbon-dispatched actions. It must match exactly the set
+        // SystemWideHotkeyController registers, including Send Appshot.
+        let systemWideActions: Set<KeyboardShortcutSettings.Action> = [
+            .showHideAllWindows,
+            .globalSearch,
+            .sendAppshot,
+        ]
+        for action in KeyboardShortcutSettings.Action.allCases {
+            XCTAssertEqual(
+                action.isSystemWideHotkey,
+                systemWideActions.contains(action),
+                "\(action) isSystemWideHotkey should match the system-wide Carbon hotkey set"
+            )
+        }
+    }
+
+    func testSendAppshotRejectsBareAndShiftOnlyShortcut() {
+        // Send Appshot is a system-wide Carbon hotkey, so the recorder/validator
+        // must reject any binding Carbon cannot register: a bare key or a
+        // Shift-only key (Shift is not a primary modifier).
+        let bareShortcut = StoredShortcut(key: "a", command: false, shift: false, option: false, control: false)
+        let shiftOnlyShortcut = StoredShortcut(key: "a", command: false, shift: true, option: false, control: false)
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.sendAppshot.normalizedRecordedShortcutResult(bareShortcut),
+            .rejected(.systemWideHotkeyRequiresModifier)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.sendAppshot.normalizedRecordedShortcutResult(shiftOnlyShortcut),
+            .rejected(.systemWideHotkeyRequiresModifier)
+        )
+
+        // The default binding carries a primary modifier and stays acceptable.
+        let defaultShortcut = KeyboardShortcutSettings.shortcut(for: .sendAppshot)
+        XCTAssertTrue(defaultShortcut.hasPrimaryModifier)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.sendAppshot.normalizedRecordedShortcutResult(defaultShortcut),
+            .accepted(defaultShortcut)
+        )
+    }
+
+    func testSettingsFileStoreRejectsSendAppshotChordBinding() throws {
+        // A managed cmux.json entry must not persist a chorded Send Appshot
+        // binding: Carbon RegisterEventHotKey only accepts a single stroke, so a
+        // chord would never register and would (before the fix) arm a chord
+        // prefix that swallows the first keystroke.
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-send-appshot-invalid-settings-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "sendAppshot": ["cmd+k", "a"]
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(store.override(for: .sendAppshot))
+    }
 }

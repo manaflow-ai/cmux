@@ -34,4 +34,12 @@ public struct ShortcutStroke: Sendable, Equatable, Hashable, Codable {
 
     /// True when at least one of `cmd`, `shift`, `opt`, or `ctrl` is set.
     public var hasAnyModifier: Bool { command || shift || option || control }
+
+    /// True when a primary modifier (`cmd`, `opt`, or `ctrl`) is set.
+    ///
+    /// Shift alone does not count: a system-wide Carbon hotkey requires one
+    /// of these primary modifiers to register. Mirrors the app target's
+    /// `StoredShortcut.hasPrimaryModifier`, which the runtime's
+    /// `normalizedSystemWideHotkeyShortcutResult` gate uses.
+    public var hasPrimaryModifier: Bool { command || option || control }
 }

@@ -1338,6 +1338,7 @@
               "reloadConfiguration",
               "showHideAllWindows",
               "globalSearch",
+              "sendAppshot",
               "newWindow",
               "closeWindow",
               "toggleFullScreen",
