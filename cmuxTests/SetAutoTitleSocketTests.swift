@@ -366,6 +366,33 @@ import Testing
         }
     }
 
+    @Test func persistAfterExitSkippedWhenExitingPidUnknownAndAgentLive() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                workspace.applyProcessTitle("project-directory")
+                // A live agent owns the workspace, and the exiting hook could not
+                // infer its own pid (no excluding_pid). An unknown pid was never
+                // registered here, so this live agent is a different session — the
+                // guard must still fire rather than clobber its title.
+                workspace.recordAgentPID(
+                    key: "codex",
+                    pid: ProcessInfo.processInfo.processIdentifier,
+                    panelId: nil
+                )
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Exiting title",
+                    "persist_after_exit": true
+                ])
+                #expect(envelope["ok"] as? Bool == true)
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == false)
+                #expect(result["workspace_owned_by_live_agent"] as? Bool == true)
+                #expect(workspace.customTitle == nil)
+            }
+        }
+    }
+
     @Test func clearAutoSkippedWhileAnotherAgentIsLiveInWorkspace() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in

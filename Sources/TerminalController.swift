@@ -3370,8 +3370,11 @@ class TerminalController {
             // while a *different* agent is still live in it. The exiting agent's own
             // pid is excluded (its process can still be briefly alive while the
             // SessionEnd hook runs); same-agent siblings are already guarded
-            // CLI-side. Only applies to persist-after-exit writes.
-            if persistAfterExit, let persistExcludingPid,
+            // CLI-side. When `excluding_pid` is absent (the hook couldn't infer its
+            // own pid) the guard still runs excluding nothing: an unknown pid was
+            // never registered here either, so any live registered agent is a
+            // different session that owns the title. Only for persist-after-exit.
+            if persistAfterExit,
                workspace.hasLiveRegisteredAgent(excludingPid: persistExcludingPid) {
                 skippedForLiveAgent = true
                 return
