@@ -94,7 +94,7 @@ final class SessionsListClaudeTranscriptLookupCache {
         return nil
     }
 
-    private func projectDirs(configRoot: String) -> [String] {
+    func projectDirs(configRoot: String) -> [String] {
         let standardizedRoot = (configRoot as NSString).standardizingPath
         if let cached = projectDirsByConfigRoot[standardizedRoot] { return cached }
         let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
@@ -159,22 +159,25 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord,
         claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
     ) -> [String: Any] {
-        let storedPIDExists = sessionsListStoredPIDExists(record.pid)
+        let diagnosticRecord = agent == "claude"
+            ? sessionsListResolvedClaudeWorkflowRecord(record, lookup: claudeTranscriptLookup)
+            : record
+        let storedPIDExists = sessionsListStoredPIDExists(diagnosticRecord.pid)
         let hookRecordRestorable = sessionsListHookRecordRestorable(
             agent: agent,
-            record: record,
+            record: diagnosticRecord,
             claudeTranscriptLookup: claudeTranscriptLookup
         )
-        let trustedLaunchCommand = sessionsListTrustedLaunchCommand(agent: agent, record: record)
+        let trustedLaunchCommand = sessionsListTrustedLaunchCommand(agent: agent, record: diagnosticRecord)
         let forkArguments = hookRecordRestorable ? sessionsListForkArguments(
             agent: agent,
-            record: record,
+            record: diagnosticRecord,
             launchCommand: trustedLaunchCommand
         ) : nil
         let forkCommandAvailable = forkArguments != nil
         let support = sessionsListForkSupport(
             agent: agent,
-            record: record,
+            record: diagnosticRecord,
             hookRecordRestorable: hookRecordRestorable,
             forkCommandAvailable: forkCommandAvailable
         )
@@ -183,7 +186,7 @@ extension CMUXCLI {
             sessionsListForkStartupInputAvailable(
                 arguments: $0,
                 agent: agent,
-                record: record,
+                record: diagnosticRecord,
                 launchCommand: trustedLaunchCommand
             )
         } ?? false
@@ -206,7 +209,7 @@ extension CMUXCLI {
             "hook_record_restorable": hookRecordRestorable,
             "stale_pid_blocks_restore_in_0_64_17": sessionsListStalePIDBlocksRestoreIn06417(
                 agent: agent,
-                record: record,
+                record: diagnosticRecord,
                 hookRecordRestorable: hookRecordRestorable
             ),
         ]
@@ -285,7 +288,7 @@ extension CMUXCLI {
         return sessionsListClaudeTranscriptExists(record: record, lookup: claudeTranscriptLookup)
     }
 
-    private func sessionsListRegularNonEmptyFileExists(atPath path: String) -> Bool {
+    func sessionsListRegularNonEmptyFileExists(atPath path: String) -> Bool {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
               !isDirectory.boolValue,
@@ -323,19 +326,19 @@ extension CMUXCLI {
         return false
     }
 
-    private func sessionsListClaudeSessionIdIsSafeFilename(_ sessionId: String) -> Bool {
+    func sessionsListClaudeSessionIdIsSafeFilename(_ sessionId: String) -> Bool {
         sessionId.range(of: #"[\\/]"#, options: .regularExpression) == nil
             && !sessionId.isEmpty
             && sessionId != "."
             && sessionId != ".."
     }
 
-    private func sessionsListEncodeClaudeProjectDir(_ path: String) -> String {
+    func sessionsListEncodeClaudeProjectDir(_ path: String) -> String {
         path.replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ".", with: "-")
     }
 
-    private func sessionsListDirectoryExists(atPath path: String) -> Bool {
+    func sessionsListDirectoryExists(atPath path: String) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
