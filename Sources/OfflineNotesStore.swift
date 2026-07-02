@@ -54,10 +54,17 @@ final class OfflineNotesStore {
 
     /// Bounds so the queue and its backing file stay small enough that the
     /// synchronous capture write is cheap on the main actor: a note is truncated
-    /// to ``maxNoteLength`` chars, at most ``maxRetainedSentNotes`` sent notes are
-    /// kept (oldest first), and the queue holds ``maxTotalNotes`` total — past
-    /// which ``addNote`` refuses new captures (never evicting unsent work). The
-    /// worst-case file is ~``maxNoteLength`` × ``maxTotalNotes`` (well under 1 MB).
+    /// to ``maxNoteLength`` Unicode scalars, at most ``maxRetainedSentNotes`` sent
+    /// notes are kept (oldest first), and the queue holds ``maxTotalNotes`` total —
+    /// past which ``addNote`` refuses new captures (never evicting unsent work).
+    /// The cap counts Unicode scalars rather than `Character`s deliberately: a
+    /// single grapheme cluster can contain unboundedly many combining scalars, so
+    /// a `Character`-based cap would not bound the persisted byte size (a pasted
+    /// "Zalgo"/combining-mark blob could stay arbitrarily large and be re-encoded
+    /// on every persist). Capping scalars bounds each note to ≤ 4 ×
+    /// ``maxNoteLength`` UTF-8 bytes, so the worst-case file is ≤ 4 ×
+    /// ``maxNoteLength`` × ``maxTotalNotes`` bytes (a few MB), and typically a few
+    /// KB. See ``boundedNoteText(_:)``.
     static let maxNoteLength = 4_000
     static let maxRetainedSentNotes = 100
     static let maxTotalNotes = 200
@@ -142,7 +149,7 @@ final class OfflineNotesStore {
         // cannot grow without bound. Existing unsent notes are preserved.
         pruneSentNotes()
         guard notes.count < Self.maxTotalNotes else { return nil }
-        let capped = String(trimmed.prefix(Self.maxNoteLength))
+        let capped = Self.boundedNoteText(trimmed)
         let note = OfflineNote(text: capped, workspaceID: workspaceID)
         notes.append(note)
         persist()
@@ -377,13 +384,34 @@ final class OfflineNotesStore {
         }
     }
 
+    /// Bounds `text` to ``maxNoteLength`` Unicode scalars, truncating on a scalar
+    /// boundary (so the result is always valid UTF-8). Capping scalars — not
+    /// `Character`s — is what bounds the persisted byte size: a single grapheme
+    /// cluster can hold unboundedly many combining scalars, so a `Character`-based
+    /// `prefix` would leave the encoded note (and every subsequent rewrite of the
+    /// queue file) arbitrarily large. `count`/`index(_:offsetBy:)` walk the string
+    /// once; `addNote`/`load` are not hot paths, so the O(n) scan is fine.
+    static func boundedNoteText(_ text: String) -> String {
+        let scalars = text.unicodeScalars
+        guard scalars.count > maxNoteLength else { return text }
+        let end = scalars.index(scalars.startIndex, offsetBy: maxNoteLength)
+        return String(text[..<end])
+    }
+
     private static func load(fileURL: URL?) -> [OfflineNote] {
         guard let fileURL,
               let data = try? Data(contentsOf: fileURL),
               let decoded = try? makeDecoder().decode([OfflineNote].self, from: data) else {
             return []
         }
-        return decoded
+        // Re-apply the length cap on load: a file written by an older build (or
+        // hand-edited) could contain an over-long note, and we must not let it
+        // reappear unbounded and then be re-encoded on every subsequent persist.
+        return decoded.map { note in
+            var note = note
+            note.text = boundedNoteText(note.text)
+            return note
+        }
     }
 
     nonisolated static func defaultFileURL(
