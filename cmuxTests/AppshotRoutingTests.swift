@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 
@@ -7,13 +8,16 @@ import Testing
 @testable import cmux
 #endif
 
-/// Unit tests for the pure appshot logic: the single-line prompt formatting and
-/// the 60-second recency routing decision. The capture itself (ScreenCaptureKit
-/// + Accessibility) and `AppshotController`'s delivery of each route — including
-/// the `.noRecentTarget` fallback to the active agent (the front window's
-/// focused terminal), which opens a fresh workspace only when no terminal
-/// exists — are integration-only and exercised manually, since they depend on
-/// live `AppDelegate`/AppKit state rather than the pure state modeled here.
+/// Unit tests for the pure appshot logic: the single-line prompt formatting, the
+/// 60-second recency routing decision, and the frame-match window-binding
+/// selection (`AppshotCapturer.indexOfFrame`) that keeps the screenshot and the
+/// Accessibility text on the same window. The live capture around it
+/// (ScreenCaptureKit + Accessibility IPC) and `AppshotController`'s delivery of
+/// each route — including the `.noRecentTarget` fallback to the active agent (the
+/// front window's focused terminal), which opens a fresh workspace only when no
+/// terminal exists — are integration-only and exercised manually, since they
+/// depend on live `AppDelegate`/AppKit state rather than the pure state modeled
+/// here.
 ///
 /// Prompt assertions are locale-neutral (paths, interpolated names, structural
 /// invariants, and presence/absence-by-behavior) so they don't depend on the
@@ -178,5 +182,45 @@ import Testing
         )
         let route = state.resolvedRoute(now: now, window: 60, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: false)
         #expect(route == .append(workspaceId: workspace, panelId: panel))
+    }
+
+    // MARK: - window binding (indexOfFrame)
+
+    @Test func indexOfFrameMatchesTheExactCapturedWindow() {
+        let target = CGRect(x: 100, y: 200, width: 800, height: 600)
+        let frames: [CGRect?] = [
+            CGRect(x: 0, y: 0, width: 400, height: 300),
+            target,
+        ]
+        #expect(AppshotCapturer.indexOfFrame(matching: target, in: frames) == 1)
+    }
+
+    @Test func indexOfFrameMatchesWithinSubPointTolerance() {
+        // CGWindowList bounds and AX position/size can differ by a fraction of a
+        // point; a small tolerance still binds to the same window.
+        let target = CGRect(x: 100, y: 200, width: 800, height: 600)
+        let nearlyEqual = CGRect(x: 101, y: 199, width: 799, height: 602)
+        #expect(AppshotCapturer.indexOfFrame(matching: target, in: [nearlyEqual]) == 0)
+    }
+
+    @Test func indexOfFrameRejectsADifferentWindowOfTheSameApp() {
+        // A sibling window tiled beside the target must not be mistaken for it.
+        let target = CGRect(x: 100, y: 200, width: 800, height: 600)
+        let sibling = CGRect(x: 900, y: 200, width: 800, height: 600)
+        #expect(AppshotCapturer.indexOfFrame(matching: target, in: [sibling]) == nil)
+    }
+
+    @Test func indexOfFrameSkipsUnreadableFramesAndReturnsNilWhenNoneMatch() {
+        // Unreadable AX frames (nil) are skipped; no match means the caller falls
+        // back to the focused/first-window heuristic.
+        let target = CGRect(x: 100, y: 200, width: 800, height: 600)
+        let frames: [CGRect?] = [nil, CGRect(x: 0, y: 0, width: 10, height: 10), nil]
+        #expect(AppshotCapturer.indexOfFrame(matching: target, in: frames) == nil)
+    }
+
+    @Test func indexOfFrameReturnsFirstMatchWhenSeveralQualify() {
+        let target = CGRect(x: 100, y: 200, width: 800, height: 600)
+        let frames: [CGRect?] = [nil, target, target]
+        #expect(AppshotCapturer.indexOfFrame(matching: target, in: frames) == 1)
     }
 }

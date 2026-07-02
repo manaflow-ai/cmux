@@ -50,7 +50,7 @@ enum AppshotCapturer {
                 var title = window.title
                 var textPath: String?
                 if accessibility {
-                    let extracted = extractAccessibilityText(pid: frontPID, axTitle: &title)
+                    let extracted = extractAccessibilityText(pid: frontPID, targetBounds: window.bounds, axTitle: &title)
                     if !extracted.isEmpty {
                         textPath = writeText(extracted)
                     }
@@ -73,6 +73,11 @@ enum AppshotCapturer {
     private struct FrontmostWindow: Sendable {
         let windowID: CGWindowID
         let title: String
+        /// Window frame in top-left-origin global screen coordinates (the same
+        /// space AX `kAXPosition`/`kAXSize` report), used to bind the AX read to
+        /// the exact window the screenshot captured. `nil` when CGWindowList did
+        /// not report bounds.
+        let bounds: CGRect?
     }
 
     /// Finds the frontmost on-screen, normal-layer window owned by `ownerPID`.
@@ -93,12 +98,14 @@ enum AppshotCapturer {
             let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
             guard layer == 0 else { continue }
             guard let number = (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value else { continue }
+            var windowBounds: CGRect?
             if let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
                let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) {
                 guard bounds.width > 40, bounds.height > 40 else { continue }
+                windowBounds = bounds
             }
             let title = info[kCGWindowName as String] as? String ?? ""
-            return FrontmostWindow(windowID: number, title: title)
+            return FrontmostWindow(windowID: number, title: title, bounds: windowBounds)
         }
         return nil
     }
@@ -122,7 +129,7 @@ enum AppshotCapturer {
 
     // MARK: Accessibility text
 
-    private static func extractAccessibilityText(pid: pid_t, axTitle: inout String) -> String {
+    private static func extractAccessibilityText(pid: pid_t, targetBounds: CGRect?, axTitle: inout String) -> String {
         // Bound EVERY synchronous AX IPC call in this process for the duration of
         // the walk. A per-element timeout only covers that one element (not the
         // window/child elements actually read), so set it on the system-wide
@@ -133,14 +140,7 @@ enum AppshotCapturer {
         defer { AXUIElementSetMessagingTimeout(systemWide, 0) }
 
         let app = AXUIElementCreateApplication(pid)
-        let root: AXUIElement
-        if let focused = copyElement(app, kAXFocusedWindowAttribute) {
-            root = focused
-        } else if let windows = copyElements(app, kAXWindowsAttribute), let first = windows.first {
-            root = first
-        } else {
-            root = app
-        }
+        let root = resolveTargetWindow(app: app, matching: targetBounds) ?? app
 
         if axTitle.isEmpty, let windowTitle = copyString(root, kAXTitleAttribute) {
             axTitle = windowTitle
@@ -153,6 +153,62 @@ enum AppshotCapturer {
         let deadline = Date().addingTimeInterval(maxAccessibilityDuration)
         collectText(root, into: &pieces, seen: &seen, nodesVisited: &nodesVisited, charCount: &charCount, deadline: deadline)
         return pieces.joined(separator: "\n")
+    }
+
+    // MARK: Window binding
+
+    /// Selects the AX window element for the window the screenshot captured, so
+    /// the extracted text and the image describe the *same* window. The image is
+    /// pinned to a `CGWindowID` resolved before the async ScreenCaptureKit call,
+    /// so reading the app's focused window at AX time can drift to a different
+    /// window if focus moves mid-capture (multi-window apps). Match by frame
+    /// instead: CGWindowList bounds and AX `kAXPosition`/`kAXSize` are both in
+    /// top-left-origin global screen points.
+    ///
+    /// Falls back to the prior focused-window / first-window heuristic when no
+    /// frame matches (bounds unavailable, window resized/closed mid-capture, or a
+    /// coordinate-space mismatch), so behavior never degrades below the previous
+    /// version — the worst case is the same drift that could occur before.
+    private static func resolveTargetWindow(app: AXUIElement, matching targetBounds: CGRect?) -> AXUIElement? {
+        let windows = copyElements(app, kAXWindowsAttribute)
+        if let targetBounds, let windows,
+           let index = indexOfFrame(matching: targetBounds, in: windows.map(axWindowFrame)) {
+            return windows[index]
+        }
+        if let focused = copyElement(app, kAXFocusedWindowAttribute) { return focused }
+        return windows?.first
+    }
+
+    /// Index of the first frame within `tolerance` points of `target` on all four
+    /// edges, or `nil` when none match. Pure and total so the window-binding
+    /// selection can be unit-tested without live AX state.
+    static func indexOfFrame(matching target: CGRect, in frames: [CGRect?], tolerance: CGFloat = 2) -> Int? {
+        frames.firstIndex { frame in
+            guard let frame else { return false }
+            return abs(frame.origin.x - target.origin.x) <= tolerance
+                && abs(frame.origin.y - target.origin.y) <= tolerance
+                && abs(frame.size.width - target.size.width) <= tolerance
+                && abs(frame.size.height - target.size.height) <= tolerance
+        }
+    }
+
+    /// Reads an AX window's frame (top-left-origin global screen points) from its
+    /// `kAXPosition`/`kAXSize` attributes, or `nil` when either is missing.
+    private static func axWindowFrame(_ window: AXUIElement) -> CGRect? {
+        guard let positionValue = copyAXValue(window, kAXPositionAttribute),
+              let sizeValue = copyAXValue(window, kAXSizeAttribute) else { return nil }
+        var origin = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue, .cgPoint, &origin),
+              AXValueGetValue(sizeValue, .cgSize, &size) else { return nil }
+        return CGRect(origin: origin, size: size)
+    }
+
+    private static func copyAXValue(_ element: AXUIElement, _ attribute: String) -> AXValue? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        return (value as! AXValue)
     }
 
     private static func collectText(
