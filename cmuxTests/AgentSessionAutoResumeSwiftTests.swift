@@ -558,6 +558,15 @@ struct AgentSessionAutoResumeSwiftTests {
                 focus: false
             ))
             #expect(split.requestedWorkingDirectory == homeDir)
+            #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
+
+            try FileManager.default.createDirectory(atPath: projectDir, withIntermediateDirectories: true)
+            let recreatedSplit = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(recreatedSplit.requestedWorkingDirectory == homeDir)
         }
     }
 

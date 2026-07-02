@@ -7020,6 +7020,9 @@ final class Workspace: Identifiable, ObservableObject {
                candidateIsDirectory.boolValue {
                 return candidate
             }
+            if candidate == sessionDirectory {
+                restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+            }
         }
         return nil
     }
