@@ -1161,6 +1161,7 @@
 		A6D1F0200000000000000002 /* WindowCloseObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0200000000000000001 /* WindowCloseObserver.swift */; };
 		A5001240 /* WindowDecorationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001241 /* WindowDecorationsController.swift */; };
 		D6212D0C00000000000000D1 /* WindowDockLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6212D0C00000000000000D2 /* WindowDockLifecycleTests.swift */; };
+		DCDC1000000000000000C050 /* WindowDockRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C051 /* WindowDockRegistry.swift */; };
 		D6212D0C00000000000000D7 /* WindowDockRoutingSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6212D0C00000000000000D8 /* WindowDockRoutingSocketTests.swift */; };
 		B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */; };
 		D0B10024A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10025A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift */; };
@@ -2405,6 +2406,7 @@
 		A6D1F0200000000000000001 /* WindowCloseObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WindowCloseObserver.swift; sourceTree = "<group>"; };
 		A5001241 /* WindowDecorationsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDecorationsController.swift; sourceTree = "<group>"; };
 		D6212D0C00000000000000D2 /* WindowDockLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDockLifecycleTests.swift; sourceTree = "<group>"; };
+		DCDC1000000000000000C051 /* WindowDockRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDockRegistry.swift; sourceTree = "<group>"; };
 		D6212D0C00000000000000D8 /* WindowDockRoutingSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDockRoutingSocketTests.swift; sourceTree = "<group>"; };
 		B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDragHandleView.swift; sourceTree = "<group>"; };
 		D0B10025A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowInputRoutingContext.swift; sourceTree = "<group>"; };
@@ -3428,6 +3430,7 @@
 				DCDC1000000000000000C001 /* AppDelegate+DockSurfaceMove.swift */,
 				DCDC1000000000000000C021 /* DockScope.swift */,
 				DCDC1000000000000000C031 /* AppDelegate+WindowDock.swift */,
+				DCDC1000000000000000C051 /* WindowDockRegistry.swift */,
 				D6212D0C00000000000000D4 /* TerminalController+WindowDockBrowserRouting.swift */,
 				DCDC1000000000000000C011 /* DockSplitStore+SurfaceTransfer.swift */,
 				DCDC1000000000000000C041 /* DockSplitStore+PortalDrop.swift */,
@@ -4973,6 +4976,7 @@
 				B7F9A602B7F9A602B7F9A602 /* WindowChromeMetrics.swift in Sources */,
 				A6D1F0200000000000000002 /* WindowCloseObserver.swift in Sources */,
 				A5001240 /* WindowDecorationsController.swift in Sources */,
+				DCDC1000000000000000C050 /* WindowDockRegistry.swift in Sources */,
 				B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
 				D0B10024A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift in Sources */,
 				313585583035A1E685010A97 /* WindowKeyDownReplayGuard.swift in Sources */,
