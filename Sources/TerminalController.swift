@@ -13655,6 +13655,11 @@ class TerminalController {
             #endif
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        let hasViewportReportFields = params["client_id"] != nil || params["viewport_columns"] != nil || params["viewport_rows"] != nil
+        if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
+            return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
+        }
+        applyMobileViewportReport(params: params, terminalPanel: terminalPanel, reason: "mobile.terminal.replay")
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
         let renderGrid = mobileTerminalRenderGridFrame(
@@ -13717,7 +13722,6 @@ class TerminalController {
               let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
-
         if v2Bool(params, "clear") == true {
             if let clientID = v2String(params, "client_id") {
                 clearMobileViewportReport(
@@ -13727,7 +13731,7 @@ class TerminalController {
                 )
             }
         } else {
-            applyMobileViewportReport(params: params, terminalPanel: terminalPanel, sticky: true)
+            applyMobileViewportReport(params: params, terminalPanel: terminalPanel, sticky: true, reason: "mobile.terminal.viewport")
         }
 
         var payload: [String: Any] = [
@@ -14027,17 +14031,12 @@ class TerminalController {
         return .ok(payload)
     }
 
-    private func applyMobileViewportReport(
-        params: [String: Any],
-        terminalPanel: TerminalPanel,
-        sticky: Bool = false
-    ) {
+    private func applyMobileViewportReport(params: [String: Any], terminalPanel: TerminalPanel, sticky: Bool = false, reason: String = "mobile.terminal.input") {
         guard let clientID = v2String(params, "client_id"),
               let rawColumns = v2Int(params, "viewport_columns"),
               let rawRows = v2Int(params, "viewport_rows") else {
             return
         }
-
         let columns = min(max(rawColumns, 20), 300)
         let rows = min(max(rawRows, 5), 120)
         let now = Date()
@@ -14045,11 +14044,12 @@ class TerminalController {
         reports = reports.filter { _, report in
             report.sticky || now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
         }
+        let reportIsSticky = sticky || (reports[clientID]?.sticky ?? false)
         reports[clientID] = MobileViewportReport(
             columns: columns,
             rows: rows,
             updatedAt: now,
-            sticky: sticky
+            sticky: reportIsSticky
         )
         mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
         scheduleMobileViewportReportCleanup(surfaceID: terminalPanel.id, reports: reports)
@@ -14061,7 +14061,7 @@ class TerminalController {
         terminalPanel.surface.applyMobileViewportLimit(
             columns: minColumns,
             rows: minRows,
-            reason: "mobile.terminal.input"
+            reason: reason
         )
     }
 
