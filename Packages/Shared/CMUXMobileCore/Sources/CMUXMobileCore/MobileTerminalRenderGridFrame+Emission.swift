@@ -1,9 +1,9 @@
-public extension MobileTerminalRenderGridFrame {
+extension MobileTerminalRenderGridFrame {
     /// Cached producer state for this frame.
     ///
     /// Producers keep this compact value after emitting a frame, then pass it to
     /// ``renderGridEmission(comparedTo:)`` for the next full producer snapshot.
-    var emissionState: MobileTerminalRenderGridEmissionState {
+    public var emissionState: MobileTerminalRenderGridEmissionState {
         MobileTerminalRenderGridEmissionState(
             columns: columns,
             rows: rows,
@@ -24,7 +24,7 @@ public extension MobileTerminalRenderGridFrame {
     /// - Returns: The frame to emit plus the compact state to cache for the next
     ///   comparison, or `nil` when no event should be emitted.
     /// - Throws: ``MobileTerminalRenderGridError`` if a generated delta would be invalid.
-    func renderGridEmission(
+    public func renderGridEmission(
         comparedTo previous: MobileTerminalRenderGridEmissionState?
     ) throws -> (frame: MobileTerminalRenderGridFrame, state: MobileTerminalRenderGridEmissionState)? {
         let nextSignatures = rowSignatures()

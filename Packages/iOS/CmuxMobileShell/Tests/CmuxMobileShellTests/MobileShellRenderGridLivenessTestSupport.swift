@@ -46,8 +46,6 @@ struct LivenessTestRuntime: MobileSyncRuntime {
 
 // MARK: - Scripted host (router + transport)
 
-struct LivenessViewportReport: Sendable { var columns: Int; var rows: Int }
-
 /// Scripts the Mac side of the persistent RPC connection: answers the
 /// connect-time `workspace.list`, the `mobile.host.status` capability and
 /// probe requests, `mobile.events.subscribe`, and replay/viewport calls.
