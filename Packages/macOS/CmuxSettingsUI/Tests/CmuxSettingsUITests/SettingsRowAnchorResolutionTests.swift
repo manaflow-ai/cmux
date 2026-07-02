@@ -121,6 +121,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.scrollSpeed",
         "terminal.showScrollBar",
         "terminal.showTextBoxOnNewTerminals",
+        "terminal.textBoxDefaultSubmitAction",
         "terminal.textBoxMaxLines",
         "workspaceColors.indicatorStyle",
         "workspaceColors.notificationBadgeColor",
