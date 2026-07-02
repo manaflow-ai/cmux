@@ -1598,7 +1598,8 @@
   "afterSignIn": {
     "title": "Prijavljeni ste u cmux",
     "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
-    "button": "Vrati se u cmux"
+    "button": "Vrati se u cmux",
+    "switchAccountButton": "Koristi drugi račun"
   },
   "landing": {
     "bestTerminal": {

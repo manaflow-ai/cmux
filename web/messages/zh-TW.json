@@ -1598,7 +1598,8 @@
   "afterSignIn": {
     "title": "已登入 cmux",
     "body": "如果 cmux 沒有自動開啟，請使用下方按鈕。",
-    "button": "返回 cmux"
+    "button": "返回 cmux",
+    "switchAccountButton": "使用其他帳號"
   },
   "landing": {
     "bestTerminal": {

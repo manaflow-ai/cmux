@@ -1598,7 +1598,8 @@
   "afterSignIn": {
     "title": "تم تسجيل الدخول إلى cmux",
     "body": "إذا لم يفتح cmux تلقائيًا، استخدم الزر أدناه.",
-    "button": "العودة إلى cmux"
+    "button": "العودة إلى cmux",
+    "switchAccountButton": "استخدام حساب مختلف"
   },
   "landing": {
     "bestTerminal": {

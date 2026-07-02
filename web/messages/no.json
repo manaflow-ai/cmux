@@ -1598,7 +1598,8 @@
   "afterSignIn": {
     "title": "Logget på cmux",
     "body": "Hvis cmux ikke åpnet automatisk, bruk knappen nedenfor.",
-    "button": "Gå tilbake til cmux"
+    "button": "Gå tilbake til cmux",
+    "switchAccountButton": "Bruk en annen konto"
   },
   "landing": {
     "bestTerminal": {

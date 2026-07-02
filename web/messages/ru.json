@@ -1598,7 +1598,8 @@
   "afterSignIn": {
     "title": "Вход в cmux выполнен",
     "body": "Если cmux не открылся автоматически, используйте кнопку ниже.",
-    "button": "Вернуться в cmux"
+    "button": "Вернуться в cmux",
+    "switchAccountButton": "Использовать другой аккаунт"
   },
   "landing": {
     "bestTerminal": {

@@ -1598,7 +1598,8 @@
   "afterSignIn": {
     "title": "Sesión iniciada en cmux",
     "body": "Si cmux no se abrió automáticamente, usa el botón de abajo.",
-    "button": "Volver a cmux"
+    "button": "Volver a cmux",
+    "switchAccountButton": "Usar otra cuenta"
   },
   "landing": {
     "bestTerminal": {

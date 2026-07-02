@@ -2005,7 +2005,8 @@
   "afterSignIn": {
     "title": "Signed in to cmux",
     "body": "If cmux did not open automatically, use the button below.",
-    "button": "Return to cmux"
+    "button": "Return to cmux",
+    "switchAccountButton": "Use a different account"
   },
   "landing": {
     "bestTerminal": {
