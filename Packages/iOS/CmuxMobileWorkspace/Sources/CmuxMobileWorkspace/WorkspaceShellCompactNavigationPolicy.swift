@@ -7,6 +7,7 @@ import Foundation
 /// or store. Generic over the workspace identifier so it can be tested with any
 /// `Hashable` ID type.
 public struct WorkspaceShellCompactNavigationPolicy {
+    /// Creates a compact workspace navigation policy.
     public init() {}
 
     /// Computes the navigation path after the selected workspace changes.
