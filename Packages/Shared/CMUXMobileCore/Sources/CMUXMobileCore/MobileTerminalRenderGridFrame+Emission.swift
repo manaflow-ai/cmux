@@ -54,7 +54,12 @@ extension MobileTerminalRenderGridFrame {
             return nil
         }
 
-        if modes.contains(where: { $0.isDECOriginMode && $0.on }) {
+        // Row repaints under DEC origin mode stay full snapshots, but a
+        // cursor-only advance (no changed rows) does not need one: the delta
+        // replay disables origin mode before its absolute cursor move, and a
+        // full-screen app holding DECOM would otherwise promote every
+        // keystroke tick into a full-grid payload.
+        if !changedRows.isEmpty, modes.contains(where: { $0.isDECOriginMode && $0.on }) {
             return (self, nextState)
         }
 

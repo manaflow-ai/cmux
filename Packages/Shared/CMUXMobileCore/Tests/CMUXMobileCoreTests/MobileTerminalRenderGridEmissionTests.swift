@@ -21,6 +21,41 @@ import Testing
     #expect(emission == nil)
 }
 
+@Test func renderGridEmissionKeepsCursorOnlyOriginModeUpdatesAsDeltas() throws {
+    let previous = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 48,
+        columns: 8,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "same"),
+        ],
+        modes: [
+            .init(code: MobileTerminalRenderGridFrame.ModeSetting.decOriginModeCode, ansi: false, on: true),
+        ]
+    ).emissionState
+    let next = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 49,
+        columns: 8,
+        rows: 2,
+        cursor: .init(row: 1, column: 3),
+        rowSpans: [
+            .init(row: 0, column: 0, text: "same"),
+        ],
+        modes: [
+            .init(code: MobileTerminalRenderGridFrame.ModeSetting.decOriginModeCode, ansi: false, on: true),
+        ]
+    )
+
+    let emission = try #require(try next.renderGridEmission(comparedTo: previous))
+
+    #expect(!emission.frame.full)
+    #expect(emission.frame.rowSpans.isEmpty)
+    #expect(emission.frame.cursor?.row == 1)
+    #expect(emission.state == next.emissionState)
+}
+
 @Test func renderGridEmissionKeepsChangedOriginModeSnapshotFull() throws {
     let previous = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
