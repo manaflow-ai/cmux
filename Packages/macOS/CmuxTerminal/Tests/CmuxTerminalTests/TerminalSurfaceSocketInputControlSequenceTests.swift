@@ -18,20 +18,20 @@ import CmuxTerminalCore
         #expect(payload == Data(sequence.utf8))
     }
 
-    /// A function-key CSI (`ESC[15~`, F5) is a *complete* control sequence, so it
-    /// is routed to the terminal parser as a single payload — identical handling
-    /// to the DSR/CPR reports above and consistent with the #5763 fix. This
-    /// breadth is deliberate and safe: no cmux client emits function keys as raw
-    /// socket input (the mobile input surface exposes no F-keys), and the
-    /// navigation keys clients *do* send are converted to key events *before*
-    /// this routing (see `navigationArrowRoutesAsKeyEventNotTerminalParser`).
-    /// Locking the behavior here makes any future change to function-key delivery
-    /// a conscious one instead of a silent regression.
-    @Test func csiFunctionKeySequenceRoutesThroughTerminalParser() throws {
-        let sequence = "\u{1B}[15~"
-        let payload = try #require(singleTerminalBytePayload(for: sequence))
+    /// A function-key CSI (`ESC[15~`, F5) is interactive input for the foreground
+    /// program, not a terminal report, so it is *not* routed to the terminal
+    /// output parser. Only cursor reports/queries (DSR `ESC[…n` / CPR `ESC[…R`) —
+    /// the sequences #5763 needs the emulator to answer — are parser-routed.
+    /// Routing every complete CSI there instead swallowed genuine input keys
+    /// (function keys, kitty-keyboard, mouse, arbitrary `terminal.input`) as
+    /// display-only control sequences, which never reached the PTY.
+    @Test func csiFunctionKeySequenceIsNotRoutedThroughTerminalParser() {
+        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}[15~")
 
-        #expect(payload == Data(sequence.utf8))
+        #expect(
+            !events.contains { if case .terminalBytes = $0 { return true } else { return false } },
+            "A function-key CSI must not be fed to the display parser as terminal output."
+        )
     }
 
     /// The navigation keys cmux clients actually send over the socket (arrows,

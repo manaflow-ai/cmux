@@ -40,15 +40,16 @@ struct TerminalSurfaceSocketInputControlSequenceTests {
         }
     }
 
-    /// Verifies a complete function-key CSI (`ESC[15~`, F5) is queued as one
-    /// terminal-output payload — the same handling as the CPR/DSR reports above
-    /// and consistent with the #5763 fix. No cmux client sends function keys as
-    /// raw socket input, and the navigation keys clients do send are re-issued as
-    /// key events before this routing (see
-    /// `coldSocketInputRoutesNavigationArrowAsKeyEvent`), so this breadth does
-    /// not regress interactive input.
+    /// Verifies a complete function-key CSI (`ESC[15~`, F5) is *not* routed to
+    /// the terminal output parser. Unlike the DSR/CPR reports above, a function
+    /// key is interactive input for the foreground program; feeding it to the
+    /// display parser (`process_output`) would consume it as an unknown output
+    /// control sequence and never deliver it to the PTY. Only cursor
+    /// reports/queries (`ESC[…n` / `ESC[…R`) — the sequences #5763 needs the
+    /// emulator to answer — are parser-routed; every other complete CSI stays on
+    /// the input path.
     @Test
-    func coldSocketInputQueuesFunctionKeyCSIAsRawTerminalBytes() {
+    func coldSocketInputDoesNotRouteFunctionKeyCSIToTerminalParser() {
         let sequence = "\u{1B}[15~"
         let panel = TerminalPanel(workspaceId: UUID())
 
@@ -57,22 +58,9 @@ struct TerminalSurfaceSocketInputControlSequenceTests {
 
         let pending = panel.surface.debugPendingSocketInputForTesting()
         #expect(
-            pending.keyEvents == 0,
-            "Function-key CSI must not be split into Escape key events plus literal text."
+            pending.processOutputItems == 0,
+            "Function-key CSI must not reach the terminal output parser, which would consume it as a display-only control sequence instead of PTY input."
         )
-        #expect(
-            pending.inputTextItems == 0,
-            "Function-key CSI must bypass committed text input so Ghostty consumes it as a terminal control sequence."
-        )
-        #expect(
-            pending.pasteTextItems == 0,
-            "Function-key CSI must bypass paste input so it is not echoed by the shell."
-        )
-        #expect(
-            pending.processOutputItems == 1,
-            "Function-key CSI must be queued as one terminal output payload."
-        )
-        #expect(pending.bytes == sequence.utf8.count)
     }
 
     /// Verifies the navigation keys cmux clients actually send (an up arrow here)
