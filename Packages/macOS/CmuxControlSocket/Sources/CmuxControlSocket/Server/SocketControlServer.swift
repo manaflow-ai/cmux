@@ -85,6 +85,7 @@ public final class SocketControlServer {
         let acceptLoopAlive: Bool
         let activeGeneration: UInt64
         let pendingRearmGeneration: UInt64?
+        let listenerReadSourceSuspended: Bool
         let reservedStartupSocketPath: String?
         let listenerStartInProgress: Bool
         let socketPathLockHeld: Bool
@@ -196,6 +197,7 @@ public final class SocketControlServer {
             acceptLoopAlive: state.acceptLoopAlive,
             activeGeneration: state.activeAcceptLoopGeneration,
             pendingRearmGeneration: state.pendingAcceptLoopRearmGeneration,
+            listenerReadSourceSuspended: state.listenerReadSourceSuspended,
             reservedStartupSocketPath: state.reservedStartupSocketPath,
             listenerStartInProgress: state.listenerStartInProgress,
             socketPathLockHeld: state.socketPathLockFD >= 0,
@@ -236,6 +238,28 @@ public final class SocketControlServer {
     /// race). See ``SocketListenerActivationRecoveryPolicy/rebindDecisionIsCurrent(capturedGeneration:currentGeneration:)``.
     public nonisolated var activeListenerGeneration: UInt64 {
         listenerStateSnapshot().activeGeneration
+    }
+
+    /// Whether the accept loop's own recovery is mid-backoff and will bring the
+    /// listener back on its own.
+    ///
+    /// On an accept failure the server backs off deliberately rather than
+    /// spinning: a fatal errno or a persistent failure streak parks a delayed
+    /// rearm (`pendingRearmGeneration`, with the listener torn down until it
+    /// fires), and a milder failure suspends the accept source for a resume
+    /// backoff (`listenerReadSourceSuspended`). Both windows leave the
+    /// accept-loop generation unchanged, and both make the listener look exactly
+    /// like the refused socket the activation heal targets — down flags during a
+    /// rearm, a live socket that stops answering `ping` during a suspend. Healing
+    /// then would restart over the scheduled recovery and reset the failure
+    /// streak, defeating the backoff under sustained resource pressure (e.g.
+    /// `EMFILE`). The activation heal exists only for the case where *nothing*
+    /// re-arms recovery (#6406), so it must stand down whenever this reports the
+    /// server is already recovering. See
+    /// ``SocketListenerActivationRecoveryPolicy/rebindShouldProceed(capturedGeneration:currentGeneration:serverRecoveryPending:)``.
+    public nonisolated var hasPendingAcceptRecovery: Bool {
+        let snapshot = listenerStateSnapshot()
+        return snapshot.pendingRearmGeneration != nil || snapshot.listenerReadSourceSuspended
     }
 
     /// The socket path remote-session restore should reconnect through, or

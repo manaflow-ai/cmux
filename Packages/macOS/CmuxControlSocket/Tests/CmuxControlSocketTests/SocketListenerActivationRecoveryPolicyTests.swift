@@ -152,6 +152,50 @@ import Testing
         #expect(!policy.rebindDecisionIsCurrent(capturedGeneration: 7, currentGeneration: 0))
     }
 
+    /// The rebind may proceed only when the decision is still current *and* the
+    /// server is not already recovering the accept loop on its own. During the
+    /// listener's own accept-source backoff (a parked rearm or a suspended accept
+    /// source) the generation is unchanged — so the freshness check alone passes
+    /// — yet the listener reads like the refused socket the heal targets. Acting
+    /// then would restart over the scheduled recovery and reset the accept-failure
+    /// streak, defeating the backoff, so a pending server recovery must block the
+    /// rebind regardless of generation (#6406 review, backoff preservation).
+    @Test func rebindProceedsOnlyWhenCurrentAndNoServerRecoveryPending() {
+        let policy = SocketListenerActivationRecoveryPolicy()
+        // Current generation, no server recovery: the one case that proceeds.
+        #expect(
+            policy.rebindShouldProceed(
+                capturedGeneration: 7,
+                currentGeneration: 7,
+                serverRecoveryPending: false
+            )
+        )
+        // Current generation but the server is mid-backoff: defer to it.
+        #expect(
+            !policy.rebindShouldProceed(
+                capturedGeneration: 7,
+                currentGeneration: 7,
+                serverRecoveryPending: true
+            )
+        )
+        // Stale generation alone blocks the rebind even with no recovery pending.
+        #expect(
+            !policy.rebindShouldProceed(
+                capturedGeneration: 7,
+                currentGeneration: 8,
+                serverRecoveryPending: false
+            )
+        )
+        // Both stale and recovering: still blocked.
+        #expect(
+            !policy.rebindShouldProceed(
+                capturedGeneration: 7,
+                currentGeneration: 8,
+                serverRecoveryPending: true
+            )
+        )
+    }
+
     @Test func downListenerForcesRebindRegardlessOfPing() {
         let policy = SocketListenerActivationRecoveryPolicy()
         #expect(!policy.listenerIsServing(health: Self.down, pingResponse: nil))

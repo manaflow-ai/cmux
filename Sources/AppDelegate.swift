@@ -3944,6 +3944,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TerminalController.shared.reserveStartupSocketPath(startupPath)
     }
 
+    /// Redacts a socket path for telemetry. The raw control-socket path embeds
+    /// the local username/home directory, so every breadcrumb carries only
+    /// whether a path is configured — never the path itself. One shared
+    /// redaction for all socket lifecycle/heal breadcrumbs (issue #6406 review).
+    private static func redactedSocketPathForTelemetry(_ path: String) -> String {
+        path.isEmpty ? "empty" : "configured"
+    }
+
     private func startSocketListenerIfEnabled(tabManager: TabManager, source: String) {
         guard let config = socketListenerConfigurationIfEnabled() else {
             TerminalController.shared.stop()
@@ -3952,7 +3960,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let path = TerminalController.shared.activeSocketPath(preferredPath: config.path)
         sentryBreadcrumb("socket.listener.start", category: "socket", data: [
             "mode": config.mode.rawValue,
-            "path": path,
+            "path": Self.redactedSocketPathForTelemetry(path),
             "source": source
         ])
         TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
@@ -3970,7 +3978,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         sentryBreadcrumb("socket.listener.ensure", category: "socket", data: [
             "mode": config.mode.rawValue,
-            "path": path,
+            "path": Self.redactedSocketPathForTelemetry(path),
             "source": source,
             "failureSignals": health.failureSignals.joined(separator: ",")
         ])
@@ -3985,7 +3993,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
         sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
             "mode": config.mode.rawValue,
-            "path": restartPath,
+            "path": Self.redactedSocketPathForTelemetry(restartPath),
             "source": source
         ])
         TerminalController.shared.stop()
@@ -4060,20 +4068,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         socketListenerActivationCheckInFlight = false
         lastSocketListenerActivationCheck = Date()
         guard shouldRebind else { return }
-        // If any recovery path replaced the listener while our background ping
-        // was in flight, the probed listener no longer exists and our rebind
-        // decision is stale. The authoritative accept-loop generation moves on
-        // every (re)start — host-driven or the listener's own path-monitor /
-        // accept-source recovery — so a mismatch means tearing down the fresh
-        // listener would drop its clients; skip and let the next activation
-        // re-evaluate (#6406 review, activation/wake race).
-        guard socketListenerActivationRecoveryPolicy.rebindDecisionIsCurrent(
+        // Two conditions must both hold before rebinding. First, if any recovery
+        // path replaced the listener while our background ping was in flight, the
+        // probed listener no longer exists and the decision is stale — the
+        // authoritative accept-loop generation moves on every (re)start, host-
+        // driven or the listener's own path-monitor / accept-source recovery.
+        // Second, if the accept loop's own recovery is mid-backoff (a parked
+        // rearm or a suspended accept source) the generation has *not* moved but
+        // the server will restore the listener on its own; rebinding now would
+        // cancel that scheduled recovery and reset the accept-failure streak,
+        // defeating the backoff under sustained resource pressure. Either way,
+        // skip and let the next activation re-evaluate (#6406 review,
+        // activation/wake race + backoff preservation).
+        let currentGeneration = TerminalController.shared.activeListenerGeneration
+        let serverRecoveryPending = TerminalController.shared.hasPendingAcceptRecovery
+        guard socketListenerActivationRecoveryPolicy.rebindShouldProceed(
             capturedGeneration: capturedGeneration,
-            currentGeneration: TerminalController.shared.activeListenerGeneration
+            currentGeneration: currentGeneration,
+            serverRecoveryPending: serverRecoveryPending
         ) else {
+            let skipReason = socketListenerActivationRecoveryPolicy.rebindDecisionIsCurrent(
+                capturedGeneration: capturedGeneration,
+                currentGeneration: currentGeneration
+            ) ? "recovery_pending" : "listener_restarted_during_probe"
             sentryBreadcrumb("socket.listener.heal.skipped", category: "socket", data: [
                 "source": "app.didBecomeActive",
-                "reason": "listener_restarted_during_probe"
+                "reason": skipReason
             ])
             return
         }
@@ -4082,7 +4102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Emit only bounded classifications and a byte count (issue #6406 review).
         sentryBreadcrumb("socket.listener.heal", category: "socket", data: [
             "source": "app.didBecomeActive",
-            "socketPath": path.isEmpty ? "empty" : "configured",
+            "socketPath": Self.redactedSocketPathForTelemetry(path),
             "failureSignals": health.failureSignals.joined(separator: ","),
             "pingResponseKind": SocketListenerActivationRecoveryPolicy
                 .pingResponseKind(pingResponse).rawValue,

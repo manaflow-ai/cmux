@@ -183,4 +183,39 @@ public struct SocketListenerActivationRecoveryPolicy: Sendable {
     public func rebindDecisionIsCurrent(capturedGeneration: UInt64, currentGeneration: UInt64) -> Bool {
         capturedGeneration == currentGeneration
     }
+
+    /// Whether the activation heal may act on its rebind decision now.
+    ///
+    /// Two independent conditions must both hold before the heal tears down and
+    /// rebinds the listener:
+    ///
+    /// 1. The decision is still current — the accept-loop generation has not
+    ///    moved since the probe (see
+    ///    ``rebindDecisionIsCurrent(capturedGeneration:currentGeneration:)``);
+    ///    otherwise the probed listener was already replaced.
+    /// 2. The server is not already recovering the accept loop on its own. On an
+    ///    accept failure the listener backs off deliberately — a delayed rearm or
+    ///    a suspended accept source — and both windows read like the refused
+    ///    socket this policy heals while leaving the generation unchanged.
+    ///    Rebinding then would cancel the scheduled recovery and reset the
+    ///    accept-failure streak, defeating the backoff under sustained resource
+    ///    pressure (e.g. `EMFILE`). The heal exists only for the case where
+    ///    *nothing* re-arms recovery (#6406), so it defers whenever the server
+    ///    reports recovery pending (`SocketControlServer.hasPendingAcceptRecovery`).
+    ///
+    /// - Parameters:
+    ///   - capturedGeneration: Accept-loop generation sampled with the probe.
+    ///   - currentGeneration: Accept-loop generation now, on the main actor.
+    ///   - serverRecoveryPending: Whether the server has a delayed accept
+    ///     recovery (parked rearm or suspended accept source) in progress.
+    /// - Returns: True only when the decision is current and no server recovery
+    ///   is pending, so the rebind may proceed.
+    public func rebindShouldProceed(
+        capturedGeneration: UInt64,
+        currentGeneration: UInt64,
+        serverRecoveryPending: Bool
+    ) -> Bool {
+        rebindDecisionIsCurrent(capturedGeneration: capturedGeneration, currentGeneration: currentGeneration)
+            && !serverRecoveryPending
+    }
 }

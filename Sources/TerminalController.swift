@@ -367,6 +367,15 @@ class TerminalController {
         socketServer.activeListenerGeneration
     }
 
+    /// Whether the listener's own accept-source recovery is mid-backoff (a
+    /// parked rearm or a suspended accept source). The activation self-heal
+    /// checks this before rebinding and stands down when the server is already
+    /// recovering, so it never restarts over a scheduled backoff and resets the
+    /// accept-failure streak (issue #6406 review).
+    nonisolated var hasPendingAcceptRecovery: Bool {
+        socketServer.hasPendingAcceptRecovery
+    }
+
     nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
         !currentSocketCommandFocusAllowanceStack().isEmpty
     }
