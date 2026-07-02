@@ -67,11 +67,25 @@ enum AgentHookRuntimeStatus: String, Codable {
     case error
 }
 
+/// Category tag the app uses to gate agent notifications by user config.
+/// Serialized into the `notify_target_async` payload's optional meta segment.
+enum AgentHookNotifyCategory: String {
+    case turnComplete = "turn-complete"
+    case needsPermission = "needs-permission"
+    case idleReminder = "idle-reminder"
+    case other
+}
+
 private struct AgentHookNotificationSummary {
     let subtitle: String
     let body: String
     let status: AgentHookNotificationStatus?
     let isFallback: Bool
+    /// Which user-facing notification setting gates this alert, decided by the
+    /// classifier alongside subtitle/status so "Permission" and "Waiting" cues
+    /// (both `.needsInput`) gate under their own settings. `nil` = ungated,
+    /// always deliver (errors, unclassified attention alerts, fallbacks).
+    var notifyCategory: AgentHookNotifyCategory? = nil
 }
 
 #if DEBUG
@@ -26226,7 +26240,8 @@ struct CMUXCLI {
                 subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
                 body: truncate(body, maxLength: 180),
                 status: .needsInput,
-                isFallback: isFallback
+                isFallback: isFallback,
+                notifyCategory: .needsPermission
             )
         }
         if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
@@ -26251,7 +26266,8 @@ struct CMUXCLI {
                 subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
                 body: truncate(body, maxLength: 180),
                 status: .idle,
-                isFallback: isFallback
+                isFallback: isFallback,
+                notifyCategory: .turnComplete
             )
         }
         if containsWaitingCue(lower) {
@@ -26262,7 +26278,8 @@ struct CMUXCLI {
                 subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
                 body: truncate(body, maxLength: 180),
                 status: .needsInput,
-                isFallback: isFallback
+                isFallback: isFallback,
+                notifyCategory: .idleReminder
             )
         }
         if !message.isEmpty {
@@ -26376,15 +26393,6 @@ struct CMUXCLI {
         // Omitting it reproduces the exact 3-field payload every legacy caller sends.
         guard let meta, !meta.isEmpty else { return base }
         return base + "|" + meta
-    }
-
-    /// Category tag the app uses to gate agent notifications by user config.
-    /// Serialized into the `notify_target_async` payload's optional meta segment.
-    enum AgentHookNotifyCategory: String {
-        case turnComplete = "turn-complete"
-        case needsPermission = "needs-permission"
-        case idleReminder = "idle-reminder"
-        case other
     }
 
     /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. No "|" and no spaces,
@@ -30405,6 +30413,11 @@ export default CMUXSessionRestore;
             let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus)
             let stopNotificationAlreadyRouted = (input.rawObject?["cmux_notification_routed"] as? Bool) == true
                 || (input.object?["cmux_notification_routed"] as? Bool) == true
+            // Antigravity's integration defines a stop with active background work
+            // (fullyIdle=false) as an intermediate event, not a completed turn: its
+            // completion ping arrives at the later fullyIdle stop. Deliberately NOT
+            // routed through the app-side agentTurnComplete gate — publishing here
+            // would mark the dedupe fingerprint and swallow the real final ping.
             let shouldPublishStopNotification = def.publishesStopNotification
                 && !stopNotificationAlreadyRouted
                 && (!antigravityHasActiveBackgroundWork || stopNotificationStatus == .error)
@@ -30772,19 +30785,17 @@ export default CMUXSessionRestore;
 
             let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
             if shouldSendNotification(fingerprint: notificationFingerprint) {
-                // Tag by classification so the app's agent notification settings
-                // cover every built-in agent: blocked-on-user prompts gate under
-                // "Agent Needs Permission"; turn-boundary completions (grok and
+                // Tag by the classifier's category so the app's agent notification
+                // settings cover every built-in agent: approval prompts gate under
+                // "Agent Needs Permission", waiting-for-input cues under "Agent
+                // Waiting for Input", turn-boundary completions (grok and
                 // antigravity route them through this hook) under "Agent
                 // Finished". Errors and unclassified alerts stay untagged.
-                let notificationMeta: String?
-                switch summary.status {
-                case .needsInput:
-                    notificationMeta = notifyMeta(.needsPermission, pending: false)
-                case .idle:
-                    notificationMeta = notifyMeta(.turnComplete, pending: hasActiveAntigravityBackgroundWork())
-                default:
-                    notificationMeta = nil
+                let notificationMeta: String? = summary.notifyCategory.map { category in
+                    notifyMeta(
+                        category,
+                        pending: category == .turnComplete && hasActiveAntigravityBackgroundWork()
+                    )
                 }
                 let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body, meta: notificationMeta)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
