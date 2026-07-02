@@ -1,6 +1,9 @@
 import CmuxAgentChat
 import CmuxMobileSupport
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 /// The horizontal shortcut row above the composer field.
 public struct ChatAccessoryChipRow: View {
@@ -118,7 +121,7 @@ public struct ChatAccessoryChipRow: View {
     }
 
     private var scrollNeedsTrailingFade: Bool {
-        scrollContentWidth > scrollViewportWidth + 1
+        scrollContentWidth + Self.scrollLeadingHardStopWidth + 2 > scrollViewportWidth + 1
     }
 
     private var stopShortcut: ChatAccessoryShortcut {
@@ -194,14 +197,22 @@ public struct ChatAccessoryChipRow: View {
 
     private var scrollLeadingHardStop: some View {
         Rectangle()
-            .fill(Color.black)
+            .fill(scrollHardStopFill)
             .frame(width: Self.scrollLeadingHardStopWidth)
             .overlay(alignment: .trailing) {
                 Rectangle()
-                    .fill(Color.white.opacity(0.18))
+                    .fill(Color.primary.opacity(0.16))
                     .frame(width: 0.5)
             }
             .allowsHitTesting(false)
+    }
+
+    private var scrollHardStopFill: Color {
+        #if os(iOS)
+        Color(uiColor: .systemBackground)
+        #else
+        Color.black
+        #endif
     }
 
     @ViewBuilder
