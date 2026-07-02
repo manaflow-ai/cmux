@@ -543,6 +543,71 @@ import Testing
 }
 
 @MainActor
+@Test func terminalPipelineResetDuringViewportAckDefersToAckReplay() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "post-reset-resize-replay",
+    ])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
+
+    // A resize acknowledgement is pending while the render pipeline resets
+    // (keyboard/rotation is exactly when drawable resets happen).
+    await router.holdViewportRequest(number: 2)
+    let resizeReport = Task {
+        await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
+    }
+    await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 2)
+
+    store.terminalOutputNeedsReplay(surfaceID: surfaceID)
+    let replayDuringAck = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(
+        !replayDuringAck,
+        "a pipeline reset during a pending viewport acknowledgement must defer its replay to the acknowledgement"
+    )
+
+    // The acknowledged resize must still request the authoritative replay
+    // (the reset must not have armed a competing barrier it dedupes against).
+    await router.releaseAllHeld()
+    let resizedGrid = await resizeReport.value
+    #expect(resizedGrid?.rows == 30)
+    let ackReplayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1
+    )
+    #expect(ackReplayRequested, "the acknowledged resize must request the post-resize replay")
+    guard ackReplayRequested else { return }
+
+    let replayChunk = try #require(await iterator.next())
+    #expect(String(data: replayChunk.data, encoding: .utf8) == "post-reset-resize-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+
+    store.deliverTerminalBytes(Data("live-after-reset-resize".utf8), surfaceID: surfaceID)
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-reset-resize")
+}
+
+@MainActor
 @Test func terminalReplayRequestRejectsStaleBarrierToken() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
