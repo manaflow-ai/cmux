@@ -7197,7 +7197,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 #endif
                 if let replaySeq,
                    let deliveredSeq = self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID],
-                   deliveredSeq > replaySeq {
+                   deliveredSeq >= replaySeq {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)")
                     self.clearTerminalReplayBarrierIfCurrent(
                         surfaceID: surfaceID,
