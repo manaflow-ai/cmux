@@ -51,6 +51,12 @@ extension MobileShellComposite {
     func markTerminalBytesDelivered(surfaceID: String, endSeq: UInt64) {
         let current = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = max(current, endSeq)
+        // An accepted delivery re-bases the stale floor: the live delivered
+        // sequence takes over from the pre-barrier stash. Dropping the stash
+        // unconditionally (not only when endSeq caught up) keeps a Mac-side
+        // sequence reset (surface recreate) recoverable through the replay
+        // path instead of wedging every event behind the old floor.
+        terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         let clearBaselineReplayCount = terminalOutputTransport != .hybrid
             || terminalActiveScreenBySurfaceID[surfaceID] != .alternate
             || terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
@@ -97,11 +103,27 @@ extension MobileShellComposite {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
-        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
-           deliveredSeq > renderGrid.stateSeq {
+        // The stale floor is the delivered high-water mark, surviving a replay
+        // barrier via the pre-barrier stash: a buffered frame from before the
+        // barrier must not paint (and must not establish an outdated baseline)
+        // while the fresh authoritative replay is pending.
+        let staleFloorSeq = max(
+            deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] ?? 0,
+            terminalPreBarrierDeliveredEndSeqBySurfaceID[renderGrid.surfaceID] ?? 0
+        )
+        if staleFloorSeq > renderGrid.stateSeq {
             MobileDebugLog.anchormux(
-                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(deliveredSeq) frame=\(renderGrid.stateSeq)"
+                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(staleFloorSeq) frame=\(renderGrid.stateSeq)"
             )
+            // Rejected purely by the pre-barrier floor (no live baseline): the
+            // frame may be from a NEW sequence epoch after the host recreated
+            // the surface, so ask the authoritative replay to arbitrate. The
+            // accepted replay re-bases the floor; the request is budget-capped
+            // so a burst of genuinely stale frames cannot hammer the host.
+            if source == "event",
+               deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] == nil {
+                requestTerminalReplayForMissingRenderGridBaseline(surfaceID: renderGrid.surfaceID)
+            }
             return
         }
         let hasDeliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] != nil
@@ -391,6 +413,10 @@ extension MobileShellComposite {
         }
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
+        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] {
+            let stashedSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] ?? 0
+            terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] = max(stashedSeq, deliveredSeq)
+        }
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)

@@ -719,6 +719,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var secondaryAggregationScopeGeneration = 0
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
+    /// High-water delivered sequence captured when a replay barrier resets
+    /// ``deliveredTerminalByteEndSeqBySurfaceID``, so a buffered pre-barrier
+    /// render-grid frame cannot slip past the staleness guard and establish an
+    /// outdated baseline while the authoritative replay is still in flight.
+    /// Cleared by the next accepted delivery (which re-bases the floor).
+    var terminalPreBarrierDeliveredEndSeqBySurfaceID: [String: UInt64]
     var terminalRenderGridBaselineReplayRequestCountsBySurfaceID: [String: Int]
     var terminalRenderGridBaselineReplayBarrierTokensBySurfaceID: [String: UUID]
     var terminalAlternateRenderGridBaselineSurfaceIDs: Set<String>
@@ -924,6 +930,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.chatEventSourceGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
+        self.terminalPreBarrierDeliveredEndSeqBySurfaceID = [:]
         self.terminalRenderGridBaselineReplayRequestCountsBySurfaceID = [:]
         self.terminalRenderGridBaselineReplayBarrierTokensBySurfaceID = [:]
         self.terminalAlternateRenderGridBaselineSurfaceIDs = []
@@ -1092,6 +1099,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         rawTerminalInputBuffer.clear()
         reportedViewportSizesByTerminalKey = [:]
+        terminalPreBarrierDeliveredEndSeqBySurfaceID = [:]
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID = [:]
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID = [:]
         terminalColdAttachReplayBarrierTokensBySurfaceID = [:]
@@ -5257,6 +5265,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func resetTerminalOutputTracking() {
         cancelAllTerminalReplayTasks()
         deliveredTerminalByteEndSeqBySurfaceID = [:]
+        terminalPreBarrierDeliveredEndSeqBySurfaceID = [:]
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID = [:]
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID = [:]
         terminalAlternateRenderGridBaselineSurfaceIDs = []
@@ -6689,6 +6698,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
+        // Preserve the delivered high-water mark before clearing it, so a
+        // buffered pre-barrier frame replayed by the event stream cannot pass
+        // the staleness guard while the fresh authoritative replay is pending.
+        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] {
+            let stashedSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] ?? 0
+            terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] = max(stashedSeq, deliveredSeq)
+        }
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -6899,6 +6915,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
