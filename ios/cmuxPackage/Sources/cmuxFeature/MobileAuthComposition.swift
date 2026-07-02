@@ -106,7 +106,10 @@ public struct MobileAuthComposition {
             clearAuthRequested: environment["CMUX_UITEST_CLEAR_AUTH"] == "1",
             mockDataEnabled: UITestConfig.mockDataEnabled,
             environment: environment,
-            includesDevAuth: policy.includesFortyTwoShortcut,
+            includesDevAuth: Self.includesDevAuth(
+                policy: policy,
+                resolvedEnvironment: resolvedEnvironment
+            ),
             clearStaleAuthOnLaunch: authProjectSwitched
         )
         // Break the coordinator <-> push cycle: the coordinator is built first
@@ -201,6 +204,19 @@ public struct MobileAuthComposition {
         default:
             return isDevelopmentBuild ? .development : .production
         }
+    }
+
+    /// Whether launch enables the `42` debug sign-in shortcut. It signs in
+    /// with fixed development-project credentials, so it exists only where
+    /// those credentials belong: builds whose RESOLVED auth environment is
+    /// development. A `--prod-auth` build still compiles the shortcut (DEBUG
+    /// policy) but must not expose a known-credential sign-in path against
+    /// the production Stack project.
+    nonisolated static func includesDevAuth(
+        policy: MobileAuthBuildPolicy,
+        resolvedEnvironment: CMUXAuthEnvironment
+    ) -> Bool {
+        policy.includesFortyTwoShortcut && resolvedEnvironment == .development
     }
 
     /// The defaults key persisting which Stack project id this install last

@@ -163,6 +163,30 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(overrides["AuthEnvironment"] == nil)
     }
 
+    // MARK: - Dev sign-in shortcut gating
+
+    @Test func productionAuthDisablesTheFortyTwoShortcut() {
+        // The 42 shortcut signs in with fixed development-project
+        // credentials; a --prod-auth build must not expose that
+        // known-credential path against the production Stack project.
+        #expect(MobileAuthComposition.includesDevAuth(
+            policy: MobileAuthBuildPolicy(includesFortyTwoShortcut: true),
+            resolvedEnvironment: .production
+        ) == false)
+    }
+
+    @Test func developmentAuthKeepsTheFortyTwoShortcutWhenThePolicyHasIt() {
+        #expect(MobileAuthComposition.includesDevAuth(
+            policy: MobileAuthBuildPolicy(includesFortyTwoShortcut: true),
+            resolvedEnvironment: .development
+        ) == true)
+        // Release policy never includes it, whatever the environment.
+        #expect(MobileAuthComposition.includesDevAuth(
+            policy: MobileAuthBuildPolicy(includesFortyTwoShortcut: false),
+            resolvedEnvironment: .development
+        ) == false)
+    }
+
     // MARK: - Project-switch detection (stale cross-project auth state)
 
     private func freshDefaults() throws -> UserDefaults {
