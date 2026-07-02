@@ -7339,7 +7339,10 @@ struct CMUXCLI {
         }
         if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
             let text = unescapeSendText(commandText + "\\n")
-            let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
+            let sendParams: [String: Any] = [
+                "text": text,
+                "workspace_id": wsId
+            ]
             _ = try client.sendV2(method: "surface.send_text", params: sendParams)
         }
     }
@@ -19276,7 +19279,7 @@ struct CMUXCLI {
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
             extraEnvVars: claudeTeamsExtraEnvVars(commandArgs: commandArgs)
         )
-        if !claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) { unsetenv("CMUX_CLAUDE_TEAMS_SANDBOXED"); unsetenv("CLAUDE_CODE_SANDBOXED") }  // clear ambient markers inherited from a parent opted-in session so the trust bypass never leaks across invocations (#6447)
+        clearInheritedClaudeSessionEnvironment(); if !claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) { unsetenv("CMUX_CLAUDE_TEAMS_SANDBOXED"); unsetenv("CLAUDE_CODE_SANDBOXED") }  // clear ambient markers inherited from a parent opted-in session so the trust bypass never leaks across invocations (#6447)
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
