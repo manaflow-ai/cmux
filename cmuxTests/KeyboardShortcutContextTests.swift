@@ -227,6 +227,40 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertTrue(nonBrowser.overlaps(markdown))
     }
 
+    func testBrowserOrFilePreviewTextEditorContextAvailabilityAndOverlap() {
+        let context = KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext
+
+        XCTAssertEqual(context, .browserOrFilePreviewTextEditor)
+        XCTAssertTrue(context.isAvailable(
+            focusedBrowserPanel: true,
+            focusedMarkdownPanel: false,
+            focusedFilePreviewTextEditor: false,
+            rightSidebarFocused: false
+        ))
+        XCTAssertTrue(context.isAvailable(
+            focusedBrowserPanel: false,
+            focusedMarkdownPanel: false,
+            focusedFilePreviewTextEditor: true,
+            rightSidebarFocused: false
+        ))
+        XCTAssertTrue(context.isAvailable(
+            focusedBrowserPanel: true,
+            focusedMarkdownPanel: false,
+            focusedFilePreviewTextEditor: true,
+            rightSidebarFocused: false
+        ))
+        XCTAssertFalse(context.isAvailable(
+            focusedBrowserPanel: false,
+            focusedMarkdownPanel: false,
+            focusedFilePreviewTextEditor: false,
+            rightSidebarFocused: false
+        ))
+
+        XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.browserReload.shortcutContext))
+        XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext))
+        XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
+    }
+
     func testSurfaceDigitFamilyCoexistsWithPrioritizedSidebarModeShortcuts() {
         let surfaceDigits = KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut
         let sidebarFiles = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.defaultShortcut
