@@ -172,6 +172,60 @@ import Testing
     #expect(frame.plainRows() == ["界 "])
 }
 
+@Test func renderGridPlainRowsClipWideFallbackByGridColumns() throws {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 48,
+        columns: 2,
+        rows: 1,
+        text: "界A"
+    )
+
+    #expect(frame.rowSpans == [
+        .init(row: 0, column: 0, text: "界"),
+    ])
+    #expect(frame.plainRows() == ["界 "])
+}
+
+@Test func renderGridPlainRowsClipCurrentWideFallbackRanges() throws {
+    let tangut = String(try #require(UnicodeScalar(0x17000)))
+    let meltingFace = "\u{1FAE0}"
+
+    for (offset, text) in [tangut, meltingFace].enumerated() {
+        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "terminal-a",
+            stateSeq: UInt64(49 + offset),
+            columns: 2,
+            rows: 1,
+            text: text + "A"
+        )
+
+        #expect(frame.rowSpans == [
+            .init(row: 0, column: 0, text: text),
+        ])
+        #expect(frame.plainRows() == [text + " "])
+    }
+}
+
+@Test func renderGridPreviousShapeKeepsWidthOneSymbolsNarrow() throws {
+    let object: [String: Any] = [
+        "format": MobileTerminalRenderGridFrame.currentFormat,
+        "surface_id": "terminal-a",
+        "state_seq": NSNumber(value: 51),
+        "columns": 1,
+        "rows": 1,
+        "styles": [["id": 0]],
+        "row_spans": [
+            ["row": 0, "column": 0, "style_id": 0, "text": "\u{1F0A1}"],
+        ],
+    ]
+
+    let frame = try MobileTerminalRenderGridFrame.decodeJSONObject(object)
+
+    #expect(frame.rowSpans == [.init(row: 0, column: 0, text: "\u{1F0A1}")])
+    #expect(frame.plainRows() == ["\u{1F0A1}"])
+}
+
 @Test func renderGridDecodesReplayFramesFromPreviousShape() throws {
     let object: [String: Any] = [
         "format": MobileTerminalRenderGridFrame.currentFormat,

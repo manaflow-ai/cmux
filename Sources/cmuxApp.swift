@@ -434,7 +434,7 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
                     appDelegate.checkForUpdates(nil)
                 }
-                InstallUpdateMenuItem(model: appDelegate.updateViewModel)
+                InstallUpdateMenuItem(model: appDelegate.updateViewModel, actions: appDelegate)
             }
 
             CommandGroup(replacing: .appTermination) {
@@ -732,6 +732,13 @@ struct cmuxApp: App {
                         // shared action path.
                         activeTabManager.addWorkspace(initialSurface: .browser)
                     }
+                }
+
+                splitCommandButton(title: String(localized: "menu.file.newWorkspaceGroup", defaultValue: "New Workspace Group"), shortcut: menuShortcut(for: .newWorkspaceGroup)) {
+                    _ = AppDelegate.shared?.createEmptyWorkspaceGroup(
+                        tabManager: activeTabManager,
+                        preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                    )
                 }
 
                 splitCommandButton(title: String(localized: "menu.file.openFolder", defaultValue: "Open Folder…"), shortcut: menuShortcut(for: .openFolder)) {
@@ -1391,11 +1398,9 @@ struct cmuxApp: App {
     }
 
     private func closePanelOrWindow() {
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow,
-           cmuxWindowShouldOwnCloseShortcut(window) {
-            window.performClose(nil)
-            return
-        }
+        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        if let window, cmuxWindowShouldOwnCloseShortcut(window) { window.performClose(nil); return }
+        if appDelegate.closeFocusedDockPanelForCommand(preferredWindow: window) { return }
         activeTabManager.closeCurrentPanelWithConfirmation()
     }
 
