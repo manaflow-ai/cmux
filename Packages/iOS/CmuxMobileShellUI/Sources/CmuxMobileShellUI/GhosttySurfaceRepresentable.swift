@@ -165,13 +165,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         surfaceView.retryViewportReport()
                         return
                     }
-                    surfaceView.markViewportReportConfirmed()
                     if case .remoteGrid = self.activeViewportPolicy {
                         surfaceView.applyConfirmedViewSize(
                             cols: effectiveGrid.columns,
                             rows: effectiveGrid.rows,
                             reportID: report.id
                         )
+                    } else {
+                        surfaceView.markViewportReportConfirmed(reportID: report.id)
                     }
                 }
             )
@@ -201,10 +202,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         }
                     case .remoteGrid(let columns, let rows):
                         self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
+                        let allowsTopGapCorrection = !chunk.data.isEmpty
                         if chunk.data.isEmpty {
-                            surfaceView.applyViewSize(cols: columns, rows: rows)
+                            surfaceView.applyViewSize(
+                                cols: columns,
+                                rows: rows,
+                                allowsTopGapCorrection: allowsTopGapCorrection
+                            )
                         } else {
-                            let applied = await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
+                            let applied = await surfaceView.applyViewSizeAndWait(
+                                cols: columns,
+                                rows: rows,
+                                allowsTopGapCorrection: allowsTopGapCorrection
+                            )
                             guard applied else {
                                 store.terminalOutputDidReset(
                                     surfaceID: surfaceID,

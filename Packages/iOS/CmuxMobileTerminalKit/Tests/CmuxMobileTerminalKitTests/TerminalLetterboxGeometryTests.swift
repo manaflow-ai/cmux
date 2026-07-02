@@ -289,4 +289,5 @@ struct TerminalLetterboxGeometryTests {
         )
         #expect(clamped == CGSize(width: 402, height: 700))
     }
+
 }

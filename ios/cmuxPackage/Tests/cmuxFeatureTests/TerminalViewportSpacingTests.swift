@@ -49,7 +49,6 @@ private final class ViewportSpacingDelegate: NSObject, GhosttySurfaceViewDelegat
         reports.append(size)
         reportIDs[size] = reportID
         if let mac = autoEchoMacGrid {
-            surfaceView.markViewportReportConfirmed()
             surfaceView.applyConfirmedViewSize(
                 cols: min(size.columns, mac.cols),
                 rows: min(size.rows, mac.rows),
@@ -157,7 +156,6 @@ private final class ViewportSpacingHarness {
     /// the ID the view stamped on that report — exactly what the production
     /// coordinator hands back when the RPC for that report resolves.
     func echo(_ report: TerminalGridSize, macColumns: Int = .max, macRows: Int = .max) {
-        view.markViewportReportConfirmed()
         view.applyConfirmedViewSize(
             cols: min(report.columns, macColumns),
             rows: min(report.rows, macRows),
@@ -369,6 +367,44 @@ struct TerminalViewportSpacingTests {
         // The retry's echo lands; the render must reclaim the full viewport.
         harness.echo(retried)
         #expect(await harness.waitForFill(), "after retry echo: top gap \(harness.topGap)pt")
+    }
+
+    /// Once the viewport report retry budget is exhausted, the pending local
+    /// echo guard must stop suppressing intentional remote-grid placement. The
+    /// direct-terminal render-grid path needs this so a Mac/grid-constrained
+    /// terminal can still top-anchor instead of being permanently treated as
+    /// stale viewport-growth state.
+    @Test("exhausted viewport retries do not block intentional remote-grid top anchoring")
+    func exhaustedRetriesAllowRemoteGridTopAnchoring() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let initial = try #require(await harness.waitForReport(after: 0))
+        harness.echo(initial)
+        #expect(await harness.waitForFill())
+
+        for _ in 0..<4 {
+            harness.view.retryViewportReport()
+        }
+
+        let rows = 8
+        await harness.view.applyViewSizeAndWait(
+            cols: initial.columns,
+            rows: rows,
+            allowsTopGapCorrection: true
+        )
+        let topAnchored = await harness.pump(timeout: 8) {
+            let snap = harness.snapshot
+            return snap.effectiveGrid?.rows == rows
+                && renderMatchesPin(harness)
+                && harness.topGap <= 1
+                && harness.bottomGap > harness.cellHeightPoints * 2
+        }
+        #expect(topAnchored, """
+            exhausted retry guard still blocked top anchoring: \
+            top gap \(harness.topGap)pt, bottom gap \(harness.bottomGap)pt, \
+            eff \(harness.snapshot.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")
+            """)
     }
 
     /// THE STRETCH FEATURE: when the Mac window (or any other attached device)
