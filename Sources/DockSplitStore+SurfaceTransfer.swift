@@ -61,6 +61,13 @@ extension DockSplitStore {
             customTitleSource: nil,
             manuallyUnread: false,
             restoredUnreadIndicator: nil,
+            // The Dock keeps its own panel registry and does not track the
+            // workspace-scoped session-restore lifecycle, so a live Dock move
+            // carries no agent-restore metadata: restorableAgent, its resume
+            // state, the resume binding, the agent runtime, and the #7155 resume
+            // cwd anchor are all dropped here (unchanged from before #7155 — the
+            // anchor is inert without the resume state the Dock already drops).
+            // Preserving agent-resume across Dock moves is a separate concern.
             restorableAgent: nil,
             restorableAgentResumeState: nil,
             restoredResumeSessionWorkingDirectory: nil,
