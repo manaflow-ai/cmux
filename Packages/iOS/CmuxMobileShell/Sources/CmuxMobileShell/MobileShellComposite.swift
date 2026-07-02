@@ -720,7 +720,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
-    private var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
+    var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
     var terminalReplaySurfaceIDsInFlight: Set<String>
     private var terminalReplayRequestIDsInFlightBySurfaceID: [String: UUID]
     private var terminalReplayTasksBySurfaceID: [String: Task<Void, Never>]

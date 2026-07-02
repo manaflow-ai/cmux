@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 struct TerminalScrollDelivery: Equatable, Sendable {
@@ -25,18 +26,22 @@ struct TerminalScrollDelivery: Equatable, Sendable {
 struct TerminalScrollbackPrefetchState: Equatable, Sendable {
     static let defaultWindowRows = 600
     static let defaultRefreshDistanceRows = 120.0
+    static let defaultMaxWindowRows = 4800
 
     var windowRows: Int
     var refreshDistanceRows: Double
+    var maxWindowRows: Int
     private var hasPrimedWindow = false
     private var accumulatedRowsSincePrefetch = 0.0
 
     init(
         windowRows: Int = Self.defaultWindowRows,
-        refreshDistanceRows: Double = Self.defaultRefreshDistanceRows
+        refreshDistanceRows: Double = Self.defaultRefreshDistanceRows,
+        maxWindowRows: Int = Self.defaultMaxWindowRows
     ) {
         self.windowRows = max(0, windowRows)
         self.refreshDistanceRows = max(1, refreshDistanceRows)
+        self.maxWindowRows = max(self.windowRows, maxWindowRows)
     }
 
     mutating func rowsToPrefetch(forScrollLines lines: Double) -> Int? {
@@ -45,9 +50,48 @@ struct TerminalScrollbackPrefetchState: Equatable, Sendable {
         guard !hasPrimedWindow || accumulatedRowsSincePrefetch >= refreshDistanceRows else {
             return nil
         }
+        // Sustained scrolling into history pages the window deeper so the
+        // local mirror can keep going past the initial window; scrolling back
+        // toward the bottom refreshes at the current depth instead.
+        if hasPrimedWindow, lines > 0 {
+            windowRows = min(windowRows + Self.defaultWindowRows, maxWindowRows)
+        }
         hasPrimedWindow = true
         accumulatedRowsSincePrefetch = 0
         return windowRows
+    }
+}
+
+extension TerminalScrollDelivery {
+    /// Pure routing decision for a phone scroll gesture; nil means nothing is
+    /// sent to the Mac.
+    ///
+    /// Primary screen: the phone's local Ghostty mirror owns the viewport, so
+    /// no scroll delta is ever sent to the Mac; the only RPC is a
+    /// `delta_lines = 0` scrollback-window fetch when the prefetch state says
+    /// the local history needs (re)priming or deepening. Alternate screen: the
+    /// wheel must reach the real PTY, so the delta is forwarded unchanged.
+    static func forScrollGesture(
+        surfaceID: String,
+        activeScreen: MobileTerminalRenderGridFrame.Screen,
+        lines: Double,
+        col: Int,
+        row: Int,
+        prefetchState: inout TerminalScrollbackPrefetchState
+    ) -> TerminalScrollDelivery? {
+        guard activeScreen == .primary else {
+            return TerminalScrollDelivery(surfaceID: surfaceID, lines: lines, col: col, row: row)
+        }
+        guard let maxScrollbackRows = prefetchState.rowsToPrefetch(forScrollLines: lines) else {
+            return nil
+        }
+        return TerminalScrollDelivery(
+            surfaceID: surfaceID,
+            lines: 0,
+            col: col,
+            row: row,
+            maxScrollbackRows: maxScrollbackRows
+        )
     }
 }
 
