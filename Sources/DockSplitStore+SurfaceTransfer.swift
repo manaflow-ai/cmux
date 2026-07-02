@@ -20,6 +20,7 @@ extension DockSplitStore {
     /// `didCloseTab` → `reconcilePanels()` path cannot tear the live panel down.
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
+        let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
         let kind = (panel.panelType == .browser) ? "browser" : "terminal"
         let icon = panel.displayIcon
         let browser = panel as? BrowserPanel
@@ -39,6 +40,9 @@ extension DockSplitStore {
             // Close rejected: re-take ownership so the Dock stays consistent.
             panels[panelId] = panel
             surfaceIdToPanelId[tabId] = panelId
+            if let preservedTransfer {
+                detachedSurfaceTransfersByPanelId[panelId] = preservedTransfer
+            }
             installSubscription(for: panel, tracksTerminalTitle: true)
             return nil
         }
@@ -53,23 +57,23 @@ extension DockSplitStore {
             kind: kind,
             isLoading: isLoading,
             isPinned: false,
-            directory: nil,
-            directoryDisplayLabel: nil,
-            ttyName: nil,
-            cachedTitle: nil,
-            customTitle: nil,
-            customTitleSource: nil,
-            manuallyUnread: false,
-            restoredUnreadIndicator: nil,
-            restorableAgent: nil,
-            restorableAgentResumeState: nil,
-            restoredResumeSessionWorkingDirectory: nil,
-            resumeBinding: nil,
-            agentRuntime: nil,
-            isRemoteTerminal: false,
-            remoteRelayPort: nil,
-            remotePTYSessionID: nil,
-            remoteCleanupConfiguration: nil
+            directory: preservedTransfer?.directory,
+            directoryDisplayLabel: preservedTransfer?.directoryDisplayLabel,
+            ttyName: preservedTransfer?.ttyName,
+            cachedTitle: preservedTransfer?.cachedTitle,
+            customTitle: preservedTransfer?.customTitle,
+            customTitleSource: preservedTransfer?.customTitleSource,
+            manuallyUnread: preservedTransfer?.manuallyUnread ?? false,
+            restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
+            restorableAgent: preservedTransfer?.restorableAgent,
+            restorableAgentResumeState: preservedTransfer?.restorableAgentResumeState,
+            restoredResumeSessionWorkingDirectory: preservedTransfer?.restoredResumeSessionWorkingDirectory,
+            resumeBinding: preservedTransfer?.resumeBinding,
+            agentRuntime: preservedTransfer?.agentRuntime,
+            isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
+            remoteRelayPort: preservedTransfer?.remoteRelayPort,
+            remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
+            remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
     }
 
@@ -95,6 +99,7 @@ extension DockSplitStore {
         }
 
         panels[detached.panelId] = panel
+        detachedSurfaceTransfersByPanelId[detached.panelId] = detached
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
@@ -108,6 +113,7 @@ extension DockSplitStore {
             inPane: paneId
         ) else {
             panels.removeValue(forKey: detached.panelId)
+            detachedSurfaceTransfersByPanelId.removeValue(forKey: detached.panelId)
             return nil
         }
         surfaceIdToPanelId[newTabId] = detached.panelId

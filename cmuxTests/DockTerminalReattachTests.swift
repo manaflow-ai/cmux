@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import Testing
 
@@ -8,11 +9,43 @@ import Testing
 @testable import cmux
 #endif
 
+@MainActor
+private final class DockTransferTestPanel: Panel {
+    let objectWillChange = ObservableObjectPublisher()
+    let id: UUID
+    let panelType: PanelType
+    let displayTitle: String
+    let displayIcon: String?
+    let isDirty = false
+
+    init(
+        id: UUID = UUID(),
+        panelType: PanelType = .terminal,
+        displayTitle: String = "Detached",
+        displayIcon: String? = "terminal.fill"
+    ) {
+        self.id = id
+        self.panelType = panelType
+        self.displayTitle = displayTitle
+        self.displayIcon = displayIcon
+    }
+
+    func close() {}
+    func focus() {}
+    func unfocus() {}
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+}
+
 extension DockSocketLifecycleTests {
     @MainActor
     private func detachedTerminalTransfer(
-        panel: TerminalPanel,
-        sourceWorkspaceId: UUID
+        panel: any Panel,
+        sourceWorkspaceId: UUID,
+        directory: String? = nil,
+        restorableAgent: SessionRestorableAgentSnapshot? = nil,
+        restorableAgentResumeState: Workspace.RestoredAgentResumeState? = nil,
+        restoredResumeSessionWorkingDirectory: String? = nil,
+        resumeBinding: SurfaceResumeBindingSnapshot? = nil
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
@@ -24,7 +57,7 @@ extension DockSocketLifecycleTests {
             kind: "terminal",
             isLoading: false,
             isPinned: false,
-            directory: nil,
+            directory: directory,
             directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: nil,
@@ -32,10 +65,10 @@ extension DockSocketLifecycleTests {
             customTitleSource: nil,
             manuallyUnread: false,
             restoredUnreadIndicator: nil,
-            restorableAgent: nil,
-            restorableAgentResumeState: nil,
-            restoredResumeSessionWorkingDirectory: nil,
-            resumeBinding: nil,
+            restorableAgent: restorableAgent,
+            restorableAgentResumeState: restorableAgentResumeState,
+            restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
+            resumeBinding: resumeBinding,
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
@@ -183,6 +216,65 @@ extension DockSocketLifecycleTests {
         store.focusPanel(panelId)
 
         #expect(panel.viewReattachToken == reattachTokenBefore + 1)
+    }
+
+    @Test("Dock transfer preserves resumed-agent cwd rescue metadata")
+    @MainActor
+    func dockTransferPreservesResumedAgentCwdRescueMetadata() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = DockTransferTestPanel()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let sessionId = "claude-dock-transfer-\(UUID().uuidString)"
+        let sessionDirectory = "/tmp/cmux-dock-transfer-session"
+        let trackedDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: sessionDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude", "--resume", sessionId],
+                workingDirectory: sessionDirectory,
+                capturedAt: 1_777_777_777,
+                source: "process"
+            )
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Claude",
+            kind: "claude",
+            command: "{ cd -- '\(sessionDirectory)' 2>/dev/null || [ ! -d '\(sessionDirectory)' ]; } && 'claude' '--resume' '\(sessionId)'",
+            cwd: sessionDirectory,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_777_777_777
+        )
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            directory: trackedDirectory,
+            restorableAgent: agent,
+            restorableAgentResumeState: .autoResumeCommandRunning,
+            restoredResumeSessionWorkingDirectory: sessionDirectory,
+            resumeBinding: binding
+        )
+
+        let attachedPanelId = store.attachDetachedSurface(detached, inPane: rootPane, focus: false)
+        #expect(attachedPanelId == panel.id)
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.panelId == panel.id)
+        #expect(roundTripped.directory == trackedDirectory)
+        #expect(roundTripped.restorableAgent?.sessionId == sessionId)
+        #expect(roundTripped.restorableAgentResumeState == .autoResumeCommandRunning)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == sessionDirectory)
+        #expect(roundTripped.resumeBinding?.checkpointId == sessionId)
     }
 
     @Test("Dock terminal reveal requests a view reattach")
