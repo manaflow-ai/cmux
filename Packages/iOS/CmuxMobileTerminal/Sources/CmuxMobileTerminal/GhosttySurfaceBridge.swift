@@ -11,11 +11,17 @@ import UIKit
 final class GhosttySurfaceBridge: @unchecked Sendable {
     // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding a single weak ref on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
     private let lock = NSLock()
-    // Weak: the view owns the bridge, so a strong back-reference forms a
-    // retain cycle that keeps a dismantled surface (and its libghostty
-    // surface) alive forever — `deinit` is the only caller of
-    // `disposeSurface()`, and it can never run while the cycle exists.
-    private weak var _surfaceView: GhosttySurfaceView?
+    // Deliberately STRONG despite forming a view<->bridge cycle: libghostty
+    // holds the raw view pointer (`ghostty_platform_ios_s.uiview`,
+    // passUnretained in `makeSurface`), so the view must outlive every queued
+    // surface operation. A weak back-reference would let the view deallocate
+    // while queued renderer work still dereferences that pointer
+    // (use-after-free). The cycle means a closed terminal's view/bridge/
+    // surface are reclaimed only by the render-pipeline recovery rebuild, not
+    // by dismantle; fixing the leak needs retained-uiview / free-on-dismantle
+    // choreography, tracked in
+    // https://github.com/manaflow-ai/cmux/issues/7199.
+    private var _surfaceView: GhosttySurfaceView?
 
     var surfaceView: GhosttySurfaceView? {
         get {
