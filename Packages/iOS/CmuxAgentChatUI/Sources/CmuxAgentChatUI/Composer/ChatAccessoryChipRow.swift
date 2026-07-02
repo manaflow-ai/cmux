@@ -78,7 +78,7 @@ public struct ChatAccessoryChipRow: View {
             .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
                 scrollContentWidth = width
             }
-            .padding(.leading, Self.scrollLeadingHardStopWidth)
+            .padding(.leading, usesLeadingHardStop ? Self.scrollLeadingHardStopWidth : 0)
             .padding(.trailing, scrollNeedsTrailingFade ? Self.scrollTrailingFadeWidth : 2)
         }
         .frame(height: 32)
@@ -92,7 +92,9 @@ public struct ChatAccessoryChipRow: View {
             scrollTrailingFadeMask
         }
         .overlay(alignment: .leading) {
-            scrollLeadingHardStop
+            if usesLeadingHardStop {
+                scrollLeadingHardStop
+            }
         }
     }
 
@@ -121,7 +123,15 @@ public struct ChatAccessoryChipRow: View {
     }
 
     private var scrollNeedsTrailingFade: Bool {
-        scrollContentWidth + Self.scrollLeadingHardStopWidth + 2 > scrollViewportWidth + 1
+        scrollContentWidth + scrollLeadingInset + 2 > scrollViewportWidth + 1
+    }
+
+    private var usesLeadingHardStop: Bool {
+        !displayedLeadingShortcuts.isEmpty
+    }
+
+    private var scrollLeadingInset: CGFloat {
+        usesLeadingHardStop ? Self.scrollLeadingHardStopWidth : 0
     }
 
     private var stopShortcut: ChatAccessoryShortcut {
