@@ -76,6 +76,7 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var replayRenderGridFrames: [MobileTerminalRenderGridFrame] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0
@@ -176,6 +177,10 @@ actor LivenessHostRouter {
 
     func enqueueReplayTexts(_ texts: [String]) {
         replayTexts.append(contentsOf: texts)
+    }
+
+    func enqueueReplayRenderGridFrames(_ frames: [MobileTerminalRenderGridFrame]) {
+        replayRenderGridFrames.append(contentsOf: frames)
     }
 
     func failNextReplay(count: Int = 1) {
@@ -297,6 +302,18 @@ actor LivenessHostRouter {
             if emptyReplayResponsesRemaining > 0 {
                 emptyReplayResponsesRemaining -= 1
                 return try? Self.resultFrame(id: id, result: [:])
+            }
+            if !replayRenderGridFrames.isEmpty {
+                let frame = replayRenderGridFrames.removeFirst()
+                guard let object = try? frame.jsonObject() else {
+                    return try? Self.errorFrame(id: id, message: "render grid encode failed")
+                }
+                return try? Self.resultFrame(id: id, result: [
+                    "seq": frame.stateSeq,
+                    "columns": frame.columns,
+                    "rows": frame.rows,
+                    "render_grid": object,
+                ])
             }
             guard !replayTexts.isEmpty else {
                 return try? Self.resultFrame(id: id, result: [:])
@@ -492,14 +509,16 @@ func renderGridEventFrame(
     surfaceID: String,
     seq: UInt64,
     text: String,
+    columns: Int = 16,
+    rows: Int = 4,
     activeScreen: MobileTerminalRenderGridFrame.Screen = .primary,
     full: Bool = true
 ) throws -> Data {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
         stateSeq: seq,
-        columns: 16,
-        rows: 4,
+        columns: columns,
+        rows: rows,
         full: full,
         rowSpans: [
             MobileTerminalRenderGridFrame.RowSpan(

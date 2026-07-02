@@ -112,6 +112,59 @@ import Testing
 }
 
 @MainActor
+@Test func renderGridReplayAtSameSeqDoesNotOverwriteNewerLiveGrid() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    await router.holdNextReplayResponses()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(coldReplayRequested, "mounting a sink must request the cold replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 5,
+        text: "fresh-wide-grid",
+        columns: 16
+    ))
+    let freshDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("fresh-wide-grid") }
+    }
+    #expect(freshDelivered, "the live render-grid frame must paint before the held cold replay resolves")
+
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 5,
+            columns: 4,
+            rows: 4,
+            full: true,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "old!"),
+            ]
+        ),
+    ])
+    await router.releaseAllHeld()
+
+    let staleDelivered = try await pollUntil(attempts: 60) {
+        collector.lines.contains { $0.contains("old!") }
+    }
+    #expect(
+        staleDelivered == false,
+        "a cold replay captured at an older grid width must not overwrite an already-delivered live frame at the same state sequence"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func primaryRenderGridEventDoesNotPreemptRawBytes() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
