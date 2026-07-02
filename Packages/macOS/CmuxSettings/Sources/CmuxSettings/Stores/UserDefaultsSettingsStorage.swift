@@ -22,6 +22,13 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
         defaults.removeObject(forKey: key)
     }
 
+    func postDidChangeNotification() {
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: defaults
+        )
+    }
+
     func addDidChangeObserver(
         _ handler: @escaping @Sendable (
             _ isBackingDefaultsNotification: Bool,

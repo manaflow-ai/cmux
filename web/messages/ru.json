@@ -851,6 +851,7 @@
         },
         "shortcuts": {
           "when": "Необязательные контекстные предикаты для каждой операции (условия `when` в стиле VS Code), заданные по идентификатору операции cmux. Каждое значение — булево выражение над ключами контекста, объединенными с помощью !, &&, || и скобок. Булевы ключи: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типизированные ключи поддерживают сравнения: строка sidebarMode (files, find, sessions, feed или dock) и целые числа paneCount и workspaceCount. Операторы сравнения: ==, !=, =~ (регулярное выражение), <, <=, >, >= и `in [a, b]`; неизвестный или отсутствующий ключ считается false. Также принимаются булевы литералы true и false; `key == false` эквивалентно `!key`. Сочетание клавиш операции срабатывает (и конфликтует с другими сочетаниями) только когда условие истинно. Примеры: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } выбирает рабочие области с помощью Ctrl+1–9 везде, кроме случаев, когда в фокусе правая боковая панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ограничивает привязку боковой панелью поиска, когда в рабочей области несколько панелей.",
+          "showCommandHoldHints": "Показывать подсказки сочетаний клавиш, пока удерживается Cmd. shortcuts.showModifierHoldHints также должен быть включен.",
           "showModifierHoldHints": "Показывать подсказки сочетаний клавиш, пока удерживается Cmd или Control."
         }
       },

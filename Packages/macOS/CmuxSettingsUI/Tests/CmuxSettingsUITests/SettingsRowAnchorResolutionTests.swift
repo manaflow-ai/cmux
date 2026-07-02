@@ -110,6 +110,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.watchGitStatus",
         "sidebar.wrapWorkspaceTitles",
         "sidebarAppearance.matchTerminalBackground",
+        "shortcuts.showCommandHoldHints",
         "shortcuts.showModifierHoldHints",
         "terminal.agentHibernation.enabled",
         "terminal.agentHibernation.idleSeconds",

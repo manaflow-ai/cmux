@@ -851,6 +851,7 @@
         },
         "shortcuts": {
           "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
+          "showCommandHoldHints": "Pokazuj etykiety podpowiedzi skrótów podczas przytrzymywania Cmd. shortcuts.showModifierHoldHints też musi być włączone.",
           "showModifierHoldHints": "Pokazuj etykiety podpowiedzi skrótów podczas przytrzymywania Cmd lub Control."
         }
       },

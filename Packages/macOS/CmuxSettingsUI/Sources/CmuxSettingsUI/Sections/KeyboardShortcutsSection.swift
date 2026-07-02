@@ -62,6 +62,8 @@ public struct KeyboardShortcutsSection: View {
                 SettingsCardDivider()
                 ModifierHoldHintsSettingsRow()
                 SettingsCardDivider()
+                CommandHoldHintsSettingsRow()
+                SettingsCardDivider()
                 resetDefaultsRow
                 SettingsCardDivider()
                 // Filter out actions that live in their own section, then

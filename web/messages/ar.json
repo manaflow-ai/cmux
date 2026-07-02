@@ -851,6 +851,7 @@
         },
         "shortcuts": {
           "when": "مسندات سياق اختيارية لكل إجراء (عبارات `when` على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. كل قيمة هي تعبير منطقي فوق مفاتيح السياق، مدمجة باستخدام ! و && و || والأقواس. المفاتيح المنطقية: sidebarFocus و browserFocus و markdownFocus و terminalFocus و commandPaletteVisible و terminalFindVisible و workspaceCanvasLayout. تدعم المفاتيح المصنّفة المقارنات: السلسلة النصية sidebarMode (files أو find أو sessions أو feed أو dock) والعددان الصحيحان paneCount و workspaceCount. عوامل المقارنة هي == و != و =~ (تعبير نمطي) و < و <= و > و >= و `in [a, b]`؛ المفتاح غير المعروف أو الغائب يُقرأ على أنه false. تُقبل أيضًا القيمتان المنطقيتان الحرفيتان true و false؛ و`key == false` تكافئ `!key`. لا يعمل اختصار الإجراء (ولا يتعارض مع اختصارات أخرى) إلا عندما تكون العبارة صحيحة. أمثلة: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } يحدد مساحات العمل بواسطة Ctrl+1–9 في كل مكان ما عدا عندما يكون الشريط الجانبي الأيمن مركزًا؛ { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } يقصر الارتباط على الشريط الجانبي للبحث عندما تحتوي مساحة العمل على عدة ألواح.",
+          "showCommandHoldHints": "إظهار شرائح تلميحات الاختصارات أثناء الضغط باستمرار على Cmd. يجب أيضًا تفعيل shortcuts.showModifierHoldHints.",
           "showModifierHoldHints": "إظهار شرائح تلميحات الاختصارات أثناء الضغط باستمرار على Cmd أو Control."
         }
       },

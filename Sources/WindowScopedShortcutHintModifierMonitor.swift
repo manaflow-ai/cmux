@@ -6,6 +6,7 @@ import Observation
 @Observable
 final class WindowScopedShortcutHintModifierMonitor {
     private(set) var isModifierPressed = false
+    private(set) var activeModifierFlags: NSEvent.ModifierFlags = []
 
     private let activation: ShortcutHintModifierActivation
     private let allowsHintsForWindow: (NSWindow) -> Bool
@@ -115,6 +116,20 @@ final class WindowScopedShortcutHintModifierMonitor {
             return
         }
 
+        if isModifierPressed {
+            // Hints are already visible and the user changed which modifiers
+            // they hold while staying eligible (e.g. Command -> Control under
+            // `.commandOrControl`). `queueHintShow()` would bail early on the
+            // `isModifierPressed` guard and leave `activeModifierFlags` stale,
+            // so consumers (e.g. the mode-bar hint gate) would keep showing the
+            // hints for the previously-held modifier. Refresh the tracked flags
+            // in place; guarded so an unchanged value doesn't churn observers.
+            if activeModifierFlags != modifierFlags {
+                activeModifierFlags = modifierFlags
+            }
+            return
+        }
+
         queueHintShow()
     }
 
@@ -140,8 +155,13 @@ final class WindowScopedShortcutHintModifierMonitor {
         pendingShowGeneration &+= 1
         pendingShowTimer?.cancel()
         pendingShowTimer = nil
-        if resetVisible, isModifierPressed {
-            isModifierPressed = false
+        if resetVisible {
+            if isModifierPressed {
+                isModifierPressed = false
+            }
+            if !activeModifierFlags.isEmpty {
+                activeModifierFlags = []
+            }
         }
     }
 
@@ -149,12 +169,14 @@ final class WindowScopedShortcutHintModifierMonitor {
         guard pendingShowGeneration == generation else { return }
         pendingShowTimer?.cancel()
         pendingShowTimer = nil
+        let modifierFlags = NSEvent.modifierFlags
         guard let hostWindow,
               isCurrentWindow(eventWindow: nil),
               allowsHintsForWindow(hostWindow),
-              activation.shouldShowHints(for: NSEvent.modifierFlags) else {
+              activation.shouldShowHints(for: modifierFlags) else {
             return
         }
+        activeModifierFlags = modifierFlags
         isModifierPressed = true
     }
 

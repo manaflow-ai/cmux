@@ -53,6 +53,7 @@ public actor UserDefaultsSettingsStore {
         guard shouldAcceptMutationSource(source, for: key) else {
             return nil
         }
+        let postsSyntheticNotification = source == nil && storage.value(for: key) == value
         recordAcceptedMutation(source, for: key.userDefaultsKey)
         recordMutationSource(source, value: value, for: key.userDefaultsKey)
         if let source {
@@ -61,6 +62,8 @@ public actor UserDefaultsSettingsStore {
         storage.set(value, for: key)
         if let source {
             observedMutationWatermarks.endMutationSource(source, for: key.userDefaultsKey)
+        } else if postsSyntheticNotification {
+            storage.postDidChangeNotification()
         }
         return source
     }
@@ -74,6 +77,7 @@ public actor UserDefaultsSettingsStore {
         guard shouldAcceptMutationSource(source, for: key) else {
             return nil
         }
+        let postsSyntheticNotification = source == nil && storage.value(for: key) == key.defaultValue
         recordAcceptedMutation(source, for: key.userDefaultsKey)
         recordMutationSource(source, value: key.defaultValue, for: key.userDefaultsKey)
         if let source {
@@ -82,6 +86,8 @@ public actor UserDefaultsSettingsStore {
         storage.removeObject(forKey: key.userDefaultsKey)
         if let source {
             observedMutationWatermarks.endMutationSource(source, for: key.userDefaultsKey)
+        } else if postsSyntheticNotification {
+            storage.postDidChangeNotification()
         }
         return source
     }

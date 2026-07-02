@@ -830,6 +830,7 @@ struct TitlebarControlsView: View {
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.shortcuts.showCommandHoldHints) private var showCommandHoldHints
 
     private struct TitlebarHintLayoutItem: Identifiable {
         let action: KeyboardShortcutSettings.Action
@@ -840,8 +841,15 @@ struct TitlebarControlsView: View {
         var id: String { action.rawValue }
     }
 
+    // `modifierKeyMonitor` uses `.commandOnly` activation, so the titlebar only
+    // ever surfaces Command-hold hints. Gating on the Command-hold setting is
+    // therefore the correct modifier-specific behavior — there is no
+    // Control-hold titlebar hint to preserve. (The `.commandOrControl` mode bar
+    // in RightSidebarPanelView instead feeds `activeModifierFlags` into
+    // `ShortcutHintTitlebarPolicy.modifierHoldHintsEnabled(...)` because it
+    // gates both modifiers.)
     private var modifierHoldHintsEnabled: Bool {
-        showModifierHoldHints
+        showModifierHoldHints && showCommandHoldHints
     }
 
     private var shouldShowTitlebarShortcutHints: Bool {
@@ -888,7 +896,7 @@ struct TitlebarControlsView: View {
             .allowsHitTesting(shouldShowControls)
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
-                WindowAccessor(refreshID: showModifierHoldHints) { window in
+                WindowAccessor(refreshID: modifierHoldHintsEnabled) { window in
                     let nextWindowNumber = window.windowNumber
                     if hostWindowNumber != nextWindowNumber {
                         DispatchQueue.main.async {
@@ -928,6 +936,9 @@ struct TitlebarControlsView: View {
                 hostWindowNumber = nil
             }
             .onChange(of: showModifierHoldHints) { _, _ in
+                startShortcutHintMonitorIfNeeded()
+            }
+            .onChange(of: showCommandHoldHints) { _, _ in
                 startShortcutHintMonitorIfNeeded()
             }
     }
