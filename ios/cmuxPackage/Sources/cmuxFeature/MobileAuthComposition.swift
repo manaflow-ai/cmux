@@ -237,6 +237,15 @@ public struct MobileAuthComposition {
     /// already-empty state is a no-op, and auto-login is unaffected (the
     /// clear rides ``AuthLaunchOptions/clearStaleAuthOnLaunch``, not the
     /// UI-test flag).
+    ///
+    /// Known, accepted first-launch blind spot: an install that predates this
+    /// marker AND changes a `STACK_PROJECT_ID_*` LocalConfig override in the
+    /// very build that introduces the marker infers `previous` from the NEW
+    /// override table, so that one launch does not clear. The marker
+    /// self-heals after a single launch (every later change is detected), and
+    /// the alternative — inferring from the un-overridden defaults — would
+    /// instead spuriously sign out every long-standing override install on
+    /// upgrade, a worse trade.
     nonisolated static func detectAuthProjectSwitch(
         resolvedProjectID: String,
         buildDefaultProjectID: String,
