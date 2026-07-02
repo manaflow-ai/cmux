@@ -71,6 +71,24 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "show-menu-bar", title: "Show in Menu Bar", synonyms: "notifications.showInMenuBar menubar menu bar status item tray extra"),
             .init(section: .app, id: "unread-pane-ring", title: "Unread Pane Ring", synonyms: "notifications.unreadPaneRing blue border unread ring notification pane outline"),
             .init(section: .app, id: "pane-flash", title: "Pane Flash", synonyms: "notifications.paneFlash flash blink highlight pane notification pulse"),
+            .init(
+                section: .app,
+                id: "agent-permission-prompt",
+                title: String(localized: "settings.notifications.agentPermissionPrompt.title", defaultValue: "Agent Needs Permission"),
+                synonyms: "notifications.agentPermissionPrompt agent permission prompt approval blocked claude codex tool notify"
+            ),
+            .init(
+                section: .app,
+                id: "agent-turn-complete",
+                title: String(localized: "settings.notifications.agentTurnComplete.title", defaultValue: "Agent Finished"),
+                synonyms: "notifications.agentTurnComplete agent finished turn complete done completed when idle always never background tasks monitor notify"
+            ),
+            .init(
+                section: .app,
+                id: "agent-idle-reminder",
+                title: String(localized: "settings.notifications.agentIdleReminder.title", defaultValue: "Agent Waiting for Input"),
+                synonyms: "notifications.agentIdleReminder agent waiting input idle reminder nag notify claude"
+            ),
             .init(section: .app, id: "notification-sound", title: "Notification Sound", synonyms: "notifications.sound sound audio alert chime beep custom file wav mp3 caf aiff"),
             .init(section: .app, id: "notification-command", title: "Notification Command", synonyms: "notifications.command shell command hook script env environment variable variables done agent"),
             .init(section: .app, id: "desktop-notifications", title: "Desktop Notifications", synonyms: "desktop notifications permission authorize enable alerts banners send test notification center"),
