@@ -26,7 +26,7 @@ public final class UpdateController {
     private let hostBundle: Bundle
     private let backgroundProbeInterval: TimeInterval
     /// Whether the running build is a cmux DEV/staging build that must never be compared against
-    /// the public release appcast. See ``isDevLikeBundleIdentifier(_:)``.
+    /// the public release appcast. See ``BundleReleaseChannel``.
     private let isDevLikeBundle: Bool
 
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
@@ -68,7 +68,7 @@ public final class UpdateController {
     ///   - fileManager: Filesystem access for the Sparkle installation-cache workaround;
     ///     injectable so tests can avoid touching the real filesystem.
     ///   - isDevLikeBundle: Overrides whether this is a DEV/staging build. Defaults to `nil`,
-    ///     which derives it from `hostBundle.bundleIdentifier` via ``isDevLikeBundleIdentifier(_:)``.
+    ///     which derives it from `hostBundle.bundleIdentifier` via ``BundleReleaseChannel``.
     ///     Injectable because a `Bundle` with an arbitrary identifier cannot be constructed in tests.
     public init(log: any UpdateLogging,
                 clock: any UpdateClock = SystemUpdateClock(),
@@ -83,7 +83,7 @@ public final class UpdateController {
         self.fileManager = fileManager
         self.hostBundle = hostBundle
         self.backgroundProbeInterval = settings.scheduledCheckInterval
-        let isDevLikeBundle = isDevLikeBundle ?? Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
+        let isDevLikeBundle = isDevLikeBundle ?? (BundleReleaseChannel(bundleIdentifier: hostBundle.bundleIdentifier) == .devLike)
         self.isDevLikeBundle = isDevLikeBundle
         settings.apply(to: defaults)
         if isDevLikeBundle {
@@ -324,7 +324,7 @@ public final class UpdateController {
             var remaining = self.readyRetryCount
             while remaining > 0 {
                 // Stop the wait when the pending check was cancelled; keep polling otherwise.
-                guard UpdateController.readinessWaitShouldContinue(whileModelState: self.model.state) else { return }
+                guard ReadinessWaitDecision(modelState: self.model.state) == .keepPolling else { return }
                 if self.updater.canCheckForUpdates {
                     self.performCheckForUpdates(preservingInstallIntent: preservingInstallIntent)
                     return
@@ -407,7 +407,7 @@ public final class UpdateController {
         if isDevLikeBundle {
             // DEV/staging builds are not on the public release train; never probe the public
             // appcast (init also disables Sparkle's own scheduled checks). Tear down any probe a
-            // prior path may have started. See `isDevLikeBundleIdentifier(_:)` (#6292).
+            // prior path may have started. See `BundleReleaseChannel` (#6292).
             log.append("launch update probe skipped (dev/staging build)")
             backgroundProbeTask?.cancel()
             backgroundProbeTask = nil
