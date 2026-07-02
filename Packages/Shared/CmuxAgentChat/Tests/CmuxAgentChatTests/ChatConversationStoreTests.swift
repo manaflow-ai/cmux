@@ -610,6 +610,40 @@ struct ChatConversationStoreTests {
         #expect(store.isConnected == false)
     }
 
+    @Test("idle descriptor snapshot flushes a queued send")
+    func idleDescriptorSnapshotFlushesQueuedSend() async {
+        let source = SilentSendEventSource()
+        let workingDescriptor = ChatSessionDescriptor(
+            id: "session-1",
+            agentKind: .claude,
+            title: "Test",
+            state: .working(since: Self.baseTime),
+            version: 1
+        )
+        let store = ChatConversationStore(
+            descriptor: workingDescriptor,
+            source: source,
+            now: { Self.baseTime }
+        )
+
+        await store.send(text: "queued from snapshot")
+        #expect(Self.pendingItems(store.rows).first?.delivery == .queued)
+
+        store.applyDescriptorSnapshot(
+            ChatSessionDescriptor(
+                id: "session-1",
+                agentKind: .claude,
+                title: "Test",
+                state: .idle,
+                version: 2
+            )
+        )
+
+        #expect(await TestPoller.waitUntil {
+            Self.pendingItems(store.rows).first?.delivery == .delivered
+        })
+    }
+
     @Test("a live replay overlapping a long history page does not duplicate rows")
     func replayOverlappingHistoryDeduplicates() async {
         // 100-message page plus a buffered replay of the same 100 (one

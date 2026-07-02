@@ -14,6 +14,7 @@ import UIKit
 /// button: the same toolbar toggle flips back to the terminal.
 struct WorkspaceChatPane<TitleMenuContent: View>: View {
     let session: ChatSessionDescriptor
+    let conversation: ChatConversationStore
     let store: CMUXMobileShellStore
     /// The owning workspace's name, shown as the header title (so the header
     /// reads as the workspace, not the session's first prompt).
@@ -24,9 +25,10 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
     /// Composer draft, owned by the parent so it survives toggling back to
     /// the terminal and returning mid-thought.
     @Binding var draft: String
-    /// Compact-stack back button owned by the workspace toolbar, colocated with
-    /// the leading title so their order is deterministic.
+    /// Compact-stack back button owned by the workspace toolbar.
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
+    /// Whether the workspace title pill should open a menu.
+    let isTitleMenuEnabled: Bool
     /// Workspace-scoped actions exposed from the title pill.
     let titleMenuContent: () -> TitleMenuContent
     /// Flips chat mode off (the toggle's "back to terminal" path).
@@ -34,76 +36,53 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
 
     @Environment(BrowserSurfaceStore.self) private var browserStore
 
-    @State private var conversation: ChatConversationStore?
     @State private var accessoryConfiguration = TerminalAccessoryConfiguration.shared
     @State private var isShowingShortcutSettings = false
-    /// Full content width, used to bound the leading toolbar header so a long
+    /// Full content width, used to bound the centered toolbar header so a long
     /// workspace name truncates before the trailing toolbar buttons.
     @State private var contentWidth: CGFloat = 0
 
     var body: some View {
         Group {
-            if let conversation {
-                ChatScreen(
-                    store: conversation,
-                    draft: $draft,
-                    accessoryLeadingShortcuts: chatAccessoryLeadingShortcuts(),
-                    accessoryShortcuts: chatAccessoryShortcuts(for: conversation),
-                    providesOwnChrome: false,
-                    onOpenTerminal: openTerminal
-                )
-                // The host (workspace detail) owns the nav bar, so the live
-                // session-state header is supplied here rather than by
-                // ChatScreen, which would be dropped under the workspace's own
-                // chrome.
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-                .toolbar {
-                    if backButtonConfiguration != nil {
-                        ToolbarItem(placement: .topBarLeading) {
-                            workspaceBackToolbarButton
-                        }
-                        if #available(iOS 26.0, *) {
-                            ToolbarSpacer(.fixed, placement: .topBarLeading)
-                        }
-                    }
+            ChatScreen(
+                store: conversation,
+                draft: $draft,
+                accessoryLeadingShortcuts: chatAccessoryLeadingShortcuts(),
+                accessoryShortcuts: chatAccessoryShortcuts(for: conversation),
+                providesOwnChrome: false,
+                runsStoreTask: false,
+                onOpenTerminal: openTerminal
+            )
+            // The host (workspace detail) owns the nav bar, so the live
+            // session-state header is supplied here rather than by ChatScreen,
+            // which would be dropped under the workspace's own chrome.
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+            .toolbar {
+                if backButtonConfiguration != nil {
                     ToolbarItem(placement: .topBarLeading) {
-                        Menu {
-                            titleMenuContent()
-                        } label: {
-                            ChatSessionHeaderView(
-                                descriptor: conversation.descriptor,
-                                agentState: conversation.agentState,
-                                isConnected: conversation.isConnected,
-                                titleOverride: workspaceName,
-                                subtitle: tabName,
-                                style: .toolbarCompact
-                            )
-                            .frame(
-                                minWidth: MobileNavTitleWidth.floor,
-                                maxWidth: MobileNavTitleWidth(
-                                    contentWidth: contentWidth,
-                                    hasBackButton: backButtonConfiguration != nil,
-                                    hasChatToggle: true
-                                ).leadingCap,
-                                alignment: .leading
-                            )
-                            .layoutPriority(1)
-                        }
-                        .mobileGlassCompactToolbarControl()
-                        .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+                        workspaceBackToolbarButton
                     }
                 }
-            } else {
-                Color.clear
-            }
-        }
-        // Rebuild the conversation store when the bound session changes
-        // (toggling into a different live session), tearing down the old
-        // event subscription.
-        .task(id: session.id) {
-            if conversation?.descriptor.id != session.id {
-                conversation = store.makeChatEventSource().map {
-                    ChatConversationStore(descriptor: session, source: $0)
+                ToolbarItem(placement: .principal) {
+                    // WorkspaceDetailView mounts the terminal picker/chat
+                    // toggle in a sibling trailing toolbar item.
+                    WorkspaceTitleMenu(
+                        contentWidth: contentWidth,
+                        hasBackButton: backButtonConfiguration != nil,
+                        hasTrailingCluster: true,
+                        hasChatToggle: true,
+                        isEnabled: isTitleMenuEnabled,
+                        menuContent: titleMenuContent
+                    ) {
+                        ChatSessionHeaderView(
+                            descriptor: conversation.descriptor,
+                            agentState: conversation.agentState,
+                            isConnected: conversation.isConnected,
+                            titleOverride: workspaceName,
+                            subtitle: tabName,
+                            style: .toolbarCompact
+                        )
+                    }
                 }
             }
         }
@@ -120,6 +99,7 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
                 badgeContrast: backButtonConfiguration.badgeContrast,
                 action: backButtonConfiguration.action
             )
+            .mobileGlassCompactToolbarControl()
         }
     }
 

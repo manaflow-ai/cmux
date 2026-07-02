@@ -42,6 +42,7 @@ private struct SidebarObservationState: Equatable {
     let extensionSidebarProjectRootPath: String?
     let panels: SidebarPanelObservationState
     let panelDirectories: [UUID: String]
+    let panelDirectoryDisplayLabels: [UUID: String]
     let statusEntries: [String: SidebarStatusEntry]
     let metadataBlocks: [String: SidebarMetadataBlock]
     let logEntries: [SidebarLogEntry]
@@ -115,15 +116,14 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
-
         return Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts)
-            .compactMap { [weak self] groupedFields, listeningPorts -> SidebarObservationState? in
+            .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
+            .compactMap { [weak self] groupedFields, listeningPorts, panelDirectoryDisplayLabels -> SidebarObservationState? in
                 guard let self else { return nil }
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
@@ -134,6 +134,7 @@ extension Workspace {
                     extensionSidebarProjectRootPath: workspaceFields.1,
                     panels: workspaceFields.2,
                     panelDirectories: workspaceFields.3,
+                    panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
                     statusEntries: metadataFields.0,
                     metadataBlocks: metadataFields.1,
                     logEntries: metadataFields.2,
