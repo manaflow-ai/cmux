@@ -1024,12 +1024,17 @@ final class FileExplorerStore: ObservableObject {
         guard node.isDirectory, node.children == nil, !loadingPaths.contains(node.path) else { return }
         // Debounce: only prefetch if hover persists for 200ms
         let path = node.path
+        // Capture the revision at request time (like the explicit expand/reload paths)
+        // so a reload() that lands after the debounce fires — but before this Task runs —
+        // invalidates the stale prefetch. Sampling contentRevision inside the Task would
+        // read the post-reload value and let the guard pass with a stale node.
+        let revision = contentRevision
         prefetchWorkItems[path]?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
                 // Silent prefetch: don't show loading indicator
-                await self.loadChildren(for: node, at: path, contentRevision: self.contentRevision, silent: true)
+                await self.loadChildren(for: node, at: path, contentRevision: revision, silent: true)
             }
         }
         prefetchWorkItems[path] = workItem
