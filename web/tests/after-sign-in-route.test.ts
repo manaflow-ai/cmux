@@ -258,6 +258,17 @@ describe("sign out and sign back in", () => {
     expect(response.headers.get("location")).toBe("https://cmux.test/");
   });
 
+  test("rejects same-site attempts to force sign-out", async () => {
+    const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
+    const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+
+    const response = await GET(switchRequest(nativeSignIn, { "sec-fetch-site": "same-site" }));
+
+    expect(signOut).not.toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
   test("rejects sign-out attempts without a fetch metadata signal", async () => {
     const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
     const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
