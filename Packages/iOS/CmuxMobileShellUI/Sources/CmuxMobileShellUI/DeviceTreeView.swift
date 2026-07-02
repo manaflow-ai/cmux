@@ -86,7 +86,7 @@ struct DeviceTreeView: View {
                     } footer: {
                         Text(L10n.string(
                             "mobile.computers.footer",
-                            defaultValue: "The Macs signed in to your account. Use the workspace title picker to focus one Mac or show All Macs."
+                            defaultValue: "The computers signed in to your account. Use the workspace title picker to focus one computer or show All Computers."
                         ))
                     }
                 }
