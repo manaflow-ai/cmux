@@ -1081,6 +1081,20 @@ class TerminalController {
                     return response
                 }
             }
+            // Coordinator-owned worker-lane bodies (the tranche-D resolution
+            // reads): nonisolated coordinator code runs on this worker thread
+            // — pure parse plus JSON payload build — with ONE
+            // controlResolveOnMain hop (known-ref refresh + witness + ref
+            // minting) inside; the encode runs here, on this thread, through
+            // the same encoder as the main lane. `self` is the coordinator's
+            // wired ControlCommandContext, passed explicitly because the
+            // coordinator's `context` property is main-actor-isolated.
+            if let coordinatorResult = controlCommandCoordinator.handleSocketWorkerV2(
+                parsedRequest,
+                context: self
+            ) {
+                return Self.v2Encoder.response(id: parsedRequest.id, coordinatorResult)
+            }
             if request.method == "feed.push", request.id == nil {
                 guard let waitTimeout = Self.feedPushWaitTimeoutSeconds(params: request.params) else {
                     return v2Error(
@@ -1140,6 +1154,20 @@ class TerminalController {
             // the formatting can never run inline on the main thread.
             case "read_screen":
                 return (true, readScreenText(args))
+            // The v1 resolution reads (tranche D): one v2MainSync snapshot
+            // hop each, reply lines formatted here on this worker thread.
+            // All mainThreadCallable (the hop collapses inline); the bodies
+            // are shared with the legacy processCommand dispatch.
+            case "list_windows":
+                return (true, listWindows())
+            case "current_window":
+                return (true, currentWindow())
+            case "list_workspaces":
+                return (true, listWorkspaces())
+            case "list_surfaces":
+                return (true, listSurfaces(args))
+            case "current_workspace":
+                return (true, currentWorkspace())
             default:
                 // The sidebar telemetry family: nonisolated coordinator bodies
                 // (parse/format on this worker thread, deferred mutations on
@@ -3495,7 +3523,11 @@ class TerminalController {
         return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
     }
 
-    private func v2RefreshKnownRefs() {
+    // Internal (not private): the `controlResolveOnMain` seam conformance in
+    // TerminalControllerControlCommandContext.swift runs this refresh inside
+    // the worker-lane resolution hop, mirroring the main-lane dispatch
+    // preamble.
+    func v2RefreshKnownRefs() {
         guard let app = AppDelegate.shared else { return }
 
         let windows = app.listMainWindowSummaries()
@@ -11902,7 +11934,11 @@ class TerminalController {
     }
     #endif
 
-    private func listWindows() -> String {
+    /// `list_windows` worker body (tranche D of issue #5757): one v2MainSync
+    /// snapshot hop (the handler was already hop-shaped); the line formatting
+    /// runs on the calling socket-worker thread. Shared by the worker lane
+    /// and the legacy processCommand dispatch (inline-collapsing hop).
+    private nonisolated func listWindows() -> String {
         let summaries = v2MainSync { AppDelegate.shared?.listMainWindowSummaries() } ?? []
         guard !summaries.isEmpty else { return "No windows" }
 
@@ -11914,10 +11950,28 @@ class TerminalController {
         return lines.joined(separator: "\n")
     }
 
-    private func currentWindow() -> String {
-        guard let tabManager else { return "ERROR: TabManager not available" }
-        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else { return "ERROR: No active window" }
-        return windowId.uuidString
+    /// The `current_window` hop outcome (reply strings selected off-main).
+    private enum CurrentWindowHopOutcome {
+        case tabManagerUnavailable
+        case noActiveWindow
+        case windowID(UUID)
+    }
+
+    /// `current_window` worker body: the main-actor `tabManager` read and the
+    /// window resolution take one v2MainSync hop (the legacy body read the
+    /// property at handler entry on main); uuidString formatting and the
+    /// error strings run on the calling thread, in the same order.
+    private nonisolated func currentWindow() -> String {
+        let outcome: CurrentWindowHopOutcome = v2MainSync {
+            guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
+            guard let windowId = self.v2ResolveWindowId(tabManager: tabManager) else { return .noActiveWindow }
+            return .windowID(windowId)
+        }
+        switch outcome {
+        case .tabManagerUnavailable: return "ERROR: TabManager not available"
+        case .noActiveWindow: return "ERROR: No active window"
+        case .windowID(let windowId): return windowId.uuidString
+        }
     }
 
     private func focusWindow(_ arg: String) -> String {
@@ -11976,17 +12030,36 @@ class TerminalController {
         return ok ? "OK" : "ERROR: Move failed"
     }
 
-    private func listWorkspaces() -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+    /// One `list_workspaces` row snapshot (Sendable value copies of the
+    /// main-actor workspace state the formatting needs).
+    private struct ListWorkspacesRow {
+        let id: UUID
+        let title: String
+        let selected: Bool
+    }
 
-        var result: String = ""
-        v2MainSync {
-            let tabs = tabManager.tabs.enumerated().map { (index, tab) in
-                let selected = tab.id == tabManager.selectedTabId ? "*" : " "
-                return "\(selected) \(index): \(tab.id.uuidString) \(tab.title)"
+    /// `list_workspaces` worker body (tranche D of issue #5757): the
+    /// main-actor `tabManager` guard and the tab snapshot take one v2MainSync
+    /// hop (the legacy body read the property at handler entry on main and
+    /// formatted inside its hop); the line formatting and join run on the
+    /// calling socket-worker thread. Shared by the worker lane and the legacy
+    /// processCommand dispatch (inline-collapsing hop).
+    private nonisolated func listWorkspaces() -> String {
+        let rows: [ListWorkspacesRow]? = v2MainSync {
+            guard let tabManager = self.tabManager else { return nil }
+            return tabManager.tabs.map { tab in
+                ListWorkspacesRow(
+                    id: tab.id,
+                    title: tab.title,
+                    selected: tab.id == tabManager.selectedTabId
+                )
             }
-            result = tabs.joined(separator: "\n")
         }
+        guard let rows else { return "ERROR: TabManager not available" }
+        let result = rows.enumerated().map { index, row in
+            let selected = row.selected ? "*" : " "
+            return "\(selected) \(index): \(row.id.uuidString) \(row.title)"
+        }.joined(separator: "\n")
         return result.isEmpty ? "No workspaces" : result
     }
 
@@ -12074,23 +12147,42 @@ class TerminalController {
         return result
     }
 
-    private func listSurfaces(_ tabArg: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-        var result = ""
-        v2MainSync {
-            guard let tab = resolveTab(from: tabArg, tabManager: tabManager) else {
-                result = "ERROR: Tab not found"
-                return
+    /// The `list_surfaces` hop outcome: the (id, focused) value pairs, or the
+    /// resolution error selected in the legacy order.
+    private enum ListSurfacesHopOutcome {
+        case tabManagerUnavailable
+        case tabNotFound
+        case surfaces([(id: UUID, focused: Bool)])
+    }
+
+    /// `list_surfaces` worker body (tranche D of issue #5757): the main-actor
+    /// `tabManager` guard, the tab-arg resolution (over main-actor tabs), and
+    /// the ordered-panel snapshot take one v2MainSync hop; line formatting
+    /// and join run on the calling socket-worker thread. Shared by the worker
+    /// lane and the legacy processCommand dispatch (inline-collapsing hop).
+    private nonisolated func listSurfaces(_ tabArg: String) -> String {
+        let outcome: ListSurfacesHopOutcome = v2MainSync {
+            guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
+            guard let tab = self.resolveTab(from: tabArg, tabManager: tabManager) else {
+                return .tabNotFound
             }
-            let panels = orderedPanels(in: tab)
             let focusedId = tab.focusedPanelId
-            let lines = panels.enumerated().map { index, panel in
-                let selected = panel.id == focusedId ? "*" : " "
-                return "\(selected) \(index): \(panel.id.uuidString)"
-            }
-            result = lines.isEmpty ? "No surfaces" : lines.joined(separator: "\n")
+            return .surfaces(self.orderedPanels(in: tab).map { panel in
+                (id: panel.id, focused: panel.id == focusedId)
+            })
         }
-        return result
+        switch outcome {
+        case .tabManagerUnavailable:
+            return "ERROR: TabManager not available"
+        case .tabNotFound:
+            return "ERROR: Tab not found"
+        case .surfaces(let surfaces):
+            let lines = surfaces.enumerated().map { index, surface in
+                let selected = surface.focused ? "*" : " "
+                return "\(selected) \(index): \(surface.id.uuidString)"
+            }
+            return lines.isEmpty ? "No surfaces" : lines.joined(separator: "\n")
+        }
     }
 
     private func focusSurface(_ arg: String) -> String {
@@ -13178,16 +13270,29 @@ class TerminalController {
         return success ? "OK" : "ERROR: Tab not found"
     }
 
-    private func currentWorkspace() -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+    /// The `current_workspace` hop outcome.
+    private enum CurrentWorkspaceHopOutcome {
+        case tabManagerUnavailable
+        case noTabSelected
+        case workspaceID(UUID)
+    }
 
-        var result: String = ""
-        v2MainSync {
-            if let id = tabManager.selectedTabId {
-                result = id.uuidString
-            }
+    /// `current_workspace` worker body (tranche D of issue #5757): the
+    /// main-actor `tabManager` guard and the selected-tab read take one
+    /// v2MainSync hop; uuidString formatting and the error strings run on the
+    /// calling socket-worker thread. Shared by the worker lane and the legacy
+    /// processCommand dispatch (inline-collapsing hop).
+    private nonisolated func currentWorkspace() -> String {
+        let outcome: CurrentWorkspaceHopOutcome = v2MainSync {
+            guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
+            guard let id = tabManager.selectedTabId else { return .noTabSelected }
+            return .workspaceID(id)
         }
-        return result.isEmpty ? "ERROR: No tab selected" : result
+        switch outcome {
+        case .tabManagerUnavailable: return "ERROR: TabManager not available"
+        case .noTabSelected: return "ERROR: No tab selected"
+        case .workspaceID(let id): return id.uuidString
+        }
     }
 
     private func sendInput(_ text: String) -> String {

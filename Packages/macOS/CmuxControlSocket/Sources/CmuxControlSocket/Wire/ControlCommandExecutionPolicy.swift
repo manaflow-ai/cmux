@@ -229,6 +229,24 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
+        // The v2 resolution reads (tranche D of issue #5757) — the implicit
+        // handle-normalization reads nearly every CLI invocation pays 1-3 of.
+        // Their nonisolated coordinator bodies
+        // (ControlCommandCoordinator.handleSocketWorkerV2) take ONE
+        // controlResolveOnMain hop (known-ref refresh + routing resolution +
+        // snapshot witness + ref minting in payload order) and build/encode
+        // the JSON reply on the worker. None are focus-intent.
+        "surface.list",
+        "surface.current",
+        "workspace.list",
+        "workspace.current",
+        "window.list",
+        "window.current",
+        "window.displays",
+        "pane.list",
+        "pane.surfaces",
+        "system.identify",
+        "system.tree",
     ]
 
     /// Socket-worker methods that are also safe to invoke from the main
@@ -255,6 +273,22 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
+        // The v2 resolution reads: non-blocking single-hop snapshot reads
+        // whose hop collapses inline on a main-thread caller, so they are
+        // safe by construction — and cmuxTests drive them through
+        // handleSocketLine on the main actor
+        // (AppDelegateIssue2907RoutingTests et al).
+        "surface.list",
+        "surface.current",
+        "workspace.list",
+        "workspace.current",
+        "window.list",
+        "window.current",
+        "window.displays",
+        "pane.list",
+        "pane.surfaces",
+        "system.identify",
+        "system.tree",
     ]
 
     /// The v1 sidebar telemetry family, whose worker-lane bodies
@@ -325,14 +359,28 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "read_screen",
     ]
 
+    /// The v1 resolution-read family (tranche D): the v1 twins of the v2
+    /// resolution reads. Nonisolated `TerminalController` bodies take one
+    /// `v2MainSync` snapshot hop and format their reply lines on the worker.
+    /// Internal (not private) so the package tests can pin the exact set.
+    static let resolutionReadV1Commands: Set<String> = [
+        "list_windows",
+        "current_window",
+        "list_workspaces",
+        "list_surfaces",
+        "current_workspace",
+    ]
+
     /// v1 commands that run on the socket-worker thread instead of the main
     /// actor: `ping` (the dispatcher's former hard-coded fast path) plus the
-    /// sidebar telemetry, notification, and terminal-read families. Internal
-    /// (not private) so the package tests can pin the exact set.
+    /// sidebar telemetry, notification, terminal-read, and resolution-read
+    /// families. Internal (not private) so the package tests can pin the
+    /// exact set.
     static let socketWorkerV1Commands: Set<String> =
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
             .union(terminalReadV1Commands)
+            .union(resolutionReadV1Commands)
             .union(["ping"])
 
     /// Worker-lane v1 commands that are also safe to invoke from the main
@@ -396,5 +444,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notify_target_async",
         "list_notifications",
         "clear_notifications",
+        // The v1 resolution reads (tranche D): non-blocking single-hop
+        // snapshot reads whose hop collapses inline on a main-thread caller,
+        // so they are safe by construction.
+        "list_windows",
+        "current_window",
+        "list_workspaces",
+        "list_surfaces",
+        "current_workspace",
     ]
 }

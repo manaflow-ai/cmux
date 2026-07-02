@@ -45,13 +45,44 @@ struct ControlCommandExecutionPolicyTests {
 
     @Test func everythingElseRunsOnTheMainActor() {
         for method in [
-            "surface.list", "workspace.create", "window.list", "browser.url.get",
+            "workspace.create", "browser.url.get",
             "browser.open_split", "browser.get.title", "browser.frame.main",
             "mobile.terminal.create", "feed.jump", "vmx.create", "",
+            // Focus-intent verbs stay on the main lane until the mutations
+            // tranche decides them deliberately.
+            "surface.focus", "workspace.select", "pane.focus", "window.focus",
         ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)
             #expect(policy == .mainActor, "\(method)")
             #expect(!policy.runsOnSocketWorker, "\(method)")
+        }
+    }
+
+    @Test func v2ResolutionReadsRunOnTheWorkerAndAreMainThreadCallable() {
+        // Tranche D (issue #5757): the implicit handle-normalization reads.
+        // One controlResolveOnMain hop (refresh + witness + ref minting),
+        // JSON build/encode on the worker; the hop collapses inline for the
+        // main-thread in-process callers (cmuxTests drive these verbs via
+        // handleSocketLine on the main actor).
+        for method in [
+            "surface.list", "surface.current",
+            "workspace.list", "workspace.current",
+            "window.list", "window.current", "window.displays",
+            "pane.list", "pane.surfaces",
+            "system.identify", "system.tree",
+        ] {
+            let policy = ControlCommandExecutionPolicy(forMethod: method)
+            #expect(policy == .socketWorker(mainThreadCallable: true), "\(method)")
+        }
+    }
+
+    @Test func v1ResolutionReadsRunOnTheWorkerAndAreMainThreadCallable() {
+        for command in [
+            "list_windows", "current_window", "list_workspaces",
+            "list_surfaces", "current_workspace",
+        ] {
+            let policy = ControlCommandExecutionPolicy(forV1Command: command)
+            #expect(policy == .socketWorker(mainThreadCallable: true), "\(command)")
         }
     }
 
@@ -149,7 +180,7 @@ struct ControlCommandExecutionPolicyTests {
     @Test func v1CommandsDefaultToTheMainActor() {
         for command in [
             "send", "send_key",
-            "list_workspaces", "right_sidebar", "focus_surface",
+            "right_sidebar", "focus_surface",
             "sidebar_state", "reset_sidebar", "list_panes", "new_pane",
             "help", "",
             // The v2 namespace prefix rules (vm./remotes.) and v2 worker
@@ -207,7 +238,13 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy.notificationV1Commands == notification)
         let terminalRead: Set<String> = ["read_screen"]
         #expect(ControlCommandExecutionPolicy.terminalReadV1Commands == terminalRead)
-        let expectedWorker = telemetry.union(notification).union(terminalRead).union(["ping"])
+        let resolutionReads: Set<String> = [
+            "list_windows", "current_window", "list_workspaces",
+            "list_surfaces", "current_workspace",
+        ]
+        #expect(ControlCommandExecutionPolicy.resolutionReadV1Commands == resolutionReads)
+        let expectedWorker = telemetry.union(notification).union(terminalRead)
+            .union(resolutionReads).union(["ping"])
         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
         // Every member except read_screen is deliberately main-thread
         // callable (deadlock-free inline: bus enqueues plus inline-collapsing
