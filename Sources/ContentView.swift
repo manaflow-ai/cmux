@@ -11302,7 +11302,7 @@ struct VerticalTabsSidebar: View {
             latestSubmittedAt: workspace.latestSubmittedAt,
             listeningPorts: workspace.listeningPorts,
             pullRequestURLs: workspace.sidebarPullRequestsInDisplayOrder().map { $0.url.absoluteString },
-            panelDirectories: workspace.sidebarDirectoriesInDisplayOrder(),
+            panelDirectories: workspace.sidebarFilesystemDirectoriesInDisplayOrder(),
             gitBranches: workspace.sidebarGitBranchesInDisplayOrder().map {
                 CmuxSidebarProviderGitBranch(branch: $0.branch, isDirty: $0.isDirty)
             }
@@ -14964,6 +14964,9 @@ struct TabItemView: View, Equatable {
 
             let directoryCandidates: [String] = {
                 guard let directory = entry.directory else { return [] }
+                // Display labels are reporter-supplied text, not paths; render
+                // them verbatim instead of path-shortening.
+                if entry.directoryIsDisplayLabel { return [directory] }
                 if useViewportAwarePath {
                     return SidebarPathFormatter.pathCandidates(directory, homeDirectoryPath: home)
                 }
@@ -14992,19 +14995,21 @@ struct TabItemView: View, Equatable {
     // as long as the row width allows.
     private func compactDirectoryCandidatesList(orderedPanelIds: [UUID]) -> [String] {
         let home = SidebarPathFormatter.homeDirectoryPath
-        let directories = tab.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
+        let directories = tab.sidebarDisplayedDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
         guard !directories.isEmpty else { return [] }
 
+        // Display labels are reporter-supplied text, not paths; render them
+        // verbatim instead of path-shortening.
         if !sidebarUsesLastSegmentPath {
             let joined = directories
-                .map { SidebarPathFormatter.shortenedPath($0, homeDirectoryPath: home) }
+                .map { $0.isDisplayLabel ? $0.text : SidebarPathFormatter.shortenedPath($0.text, homeDirectoryPath: home) }
                 .filter { !$0.isEmpty }
                 .joined(separator: " | ")
             return joined.isEmpty ? [] : [joined]
         }
 
         let perDirectoryCandidates: [[String]] = directories
-            .map { SidebarPathFormatter.pathCandidates($0, homeDirectoryPath: home) }
+            .map { $0.isDisplayLabel ? [$0.text] : SidebarPathFormatter.pathCandidates($0.text, homeDirectoryPath: home) }
             .filter { !$0.isEmpty }
         guard !perDirectoryCandidates.isEmpty else { return [] }
 
