@@ -129,6 +129,24 @@
       },
       "validationStatus": "passed",
       "notes": "Validated fresh Cloud VM boot from the 20260624 signed-admin base, rotated baked signed-admin public key over SSH because provider exec/write_file was unavailable, clean locked healthz before lease install, and signed /admin/leases success. Includes zsh defaults, gh, htop, btop, cmux CLI, Node, Bun, Claude Code, OpenCode, Codex, and Pi. binarySha256=066979bd77cf3a507e7eec8191ce1deb64fbf760154d6bd255c35c93f42d302f"
+    },
+    {
+      "provider": "daytona",
+      "version": "daytona-ws-20260702-074420",
+      "imageId": "cmuxd-ws-ws-20260702-074420",
+      "envVar": "DAYTONA_SANDBOX_SNAPSHOT",
+      "defaultForLocalDev": false,
+      "cmuxdRemoteCommit": "06e4f7d41721f936816573b171b877fdf3fa9019",
+      "builtAt": "2026-07-02T07:44:21.344Z",
+      "builderScriptVersion": "db6db0406b0503c3d10fec7e3a34e53e1b0c77f962037b631654b2c0f62e517e",
+      "agentToolResolvedVersions": {
+        "claude": "2.1.137",
+        "opencode": "1.14.41",
+        "codex": "0.130.0",
+        "pi": "0.74.0"
+      },
+      "validationStatus": "passed",
+      "notes": "Validated Daytona preview gate (healthz 401 without x-daytona-preview-token), WS PTY lease auth + single-use replay rejection, shell round trip, RPC hello + reusable lease, and RPC HTTP proxy to healthz. Region: shared us (runner in Corona, CA). binarySha256=d7d2a6b1ef9080ae0deadca3ced6fefbb4aeb88292d136b31bd0ea0784c01461 nodeMajor=22 agentTools=@anthropic-ai/claude-code@2.1.137,opencode-ai@1.14.41,@openai/codex@0.130.0,@earendil-works/pi-coding-agent@0.74.0"
     }
   ]
 }

@@ -432,7 +432,9 @@ async function websocketShellRoundTrip(
   if (!ready.toString().includes('"ready"')) {
     throw new Error(`expected ready frame, got ${ready.toString()}`);
   }
-  ws.send(Buffer.from("printf '%b\\n' '\\103\\115\\125\\130\\137\\103\\114\\117\\125\\104\\137\\127\\123\\137\\117\\113'; exit\r"));
+  // POSIX %b octal needs the \0nnn form: zsh's printf prints bash-style \nnn literally, and the
+  // cloud shell is zsh. \0nnn decodes in both shells while keeping the marker out of the echo.
+  ws.send(Buffer.from("printf '%b\\n' '\\0103\\0115\\0125\\0130\\0137\\0103\\0114\\0117\\0125\\0104\\0137\\0127\\0123\\0137\\0117\\0113'; exit\r"));
   const output = await waitForMessage(ws, (data, isBinary) => isBinary && data.toString().includes("CMUX_CLOUD_WS_OK"));
   ws.close();
   return output.toString();
