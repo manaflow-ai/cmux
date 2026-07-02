@@ -34,11 +34,11 @@ public struct SidebarWorkspaceCloseOtherPlanner {
         keptWorkspaceIds: Set<UUID>,
         activeWorkspaceTagFilter: String?
     ) -> [UUID] {
-        // NOTE: this initial implementation does not yet honor
-        // `activeWorkspaceTagFilter`; while filtered it still returns the full-list
-        // complement and so closes hidden rows. The accompanying
-        // `excludesFilterHiddenWorkspacesWhileTagFilterIsActive` test fails until the
-        // follow-up commit makes this filter-aware.
-        fullOrderWorkspaceIds.filter { !keptWorkspaceIds.contains($0) }
+        // A tag filter renders only matching rows, so the full-list complement would
+        // reach hidden, non-matching workspaces. Refuse while filtered (the
+        // context-menu item is likewise disabled) so no hidden workspace is ever
+        // closed; the user clears the filter to close by set.
+        guard activeWorkspaceTagFilter == nil else { return [] }
+        return fullOrderWorkspaceIds.filter { !keptWorkspaceIds.contains($0) }
     }
 }

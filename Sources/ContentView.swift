@@ -14875,7 +14875,11 @@ struct TabItemView: View, Equatable {
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
             closeOtherTabs(targetIds)
         }
-        .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
+        .disabled(
+            tabManager.tabs.count <= 1
+                || targetIds.count == tabManager.tabs.count
+                || activeWorkspaceTagFilter != nil
+        )
 
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
             closeTabsBelow(tabId: tab.id)
@@ -15093,8 +15097,14 @@ struct TabItemView: View, Equatable {
     }
 
     private func closeOtherTabs(_ targetIds: [UUID]) {
-        let keepIds = Set(targetIds)
-        let idsToClose = tabManager.tabs.compactMap { keepIds.contains($0.id) ? nil : $0.id }
+        // Resolve the close set through the planner so an active tag filter is honored:
+        // "Close Other" keeps the visible selection and, while filtered, refuses rather
+        // than closing hidden rows the full-list complement would otherwise reach.
+        let idsToClose = SidebarWorkspaceCloseOtherPlanner().workspaceIdsToClose(
+            fullOrderWorkspaceIds: tabManager.tabs.map(\.id),
+            keptWorkspaceIds: Set(targetIds),
+            activeWorkspaceTagFilter: activeWorkspaceTagFilter
+        )
         closeTabs(idsToClose, allowPinned: true)
     }
 

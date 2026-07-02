@@ -13,11 +13,15 @@
 /// are therefore refused while a tag filter is active; the user clears the filter
 /// to act.
 ///
-/// The gate is scoped to position-relative actions. Set-based actions ("Close",
-/// "Close Other Workspaces", move-to-window) and absolute moves ("Move to Top",
-/// full index 0) operate on explicit workspace ids without positional ambiguity,
-/// and keyboard / socket / CLI / command-palette paths operate on full-list ids
-/// without rendering filtered rows, so none of those consult this gate.
+/// The gate is scoped to position-relative actions. The genuinely set-based actions
+/// ("Close" the selection, move-to-window) and absolute moves ("Move to Top", full
+/// index 0) operate on explicit workspace ids without positional ambiguity, so they
+/// do not consult this gate. "Close Other Workspaces" is *not* one of those safe
+/// actions: it keeps the visible selection and closes the complement against the full
+/// list, so under a filter it would reach hidden rows — `SidebarWorkspaceCloseOtherPlanner`
+/// refuses it while filtered (and its menu item is disabled) instead of routing
+/// through this position gate. Keyboard / socket / CLI / command-palette paths operate
+/// on full-list ids without rendering filtered rows, so none of those consult this gate.
 public struct SidebarWorkspacePositionRelativeActionGate {
     /// Creates the gate. The policy is stateless, so call sites construct a fresh
     /// value at each use rather than sharing one.
