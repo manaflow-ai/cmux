@@ -304,6 +304,9 @@ public final class UpdateController {
             guard let self else { return }
             var remaining = self.readyRetryCount
             while remaining > 0 {
+                // A user cancel on the retry/checking pill idles the model. Stop waiting rather than
+                // resurrecting the check when readiness eventually arrives (autoreview P2).
+                guard case .checking = self.model.state else { return }
                 if self.updater.canCheckForUpdates {
                     self.performCheckForUpdates(preservingInstallIntent: preservingInstallIntent)
                     return

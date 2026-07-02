@@ -30,6 +30,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var transientErrorRetryTask: Task<Void, Never>?
     private var transientErrorRetryFailureCount = 0
     private var shouldPreserveRetryStateForNextCheck = false
+    // True only for the synchronous window of the retry's delegate call, where the controller may
+    // re-enter `cancelPendingTransientErrorRetry` via `cancelActiveStateForNewCheck()`. Scopes the
+    // preserve-count suppression to that internal restart so a user cancel during the later
+    // readiness wait still idles the pill instead of no-oping (autoreview P2).
+    private var isRestartingTransientRetry = false
     private(set) var lastFeedURLString: String?
 
     init(model: UpdateStateModel,
@@ -246,7 +251,14 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             guard !Task.isCancelled else { return }
             self.transientErrorRetryTask = nil
             self.shouldPreserveRetryStateForNextCheck = true
+            // The delegate call synchronously drives the controller, which may tear down the current
+            // checking state via `cancelActiveStateForNewCheck()` and re-enter our cancel closure.
+            // Flag that re-entry so it preserves the failure count; clear it the instant the call
+            // returns so a subsequent user cancel (e.g. during the controller's readiness wait) is
+            // honored normally.
+            self.isRestartingTransientRetry = true
             self.actionDelegate?.updaterRequestsRetryCheckForUpdates(preservingInstallIntent: preservingInstallIntent)
+            self.isRestartingTransientRetry = false
         }
         return true
     }
@@ -263,18 +275,16 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private func cancelPendingTransientErrorRetry() {
         transientErrorRetryTask?.cancel()
         transientErrorRetryTask = nil
-        // The guard preserves the escalating failure count across the *synchronous* internal restart
-        // teardown: on the plain-recheck path the controller calls `cancelActiveStateForNewCheck()`,
-        // which reruns this same closure via `state.cancel()` while `shouldPreserveRetryStateForNextCheck`
-        // is briefly set (from just before the delegate call until `beginChecking` consumes it). It does
-        // not swallow a user-initiated cancel: during the multi-second backoff sleep the flag is still
-        // false, so tapping Cancel then resets and idles here as usual. The flag's true-window never
-        // becomes a long uncancellable checking pill because at retry time Sparkle has already
-        // acknowledged/ended the failed session (see `showUpdaterError` → `acknowledgement()`) and the
-        // >=1s backoff has elapsed, so `checkForUpdatesWhenReady` sees `canCheckForUpdates == true` and
-        // starts the check immediately instead of parking in the readiness-wait loop.
-        guard !shouldPreserveRetryStateForNextCheck else { return }
+        // Suppress the reset only for the *synchronous* internal restart: when the retry fires it calls
+        // the controller, which (on the ready path) tears down the checking state via
+        // `cancelActiveStateForNewCheck()` and re-enters this closure. `isRestartingTransientRetry` is
+        // true only for that synchronous window, so the escalating failure count survives the restart.
+        // A genuine user cancel — during the backoff sleep, or while the controller parks in its
+        // readiness-wait loop with the pill still `.checking` — sees the flag false and idles as usual,
+        // clearing the pending preserve so no stale count carries into a later manual check.
+        guard !isRestartingTransientRetry else { return }
         transientErrorRetryFailureCount = 0
+        shouldPreserveRetryStateForNextCheck = false
         if case .checking = model.state {
             model.setState(.idle)
         }
