@@ -127,7 +127,7 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
-        case .sessions, .feed, .dock, .customSidebar:
+        case .sessions, .feed, .dock, .notes, .customSidebar:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
@@ -712,7 +712,7 @@ final class MainWindowFocusController {
             return .outline
         case .find:
             return .searchField
-        case .sessions, .customSidebar:
+        case .sessions, .notes, .customSidebar:
             return .host
         case .feed:
             return focusFirstItem ? .firstItem : .host
@@ -730,8 +730,11 @@ final class MainWindowFocusController {
             return fileExplorerHost?.focusOutline() == true
         case .find:
             return fileSearchHost?.focusSearchField() == true
-        case .sessions, .customSidebar:
-            return mode == .customSidebar ? focusFallbackRightSidebarHost() : false
+        case .sessions, .notes, .customSidebar:
+            // Notes and Custom Sidebar are SwiftUI panels hosted in the generic
+            // right-sidebar host, so focus the host itself; Sessions registers
+            // its own keyboard host elsewhere.
+            return (mode == .customSidebar || mode == .notes) ? focusFallbackRightSidebarHost() : false
         case .feed:
             if target == .firstItem {
                 feedHost?.focusFirstItemFromCoordinator()

@@ -1467,6 +1467,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SystemWideHotkeyController.shared.start()
         AgentHibernationController.shared.start()
         RendererRealizationController.shared.start()
+        if !isRunningUnderXCTest, RightSidebarBetaFeatureSettings.isNotesEnabled() {
+            // Start the offline-notes queue at launch (when the beta is enabled)
+            // so pending notes are delivered once connectivity is available even
+            // if the Notes sidebar is never opened this session. Deferred to the
+            // next run-loop turn: `start()` lazily instantiates the store, which
+            // reads and decodes the queue file synchronously, so keeping it off the
+            // immediate launch path preserves window/bootstrap responsiveness. The
+            // terminate-time flush is gated on `hasInstance`, so nothing is lost if
+            // the app quits before this runs (no note could have been captured yet).
+            DispatchQueue.main.async {
+                OfflineNotesStore.shared.start()
+            }
+        }
         NSApp.servicesProvider = self
 
         StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
@@ -1814,6 +1827,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
 
+        if !isRunningUnderXCTestCached {
+            // Windows are up now, so deliver any offline notes left pending by an
+            // earlier flush that ran before windows/workspaces were ready. Shared
+            // trigger with the workspace-selection path; beta-gated and a no-op
+            // when offline or when nothing is pending.
+            OfflineNotesStore.flushIfFeatureEnabled()
+        }
+
         guard let notificationStore else { return }
         notificationStore.handleApplicationDidBecomeActive()
         guard let tabManager else { return }
@@ -2009,6 +2030,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // service's missed-heartbeat timeout.
         PresenceHeartbeatClient.shared.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
+        // Quit-time durability for offline notes: keyed off whether the store was
+        // ever created this session (i.e. Notes was opened), not the live beta
+        // toggle, so a note captured before the feature was toggled off is still
+        // flushed — and we never force-create the store (or its backing file) for
+        // users who never opened Notes.
+        if OfflineNotesStore.hasInstance {
+            OfflineNotesStore.shared.flushPendingPersistOnTermination()
+        }
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()

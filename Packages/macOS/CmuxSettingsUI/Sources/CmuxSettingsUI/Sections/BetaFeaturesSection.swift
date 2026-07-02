@@ -9,6 +9,7 @@ import SwiftUI
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
+    @State private var notes: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
@@ -16,6 +17,7 @@ public struct BetaFeaturesSection: View {
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
+        _notes = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarNotes))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
@@ -33,6 +35,8 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 dockRow
                 SettingsCardDivider()
+                notesRow
+                SettingsCardDivider()
                 extensionsRow
                 SettingsCardDivider()
                 customSidebarsRow
@@ -47,6 +51,7 @@ public struct BetaFeaturesSection: View {
         let models: [any SettingObservationStarting] = [
             feed,
             dock,
+            notes,
             extensions,
             customSidebars,
             remoteTmux,
@@ -85,6 +90,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaDockToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var notesRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:notes",
+            String(localized: "settings.betaFeatures.notes", defaultValue: "Notes"),
+            subtitle: notes.current
+                ? String(localized: "settings.betaFeatures.notes.subtitleOn", defaultValue: "Shows Notes in the right sidebar mode switcher to capture notes offline and send them to an agent once you're online.")
+                : String(localized: "settings.betaFeatures.notes.subtitleOff", defaultValue: "Hides Notes from the right sidebar until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { notes.current }, set: { notes.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaNotesToggle")
         }
     }
 
