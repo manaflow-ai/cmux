@@ -3773,11 +3773,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             width: max(1, CGFloat(naturalSize.pixelWidth) / scale),
             height: max(1, CGFloat(naturalSize.pixelHeight) / scale)
         )
+        let previousTopGapCorrection = shouldReportNaturalSize
+            ? false
+            : lastRenderRectAllowsTopGapCorrection
         let allowsLargeTopGapCorrection = renderPlacement.allowsLargeTopGapCorrection(
             pinnedGrid: result.pinnedGrid,
             awaitingViewportEcho: awaitingViewportEchoForPlacement,
             naturalGrid: (naturalSize.columns, naturalSize.rows),
-            previousRenderAllowedTopGapCorrection: lastRenderRectAllowsTopGapCorrection
+            previousRenderAllowedTopGapCorrection: previousTopGapCorrection
         )
         let measuredRenderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
             ?? CGRect(origin: .zero, size: naturalRenderSize)
