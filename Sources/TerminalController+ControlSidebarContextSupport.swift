@@ -7,6 +7,20 @@ import Foundation
 /// helpers the lifted v1 sidebar bodies relied on, keyed by the coordinator's
 /// Sendable target types instead of the legacy file-private enums.
 extension TerminalController {
+    /// The worker-lane hop primitive of the sidebar seam: forwards to
+    /// `v2MainSync`, so the hop collapses to an inline call when the caller is
+    /// already on the main thread, propagates the focus-allowance stack, and
+    /// records per-hop timing exactly like every other socket main hop. The
+    /// body receives `self` back as its main-actor seam parameter (see the
+    /// protocol requirement's doc).
+    nonisolated func controlSidebarOnMain<T: Sendable>(
+        _ body: @MainActor (any ControlSidebarContext) -> T
+    ) -> T {
+        v2MainSync {
+            body(self)
+        }
+    }
+
     /// The byte-faithful twin of the deleted file-private
     /// `resolveTabForReport(_:)`, taking the pre-parsed `--tab` option value
     /// instead of re-parsing the full argument string (the parse result is
@@ -88,8 +102,10 @@ extension TerminalController {
     /// The byte-faithful twin of the deleted file-private
     /// `scheduleSidebarMutation(target:mutation:)`: enqueue on the mutation bus
     /// and resolve the tab inside the deferred closure, exactly as the legacy
-    /// body did.
-    func controlSidebarScheduleMutation(
+    /// body did. `nonisolated` because the bus enqueue is lock-guarded and the
+    /// worker-lane telemetry bodies enqueue from the socket-worker thread; the
+    /// deferred closure itself still runs on the main actor at drain.
+    nonisolated func controlSidebarScheduleMutation(
         target: ControlSidebarTabTarget,
         mutation: @escaping (TerminalController, Workspace) -> Void
     ) {
@@ -103,8 +119,9 @@ extension TerminalController {
     /// `schedulePanelMetadataMutation(args:options:missingPanelUsage:mutation:)`
     /// (the parse-level head moved into the coordinator's
     /// `sidebarPanelMutationTarget`): the explicit-scope fast path, then the
-    /// report-tab fallback, both deferred on the mutation bus.
-    func controlSidebarSchedulePanelMetadataMutation(
+    /// report-tab fallback, both deferred on the mutation bus. `nonisolated`
+    /// for the same reason as `controlSidebarScheduleMutation`.
+    nonisolated func controlSidebarSchedulePanelMetadataMutation(
         target: ControlSidebarPanelMutationTarget,
         mutation: @escaping (Workspace, UUID) -> Void
     ) {

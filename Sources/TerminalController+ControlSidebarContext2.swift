@@ -12,7 +12,7 @@ import CmuxSidebar
 extension TerminalController {
     // MARK: - Git branch
 
-    func controlSidebarScheduleScopedGitBranchUpdate(
+    nonisolated func controlSidebarScheduleScopedGitBranchUpdate(
         scope: ControlSidebarPanelScope,
         branch: String,
         isDirty: Bool?
@@ -55,7 +55,7 @@ extension TerminalController {
         return true
     }
 
-    func controlSidebarScheduleScopedGitBranchClear(scope: ControlSidebarPanelScope) {
+    nonisolated func controlSidebarScheduleScopedGitBranchClear(scope: ControlSidebarPanelScope) {
         TerminalMutationBus.shared.enqueueMainActorMutation {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
@@ -78,11 +78,11 @@ extension TerminalController {
 
     // MARK: - Pull requests (panel metadata mutations)
 
-    func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool {
+    nonisolated func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool {
         SidebarPullRequestStatus(rawValue: raw) != nil
     }
 
-    func controlSidebarSchedulePanelPullRequestUpdate(
+    nonisolated func controlSidebarSchedulePanelPullRequestUpdate(
         target: ControlSidebarPanelMutationTarget,
         number: Int,
         label: String,
@@ -122,13 +122,13 @@ extension TerminalController {
         }
     }
 
-    func controlSidebarSchedulePanelPullRequestClear(target: ControlSidebarPanelMutationTarget) {
+    nonisolated func controlSidebarSchedulePanelPullRequestClear(target: ControlSidebarPanelMutationTarget) {
         controlSidebarSchedulePanelMetadataMutation(target: target) { tab, surfaceId in
             tab.clearPanelPullRequest(panelId: surfaceId)
         }
     }
 
-    func controlSidebarSchedulePanelPullRequestAction(
+    nonisolated func controlSidebarSchedulePanelPullRequestAction(
         target: ControlSidebarPanelMutationTarget,
         action: String,
         actionTarget: String?
@@ -189,7 +189,7 @@ extension TerminalController {
         return .done
     }
 
-    func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
+    nonisolated func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
         TerminalMutationBus.shared.enqueueMainActorMutation {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
@@ -229,7 +229,7 @@ extension TerminalController {
         }
     }
 
-    func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {
+    nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {
         guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
@@ -263,7 +263,7 @@ extension TerminalController {
         }
     }
 
-    func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String) {
+    nonisolated func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String) {
         TerminalMutationBus.shared.enqueueMainActorMutation {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
@@ -299,7 +299,7 @@ extension TerminalController {
         }
     }
 
-    func controlSidebarScheduleScopedPortsKick(scope: ControlSidebarPanelScope, reasonRawValue: String) {
+    nonisolated func controlSidebarScheduleScopedPortsKick(scope: ControlSidebarPanelScope, reasonRawValue: String) {
         guard let reason = PortScanKickReason(rawValue: reasonRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
