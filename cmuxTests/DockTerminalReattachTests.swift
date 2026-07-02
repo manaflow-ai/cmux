@@ -46,7 +46,8 @@ extension DockSocketLifecycleTests {
         restorableAgent: SessionRestorableAgentSnapshot? = nil,
         restorableAgentResumeState: Workspace.RestoredAgentResumeState? = nil,
         restoredResumeSessionWorkingDirectory: String? = nil,
-        resumeBinding: SurfaceResumeBindingSnapshot? = nil
+        resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        agentRuntime: Workspace.DetachedAgentRuntimeState? = nil
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
@@ -70,7 +71,7 @@ extension DockSocketLifecycleTests {
             restorableAgentResumeState: restorableAgentResumeState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
-            agentRuntime: nil,
+            agentRuntime: agentRuntime,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
             remotePTYSessionID: nil,
@@ -279,6 +280,58 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restorableAgentResumeState == nil)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.resumeBinding?.checkpointId == sessionId)
+    }
+
+    @Test("Dock detach drops agent metadata whose recorded processes all exited")
+    @MainActor
+    func dockDetachDropsAgentMetadataWhoseRecordedProcessesAllExited() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = DockTransferTestPanel()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let sessionId = "claude-dock-dead-agent-\(UUID().uuidString)"
+        let sessionDirectory = "/tmp/cmux-dock-dead-agent-session"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: sessionDirectory,
+            launchCommand: nil
+        )
+
+        // A process that has provably exited by the time the pane detaches.
+        let exited = Process()
+        exited.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try exited.run()
+        exited.waitUntilExit()
+        let deadPid = pid_t(exited.processIdentifier)
+        try #require(kill(deadPid, 0) != 0)
+
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            directory: sessionDirectory,
+            restorableAgent: agent,
+            agentRuntime: Workspace.DetachedAgentRuntimeState(
+                panelId: panel.id,
+                statusEntries: [:],
+                agentPIDs: ["claude": deadPid],
+                agentPIDKeys: ["claude"]
+            )
+        )
+
+        let attachedPanelId = store.attachDetachedSurface(detached, inPane: rootPane, focus: false)
+        #expect(attachedPanelId == panel.id)
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.directory == sessionDirectory)
+        #expect(roundTripped.restorableAgent == nil)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
+        #expect(roundTripped.resumeBinding == nil)
+        #expect(roundTripped.agentRuntime == nil)
     }
 
     @Test("Dock terminal reveal requests a view reattach")

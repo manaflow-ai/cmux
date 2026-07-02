@@ -40,6 +40,16 @@ extension DockSplitStore {
             liveTerminalDirectory = nil
         }
         let detachedDirectory = liveTerminalDirectory ?? preservedTransfer?.directory
+        // Agent resume metadata can likewise go stale while docked (the Dock
+        // receives no shell-activity or agent lifecycle updates), so re-emit
+        // it only while the agent is not proven dead: recorded agent pids
+        // exist and none is still running. The workspace lifecycle clears the
+        // same metadata when an agent exits at a prompt, so this mirrors it.
+        // An empty pid set stays preserved — a restored-but-unscanned agent
+        // has no pids yet, and dropping it would reintroduce the Dock
+        // round-trip metadata loss #7155 fixes.
+        let cachedAgentPIDs = (preservedTransfer?.agentRuntime?.agentPIDs ?? [:]).values.filter { $0 > 0 }
+        let agentProvenExited = !cachedAgentPIDs.isEmpty && cachedAgentPIDs.allSatisfy { kill($0, 0) != 0 }
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
@@ -81,11 +91,13 @@ extension DockSplitStore {
             customTitleSource: preservedTransfer?.customTitleSource,
             manuallyUnread: preservedTransfer?.manuallyUnread ?? false,
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
-            restorableAgent: preservedTransfer?.restorableAgent,
-            restorableAgentResumeState: preservedTransfer?.restorableAgentResumeState,
-            restoredResumeSessionWorkingDirectory: preservedTransfer?.restoredResumeSessionWorkingDirectory,
-            resumeBinding: preservedTransfer?.resumeBinding,
-            agentRuntime: preservedTransfer?.agentRuntime,
+            restorableAgent: agentProvenExited ? nil : preservedTransfer?.restorableAgent,
+            restorableAgentResumeState: agentProvenExited ? nil : preservedTransfer?.restorableAgentResumeState,
+            restoredResumeSessionWorkingDirectory: agentProvenExited
+                ? nil
+                : preservedTransfer?.restoredResumeSessionWorkingDirectory,
+            resumeBinding: agentProvenExited ? nil : preservedTransfer?.resumeBinding,
+            agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
