@@ -214,10 +214,16 @@ final class SavingTextView: NSTextView {
     private static let defaultPreviewFontSize: CGFloat = 13
     private static let minimumPreviewFontSize: CGFloat = 8
     private static let maximumPreviewFontSize: CGFloat = 36
+    private static let previewFontZoomShortcutActions: [KeyboardShortcutSettings.Action] = [
+        .browserZoomIn,
+        .browserZoomOut,
+        .browserZoomReset,
+    ]
 
     weak var panel: (any FilePreviewTextEditingPanel)?
     private var previewFontSize: CGFloat = 13
     private var pendingSaveShortcutChordPrefix: ShortcutStroke?
+    private var pendingPreviewFontZoomShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
 
     convenience init() {
@@ -346,27 +352,47 @@ final class SavingTextView: NSTextView {
     }
 
     private func handlePreviewFontZoomShortcut(_ event: NSEvent) -> Bool {
-        if previewFontZoomShortcutMatches(event, action: .browserZoomIn) {
-            _ = zoomPreviewFontIn()
-            return true
+        if let pendingPrefix = pendingPreviewFontZoomShortcutChordPrefix {
+            pendingPreviewFontZoomShortcutChordPrefix = nil
+            for action in Self.previewFontZoomShortcutActions {
+                let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+                guard shortcut.firstStroke == pendingPrefix,
+                      let secondStroke = shortcut.secondStroke,
+                      secondStroke.matches(event: event) else { continue }
+                performPreviewFontZoomShortcutAction(action)
+                return true
+            }
+            return false
         }
-        if previewFontZoomShortcutMatches(event, action: .browserZoomOut) {
-            _ = zoomPreviewFontOut()
-            return true
-        }
-        if previewFontZoomShortcutMatches(event, action: .browserZoomReset) {
-            _ = resetPreviewFontSize()
-            return true
+
+        for action in Self.previewFontZoomShortcutActions {
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard !shortcut.isUnbound else { continue }
+            if shortcut.secondStroke != nil {
+                if shortcut.firstStroke.matches(event: event) {
+                    pendingPreviewFontZoomShortcutChordPrefix = shortcut.firstStroke
+                    return true
+                }
+                continue
+            }
+            if shortcut.matches(event: event) {
+                performPreviewFontZoomShortcutAction(action)
+                return true
+            }
         }
         return false
     }
 
-    private func previewFontZoomShortcutMatches(
-        _ event: NSEvent,
-        action: KeyboardShortcutSettings.Action
-    ) -> Bool {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound, !shortcut.hasChord else { return false }
-        return shortcut.matches(event: event)
+    private func performPreviewFontZoomShortcutAction(_ action: KeyboardShortcutSettings.Action) {
+        switch action {
+        case .browserZoomIn:
+            _ = zoomPreviewFontIn()
+        case .browserZoomOut:
+            _ = zoomPreviewFontOut()
+        case .browserZoomReset:
+            _ = resetPreviewFontSize()
+        default:
+            break
+        }
     }
 }
