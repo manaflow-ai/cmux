@@ -21,8 +21,9 @@ public protocol SidebarGitMetadataServing: AnyObject {
         reason: String
     )
     /// Records a panel's directory change and reschedules probes when the
-    /// effective probe directory changed.
-    func updateSurfaceDirectory(workspaceId: UUID, panelId: UUID, directory: String)
+    /// effective probe directory changed. `displayLabel` optionally carries a
+    /// human-friendly sidebar label reported alongside the real path.
+    func updateSurfaceDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?)
     /// Applies an externally reported branch (e.g. OSC sequence) and
     /// reschedules probes and PR refresh.
     func updateSurfaceGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool?)
