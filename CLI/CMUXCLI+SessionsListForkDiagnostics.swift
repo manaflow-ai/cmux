@@ -178,6 +178,7 @@ extension CMUXCLI {
         let support = sessionsListForkSupport(
             agent: agent,
             record: diagnosticRecord,
+            launchCommand: trustedLaunchCommand,
             hookRecordRestorable: hookRecordRestorable,
             forkCommandAvailable: forkCommandAvailable
         )
@@ -346,6 +347,7 @@ extension CMUXCLI {
     private func sessionsListForkSupport(
         agent: String,
         record: ClaudeHookSessionRecord,
+        launchCommand: AgentHookLaunchCommandRecord?,
         hookRecordRestorable: Bool,
         forkCommandAvailable: Bool
     ) -> (supported: Bool, unavailableReason: String) {
@@ -358,13 +360,13 @@ extension CMUXCLI {
         guard agent == "opencode" else {
             return (true, "available")
         }
-        if record.launchCommand?.launcher == "omo" {
+        if launchCommand?.launcher == "omo" {
             return (true, "available")
         }
-        if sessionsListOpenCodeLooksRemoteLike(record) {
+        if sessionsListOpenCodeLooksRemoteLike(record, launchCommand: launchCommand) {
             return (true, "available")
         }
-        if let executable = sessionsListOpenCodeProbeExecutable(record),
+        if let executable = sessionsListOpenCodeProbeExecutable(launchCommand),
            executable.hasPrefix("/"),
            !FileManager.default.isExecutableFile(atPath: executable) {
             return (false, "opencode_executable_missing")
@@ -372,9 +374,12 @@ extension CMUXCLI {
         return (false, "opencode_version_unverified")
     }
 
-    private func sessionsListOpenCodeLooksRemoteLike(_ record: ClaudeHookSessionRecord) -> Bool {
+    private func sessionsListOpenCodeLooksRemoteLike(
+        _ record: ClaudeHookSessionRecord,
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) -> Bool {
         guard let workingDirectory = sessionsListNormalized(
-            record.launchCommand?.workingDirectory ?? record.cwd
+            launchCommand?.workingDirectory ?? record.cwd
         ) else {
             return false
         }
@@ -383,11 +388,11 @@ extension CMUXCLI {
             || !isDirectory.boolValue
     }
 
-    private func sessionsListOpenCodeProbeExecutable(_ record: ClaudeHookSessionRecord) -> String? {
-        if let executablePath = sessionsListNormalized(record.launchCommand?.executablePath) {
+    private func sessionsListOpenCodeProbeExecutable(_ launchCommand: AgentHookLaunchCommandRecord?) -> String? {
+        if let executablePath = sessionsListNormalized(launchCommand?.executablePath) {
             return executablePath
         }
-        return record.launchCommand?.arguments.first.flatMap(sessionsListNormalized)
+        return launchCommand?.arguments.first.flatMap(sessionsListNormalized)
     }
 
     private func sessionsListForkArguments(

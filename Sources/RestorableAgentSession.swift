@@ -1356,6 +1356,7 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> (sessionId: String, path: String)? {
         var matches: [(sessionId: String, path: String)] = []
         for projectDir in projectDirs {
+            guard matches.count < 2 else { break }
             collectClaudeTranscripts(
                 inDirectory: projectDir,
                 excludingSessionId: excludedSessionId,
@@ -1375,6 +1376,7 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         matches: inout [(sessionId: String, path: String)]
     ) {
+        guard matches.count < 2 else { return }
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
               isDirectory.boolValue,
@@ -1391,6 +1393,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     continue
                 }
                 matches.append((sessionId, childPath))
+                if matches.count >= 2 { return }
             } else if remainingDirectoryDepth > 0 {
                 collectClaudeTranscripts(
                     inDirectory: childPath,
@@ -1399,6 +1402,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     fileManager: fileManager,
                     matches: &matches
                 )
+                if matches.count >= 2 { return }
             }
         }
     }
