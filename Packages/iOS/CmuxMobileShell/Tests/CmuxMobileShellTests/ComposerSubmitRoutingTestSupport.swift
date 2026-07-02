@@ -40,13 +40,9 @@ actor RoutingHostRouter {
         var surfaceID: String
         var text: String
     }
-    struct TerminalCloseRecord: Sendable {
-        var workspaceID: String
-        var surfaceID: String
-    }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
-    private(set) var terminalCloses: [TerminalCloseRecord] = []
+    private(set) var terminalCloses: [(workspaceID: String, surfaceID: String)] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
     private var closedTerminalIDs: Set<String> = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
@@ -95,7 +91,7 @@ actor RoutingHostRouter {
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
-    func recordedTerminalCloses() -> [TerminalCloseRecord] { terminalCloses }
+    func recordedTerminalCloses() -> [(workspaceID: String, surfaceID: String)] { terminalCloses }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
 
     /// Sendable extract of the request fields the router needs, pulled off the
@@ -181,7 +177,7 @@ actor RoutingHostRouter {
         case "terminal.close":
             let workspaceID = info.workspaceID ?? ""
             let surfaceID = info.surfaceID ?? ""
-            terminalCloses.append(TerminalCloseRecord(workspaceID: workspaceID, surfaceID: surfaceID))
+            terminalCloses.append((workspaceID: workspaceID, surfaceID: surfaceID))
             closedTerminalIDs.insert(surfaceID)
             return try? Self.resultFrame(id: id, result: [
                 "closed": true,
