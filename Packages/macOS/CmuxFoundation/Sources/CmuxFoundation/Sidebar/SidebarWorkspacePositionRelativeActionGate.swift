@@ -19,6 +19,8 @@
 /// and keyboard / socket / CLI / command-palette paths operate on full-list ids
 /// without rendering filtered rows, so none of those consult this gate.
 public struct SidebarWorkspacePositionRelativeActionGate {
+    /// Creates the gate. The policy is stateless, so call sites construct a fresh
+    /// value at each use rather than sharing one.
     public init() {}
 
     /// Whether a position-relative action (drag / Move Up / Move Down / Close
