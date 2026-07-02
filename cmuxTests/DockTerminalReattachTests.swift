@@ -220,9 +220,9 @@ extension DockSocketLifecycleTests {
         #expect(panel.viewReattachToken == reattachTokenBefore + 1)
     }
 
-    @Test("Dock transfer drops transient resumed-agent cwd rescue state")
+    @Test("Dock transfer keeps resumed-agent cwd rescue state while not proven dead")
     @MainActor
-    func dockTransferDropsTransientResumedAgentCwdRescueState() throws {
+    func dockTransferKeepsResumedAgentCwdRescueStateWhileNotProvenDead() throws {
         let sourceWorkspaceId = UUID()
         let panel = DockTransferTestPanel()
         let store = DockSplitStore(
@@ -277,8 +277,8 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.cachedTitle == "Current Dock Title")
         #expect(roundTripped.directory == trackedDirectory)
         #expect(roundTripped.restorableAgent?.sessionId == sessionId)
-        #expect(roundTripped.restorableAgentResumeState == nil)
-        #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
+        #expect(roundTripped.restorableAgentResumeState == .autoResumeCommandRunning)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == sessionDirectory)
         #expect(roundTripped.resumeBinding?.checkpointId == sessionId)
     }
 
@@ -315,6 +315,8 @@ extension DockSocketLifecycleTests {
             sourceWorkspaceId: sourceWorkspaceId,
             directory: sessionDirectory,
             restorableAgent: agent,
+            restorableAgentResumeState: .autoResumeCommandRunning,
+            restoredResumeSessionWorkingDirectory: sessionDirectory,
             agentRuntime: Workspace.DetachedAgentRuntimeState(
                 panelId: panel.id,
                 statusEntries: [:],
@@ -329,6 +331,7 @@ extension DockSocketLifecycleTests {
         let roundTripped = try #require(store.detachSurface(panelId: panel.id))
         #expect(roundTripped.directory == sessionDirectory)
         #expect(roundTripped.restorableAgent == nil)
+        #expect(roundTripped.restorableAgentResumeState == nil)
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.resumeBinding == nil)
         #expect(roundTripped.agentRuntime == nil)

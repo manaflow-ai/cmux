@@ -127,7 +127,13 @@ extension DockSplitStore {
         }
 
         panels[detached.panelId] = panel
-        detachedSurfaceTransfersByPanelId[detached.panelId] = detached.withoutTransientRestoredAgentResumeState()
+        // Cache the transfer as-is, transient resume state included: while the
+        // agent is alive that state (and the #7155 rescue directory) is still
+        // current, and `detachSurface` drops all agent metadata once the
+        // recorded processes are proven dead. Stripping here instead would
+        // lose the rescue for live agents whenever the detach-time live cwd
+        // read is unavailable.
+        detachedSurfaceTransfersByPanelId[detached.panelId] = detached
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
