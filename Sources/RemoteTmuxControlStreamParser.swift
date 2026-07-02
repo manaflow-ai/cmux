@@ -78,7 +78,14 @@ struct RemoteTmuxControlStreamParser {
         if !inBlock {
             bytes = Self.removingST(bytes)
         }
-        if bytes.isEmpty { return prefixMessages }
+        // A blank line OUTSIDE a block is not a notification — drop it. A blank line
+        // INSIDE a block is a real captured row (`capture-pane` emits an empty line for a
+        // blank pane row, the dropped-blank-lines bug this fixes); let it fall through to
+        // the generic block-content path below, which budgets (+1 for the newline) and
+        // appends the empty line identically — no need to duplicate that arithmetic here.
+        if bytes.isEmpty && !inBlock {
+            return prefixMessages
+        }
 
         // `%output` is the only notification whose payload carries raw, possibly
         // multi-byte UTF-8 pane bytes. Parse it straight from the raw bytes so a
