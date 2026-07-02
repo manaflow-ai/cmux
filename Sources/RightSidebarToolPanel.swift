@@ -267,6 +267,7 @@ struct RightSidebarToolPanelView: View {
                 onFocus: requestPanelFocusIfNeeded,
                 onContainerChange: panel.attachFileExplorerContainer
             )
+            .environment(\.colorScheme, fileExplorerColorScheme)
         case .find:
             FileExplorerPanelView(
                 store: panel.fileExplorerStore,
@@ -277,6 +278,7 @@ struct RightSidebarToolPanelView: View {
                 onFocus: requestPanelFocusIfNeeded,
                 onContainerChange: panel.attachFileExplorerContainer
             )
+            .environment(\.colorScheme, fileExplorerColorScheme)
         case .sessions:
             SessionIndexView(
                 store: panel.sessionIndexStore,
@@ -291,6 +293,10 @@ struct RightSidebarToolPanelView: View {
         case .feed, .dock, .customSidebar:
             EmptyView()
         }
+    }
+
+    private var fileExplorerColorScheme: ColorScheme {
+        cmuxReadableColorScheme(for: appearance.backgroundColor)
     }
 
     private func requestPanelFocusIfNeeded() {

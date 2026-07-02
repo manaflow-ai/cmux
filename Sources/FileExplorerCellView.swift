@@ -30,7 +30,7 @@ final class FileExplorerCellView: NSTableCellView {
         iconView.imageScaling = .scaleProportionallyDown
 
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        nameLabel.textColor = .labelColor
+        nameLabel.textColor = FileExplorerStyle.current.nameTextColor
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.maximumNumberOfLines = 1
 
@@ -135,7 +135,7 @@ final class FileExplorerCellView: NSTableCellView {
             nameLabel.textColor = style.gitColor(for: gitStatus)
             nameLabel.toolTip = node.path
         } else {
-            nameLabel.textColor = .labelColor
+            nameLabel.textColor = style.nameTextColor
             nameLabel.toolTip = node.path
         }
     }
