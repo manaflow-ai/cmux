@@ -47,6 +47,15 @@ extension DockSplitStore {
             return nil
         }
 
+        // `sourceWorkspaceId` is this Dock's `workspaceId` (not the panel's original
+        // workspace) by design: attaching into the Dock re-homed the surface's
+        // notification tab-id to `workspaceId` via `updateWorkspaceId`, so any
+        // notifications delivered while the panel was docked are keyed under it.
+        // `Workspace.attachDetachedSurface` rebinds `fromTabId: sourceWorkspaceId`,
+        // so returning the Dock id carries docked-era notifications to the
+        // destination workspace; the `preservedTransfer` original id would instead
+        // strand them under the (possibly Global-Dock synthetic) id. Consolidating
+        // pre-dock notifications is a dock-*entry* rebind concern, out of scope here.
         return Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: workspaceId,
             panelId: panelId,
