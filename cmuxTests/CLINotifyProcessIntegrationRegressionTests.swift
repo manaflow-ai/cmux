@@ -1829,6 +1829,71 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeSessionEndSkipsPersistWhenIdleSiblingSessionIsLive() throws {
+        let context = try makeClaudeHookContext(name: "claude-session-end-title-idle-sibling")
+        defer { context.cleanup() }
+
+        // The common case: the sibling split is alive but *idle* (its record
+        // never carries a runtime-running marker), not actively running. It still
+        // owns the workspace auto title, so the exiting split must not persist
+        // over it. Guarding only on `.running` sessions would miss this.
+        let endingSessionId = "ending-title-session-idle-sibling"
+        let siblingSessionId = "idle-live-sibling-session"
+        let transcriptURL = context.root.appendingPathComponent("ending-title-session-idle-sibling.jsonl")
+        try [
+            #"{"type":"ai-title","aiTitle":"Exiting split title","sessionId":"ending-title-session-idle-sibling"}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                endingSessionId: [
+                    "sessionId": endingSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+                // Live process, but no runtime-running status (idle / status-less).
+                siblingSessionId: [
+                    "sessionId": siblingSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": "\(context.surfaceId)-idle-sibling",
+                    "cwd": context.root.path,
+                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(endingSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let titleRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertFalse(
+            titleRequests.contains { $0["persist_after_exit"] as? Bool == true },
+            "Expected SessionEnd to skip persisting a title while an idle-but-live sibling session still owns the workspace, saw \(context.state.commands)"
+        )
+    }
+
     func testNestedCodexPromptAndStopDoNotReplaceParentResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "codex-nested-resume-guard")
         defer { context.cleanup() }
