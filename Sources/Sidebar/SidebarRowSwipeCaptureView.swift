@@ -4,8 +4,8 @@ import SwiftUI
 @MainActor
 struct SidebarRowSwipeCaptureView: NSViewRepresentable {
     let workspaceId: UUID
-    let onOffsetChanged: (CGFloat, Bool) -> Void
-    let onCommit: (SidebarRowSwipeGestureModel.Action) -> Void
+    let onOffsetChanged: (CGFloat, Bool, Bool) -> Void
+    let onCommit: (SidebarRowSwipeGestureModel.Action, CGFloat) -> Void
 
     func makeNSView(context: Context) -> SidebarRowSwipeCaptureNSView {
         let view = SidebarRowSwipeCaptureNSView(workspaceId: workspaceId, frame: .zero)

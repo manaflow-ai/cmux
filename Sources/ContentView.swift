@@ -12426,6 +12426,7 @@ struct VerticalTabsSidebar: View {
         let row = SidebarSwipeableRow(
             workspaceId: tab.id,
             isUnread: workspaceIsUnread,
+            isSelected: usesSelectedContextMenuTargets,
             onToggleReadState: { [notificationStore, tabId = tab.id, workspaceIsUnread] in
                 if workspaceIsUnread {
                     notificationStore.markRead(forTabId: tabId)

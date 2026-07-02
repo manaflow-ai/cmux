@@ -2,6 +2,8 @@ import AppKit
 
 @MainActor
 final class SidebarRowSwipeCaptureNSView: NSView {
+    static weak var activeSwipeView: SidebarRowSwipeCaptureNSView?
+
     var workspaceId: UUID {
         didSet {
 #if DEBUG
@@ -12,8 +14,8 @@ final class SidebarRowSwipeCaptureNSView: NSView {
         }
     }
 
-    var onOffsetChanged: ((CGFloat, Bool) -> Void)?
-    var onCommit: ((SidebarRowSwipeGestureModel.Action) -> Void)?
+    var onOffsetChanged: ((CGFloat, Bool, Bool) -> Void)?
+    var onCommit: ((SidebarRowSwipeGestureModel.Action, CGFloat) -> Void)?
 
     private var model = SidebarRowSwipeGestureModel()
 
@@ -67,16 +69,59 @@ final class SidebarRowSwipeCaptureNSView: NSView {
             SidebarRowSwipeGestureModel.Event(
                 phase: phase,
                 scrollingDeltaX: deltaX,
-                scrollingDeltaY: deltaY
+                scrollingDeltaY: deltaY,
+                containerWidth: bounds.width
             )
         )
-        guard result.claimed else { return result }
-
-        onOffsetChanged?(result.offset, result.shouldAnimateOffset)
-        if let commit = result.commit {
-            onCommit?(commit)
+        if result.claimed, phase != .momentum {
+            activateSwipe()
         }
+        guard result.claimed else {
+            clearActiveSwipeIfNeeded(for: phase)
+            return result
+        }
+
+        if result.enteredCommitZone {
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        }
+        if result.commit == .trailing {
+            onCommit?(.trailing, bounds.width)
+        } else {
+            onOffsetChanged?(result.offset, result.shouldAnimateOffset, result.isInCommitZone)
+            if let commit = result.commit {
+                onCommit?(commit, bounds.width)
+            }
+        }
+        clearActiveSwipeIfNeeded(for: phase)
         return result
+    }
+
+    private func activateSwipe() {
+        if let activeSwipeView = Self.activeSwipeView, activeSwipeView !== self {
+            activeSwipeView.resetSwipe()
+        }
+        Self.activeSwipeView = self
+    }
+
+    private func clearActiveSwipeIfNeeded(for phase: SidebarRowSwipeGestureModel.Phase) {
+        guard phase == .ended || phase == .cancelled else { return }
+        guard Self.activeSwipeView === self else { return }
+        Self.activeSwipeView = nil
+    }
+
+    func resetSwipe() {
+        let result = model.handle(SidebarRowSwipeGestureModel.Event(
+            phase: .cancelled,
+            scrollingDeltaX: 0,
+            scrollingDeltaY: 0,
+            containerWidth: bounds.width
+        ))
+        if result.claimed {
+            onOffsetChanged?(result.offset, result.shouldAnimateOffset, result.isInCommitZone)
+        }
+        if Self.activeSwipeView === self {
+            Self.activeSwipeView = nil
+        }
     }
 
     private static func phase(for event: NSEvent) -> SidebarRowSwipeGestureModel.Phase? {

@@ -139,4 +139,104 @@ import Testing
         #expect(nextSwipe.claimed)
         #expect(nextSwipe.offset == 18)
     }
+
+    @Test func commitZoneEngagesAtThreshold() {
+        var model = SidebarRowSwipeGestureModel()
+
+        _ = model.handle(.init(phase: .began, scrollingDeltaX: 0, scrollingDeltaY: 0))
+        let threshold = model.handle(.init(phase: .changed, scrollingDeltaX: 64, scrollingDeltaY: 1))
+
+        #expect(threshold.claimed)
+        #expect(threshold.offset == 64)
+        #expect(threshold.isInCommitZone)
+        #expect(threshold.enteredCommitZone)
+    }
+
+    @Test func commitZoneDoesNotFlickerBetweenDisengageAndCommitThresholds() {
+        var model = SidebarRowSwipeGestureModel()
+
+        _ = model.handle(.init(phase: .began, scrollingDeltaX: 0, scrollingDeltaY: 0))
+        _ = model.handle(.init(phase: .changed, scrollingDeltaX: 64, scrollingDeltaY: 1))
+        let insideHysteresis = model.handle(.init(phase: .changed, scrollingDeltaX: -2, scrollingDeltaY: 0))
+        let atDisengageThreshold = model.handle(.init(phase: .changed, scrollingDeltaX: -2, scrollingDeltaY: 0))
+        let belowDisengageThreshold = model.handle(.init(phase: .changed, scrollingDeltaX: -0.5, scrollingDeltaY: 0))
+
+        #expect(insideHysteresis.offset == 62)
+        #expect(insideHysteresis.isInCommitZone)
+        #expect(insideHysteresis.enteredCommitZone == false)
+        #expect(atDisengageThreshold.offset == 60)
+        #expect(atDisengageThreshold.isInCommitZone)
+        #expect(atDisengageThreshold.enteredCommitZone == false)
+        #expect(belowDisengageThreshold.offset == 59.5)
+        #expect(belowDisengageThreshold.isInCommitZone == false)
+        #expect(belowDisengageThreshold.enteredCommitZone == false)
+    }
+
+    @Test func enteredCommitZoneFiresOncePerEntry() {
+        var model = SidebarRowSwipeGestureModel()
+
+        _ = model.handle(.init(phase: .began, scrollingDeltaX: 0, scrollingDeltaY: 0))
+        let firstEntry = model.handle(.init(phase: .changed, scrollingDeltaX: 64, scrollingDeltaY: 1))
+        let stillInZone = model.handle(.init(phase: .changed, scrollingDeltaX: 6, scrollingDeltaY: 0))
+        let exitZone = model.handle(.init(phase: .changed, scrollingDeltaX: -11, scrollingDeltaY: 0))
+        let secondEntry = model.handle(.init(phase: .changed, scrollingDeltaX: 5, scrollingDeltaY: 0))
+
+        #expect(firstEntry.isInCommitZone)
+        #expect(firstEntry.enteredCommitZone)
+        #expect(stillInZone.isInCommitZone)
+        #expect(stillInZone.enteredCommitZone == false)
+        #expect(exitZone.offset == 59)
+        #expect(exitZone.isInCommitZone == false)
+        #expect(exitZone.enteredCommitZone == false)
+        #expect(secondEntry.offset == 64)
+        #expect(secondEntry.isInCommitZone)
+        #expect(secondEntry.enteredCommitZone)
+    }
+
+    @Test func commitZoneEntryResetsAcrossGestures() {
+        var model = SidebarRowSwipeGestureModel()
+
+        _ = model.handle(.init(phase: .began, scrollingDeltaX: 0, scrollingDeltaY: 0))
+        let firstEntry = model.handle(.init(phase: .changed, scrollingDeltaX: 64, scrollingDeltaY: 1))
+        let release = model.handle(.init(phase: .ended, scrollingDeltaX: 0, scrollingDeltaY: 0))
+        _ = model.handle(.init(phase: .began, scrollingDeltaX: 0, scrollingDeltaY: 0))
+        let secondEntry = model.handle(.init(phase: .changed, scrollingDeltaX: 64, scrollingDeltaY: 1))
+
+        #expect(firstEntry.enteredCommitZone)
+        #expect(release.isInCommitZone == false)
+        #expect(release.enteredCommitZone == false)
+        #expect(secondEntry.enteredCommitZone)
+    }
+
+    @Test func narrowSidebarDisablesLeadingActionOnly() {
+        var narrowLeadingModel = SidebarRowSwipeGestureModel()
+        var narrowTrailingModel = SidebarRowSwipeGestureModel()
+        var wideLeadingModel = SidebarRowSwipeGestureModel()
+
+        let narrowLeading = narrowLeadingModel.handle(.init(
+            phase: .began,
+            scrollingDeltaX: 20,
+            scrollingDeltaY: 0,
+            containerWidth: 120
+        ))
+        let narrowTrailing = narrowTrailingModel.handle(.init(
+            phase: .began,
+            scrollingDeltaX: -20,
+            scrollingDeltaY: 0,
+            containerWidth: 120
+        ))
+        let wideLeading = wideLeadingModel.handle(.init(
+            phase: .began,
+            scrollingDeltaX: 20,
+            scrollingDeltaY: 0,
+            containerWidth: 200
+        ))
+
+        #expect(narrowLeading.claimed == false)
+        #expect(narrowLeading.offset == 0)
+        #expect(narrowTrailing.claimed)
+        #expect(narrowTrailing.offset == -20)
+        #expect(wideLeading.claimed)
+        #expect(wideLeading.offset == 20)
+    }
 }

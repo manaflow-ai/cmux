@@ -4,17 +4,23 @@ struct SidebarRowSwipeGestureModel {
     struct Configuration: Equatable, Sendable {
         let maxRevealDistance: CGFloat
         let commitThreshold: CGFloat
+        let commitZoneHysteresis: CGFloat
+        let minimumLeadingActionContainerWidth: CGFloat
         let rubberBandDamping: CGFloat
         let rubberBandExtraLimitFraction: CGFloat
 
         init(
             maxRevealDistance: CGFloat = 96,
             commitThreshold: CGFloat = 64,
+            commitZoneHysteresis: CGFloat = 4,
+            minimumLeadingActionContainerWidth: CGFloat = 128,
             rubberBandDamping: CGFloat = 0.25,
             rubberBandExtraLimitFraction: CGFloat = 0.35
         ) {
             self.maxRevealDistance = maxRevealDistance
             self.commitThreshold = commitThreshold
+            self.commitZoneHysteresis = commitZoneHysteresis
+            self.minimumLeadingActionContainerWidth = minimumLeadingActionContainerWidth
             self.rubberBandDamping = rubberBandDamping
             self.rubberBandExtraLimitFraction = rubberBandExtraLimitFraction
         }
@@ -37,11 +43,18 @@ struct SidebarRowSwipeGestureModel {
         let phase: Phase
         let scrollingDeltaX: CGFloat
         let scrollingDeltaY: CGFloat
+        let containerWidth: CGFloat
 
-        init(phase: Phase, scrollingDeltaX: CGFloat, scrollingDeltaY: CGFloat) {
+        init(
+            phase: Phase,
+            scrollingDeltaX: CGFloat,
+            scrollingDeltaY: CGFloat,
+            containerWidth: CGFloat = .infinity
+        ) {
             self.phase = phase
             self.scrollingDeltaX = scrollingDeltaX
             self.scrollingDeltaY = scrollingDeltaY
+            self.containerWidth = containerWidth
         }
     }
 
@@ -50,6 +63,24 @@ struct SidebarRowSwipeGestureModel {
         let offset: CGFloat
         let commit: Action?
         let shouldAnimateOffset: Bool
+        let isInCommitZone: Bool
+        let enteredCommitZone: Bool
+
+        init(
+            claimed: Bool,
+            offset: CGFloat,
+            commit: Action?,
+            shouldAnimateOffset: Bool,
+            isInCommitZone: Bool = false,
+            enteredCommitZone: Bool = false
+        ) {
+            self.claimed = claimed
+            self.offset = offset
+            self.commit = commit
+            self.shouldAnimateOffset = shouldAnimateOffset
+            self.isInCommitZone = isInCommitZone
+            self.enteredCommitZone = enteredCommitZone
+        }
     }
 
     private enum GestureState: Equatable, Sendable {
@@ -62,6 +93,7 @@ struct SidebarRowSwipeGestureModel {
 
     private let configuration: Configuration
     private var state: GestureState = .idle
+    private var isInCommitZone = false
 
     init(configuration: Configuration = Configuration()) {
         self.configuration = configuration
@@ -83,6 +115,7 @@ struct SidebarRowSwipeGestureModel {
     }
 
     private mutating func begin(_ event: Event) -> Result {
+        resetCommitZone()
         state = .pending(accumulatedDeltaX: 0, accumulatedDeltaY: 0)
         return updatePending(with: event)
     }
@@ -102,12 +135,16 @@ struct SidebarRowSwipeGestureModel {
         }
 
         let nextOffset = constrainedOffset(accumulatedOffset + normalized(event.scrollingDeltaX), direction: direction)
+        let visibleOffset = visibleOffset(for: nextOffset)
+        let commitZone = updateCommitZone(for: visibleOffset)
         state = .tracking(direction: direction, accumulatedOffset: nextOffset)
         return Result(
             claimed: true,
-            offset: visibleOffset(for: nextOffset),
+            offset: visibleOffset,
             commit: nil,
-            shouldAnimateOffset: false
+            shouldAnimateOffset: false,
+            isInCommitZone: commitZone.isInCommitZone,
+            enteredCommitZone: commitZone.enteredCommitZone
         )
     }
 
@@ -116,6 +153,7 @@ struct SidebarRowSwipeGestureModel {
             if state == .ignoringUntilEnd || isPending {
                 state = .idle
             }
+            resetCommitZone()
             return Result(
                 claimed: state == .suppressingMomentum,
                 offset: 0,
@@ -125,7 +163,8 @@ struct SidebarRowSwipeGestureModel {
         }
 
         let finalOffset = constrainedOffset(accumulatedOffset + normalized(event.scrollingDeltaX), direction: direction)
-        let commit = abs(visibleOffset(for: finalOffset)) > configuration.commitThreshold ? direction : nil
+        let commit = shouldCommit(visibleOffset: visibleOffset(for: finalOffset)) ? direction : nil
+        resetCommitZone()
         state = .suppressingMomentum
         return Result(claimed: true, offset: 0, commit: commit, shouldAnimateOffset: true)
     }
@@ -135,6 +174,7 @@ struct SidebarRowSwipeGestureModel {
             if state == .ignoringUntilEnd || isPending {
                 state = .idle
             }
+            resetCommitZone()
             return Result(
                 claimed: state == .suppressingMomentum,
                 offset: 0,
@@ -143,6 +183,7 @@ struct SidebarRowSwipeGestureModel {
             )
         }
 
+        resetCommitZone()
         state = .suppressingMomentum
         return Result(claimed: true, offset: 0, commit: nil, shouldAnimateOffset: true)
     }
@@ -152,9 +193,11 @@ struct SidebarRowSwipeGestureModel {
         case .suppressingMomentum:
             return Result(claimed: true, offset: 0, commit: nil, shouldAnimateOffset: false)
         case .tracking:
+            resetCommitZone()
             state = .suppressingMomentum
             return Result(claimed: true, offset: 0, commit: nil, shouldAnimateOffset: true)
         case .pending:
+            resetCommitZone()
             state = .idle
             return Result(claimed: false, offset: 0, commit: nil, shouldAnimateOffset: false)
         case .ignoringUntilEnd, .idle:
@@ -179,13 +222,22 @@ struct SidebarRowSwipeGestureModel {
         }
 
         let direction: Action = nextDeltaX > 0 ? .leading : .trailing
+        guard direction != .leading || isLeadingActionEnabled(containerWidth: event.containerWidth) else {
+            state = .ignoringUntilEnd
+            return Result(claimed: false, offset: 0, commit: nil, shouldAnimateOffset: false)
+        }
+
         let accumulatedOffset = constrainedOffset(nextDeltaX, direction: direction)
+        let visibleOffset = visibleOffset(for: accumulatedOffset)
+        let commitZone = updateCommitZone(for: visibleOffset)
         state = .tracking(direction: direction, accumulatedOffset: accumulatedOffset)
         return Result(
             claimed: true,
-            offset: visibleOffset(for: accumulatedOffset),
+            offset: visibleOffset,
             commit: nil,
-            shouldAnimateOffset: false
+            shouldAnimateOffset: false,
+            isInCommitZone: commitZone.isInCommitZone,
+            enteredCommitZone: commitZone.enteredCommitZone
         )
     }
 
@@ -196,6 +248,12 @@ struct SidebarRowSwipeGestureModel {
 
     private func normalized(_ delta: CGFloat) -> CGFloat {
         delta.isFinite ? delta : 0
+    }
+
+    private func isLeadingActionEnabled(containerWidth: CGFloat) -> Bool {
+        guard !containerWidth.isNaN else { return false }
+        guard containerWidth.isFinite else { return true }
+        return containerWidth >= configuration.minimumLeadingActionContainerWidth
     }
 
     private func constrainedOffset(_ offset: CGFloat, direction: Action) -> CGFloat {
@@ -220,5 +278,31 @@ struct SidebarRowSwipeGestureModel {
             configuration.maxRevealDistance * configuration.rubberBandExtraLimitFraction
         )
         return configuration.maxRevealDistance + cappedExtra
+    }
+
+    private mutating func updateCommitZone(for visibleOffset: CGFloat) -> (
+        isInCommitZone: Bool,
+        enteredCommitZone: Bool
+    ) {
+        let visibleMagnitude = abs(visibleOffset)
+        let disengageThreshold = max(0, configuration.commitThreshold - configuration.commitZoneHysteresis)
+        let nextIsInCommitZone = isInCommitZone
+            ? visibleMagnitude >= disengageThreshold
+            : visibleMagnitude >= configuration.commitThreshold
+        let enteredCommitZone = !isInCommitZone && nextIsInCommitZone
+        isInCommitZone = nextIsInCommitZone
+        return (nextIsInCommitZone, enteredCommitZone)
+    }
+
+    private func shouldCommit(visibleOffset: CGFloat) -> Bool {
+        let visibleMagnitude = abs(visibleOffset)
+        if isInCommitZone {
+            return visibleMagnitude >= max(0, configuration.commitThreshold - configuration.commitZoneHysteresis)
+        }
+        return visibleMagnitude >= configuration.commitThreshold
+    }
+
+    private mutating func resetCommitZone() {
+        isInCommitZone = false
     }
 }
