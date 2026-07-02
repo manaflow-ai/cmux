@@ -941,8 +941,11 @@ final class TerminalNotificationStore: ObservableObject {
                 globalConfigPath: policyContext.globalConfigPath
             )
             guard !authorizedHooks.isEmpty else {
+                // Re-resolve just before delivery: the panel may have moved
+                // workspaces while hook authorization was in flight, so the
+                // enqueue-time target can be stale by the time we store.
                 self.applyNotification(
-                    request: policyContext.request,
+                    request: self.requestRetargetedToCurrentWorkspace(policyContext.request),
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
@@ -955,10 +958,14 @@ final class TerminalNotificationStore: ObservableObject {
                 request: policyContext.request,
                 hooks: authorizedHooks
             )
+            // Refresh the delivery target after the awaits above; a move during
+            // authorization or evaluation must not strand the notification in the
+            // panel's former workspace.
+            let deliveredRequest = self.requestRetargetedToCurrentWorkspace(policyContext.request)
             switch result {
             case .success(let envelope):
                 self.applyNotification(
-                    request: policyContext.request,
+                    request: deliveredRequest,
                     envelope: envelope,
                     now: Date(),
                     cooldownReservation: cooldownReservation,
@@ -966,7 +973,7 @@ final class TerminalNotificationStore: ObservableObject {
                 )
             case .failure(let failure):
                 self.applyNotification(
-                    request: policyContext.request,
+                    request: deliveredRequest,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
@@ -986,6 +993,30 @@ final class TerminalNotificationStore: ObservableObject {
             return (tabId, surfaceId)
         }
         return (resolved.workspace.id, surfaceId)
+    }
+
+    /// Returns `request` with its workspace (`tabId`) re-resolved to the panel's
+    /// current owner, used at the async policy-hook delivery point so a panel
+    /// that moved workspaces while a hook was authorizing/evaluating still
+    /// stores its notification in the workspace it now lives in. Returns the
+    /// request unchanged when the surface is nil or the panel can no longer be
+    /// located, matching `resolveNotificationTarget`'s fallback.
+    private func requestRetargetedToCurrentWorkspace(
+        _ request: TerminalNotificationPolicyRequest
+    ) -> TerminalNotificationPolicyRequest {
+        let target = resolveNotificationTarget(tabId: request.tabId, surfaceId: request.surfaceId)
+        guard target.tabId != request.tabId else { return request }
+        return TerminalNotificationPolicyRequest(
+            tabId: target.tabId,
+            surfaceId: request.surfaceId,
+            panelId: request.panelId,
+            title: request.title,
+            subtitle: request.subtitle,
+            body: request.body,
+            cwd: request.cwd,
+            isAppFocused: request.isAppFocused,
+            isFocusedPanel: request.isFocusedPanel
+        )
     }
 
     private struct NotificationCooldownReservation: Sendable {
