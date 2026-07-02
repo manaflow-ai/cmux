@@ -3890,6 +3890,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else if derived.isEmpty {
             selectedTerminalID = nil
         }
+        pruneTerminalCloseRepairSuppressionsForMissingTerminals()
         workspaceGroups = workspaceAggregation.derivedGroups(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
     }
@@ -4556,6 +4557,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         terminalAutoFocusSuppressedSurfaceIDs.formIntersection(liveTerminalIDs)
+    }
+
+    /// Drop close-repair tokens for terminals that are no longer in the topology.
+    ///
+    /// This runs after ``syncSelectedTerminalForWorkspace()`` so a selected
+    /// terminal that just disappeared can first consume its token and suppress the
+    /// replacement terminal's next autofocus.
+    private func pruneTerminalCloseRepairSuppressionsForMissingTerminals() {
+        guard !terminalCloseRepairSuppressionTerminalIDs.isEmpty else { return }
+        let liveTerminalIDs: Set<MobileTerminalPreview.ID> = Set(
+            workspaces.flatMap { $0.terminals.map(\.id) }
+        )
+        terminalCloseRepairSuppressionTerminalIDs.formIntersection(liveTerminalIDs)
     }
 
     /// Remove one staged attachment by id. A no-op when the id is not staged.
