@@ -588,6 +588,16 @@ const TOOLS = [
       additionalProperties: false,
     },
     run: async ({ app }) => {
+      // `open -a` bypasses the engine, so launching/focusing gets its own
+      // per-app approval like everything else that touches the machine.
+      if (
+        !(await approveLocalCapability(
+          `open:${app}`,
+          `Allow cmux computer use to launch or focus "${app}"?`
+        ))
+      ) {
+        return err(`launching "${app}" was not approved`);
+      }
       try {
         const { stdout } = await execFileP("/usr/bin/open", ["-a", app], { timeout: TIMEOUT_MS });
         return ok([text(stdout?.trim() || `opened ${app}`)]);

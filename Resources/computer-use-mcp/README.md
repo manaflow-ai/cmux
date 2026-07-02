@@ -75,11 +75,11 @@ get a fail-closed decline, and headless runs (`claude -p`) cancel the prompt —
 unattended automation must consciously opt in with `CMUX_CU_AUTO_APPROVE=1`.
 Approvals live in the engine per app for the lifetime of the MCP session.
 
-The two perception tools that do not go through the engine sit behind the same
-boundary: full-desktop `computer_screenshot` and `computer_windows` each ask
-for their own approval ("capture the entire desktop", "list every on-screen
-window") before touching `screencapture`/CGWindowList, cached per capability
-for the session.
+The tools that do not go through the engine sit behind the same boundary:
+full-desktop `computer_screenshot`, `computer_windows`, and `computer_open`
+each ask for their own approval ("capture the entire desktop", "list every
+on-screen window", "launch or focus <app>") before touching
+`screencapture`/CGWindowList/`open -a`, cached per capability for the session.
 
 ## Config (env)
 

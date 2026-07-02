@@ -79,4 +79,11 @@ if (!shotDeclined.isError || !shotDeclined.text.includes("not approved")) {
   process.exit(1);
 }
 
+const openDeclined = await run({ withElicitation: false, tool: "computer_open", args: { app: "TestApp" } });
+console.log(`computer_open without elicitation support -> isError=${openDeclined.isError}`);
+if (!openDeclined.isError || !openDeclined.text.includes("not approved")) {
+  console.error("FAIL: expected fail-closed decline for app launch");
+  process.exit(1);
+}
+
 console.log("PASS: elicitation forwarding + fail-closed decline (engine and local capabilities)");
