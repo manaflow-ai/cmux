@@ -23245,7 +23245,10 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd,
                         transcriptPath: parsedInput.transcriptPath,
                         isRestorable: true,
-                        agentLifecycle: .idle,
+                        // Pending background work keeps the pane out of the
+                        // hibernatable .idle state so the planner cannot SIGTERM
+                        // a live task (mirrors the antigravity fullyIdle flip).
+                        agentLifecycle: hasPendingBackgroundWork ? .running : .idle,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
@@ -23267,7 +23270,7 @@ struct CMUXCLI {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .idle,
+                    lifecycle: hasPendingBackgroundWork ? .running : .idle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
@@ -23521,7 +23524,7 @@ struct CMUXCLI {
             let notificationType = parsedInput.rawObject.flatMap {
                 firstString(in: $0, keys: ["notification_type"])
             }
-            let notifyCategory: ClaudeNotifyCategory
+            let notifyCategory: AgentHookNotifyCategory
             let notifyPending: Bool
             switch notificationType {
             case "permission_prompt":
@@ -26377,7 +26380,7 @@ struct CMUXCLI {
 
     /// Category tag the app uses to gate agent notifications by user config.
     /// Serialized into the `notify_target_async` payload's optional meta segment.
-    enum ClaudeNotifyCategory: String {
+    enum AgentHookNotifyCategory: String {
         case turnComplete = "turn-complete"
         case needsPermission = "needs-permission"
         case idleReminder = "idle-reminder"
@@ -26386,7 +26389,7 @@ struct CMUXCLI {
 
     /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. No "|" and no spaces,
     /// so it survives the pipe-delimited payload and the app's strict `c=` guard.
-    private func notifyMeta(_ category: ClaudeNotifyCategory, pending: Bool) -> String {
+    private func notifyMeta(_ category: AgentHookNotifyCategory, pending: Bool) -> String {
         "c=\(category.rawValue);p=\(pending ? 1 : 0)"
     }
 
@@ -30421,7 +30424,13 @@ export default CMUXSessionRestore;
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
             }
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
-                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
+                // Tag successful turn-end pings so the app's "Agent Finished"
+                // setting covers every built-in agent, not just Claude. Error
+                // alerts stay untagged and always deliver.
+                let stopMeta: String? = stopNotificationStatus == .idle
+                    ? notifyMeta(.turnComplete, pending: antigravityHasActiveBackgroundWork)
+                    : nil
+                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body, meta: stopMeta)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(
@@ -30763,7 +30772,21 @@ export default CMUXSessionRestore;
 
             let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
             if shouldSendNotification(fingerprint: notificationFingerprint) {
-                let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
+                // Tag by classification so the app's agent notification settings
+                // cover every built-in agent: blocked-on-user prompts gate under
+                // "Agent Needs Permission"; turn-boundary completions (grok and
+                // antigravity route them through this hook) under "Agent
+                // Finished". Errors and unclassified alerts stay untagged.
+                let notificationMeta: String?
+                switch summary.status {
+                case .needsInput:
+                    notificationMeta = notifyMeta(.needsPermission, pending: false)
+                case .idle:
+                    notificationMeta = notifyMeta(.turnComplete, pending: hasActiveAntigravityBackgroundWork())
+                default:
+                    notificationMeta = nil
+                }
+                let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body, meta: notificationMeta)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(

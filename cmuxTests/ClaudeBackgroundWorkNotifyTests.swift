@@ -17,6 +17,10 @@ struct ClaudeBackgroundWorkNotifyTests {
         snapshot.first { $0.hasPrefix("set_status claude_code \(value) ") }
     }
 
+    private func lifecycleLine(_ snapshot: [String], value: String) -> String? {
+        snapshot.first { $0.hasPrefix("set_agent_lifecycle claude_code \(value) ") }
+    }
+
     private func runStopHook(
         name: String,
         sessionId: String,
@@ -76,6 +80,11 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(statusLine(snapshot, value: "Running") != nil,
                 "Pending stop must show a Running pill, not Idle; saw \(snapshot)")
         #expect(statusLine(snapshot, value: "Idle") == nil)
+        // And the hibernation lifecycle must stay non-idle so the planner can't
+        // SIGTERM the live background task.
+        #expect(lifecycleLine(snapshot, value: "running") != nil,
+                "Pending stop must publish a running lifecycle; saw \(snapshot)")
+        #expect(lifecycleLine(snapshot, value: "idle") == nil)
     }
 
     @Test func stopWithEmptyArraysTagsIdleAndCachesFalse() throws {
@@ -87,9 +96,11 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(notifyLine(snapshot, containing: "c=turn-complete;p=0") != nil,
                 "Truly-idle stop must tag pending=0; saw \(snapshot)")
         #expect(cached == false)
-        // Truly-idle turn end keeps the "Idle" pill.
+        // Truly-idle turn end keeps the "Idle" pill and the hibernatable lifecycle.
         #expect(statusLine(snapshot, value: "Idle") != nil,
                 "Truly-idle stop must show the Idle pill; saw \(snapshot)")
+        #expect(lifecycleLine(snapshot, value: "idle") != nil,
+                "Truly-idle stop must publish an idle lifecycle; saw \(snapshot)")
     }
 
     @Test func stopWithPendingCronTagsPending() throws {
