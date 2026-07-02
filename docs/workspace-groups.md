@@ -40,7 +40,7 @@ Right-click any workspace in the sidebar, choose **New Empty Workspace Group** f
 
 ### From the group header context menu
 
-Right-click an existing group's header for: **Rename Group…**, **Pin / Unpin Group**, **Edit Group Config…** (opens `~/.config/cmux/cmux.json`), **Open Workspace Groups Docs**, **Ungroup (Keep Workspaces)**, **Delete Group (Close Workspaces)**. Delete is destructive and prompts for confirmation; ungroup keeps the workspaces and just removes the container.
+Right-click an existing group's header for: **Rename Group…**, **Pin / Unpin Group**, **Group Color** (a submenu to pick a preset swatch, choose a custom hex color, or clear the override so the header falls back to the cwd-config color), **Edit Group Config…** (opens `~/.config/cmux/cmux.json`), **Open Workspace Groups Docs**, **Ungroup (Keep Workspaces)**, **Delete Group (Close Workspaces)**. Delete is destructive and prompts for confirmation; ungroup keeps the workspaces and just removes the container.
 
 ### From the `+` button on a group header
 
@@ -68,7 +68,11 @@ cmux workspace-group add --group <group-id> --workspace <workspace-id>
 cmux workspace-group remove --workspace <workspace-id>
 cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
 cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
+cmux workspace-group set-color <group-id> [--hex "#RRGGBB"]   # omit --hex (or pass "") to clear the color
+cmux workspace-group set-icon <group-id> [--symbol <sf-symbol>]   # omit --symbol (or pass "") to clear the icon
 ```
+
+`set-color` accepts a hex value (`#RRGGBB`); the same override is editable from the group header context menu's **Group Color** submenu.
 
 `create` returns a group handle (`workspace_group:N` by default). Pass `--json` for the full structured payload.
 
