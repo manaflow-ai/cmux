@@ -13480,6 +13480,8 @@ struct TabItemView: View, Equatable {
                 // row height, which would churn the LazyVStack (#5764).
                 ZStack {
                     if badgeOnLeading {
+                        // Intentional: the spinner takes the shared slot while
+                        // loading; the badge returns when loading ends.
                         unreadBadgeView(size: scaledUnreadBadgeSize)
                             .opacity(spinnerOnLeading ? 0 : 1)
                     }
