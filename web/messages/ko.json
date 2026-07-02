@@ -1595,7 +1595,8 @@
   "afterSignIn": {
     "title": "cmux에 로그인했습니다",
     "body": "cmux가 자동으로 열리지 않으면 아래 버튼을 사용하세요.",
-    "button": "cmux로 돌아가기"
+    "button": "cmux로 돌아가기",
+    "switchAccountButton": "다른 계정 사용"
   },
   "landing": {
     "bestTerminal": {
