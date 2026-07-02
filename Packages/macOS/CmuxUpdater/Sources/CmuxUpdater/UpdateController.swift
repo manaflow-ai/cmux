@@ -318,14 +318,21 @@ public final class UpdateController {
         waitForReadinessThenCheck(preservingInstallIntent: preservingInstallIntent)
     }
 
+    /// Whether the bounded readiness wait should keep polling for `canCheckForUpdates`, given the
+    /// model state observed at the top of each poll iteration. Stops the wait only when the model is
+    /// no longer the `.checking` pill (a user cancel idles it; see task #12).
+    static func readinessWaitShouldContinue(whileModelState state: UpdateState) -> Bool {
+        if case .checking = state { return true }
+        return false
+    }
+
     private func waitForReadinessThenCheck(preservingInstallIntent: Bool = false) {
         readyCheckTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var remaining = self.readyRetryCount
             while remaining > 0 {
-                // A user cancel on the retry/checking pill idles the model. Stop waiting rather than
-                // resurrecting the check when readiness eventually arrives (autoreview P2).
-                guard case .checking = self.model.state else { return }
+                // Stop the wait when the pending check was cancelled; keep polling otherwise.
+                guard UpdateController.readinessWaitShouldContinue(whileModelState: self.model.state) else { return }
                 if self.updater.canCheckForUpdates {
                     self.performCheckForUpdates(preservingInstallIntent: preservingInstallIntent)
                     return
