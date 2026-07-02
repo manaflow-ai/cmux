@@ -3228,7 +3228,7 @@ final class Workspace: Identifiable, ObservableObject {
                 isLoading: true,
                 isPinned: false
             ) {
-                surfaceIdToPanelId[tabId] = loadingPanel.id
+                bindSurface(tabId, toPanelId: loadingPanel.id)
                 initialTabId = tabId
             }
         } else {
@@ -7956,7 +7956,6 @@ final class Workspace: Identifiable, ObservableObject {
         configureNewTerminalPanel(replacementPanel)
         panels[pair.key] = replacementPanel
         panelTitles[pair.key] = replacementPanel.displayTitle
-        surfaceIdToPanelId[tabId] = pair.key
         seedTerminalInheritanceFontPoints(panelId: pair.key, configTemplate: inheritedConfig)
 
         bonsplitController.updateTab(
