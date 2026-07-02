@@ -178,6 +178,9 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     }
 
     private func ownerWorkspaceMatchesForPersistentPTY(_ other: WorkspaceRemoteConfiguration) -> Bool {
+        if usesManagedCloudPersistentPTYIdentity && other.usesManagedCloudPersistentPTYIdentity {
+            return true
+        }
         return ownerWorkspaceID == other.ownerWorkspaceID
     }
 
