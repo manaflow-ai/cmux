@@ -871,7 +871,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// second set_size round-trip.
     private var lastRenderRect: CGRect = .zero
     private var lastRenderLayoutViewportHeight: CGFloat?
-    private var lastRenderCanClampStaleLiveViewport = false
+    private var lastRenderWasProducedForLayoutViewport = false
     private var viewportCoordinator = TerminalViewportCoordinator()
     private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
     private var keyboardHeightAnimationID = 0
@@ -1472,7 +1472,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func shouldClampStaleLiveViewport(using snapshot: TerminalViewportSnapshot) -> Bool {
-        guard lastRenderCanClampStaleLiveViewport,
+        guard lastRenderWasProducedForLayoutViewport,
               let height = lastRenderLayoutViewportHeight else { return false }
         return abs(height - snapshot.layoutViewportRect.height) <= 1
     }
@@ -2934,7 +2934,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         cellPixelSize = .zero
         lastRenderRect = .zero
         lastRenderLayoutViewportHeight = nil
-        lastRenderCanClampStaleLiveViewport = false
+        lastRenderWasProducedForLayoutViewport = false
         lastAppliedContentScale = 0
 
         surfaceGeneration &+= 1
@@ -3636,10 +3636,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let snapshot = viewportSnapshot()
         layoutBottomDock(using: snapshot)
         lastRenderLayoutViewportHeight = snapshot.layoutViewportRect.height
-        lastRenderCanClampStaleLiveViewport = result.pinnedSize == nil
+        lastRenderWasProducedForLayoutViewport = true
         let renderRect = snapshot.renderRect(
             forRenderSize: measuredRenderRect.size,
-            clampsStaleLiveViewport: lastRenderCanClampStaleLiveViewport
+            clampsStaleLiveViewport: lastRenderWasProducedForLayoutViewport
         )
         lastRenderRect = renderRect
         #if DEBUG
