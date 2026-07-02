@@ -1,5 +1,7 @@
 import AppKit
 import Testing
+import struct CmuxSettings.AppCatalogSection
+import struct CmuxSettings.FileRouteSettingsStore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -44,5 +46,36 @@ struct FilePreviewTextEditorTextKitTests {
         // multi-hundred-thousand-line documents still open instantly.
         #expect(textView.layoutManager != nil)
         #expect(textView.layoutManager?.allowsNonContiguousLayout == true)
+    }
+
+    @Test
+    func cmdShiftClickSupportedFileRouteUsesDefaultApplicationOnlyWhenCmuxWouldRoute() throws {
+        let suiteName = "cmux.file-preview-routing-bypass.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let store = FileRouteSettingsStore(defaults: defaults)
+        #expect(CommandClickFileOpenRouter.route(path: fileURL.path, modifierFlags: [.command], routeSettings: store) == .cmux)
+        #expect(CommandClickFileOpenRouter.route(path: fileURL.path, modifierFlags: [.command, .shift], routeSettings: store) == .defaultApplication)
+        #expect(CommandClickFileOpenRouter.route(path: fileURL.path, modifierFlags: [.command, .shift, .option], routeSettings: store) == .cmux)
+        #expect(CommandClickFileOpenRouter.route(path: directoryURL.path, modifierFlags: [.command, .shift], routeSettings: store) == .fallback)
+
+        defaults.set(false, forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey)
+        #expect(CommandClickFileOpenRouter.route(path: fileURL.path, modifierFlags: [.command, .shift], routeSettings: store) == .fallback)
+    }
+
+    private func temporaryTextFile() throws -> URL {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        try "preview me".write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
     }
 }
