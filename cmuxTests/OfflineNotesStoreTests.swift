@@ -330,6 +330,61 @@ struct OfflineNotesStoreTests {
     }
 
     @Test
+    func loadTrimsQueueToMaxTotalNotesKeepingNewestCaptures() throws {
+        let url = tempFileURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        // A corrupt or hand-edited file can hold more notes than the queue's
+        // hard cap. Loading it must trim to `maxTotalNotes` (keeping the newest
+        // captures) so an over-large file can't put an unbounded queue into the
+        // long-lived store and drive unbounded rows / count scans / full-array
+        // rewrites on every persist.
+        let overflow = OfflineNotesStore.maxTotalNotes + 50
+        let persisted = (0..<overflow).map { OfflineNote(text: "note-\($0)", status: .pending) }
+        let data = try OfflineNotesStore.makeEncoder().encode(persisted)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: url)
+
+        let store = makeStore(fileURL: url, reachability: FakeReachability(isOnline: false), autostart: false)
+        #expect(store.notes.count == OfflineNotesStore.maxTotalNotes)
+        // The array is in capture order (newest last), so the newest captures survive.
+        #expect(store.notes.first?.text == "note-50")
+        #expect(store.notes.last?.text == "note-\(overflow - 1)")
+    }
+
+    @Test
+    func loadEvictsOldestSentNotesBeyondRetainedCap() throws {
+        let url = tempFileURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        // More delivered (sent) notes than the retained-sent cap, plus a few
+        // pending. Load must evict the oldest sent down to `maxRetainedSentNotes`
+        // (mirroring the write path's pruning) while preserving pending work.
+        // The total stays under `maxTotalNotes`, so only sent-pruning applies.
+        let sentOverflow = OfflineNotesStore.maxRetainedSentNotes + 30
+        var persisted = (0..<sentOverflow).map {
+            OfflineNote(text: "sent-\($0)", status: .sent, sentAt: Date())
+        }
+        persisted += (0..<10).map { OfflineNote(text: "pending-\($0)", status: .pending) }
+        let data = try OfflineNotesStore.makeEncoder().encode(persisted)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: url)
+
+        let store = makeStore(fileURL: url, reachability: FakeReachability(isOnline: false), autostart: false)
+        #expect(store.sentCount == OfflineNotesStore.maxRetainedSentNotes)
+        #expect(store.pendingCount == 10)
+        // The oldest sent notes are the evicted ones; the newest retained sent survive.
+        #expect(!store.notes.contains { $0.text == "sent-0" })
+        #expect(store.notes.contains { $0.text == "sent-\(sentOverflow - 1)" })
+    }
+
+    @Test
     func defaultFileURLIsScopedByBundleIdentifier() {
         let appSupport = tempFileURL().deletingLastPathComponent()
         // Production and a tagged side-by-side debug build must resolve to
