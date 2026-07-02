@@ -54,13 +54,13 @@
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
+1680	cmuxTests/RestorableAgentSessionIndexTests.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1656	Sources/FileExplorerView.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1649	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1581	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
-1549	cmuxTests/RestorableAgentSessionIndexTests.swift
 1500	cmuxUITests/MultiWindowNotificationsUITests.swift
 1499	cmuxTests/OmnibarAndToolsTests.swift
 1433	Sources/RemoteTmuxControlConnection.swift
@@ -75,8 +75,8 @@
 1290	cmuxTests/TextBoxSubmitActionTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1258	Sources/Feed/FeedCoordinator.swift
+1250	Sources/VaultAgentProcessScanner.swift
 1240	cmuxTests/SidebarOrderingTests.swift
-1239	Sources/VaultAgentProcessScanner.swift
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1205	Sources/RemoteTmuxController.swift
 1204	cmuxTests/FileExplorerStoreTests.swift
@@ -219,6 +219,7 @@
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 535	Sources/App/WorkspaceRuntimeSettings.swift
 532	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
+531	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Vault/Providers/HermesAgent/HermesAgentIndex.swift
 530	Sources/BrowserPaneDropTargetView.swift
 530	Sources/TerminalController+ControlSurfaceContext3.swift
 529	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
@@ -229,7 +230,6 @@
 525	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
 524	Sources/TerminalPaneDropTargetView.swift
-523	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Vault/Providers/HermesAgent/HermesAgentIndex.swift
 522	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift

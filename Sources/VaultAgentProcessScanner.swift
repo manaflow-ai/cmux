@@ -100,8 +100,11 @@ extension RestorableAgentSessionIndex {
             return fetched
         }
 
+        // Group panes by the canonical (symlink-resolved) cwd so two panes in the same physical
+        // repo — one launched through a symlink, one through the real path — share one key and are
+        // both treated as ambiguous, matching the symlink-aware matching in `latestSessionID`.
         func hermesAmbiguityKey(stateDBPath: String, cwd: String) -> String {
-            stateDBPath + "\u{1f}" + cwd
+            stateDBPath + "\u{1f}" + (HermesAgentIndex.canonicalCwd(cwd) ?? cwd)
         }
 
         // Count live Hermes (.stateDB) processes per (state.db, cwd). When two panes share one key we
@@ -963,10 +966,18 @@ private extension CmuxVaultAgentSessionIDSource {
             }
             return nil
         case .stateDB:
-            // Hermes mints its own id and rejects `--resume <unknown-id>`, so the id can only be
-            // read back from state.db, scoped to this pane's cwd. Multiple hermes panes/gateways
-            // share one state.db, so a directory-less or unmatched process records NO binding — a
-            // recoverable miss beats cross-binding two live sessions.
+            // A live `hermes --resume <id>` / `-r <id>` names the exact session this pane is running,
+            // and hermes rejects an id that does not exist, so trust the argv id over the heuristic:
+            // it is correct even when the pane resumed an older session in a directory that also holds
+            // a newer one, and it disambiguates two panes in the same cwd.
+            if let explicitSessionId = process.arguments.nonOptionValue(afterOption: "--resume")
+                ?? process.arguments.nonOptionValue(afterOption: "-r") {
+                return VaultAgentSessionIDResolution(sessionId: explicitSessionId, source: .explicit)
+            }
+            // Otherwise Hermes minted its own id at startup (readable only from state.db, scoped to
+            // this pane's cwd). A directory-less process, an unmatched cwd, or several fresh panes
+            // sharing one cwd record NO binding — a recoverable miss beats cross-binding two live
+            // sessions (the ambiguity guard lives in `stateDBSessionIDLookup`).
             guard let cwd, !cwd.isEmpty else { return nil }
             let stateDBPath = HermesAgentIndex.defaultStateDBPath(env: process.environment)
             guard let sessionId = stateDBSessionIDLookup(stateDBPath, cwd) else { return nil }

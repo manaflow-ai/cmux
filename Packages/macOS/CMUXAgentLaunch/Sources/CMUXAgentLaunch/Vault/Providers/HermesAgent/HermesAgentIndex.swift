@@ -224,6 +224,14 @@ public enum HermesAgentIndex {
         return candidates
     }
 
+    /// A single canonical (standardized + symlink-resolved) form of `cwd`, so two directories that
+    /// point at the same physical location through different symlink paths compare equal. Callers
+    /// that need to group panes by working directory (and stay consistent with the symlink-aware
+    /// matching in ``latestSessionID(cwd:stateDBPath:)``) should key on this. Nil for a blank input.
+    public static func canonicalCwd(_ cwd: String) -> String? {
+        cwdMatchCandidates(for: cwd).last
+    }
+
     public static func loadTranscript(
         sessionId: String,
         limit: Int,

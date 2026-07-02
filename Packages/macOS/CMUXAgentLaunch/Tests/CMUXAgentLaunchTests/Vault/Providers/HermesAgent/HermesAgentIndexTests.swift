@@ -221,6 +221,23 @@ struct HermesAgentIndexTests {
         #expect(HermesAgentIndex.latestSessionID(cwd: "   ", stateDBPath: dbURL.path) == nil)
     }
 
+    @Test("canonicalCwd collapses a symlinked path and its real path to one value")
+    func canonicalCwdCollapsesSymlinkAndRealPath() throws {
+        let fm = FileManager.default
+        let root = try temporaryDirectory()
+        defer { try? fm.removeItem(at: root) }
+        let realDir = root.appendingPathComponent("real", isDirectory: true)
+        try fm.createDirectory(at: realDir, withIntermediateDirectories: true)
+        let aliasURL = root.appendingPathComponent("alias", isDirectory: false)
+        try fm.createSymbolicLink(at: aliasURL, withDestinationURL: realDir)
+
+        let viaReal = HermesAgentIndex.canonicalCwd(realDir.path)
+        let viaAlias = HermesAgentIndex.canonicalCwd(aliasURL.path)
+        #expect(viaReal != nil)
+        #expect(viaReal == viaAlias)
+        #expect(HermesAgentIndex.canonicalCwd("   ") == nil)
+    }
+
     private func makeDirectory(_ url: URL, returningResolved: Bool = false) throws -> String {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return returningResolved ? url.resolvingSymlinksInPath().path : url.path
