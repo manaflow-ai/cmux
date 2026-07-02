@@ -2592,12 +2592,6 @@ final class Workspace: Identifiable, ObservableObject {
         get { surfaceRegistry.panelShellActivityStates }
         set { surfaceRegistry.panelShellActivityStates = newValue }
     }
-    /// Whether any terminal panel in this workspace reports a foreground command running
-    /// (shell-integration classification). Used to block the deferred update restart while
-    /// agents or long-running commands are mid-flight.
-    var hasRunningForegroundCommand: Bool {
-        panelShellActivityStates.values.contains(.commandRunning)
-    }
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]

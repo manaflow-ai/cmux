@@ -3,6 +3,28 @@ public import SwiftUI
 public import CmuxUpdater
 import AppKit
 
+/// Positions ``UpdateReadyToast`` in the window's bottom-trailing corner above the terminal
+/// content. The window root mounts this as its top layer; it renders nothing (and hit-tests
+/// nothing) while no toast is due or no actions host exists.
+public struct UpdateReadyToastOverlay: View {
+    private let model: UpdateStateModel
+    private let actions: (any UpdateActionsHost)?
+
+    /// Creates the overlay. `actions` is optional so call sites can pass a not-yet-wired host.
+    public init(model: UpdateStateModel, actions: (any UpdateActionsHost)?) {
+        self.model = model
+        self.actions = actions
+    }
+
+    public var body: some View {
+        if let actions {
+            UpdateReadyToast(model: model, actions: actions)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding([.bottom, .trailing], 16)
+        }
+    }
+}
+
 /// A transient corner toast shown when an update has been downloaded and staged in the
 /// background: one click on "Restart" finishes the install.
 ///

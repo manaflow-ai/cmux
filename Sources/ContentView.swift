@@ -2516,12 +2516,8 @@ struct ContentView: View {
                         .zIndex(100)
                 }
 
-                if let updateActionsHost = AppDelegate.shared {
-                    UpdateReadyToast(model: updateViewModel, actions: updateActionsHost)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                        .padding([.bottom, .trailing], 16)
-                        .zIndex(200)
-                }
+                UpdateReadyToastOverlay(model: updateViewModel, actions: AppDelegate.shared)
+                    .zIndex(200) // above the titlebar band (100); last ZStack layer
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
