@@ -379,11 +379,27 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(destination.restoredAgentResumeStatesByPanelId[attachedPanelId] == .autoResumeCommandRunning)
 
             // The moved pane's shell still can't reach a prompt, so a spurious
-            // home report in the destination is rejected just as in the source.
+            // home report in the destination is corrected back to the session
+            // directory (the live probe is unavailable headless, so the carried
+            // anchor is the ground-truth fallback) just as in the source.
             let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
             try #require(homeDir != projectDir)
-            #expect(!destination.updatePanelDirectory(panelId: attachedPanelId, directory: homeDir))
+            destination.updatePanelDirectory(panelId: attachedPanelId, directory: homeDir)
+            #expect(destination.panelDirectories[attachedPanelId] == projectDir)
         }
+    }
+
+    /// Direct coverage for the libproc read behind the #7155 ground-truth
+    /// correction: the test runner's own pid resolves to its real working
+    /// directory, and an invalid pid resolves to nil instead of trapping.
+    @Test func processCurrentWorkingDirectoryReadsLiveProcessAndRejectsInvalidPid() throws {
+        let ownCwd = try #require(Workspace.processCurrentWorkingDirectory(pid: getpid()))
+        let resolvedOwnCwd = URL(fileURLWithPath: ownCwd).resolvingSymlinksInPath().path
+        let expectedCwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .resolvingSymlinksInPath().path
+        #expect(resolvedOwnCwd == expectedCwd)
+
+        #expect(Workspace.processCurrentWorkingDirectory(pid: -1) == nil)
     }
 
     /// Restores a workspace whose focused pane auto-resumes a Claude session in
