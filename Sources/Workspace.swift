@@ -156,6 +156,7 @@ extension Workspace {
 #endif
         restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
+        restoredAgentAutoResumeOnVisitPanelIds.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
@@ -1197,7 +1198,12 @@ extension Workspace {
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
-            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
+            let shouldAutoResumeAgentOnVisit =
+                autoResumeAgentSessions &&
+                agentWasRunningAtQuit &&
+                restoredHibernation == nil &&
+                (restorableAgent != nil || (resumeBinding?.isAgentHookBinding == true && resumeBinding?.autoResume == true))
+            let shouldAutoResumeAgentAtRestore = false
             let resumeBindingForStartup =
                 restoredHibernation != nil ||
                 (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
@@ -1205,7 +1211,7 @@ extension Workspace {
                     : resumeBinding
             let effectiveResumeBindingForStartup = sessionRestorePolicy.approvedSurfaceResumeBinding(
                 resumeBindingForStartup,
-                autoResumeAgentSessions: shouldAutoResumeAgent,
+                autoResumeAgentSessions: shouldAutoResumeAgentAtRestore,
                 promptForApproval: true,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
@@ -1241,7 +1247,7 @@ extension Workspace {
             }
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil {
+                if shouldAutoResumeAgentAtRestore && restoredHibernation == nil && restoredBindingLaunch == nil {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
                             .map(SurfaceResumeStartupLaunch.input)
@@ -1342,7 +1348,7 @@ extension Workspace {
                     "kind=\(restorableAgent.kind.rawValue) session=\(sessionPreview) " +
                     "hasLaunch=\(restorableAgent.launchCommand == nil ? 0 : 1) " +
                     "launchArgc=\(launchArgc) hasResume=\(restoredAgentResumeLaunch == nil ? 0 : 1) " +
-                    "autoResume=\(autoResumeAgentSessions ? 1 : 0) " +
+                    "autoResumeOnVisit=\(shouldAutoResumeAgentOnVisit ? 1 : 0) " +
                     "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
                 )
             }
@@ -1476,6 +1482,15 @@ extension Workspace {
             } else {
                 clearRestoredAgentSnapshot(panelId: terminalPanel.id)
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
+            }
+            // A preserved remote PTY is re-attached with its agent still running
+            // (the eager path suppresses startup input for it above), so arming
+            // lazy resume would inject a duplicate resume command into the live
+            // session on first visit. Exclude it, mirroring that suppression.
+            if shouldAutoResumeAgentOnVisit && restoredRemotePTYAttachCommand == nil {
+                restoredAgentAutoResumeOnVisitPanelIds.insert(terminalPanel.id)
+            } else {
+                restoredAgentAutoResumeOnVisitPanelIds.remove(terminalPanel.id)
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
@@ -2607,6 +2622,7 @@ final class Workspace: Identifiable, ObservableObject {
         case observedAgentCommandRunning
     }
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
+    var restoredAgentAutoResumeOnVisitPanelIds: Set<UUID> = []
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
@@ -3676,6 +3692,10 @@ final class Workspace: Identifiable, ObservableObject {
         terminalPanel.onRequestAgentHibernationResume = { [weak self, weak terminalPanel] focus in
             guard let self, let terminalPanel else { return false }
             return self.resumeAgentHibernation(panelId: terminalPanel.id, focus: focus)
+        }
+        terminalPanel.onRequestRestoredAgentAutoResume = { [weak self, weak terminalPanel] in
+            guard let self, let terminalPanel else { return false }
+            return self.requestRestoredAgentAutoResume(panelId: terminalPanel.id)
         }
     }
 
@@ -4752,6 +4772,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard agent.resumeCommand != nil else { return }
         restoredAgentSnapshotsByPanelId[panelId] = agent
         restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
+        restoredAgentAutoResumeOnVisitPanelIds.remove(panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         let keys = agentPIDKeysByPanelId[panelId] ?? []
         for key in keys {
@@ -4788,6 +4809,93 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    private func requestRestoredAgentAutoResume(panelId: UUID) -> Bool {
+        guard AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults),
+              restoredAgentAutoResumeOnVisitPanelIds.contains(panelId),
+              let terminalPanel = panels[panelId] as? TerminalPanel,
+              !terminalPanel.isAgentHibernated else {
+            return false
+        }
+
+        let restoredAgent = restoredAgentSnapshotsByPanelId[panelId]
+        if let restoredAgent {
+            guard restoredAgentResumeStatesByPanelId[panelId] == .manualResumeAvailable,
+                  invalidatedRestoredAgentFingerprintsByPanelId[panelId] != TabManager.restorableAgentSnapshotFingerprint(restoredAgent) else {
+                return false
+            }
+        } else {
+            guard restoredAgentResumeStatesByPanelId[panelId] == nil else {
+                return false
+            }
+        }
+
+        guard let resumePayload = restoredAgentAutoResumePayload(panelId: panelId, restoredAgent: restoredAgent) else {
+            return false
+        }
+
+        if terminalPanel.surface.hasLiveSurface {
+            terminalPanel.surface.prepareNextRuntimeInitialInput(nil)
+            guard terminalPanel.surface.sendInputResult(resumePayload.input).accepted else {
+                return false
+            }
+        } else {
+            terminalPanel.surface.prepareNextRuntimeInitialInput(resumePayload.input)
+            terminalPanel.requestViewReattach()
+            terminalPanel.surface.requestInputDemandSurfaceStartIfNeeded()
+        }
+
+        if restoredAgent != nil {
+            restoredAgentResumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
+        }
+        restoredAgentAutoResumeOnVisitPanelIds.remove(panelId)
+        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+        clearAgentLifecycleStates(panelId: panelId)
+        AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.agent.lazyResume panel=\(panelId.uuidString.prefix(5)) " +
+            "kind=\(resumePayload.kind) session=\(resumePayload.sessionId.map { String($0.prefix(8)) } ?? "unknown")"
+        )
+#endif
+        return true
+    }
+
+    private func restoredAgentAutoResumePayload(
+        panelId: UUID,
+        restoredAgent: SessionRestorableAgentSnapshot?
+    ) -> (input: String, kind: String, sessionId: String?)? {
+        if let restoredAgent {
+            // A launcher script lives under the local Mac temp dir, which the remote
+            // shell can't reach, so force oversized remote resume commands inline
+            // (mirrors the eager restore path and the agent-hook branch below).
+            // Local terminals keep the default launcher-script fallback.
+            let input = isRemoteTerminalSurface(panelId)
+                ? restoredAgent.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
+                : restoredAgent.resumeStartupInput()
+            if let input {
+                return (input, restoredAgent.kind.rawValue, restoredAgent.sessionId)
+            }
+        }
+
+        guard let binding = surfaceResumeBindingsByPanelId[panelId],
+              binding.isAgentHookBinding,
+              let approvedBinding = sessionRestorePolicy.approvedSurfaceResumeBinding(
+                  binding,
+                  autoResumeAgentSessions: true,
+                  promptForApproval: true,
+                  approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+              ) else {
+            return nil
+        }
+
+        let input = isRemoteTerminalSurface(panelId)
+            ? approvedBinding.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
+            : approvedBinding.startupInputWithLauncherScript(allowLauncherScript: true)
+        guard let input else { return nil }
+        return (input, approvedBinding.kind ?? "agent-hook", approvedBinding.checkpointId)
+    }
+
+    @discardableResult
     func resumeVisibleAgentHibernationPanels(panelIds: Set<UUID>) -> Bool {
         var didResume = false
         for panelId in panelIds {
@@ -4796,6 +4904,15 @@ final class Workspace: Identifiable, ObservableObject {
                 continue
             }
             didResume = resumeAgentHibernation(panelId: panelId, focus: false) || didResume
+        }
+        return didResume
+    }
+
+    @discardableResult
+    private func resumeVisibleRestoredAgentPanels(panelIds: Set<UUID>) -> Bool {
+        var didResume = false
+        for panelId in panelIds {
+            didResume = requestRestoredAgentAutoResume(panelId: panelId) || didResume
         }
         return didResume
     }
@@ -4852,6 +4969,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        restoredAgentAutoResumeOnVisitPanelIds.remove(panelId)
     }
 
     private func clearRestoredAgentResumeBinding(
@@ -5192,6 +5310,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
         restoredAgentResumeStatesByPanelId = restoredAgentResumeStatesByPanelId.filter {
             validSurfaceIds.contains($0.key)
+        }
+        restoredAgentAutoResumeOnVisitPanelIds = restoredAgentAutoResumeOnVisitPanelIds.filter {
+            validSurfaceIds.contains($0)
         }
         invalidatedRestoredAgentFingerprintsByPanelId = invalidatedRestoredAgentFingerprintsByPanelId.filter {
             validSurfaceIds.contains($0.key)
@@ -9430,6 +9551,11 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
         }
+        if detached.restorableAgentAutoResumeOnVisit {
+            restoredAgentAutoResumeOnVisitPanelIds.insert(detached.panelId)
+        } else {
+            restoredAgentAutoResumeOnVisitPanelIds.remove(detached.panelId)
+        }
         if let resumeBinding = detached.resumeBinding, !resumeBinding.isProcessDetected {
             surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
         } else {
@@ -10706,6 +10832,7 @@ final class Workspace: Identifiable, ObservableObject {
         var didChange = agentHibernationAutoResumePresentationVisible
             ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
             : false
+        didChange = resumeVisibleRestoredAgentPanels(panelIds: visiblePanelIds) || didChange
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
@@ -11716,6 +11843,14 @@ extension Workspace: BonsplitDelegate {
         if let terminalPanel = panel as? TerminalPanel {
             if terminalPanel.isAgentHibernated, shouldResumeHibernatedAgent {
                 _ = resumeAgentHibernation(panelId: panelId, focus: false)
+            } else if shouldResumeHibernatedAgent {
+                // Shared selection path for genuine user visits and the programmatic
+                // focus that session restore / Dock reattach also perform. Restore
+                // does not eager-launch a restored (non-hibernated) agent's resume
+                // here; the deferred resume waits for a real visit. This contract is
+                // covered by AgentSessionAutoResumeSwiftTests.assertNoAgentResumeLaunchOnRestore
+                // (paired with assertLazyAgentResumeArmedAfterFocus).
+                _ = requestRestoredAgentAutoResume(panelId: panelId)
             }
             AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
         }
@@ -12240,6 +12375,7 @@ extension Workspace: BonsplitDelegate {
             let transferFallbackTitle = cachedTitle ?? panel.displayTitle
             let restorableAgent = restoredAgentSnapshotsByPanelId[panelId]
             let restorableAgentResumeState = restoredAgentResumeStatesByPanelId[panelId]
+            let restorableAgentAutoResumeOnVisit = restoredAgentAutoResumeOnVisitPanelIds.contains(panelId)
             let resumeBinding = effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
@@ -12267,6 +12403,7 @@ extension Workspace: BonsplitDelegate {
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restorableAgentAutoResumeOnVisit: restorableAgentAutoResumeOnVisit,
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),

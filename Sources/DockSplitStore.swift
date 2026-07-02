@@ -33,6 +33,7 @@ final class DockSplitStore: BonsplitDelegate {
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
+    var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     private var hasLoadedConfiguration = false
     private var configurationLoadTask: Task<Void, Never>?
     private var configurationIdentityTask: Task<Void, Never>?
@@ -633,6 +634,7 @@ final class DockSplitStore: BonsplitDelegate {
             guard let panelId = surfaceIdToPanelId.removeValue(forKey: tabId) else { continue }
             panelCancellables[panelId]?.cancel()
             panelCancellables.removeValue(forKey: panelId)
+            detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
             if let panel = panels.removeValue(forKey: panelId) { panel.close() }
         }
@@ -676,6 +678,7 @@ final class DockSplitStore: BonsplitDelegate {
         reconcilePanels()
         for panel in panels.values { panel.close() }
         panels.removeAll(); surfaceIdToPanelId.removeAll()
+        detachedSurfaceTransfersByPanelId.removeAll()
         panelCancellables.values.forEach { $0.cancel() }
         panelCancellables.removeAll()
     }

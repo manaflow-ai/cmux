@@ -32,6 +32,7 @@ extension Workspace {
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
+        let restorableAgentAutoResumeOnVisit: Bool
         let resumeBinding: SurfaceResumeBindingSnapshot?
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
@@ -60,6 +61,7 @@ extension Workspace {
                 restoredUnreadIndicator: restoredUnreadIndicator,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restorableAgentAutoResumeOnVisit: restorableAgentAutoResumeOnVisit,
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,

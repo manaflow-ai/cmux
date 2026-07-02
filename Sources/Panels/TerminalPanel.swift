@@ -117,6 +117,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
+    var onRequestRestoredAgentAutoResume: (() -> Bool)?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -594,6 +595,7 @@ final class TerminalPanel: Panel, ObservableObject {
             _ = requestAgentHibernationResume(focus: true)
             return
         }
+        _ = requestRestoredAgentAutoResumeIfNeeded()
         focusTerminalSurface(respectForeignFirstResponder: true)
     }
 
@@ -767,8 +769,11 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     private func resumeForExplicitInputIfNeeded() {
-        guard isAgentHibernated else { return }
-        _ = requestAgentHibernationResume(focus: false)
+        if isAgentHibernated {
+            _ = requestAgentHibernationResume(focus: false)
+            return
+        }
+        _ = requestRestoredAgentAutoResumeIfNeeded()
     }
 
     @discardableResult
@@ -778,6 +783,12 @@ final class TerminalPanel: Panel, ObservableObject {
             return onRequestAgentHibernationResume(focus)
         }
         return prepareAgentHibernationResume().didResume
+    }
+
+    @discardableResult
+    private func requestRestoredAgentAutoResumeIfNeeded() -> Bool {
+        guard !isAgentHibernated else { return false }
+        return onRequestRestoredAgentAutoResume?() ?? false
     }
 
     func hasSelection() -> Bool {
@@ -855,6 +866,7 @@ final class TerminalPanel: Panel, ObservableObject {
         if isAgentHibernated {
             return requestAgentHibernationResume(focus: true)
         }
+        _ = requestRestoredAgentAutoResumeIfNeeded()
         switch intent {
         case .panel:
             focus()
