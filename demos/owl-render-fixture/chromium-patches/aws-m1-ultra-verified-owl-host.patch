@@ -1,0 +1,4721 @@
+diff --git a/content/browser/compositor/viz_process_transport_factory.cc b/content/browser/compositor/viz_process_transport_factory.cc
+index 59a7d48453..2a8d65b201 100644
+--- a/content/browser/compositor/viz_process_transport_factory.cc
++++ b/content/browser/compositor/viz_process_transport_factory.cc
+@@ -47,6 +47,7 @@
+ #include "services/viz/privileged/mojom/compositing/display_private.mojom.h"
+ #include "services/viz/privileged/mojom/compositing/external_begin_frame_controller.mojom.h"
+ #include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
++#include "third_party/blink/public/common/switches.h"
+ #include "ui/base/ozone_buildflags.h"
+ #include "ui/base/ui_base_features.h"
+
+@@ -432,8 +433,10 @@ void VizProcessTransportFactory::OnEstablishedGpuChannel(
+   root_params->renderer_settings.display_id = compositor->display_id();
+ #endif
+   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+-  if (command_line->HasSwitch(switches::kDisableFrameRateLimit))
++  if (command_line->HasSwitch(switches::kDisableFrameRateLimit) ||
++      command_line->HasSwitch(blink::switches::kFreshOwlHostedFramePump)) {
+     root_params->disable_frame_rate_limit = true;
++  }
+
+ #if BUILDFLAG(IS_WIN)
+   const bool using_direct_composition = GpuDataManagerImpl::GetInstance()
+diff --git a/content/browser/gpu/gpu_process_host.cc b/content/browser/gpu/gpu_process_host.cc
+index 62cab5dad3..f5cb60e098 100644
+--- a/content/browser/gpu/gpu_process_host.cc
++++ b/content/browser/gpu/gpu_process_host.cc
+@@ -89,6 +89,7 @@
+ #include "services/webnn/buildflags.h"
+ #include "services/webnn/webnn_switches.h"
+ #include "skia/buildflags.h"
++#include "third_party/blink/public/common/switches.h"
+ #include "third_party/blink/public/common/tokens/tokens.h"
+ #include "ui/base/ui_base_features.h"
+ #include "ui/base/ui_base_switches.h"
+@@ -1345,8 +1346,10 @@ bool GpuProcessHost::LaunchGpuProcess() {
+       browser_command_line,
+       switches::GetWebNNSwitchesCopiedFromGpuProcessHost());
+
+-  if (browser_command_line.HasSwitch(switches::kDisableFrameRateLimit))
++  if (browser_command_line.HasSwitch(switches::kDisableFrameRateLimit) ||
++      browser_command_line.HasSwitch(blink::switches::kFreshOwlHostedFramePump)) {
+     cmd_line->AppendSwitch(switches::kDisableGpuVsync);
++  }
+
+   if (browser_command_line.HasSwitch(switches::kForceHighPerformanceGPU)) {
+     cmd_line->AppendSwitch(gpu::GpuDriverBugWorkaroundTypeToString(
+diff --git a/content/browser/renderer_host/owl_fresh_web_contents_role.h b/content/browser/renderer_host/owl_fresh_web_contents_role.h
+new file mode 100644
+index 0000000000..307b9ac181
+--- /dev/null
++++ b/content/browser/renderer_host/owl_fresh_web_contents_role.h
+@@ -0,0 +1,43 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CONTENT_BROWSER_RENDERER_HOST_OWL_FRESH_WEB_CONTENTS_ROLE_H_
++#define CONTENT_BROWSER_RENDERER_HOST_OWL_FRESH_WEB_CONTENTS_ROLE_H_
++
++#include <memory>
++
++#include "base/supports_user_data.h"
++#include "content/public/browser/web_contents.h"
++
++namespace content::owl_fresh {
++
++namespace internal {
++
++inline const void* DevToolsFrontendRoleKey() {
++  static int key = 0;
++  return &key;
++}
++
++class DevToolsFrontendRole final : public base::SupportsUserData::Data {};
++
++}  // namespace internal
++
++inline void MarkDevToolsFrontend(WebContents* web_contents) {
++  if (!web_contents ||
++      web_contents->GetUserData(internal::DevToolsFrontendRoleKey())) {
++    return;
++  }
++  web_contents->SetUserData(
++      internal::DevToolsFrontendRoleKey(),
++      std::make_unique<internal::DevToolsFrontendRole>());
++}
++
++inline bool IsDevToolsFrontend(const WebContents* web_contents) {
++  return web_contents &&
++         web_contents->GetUserData(internal::DevToolsFrontendRoleKey());
++}
++
++}  // namespace content::owl_fresh
++
++#endif  // CONTENT_BROWSER_RENDERER_HOST_OWL_FRESH_WEB_CONTENTS_ROLE_H_
+diff --git a/content/browser/renderer_host/popup_menu_helper_mac.h b/content/browser/renderer_host/popup_menu_helper_mac.h
+index 0530ac4075..d358a0d070 100644
+--- a/content/browser/renderer_host/popup_menu_helper_mac.h
++++ b/content/browser/renderer_host/popup_menu_helper_mac.h
+@@ -46,6 +46,8 @@ class PopupMenuHelper : public RenderWidgetHostObserver {
+
+   ~PopupMenuHelper() override;
+   void Hide();
++  void OwlFreshAcceptItem(uint32_t selected_item);
++  void OwlFreshCancel();
+
+   // Shows the popup menu and notifies the RenderFrameHost of the selection/
+   // cancellation. This call is blocking.
+@@ -80,6 +82,9 @@ class PopupMenuHelper : public RenderWidgetHostObserver {
+   base::WeakPtrFactory<PopupMenuHelper> weak_ptr_factory_{this};
+ };
+
++CONTENT_EXPORT bool OwlFreshAcceptActivePopupMenuItem(uint32_t selected_item);
++CONTENT_EXPORT bool OwlFreshCancelActivePopupMenu();
++
+ }  // namespace content
+
+ #endif  // CONTENT_BROWSER_RENDERER_HOST_POPUP_MENU_HELPER_MAC_H_
+diff --git a/content/browser/renderer_host/popup_menu_helper_mac.mm b/content/browser/renderer_host/popup_menu_helper_mac.mm
+index c56f5f4428..2558be6c0a 100644
+--- a/content/browser/renderer_host/popup_menu_helper_mac.mm
++++ b/content/browser/renderer_host/popup_menu_helper_mac.mm
+@@ -4,6 +4,10 @@
+
+ #include "content/browser/renderer_host/popup_menu_helper_mac.h"
+
++#include <algorithm>
++#include <cmath>
++
++#include "base/command_line.h"
+ #include "base/numerics/safe_conversions.h"
+ #import "content/app_shim_remote_cocoa/render_widget_host_view_cocoa.h"
+ #include "content/browser/permissions/permission_controller_impl.h"
+@@ -15,12 +19,54 @@
+ #include "content/common/content_export.h"
+ #include "content/public/browser/web_contents.h"
+ #import "ui/base/cocoa/base_view.h"
++#include "ui/accelerated_widget_mac/owl_fresh_context.h"
+
+ namespace content {
+
+ namespace {
+
+ bool g_allow_showing_popup_menus = true;
++PopupMenuHelper* g_owl_fresh_active_popup_menu = nullptr;
++
++std::vector<std::string> MenuLabels(
++    const std::vector<blink::mojom::MenuItemPtr>& items) {
++  std::vector<std::string> labels;
++  labels.reserve(items.size());
++  for (const auto& item : items) {
++    if (!item || item->type == blink::mojom::MenuItem::Type::kSeparator) {
++      labels.push_back("---");
++      continue;
++    }
++    labels.push_back(item->label.value_or(std::string()));
++  }
++  return labels;
++}
++
++std::vector<ui::OwlFreshNativeMenuItem> NativeMenuItems(
++    const std::vector<blink::mojom::MenuItemPtr>& items) {
++  std::vector<ui::OwlFreshNativeMenuItem> native_items;
++  native_items.reserve(items.size());
++  for (const auto& item : items) {
++    ui::OwlFreshNativeMenuItem native_item;
++    if (!item) {
++      native_item.label = "";
++      native_item.enabled = false;
++      native_items.push_back(std::move(native_item));
++      continue;
++    }
++    native_item.separator =
++        item->type == blink::mojom::MenuItem::Type::kSeparator;
++    native_item.group = item->type == blink::mojom::MenuItem::Type::kGroup;
++    native_item.label = native_item.separator ? "---"
++                                             : item->label.value_or(std::string());
++    native_item.tool_tip = item->tool_tip.value_or(std::string());
++    native_item.enabled = item->enabled;
++    native_item.text_direction = static_cast<uint32_t>(item->text_direction);
++    native_item.has_text_direction_override = item->has_text_direction_override;
++    native_items.push_back(std::move(native_item));
++  }
++  return native_items;
++}
+
+ }  // namespace
+
+@@ -41,6 +87,9 @@
+ }
+
+ PopupMenuHelper::~PopupMenuHelper() {
++  if (g_owl_fresh_active_popup_menu == this) {
++    g_owl_fresh_active_popup_menu = nullptr;
++  }
+   Hide();
+ }
+
+@@ -77,6 +126,18 @@
+     return;
+   }
+
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch("fresh-owl-embed")) {
++    g_owl_fresh_active_popup_menu = this;
++    ui::OwlFreshPublishNativeMenuSurface(
++        reinterpret_cast<uint64_t>(this),
++        reinterpret_cast<uint64_t>(rwhvm),
++        CGRectMake(bounds.x(), bounds.y(), bounds.width(), bounds.height()),
++        rwhvm->GetCurrentScreenInfo().device_scale_factor, MenuLabels(items),
++        NativeMenuItems(items), selected_item, static_cast<float>(item_font_size),
++        right_aligned, "select-menu");
++    return;
++  }
++
+   remote_runner_.reset();
+   rwhvm->GetNSView()->DisplayPopupMenu(
+       remote_cocoa::mojom::PopupMenu::New(
+@@ -87,6 +148,10 @@
+ }
+
+ void PopupMenuHelper::Hide() {
++  if (g_owl_fresh_active_popup_menu == this) {
++    g_owl_fresh_active_popup_menu = nullptr;
++    ui::OwlFreshClearNativeMenuSurfaces();
++  }
+   if (remote_runner_) {
+     remote_runner_->Hide();
+   }
+@@ -94,6 +159,22 @@
+   popup_client_.reset();
+ }
+
++void PopupMenuHelper::OwlFreshAcceptItem(uint32_t selected_item) {
++  if (g_owl_fresh_active_popup_menu == this) {
++    g_owl_fresh_active_popup_menu = nullptr;
++  }
++  ui::OwlFreshClearNativeMenuSurfaces();
++  PopupMenuClosed(selected_item);
++}
++
++void PopupMenuHelper::OwlFreshCancel() {
++  if (g_owl_fresh_active_popup_menu == this) {
++    g_owl_fresh_active_popup_menu = nullptr;
++  }
++  ui::OwlFreshClearNativeMenuSurfaces();
++  PopupMenuClosed(std::nullopt);
++}
++
+ RenderWidgetHostViewMac* PopupMenuHelper::GetRenderWidgetHostView() const {
+   return static_cast<RenderWidgetHostViewMac*>(
+       render_frame_host_->GetOutermostMainFrameOrEmbedder()->GetView());
+@@ -126,6 +207,23 @@
+   delegate_->OnMenuClosed();  // May delete |this|.
+ }
+
++bool OwlFreshAcceptActivePopupMenuItem(uint32_t selected_item) {
++  if (!g_owl_fresh_active_popup_menu) {
++    return false;
++  }
++  g_owl_fresh_active_popup_menu->OwlFreshAcceptItem(selected_item);
++  return true;
++}
++
++bool OwlFreshCancelActivePopupMenu() {
++  if (!g_owl_fresh_active_popup_menu) {
++    ui::OwlFreshClearNativeMenuSurfaces();
++    return false;
++  }
++  g_owl_fresh_active_popup_menu->OwlFreshCancel();
++  return true;
++}
++
+ // As declared in //content/public/browser/popup_menu.h.
+ CONTENT_EXPORT void DontShowPopupMenus() {
+   g_allow_showing_popup_menus = false;
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index bdf3d9ca41..71e8799f76 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -3807,6 +3807,7 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
+       blink::switches::kEnableOverlaysAndLowLatencyUsageForWebGL,
+ #endif
+       blink::switches::kForceGpuMemAvailableMb,
++      blink::switches::kFreshOwlHostedFramePump,
+       blink::switches::
+           kGpuMemoryBufferReadbackFromTextureForceDisabledForDebugging,
+       blink::switches::kMinHeightForGpuRasterTile,
+diff --git a/content/browser/renderer_host/render_widget_host_view_mac.mm b/content/browser/renderer_host/render_widget_host_view_mac.mm
+index 63041c4311..fc8d6be0df 100644
+--- a/content/browser/renderer_host/render_widget_host_view_mac.mm
++++ b/content/browser/renderer_host/render_widget_host_view_mac.mm
+@@ -84,6 +84,8 @@
+ #include "ui/gfx/mac/coordinate_conversion.h"
+ #include "ui/gfx/native_ui_types.h"
+ #include "ui/menus/cocoa/text_services_context_menu.h"
++#include "content/browser/renderer_host/owl_fresh_web_contents_role.h"
++#include "ui/accelerated_widget_mac/owl_fresh_context.h"
+
+ using blink::WebInputEvent;
+ using blink::WebMouseEvent;
+@@ -181,8 +183,38 @@
+   // Update the contents that the NSView is displaying.
+   const gfx::CALayerParams* ca_layer_params =
+       browser_compositor_->GetLastCALayerParams();
+-  if (ca_layer_params)
++  if (ca_layer_params) {
++    if (base::CommandLine::ForCurrentProcess()->HasSwitch("fresh-owl-embed") &&
++        ca_layer_params->ca_context_id) {
++      gfx::Rect bounds = GetViewBounds();
++      WebContents* web_contents = GetWebContents();
++      const GURL visible_url = web_contents ? web_contents->GetVisibleURL() : GURL();
++      const bool is_devtools =
++          owl_fresh::IsDevToolsFrontend(web_contents) ||
++          (visible_url.SchemeIs("http") && visible_url.host() == "127.0.0.1" &&
++           visible_url.path().rfind("/devtools/", 0) == 0);
++      const ui::OwlFreshSurfaceKind surface_kind =
++          is_devtools ? ui::OwlFreshSurfaceKind::kDevTools
++                      : (popup_parent_host_view_
++                             ? ui::OwlFreshSurfaceKind::kPopupWidget
++                             : ui::OwlFreshSurfaceKind::kWebView);
++      const std::string surface_label =
++          is_devtools ? ui::OwlFreshDevToolsSurfaceLabel()
++                      : (popup_parent_host_view_ ? "popup-widget" : "web-view");
++      ui::OwlFreshDisplayPortalPresentCAContextForSurface(
++          reinterpret_cast<uint64_t>(this),
++          popup_parent_host_view_
++              ? reinterpret_cast<uint64_t>(popup_parent_host_view_.get())
++              : 0,
++          surface_kind, ca_layer_params->ca_context_id,
++          popup_parent_host_view_
++              ? CGRectMake(bounds.x(), bounds.y(), bounds.width(),
++                           bounds.height())
++              : CGRectMake(0, 0, bounds.width(), bounds.height()),
++          ca_layer_params->scale_factor, true, surface_label);
++    }
+     ns_view_->SetCALayerParams(*ca_layer_params);
++  }
+ }
+
+ ////////////////////////////////////////////////////////////////////////////////
+@@ -275,6 +307,9 @@
+ }
+
+ RenderWidgetHostViewMac::~RenderWidgetHostViewMac() {
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch("fresh-owl-embed")) {
++    ui::OwlFreshMarkSurfaceHidden(reinterpret_cast<uint64_t>(this));
++  }
+   if (popup_parent_host_view_) {
+     DCHECK(!popup_parent_host_view_->popup_child_host_view_ ||
+            popup_parent_host_view_->popup_child_host_view_ == this);
+@@ -510,6 +545,9 @@
+
+ void RenderWidgetHostViewMac::Hide() {
+   is_visible_ = false;
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch("fresh-owl-embed")) {
++    ui::OwlFreshMarkSurfaceHidden(reinterpret_cast<uint64_t>(this));
++  }
+   ns_view_->SetVisible(is_visible_);
+   browser_compositor_->SetViewVisible(is_visible_);
+   WasOccluded();
+@@ -589,6 +627,9 @@
+ }
+
+ void RenderWidgetHostViewMac::WasOccluded() {
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch("fresh-owl-embed")) {
++    return;
++  }
+   if (host()->IsHidden()) {
+     return;
+   }
+@@ -656,6 +697,9 @@
+ }
+
+ bool RenderWidgetHostViewMac::HasFocus() {
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch("fresh-owl-embed")) {
++    return true;
++  }
+   return is_first_responder_;
+ }
+
+@@ -1825,13 +1869,15 @@ void CombineTextNodesAndMakeCallback(SpeechCallback callback,
+   // - Losing focus:
+   //   - Only when the host is currently focused.
+   //   This prevents duplicate LostFocus notifications.
++  const bool fresh_owl_force_focus =
++      base::CommandLine::ForCurrentProcess()->HasSwitch("fresh-owl-embed");
+   if (is_first_responder_) {
+-    if (IsHeadless() || is_getting_focus_ || is_window_key_) {
++    if (fresh_owl_force_focus || IsHeadless() || is_getting_focus_ || is_window_key_) {
+       host()->GotFocus();
+       SetTextInputActive(true);
+     }
+   } else {
+-    if (IsHeadless() || host()->is_focused()) {
++    if (fresh_owl_force_focus || IsHeadless() || host()->is_focused()) {
+       SetTextInputActive(false);
+       host()->LostFocus();
+     }
+@@ -1839,6 +1885,9 @@ void CombineTextNodesAndMakeCallback(SpeechCallback callback,
+ }
+
+ void RenderWidgetHostViewMac::OnWindowIsKeyChanged(bool is_key) {
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch("fresh-owl-embed")) {
++    is_key = true;
++  }
+   if (is_window_key_ == is_key)
+     return;
+   is_window_key_ = is_key;
+diff --git a/content/shell/BUILD.gn b/content/shell/BUILD.gn
+index 462cfd3ef3..cdb2ef0ef6 100644
+--- a/content/shell/BUILD.gn
++++ b/content/shell/BUILD.gn
+@@ -260,6 +260,8 @@ static_library("content_shell_lib") {
+       "browser/shell_browser_main_parts_mac.mm",
+       "browser/shell_javascript_dialog_mac.mm",
+       "browser/shell_platform_delegate_mac.mm",
++      "browser/owl_fresh_host_mac.h",
++      "browser/owl_fresh_host_mac.mm",
+       "browser/shell_web_contents_view_delegate_mac.mm",
+     ]
+   }
+@@ -371,11 +373,14 @@ static_library("content_shell_lib") {
+     "//third_party/blink/public/strings",
+     "//third_party/inspector_protocol:crdtp",
+     "//ui/base",
++    "//ui/accelerated_widget_mac",
+     "//ui/base/clipboard",
+     "//ui/base/ime/init",
+     "//ui/gfx",
++    "//ui/gfx/codec",
+     "//ui/gfx/geometry",
+     "//ui/platform_window",
++    "//ui/snapshot",
+     "//ui/strings:auto_image_annotation_strings",
+     "//url",
+     "//v8",
+@@ -1143,3 +1148,21 @@ mojom("shell_controller_mojom") {
+   sources = [ "common/shell_controller.test-mojom" ]
+   public_deps = [ "//mojo/public/mojom/base" ]
+ }
++
++
++shared_library("owl_fresh_mojo_runtime") {
++  testonly = true
++  sources = [
++    "//fresh_owl/owl_fresh_mojo_runtime.cc",
++    "//fresh_owl/owl_fresh_mojo_runtime.h",
++  ]
++  deps = [
++    "//base",
++    "//content/shell:shell_controller_mojom",
++    "//mojo/core/embedder",
++    "//mojo/public/cpp/bindings",
++    "//mojo/public/cpp/platform",
++    "//mojo/public/cpp/system",
++  ]
++  ldflags = [ "-Wl,-install_name,@rpath/libowl_fresh_mojo_runtime.dylib" ]
++}
+diff --git a/content/shell/browser/owl_fresh_host_mac.h b/content/shell/browser/owl_fresh_host_mac.h
+new file mode 100644
+index 0000000000..960251dda6
+--- /dev/null
++++ b/content/shell/browser/owl_fresh_host_mac.h
+@@ -0,0 +1,24 @@
++#ifndef CONTENT_SHELL_BROWSER_OWL_FRESH_HOST_MAC_H_
++#define CONTENT_SHELL_BROWSER_OWL_FRESH_HOST_MAC_H_
++
++#include "base/memory/scoped_refptr.h"
++#include "content/shell/common/shell_controller.test-mojom.h"
++#include "mojo/public/cpp/bindings/pending_receiver.h"
++#include "third_party/blink/public/mojom/choosers/file_chooser.mojom-forward.h"
++
++namespace content {
++
++class FileSelectListener;
++class RenderFrameHost;
++
++bool OwlFreshMaybeRunFileChooser(
++    RenderFrameHost* render_frame_host,
++    scoped_refptr<FileSelectListener> listener,
++    const blink::mojom::FileChooserParams& params);
++
++void BindOwlFreshSessionForCurrentShell(
++    mojo::PendingReceiver<mojom::OwlFreshSession> receiver);
++
++}  // namespace content
++
++#endif
+diff --git a/content/shell/browser/owl_fresh_host_mac.mm b/content/shell/browser/owl_fresh_host_mac.mm
+new file mode 100644
+index 0000000000..b9b894abdb
+--- /dev/null
++++ b/content/shell/browser/owl_fresh_host_mac.mm
+@@ -0,0 +1,1454 @@
++#include "content/shell/browser/owl_fresh_host_mac.h"
++
++#import <Cocoa/Cocoa.h>
++#import <QuartzCore/QuartzCore.h>
++
++#include <algorithm>
++#include <optional>
++#include <string>
++#include <utility>
++#include <vector>
++
++#include "base/containers/span.h"
++#include "base/files/file_path.h"
++#include "base/functional/bind.h"
++#include "base/json/json_writer.h"
++#include "base/memory/weak_ptr.h"
++#include "base/command_line.h"
++#include "base/process/process.h"
++#include "base/strings/strcat.h"
++#include "base/strings/stringprintf.h"
++#include "base/strings/sys_string_conversions.h"
++#include "base/strings/utf_string_conversions.h"
++#include "base/task/single_thread_task_runner.h"
++#include "base/time/time.h"
++#include "components/viz/common/frame_sinks/copy_output_result.h"
++#include "components/viz/host/client_frame_sink_video_capturer.h"
++#include "components/input/render_widget_host_input_event_router.h"
++#include "content/browser/devtools/devtools_video_consumer.h"
++#include "content/browser/renderer_host/render_widget_host_impl.h"
++#include "content/browser/renderer_host/popup_menu_helper_mac.h"
++#include "content/browser/renderer_host/render_widget_host_view_base.h"
++#include "content/browser/web_contents/web_contents_impl.h"
++#include "components/input/native_web_keyboard_event.h"
++#include "content/public/browser/browser_context.h"
++#include "content/public/browser/file_select_listener.h"
++#include "content/public/browser/render_frame_host.h"
++#include "content/public/browser/render_widget_host_view.h"
++#include "content/public/browser/navigation_controller.h"
++#include "content/public/browser/render_widget_host.h"
++#include "content/public/browser/web_contents.h"
++#include "content/shell/browser/shell.h"
++#include "content/shell/browser/shell_devtools_frontend.h"
++#include "media/base/video_frame.h"
++#include "media/base/video_types.h"
++#include "media/capture/mojom/video_capture_buffer.mojom.h"
++#include "media/capture/mojom/video_capture_types.mojom.h"
++#include "mojo/public/cpp/bindings/receiver_set.h"
++#include "mojo/public/cpp/bindings/remote.h"
++#include "mojo/public/cpp/bindings/self_owned_receiver.h"
++#include "content/browser/renderer_host/owl_fresh_web_contents_role.h"
++#include "third_party/skia/include/core/SkBitmap.h"
++#include "third_party/blink/public/common/input/web_input_event.h"
++#include "third_party/blink/public/mojom/choosers/file_chooser.mojom.h"
++#include "third_party/blink/public/common/input/web_mouse_event.h"
++#include "third_party/blink/public/common/input/web_mouse_wheel_event.h"
++#include "ui/accelerated_widget_mac/owl_fresh_context.h"
++#include "ui/gfx/codec/png_codec.h"
++#include "ui/gfx/image/image.h"
++#include "ui/gfx/native_ui_types.h"
++#include "ui/gfx/geometry/rect.h"
++#include "ui/gfx/geometry/size.h"
++#include "ui/base/cocoa/remote_layer_api.h"
++#include "ui/snapshot/snapshot.h"
++#include "url/gurl.h"
++
++@interface CAContext (OwlFreshRemoteContext)
+++ (instancetype)remoteContextWithOptions:(NSDictionary*)optionsDict;
++@end
++
++namespace content {
++namespace {
++
++int g_owl_fresh_force_redraw_id = 1;
++Shell* g_owl_fresh_inspected_shell = nullptr;
++
++struct OwlFreshPendingFilePicker {
++  scoped_refptr<FileSelectListener> listener;
++  blink::mojom::FileChooserParams::Mode mode =
++      blink::mojom::FileChooserParams::Mode::kOpen;
++  uint64_t surface_key = 0;
++};
++
++OwlFreshPendingFilePicker& ActiveFilePicker() {
++  static base::NoDestructor<OwlFreshPendingFilePicker> picker;
++  return *picker;
++}
++
++bool OwlFreshSelectActiveFilePickerFiles(
++    const std::vector<std::string>& paths);
++bool OwlFreshCancelActiveFilePicker();
++
++Shell* CurrentShell() {
++  std::vector<Shell*>& windows = Shell::windows();
++  if (g_owl_fresh_inspected_shell) {
++    for (Shell* shell : windows) {
++      if (shell == g_owl_fresh_inspected_shell) {
++        return shell;
++      }
++    }
++    g_owl_fresh_inspected_shell = nullptr;
++  }
++  if (windows.empty()) {
++    return nullptr;
++  }
++  return windows[0];
++}
++
++WebContents* CurrentWebContents() {
++  Shell* shell = CurrentShell();
++  return shell ? shell->web_contents() : nullptr;
++}
++
++std::string FilePickerModeToString(
++    blink::mojom::FileChooserParams::Mode mode) {
++  switch (mode) {
++    case blink::mojom::FileChooserParams::Mode::kOpen:
++      return "open";
++    case blink::mojom::FileChooserParams::Mode::kOpenMultiple:
++      return "open-multiple";
++    case blink::mojom::FileChooserParams::Mode::kOpenDirectory:
++      return "open-directory";
++    case blink::mojom::FileChooserParams::Mode::kUploadFolder:
++      return "upload-folder";
++    case blink::mojom::FileChooserParams::Mode::kSave:
++      return "save";
++  }
++}
++
++bool FilePickerAllowsMultiple(blink::mojom::FileChooserParams::Mode mode) {
++  return mode == blink::mojom::FileChooserParams::Mode::kOpenMultiple;
++}
++
++bool FilePickerUploadsFolder(blink::mojom::FileChooserParams::Mode mode) {
++  return mode == blink::mojom::FileChooserParams::Mode::kUploadFolder;
++}
++
++std::vector<std::string> AcceptTypesToUTF8(
++    const std::vector<std::u16string>& accept_types) {
++  std::vector<std::string> result;
++  result.reserve(accept_types.size());
++  for (const std::u16string& accept_type : accept_types) {
++    result.push_back(base::UTF16ToUTF8(accept_type));
++  }
++  return result;
++}
++
++CGRect FilePickerSurfaceBounds() {
++  WebContents* contents = CurrentWebContents();
++  if (!contents) {
++    return CGRectMake(64, 64, 720, 420);
++  }
++  gfx::Rect bounds = contents->GetContainerBounds();
++  return CGRectMake(0, 0, std::max(bounds.width(), 480),
++                    std::max(bounds.height(), 320));
++}
++
++NSWindow* CurrentWindow() {
++  WebContents* contents = CurrentWebContents();
++  if (!contents) {
++    return nil;
++  }
++  NSView* view = contents->GetNativeView().GetNativeNSView();
++  return view.window;
++}
++
++RenderWidgetHost* CurrentRenderWidgetHost() {
++  WebContents* contents = CurrentWebContents();
++  if (!contents) {
++    return nullptr;
++  }
++  RenderWidgetHostView* view = contents->GetRenderWidgetHostView();
++  return view ? view->GetRenderWidgetHost() : nullptr;
++}
++
++void EnsureRenderWidgetProducingFramesForOwlFresh() {
++  WebContents* contents = CurrentWebContents();
++  if (!contents) {
++    return;
++  }
++  contents->WasShown();
++  RenderWidgetHostView* view = contents->GetRenderWidgetHostView();
++  if (view) {
++    if (!view->IsShowing()) {
++      view->Show();
++    }
++    view->WasUnOccluded();
++    view->EnsureSurfaceSynchronizedForWebTest();
++  }
++  if (RenderWidgetHost* host = CurrentRenderWidgetHost()) {
++    auto* host_impl = static_cast<RenderWidgetHostImpl*>(host);
++    if (host_impl->IsHidden()) {
++      host_impl->WasShown(std::nullopt);
++    }
++    host_impl->SetActive(true);
++    host_impl->RequestForceRedraw(g_owl_fresh_force_redraw_id++);
++  }
++}
++
++std::string CopyFromSurfaceErrorToString(CopyFromSurfaceError error) {
++  switch (error) {
++    case CopyFromSurfaceError::kUnknown:
++      return "CopyFromSurface failed: unknown";
++    case CopyFromSurfaceError::kNotImplemented:
++      return "CopyFromSurface failed: not implemented";
++    case CopyFromSurfaceError::kFrameGone:
++      return "CopyFromSurface failed: frame gone";
++    case CopyFromSurfaceError::kTimeout:
++      return "CopyFromSurface failed: timeout";
++    case CopyFromSurfaceError::kEmbeddingTokenChanged:
++      return "CopyFromSurface failed: embedding token changed";
++    case CopyFromSurfaceError::kVizSentEmptyBitmap:
++      return "CopyFromSurface failed: viz sent empty bitmap";
++    case CopyFromSurfaceError::kUnknownVizError:
++      return "CopyFromSurface failed: unknown viz error";
++  }
++  return "CopyFromSurface failed";
++}
++
++mojom::OwlFreshCaptureResultPtr CaptureError(const std::string& message) {
++  auto result = mojom::OwlFreshCaptureResult::New();
++  result->capture_mode = "mojo-copy-from-surface";
++  result->error = message;
++  return result;
++}
++
++std::string CaptureState(WebContents* contents, RenderWidgetHostView* view) {
++  std::string url = contents ? contents->GetLastCommittedURL().spec() : "";
++  gfx::Rect bounds = view ? view->GetViewBounds() : gfx::Rect();
++  NSWindow* window = CurrentWindow();
++  RenderWidgetHost* render_host = CurrentRenderWidgetHost();
++  int host_hidden = render_host
++                        ? static_cast<RenderWidgetHostImpl*>(render_host)
++                              ->IsHidden()
++                        : -1;
++  return base::StringPrintf(
++      "url=%s loading=%d view_showing=%d surface_available=%d bounds=%s "
++      "context_id=%u web_contents_visibility=%d host_hidden=%d "
++      "window_visible=%d window_alpha=%.3f",
++      url.c_str(), contents ? contents->IsLoading() : 0,
++      view ? view->IsShowing() : 0,
++      view ? view->IsSurfaceAvailableForCopy() : 0,
++      bounds.ToString().c_str(), ui::OwlFreshLatestContextID(),
++      contents ? static_cast<int>(contents->GetVisibility()) : -1,
++      host_hidden,
++      window ? [window isVisible] : 0, window ? [window alphaValue] : 0.0);
++}
++
++std::string CaptureStateError(const std::string& message,
++                              WebContents* contents,
++                              RenderWidgetHostView* view) {
++  return base::StrCat({message, " (", CaptureState(contents, view), ")"});
++}
++
++mojom::OwlFreshCaptureResultPtr CaptureAppKitViewSnapshot(
++    NSView* view,
++    const std::string& capture_state) {
++  if (!view) {
++    return CaptureError("no NSView for AppKit snapshot");
++  }
++
++  NSRect bounds = view.bounds;
++  if (NSIsEmptyRect(bounds)) {
++    return CaptureError(
++        base::StrCat({"NSView bounds are empty (", capture_state, ")"}));
++  }
++
++  NSBitmapImageRep* rep = [view bitmapImageRepForCachingDisplayInRect:bounds];
++  if (!rep) {
++    return CaptureError(base::StrCat(
++        {"bitmapImageRepForCachingDisplayInRect returned nil (", capture_state,
++         ")"}));
++  }
++  [view cacheDisplayInRect:bounds toBitmapImageRep:rep];
++  NSData* data = [rep representationUsingType:NSBitmapImageFileTypePNG
++                                   properties:@{}];
++  if (!data || data.length == 0) {
++    return CaptureError(
++        base::StrCat({"AppKit snapshot returned empty PNG data (",
++                      capture_state, ")"}));
++  }
++
++  auto result = mojom::OwlFreshCaptureResult::New();
++  result->png.resize(static_cast<size_t>(data.length));
++  const uint8_t* bytes = static_cast<const uint8_t*>(data.bytes);
++  UNSAFE_BUFFERS(base::span(result->png))
++      .copy_from(UNSAFE_BUFFERS(base::span<const uint8_t>(
++          bytes, static_cast<size_t>(data.length))));
++  result->width = static_cast<uint32_t>(rep.pixelsWide);
++  result->height = static_cast<uint32_t>(rep.pixelsHigh);
++  result->capture_mode = "mojo-appkit-cache-display";
++  return result;
++}
++
++int BlinkModifiersFromCocoa(uint32_t cocoa) {
++  int modifiers = 0;
++  if (cocoa & NSEventModifierFlagShift) {
++    modifiers |= blink::WebInputEvent::kShiftKey;
++  }
++  if (cocoa & NSEventModifierFlagControl) {
++    modifiers |= blink::WebInputEvent::kControlKey;
++  }
++  if (cocoa & NSEventModifierFlagOption) {
++    modifiers |= blink::WebInputEvent::kAltKey;
++  }
++  if (cocoa & NSEventModifierFlagCommand) {
++    modifiers |= blink::WebInputEvent::kMetaKey;
++  }
++  if (cocoa & NSEventModifierFlagCapsLock) {
++    modifiers |= blink::WebInputEvent::kCapsLockOn;
++  }
++  return modifiers;
++}
++
++class OwlFreshVideoCapture final : public viz::mojom::FrameSinkVideoConsumer {
++ public:
++  using FrameCallback = base::OnceCallback<void(SkBitmap bitmap)>;
++  using ErrorCallback = base::OnceCallback<void(std::string message)>;
++
++  OwlFreshVideoCapture(RenderWidgetHostView* view,
++                       FrameCallback frame_callback,
++                       ErrorCallback error_callback)
++      : view_(view),
++        frame_callback_(std::move(frame_callback)),
++        error_callback_(std::move(error_callback)) {}
++
++  OwlFreshVideoCapture(const OwlFreshVideoCapture&) = delete;
++  OwlFreshVideoCapture& operator=(const OwlFreshVideoCapture&) = delete;
++
++  ~OwlFreshVideoCapture() override {
++    if (capturer_) {
++      capturer_->Stop();
++    }
++  }
++
++  void Start() {
++    if (!view_) {
++      FinishError("no view for frame-sink video capture");
++      return;
++    }
++    capturer_ = view_->CreateVideoCapturer();
++    if (!capturer_) {
++      FinishError("CreateVideoCapturer returned null");
++      return;
++    }
++    gfx::Size size = view_->GetViewBounds().size();
++    if (size.IsEmpty()) {
++      FinishError("view bounds are empty for frame-sink video capture");
++      return;
++    }
++    capturer_->SetResolutionConstraints(size, size, false);
++    capturer_->SetAutoThrottlingEnabled(false);
++    capturer_->SetMinSizeChangePeriod(base::TimeDelta());
++    capturer_->SetFormat(media::PIXEL_FORMAT_ARGB);
++    capturer_->SetMinCapturePeriod(base::Milliseconds(16));
++    capturer_->Start(this, viz::mojom::BufferFormatPreference::kDefault);
++  }
++
++ private:
++  void OnFrameCaptured(
++      media::mojom::VideoBufferHandlePtr data,
++      media::mojom::VideoFrameInfoPtr info,
++      const gfx::Rect& content_rect,
++      mojo::PendingRemote<viz::mojom::FrameSinkVideoConsumerFrameCallbacks>
++          callbacks) override {
++    if (!frame_callback_) {
++      return;
++    }
++    mojo::Remote<viz::mojom::FrameSinkVideoConsumerFrameCallbacks>
++        callbacks_remote(std::move(callbacks));
++    if (!data->is_read_only_shmem_region()) {
++      FinishError("video capture returned non-shared-memory frame");
++      return;
++    }
++    base::ReadOnlySharedMemoryRegion& shmem_region =
++        data->get_read_only_shmem_region();
++    base::ReadOnlySharedMemoryMapping mapping = shmem_region.Map();
++    if (!mapping.IsValid()) {
++      FinishError("video capture shared-memory mapping failed");
++      return;
++    }
++    base::span<const uint8_t> mapping_memory(mapping);
++    if (mapping_memory.size() <
++        media::VideoFrame::AllocationSize(info->pixel_format,
++                                          info->coded_size)) {
++      FinishError("video capture shared-memory frame was too small");
++      return;
++    }
++
++    scoped_refptr<media::VideoFrame> frame =
++        media::VideoFrame::WrapExternalData(
++            info->pixel_format, info->coded_size, content_rect,
++            content_rect.size(), mapping_memory, info->timestamp);
++    if (!frame) {
++      FinishError("video capture could not wrap frame memory");
++      return;
++    }
++    frame->set_metadata(info->metadata);
++    frame->set_color_space(info->color_space);
++    SkBitmap bitmap = DevToolsVideoConsumer::GetSkBitmapFromFrame(frame);
++    callbacks_remote->Done();
++    FrameCallback callback = std::move(frame_callback_);
++    error_callback_.Reset();
++    std::move(callback).Run(std::move(bitmap));
++  }
++
++  void OnNewCaptureVersion(const media::CaptureVersion& capture_version) override {}
++  void OnFrameWithEmptyRegionCapture() override {}
++  void OnStopped() override {}
++  void OnLog(const std::string& message) override {}
++
++  void FinishError(const std::string& message) {
++    if (!error_callback_) {
++      return;
++    }
++    ErrorCallback callback = std::move(error_callback_);
++    frame_callback_.Reset();
++    std::move(callback).Run(message);
++  }
++
++  raw_ptr<RenderWidgetHostView> view_;
++  FrameCallback frame_callback_;
++  ErrorCallback error_callback_;
++  std::unique_ptr<viz::ClientFrameSinkVideoCapturer> capturer_;
++};
++
++void FocusWebContents(bool focused) {
++  NSWindow* window = CurrentWindow();
++  WebContents* contents = CurrentWebContents();
++  RenderWidgetHost* host = CurrentRenderWidgetHost();
++  if (!window || !contents || !host) {
++    return;
++  }
++  if (!focused) {
++    [window makeFirstResponder:nil];
++    host->SetActive(false);
++    return;
++  }
++  NSView* view = contents->GetNativeView().GetNativeNSView();
++  [window makeFirstResponder:view];
++  host->SetActive(true);
++  host->Focus();
++}
++
++mojom::OwlFreshCompositorInfoPtr CompositorInfoForContextID(
++    uint32_t context_id) {
++  auto info = mojom::OwlFreshCompositorInfo::New();
++  info->context_id = context_id;
++  return info;
++}
++
++mojom::OwlFreshSurfaceKind SurfaceKindToMojom(ui::OwlFreshSurfaceKind kind) {
++  switch (kind) {
++    case ui::OwlFreshSurfaceKind::kWebView:
++      return mojom::OwlFreshSurfaceKind::kWebView;
++    case ui::OwlFreshSurfaceKind::kPopupWidget:
++      return mojom::OwlFreshSurfaceKind::kPopupWidget;
++    case ui::OwlFreshSurfaceKind::kNativeMenu:
++      return mojom::OwlFreshSurfaceKind::kNativeMenu;
++    case ui::OwlFreshSurfaceKind::kNativeFilePicker:
++      return mojom::OwlFreshSurfaceKind::kNativeFilePicker;
++    case ui::OwlFreshSurfaceKind::kDevTools:
++      return mojom::OwlFreshSurfaceKind::kDevTools;
++  }
++}
++
++mojom::OwlFreshSurfaceTreePtr SurfaceTreeFromRegistry() {
++  auto tree = mojom::OwlFreshSurfaceTree::New();
++  tree->generation = ui::OwlFreshDisplayPortalGeneration();
++  for (const ui::OwlFreshSurfaceSnapshot& snapshot :
++       ui::OwlFreshSurfaceTreeSnapshot()) {
++    auto surface = mojom::OwlFreshSurfaceInfo::New();
++    surface->surface_id = snapshot.surface_id;
++    surface->parent_surface_id = snapshot.parent_surface_id;
++    surface->kind = SurfaceKindToMojom(snapshot.kind);
++    surface->context_id = snapshot.context_id;
++    surface->x = static_cast<int32_t>(snapshot.bounds.origin.x);
++    surface->y = static_cast<int32_t>(snapshot.bounds.origin.y);
++    surface->width = static_cast<uint32_t>(snapshot.bounds.size.width);
++    surface->height = static_cast<uint32_t>(snapshot.bounds.size.height);
++    surface->scale = snapshot.scale;
++    surface->z_index = snapshot.z_index;
++    surface->visible = snapshot.visible;
++    surface->menu_items = snapshot.menu_items;
++    for (const ui::OwlFreshNativeMenuItem& snapshot_item :
++         snapshot.native_menu_items) {
++      auto item = mojom::OwlFreshNativeMenuItem::New();
++      item->label = snapshot_item.label;
++      item->tool_tip = snapshot_item.tool_tip;
++      item->enabled = snapshot_item.enabled;
++      item->separator = snapshot_item.separator;
++      item->group = snapshot_item.group;
++      item->text_direction = snapshot_item.text_direction;
++      item->has_text_direction_override =
++          snapshot_item.has_text_direction_override;
++      surface->native_menu_items.push_back(std::move(item));
++    }
++    surface->selected_index = snapshot.selected_index;
++    surface->item_font_size = snapshot.item_font_size;
++    surface->right_aligned = snapshot.right_aligned;
++    surface->file_picker_mode = snapshot.file_picker_mode;
++    surface->file_picker_accept_types = snapshot.file_picker_accept_types;
++    surface->file_picker_allows_multiple = snapshot.file_picker_allows_multiple;
++    surface->file_picker_upload_folder = snapshot.file_picker_upload_folder;
++    surface->label = snapshot.label;
++    tree->surfaces.push_back(std::move(surface));
++  }
++  return tree;
++}
++
++class OwlFreshSessionImpl final : public mojom::OwlFreshSession,
++                                  public mojom::OwlFreshProfile,
++                                  public mojom::OwlFreshWebView,
++                                  public mojom::OwlFreshInput,
++                                  public mojom::OwlFreshSurfaceTreeHost,
++                                  public mojom::OwlFreshNativeSurfaceHost,
++                                  public mojom::OwlFreshDevToolsHost {
++ public:
++  OwlFreshSessionImpl() = default;
++  ~OwlFreshSessionImpl() override = default;
++
++  OwlFreshSessionImpl(const OwlFreshSessionImpl&) = delete;
++  OwlFreshSessionImpl& operator=(const OwlFreshSessionImpl&) = delete;
++
++  void SetClient(mojo::PendingRemote<mojom::OwlFreshClient> client) override {
++    client_.Bind(std::move(client));
++    g_owl_fresh_inspected_shell = CurrentShell();
++    EnsureRenderWidgetProducingFramesForOwlFresh();
++    if (client_) {
++      client_->OnReady(base::GetCurrentProcId(), CurrentCompositorInfo());
++      client_->OnSurfaceTreeChanged(SurfaceTreeFromRegistry());
++      client_->OnHostLog("OwlFreshSession bound over Mojo");
++    }
++    PublishCompositorWithRetry(80);
++  }
++
++  void BindProfile(
++      mojo::PendingReceiver<mojom::OwlFreshProfile> receiver) override {
++    profile_receivers_.Add(this, std::move(receiver));
++  }
++
++  void BindWebView(
++      mojo::PendingReceiver<mojom::OwlFreshWebView> receiver) override {
++    web_view_receivers_.Add(this, std::move(receiver));
++  }
++
++  void BindInput(
++      mojo::PendingReceiver<mojom::OwlFreshInput> receiver) override {
++    input_receivers_.Add(this, std::move(receiver));
++  }
++
++  void BindSurfaceTree(
++      mojo::PendingReceiver<mojom::OwlFreshSurfaceTreeHost> receiver) override {
++    surface_tree_receivers_.Add(this, std::move(receiver));
++  }
++
++  void BindNativeSurfaceHost(
++      mojo::PendingReceiver<mojom::OwlFreshNativeSurfaceHost> receiver)
++      override {
++    native_surface_receivers_.Add(this, std::move(receiver));
++  }
++
++  void BindDevToolsHost(
++      mojo::PendingReceiver<mojom::OwlFreshDevToolsHost> receiver) override {
++    devtools_host_receivers_.Add(this, std::move(receiver));
++  }
++
++  void GetPath(GetPathCallback callback) override {
++    WebContents* contents = CurrentWebContents();
++    BrowserContext* context = contents ? contents->GetBrowserContext() : nullptr;
++    std::move(callback).Run(
++        context ? context->GetPath().AsUTF8Unsafe() : std::string());
++  }
++
++  void Navigate(const std::string& url) override {
++    Shell* shell = CurrentShell();
++    if (!shell) {
++      Log("Navigate dropped: no shell");
++      return;
++    }
++    shell->LoadURL(GURL(url));
++    EnsureRenderWidgetProducingFramesForOwlFresh();
++    if (client_) {
++      client_->OnNavigationChanged(url, std::string(), true);
++    }
++    PublishCompositorWithRetry(40);
++  }
++
++  void Resize(uint32_t width, uint32_t height, float scale) override {
++    Shell* shell = CurrentShell();
++    WebContents* contents = shell ? shell->web_contents() : nullptr;
++    if (!shell || !contents || width == 0 || height == 0) {
++      Log("Resize dropped: no shell/WebContents or empty size");
++      return;
++    }
++    gfx::Size size(width, height);
++    requested_size_ = size;
++    ui::OwlFreshClearDevToolsDockLayout();
++    NSSize content_size = NSMakeSize(width, height);
++    [CATransaction begin];
++    [CATransaction setDisableActions:YES];
++    shell->ResizeWebContentForTests(size);
++    if (NSWindow* window = CurrentWindow()) {
++      [window setContentSize:content_size];
++      [window.contentView setNeedsLayout:YES];
++    }
++    NSView* native_view = contents->GetNativeView().GetNativeNSView();
++    [native_view setFrameSize:content_size];
++    [native_view setNeedsLayout:YES];
++    [native_view layoutSubtreeIfNeeded];
++    if (RenderWidgetHostView* view = contents->GetRenderWidgetHostView()) {
++      view->SetSize(size);
++    }
++    if (RenderWidgetHost* render_host = CurrentRenderWidgetHost()) {
++      static_cast<RenderWidgetHostImpl*>(render_host)
++          ->SynchronizeVisualPropertiesIgnoringPendingAck();
++    }
++    [CATransaction commit];
++    [CATransaction flush];
++    EnsureRenderWidgetProducingFramesForOwlFresh();
++    ui::OwlFreshDisplayPortalResize(CGRectMake(0, 0, width, height));
++    PublishCompositorWithRetry(10);
++    Log(base::StringPrintf("Resize applied width=%u height=%u", width, height));
++  }
++
++  void SetFocus(bool focused) override {
++    FocusWebContents(focused);
++    if (focused) {
++      EnsureRenderWidgetProducingFramesForOwlFresh();
++    }
++  }
++
++  void SendMouse(mojom::OwlFreshMouseEventPtr event) override {
++    if (!event) {
++      Log("SendMouse dropped: missing event");
++      return;
++    }
++    Log(base::StringPrintf("SendMouse received kind=%d x=%.1f y=%.1f",
++                           static_cast<int>(event->kind), event->x, event->y));
++    WebContents* contents = CurrentWebContents();
++    if (!contents) {
++      Log("SendMouse dropped: no WebContents");
++      return;
++    }
++    auto* web_contents_impl = static_cast<WebContentsImpl*>(contents);
++    RenderWidgetHostView* view = contents->GetRenderWidgetHostView();
++    if (!view) {
++      Log("SendMouse dropped: no RenderWidgetHostView");
++      return;
++    }
++    auto* view_base = static_cast<RenderWidgetHostViewBase*>(view);
++    RenderWidgetHostImpl* host =
++        web_contents_impl->GetRenderWidgetHostWithPageFocus();
++    if (!host && view) {
++      host = static_cast<RenderWidgetHostImpl*>(view->GetRenderWidgetHost());
++    }
++    if (!host) {
++      Log("SendMouse dropped: no RenderWidgetHost");
++      return;
++    }
++    host->input_router()->MakeActive();
++    host->SetActive(true);
++    host->Focus();
++    int modifiers = BlinkModifiersFromCocoa(event->modifiers);
++    base::TimeTicks now = base::TimeTicks::Now();
++
++    if (event->kind == mojom::OwlFreshMouseKind::kWheel) {
++      blink::WebMouseWheelEvent wheel(
++          blink::WebInputEvent::Type::kMouseWheel, modifiers, now);
++      wheel.SetPositionInWidget(event->x, event->y);
++      wheel.SetPositionInScreen(event->x, event->y);
++      wheel.delta_x = event->delta_x;
++      wheel.delta_y = event->delta_y;
++      wheel.wheel_ticks_x = event->delta_x / 100.0f;
++      wheel.wheel_ticks_y = event->delta_y / 100.0f;
++      wheel.delta_units = ui::ScrollGranularity::kScrollByPrecisePixel;
++      wheel.dispatch_type = blink::WebInputEvent::DispatchType::kBlocking;
++      wheel.event_action = blink::WebMouseWheelEvent::EventAction::kScrollVertical;
++      wheel.phase = blink::WebMouseWheelEvent::kPhaseBegan;
++      web_contents_impl->GetInputEventRouter()->RouteMouseWheelEvent(
++          view_base, &wheel, ui::LatencyInfo());
++      EnsureRenderWidgetProducingFramesForOwlFresh();
++      MarkLayerFixtureInput();
++      Log("SendMouse forwarded wheel");
++      return;
++    }
++
++    blink::WebInputEvent::Type type = blink::WebInputEvent::Type::kMouseMove;
++    if (event->kind == mojom::OwlFreshMouseKind::kDown) {
++      type = blink::WebInputEvent::Type::kMouseDown;
++    } else if (event->kind == mojom::OwlFreshMouseKind::kUp) {
++      type = blink::WebInputEvent::Type::kMouseUp;
++    }
++
++    blink::WebPointerProperties::Button button =
++        blink::WebPointerProperties::Button::kNoButton;
++    if (event->button == 0) {
++      button = blink::WebPointerProperties::Button::kLeft;
++    } else if (event->button == 1) {
++      button = blink::WebPointerProperties::Button::kMiddle;
++    } else if (event->button == 2) {
++      button = blink::WebPointerProperties::Button::kRight;
++    }
++
++    if (type == blink::WebInputEvent::Type::kMouseDown) {
++      if (button == blink::WebPointerProperties::Button::kLeft) {
++        modifiers |= blink::WebInputEvent::kLeftButtonDown;
++      } else if (button == blink::WebPointerProperties::Button::kRight) {
++        modifiers |= blink::WebInputEvent::kRightButtonDown;
++      } else if (button == blink::WebPointerProperties::Button::kMiddle) {
++        modifiers |= blink::WebInputEvent::kMiddleButtonDown;
++      }
++    }
++
++    blink::WebMouseEvent mouse(type, modifiers, now);
++    mouse.SetPositionInWidget(event->x, event->y);
++    gfx::Rect offset = contents->GetContainerBounds();
++    mouse.SetPositionInScreen(event->x + offset.x(), event->y + offset.y());
++    mouse.button =
++        type == blink::WebInputEvent::Type::kMouseMove
++            ? blink::WebPointerProperties::Button::kNoButton
++            : button;
++    mouse.click_count = event->click_count > 0 ? event->click_count : 1;
++    web_contents_impl->GetInputEventRouter()->RouteMouseEvent(
++        view_base, &mouse, ui::LatencyInfo());
++    EnsureRenderWidgetProducingFramesForOwlFresh();
++    MarkLayerFixtureInput();
++    Log("SendMouse forwarded routed mouse");
++  }
++
++  void SendKey(mojom::OwlFreshKeyEventPtr event) override {
++    if (!event) {
++      Log("SendKey dropped: missing event");
++      return;
++    }
++    Log(base::StringPrintf("SendKey received key_down=%d key_code=%u text=%s",
++                           event->key_down, event->key_code,
++                           event->text.c_str()));
++    WebContents* contents = CurrentWebContents();
++    if (!contents) {
++      Log("SendKey dropped: no WebContents");
++      return;
++    }
++    auto* web_contents_impl = static_cast<WebContentsImpl*>(contents);
++    RenderWidgetHostView* view = contents->GetRenderWidgetHostView();
++    RenderWidgetHostImpl* host =
++        web_contents_impl->GetRenderWidgetHostWithPageFocus();
++    if (!host && view) {
++      host = static_cast<RenderWidgetHostImpl*>(view->GetRenderWidgetHost());
++    }
++    if (!host) {
++      Log("SendKey dropped: no RenderWidgetHost");
++      return;
++    }
++    host->input_router()->MakeActive();
++    host->SetActive(true);
++    host->Focus();
++
++    int modifiers = BlinkModifiersFromCocoa(event->modifiers);
++    blink::WebInputEvent::Type type =
++        event->key_down ? blink::WebInputEvent::Type::kRawKeyDown
++                        : blink::WebInputEvent::Type::kKeyUp;
++    input::NativeWebKeyboardEvent key_event(type, modifiers,
++                                            base::TimeTicks::Now());
++    key_event.native_key_code = event->key_code;
++    key_event.windows_key_code = event->key_code;
++    CopyText(event->text, &key_event);
++    host->ForwardKeyboardEvent(key_event);
++    Log("SendKey forwarded key event");
++
++    if (event->key_down && !event->text.empty()) {
++      input::NativeWebKeyboardEvent char_event(
++          blink::WebInputEvent::Type::kChar, modifiers, base::TimeTicks::Now());
++      char_event.native_key_code = event->key_code;
++      char_event.windows_key_code = event->key_code;
++      CopyText(event->text, &char_event);
++      host->ForwardKeyboardEvent(char_event);
++      Log("SendKey forwarded char event");
++    }
++    EnsureRenderWidgetProducingFramesForOwlFresh();
++    MarkLayerFixtureInput();
++  }
++
++  void Flush(FlushCallback callback) override {
++    EnsureRenderWidgetProducingFramesForOwlFresh();
++    std::move(callback).Run(true);
++  }
++
++  void CaptureSurface(CaptureSurfaceCallback callback) override {
++    WebContents* contents = CurrentWebContents();
++    if (!contents) {
++      std::move(callback).Run(CaptureError("no current WebContents"));
++      return;
++    }
++
++    RenderWidgetHostView* view = contents->GetRenderWidgetHostView();
++    if (!view) {
++      std::move(callback).Run(CaptureError("no RenderWidgetHostView"));
++      return;
++    }
++
++    if (!view->IsSurfaceAvailableForCopy()) {
++      std::move(callback).Run(CaptureError(CaptureStateError(
++          "RenderWidgetHostView surface is not available", contents, view)));
++      return;
++    }
++
++    if (!view->IsShowing()) {
++      view->Show();
++    }
++    view->WasUnOccluded();
++    view->EnsureSurfaceSynchronizedForWebTest();
++
++    if (view->GetViewBounds().size().IsEmpty()) {
++      std::move(callback).Run(CaptureError(CaptureStateError(
++          "RenderWidgetHostView bounds are empty", contents, view)));
++      return;
++    }
++
++    if (!pending_capture_callback_.is_null()) {
++      std::move(callback).Run(CaptureError(CaptureStateError(
++          "CaptureSurface already has a pending request", contents, view)));
++      return;
++    }
++
++    pending_capture_state_ = CaptureState(contents, view);
++    const bool from_surface =
++        !base::CommandLine::ForCurrentProcess()->HasSwitch(
++            "owl-fresh-window-snapshot");
++
++    if (!from_surface) {
++      std::move(callback).Run(CaptureAppKitViewSnapshot(
++          view->GetNativeView().GetNativeNSView(), pending_capture_state_));
++      pending_capture_state_.clear();
++      pending_capture_mode_.clear();
++      return;
++    }
++
++    pending_capture_mode_ = "mojo-frame-sink-video-capture";
++    pending_capture_callback_ = std::move(callback);
++    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
++        FROM_HERE,
++        base::BindOnce(&OwlFreshSessionImpl::OnCaptureSurfaceTimeout,
++                       weak_factory_.GetWeakPtr()),
++        base::Seconds(20));
++
++    video_capture_ = std::make_unique<OwlFreshVideoCapture>(
++        view,
++        base::BindOnce(&OwlFreshSessionImpl::OnVideoCaptureFrame,
++                       weak_factory_.GetWeakPtr()),
++        base::BindOnce(&OwlFreshSessionImpl::OnVideoCaptureError,
++                       weak_factory_.GetWeakPtr()));
++    video_capture_->Start();
++    return;
++  }
++
++  void GetSurfaceTree(GetSurfaceTreeCallback callback) override {
++    std::move(callback).Run(SurfaceTreeFromRegistry());
++  }
++
++  void AcceptActivePopupMenuItem(
++      uint32_t index,
++      AcceptActivePopupMenuItemCallback callback) override {
++    const bool ok = OwlFreshAcceptActivePopupMenuItem(index);
++    if (client_) {
++      client_->OnSurfaceTreeChanged(SurfaceTreeFromRegistry());
++    }
++    std::move(callback).Run(ok);
++  }
++
++  void CancelActivePopup(CancelActivePopupCallback callback) override {
++    const bool ok = OwlFreshCancelActivePopupMenu();
++    ui::OwlFreshClearNativeMenuSurfaces();
++    if (client_) {
++      client_->OnSurfaceTreeChanged(SurfaceTreeFromRegistry());
++    }
++    std::move(callback).Run(ok);
++  }
++
++  void SelectActiveFilePickerFiles(
++      const std::vector<std::string>& paths,
++      SelectActiveFilePickerFilesCallback callback) override {
++    const bool ok = OwlFreshSelectActiveFilePickerFiles(paths);
++    ui::OwlFreshClearNativeFilePickerSurfaces();
++    if (client_) {
++      client_->OnSurfaceTreeChanged(SurfaceTreeFromRegistry());
++    }
++    std::move(callback).Run(ok);
++  }
++
++  void CancelActiveFilePicker(CancelActiveFilePickerCallback callback) override {
++    const bool ok = OwlFreshCancelActiveFilePicker();
++    ui::OwlFreshClearNativeFilePickerSurfaces();
++    if (client_) {
++      client_->OnSurfaceTreeChanged(SurfaceTreeFromRegistry());
++    }
++    std::move(callback).Run(ok);
++  }
++
++
++  void OpenDevTools(mojom::OwlFreshDevToolsMode mode,
++                    OpenDevToolsCallback callback) override {
++    Shell* shell = CurrentShell();
++    if (!shell || !shell->web_contents()) {
++      Log("OpenDevTools dropped: no shell/WebContents");
++      std::move(callback).Run(false);
++      return;
++    }
++
++    std::string label = "devtools-bottom";
++    std::string dock_state = "bottom";
++    switch (mode) {
++      case mojom::OwlFreshDevToolsMode::kBottom:
++        label = "devtools-bottom";
++        dock_state = "bottom";
++        break;
++      case mojom::OwlFreshDevToolsMode::kRight:
++        label = "devtools-right";
++        dock_state = "right";
++        break;
++      case mojom::OwlFreshDevToolsMode::kLeft:
++        label = "devtools-left";
++        dock_state = "left";
++        break;
++      case mojom::OwlFreshDevToolsMode::kWindow:
++        label = "devtools-window";
++        dock_state = "right";
++        break;
++    }
++    ui::OwlFreshSetDevToolsSurfaceLabel(label);
++
++    if (!devtools_frontend_) {
++      ShellDevToolsFrontend* frontend =
++          ShellDevToolsFrontend::Show(shell->web_contents(), dock_state);
++      devtools_frontend_ = frontend->GetWeakPtr();
++      if (frontend->frontend_shell()) {
++        owl_fresh::MarkDevToolsFrontend(
++            frontend->frontend_shell()->web_contents());
++      }
++    }
++
++    WebContents* inspected_contents = shell->web_contents();
++    WebContents* devtools_contents = ActiveDevToolsWebContents();
++    if (!devtools_contents) {
++      Log("OpenDevTools failed: frontend WebContents was not created");
++      std::move(callback).Run(false);
++      return;
++    }
++    owl_fresh::MarkDevToolsFrontend(devtools_contents);
++
++    gfx::Rect inspected_bounds = inspected_contents->GetContainerBounds();
++    const int width = std::max({requested_size_.width(), inspected_bounds.width(), 800});
++    const int height = std::max({requested_size_.height(), inspected_bounds.height(), 600});
++    const int bottom_height = std::min(280, std::max(1, height - 240));
++    const int side_width = std::min(360, std::max(1, width - 320));
++    gfx::Rect web_bounds(0, 0, width, height);
++    gfx::Rect devtools_bounds(0, 0, width, height);
++    switch (mode) {
++      case mojom::OwlFreshDevToolsMode::kBottom:
++        web_bounds = gfx::Rect(0, bottom_height, width, height - bottom_height);
++        devtools_bounds = gfx::Rect(0, 0, width, bottom_height);
++        break;
++      case mojom::OwlFreshDevToolsMode::kRight:
++        web_bounds = gfx::Rect(0, 0, width - side_width, height);
++        devtools_bounds = gfx::Rect(width - side_width, 0, side_width, height);
++        break;
++      case mojom::OwlFreshDevToolsMode::kLeft:
++        web_bounds = gfx::Rect(side_width, 0, width - side_width, height);
++        devtools_bounds = gfx::Rect(0, 0, side_width, height);
++        break;
++      case mojom::OwlFreshDevToolsMode::kWindow:
++        web_bounds = gfx::Rect(0, 0, width, height);
++        devtools_bounds = gfx::Rect(0, 0, width, height);
++        break;
++    }
++    shell->ResizeWebContentForTests(web_bounds.size());
++    devtools_frontend_->frontend_shell()->ResizeWebContentForTests(
++        devtools_bounds.size());
++    ui::OwlFreshSetDevToolsDockLayout(
++        label,
++        CGRectMake(web_bounds.x(), web_bounds.y(), web_bounds.width(), web_bounds.height()),
++        CGRectMake(devtools_bounds.x(), devtools_bounds.y(), devtools_bounds.width(), devtools_bounds.height()));
++    EnsureWebContentsProducingFrames(inspected_contents);
++    EnsureWebContentsProducingFrames(devtools_contents);
++    devtools_frontend_->InspectElementAt(
++        std::max(1, web_bounds.width() / 2),
++        std::max(1, web_bounds.height() / 2));
++    devtools_contents->Focus();
++    PublishCompositorWithRetry(60);
++    Log(base::StrCat({"DevTools opened label=", label}));
++    std::move(callback).Run(true);
++  }
++
++  void CloseDevTools(CloseDevToolsCallback callback) override {
++    if (!devtools_frontend_) {
++      std::move(callback).Run(false);
++      return;
++    }
++    devtools_frontend_->Close();
++    devtools_frontend_ = base::WeakPtr<ShellDevToolsFrontend>();
++    ui::OwlFreshClearDevToolsDockLayout();
++    if (Shell* shell = CurrentShell()) {
++      shell->ResizeWebContentForTests(requested_size_);
++      EnsureWebContentsProducingFrames(shell->web_contents());
++    }
++    if (client_) {
++      client_->OnSurfaceTreeChanged(SurfaceTreeFromRegistry());
++    }
++    std::move(callback).Run(true);
++  }
++
++  void EvaluateDevToolsJavaScript(
++      const std::string& script,
++      EvaluateDevToolsJavaScriptCallback callback) override {
++    WebContents* contents = ActiveDevToolsWebContents();
++    if (!contents) {
++      std::move(callback).Run("null");
++      return;
++    }
++    contents->GetPrimaryMainFrame()->ExecuteJavaScriptForTests(
++        base::UTF8ToUTF16(script),
++        base::BindOnce(
++            [](EvaluateDevToolsJavaScriptCallback callback,
++               base::Value result) {
++              std::string json;
++              if (!base::JSONWriter::Write(result, &json)) {
++                json = "null";
++              }
++              std::move(callback).Run(json);
++            },
++            std::move(callback)),
++        ISOLATED_WORLD_ID_GLOBAL);
++  }
++
++ private:
++  WebContents* ActiveDevToolsWebContents() const {
++    if (!devtools_frontend_) {
++      return nullptr;
++    }
++    Shell* frontend_shell = devtools_frontend_->frontend_shell();
++    return frontend_shell ? frontend_shell->web_contents() : nullptr;
++  }
++
++  void EnsureWebContentsProducingFrames(WebContents* contents) {
++    if (!contents) {
++      return;
++    }
++    contents->WasShown();
++    RenderWidgetHostView* view = contents->GetRenderWidgetHostView();
++    if (view) {
++      if (!view->IsShowing()) {
++        view->Show();
++      }
++      view->WasUnOccluded();
++      view->EnsureSurfaceSynchronizedForWebTest();
++    }
++    if (RenderWidgetHost* host =
++            view ? view->GetRenderWidgetHost() : nullptr) {
++      auto* host_impl = static_cast<RenderWidgetHostImpl*>(host);
++      if (host_impl->IsHidden()) {
++        host_impl->WasShown(std::nullopt);
++      }
++      host_impl->SetActive(true);
++      host_impl->Focus();
++      host_impl->SynchronizeVisualPropertiesIgnoringPendingAck();
++    }
++  }
++
++  void CopyText(const std::string& text,
++                input::NativeWebKeyboardEvent* event) {
++    size_t n = std::min(text.size(), blink::WebKeyboardEvent::kTextLengthCap - 1);
++    for (size_t i = 0; i < n; ++i) {
++      event->text[i] = static_cast<char16_t>(
++          static_cast<unsigned char>(text[i]));
++      event->unmodified_text[i] = event->text[i];
++    }
++    event->text[n] = 0;
++    event->unmodified_text[n] = 0;
++  }
++
++  void PublishCompositorWithRetry(int attempts_remaining) {
++    if (!client_) {
++      return;
++    }
++    uint32_t context_id = CurrentContextID();
++    if (context_id != 0) {
++      if (context_id != last_context_id_) {
++        last_context_id_ = context_id;
++      }
++      client_->OnCompositorChanged(CompositorInfoForContextID(context_id));
++      client_->OnSurfaceTreeChanged(SurfaceTreeFromRegistry());
++    }
++    if (attempts_remaining <= 0) {
++      return;
++    }
++    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
++        FROM_HERE,
++        base::BindOnce(&OwlFreshSessionImpl::PublishCompositorWithRetry,
++                       weak_factory_.GetWeakPtr(), attempts_remaining - 1),
++        base::Milliseconds(100));
++  }
++
++  bool UseLayerFixtureContext() const {
++    return base::CommandLine::ForCurrentProcess()->HasSwitch(
++        "owl-fresh-layer-fixture-context");
++  }
++
++  mojom::OwlFreshCompositorInfoPtr CurrentCompositorInfo() {
++    return CompositorInfoForContextID(CurrentContextID());
++  }
++
++  uint32_t CurrentContextID() {
++    if (UseLayerFixtureContext()) {
++      return EnsureLayerFixtureContext();
++    }
++    return ui::OwlFreshLatestContextID();
++  }
++
++  uint32_t EnsureLayerFixtureContext() {
++    if (!fixture_context_) {
++      fixture_root_ = [[CALayer alloc] init];
++      fixture_root_.geometryFlipped = YES;
++      fixture_root_.anchorPoint = CGPointZero;
++      fixture_root_.frame = CGRectMake(0, 0, 960, 640);
++      fixture_root_.backgroundColor =
++          [[NSColor colorWithCalibratedRed:0.972
++                                     green:0.972
++                                      blue:0.972
++                                     alpha:1.0] CGColor];
++
++      auto add_block = [&](CGFloat x,
++                           CGFloat y,
++                           CGFloat width,
++                           CGFloat height,
++                           NSColor* color) {
++        CALayer* layer = [[CALayer alloc] init];
++        layer.anchorPoint = CGPointZero;
++        layer.frame = CGRectMake(x, y, width, height);
++        layer.backgroundColor = [color CGColor];
++        [fixture_root_ addSublayer:layer];
++        return layer;
++      };
++      fixture_input_layer_ =
++          add_block(48, 56, 244, 148, [NSColor colorWithCalibratedRed:1
++                                                                green:0
++                                                                 blue:0
++                                                                alpha:1]);
++      add_block(288, 56, 180, 140, [NSColor colorWithCalibratedRed:0
++                                                             green:0.8
++                                                              blue:0.267
++                                                             alpha:1]);
++      add_block(528, 56, 180, 140, [NSColor colorWithCalibratedRed:0
++                                                             green:0.349
++                                                              blue:1
++                                                             alpha:1]);
++
++      CATextLayer* text = [CATextLayer layer];
++      text.anchorPoint = CGPointZero;
++      text.frame = CGRectMake(48, 238, 760, 72);
++      text.string = @"OWL_INPUT_READY";
++      text.fontSize = 40;
++      text.contentsScale = [NSScreen mainScreen].backingScaleFactor;
++      text.foregroundColor = [[NSColor colorWithCalibratedRed:0.078
++                                                        green:0.078
++                                                         blue:0.078
++                                                        alpha:1.0] CGColor];
++      [fixture_root_ addSublayer:text];
++      fixture_text_layer_ = text;
++
++      if ([CAContext respondsToSelector:@selector(contextWithCGSConnection:options:)]) {
++        CGSConnectionID connection = CGSMainConnectionID();
++        fixture_context_ =
++            [CAContext contextWithCGSConnection:connection options:@{}];
++      } else {
++        fixture_context_ = [CAContext remoteContextWithOptions:@{}];
++      }
++      fixture_context_.layer = fixture_root_;
++      [CATransaction flush];
++    }
++    return fixture_context_.contextId;
++  }
++
++  void MarkLayerFixtureInput() {
++    if (!UseLayerFixtureContext()) {
++      return;
++    }
++    EnsureLayerFixtureContext();
++    fixture_input_layer_.backgroundColor =
++        [[NSColor colorWithCalibratedRed:1.0
++                                   green:0.824
++                                    blue:0.0
++                                   alpha:1.0] CGColor];
++    fixture_text_layer_.string = @"OWL_INPUT_CLICKED";
++    [fixture_input_layer_ setNeedsDisplay];
++    [fixture_text_layer_ setNeedsDisplay];
++    [CATransaction flush];
++    if (client_) {
++      client_->OnCompositorChanged(CurrentCompositorInfo());
++    }
++  }
++
++  void Log(const std::string& message) {
++    if (client_) {
++      client_->OnHostLog(message);
++    }
++  }
++
++  void OnCaptureSurface(const CopyFromSurfaceResult& copy_result) {
++    if (pending_capture_callback_.is_null()) {
++      return;
++    }
++
++    CaptureSurfaceCallback callback = std::move(pending_capture_callback_);
++    std::string capture_state = std::exchange(pending_capture_state_, "");
++    pending_capture_mode_.clear();
++
++    if (!copy_result.has_value()) {
++      std::move(callback).Run(CaptureError(base::StrCat(
++          {CopyFromSurfaceErrorToString(copy_result.error()), " (",
++           capture_state, ")"})));
++      return;
++    }
++
++    const SkBitmap& bitmap = copy_result->bitmap;
++    if (bitmap.drawsNothing()) {
++      std::move(callback).Run(CaptureError(base::StrCat(
++          {"CopyFromSurface returned no pixels (", capture_state, ")"})));
++      return;
++    }
++
++    std::optional<std::vector<uint8_t>> png =
++        gfx::PNGCodec::EncodeBGRASkBitmap(bitmap,
++                                          /*discard_transparency=*/false);
++    if (!png || png->empty()) {
++      std::move(callback).Run(CaptureError("failed to encode PNG"));
++      return;
++    }
++
++    auto result = mojom::OwlFreshCaptureResult::New();
++    result->png = std::move(*png);
++    result->width = bitmap.width();
++    result->height = bitmap.height();
++    result->capture_mode = "mojo-copy-from-surface";
++    std::move(callback).Run(std::move(result));
++  }
++
++  void OnSnapshotFromBrowser(const gfx::Image& image) {
++    if (pending_capture_callback_.is_null()) {
++      return;
++    }
++
++    CaptureSurfaceCallback callback = std::move(pending_capture_callback_);
++    std::string capture_state = std::exchange(pending_capture_state_, "");
++    std::string capture_mode = std::exchange(pending_capture_mode_, "");
++
++    if (image.IsEmpty()) {
++      std::move(callback).Run(CaptureError(base::StrCat(
++          {"GetSnapshotFromBrowser returned an empty image (", capture_state,
++           ")"})));
++      return;
++    }
++
++    SkBitmap bitmap = image.AsBitmap();
++    if (bitmap.drawsNothing()) {
++      std::move(callback).Run(CaptureError(base::StrCat(
++          {"GetSnapshotFromBrowser returned no pixels (", capture_state,
++           ")"})));
++      return;
++    }
++
++    std::optional<std::vector<uint8_t>> png =
++        gfx::PNGCodec::EncodeBGRASkBitmap(bitmap,
++                                          /*discard_transparency=*/false);
++    if (!png || png->empty()) {
++      std::move(callback).Run(CaptureError("failed to encode PNG"));
++      return;
++    }
++
++    auto result = mojom::OwlFreshCaptureResult::New();
++    result->png = std::move(*png);
++    result->width = bitmap.width();
++    result->height = bitmap.height();
++    result->capture_mode = capture_mode;
++    std::move(callback).Run(std::move(result));
++  }
++
++  void OnVideoCaptureFrame(SkBitmap bitmap) {
++    video_capture_.reset();
++    if (pending_capture_callback_.is_null()) {
++      return;
++    }
++
++    CaptureSurfaceCallback callback = std::move(pending_capture_callback_);
++    std::string capture_state = std::exchange(pending_capture_state_, "");
++    std::string capture_mode = std::exchange(pending_capture_mode_, "");
++
++    if (bitmap.drawsNothing()) {
++      std::move(callback).Run(CaptureError(base::StrCat(
++          {"FrameSinkVideoCapturer returned no pixels (", capture_state,
++           ")"})));
++      return;
++    }
++
++    std::optional<std::vector<uint8_t>> png =
++        gfx::PNGCodec::EncodeBGRASkBitmap(bitmap,
++                                          /*discard_transparency=*/false);
++    if (!png || png->empty()) {
++      std::move(callback).Run(CaptureError("failed to encode PNG"));
++      return;
++    }
++
++    auto result = mojom::OwlFreshCaptureResult::New();
++    result->png = std::move(*png);
++    result->width = bitmap.width();
++    result->height = bitmap.height();
++    result->capture_mode = capture_mode;
++    std::move(callback).Run(std::move(result));
++  }
++
++  void OnVideoCaptureError(std::string message) {
++    video_capture_.reset();
++    if (pending_capture_callback_.is_null()) {
++      return;
++    }
++
++    CaptureSurfaceCallback callback = std::move(pending_capture_callback_);
++    std::string capture_state = std::exchange(pending_capture_state_, "");
++    pending_capture_mode_.clear();
++    std::move(callback).Run(CaptureError(
++        base::StrCat({message, " (", capture_state, ")"})));
++  }
++
++  void OnGrabViewSnapshot(const gfx::Image& image) {
++    OnSnapshotFromBrowser(image);
++  }
++
++  void OnSnapshotError(const std::string& message) {
++    if (pending_capture_callback_.is_null()) {
++      return;
++    }
++
++    CaptureSurfaceCallback callback = std::move(pending_capture_callback_);
++    pending_capture_state_.clear();
++    pending_capture_mode_.clear();
++    std::move(callback).Run(CaptureError(message));
++  }
++
++  void OnCaptureSurfaceTimeout() {
++    if (pending_capture_callback_.is_null()) {
++      return;
++    }
++
++    CaptureSurfaceCallback callback = std::move(pending_capture_callback_);
++    std::string capture_state = std::exchange(pending_capture_state_, "");
++    pending_capture_mode_.clear();
++    video_capture_.reset();
++    std::move(callback).Run(CaptureError(base::StrCat(
++        {"capture did not call back before host timeout (",
++         capture_state, ")"})));
++  }
++
++  mojo::Remote<mojom::OwlFreshClient> client_;
++  uint32_t last_context_id_ = 0;
++  gfx::Size requested_size_{960, 640};
++  CAContext* __strong fixture_context_ = nil;
++  CALayer* __strong fixture_root_ = nil;
++  CALayer* __strong fixture_input_layer_ = nil;
++  CATextLayer* __strong fixture_text_layer_ = nil;
++  CaptureSurfaceCallback pending_capture_callback_;
++  std::string pending_capture_state_;
++  std::string pending_capture_mode_;
++  std::unique_ptr<OwlFreshVideoCapture> video_capture_;
++  mojo::ReceiverSet<mojom::OwlFreshProfile> profile_receivers_;
++  mojo::ReceiverSet<mojom::OwlFreshWebView> web_view_receivers_;
++  mojo::ReceiverSet<mojom::OwlFreshInput> input_receivers_;
++  mojo::ReceiverSet<mojom::OwlFreshSurfaceTreeHost> surface_tree_receivers_;
++  mojo::ReceiverSet<mojom::OwlFreshNativeSurfaceHost> native_surface_receivers_;
++  mojo::ReceiverSet<mojom::OwlFreshDevToolsHost> devtools_host_receivers_;
++  base::WeakPtr<ShellDevToolsFrontend> devtools_frontend_;
++  base::WeakPtrFactory<OwlFreshSessionImpl> weak_factory_{this};
++};
++bool OwlFreshSelectActiveFilePickerFiles(
++    const std::vector<std::string>& paths) {
++  OwlFreshPendingFilePicker& pending = ActiveFilePicker();
++  if (!pending.listener || paths.empty()) {
++    return false;
++  }
++
++  std::vector<blink::mojom::FileChooserFileInfoPtr> files;
++  files.reserve(paths.size());
++  for (const std::string& path : paths) {
++    base::FilePath file_path(path);
++    files.push_back(blink::mojom::FileChooserFileInfo::NewNativeFile(
++        blink::mojom::NativeFileInfo::New(
++            file_path, file_path.BaseName().AsUTF16Unsafe(),
++            std::vector<std::u16string>())));
++  }
++
++  scoped_refptr<FileSelectListener> listener = std::move(pending.listener);
++  blink::mojom::FileChooserParams::Mode mode = pending.mode;
++  pending.surface_key = 0;
++  listener->FileSelected(std::move(files), base::FilePath(), mode);
++  return true;
++}
++
++bool OwlFreshCancelActiveFilePicker() {
++  OwlFreshPendingFilePicker& pending = ActiveFilePicker();
++  if (!pending.listener) {
++    return false;
++  }
++  scoped_refptr<FileSelectListener> listener = std::move(pending.listener);
++  pending.surface_key = 0;
++  listener->FileSelectionCanceled();
++  return true;
++}
++
++
++}  // namespace
++
++bool OwlFreshMaybeRunFileChooser(
++    RenderFrameHost* render_frame_host,
++    scoped_refptr<FileSelectListener> listener,
++    const blink::mojom::FileChooserParams& params) {
++  if (!base::CommandLine::ForCurrentProcess()->HasSwitch("fresh-owl-embed")) {
++    return false;
++  }
++  if (!render_frame_host || !listener) {
++    return false;
++  }
++
++  OwlFreshPendingFilePicker& pending = ActiveFilePicker();
++  if (pending.listener) {
++    pending.listener->FileSelectionCanceled();
++  }
++
++  pending.listener = std::move(listener);
++  pending.mode = params.mode;
++  pending.surface_key = reinterpret_cast<uint64_t>(pending.listener.get());
++
++  ui::OwlFreshPublishNativeFilePickerSurface(
++      pending.surface_key, 0, FilePickerSurfaceBounds(),
++      [NSScreen mainScreen].backingScaleFactor, FilePickerModeToString(params.mode),
++      AcceptTypesToUTF8(params.accept_types), FilePickerAllowsMultiple(params.mode),
++      FilePickerUploadsFolder(params.mode), "file-picker");
++  return true;
++}
++
++
++void BindOwlFreshSessionForCurrentShell(
++    mojo::PendingReceiver<mojom::OwlFreshSession> receiver) {
++  mojo::MakeSelfOwnedReceiver(std::make_unique<OwlFreshSessionImpl>(),
++                              std::move(receiver));
++}
++
++}  // namespace content
+diff --git a/content/shell/browser/shell_browser_main_parts.cc b/content/shell/browser/shell_browser_main_parts.cc
+index 76ba15e7f8..78f6a59f67 100644
+--- a/content/shell/browser/shell_browser_main_parts.cc
++++ b/content/shell/browser/shell_browser_main_parts.cc
+@@ -188,7 +188,16 @@ int ShellBrowserMainParts::PreMainMessageLoopRun() {
+   InitializeBrowserContexts();
+   Shell::Initialize(CreateShellPlatformDelegate());
+   net::NetModule::SetResourceProvider(PlatformResourceProvider);
+-  ShellDevToolsManagerDelegate::StartHttpHandler(browser_context_.get());
++  const bool owl_fresh_devtools_enabled =
++      base::CommandLine::ForCurrentProcess()->HasSwitch(
++          "owl-fresh-enable-devtools");
++  if ((!base::CommandLine::ForCurrentProcess()->HasSwitch(
++           switches::kFreshOwlEmbed) ||
++       owl_fresh_devtools_enabled) &&
++      !base::CommandLine::ForCurrentProcess()->HasSwitch(
++          "owl-fresh-disable-devtools")) {
++    ShellDevToolsManagerDelegate::StartHttpHandler(browser_context_.get());
++  }
+   InitializeMessageLoopContext();
+   return 0;
+ }
+diff --git a/content/shell/browser/shell_content_browser_client.cc b/content/shell/browser/shell_content_browser_client.cc
+index a926ca5c57..80a6ca2739 100644
+--- a/content/shell/browser/shell_content_browser_client.cc
++++ b/content/shell/browser/shell_content_browser_client.cc
+@@ -3,6 +3,9 @@
+ // found in the LICENSE file.
+
+ #include "content/shell/browser/shell_content_browser_client.h"
++#if BUILDFLAG(IS_MAC)
++#include "content/shell/browser/owl_fresh_host_mac.h"
++#endif
+
+ #include <stddef.h>
+
+@@ -189,6 +192,15 @@ class ShellControllerImpl : public mojom::ShellController {
+   }
+
+   void ShutDown() override { Shell::Shutdown(); }
++
++  void BindOwlFreshSession(
++      mojo::PendingReceiver<mojom::OwlFreshSession> receiver) override {
++#if BUILDFLAG(IS_MAC)
++    BindOwlFreshSessionForCurrentShell(std::move(receiver));
++#else
++    receiver.reset();
++#endif
++  }
+ };
+
+ void BindNetworkHintsHandler(
+diff --git a/content/shell/browser/shell_devtools_bindings.cc b/content/shell/browser/shell_devtools_bindings.cc
+index 8ec9dcebbd..0739b3e5f7 100644
+--- a/content/shell/browser/shell_devtools_bindings.cc
++++ b/content/shell/browser/shell_devtools_bindings.cc
+@@ -170,12 +170,17 @@ void ShellDevToolsBindings::InspectElementAt(int x, int y) {
+
+ ShellDevToolsBindings::ShellDevToolsBindings(WebContents* devtools_contents,
+                                              WebContents* inspected_contents,
+-                                             ShellDevToolsDelegate* delegate)
++                                             ShellDevToolsDelegate* delegate,
++                                             std::string initial_dock_state)
+     : WebContentsObserver(devtools_contents),
+       inspected_contents_(inspected_contents),
+       delegate_(delegate),
+       inspect_element_at_x_(-1),
+       inspect_element_at_y_(-1) {
++  if (!initial_dock_state.empty()) {
++    preferences_.Set("currentDockState",
++                     base::StringPrintf("\"%s\"", initial_dock_state.c_str()));
++  }
+   auto* bindings = GetShellDevtoolsBindingsInstances();
+   DCHECK(!std::ranges::contains(*bindings, this));
+   bindings->push_back(this);
+diff --git a/content/shell/browser/shell_devtools_bindings.h b/content/shell/browser/shell_devtools_bindings.h
+index 66ad0a4bee..75b2b6ae4b 100644
+--- a/content/shell/browser/shell_devtools_bindings.h
++++ b/content/shell/browser/shell_devtools_bindings.h
+@@ -7,6 +7,7 @@
+
+ #include <memory>
+ #include <set>
++#include <string>
+
+ #include "base/containers/span.h"
+ #include "base/containers/unique_ptr_adapters.h"
+@@ -37,7 +38,8 @@ class ShellDevToolsBindings : public WebContentsObserver,
+  public:
+   ShellDevToolsBindings(WebContents* devtools_contents,
+                         WebContents* inspected_contents,
+-                        ShellDevToolsDelegate* delegate);
++                        ShellDevToolsDelegate* delegate,
++                        std::string initial_dock_state = std::string());
+
+   void InspectElementAt(int x, int y);
+   virtual void Attach();
+diff --git a/content/shell/browser/shell_devtools_frontend.cc b/content/shell/browser/shell_devtools_frontend.cc
+index 594212807d..36b0138a6f 100644
+--- a/content/shell/browser/shell_devtools_frontend.cc
++++ b/content/shell/browser/shell_devtools_frontend.cc
+@@ -27,7 +27,7 @@ static GURL GetFrontendURL() {
+ #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+   const char* query_string = "";
+ #else
+-  const char* query_string = "?targetType=tab";
++  const char* query_string = "?targetType=tab&can_dock=true";
+ #endif
+
+   return GURL(base::StringPrintf(
+@@ -37,11 +37,13 @@ static GURL GetFrontendURL() {
+
+ // static
+ ShellDevToolsFrontend* ShellDevToolsFrontend::Show(
+-    WebContents* inspected_contents) {
++    WebContents* inspected_contents,
++    std::string initial_dock_state) {
+   Shell* shell = Shell::CreateNewWindow(inspected_contents->GetBrowserContext(),
+                                         GURL(), nullptr, gfx::Size());
+   ShellDevToolsFrontend* devtools_frontend =
+-      new ShellDevToolsFrontend(shell, inspected_contents);
++      new ShellDevToolsFrontend(shell, inspected_contents,
++                                std::move(initial_dock_state));
+   shell->LoadURL(GetFrontendURL());
+   return devtools_frontend;
+ }
+@@ -66,14 +68,17 @@ void ShellDevToolsFrontend::WebContentsDestroyed() {
+   delete this;
+ }
+
+-ShellDevToolsFrontend::ShellDevToolsFrontend(Shell* frontend_shell,
+-                                             WebContents* inspected_contents)
++ShellDevToolsFrontend::ShellDevToolsFrontend(
++    Shell* frontend_shell,
++    WebContents* inspected_contents,
++    std::string initial_dock_state)
+     : WebContentsObserver(frontend_shell->web_contents()),
+       frontend_shell_(frontend_shell),
+       devtools_bindings_(
+           new ShellDevToolsBindings(frontend_shell->web_contents(),
+                                     inspected_contents,
+-                                    this)) {}
++                                    this,
++                                    std::move(initial_dock_state))) {}
+
+ ShellDevToolsFrontend::~ShellDevToolsFrontend() {}
+
+diff --git a/content/shell/browser/shell_devtools_frontend.h b/content/shell/browser/shell_devtools_frontend.h
+index 820aa06e4a..15f2536554 100644
+--- a/content/shell/browser/shell_devtools_frontend.h
++++ b/content/shell/browser/shell_devtools_frontend.h
+@@ -6,6 +6,7 @@
+ #define CONTENT_SHELL_BROWSER_SHELL_DEVTOOLS_FRONTEND_H_
+
+ #include <memory>
++#include <string>
+
+ #include "base/memory/raw_ptr.h"
+ #include "base/memory/weak_ptr.h"
+@@ -20,7 +21,9 @@ class WebContents;
+ class ShellDevToolsFrontend : public ShellDevToolsDelegate,
+                               public WebContentsObserver {
+  public:
+-  static ShellDevToolsFrontend* Show(WebContents* inspected_contents);
++  static ShellDevToolsFrontend* Show(
++      WebContents* inspected_contents,
++      std::string initial_dock_state = std::string());
+
+   ShellDevToolsFrontend(const ShellDevToolsFrontend&) = delete;
+   ShellDevToolsFrontend& operator=(const ShellDevToolsFrontend&) = delete;
+@@ -38,7 +41,9 @@ class ShellDevToolsFrontend : public ShellDevToolsDelegate,
+   void PrimaryMainDocumentElementAvailable() override;
+   void WebContentsDestroyed() override;
+
+-  ShellDevToolsFrontend(Shell* frontend_shell, WebContents* inspected_contents);
++  ShellDevToolsFrontend(Shell* frontend_shell,
++                        WebContents* inspected_contents,
++                        std::string initial_dock_state);
+   ~ShellDevToolsFrontend() override;
+   raw_ptr<Shell> frontend_shell_;
+   std::unique_ptr<ShellDevToolsBindings> devtools_bindings_;
+diff --git a/content/shell/browser/shell_platform_delegate.cc b/content/shell/browser/shell_platform_delegate.cc
+index 922e418e78..e132416dbf 100644
+--- a/content/shell/browser/shell_platform_delegate.cc
++++ b/content/shell/browser/shell_platform_delegate.cc
+@@ -9,6 +9,10 @@
+ #include "content/public/browser/web_contents.h"
+ #include "content/shell/browser/shell.h"
+
++#if BUILDFLAG(IS_MAC)
++#include "content/shell/browser/owl_fresh_host_mac.h"
++#endif
++
+ #if !BUILDFLAG(IS_IOS)
+ #include "content/public/browser/color_chooser.h"
+ #endif
+@@ -52,6 +56,11 @@ void ShellPlatformDelegate::RunFileChooser(
+     RenderFrameHost* render_frame_host,
+     scoped_refptr<FileSelectListener> listener,
+     const blink::mojom::FileChooserParams& params) {
++#if BUILDFLAG(IS_MAC)
++  if (OwlFreshMaybeRunFileChooser(render_frame_host, listener, params)) {
++    return;
++  }
++#endif
+   listener->FileSelectionCanceled();
+ }
+ #endif
+diff --git a/content/shell/browser/shell_platform_delegate_mac.mm b/content/shell/browser/shell_platform_delegate_mac.mm
+index 274dffa179..1cc5a230f0 100644
+--- a/content/shell/browser/shell_platform_delegate_mac.mm
++++ b/content/shell/browser/shell_platform_delegate_mac.mm
+@@ -11,8 +11,10 @@
+ #import "base/apple/foundation_util.h"
+ #include "base/check_op.h"
+ #include "base/memory/raw_ptr.h"
++#include "base/command_line.h"
+ #include "base/notreached.h"
+ #include "base/strings/sys_string_conversions.h"
++#include "content/shell/common/shell_switches.h"
+ #include "components/input/native_web_keyboard_event.h"
+ #include "content/public/browser/render_frame_host.h"
+ #include "content/public/browser/render_widget_host.h"
+@@ -201,8 +203,30 @@ void MakeShellButton(NSRect* rect,
+     shell_data.url_edit_view = url_edit_view;
+   }
+
+-  // Show the new window.
+-  [window makeKeyAndOrderFront:nil];
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++          switches::kFreshOwlEmbed)) {
++    [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
++    window.alphaValue = 0.01;
++    window.level = NSWindowLevel(NSNormalWindowLevel - 1000);
++    window.collectionBehavior =
++        NSWindowCollectionBehaviorStationary |
++        NSWindowCollectionBehaviorCanJoinAllSpaces |
++        NSWindowCollectionBehaviorIgnoresCycle;
++    window.ignoresMouseEvents = YES;
++    [window orderFront:nil];
++  } else {
++    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++            "owl-fresh-visible-control")) {
++      [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
++      window.level = NSFloatingWindowLevel;
++      window.collectionBehavior |=
++          NSWindowCollectionBehaviorStationary |
++          NSWindowCollectionBehaviorCanJoinAllSpaces;
++      [NSApp activateIgnoringOtherApps:YES];
++      [window orderFrontRegardless];
++    }
++    [window makeKeyAndOrderFront:nil];
++  }
+
+   shell_data.delegate = delegate;
+ }
+diff --git a/content/shell/browser/shell_web_contents_view_delegate_mac.mm b/content/shell/browser/shell_web_contents_view_delegate_mac.mm
+index b11f388bcd..3cc18e5cdf 100644
+--- a/content/shell/browser/shell_web_contents_view_delegate_mac.mm
++++ b/content/shell/browser/shell_web_contents_view_delegate_mac.mm
+@@ -6,7 +6,10 @@
+
+ #import <Cocoa/Cocoa.h>
+
++#include <algorithm>
+ #include <memory>
++#include <string>
++#include <vector>
+
+ #include "base/command_line.h"
+ #include "base/memory/raw_ptr.h"
+@@ -26,6 +29,7 @@
+ #include "content/shell/common/shell_switches.h"
+ #include "third_party/blink/public/common/context_menu_data/edit_flags.h"
+ #include "third_party/blink/public/mojom/context_menu/context_menu.mojom.h"
++#include "ui/accelerated_widget_mac/owl_fresh_context.h"
+
+ using blink::ContextMenuDataEditFlags;
+
+@@ -80,6 +84,19 @@ - (void)itemSelected:(id)sender {
+   return menu_item;
+ }
+
++std::vector<std::string> MenuItemTitles(NSMenu* menu) {
++  std::vector<std::string> titles;
++  for (NSMenuItem* item in menu.itemArray) {
++    if (item.separatorItem) {
++      titles.push_back("---");
++      continue;
++    }
++    const char* title = item.title.UTF8String;
++    titles.push_back(title ? title : "");
++  }
++  return titles;
++}
++
+ }  // namespace
+
+ namespace content {
+@@ -204,6 +221,16 @@ - (void)itemSelected:(id)sender {
+                       YES,
+                       delegate);
+
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch("fresh-owl-embed")) {
++    ui::OwlFreshPublishNativeMenuSurface(
++        reinterpret_cast<uint64_t>(this),
++        reinterpret_cast<uint64_t>(web_contents_->GetRenderWidgetHostView()),
++        CGRectMake(params.x, params.y, 1, 1), 1.0f, MenuItemTitles(menu),
++        std::vector<ui::OwlFreshNativeMenuItem>(), -1, 0.0f, false,
++        "context-menu");
++    return;
++  }
++
+   NSView* parent_view = web_contents_->GetContentNativeView().GetNativeNSView();
+   NSPoint position = parent_view.window.mouseLocationOutsideOfEventStream;
+   NSTimeInterval eventTime = NSApp.currentEvent.timestamp;
+diff --git a/content/shell/common/shell_controller.test-mojom b/content/shell/common/shell_controller.test-mojom
+index 53b2a8b770..94f4a7b78a 100644
+--- a/content/shell/common/shell_controller.test-mojom
++++ b/content/shell/common/shell_controller.test-mojom
+@@ -7,6 +7,149 @@ module content.mojom;
+ import "mojo/public/mojom/base/string16.mojom";
+ import "mojo/public/mojom/base/values.mojom";
+
++enum OwlFreshMouseKind {
++  kDown = 0,
++  kUp = 1,
++  kMove = 2,
++  kWheel = 3,
++};
++
++struct OwlFreshMouseEvent {
++  OwlFreshMouseKind kind;
++  float x;
++  float y;
++  uint32 button;
++  uint32 click_count;
++  float delta_x;
++  float delta_y;
++  uint32 modifiers;
++};
++
++struct OwlFreshKeyEvent {
++  bool key_down;
++  uint32 key_code;
++  string text;
++  uint32 modifiers;
++};
++
++struct OwlFreshCompositorInfo {
++  uint32 context_id;
++};
++
++enum OwlFreshSurfaceKind {
++  kWebView = 0,
++  kPopupWidget = 1,
++  kNativeMenu = 2,
++  kNativeFilePicker = 3,
++  kDevTools = 4,
++};
++
++enum OwlFreshDevToolsMode {
++  kBottom = 0,
++  kRight = 1,
++  kLeft = 2,
++  kWindow = 3,
++};
++
++struct OwlFreshNativeMenuItem {
++  string label;
++  string tool_tip;
++  bool enabled;
++  bool separator;
++  bool group;
++  uint32 text_direction;
++  bool has_text_direction_override;
++};
++
++struct OwlFreshSurfaceInfo {
++  uint64 surface_id;
++  uint64 parent_surface_id;
++  OwlFreshSurfaceKind kind;
++  uint32 context_id;
++  int32 x;
++  int32 y;
++  uint32 width;
++  uint32 height;
++  float scale;
++  int32 z_index;
++  bool visible;
++  array<string> menu_items;
++  array<OwlFreshNativeMenuItem> native_menu_items;
++  int32 selected_index;
++  float item_font_size;
++  bool right_aligned;
++  string file_picker_mode;
++  array<string> file_picker_accept_types;
++  bool file_picker_allows_multiple;
++  bool file_picker_upload_folder;
++  string label;
++};
++
++struct OwlFreshSurfaceTree {
++  uint64 generation;
++  array<OwlFreshSurfaceInfo> surfaces;
++};
++
++struct OwlFreshCaptureResult {
++  array<uint8> png;
++  uint32 width;
++  uint32 height;
++  string capture_mode;
++  string error;
++};
++
++interface OwlFreshClient {
++  OnReady(int32 host_pid, OwlFreshCompositorInfo compositor);
++  OnCompositorChanged(OwlFreshCompositorInfo compositor);
++  OnSurfaceTreeChanged(OwlFreshSurfaceTree surface_tree);
++  OnNavigationChanged(string url, string title, bool loading);
++  OnHostLog(string message);
++};
++
++interface OwlFreshSession {
++  SetClient(pending_remote<OwlFreshClient> client);
++  BindProfile(pending_receiver<OwlFreshProfile> profile);
++  BindWebView(pending_receiver<OwlFreshWebView> web_view);
++  BindInput(pending_receiver<OwlFreshInput> input);
++  BindSurfaceTree(pending_receiver<OwlFreshSurfaceTreeHost> surface_tree);
++  BindNativeSurfaceHost(pending_receiver<OwlFreshNativeSurfaceHost> native_surface_host);
++  BindDevToolsHost(pending_receiver<OwlFreshDevToolsHost> devtools_host);
++  Flush() => (bool ok);
++};
++
++interface OwlFreshProfile {
++  GetPath() => (string path);
++};
++
++interface OwlFreshWebView {
++  Navigate(string url);
++  Resize(uint32 width, uint32 height, float scale);
++  SetFocus(bool focused);
++};
++
++interface OwlFreshInput {
++  SendMouse(OwlFreshMouseEvent event);
++  SendKey(OwlFreshKeyEvent event);
++};
++
++interface OwlFreshSurfaceTreeHost {
++  CaptureSurface() => (OwlFreshCaptureResult result);
++  GetSurfaceTree() => (OwlFreshSurfaceTree surface_tree);
++};
++
++interface OwlFreshNativeSurfaceHost {
++  AcceptActivePopupMenuItem(uint32 index) => (bool ok);
++  CancelActivePopup() => (bool ok);
++  SelectActiveFilePickerFiles(array<string> paths) => (bool ok);
++  CancelActiveFilePicker() => (bool ok);
++};
++
++interface OwlFreshDevToolsHost {
++  OpenDevTools(OwlFreshDevToolsMode mode) => (bool ok);
++  CloseDevTools() => (bool ok);
++  EvaluateDevToolsJavaScript(string script) => (string result_json);
++};
++
+ // A control interface which can be accessed by clients launching Content Shell
+ // with a Mojo invitation on the command line. This is used by
+ // LaunchAsMojoClientBrowserTest to exercise that mode of execution.
+@@ -21,7 +164,10 @@ interface ShellController {
+       => (mojo_base.mojom.Value value);
+
+   // Tells Content Shell to close all windows and shut down. After sending this
+-  // message, the Content Shell browser process should be expected to terminate
+-  // soon.
++  // message, Content Shell should be expected to terminate soon.
+   ShutDown();
++
++  // Binds the fresh OWL browser host. Every browser command after this point
++  // uses typed Mojo messages, never sockets or DevTools.
++  BindOwlFreshSession(pending_receiver<OwlFreshSession> receiver);
+ };
+diff --git a/content/shell/common/shell_switches.h b/content/shell/common/shell_switches.h
+index 8757fa418d..b9d7d028b7 100644
+--- a/content/shell/common/shell_switches.h
++++ b/content/shell/common/shell_switches.h
+@@ -40,6 +40,8 @@ inline constexpr char kContentShellHostWindowSize[] =
+ // Hides toolbar from content_shell's host window.
+ inline constexpr char kContentShellHideToolbar[] = "content-shell-hide-toolbar";
+
++inline constexpr char kFreshOwlEmbed[] = "fresh-owl-embed";
++
+ // Enables APIs guarded with the [IsolatedContext] IDL attribute for the given
+ // comma-separated list of origins.
+ inline constexpr char kIsolatedContextOrigins[] = "isolated-context-origins";
+diff --git a/fresh_owl/BUILD.gn b/fresh_owl/BUILD.gn
+new file mode 100644
+index 0000000000..ab883e226a
+--- /dev/null
++++ b/fresh_owl/BUILD.gn
+@@ -0,0 +1,17 @@
++
++shared_library("owl_fresh_mojo_runtime") {
++  testonly = true
++  sources = [
++    "owl_fresh_mojo_runtime.cc",
++    "owl_fresh_mojo_runtime.h",
++  ]
++  deps = [
++    "//base",
++    "//content/shell:shell_controller_mojom",
++    "//mojo/core/embedder",
++    "//mojo/public/cpp/bindings",
++    "//mojo/public/cpp/platform",
++    "//mojo/public/cpp/system",
++  ]
++  ldflags = [ "-Wl,-install_name,@rpath/libowl_fresh_mojo_runtime.dylib" ]
++}
+diff --git a/fresh_owl/owl_fresh_mojo_runtime.cc b/fresh_owl/owl_fresh_mojo_runtime.cc
+new file mode 100644
+index 0000000000..8c5551e4eb
+--- /dev/null
++++ b/fresh_owl/owl_fresh_mojo_runtime.cc
+@@ -0,0 +1,1109 @@
++#include "fresh_owl/owl_fresh_mojo_runtime.h"
++
++#include <cstdlib>
++#include <memory>
++#include <string>
++#include <string_view>
++#include <utility>
++
++#include "base/apple/foundation_util.h"
++#include "base/at_exit.h"
++#include "base/base64.h"
++#include "base/command_line.h"
++#include "base/compiler_specific.h"
++#include "base/containers/span.h"
++#include "base/files/file_path.h"
++#include "base/functional/bind.h"
++#include "base/json/json_reader.h"
++#include "base/json/json_writer.h"
++#include "base/logging.h"
++#include "base/memory/raw_ptr.h"
++#include "base/no_destructor.h"
++#include "base/process/launch.h"
++#include "base/process/process.h"
++#include "base/run_loop.h"
++#include "base/strings/strcat.h"
++#include "base/strings/utf_string_conversions.h"
++#include "base/task/single_thread_task_executor.h"
++#include "base/task/thread_pool/thread_pool_instance.h"
++#include "base/threading/thread.h"
++#include "base/values.h"
++#include "content/shell/common/shell_controller.test-mojom.h"
++#include "mojo/core/embedder/configuration.h"
++#include "mojo/core/embedder/embedder.h"
++#include "mojo/core/embedder/scoped_ipc_support.h"
++#include "mojo/public/cpp/bindings/pending_receiver.h"
++#include "mojo/public/cpp/bindings/pending_remote.h"
++#include "mojo/public/cpp/bindings/receiver.h"
++#include "mojo/public/cpp/bindings/remote.h"
++#include "mojo/public/cpp/platform/platform_channel.h"
++#include "mojo/public/cpp/system/invitation.h"
++
++namespace {
++
++struct GlobalState {
++  base::AtExitManager at_exit;
++  std::unique_ptr<base::SingleThreadTaskExecutor> main_executor;
++  std::unique_ptr<base::Thread> ipc_thread;
++  std::unique_ptr<mojo::core::ScopedIPCSupport> ipc_support;
++  bool initialized = false;
++};
++
++GlobalState& GetGlobal() {
++  static base::NoDestructor<GlobalState> global;
++  return *global;
++}
++
++char* DuplicateCString(const std::string& value) {
++  char* copy = static_cast<char*>(std::malloc(value.size() + 1));
++  if (!copy) {
++    return nullptr;
++  }
++  auto [text, terminator] =
++      UNSAFE_BUFFERS(base::span<char>(copy, value.size() + 1))
++          .split_at(value.size());
++  text.copy_from(base::span(std::string_view(value)));
++  terminator.copy_from(base::span_from_ref('\0'));
++  return copy;
++}
++
++void Emit(OwlFreshMojoEventCallback callback,
++          void* user_data,
++          const OwlFreshMojoEvent& event) {
++  if (callback) {
++    callback(&event, user_data);
++  }
++}
++
++int Fail(char** error, std::string_view message) {
++  if (error) {
++    *error = DuplicateCString(std::string(message));
++  }
++  return 1;
++}
++
++int Succeed(char** result_json, std::string_view result) {
++  if (result_json) {
++    *result_json = DuplicateCString(std::string(result));
++  }
++  return 0;
++}
++
++bool WriteJSON(base::Value value, std::string* json) {
++  return base::JSONWriter::Write(value, json);
++}
++
++int WriteDictResult(base::DictValue dict, char** result_json, char** error) {
++  std::string json;
++  if (!WriteJSON(base::Value(std::move(dict)), &json)) {
++    return Fail(error, "JSONWriter failed");
++  }
++  return Succeed(result_json, json);
++}
++
++base::DictValue SurfaceTreeToDict(
++    const content::mojom::OwlFreshSurfaceTreePtr& tree) {
++  base::DictValue dict;
++  dict.Set("generation", tree ? static_cast<int>(tree->generation) : 0);
++  base::ListValue surfaces;
++  if (tree) {
++    for (const auto& surface : tree->surfaces) {
++      base::DictValue surface_dict;
++      surface_dict.Set("surfaceId", static_cast<int>(surface->surface_id));
++      surface_dict.Set("parentSurfaceId",
++                       static_cast<int>(surface->parent_surface_id));
++      surface_dict.Set("kind", static_cast<int>(surface->kind));
++      surface_dict.Set("contextId", static_cast<int>(surface->context_id));
++      surface_dict.Set("x", surface->x);
++      surface_dict.Set("y", surface->y);
++      surface_dict.Set("width", static_cast<int>(surface->width));
++      surface_dict.Set("height", static_cast<int>(surface->height));
++      surface_dict.Set("scale", surface->scale);
++      surface_dict.Set("zIndex", surface->z_index);
++      surface_dict.Set("visible", surface->visible);
++      base::ListValue menu_items;
++      for (const std::string& item : surface->menu_items) {
++        menu_items.Append(item);
++      }
++      surface_dict.Set("menuItems", std::move(menu_items));
++      base::ListValue native_menu_items;
++      for (const auto& item : surface->native_menu_items) {
++        base::DictValue item_dict;
++        item_dict.Set("label", item->label);
++        item_dict.Set("toolTip", item->tool_tip);
++        item_dict.Set("enabled", item->enabled);
++        item_dict.Set("separator", item->separator);
++        item_dict.Set("group", item->group);
++        item_dict.Set("textDirection", static_cast<int>(item->text_direction));
++        item_dict.Set("hasTextDirectionOverride",
++                      item->has_text_direction_override);
++        native_menu_items.Append(std::move(item_dict));
++      }
++      surface_dict.Set("nativeMenuItems", std::move(native_menu_items));
++      surface_dict.Set("selectedIndex", surface->selected_index);
++      surface_dict.Set("itemFontSize", surface->item_font_size);
++      surface_dict.Set("rightAligned", surface->right_aligned);
++      surface_dict.Set("filePickerMode", surface->file_picker_mode);
++      base::ListValue file_picker_accept_types;
++      for (const std::string& accept_type : surface->file_picker_accept_types) {
++        file_picker_accept_types.Append(accept_type);
++      }
++      surface_dict.Set("filePickerAcceptTypes",
++                       std::move(file_picker_accept_types));
++      surface_dict.Set("filePickerAllowsMultiple",
++                       surface->file_picker_allows_multiple);
++      surface_dict.Set("filePickerUploadFolder",
++                       surface->file_picker_upload_folder);
++      surface_dict.Set("label", surface->label);
++      surfaces.Append(std::move(surface_dict));
++    }
++  }
++  dict.Set("surfaces", std::move(surfaces));
++  return dict;
++}
++
++}  // namespace
++
++struct OwlFreshMojoSession;
++
++class OwlFreshMojoClientImpl final : public content::mojom::OwlFreshClient {
++ public:
++  explicit OwlFreshMojoClientImpl(OwlFreshMojoSession* session)
++      : session_(session) {}
++  ~OwlFreshMojoClientImpl() override = default;
++
++  void OnReady(int32_t host_pid,
++               content::mojom::OwlFreshCompositorInfoPtr compositor) override;
++  void OnCompositorChanged(
++      content::mojom::OwlFreshCompositorInfoPtr compositor) override;
++  void OnSurfaceTreeChanged(
++      content::mojom::OwlFreshSurfaceTreePtr surface_tree) override;
++  void OnNavigationChanged(const std::string& url,
++                           const std::string& title,
++                           bool loading) override;
++  void OnHostLog(const std::string& message) override;
++
++ private:
++  raw_ptr<OwlFreshMojoSession> session_;
++};
++
++struct OwlFreshMojoSession {
++  base::Process process;
++  mojo::Remote<content::mojom::ShellController> controller;
++  mojo::Remote<content::mojom::OwlFreshSession> owl_session;
++  mojo::Remote<content::mojom::OwlFreshProfile> profile;
++  mojo::Remote<content::mojom::OwlFreshWebView> web_view;
++  mojo::Remote<content::mojom::OwlFreshInput> input;
++  mojo::Remote<content::mojom::OwlFreshSurfaceTreeHost> surface_tree;
++  mojo::Remote<content::mojom::OwlFreshNativeSurfaceHost> native_surface_host;
++  mojo::Remote<content::mojom::OwlFreshDevToolsHost> devtools_host;
++  std::unique_ptr<OwlFreshMojoClientImpl> client_impl;
++  std::unique_ptr<mojo::Receiver<content::mojom::OwlFreshClient>>
++      client_receiver;
++  OwlFreshMojoEventCallback callback = nullptr;
++  raw_ptr<void> user_data = nullptr;
++  uint64_t client_handle = 0;
++  uint64_t profile_handle = 0;
++  uint64_t web_view_handle = 0;
++  uint64_t input_handle = 0;
++  uint64_t surface_tree_handle = 0;
++  uint64_t native_surface_host_handle = 0;
++  uint64_t devtools_host_handle = 0;
++};
++
++int ValidateBindRequest(OwlFreshMojoSession* session,
++                        uint64_t handle,
++                        const char* interface_name,
++                        uint64_t existing_handle,
++                        char** error) {
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (handle == 0) {
++    return Fail(error, base::StrCat({interface_name, " handle is zero"}));
++  }
++  if (!session->owl_session.is_bound()) {
++    return Fail(error, "OwlFreshSession is not bound");
++  }
++  if (existing_handle != 0) {
++    return Fail(error, base::StrCat({interface_name, " is already bound"}));
++  }
++  return 0;
++}
++
++void OwlFreshMojoClientImpl::OnReady(
++    int32_t host_pid,
++    content::mojom::OwlFreshCompositorInfoPtr compositor) {
++  OwlFreshMojoEvent event = {};
++  event.kind = kOwlFreshMojoEventReady;
++  event.host_pid = host_pid;
++  event.context_id = compositor ? compositor->context_id : 0;
++  Emit(session_->callback, session_->user_data, event);
++}
++
++void OwlFreshMojoClientImpl::OnCompositorChanged(
++    content::mojom::OwlFreshCompositorInfoPtr compositor) {
++  OwlFreshMojoEvent event = {};
++  event.kind = kOwlFreshMojoEventCompositor;
++  event.context_id = compositor ? compositor->context_id : 0;
++  Emit(session_->callback, session_->user_data, event);
++}
++
++void OwlFreshMojoClientImpl::OnSurfaceTreeChanged(
++    content::mojom::OwlFreshSurfaceTreePtr surface_tree) {
++  std::string json;
++  WriteJSON(base::Value(SurfaceTreeToDict(surface_tree)), &json);
++  OwlFreshMojoEvent event = {};
++  event.kind = kOwlFreshMojoEventSurfaceTree;
++  event.message = json.c_str();
++  Emit(session_->callback, session_->user_data, event);
++}
++
++void OwlFreshMojoClientImpl::OnNavigationChanged(const std::string& url,
++                                                 const std::string& title,
++                                                 bool loading) {
++  OwlFreshMojoEvent event = {};
++  event.kind = kOwlFreshMojoEventNavigation;
++  event.url = url.c_str();
++  event.title = title.c_str();
++  event.loading = loading;
++  Emit(session_->callback, session_->user_data, event);
++}
++
++void OwlFreshMojoClientImpl::OnHostLog(const std::string& message) {
++  OwlFreshMojoEvent event = {};
++  event.kind = kOwlFreshMojoEventLog;
++  event.message = message.c_str();
++  Emit(session_->callback, session_->user_data, event);
++}
++
++extern "C" int owl_fresh_mojo_global_init(void) {
++  GlobalState& global = GetGlobal();
++  if (global.initialized) {
++    return 0;
++  }
++
++  base::apple::SetBaseBundleIDOverride("org.chromium.ContentShell");
++
++  const char* argv[] = {"owl_fresh_mojo_runtime"};
++  base::CommandLine::Init(1, argv);
++  logging::SetMinLogLevel(logging::LOGGING_INFO);
++
++  base::ThreadPoolInstance::CreateAndStartWithDefaultParams(
++      "owl_fresh_mojo_runtime");
++
++  mojo::core::Configuration config;
++  config.is_broker_process = true;
++  config.max_message_num_bytes = 128 * 1024 * 1024;
++  mojo::core::Init(config);
++
++  global.ipc_thread = std::make_unique<base::Thread>("owl_fresh_mojo_ipc");
++  base::Thread::Options options;
++  options.message_pump_type = base::MessagePumpType::IO;
++  if (!global.ipc_thread->StartWithOptions(std::move(options))) {
++    return 1;
++  }
++  global.ipc_support = std::make_unique<mojo::core::ScopedIPCSupport>(
++      global.ipc_thread->task_runner(),
++      mojo::core::ScopedIPCSupport::ShutdownPolicy::CLEAN);
++  global.main_executor = std::make_unique<base::SingleThreadTaskExecutor>();
++  global.initialized = true;
++  return 0;
++}
++
++extern "C" OwlFreshMojoSession* owl_fresh_mojo_session_create(
++    const char* content_shell_path,
++    const char* initial_url,
++    const char* user_data_dir,
++    OwlFreshMojoEventCallback callback,
++    void* user_data) {
++  if (!GetGlobal().initialized || !content_shell_path || !*content_shell_path) {
++    return nullptr;
++  }
++
++  mojo::PlatformChannel channel;
++  base::LaunchOptions launch_options;
++  base::FilePath program_path(content_shell_path);
++  base::CommandLine command_line(program_path);
++  command_line.AppendSwitch("no-sandbox");
++  const bool visible_control_mode = std::getenv("OWL_FRESH_NO_EMBED") != nullptr;
++  if (!visible_control_mode) {
++    command_line.AppendSwitch("fresh-owl-embed");
++    command_line.AppendSwitch("fresh-owl-hosted-frame-pump");
++  } else {
++    command_line.AppendSwitch("owl-fresh-visible-control");
++  }
++  if (std::getenv("OWL_FRESH_ENABLE_DEVTOOLS") != nullptr) {
++    command_line.AppendSwitch("owl-fresh-enable-devtools");
++  } else {
++    command_line.AppendSwitch("owl-fresh-disable-devtools");
++  }
++  if (std::getenv("OWL_FRESH_WINDOW_SNAPSHOT") != nullptr) {
++    command_line.AppendSwitch("owl-fresh-window-snapshot");
++  }
++  if (std::getenv("OWL_FRESH_LAYER_FIXTURE") != nullptr) {
++    command_line.AppendSwitch("owl-fresh-layer-fixture-context");
++  }
++  command_line.AppendSwitch("content-shell-hide-toolbar");
++  command_line.AppendSwitch("no-first-run");
++  command_line.AppendSwitch("no-default-browser-check");
++  if (std::getenv("OWL_FRESH_DISABLE_GPU") != nullptr) {
++    command_line.AppendSwitch("disable-gpu");
++  }
++  if (std::getenv("OWL_FRESH_NO_IN_PROCESS_GPU") == nullptr) {
++    command_line.AppendSwitch("in-process-gpu");
++  }
++  command_line.AppendSwitchASCII("enable-logging", "stderr");
++  command_line.AppendSwitchASCII("vmodule", "*owl*=1,*fresh*=1,*shell*=1");
++  if (user_data_dir && *user_data_dir) {
++    command_line.AppendSwitchASCII("user-data-dir", user_data_dir);
++  }
++  if (initial_url && *initial_url) {
++    command_line.AppendArg(initial_url);
++  }
++  channel.PrepareToPassRemoteEndpoint(&launch_options, &command_line);
++
++  base::Process process = base::LaunchProcess(command_line, launch_options);
++  channel.RemoteProcessLaunchAttempted();
++  if (!process.IsValid()) {
++    return nullptr;
++  }
++
++  auto session = std::make_unique<OwlFreshMojoSession>();
++  session->callback = callback;
++  session->user_data = user_data;
++  session->process = std::move(process);
++
++  mojo::OutgoingInvitation invitation;
++  session->controller = mojo::Remote<content::mojom::ShellController>(
++      mojo::PendingRemote<content::mojom::ShellController>(
++          invitation.AttachMessagePipe(0), 0));
++  mojo::OutgoingInvitation::Send(std::move(invitation),
++                                 session->process.Handle(),
++                                 channel.TakeLocalEndpoint());
++
++  session->controller->BindOwlFreshSession(
++      session->owl_session.BindNewPipeAndPassReceiver());
++
++  session->controller.set_disconnect_handler(base::BindRepeating(
++      [](OwlFreshMojoSession* session) {
++        OwlFreshMojoEvent event = {};
++        event.kind = kOwlFreshMojoEventDisconnected;
++        Emit(session->callback, session->user_data, event);
++      },
++      session.get()));
++  session->owl_session.set_disconnect_handler(base::BindRepeating(
++      [](OwlFreshMojoSession* session) {
++        OwlFreshMojoEvent event = {};
++        event.kind = kOwlFreshMojoEventDisconnected;
++        Emit(session->callback, session->user_data, event);
++      },
++      session.get()));
++
++  return session.release();
++}
++
++extern "C" void owl_fresh_mojo_session_destroy(
++    OwlFreshMojoSession* session) {
++  if (!session) {
++    return;
++  }
++  if (session->controller.is_bound()) {
++    session->controller->ShutDown();
++  }
++  session->devtools_host.reset();
++  session->native_surface_host.reset();
++  session->surface_tree.reset();
++  session->input.reset();
++  session->web_view.reset();
++  session->profile.reset();
++  session->owl_session.reset();
++  session->controller.reset();
++  base::RunLoop loop;
++  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
++      FROM_HERE, loop.QuitClosure(), base::Milliseconds(100));
++  loop.Run();
++  session->process.WaitForExitWithTimeout(base::Seconds(2), nullptr);
++  delete session;
++}
++
++extern "C" int32_t owl_fresh_mojo_session_host_pid(
++    OwlFreshMojoSession* session) {
++  return session && session->process.IsValid() ? session->process.Pid() : -1;
++}
++
++extern "C" int owl_fresh_mojo_session_set_client(
++    OwlFreshMojoSession* session,
++    uint64_t client_handle,
++    char** error) {
++  int validation_status = ValidateBindRequest(
++      session, client_handle, "OwlFreshClient", session ? session->client_handle : 0,
++      error);
++  if (validation_status != 0) {
++    return validation_status;
++  }
++  session->client_handle = client_handle;
++  session->client_impl = std::make_unique<OwlFreshMojoClientImpl>(session);
++  session->client_receiver =
++      std::make_unique<mojo::Receiver<content::mojom::OwlFreshClient>>(
++          session->client_impl.get());
++  session->owl_session->SetClient(
++      session->client_receiver->BindNewPipeAndPassRemote());
++  return 0;
++}
++
++extern "C" int owl_fresh_mojo_session_bind_profile(
++    OwlFreshMojoSession* session,
++    uint64_t profile_handle,
++    char** error) {
++  int validation_status = ValidateBindRequest(
++      session, profile_handle, "OwlFreshProfile",
++      session ? session->profile_handle : 0, error);
++  if (validation_status != 0) {
++    return validation_status;
++  }
++  session->profile_handle = profile_handle;
++  session->owl_session->BindProfile(
++      session->profile.BindNewPipeAndPassReceiver());
++  return 0;
++}
++
++extern "C" int owl_fresh_mojo_session_bind_web_view(
++    OwlFreshMojoSession* session,
++    uint64_t web_view_handle,
++    char** error) {
++  int validation_status = ValidateBindRequest(
++      session, web_view_handle, "OwlFreshWebView",
++      session ? session->web_view_handle : 0, error);
++  if (validation_status != 0) {
++    return validation_status;
++  }
++  session->web_view_handle = web_view_handle;
++  session->owl_session->BindWebView(
++      session->web_view.BindNewPipeAndPassReceiver());
++  return 0;
++}
++
++extern "C" int owl_fresh_mojo_session_bind_input(
++    OwlFreshMojoSession* session,
++    uint64_t input_handle,
++    char** error) {
++  int validation_status = ValidateBindRequest(
++      session, input_handle, "OwlFreshInput",
++      session ? session->input_handle : 0, error);
++  if (validation_status != 0) {
++    return validation_status;
++  }
++  session->input_handle = input_handle;
++  session->owl_session->BindInput(
++      session->input.BindNewPipeAndPassReceiver());
++  return 0;
++}
++
++extern "C" int owl_fresh_mojo_session_bind_surface_tree(
++    OwlFreshMojoSession* session,
++    uint64_t surface_tree_handle,
++    char** error) {
++  int validation_status = ValidateBindRequest(
++      session, surface_tree_handle, "OwlFreshSurfaceTreeHost",
++      session ? session->surface_tree_handle : 0, error);
++  if (validation_status != 0) {
++    return validation_status;
++  }
++  session->surface_tree_handle = surface_tree_handle;
++  session->owl_session->BindSurfaceTree(
++      session->surface_tree.BindNewPipeAndPassReceiver());
++  return 0;
++}
++
++extern "C" int owl_fresh_mojo_session_bind_native_surface_host(
++    OwlFreshMojoSession* session,
++    uint64_t native_surface_host_handle,
++    char** error) {
++  int validation_status = ValidateBindRequest(
++      session, native_surface_host_handle, "OwlFreshNativeSurfaceHost",
++      session ? session->native_surface_host_handle : 0, error);
++  if (validation_status != 0) {
++    return validation_status;
++  }
++  session->native_surface_host_handle = native_surface_host_handle;
++  session->owl_session->BindNativeSurfaceHost(
++      session->native_surface_host.BindNewPipeAndPassReceiver());
++  return 0;
++}
++
++
++extern "C" int owl_fresh_mojo_session_bind_devtools_host(
++    OwlFreshMojoSession* session,
++    uint64_t devtools_host_handle,
++    char** error) {
++  int validation_status = ValidateBindRequest(
++      session, devtools_host_handle, "OwlFreshDevToolsHost",
++      session ? session->devtools_host_handle : 0, error);
++  if (validation_status != 0) {
++    return validation_status;
++  }
++  session->devtools_host_handle = devtools_host_handle;
++  session->owl_session->BindDevToolsHost(
++      session->devtools_host.BindNewPipeAndPassReceiver());
++  return 0;
++}
++
++extern "C" int owl_fresh_mojo_shell_execute_javascript(
++    OwlFreshMojoSession* session,
++    const char* script,
++    char** result_json,
++    char** error) {
++  if (result_json) {
++    *result_json = nullptr;
++  }
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!script) {
++    return Fail(error, "script is required");
++  }
++  if (!session->controller.is_bound()) {
++    return Fail(error, "ShellController is not bound");
++  }
++  int status = 1;
++  base::RunLoop loop;
++  session->controller->ExecuteJavaScript(
++      base::UTF8ToUTF16(script),
++      base::BindOnce(
++          [](base::OnceClosure quit,
++             int* status,
++             char** result_json,
++             char** error,
++             base::Value result) {
++            std::string json;
++            if (!WriteJSON(std::move(result), &json)) {
++              Fail(error, "JSONWriter failed");
++              std::move(quit).Run();
++              return;
++            }
++            Succeed(result_json, json);
++            *status = 0;
++            std::move(quit).Run();
++          },
++          loop.QuitClosure(), &status, result_json, error));
++  loop.Run();
++  return status;
++}
++
++extern "C" int owl_fresh_mojo_session_flush(OwlFreshMojoSession* session,
++                                             bool* ok,
++                                             char** error) {
++  if (error) {
++    *error = nullptr;
++  }
++  if (ok) {
++    *ok = false;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->owl_session.is_bound()) {
++    return Fail(error, "OwlFreshSession is not bound");
++  }
++  int status = 1;
++  base::RunLoop loop;
++  session->owl_session->Flush(base::BindOnce(
++      [](base::OnceClosure quit, int* status, bool* ok, bool result) {
++        if (ok) {
++          *ok = result;
++        }
++        *status = 0;
++        std::move(quit).Run();
++      },
++      loop.QuitClosure(), &status, ok));
++  loop.Run();
++  return status;
++}
++
++extern "C" int owl_fresh_mojo_profile_get_path(OwlFreshMojoSession* session,
++                                                char** path,
++                                                char** error) {
++  if (path) {
++    *path = nullptr;
++  }
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->profile.is_bound()) {
++    return Fail(error, "OwlFreshProfile is not bound");
++  }
++  int status = 1;
++  base::RunLoop loop;
++  session->profile->GetPath(base::BindOnce(
++      [](base::OnceClosure quit,
++         int* status,
++         char** path,
++         const std::string& result) {
++        if (path) {
++          *path = DuplicateCString(result);
++        }
++        *status = 0;
++        std::move(quit).Run();
++      },
++      loop.QuitClosure(), &status, path));
++  loop.Run();
++  return status;
++}
++
++extern "C" int owl_fresh_mojo_web_view_navigate(OwlFreshMojoSession* session,
++                                                 const char* url,
++                                                 char** error) {
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!url) {
++    return Fail(error, "url is required");
++  }
++  if (!session->web_view.is_bound()) {
++    return Fail(error, "OwlFreshWebView is not bound");
++  }
++  session->web_view->Navigate(url);
++  return 0;
++}
++
++extern "C" int owl_fresh_mojo_web_view_resize(OwlFreshMojoSession* session,
++                                               uint32_t width,
++                                               uint32_t height,
++                                               float scale,
++                                               char** error) {
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->web_view.is_bound()) {
++    return Fail(error, "OwlFreshWebView is not bound");
++  }
++  session->web_view->Resize(width, height, scale);
++  return 0;
++}
++
++extern "C" int owl_fresh_mojo_web_view_set_focus(OwlFreshMojoSession* session,
++                                                  bool focused,
++                                                  char** error) {
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->web_view.is_bound()) {
++    return Fail(error, "OwlFreshWebView is not bound");
++  }
++  session->web_view->SetFocus(focused);
++  return 0;
++}
++
++extern "C" int owl_fresh_mojo_input_send_mouse(OwlFreshMojoSession* session,
++                                                uint32_t kind,
++                                                float x,
++                                                float y,
++                                                uint32_t button,
++                                                uint32_t click_count,
++                                                float delta_x,
++                                                float delta_y,
++                                                uint32_t modifiers,
++                                                char** error) {
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->input.is_bound()) {
++    return Fail(error, "OwlFreshInput is not bound");
++  }
++  auto event = content::mojom::OwlFreshMouseEvent::New();
++  event->kind = static_cast<content::mojom::OwlFreshMouseKind>(kind);
++  event->x = x;
++  event->y = y;
++  event->button = button;
++  event->click_count = click_count;
++  event->delta_x = delta_x;
++  event->delta_y = delta_y;
++  event->modifiers = modifiers;
++  session->input->SendMouse(std::move(event));
++  return 0;
++}
++
++extern "C" int owl_fresh_mojo_input_send_key(OwlFreshMojoSession* session,
++                                              bool key_down,
++                                              uint32_t key_code,
++                                              const char* text,
++                                              uint32_t modifiers,
++                                              char** error) {
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->input.is_bound()) {
++    return Fail(error, "OwlFreshInput is not bound");
++  }
++  auto event = content::mojom::OwlFreshKeyEvent::New();
++  event->key_down = key_down;
++  event->key_code = key_code;
++  event->text = text ? text : "";
++  event->modifiers = modifiers;
++  session->input->SendKey(std::move(event));
++  return 0;
++}
++
++extern "C" int owl_fresh_mojo_surface_tree_capture_surface_json(
++    OwlFreshMojoSession* session,
++    char** result_json,
++    char** error) {
++  if (result_json) {
++    *result_json = nullptr;
++  }
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->surface_tree.is_bound()) {
++    return Fail(error, "OwlFreshSurfaceTreeHost is not bound");
++  }
++  int status = 1;
++  base::RunLoop loop;
++  session->surface_tree->CaptureSurface(base::BindOnce(
++      [](base::OnceClosure quit,
++         int* status,
++         char** result_json,
++         char** error,
++         content::mojom::OwlFreshCaptureResultPtr result) {
++        if (!result) {
++          Fail(error, "CaptureSurface returned no result");
++          std::move(quit).Run();
++          return;
++        }
++        base::DictValue dict;
++        dict.Set("pngBase64", base::Base64Encode(base::span(result->png)));
++        dict.Set("width", static_cast<int>(result->width));
++        dict.Set("height", static_cast<int>(result->height));
++        dict.Set("captureMode", result->capture_mode);
++        dict.Set("error", result->error);
++        if (WriteDictResult(std::move(dict), result_json, error) == 0) {
++          *status = 0;
++        }
++        std::move(quit).Run();
++      },
++      loop.QuitClosure(), &status, result_json, error));
++  loop.Run();
++  return status;
++}
++
++extern "C" int owl_fresh_mojo_surface_tree_get_json(
++    OwlFreshMojoSession* session,
++    char** result_json,
++    char** error) {
++  if (result_json) {
++    *result_json = nullptr;
++  }
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->surface_tree.is_bound()) {
++    return Fail(error, "OwlFreshSurfaceTreeHost is not bound");
++  }
++  int status = 1;
++  base::RunLoop loop;
++  session->surface_tree->GetSurfaceTree(base::BindOnce(
++      [](base::OnceClosure quit,
++         int* status,
++         char** result_json,
++         char** error,
++         content::mojom::OwlFreshSurfaceTreePtr surface_tree) {
++        if (WriteDictResult(SurfaceTreeToDict(surface_tree), result_json,
++                            error) == 0) {
++          *status = 0;
++        }
++        std::move(quit).Run();
++      },
++      loop.QuitClosure(), &status, result_json, error));
++  loop.Run();
++  return status;
++}
++
++extern "C" int owl_fresh_mojo_native_surface_accept_active_popup_menu_item(
++    OwlFreshMojoSession* session,
++    uint32_t index,
++    bool* ok,
++    char** error) {
++  if (ok) {
++    *ok = false;
++  }
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->native_surface_host.is_bound()) {
++    return Fail(error, "OwlFreshNativeSurfaceHost is not bound");
++  }
++  int status = 1;
++  base::RunLoop loop;
++  session->native_surface_host->AcceptActivePopupMenuItem(
++      index,
++      base::BindOnce(
++          [](base::OnceClosure quit, int* status, bool* ok, bool result) {
++            if (ok) {
++              *ok = result;
++            }
++            *status = 0;
++            std::move(quit).Run();
++          },
++          loop.QuitClosure(), &status, ok));
++  loop.Run();
++  return status;
++}
++
++extern "C" int owl_fresh_mojo_native_surface_cancel_active_popup(
++    OwlFreshMojoSession* session,
++    bool* ok,
++    char** error) {
++  if (ok) {
++    *ok = false;
++  }
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->native_surface_host.is_bound()) {
++    return Fail(error, "OwlFreshNativeSurfaceHost is not bound");
++  }
++  int status = 1;
++  base::RunLoop loop;
++  session->native_surface_host->CancelActivePopup(base::BindOnce(
++      [](base::OnceClosure quit, int* status, bool* ok, bool result) {
++        if (ok) {
++          *ok = result;
++        }
++        *status = 0;
++        std::move(quit).Run();
++      },
++      loop.QuitClosure(), &status, ok));
++  loop.Run();
++  return status;
++}
++
++extern "C" int
++owl_fresh_mojo_native_surface_select_active_file_picker_files_json(
++    OwlFreshMojoSession* session,
++    const char* paths_json,
++    bool* ok,
++    char** error) {
++  if (ok) {
++    *ok = false;
++  }
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->native_surface_host.is_bound()) {
++    return Fail(error, "OwlFreshNativeSurfaceHost is not bound");
++  }
++
++  std::optional<base::Value> value = base::JSONReader::Read(
++      paths_json ? std::string_view(paths_json) : std::string_view("[]"),
++      base::JSON_PARSE_RFC);
++  if (!value || !value->is_list()) {
++    return Fail(error, "file picker paths JSON must be an array");
++  }
++  std::vector<std::string> paths;
++  for (const base::Value& item : value->GetList()) {
++    if (!item.is_string()) {
++      return Fail(error, "file picker paths JSON contains non-string item");
++    }
++    paths.push_back(item.GetString());
++  }
++
++  int status = 1;
++  base::RunLoop loop;
++  session->native_surface_host->SelectActiveFilePickerFiles(
++      paths,
++      base::BindOnce(
++          [](base::OnceClosure quit, int* status, bool* ok, bool result) {
++            if (ok) {
++              *ok = result;
++            }
++            *status = 0;
++            std::move(quit).Run();
++          },
++          loop.QuitClosure(), &status, ok));
++  loop.Run();
++  return status;
++}
++
++extern "C" int owl_fresh_mojo_native_surface_cancel_active_file_picker(
++    OwlFreshMojoSession* session,
++    bool* ok,
++    char** error) {
++  if (ok) {
++    *ok = false;
++  }
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->native_surface_host.is_bound()) {
++    return Fail(error, "OwlFreshNativeSurfaceHost is not bound");
++  }
++  int status = 1;
++  base::RunLoop loop;
++  session->native_surface_host->CancelActiveFilePicker(base::BindOnce(
++      [](base::OnceClosure quit, int* status, bool* ok, bool result) {
++        if (ok) {
++          *ok = result;
++        }
++        *status = 0;
++        std::move(quit).Run();
++      },
++      loop.QuitClosure(), &status, ok));
++  loop.Run();
++  return status;
++}
++
++
++extern "C" int owl_fresh_mojo_devtools_open(OwlFreshMojoSession* session,
++                                              uint32_t mode,
++                                              bool* ok,
++                                              char** error) {
++  if (ok) {
++    *ok = false;
++  }
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->devtools_host.is_bound()) {
++    return Fail(error, "OwlFreshDevToolsHost is not bound");
++  }
++  int status = 1;
++  base::RunLoop loop;
++  session->devtools_host->OpenDevTools(
++      static_cast<content::mojom::OwlFreshDevToolsMode>(mode),
++      base::BindOnce(
++          [](base::OnceClosure quit, int* status, bool* ok, bool result) {
++            if (ok) {
++              *ok = result;
++            }
++            *status = 0;
++            std::move(quit).Run();
++          },
++          loop.QuitClosure(), &status, ok));
++  loop.Run();
++  return status;
++}
++
++extern "C" int owl_fresh_mojo_devtools_close(OwlFreshMojoSession* session,
++                                               bool* ok,
++                                               char** error) {
++  if (ok) {
++    *ok = false;
++  }
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!session->devtools_host.is_bound()) {
++    return Fail(error, "OwlFreshDevToolsHost is not bound");
++  }
++  int status = 1;
++  base::RunLoop loop;
++  session->devtools_host->CloseDevTools(base::BindOnce(
++      [](base::OnceClosure quit, int* status, bool* ok, bool result) {
++        if (ok) {
++          *ok = result;
++        }
++        *status = 0;
++        std::move(quit).Run();
++      },
++      loop.QuitClosure(), &status, ok));
++  loop.Run();
++  return status;
++}
++
++extern "C" int owl_fresh_mojo_devtools_evaluate_javascript(
++    OwlFreshMojoSession* session,
++    const char* script,
++    char** result_json,
++    char** error) {
++  if (result_json) {
++    *result_json = nullptr;
++  }
++  if (error) {
++    *error = nullptr;
++  }
++  if (!session) {
++    return Fail(error, "session is null");
++  }
++  if (!script) {
++    return Fail(error, "script is required");
++  }
++  if (!session->devtools_host.is_bound()) {
++    return Fail(error, "OwlFreshDevToolsHost is not bound");
++  }
++  int status = 1;
++  base::RunLoop loop;
++  session->devtools_host->EvaluateDevToolsJavaScript(
++      script,
++      base::BindOnce(
++          [](base::OnceClosure quit,
++             int* status,
++             char** result_json,
++             const std::string& result) {
++            Succeed(result_json, result);
++            *status = 0;
++            std::move(quit).Run();
++          },
++          loop.QuitClosure(), &status, result_json));
++  loop.Run();
++  return status;
++}
++
++extern "C" void owl_fresh_mojo_poll_events(uint32_t timeout_ms) {
++  base::RunLoop loop;
++  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
++      FROM_HERE, loop.QuitClosure(), base::Milliseconds(timeout_ms));
++  loop.Run();
++}
++
++extern "C" void owl_fresh_mojo_free_buffer(void* buffer) {
++  std::free(buffer);
++}
+diff --git a/fresh_owl/owl_fresh_mojo_runtime.h b/fresh_owl/owl_fresh_mojo_runtime.h
+new file mode 100644
+index 0000000000..d5bb74610c
+--- /dev/null
++++ b/fresh_owl/owl_fresh_mojo_runtime.h
+@@ -0,0 +1,176 @@
++#ifndef FRESH_OWL_OWL_FRESH_MOJO_RUNTIME_H_
++#define FRESH_OWL_OWL_FRESH_MOJO_RUNTIME_H_
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#if defined(__GNUC__)
++#define OWL_FRESH_MOJO_EXPORT __attribute__((visibility("default")))
++#else
++#define OWL_FRESH_MOJO_EXPORT
++#endif
++
++typedef struct OwlFreshMojoSession OwlFreshMojoSession;
++
++typedef enum OwlFreshMojoEventKind {
++  kOwlFreshMojoEventLog = 1,
++  kOwlFreshMojoEventReady = 2,
++  kOwlFreshMojoEventCompositor = 3,
++  kOwlFreshMojoEventNavigation = 4,
++  kOwlFreshMojoEventDisconnected = 5,
++  kOwlFreshMojoEventSurfaceTree = 6,
++} OwlFreshMojoEventKind;
++
++typedef struct OwlFreshMojoEvent {
++  OwlFreshMojoEventKind kind;
++  uint32_t context_id;
++  int32_t host_pid;
++  bool loading;
++  const char* url;
++  const char* title;
++  const char* message;
++} OwlFreshMojoEvent;
++
++typedef void (*OwlFreshMojoEventCallback)(const OwlFreshMojoEvent* event,
++                                          void* user_data);
++
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_global_init(void);
++OWL_FRESH_MOJO_EXPORT OwlFreshMojoSession* owl_fresh_mojo_session_create(
++    const char* content_shell_path,
++    const char* initial_url,
++    const char* user_data_dir,
++    OwlFreshMojoEventCallback callback,
++    void* user_data);
++OWL_FRESH_MOJO_EXPORT void owl_fresh_mojo_session_destroy(
++    OwlFreshMojoSession* session);
++OWL_FRESH_MOJO_EXPORT int32_t owl_fresh_mojo_session_host_pid(
++    OwlFreshMojoSession* session);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_shell_execute_javascript(
++    OwlFreshMojoSession* session,
++    const char* script,
++    char** result_json,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_session_set_client(
++    OwlFreshMojoSession* session,
++    uint64_t client_handle,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_session_bind_profile(
++    OwlFreshMojoSession* session,
++    uint64_t profile_handle,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_session_bind_web_view(
++    OwlFreshMojoSession* session,
++    uint64_t web_view_handle,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_session_bind_input(
++    OwlFreshMojoSession* session,
++    uint64_t input_handle,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_session_bind_surface_tree(
++    OwlFreshMojoSession* session,
++    uint64_t surface_tree_handle,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int
++owl_fresh_mojo_session_bind_native_surface_host(
++    OwlFreshMojoSession* session,
++    uint64_t native_surface_host_handle,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_session_bind_devtools_host(
++    OwlFreshMojoSession* session,
++    uint64_t devtools_host_handle,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_session_flush(
++    OwlFreshMojoSession* session,
++    bool* ok,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_profile_get_path(
++    OwlFreshMojoSession* session,
++    char** path,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_web_view_navigate(
++    OwlFreshMojoSession* session,
++    const char* url,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_web_view_resize(
++    OwlFreshMojoSession* session,
++    uint32_t width,
++    uint32_t height,
++    float scale,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_web_view_set_focus(
++    OwlFreshMojoSession* session,
++    bool focused,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_input_send_mouse(
++    OwlFreshMojoSession* session,
++    uint32_t kind,
++    float x,
++    float y,
++    uint32_t button,
++    uint32_t click_count,
++    float delta_x,
++    float delta_y,
++    uint32_t modifiers,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_input_send_key(
++    OwlFreshMojoSession* session,
++    bool key_down,
++    uint32_t key_code,
++    const char* text,
++    uint32_t modifiers,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_surface_tree_capture_surface_json(
++    OwlFreshMojoSession* session,
++    char** result_json,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_surface_tree_get_json(
++    OwlFreshMojoSession* session,
++    char** result_json,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int
++owl_fresh_mojo_native_surface_accept_active_popup_menu_item(
++    OwlFreshMojoSession* session,
++    uint32_t index,
++    bool* ok,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int
++owl_fresh_mojo_native_surface_cancel_active_popup(OwlFreshMojoSession* session,
++                                                  bool* ok,
++                                                  char** error);
++OWL_FRESH_MOJO_EXPORT int
++owl_fresh_mojo_native_surface_select_active_file_picker_files_json(
++    OwlFreshMojoSession* session,
++    const char* paths_json,
++    bool* ok,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int
++owl_fresh_mojo_native_surface_cancel_active_file_picker(
++    OwlFreshMojoSession* session,
++    bool* ok,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_devtools_open(
++    OwlFreshMojoSession* session,
++    uint32_t mode,
++    bool* ok,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_devtools_close(
++    OwlFreshMojoSession* session,
++    bool* ok,
++    char** error);
++OWL_FRESH_MOJO_EXPORT int owl_fresh_mojo_devtools_evaluate_javascript(
++    OwlFreshMojoSession* session,
++    const char* script,
++    char** result_json,
++    char** error);
++OWL_FRESH_MOJO_EXPORT void owl_fresh_mojo_poll_events(uint32_t timeout_ms);
++OWL_FRESH_MOJO_EXPORT void owl_fresh_mojo_free_buffer(void* buffer);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif  // FRESH_OWL_OWL_FRESH_MOJO_RUNTIME_H_
+diff --git a/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm b/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm
+index 65f6c9b457..3bda6ceb05 100644
+--- a/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm
++++ b/ios/chrome/browser/snapshots/model/image_file_manager_unittest.mm
+@@ -53,7 +53,7 @@ void ComputeColorComponents(CGImageRef cgImage,
+     *blue = 3;
+   }
+
+-  if (byteOrder != kCGImageByteOrder32Host) {
++  if (byteOrder != kCGBitmapByteOrder32Host) {
+     int lastChannel = (CGImageGetBitsPerPixel(cgImage) == 24) ? 2 : 3;
+     *red = lastChannel - *red;
+     *green = lastChannel - *green;
+diff --git a/services/shape_detection/text_detection_impl_mac_unittest.mm b/services/shape_detection/text_detection_impl_mac_unittest.mm
+index f5797e9d31..8c9028c8b2 100644
+--- a/services/shape_detection/text_detection_impl_mac_unittest.mm
++++ b/services/shape_detection/text_detection_impl_mac_unittest.mm
+@@ -59,7 +59,7 @@ void DetectCallback(std::vector<mojom::TextDetectionResultPtr> results) {
+       nullptr, width, height, /*bitsPerComponent=*/8,
+       /*bytesPerRow=*/width * 4, rgb_colorspace.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+
+   // Draw a white background.
+   CGContextSetRGBFillColor(context.get(), 1.0, 1.0, 1.0, 1.0);
+diff --git a/skia/ext/skia_utils_ios.mm b/skia/ext/skia_utils_ios.mm
+index 1b202bf6f3..6b11ce44b0 100644
+--- a/skia/ext/skia_utils_ios.mm
++++ b/skia/ext/skia_utils_ios.mm
+@@ -52,7 +52,7 @@ SkBitmap CGImageToSkBitmap(CGImageRef image, CGSize size, bool is_opaque) {
+   base::apple::ScopedCFTypeRef<CGContextRef> context(CGBitmapContextCreate(
+       data, size.width, size.height, 8, size.width * 4, color_space.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+ #else
+ #error We require that Skia's and CoreGraphics's recommended \
+        image memory layout match.
+diff --git a/skia/ext/skia_utils_mac.mm b/skia/ext/skia_utils_mac.mm
+index 07e7f51fc7..e621aa1000 100644
+--- a/skia/ext/skia_utils_mac.mm
++++ b/skia/ext/skia_utils_mac.mm
+@@ -81,7 +81,7 @@ SkBitmap NSImageOrNSImageRepToSkBitmap(NSImage* image,
+   base::apple::ScopedCFTypeRef<CGContextRef> context(CGBitmapContextCreate(
+       data, size.width, size.height, 8, size.width * 4, cg_color_space.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+ #else
+ #error We require that Skia's and CoreGraphics's recommended \
+        image memory layout match.
+diff --git a/third_party/blink/common/switches.cc b/third_party/blink/common/switches.cc
+index c33f4e27a4..201aa619e5 100644
+--- a/third_party/blink/common/switches.cc
++++ b/third_party/blink/common/switches.cc
+@@ -103,6 +103,11 @@ const char kEnableZeroCopy[] = "enable-zero-copy";
+ // cc.
+ const char kForceGpuMemAvailableMb[] = "force-gpu-mem-available-mb";
+
++// Enables the hosted Owl frame pump for renderer and root compositor
++// scheduling.
++const char kFreshOwlHostedFramePump[] =
++    "fresh-owl-hosted-frame-pump";
++
+ // Disables the GpuMemoryBufferReadbackFromTexture codepath for debugging
+ // purposes.
+ const char kGpuMemoryBufferReadbackFromTextureForceDisabledForDebugging[] =
+diff --git a/third_party/blink/public/common/switches.h b/third_party/blink/public/common/switches.h
+index 92c4fe527d..bde431ddac 100644
+--- a/third_party/blink/public/common/switches.h
++++ b/third_party/blink/public/common/switches.h
+@@ -43,6 +43,7 @@ BLINK_COMMON_EXPORT extern const char
+     kGpuMemoryBufferReadbackFromTextureForceDisabledForDebugging[];
+ BLINK_COMMON_EXPORT extern const char kGpuRasterizationMSAASampleCount[];
+ BLINK_COMMON_EXPORT extern const char kForceGpuMemAvailableMb[];
++BLINK_COMMON_EXPORT extern const char kFreshOwlHostedFramePump[];
+ BLINK_COMMON_EXPORT extern const char
+     kIntensiveWakeUpThrottlingPolicy_ForceDisable[];
+ BLINK_COMMON_EXPORT extern const char
+diff --git a/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm b/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
+index 9234de2adf..46e143f458 100644
+--- a/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
++++ b/third_party/blink/renderer/platform/mac/graphics_context_canvas.mm
+@@ -64,7 +64,7 @@
+   cg_context_.reset(CGBitmapContextCreate(
+       offscreen_.getPixels(), offscreen_.width(), offscreen_.height(), 8,
+       offscreen_.rowBytes(), color_space.get(),
+-      kCGImageByteOrder32Host |
++      kCGBitmapByteOrder32Host |
+           static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst)));
+   DCHECK(cg_context_);
+
+diff --git a/third_party/blink/renderer/platform/widget/compositing/layer_tree_settings.cc b/third_party/blink/renderer/platform/widget/compositing/layer_tree_settings.cc
+index 062719e67f..1a368d3f2a 100644
+--- a/third_party/blink/renderer/platform/widget/compositing/layer_tree_settings.cc
++++ b/third_party/blink/renderer/platform/widget/compositing/layer_tree_settings.cc
+@@ -582,7 +582,8 @@ cc::LayerTreeSettings GenerateLayerTreeSettings(
+       RuntimeEnabledFeatures::BackfaceVisibilityInteropEnabled();
+
+   settings.disable_frame_rate_limit =
+-      cmd.HasSwitch(::switches::kDisableFrameRateLimit);
++      cmd.HasSwitch(::switches::kDisableFrameRateLimit) ||
++      cmd.HasSwitch(switches::kFreshOwlHostedFramePump);
+
+   settings.enable_hit_test_opaqueness = true;
+
+diff --git a/ui/accelerated_widget_mac/BUILD.gn b/ui/accelerated_widget_mac/BUILD.gn
+index 0f8a6f75b7..c5e8a19224 100644
+--- a/ui/accelerated_widget_mac/BUILD.gn
++++ b/ui/accelerated_widget_mac/BUILD.gn
+@@ -59,6 +59,7 @@ component("accelerated_widget_mac") {
+     ]
+
+     frameworks += [ "OpenGL.framework" ]
++    frameworks += [ "CoreImage.framework" ]
+
+     # TODO(crbug.com/40031409): Fix code that adds exit-time destructors and
+     # enable the diagnostic by removing this line.
+@@ -69,6 +70,8 @@ component("accelerated_widget_mac") {
+     sources += [
+       "display_ca_layer_tree.h",
+       "display_ca_layer_tree.mm",
++      "owl_fresh_context.h",
++      "owl_fresh_context.mm",
+     ]
+   }
+
+diff --git a/ui/accelerated_widget_mac/display_ca_layer_tree.mm b/ui/accelerated_widget_mac/display_ca_layer_tree.mm
+index dcf493d629..8648983f2b 100644
+--- a/ui/accelerated_widget_mac/display_ca_layer_tree.mm
++++ b/ui/accelerated_widget_mac/display_ca_layer_tree.mm
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+
+ #include "ui/accelerated_widget_mac/display_ca_layer_tree.h"
++#include "ui/accelerated_widget_mac/owl_fresh_context.h"
+
+ #import <QuartzCore/QuartzCore.h>
+
+@@ -123,6 +124,10 @@ - (void)setContentsChanged;
+ void DisplayCALayerTree::GotCALayerFrame(uint32_t ca_context_id) {
+   // Early-out if the remote layer has not changed.
+   if (remote_layer_.contextId == ca_context_id) {
++#if BUILDFLAG(IS_MAC)
++    ui::OwlFreshDisplayPortalPresentCAContext(ca_context_id,
++                                              root_layer_.bounds);
++#endif
+     return;
+   }
+
+@@ -150,6 +155,11 @@ - (void)setContentsChanged;
+     [io_surface_layer_ removeFromSuperlayer];
+     io_surface_layer_ = nil;
+   }
++
++#if BUILDFLAG(IS_MAC)
++  ui::OwlFreshDisplayPortalPresentCAContext(ca_context_id,
++                                            root_layer_.bounds);
++#endif
+ }
+
+ void DisplayCALayerTree::GotIOSurfaceFrame(
+@@ -185,6 +195,11 @@ - (void)setContentsChanged;
+     [remote_layer_ removeFromSuperlayer];
+     remote_layer_ = nil;
+   }
++
++#if BUILDFLAG(IS_MAC)
++  ui::OwlFreshDisplayPortalPresentLayer(maybe_flipped_layer_,
++                                        root_layer_.bounds);
++#endif
+ }
+
+ }  // namespace ui
+diff --git a/ui/accelerated_widget_mac/owl_fresh_context.h b/ui/accelerated_widget_mac/owl_fresh_context.h
+new file mode 100644
+index 0000000000..2d4f7e407f
+--- /dev/null
++++ b/ui/accelerated_widget_mac/owl_fresh_context.h
+@@ -0,0 +1,136 @@
++#ifndef UI_ACCELERATED_WIDGET_MAC_OWL_FRESH_CONTEXT_H_
++#define UI_ACCELERATED_WIDGET_MAC_OWL_FRESH_CONTEXT_H_
++
++#include <stdint.h>
++
++#include <string>
++#include <vector>
++
++#include <CoreGraphics/CoreGraphics.h>
++#include <IOSurface/IOSurfaceRef.h>
++
++#include "ui/accelerated_widget_mac/accelerated_widget_mac_export.h"
++
++#if defined(__OBJC__)
++@class CALayer;
++#endif
++
++namespace gfx {
++class Size;
++}  // namespace gfx
++
++namespace ui {
++
++enum class OwlFreshSurfaceKind {
++  kWebView = 0,
++  kPopupWidget = 1,
++  kNativeMenu = 2,
++  kNativeFilePicker = 3,
++  kDevTools = 4,
++};
++
++struct OwlFreshNativeMenuItem {
++  OwlFreshNativeMenuItem();
++  OwlFreshNativeMenuItem(const OwlFreshNativeMenuItem&);
++  OwlFreshNativeMenuItem& operator=(const OwlFreshNativeMenuItem&);
++  ~OwlFreshNativeMenuItem();
++
++  std::string label;
++  std::string tool_tip;
++  bool enabled = true;
++  bool separator = false;
++  bool group = false;
++  uint32_t text_direction = 2;
++  bool has_text_direction_override = false;
++};
++
++struct OwlFreshSurfaceSnapshot {
++  OwlFreshSurfaceSnapshot();
++  OwlFreshSurfaceSnapshot(const OwlFreshSurfaceSnapshot&);
++  OwlFreshSurfaceSnapshot& operator=(const OwlFreshSurfaceSnapshot&);
++  ~OwlFreshSurfaceSnapshot();
++
++  uint64_t surface_id = 0;
++  uint64_t parent_surface_id = 0;
++  OwlFreshSurfaceKind kind = OwlFreshSurfaceKind::kWebView;
++  uint32_t context_id = 0;
++  CGRect bounds = CGRectZero;
++  float scale = 1.0f;
++  int32_t z_index = 0;
++  bool visible = false;
++  std::vector<std::string> menu_items;
++  std::vector<OwlFreshNativeMenuItem> native_menu_items;
++  int32_t selected_index = -1;
++  float item_font_size = 0.0f;
++  bool right_aligned = false;
++  std::string file_picker_mode;
++  std::vector<std::string> file_picker_accept_types;
++  bool file_picker_allows_multiple = false;
++  bool file_picker_upload_folder = false;
++  std::string label;
++};
++
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshSetLatestContextID(uint32_t id);
++ACCELERATED_WIDGET_MAC_EXPORT uint32_t OwlFreshLatestContextID();
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshSetDevToolsSurfaceLabel(
++    const std::string& label);
++ACCELERATED_WIDGET_MAC_EXPORT std::string OwlFreshDevToolsSurfaceLabel();
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshSetDevToolsDockLayout(
++    const std::string& label,
++    CGRect web_bounds,
++    CGRect devtools_bounds);
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshClearDevToolsDockLayout();
++ACCELERATED_WIDGET_MAC_EXPORT uint64_t OwlFreshDisplayPortalGeneration();
++ACCELERATED_WIDGET_MAC_EXPORT std::vector<OwlFreshSurfaceSnapshot>
++OwlFreshSurfaceTreeSnapshot();
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshDisplayPortalPresentCAContext(
++    uint32_t ca_context_id,
++    CGRect frame);
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshDisplayPortalPresentCAContextForSurface(
++    uint64_t surface_key,
++    uint64_t parent_surface_key,
++    OwlFreshSurfaceKind kind,
++    uint32_t ca_context_id,
++    CGRect bounds,
++    float scale,
++    bool visible,
++    const std::string& label);
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshPublishNativeMenuSurface(
++    uint64_t surface_key,
++    uint64_t parent_surface_key,
++    CGRect bounds,
++    float scale,
++    const std::vector<std::string>& items,
++    const std::vector<OwlFreshNativeMenuItem>& native_items,
++    int32_t selected_index,
++    float item_font_size,
++    bool right_aligned,
++    const std::string& label);
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshPublishNativeFilePickerSurface(
++    uint64_t surface_key,
++    uint64_t parent_surface_key,
++    CGRect bounds,
++    float scale,
++    const std::string& mode,
++    const std::vector<std::string>& accept_types,
++    bool allows_multiple,
++    bool upload_folder,
++    const std::string& label);
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshMarkSurfaceHidden(
++    uint64_t surface_key);
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshClearNativeMenuSurfaces();
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshClearNativeFilePickerSurfaces();
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshDisplayPortalPresentIOSurface(
++    IOSurfaceRef io_surface,
++    const gfx::Size& dip_size,
++    float scale_factor);
++#if defined(__OBJC__)
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshDisplayPortalPresentLayer(
++    CALayer* layer,
++    CGRect frame);
++ACCELERATED_WIDGET_MAC_EXPORT void OwlFreshDisplayPortalResize(CGRect frame);
++#endif
++
++}  // namespace ui
++
++#endif
+diff --git a/ui/accelerated_widget_mac/owl_fresh_context.mm b/ui/accelerated_widget_mac/owl_fresh_context.mm
+new file mode 100644
+index 0000000000..00264c5309
+--- /dev/null
++++ b/ui/accelerated_widget_mac/owl_fresh_context.mm
+@@ -0,0 +1,561 @@
++#include "ui/accelerated_widget_mac/owl_fresh_context.h"
++
++#include <algorithm>
++#include <atomic>
++#include <map>
++#include <string>
++#include <utility>
++
++#import <CoreImage/CoreImage.h>
++#import <IOSurface/IOSurface.h>
++#import <QuartzCore/QuartzCore.h>
++
++#include "base/no_destructor.h"
++#include "ui/base/cocoa/remote_layer_api.h"
++#include "ui/gfx/geometry/size.h"
++
++namespace ui {
++namespace {
++
++struct OwlFreshDisplayPortal {
++  CAContext* __strong context = nil;
++  CALayer* __strong root_layer = nil;
++  CALayerHost* __strong host_layer = nil;
++  CALayer* __strong image_layer = nil;
++  CIContext* __strong image_context = nil;
++};
++
++struct OwlFreshSurfaceRecord {
++  uint64_t stable_id = 0;
++  uint64_t surface_key = 0;
++  uint64_t parent_surface_key = 0;
++  OwlFreshSurfaceKind kind = OwlFreshSurfaceKind::kWebView;
++  uint32_t context_id = 0;
++  CAContext* __strong context = nil;
++  CALayer* __strong root_layer = nil;
++  CALayerHost* __strong host_layer = nil;
++  CGRect bounds = CGRectZero;
++  float scale = 1.0f;
++  int32_t z_index = 0;
++  bool visible = false;
++  std::vector<std::string> menu_items;
++  std::vector<OwlFreshNativeMenuItem> native_menu_items;
++  int32_t selected_index = -1;
++  float item_font_size = 0.0f;
++  bool right_aligned = false;
++  std::string file_picker_mode;
++  std::vector<std::string> file_picker_accept_types;
++  bool file_picker_allows_multiple = false;
++  bool file_picker_upload_folder = false;
++  std::string label;
++};
++
++struct OwlFreshDevToolsDockLayout {
++  bool active = false;
++  std::string label;
++  CGRect web_bounds = CGRectZero;
++  CGRect devtools_bounds = CGRectZero;
++};
++
++std::atomic<uint32_t> g_legacy_context_id{0};
++std::atomic<uint32_t> g_portal_context_id{0};
++std::atomic<uint64_t> g_portal_generation{0};
++
++std::string& DevToolsSurfaceLabelStorage() {
++  static base::NoDestructor<std::string> label("devtools-bottom");
++  return *label;
++}
++
++OwlFreshDevToolsDockLayout& DevToolsDockLayoutStorage() {
++  static base::NoDestructor<OwlFreshDevToolsDockLayout> layout;
++  return *layout;
++}
++
++OwlFreshDisplayPortal& Portal() {
++  static base::NoDestructor<OwlFreshDisplayPortal> portal;
++  return *portal;
++}
++
++std::map<uint64_t, OwlFreshSurfaceRecord>& SurfaceRecords() {
++  static base::NoDestructor<std::map<uint64_t, OwlFreshSurfaceRecord>> records;
++  return *records;
++}
++
++uint64_t& NextSurfaceID() {
++  static uint64_t next_id = 1;
++  return next_id;
++}
++
++CGRect NormalizedFrame(CGRect frame) {
++  if (CGRectIsEmpty(frame) || frame.size.width <= 0 || frame.size.height <= 0) {
++    return CGRectMake(0, 0, 1, 1);
++  }
++  return CGRectMake(frame.origin.x, frame.origin.y, frame.size.width,
++                    frame.size.height);
++}
++
++CGRect ZeroOriginFrame(CGRect frame) {
++  if (CGRectIsEmpty(frame) || frame.size.width <= 0 || frame.size.height <= 0) {
++    return CGRectMake(0, 0, 1, 1);
++  }
++  return CGRectMake(0, 0, frame.size.width, frame.size.height);
++}
++
++void SizeLayer(CALayer* layer, CGRect frame) {
++  layer.anchorPoint = CGPointZero;
++  layer.frame = ZeroOriginFrame(frame);
++  layer.bounds = ZeroOriginFrame(frame);
++  layer.position = CGPointZero;
++}
++
++void EnsurePortalContext() {
++  OwlFreshDisplayPortal& portal = Portal();
++
++  if (!portal.context) {
++    CGSConnectionID connection = CGSMainConnectionID();
++    portal.context = [CAContext contextWithCGSConnection:connection
++                                                 options:@{}];
++    g_portal_context_id.store(portal.context.contextId,
++                              std::memory_order_relaxed);
++  }
++}
++
++void EnsureSurfacePortal(OwlFreshSurfaceRecord& record) {
++  if (!record.context) {
++    CGSConnectionID connection = CGSMainConnectionID();
++    record.context = [CAContext contextWithCGSConnection:connection
++                                                 options:@{}];
++    record.root_layer = [[CALayer alloc] init];
++    record.root_layer.geometryFlipped = YES;
++    record.host_layer = [[CALayerHost alloc] init];
++    record.host_layer.autoresizingMask =
++        kCALayerWidthSizable | kCALayerHeightSizable;
++    [record.host_layer setValue:@YES forKey:@"inheritsSecurity"];
++    [record.root_layer addSublayer:record.host_layer];
++    record.context.layer = record.root_layer;
++  }
++}
++
++void EnsurePortal(CGRect frame) {
++  OwlFreshDisplayPortal& portal = Portal();
++  frame = ZeroOriginFrame(frame);
++
++  EnsurePortalContext();
++
++  if (!portal.root_layer) {
++    portal.root_layer = [[CALayer alloc] init];
++    portal.root_layer.geometryFlipped = YES;
++
++    portal.host_layer = [[CALayerHost alloc] init];
++    portal.host_layer.autoresizingMask =
++        kCALayerWidthSizable | kCALayerHeightSizable;
++    [portal.host_layer setValue:@YES forKey:@"inheritsSecurity"];
++
++    portal.image_layer = [[CALayer alloc] init];
++    portal.image_layer.contentsGravity = kCAGravityTopLeft;
++    portal.image_layer.geometryFlipped = YES;
++
++    portal.image_context = [CIContext contextWithOptions:nil];
++  }
++
++  SizeLayer(portal.root_layer, frame);
++  SizeLayer(portal.host_layer, frame);
++  SizeLayer(portal.image_layer, frame);
++  portal.context.layer = portal.root_layer;
++}
++
++OwlFreshSurfaceRecord& EnsureSurfaceRecord(uint64_t surface_key) {
++  std::map<uint64_t, OwlFreshSurfaceRecord>& records = SurfaceRecords();
++  auto [it, inserted] = records.try_emplace(surface_key);
++  OwlFreshSurfaceRecord& record = it->second;
++  if (inserted) {
++    record.surface_key = surface_key;
++    record.stable_id = NextSurfaceID()++;
++  }
++  return record;
++}
++
++uint64_t StableIDForKey(uint64_t surface_key) {
++  if (surface_key == 0) {
++    return 0;
++  }
++  auto it = SurfaceRecords().find(surface_key);
++  return it == SurfaceRecords().end() ? 0 : it->second.stable_id;
++}
++
++}  // namespace
++
++OwlFreshNativeMenuItem::OwlFreshNativeMenuItem() = default;
++OwlFreshNativeMenuItem::OwlFreshNativeMenuItem(
++    const OwlFreshNativeMenuItem&) = default;
++OwlFreshNativeMenuItem& OwlFreshNativeMenuItem::operator=(
++    const OwlFreshNativeMenuItem&) = default;
++OwlFreshNativeMenuItem::~OwlFreshNativeMenuItem() = default;
++
++OwlFreshSurfaceSnapshot::OwlFreshSurfaceSnapshot() = default;
++OwlFreshSurfaceSnapshot::OwlFreshSurfaceSnapshot(
++    const OwlFreshSurfaceSnapshot&) = default;
++OwlFreshSurfaceSnapshot& OwlFreshSurfaceSnapshot::operator=(
++    const OwlFreshSurfaceSnapshot&) = default;
++OwlFreshSurfaceSnapshot::~OwlFreshSurfaceSnapshot() = default;
++
++void OwlFreshSetLatestContextID(uint32_t id) {
++  g_legacy_context_id.store(id, std::memory_order_relaxed);
++}
++
++uint32_t OwlFreshLatestContextID() {
++  for (const auto& [key, record] : SurfaceRecords()) {
++    if (record.visible && record.kind == OwlFreshSurfaceKind::kWebView &&
++        record.context_id != 0) {
++      return record.context_id;
++    }
++  }
++  uint32_t portal_context_id =
++      g_portal_context_id.load(std::memory_order_relaxed);
++  if (portal_context_id != 0) {
++    return portal_context_id;
++  }
++  return g_legacy_context_id.load(std::memory_order_relaxed);
++}
++
++uint64_t OwlFreshDisplayPortalGeneration() {
++  return g_portal_generation.load(std::memory_order_relaxed);
++}
++
++void OwlFreshSetDevToolsSurfaceLabel(const std::string& label) {
++  DevToolsSurfaceLabelStorage() = label.empty() ? "devtools-bottom" : label;
++  g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++}
++
++std::string OwlFreshDevToolsSurfaceLabel() {
++  return DevToolsSurfaceLabelStorage();
++}
++
++void OwlFreshSetDevToolsDockLayout(const std::string& label,
++                                   CGRect web_bounds,
++                                   CGRect devtools_bounds) {
++  OwlFreshDevToolsDockLayout& layout = DevToolsDockLayoutStorage();
++  layout.active = true;
++  layout.label = label;
++  layout.web_bounds = NormalizedFrame(web_bounds);
++  layout.devtools_bounds = NormalizedFrame(devtools_bounds);
++  g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++}
++
++void OwlFreshClearDevToolsDockLayout() {
++  OwlFreshDevToolsDockLayout& layout = DevToolsDockLayoutStorage();
++  layout.active = false;
++  layout.label.clear();
++  layout.web_bounds = CGRectZero;
++  layout.devtools_bounds = CGRectZero;
++  for (auto& [key, record] : SurfaceRecords()) {
++    if (record.kind == OwlFreshSurfaceKind::kDevTools) {
++      record.visible = false;
++    }
++  }
++  g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++}
++
++std::vector<OwlFreshSurfaceSnapshot> OwlFreshSurfaceTreeSnapshot() {
++  std::vector<OwlFreshSurfaceSnapshot> snapshots;
++  for (const auto& [key, record] : SurfaceRecords()) {
++    if (!record.visible) {
++      continue;
++    }
++    OwlFreshSurfaceSnapshot snapshot;
++    snapshot.surface_id = record.stable_id;
++    snapshot.parent_surface_id = StableIDForKey(record.parent_surface_key);
++    snapshot.kind = record.kind;
++    snapshot.context_id = record.context_id;
++    CGRect snapshot_bounds = record.bounds;
++    const OwlFreshDevToolsDockLayout& layout = DevToolsDockLayoutStorage();
++    if (layout.active && record.kind == OwlFreshSurfaceKind::kWebView) {
++      snapshot_bounds = layout.web_bounds;
++    } else if (layout.active && record.kind == OwlFreshSurfaceKind::kDevTools &&
++               record.label == layout.label) {
++      snapshot_bounds = layout.devtools_bounds;
++    }
++    snapshot.bounds = NormalizedFrame(snapshot_bounds);
++    snapshot.scale = record.scale;
++    snapshot.z_index = record.z_index;
++    snapshot.visible = record.visible;
++    snapshot.menu_items = record.menu_items;
++    snapshot.native_menu_items = record.native_menu_items;
++    snapshot.selected_index = record.selected_index;
++    snapshot.item_font_size = record.item_font_size;
++    snapshot.right_aligned = record.right_aligned;
++    snapshot.file_picker_mode = record.file_picker_mode;
++    snapshot.file_picker_accept_types = record.file_picker_accept_types;
++    snapshot.file_picker_allows_multiple = record.file_picker_allows_multiple;
++    snapshot.file_picker_upload_folder = record.file_picker_upload_folder;
++    snapshot.label = record.label;
++    snapshots.push_back(std::move(snapshot));
++  }
++  std::stable_sort(snapshots.begin(), snapshots.end(),
++                   [](const OwlFreshSurfaceSnapshot& lhs,
++                      const OwlFreshSurfaceSnapshot& rhs) {
++                     if (lhs.z_index != rhs.z_index) {
++                       return lhs.z_index < rhs.z_index;
++                     }
++                     return lhs.surface_id < rhs.surface_id;
++                   });
++  return snapshots;
++}
++
++void OwlFreshDisplayPortalPresentCAContext(uint32_t ca_context_id,
++                                           CGRect frame) {
++  if (ca_context_id == 0) {
++    return;
++  }
++  g_legacy_context_id.store(ca_context_id, std::memory_order_relaxed);
++
++  [CATransaction begin];
++  [CATransaction setDisableActions:YES];
++  EnsurePortal(frame);
++
++  OwlFreshDisplayPortal& portal = Portal();
++  [portal.image_layer removeFromSuperlayer];
++  if (!portal.host_layer.superlayer) {
++    [portal.root_layer addSublayer:portal.host_layer];
++  }
++  portal.host_layer.contextId = ca_context_id;
++
++  [CATransaction commit];
++  [CATransaction flush];
++  g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++}
++
++void OwlFreshDisplayPortalPresentCAContextForSurface(
++    uint64_t surface_key,
++    uint64_t parent_surface_key,
++    OwlFreshSurfaceKind kind,
++    uint32_t ca_context_id,
++    CGRect bounds,
++    float scale,
++    bool visible,
++    const std::string& label) {
++  if (surface_key == 0 || ca_context_id == 0) {
++    return;
++  }
++
++  OwlFreshSurfaceRecord& record = EnsureSurfaceRecord(surface_key);
++  record.parent_surface_key = parent_surface_key;
++  record.kind = kind;
++  record.bounds = NormalizedFrame(bounds);
++  record.scale = scale <= 0 ? 1.0f : scale;
++  if (kind == OwlFreshSurfaceKind::kPopupWidget) {
++    record.z_index = 100;
++  } else if (kind == OwlFreshSurfaceKind::kDevTools) {
++    record.z_index = 50;
++  } else {
++    record.z_index = 0;
++  }
++  record.visible = visible;
++  record.menu_items.clear();
++  record.native_menu_items.clear();
++  record.selected_index = -1;
++  record.item_font_size = 0.0f;
++  record.right_aligned = false;
++  record.file_picker_mode.clear();
++  record.file_picker_accept_types.clear();
++  record.file_picker_allows_multiple = false;
++  record.file_picker_upload_folder = false;
++  record.label = label;
++
++  [CATransaction begin];
++  [CATransaction setDisableActions:YES];
++  EnsureSurfacePortal(record);
++  SizeLayer(record.root_layer, record.bounds);
++  SizeLayer(record.host_layer, record.bounds);
++  record.host_layer.contextId = ca_context_id;
++  record.context.layer = record.root_layer;
++  record.context_id = record.context.contextId;
++  [CATransaction commit];
++  [CATransaction flush];
++
++  g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++}
++
++void OwlFreshPublishNativeMenuSurface(
++    uint64_t surface_key,
++    uint64_t parent_surface_key,
++    CGRect bounds,
++    float scale,
++    const std::vector<std::string>& items,
++    const std::vector<OwlFreshNativeMenuItem>& native_items,
++    int32_t selected_index,
++    float item_font_size,
++    bool right_aligned,
++    const std::string& label) {
++  if (surface_key == 0 || items.empty()) {
++    return;
++  }
++  OwlFreshSurfaceRecord& record = EnsureSurfaceRecord(surface_key);
++  record.parent_surface_key = parent_surface_key;
++  record.kind = OwlFreshSurfaceKind::kNativeMenu;
++  record.context_id = 0;
++  record.context = nil;
++  record.root_layer = nil;
++  record.host_layer = nil;
++  record.bounds = NormalizedFrame(bounds);
++  record.scale = scale <= 0 ? 1.0f : scale;
++  record.z_index = 200;
++  record.visible = true;
++  record.menu_items = items;
++  record.native_menu_items = native_items;
++  record.selected_index = selected_index;
++  record.item_font_size = item_font_size;
++  record.right_aligned = right_aligned;
++  record.file_picker_mode.clear();
++  record.file_picker_accept_types.clear();
++  record.file_picker_allows_multiple = false;
++  record.file_picker_upload_folder = false;
++  record.label = label;
++  g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++}
++
++void OwlFreshPublishNativeFilePickerSurface(
++    uint64_t surface_key,
++    uint64_t parent_surface_key,
++    CGRect bounds,
++    float scale,
++    const std::string& mode,
++    const std::vector<std::string>& accept_types,
++    bool allows_multiple,
++    bool upload_folder,
++    const std::string& label) {
++  if (surface_key == 0) {
++    return;
++  }
++  OwlFreshSurfaceRecord& record = EnsureSurfaceRecord(surface_key);
++  record.parent_surface_key = parent_surface_key;
++  record.kind = OwlFreshSurfaceKind::kNativeFilePicker;
++  record.context_id = 0;
++  record.context = nil;
++  record.root_layer = nil;
++  record.host_layer = nil;
++  record.bounds = NormalizedFrame(bounds);
++  record.scale = scale <= 0 ? 1.0f : scale;
++  record.z_index = 250;
++  record.visible = true;
++  record.menu_items.clear();
++  record.native_menu_items.clear();
++  record.selected_index = -1;
++  record.item_font_size = 0.0f;
++  record.right_aligned = false;
++  record.file_picker_mode = mode;
++  record.file_picker_accept_types = accept_types;
++  record.file_picker_allows_multiple = allows_multiple;
++  record.file_picker_upload_folder = upload_folder;
++  record.label = label;
++  g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++}
++
++void OwlFreshMarkSurfaceHidden(uint64_t surface_key) {
++  auto it = SurfaceRecords().find(surface_key);
++  if (it == SurfaceRecords().end()) {
++    return;
++  }
++  it->second.visible = false;
++  g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++}
++
++void OwlFreshClearNativeMenuSurfaces() {
++  bool changed = false;
++  for (auto& [key, record] : SurfaceRecords()) {
++    if (record.kind == OwlFreshSurfaceKind::kNativeMenu && record.visible) {
++      record.visible = false;
++      changed = true;
++    }
++  }
++  if (changed) {
++    g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++  }
++}
++
++void OwlFreshClearNativeFilePickerSurfaces() {
++  bool changed = false;
++  for (auto& [key, record] : SurfaceRecords()) {
++    if (record.kind == OwlFreshSurfaceKind::kNativeFilePicker && record.visible) {
++      record.visible = false;
++      changed = true;
++    }
++  }
++  if (changed) {
++    g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++  }
++}
++
++void OwlFreshDisplayPortalPresentIOSurface(IOSurfaceRef io_surface,
++                                           const gfx::Size& dip_size,
++                                           float scale_factor) {
++  if (!io_surface) {
++    return;
++  }
++
++  CGRect frame = CGRectMake(0, 0, dip_size.width(), dip_size.height());
++  [CATransaction begin];
++  [CATransaction setDisableActions:YES];
++  EnsurePortal(frame);
++
++  OwlFreshDisplayPortal& portal = Portal();
++  [portal.host_layer removeFromSuperlayer];
++  if (!portal.image_layer.superlayer) {
++    [portal.root_layer addSublayer:portal.image_layer];
++  }
++
++  CIImage* ci_image = [CIImage imageWithIOSurface:io_surface];
++  CGRect image_rect = CGRectMake(0, 0, IOSurfaceGetWidth(io_surface),
++                                 IOSurfaceGetHeight(io_surface));
++  CGImageRef image =
++      [portal.image_context createCGImage:ci_image fromRect:image_rect];
++  if (image) {
++    portal.image_layer.contents = (__bridge id)image;
++    CGImageRelease(image);
++  }
++
++  portal.image_layer.contentsScale = scale_factor;
++
++  [CATransaction commit];
++  [CATransaction flush];
++  g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++}
++
++void OwlFreshDisplayPortalResize(CGRect frame) {
++  [CATransaction begin];
++  [CATransaction setDisableActions:YES];
++  EnsurePortal(frame);
++  OwlFreshDisplayPortal& portal = Portal();
++  uint32_t legacy_context_id =
++      g_legacy_context_id.load(std::memory_order_relaxed);
++  if (legacy_context_id != 0) {
++    if (!portal.host_layer.superlayer) {
++      [portal.root_layer addSublayer:portal.host_layer];
++    }
++    portal.host_layer.contextId = legacy_context_id;
++  }
++  [CATransaction commit];
++  [CATransaction flush];
++  g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++}
++
++void OwlFreshDisplayPortalPresentLayer(CALayer* layer, CGRect frame) {
++  if (!layer) {
++    return;
++  }
++
++  [CATransaction begin];
++  [CATransaction setDisableActions:YES];
++  EnsurePortalContext();
++  frame = NormalizedFrame(frame);
++  SizeLayer(layer, frame);
++
++  OwlFreshDisplayPortal& portal = Portal();
++  portal.context.layer = layer;
++
++  [CATransaction commit];
++  [CATransaction flush];
++  g_portal_generation.fetch_add(1, std::memory_order_relaxed);
++}
++
++}  // namespace ui
+diff --git a/ui/base/resource/resource_bundle_ios.mm b/ui/base/resource/resource_bundle_ios.mm
+index bd4b5cc84e..5322109a15 100644
+--- a/ui/base/resource/resource_bundle_ios.mm
++++ b/ui/base/resource/resource_bundle_ios.mm
+@@ -127,7 +127,7 @@
+           /*data=*/nullptr, target_size.width, target_size.height, 8,
+           target_size.width * 4, color_space.get(),
+           static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-              kCGImageByteOrder32Host));
++              kCGBitmapByteOrder32Host));
+
+       CGRect target_rect = CGRectMake(0, 0,
+                                       target_size.width, target_size.height);
+diff --git a/ui/display/mac/screen_utils_mac.mm b/ui/display/mac/screen_utils_mac.mm
+index eace771c4b..b2f5debb14 100644
+--- a/ui/display/mac/screen_utils_mac.mm
++++ b/ui/display/mac/screen_utils_mac.mm
+@@ -9,12 +9,8 @@
+ NSScreen* GetNSScreenFromDisplayID(CGDirectDisplayID display_id) {
+   for (NSScreen* screen in NSScreen.screens) {
+     CGDirectDisplayID screen_display_id = kCGNullDirectDisplay;
+-    if (@available(macOS 26, *)) {
+-      screen_display_id = screen.CGDirectDisplayID;
+-    } else {
+-      screen_display_id =
+-          [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
+-    }
++    screen_display_id =
++        [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
+     if (screen_display_id == display_id) {
+       return screen;
+     }
+diff --git a/ui/gfx/image/image_ios.mm b/ui/gfx/image/image_ios.mm
+index 676998a61f..cc7ec3d592 100644
+--- a/ui/gfx/image/image_ios.mm
++++ b/ui/gfx/image/image_ios.mm
+@@ -34,7 +34,7 @@
+       /*bitsPerComponent=*/8,
+       /*bytesPerRow=*/0, color_space.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+   CGContextSetRGBFillColor(context.get(), 1.0, 0.0, 0.0, 1.0);
+   CGContextFillRect(context.get(), CGRectMake(0.0, 0.0, 16, 16));
+   base::apple::ScopedCFTypeRef<CGImageRef> cg_image(
+diff --git a/ui/gfx/image/image_ios_unittest.mm b/ui/gfx/image/image_ios_unittest.mm
+index fe3ea09bf4..2756dd475a 100644
+--- a/ui/gfx/image/image_ios_unittest.mm
++++ b/ui/gfx/image/image_ios_unittest.mm
+@@ -33,7 +33,7 @@
+       nullptr, target_size.width, target_size.height, 8, target_size.width * 4,
+       color_space.get(),
+       static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-          kCGImageByteOrder32Host));
++          kCGBitmapByteOrder32Host));
+
+   CGRect target_rect = CGRectMake(0, 0,
+                                   target_size.width, target_size.height);
+diff --git a/ui/gfx/image/image_unittest_util_apple.mm b/ui/gfx/image/image_unittest_util_apple.mm
+index 4a6e3016b0..74e4544015 100644
+--- a/ui/gfx/image/image_unittest_util_apple.mm
++++ b/ui/gfx/image/image_unittest_util_apple.mm
+@@ -48,7 +48,7 @@ SkColor GetPlatformImageColor(PlatformImage image, int x, int y) {
+           /*bitsPerComponent=*/8,
+           /*bytesPerRow=*/4, color_space.get(),
+           static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) |
+-              kCGImageByteOrder32Host));
++              kCGBitmapByteOrder32Host));
+   CGContextDrawImage(bitmap_context.get(), CGRectMake(0, 0, 1, 1),
+                      pixel_image.get());
+
