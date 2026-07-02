@@ -96,3 +96,25 @@ import Testing
     #expect(mouseReset.lowerBound < mouseRestore.lowerBound)
     #expect(pasteReset.lowerBound < pasteRestore.lowerBound)
 }
+
+@Test func renderGridFullSnapshotResetsSemanticPromptStateOnBothScreensBeforePaint() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 7,
+        columns: 8,
+        rows: 1,
+        cursor: .init(row: 0, column: 4),
+        rowSpans: [.init(row: 0, column: 0, text: "cell")]
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    let content = try #require(vt.range(of: "cell"))
+    let semanticReset = "\u{1B}]133;D\u{1B}\\"
+    // One reset per screen: the cursor's OSC 133 semantic content is
+    // per-screen state, and RIS (which used to clear it) is no longer sent.
+    let primaryReset = try #require(vt.range(of: semanticReset))
+    let alternateReset = try #require(
+        vt.range(of: semanticReset, range: primaryReset.upperBound..<vt.endIndex)
+    )
+    #expect(alternateReset.upperBound <= content.lowerBound)
+}

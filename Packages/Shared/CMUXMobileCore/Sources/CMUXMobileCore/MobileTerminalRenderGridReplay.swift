@@ -84,6 +84,12 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         let defaultStyle = stylesByID[0] ?? .default
         let screenStateReset = "\u{1B}[1\"q\u{1B}[0\"q\u{1B}[999<u\u{1B}[0;1=u\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B"
         let hyperlinkStateReset = "\u{1B}]8;;\u{1B}\\"
+        // OSC 133;D returns the cursor's semantic content to `.output`, the
+        // fresh-screen default. RIS used to clear this; without it a reused
+        // surface still inside an OSC 133 prompt/input region would stamp that
+        // stale semantic state onto every replayed cell. Per-screen state, so
+        // emit it alongside each hyperlink reset (once per screen).
+        let semanticPromptReset = "\u{1B}]133;D\u{1B}\\"
 
         // Apply the whole restore inside a synchronized update so the client
         // never presents the empty reset/clear frame before the snapshot lands.
@@ -95,6 +101,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         bytes.append(Data("\u{1B}[?2026h\u{1B}[0$}\u{1B}[>m\u{1B}[r\u{1B}[?69l\u{1B}[?5W".utf8))
         appendStructuralScreenReset(to: &bytes)
         bytes.append(Data(hyperlinkStateReset.utf8))
+        bytes.append(Data(semanticPromptReset.utf8))
         bytes.append(Data(screenStateReset.utf8))
         appendDefaultModeBaseline(to: &bytes)
         appendPrePaintModeRestores(to: &bytes)
@@ -109,6 +116,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         bytes.append(Data("\u{1B}[H\u{1B}[2J\u{1B}[3J\u{1B}[?1049h".utf8))
 
         bytes.append(Data(hyperlinkStateReset.utf8))
+        bytes.append(Data(semanticPromptReset.utf8))
         bytes.append(Data(screenStateReset.utf8))
         bytes.append(sgrBytes(for: defaultStyle))
         bytes.append(Data("\u{1B}[H\u{1B}[2J\u{1B}[?1049l\u{1B}[H".utf8))
