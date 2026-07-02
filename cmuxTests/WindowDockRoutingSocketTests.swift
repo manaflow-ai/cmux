@@ -108,6 +108,16 @@ struct WindowDockRoutingSocketTests {
                 #expect(listResult["workspace_id"] as? String == windowId.uuidString)
                 #expect(surfaces.contains { $0["id"] as? String == dockSurfaceId.uuidString })
 
+                // A supplied-but-unresolvable selector fails closed instead of
+                // degrading to the focused-Dock fallback.
+                let unresolvedEnvelope = try v2Envelope(method: "browser.tab.list", params: [
+                    "workspace_id": AppDelegate.windowDockAliasWorkspaceId.uuidString,
+                    "surface_id": "",
+                ])
+                #expect(unresolvedEnvelope["ok"] as? Bool == false)
+                let unresolvedError = try #require(unresolvedEnvelope["error"] as? [String: Any])
+                #expect(unresolvedError["code"] as? String == "invalid_params")
+
                 let closeResult = try v2Result(
                     method: "surface.close",
                     params: ["workspace_id": AppDelegate.windowDockAliasWorkspaceId.uuidString]

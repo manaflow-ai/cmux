@@ -7697,7 +7697,10 @@ class TerminalController {
     /// v2UUID returns nil for both an absent param and a present-but-unresolvable handle (e.g. a
     /// stale `surface:2`/`workspace:99` ref), so a supplied target must not be treated as omitted
     /// and silently fall back to the focused/selected context. Returns nil when all are valid.
-    private func v2RejectUnresolvedHandles(_ params: [String: Any], _ keys: [String]) -> V2CallResult? {
+    // Internal (not private): the window-Dock browser resolvers in
+    // TerminalController+WindowDockBrowserRouting.swift apply the same
+    // supplied-but-unresolvable rejection before their Dock fallbacks.
+    func v2RejectUnresolvedHandles(_ params: [String: Any], _ keys: [String]) -> V2CallResult? {
         // Use v2HasNonNullParam (not v2String) for presence: v2String trims empties to nil, so an
         // empty/whitespace explicit handle would otherwise look absent and silently fall back.
         for key in keys where v2HasNonNullParam(params, key) && v2UUID(params, key) == nil {
