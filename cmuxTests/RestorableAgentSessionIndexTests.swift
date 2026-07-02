@@ -1119,6 +1119,18 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertTrue(detectedSnapshots.isEmpty, "A recoverable miss must beat cross-binding another cwd's session")
     }
 
+    func testBuiltInHermesRegistrationIsRegisteredWithStateDBSource() throws {
+        let hermes = CmuxVaultAgentRegistration.builtInHermes
+        XCTAssertEqual(hermes.id, "hermes-agent")
+        XCTAssertEqual(hermes.sessionIdSource, .stateDB)
+        XCTAssertEqual(hermes.defaultExecutable, "hermes")
+        XCTAssertTrue(hermes.detect.processNames.contains("hermes"))
+
+        // Present in the built-in registry so a bare relaunch process scan can rebind hermes panes.
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: FileManager.default.temporaryDirectory.path)
+        XCTAssertEqual(registry.registration(id: "hermes-agent")?.sessionIdSource, .stateDB)
+    }
+
     private enum HermesStateDBTestError: Error { case open, sql(String) }
 
     private static func writeHermesStateDB(

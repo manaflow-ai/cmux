@@ -1,7 +1,10 @@
 import Foundation
 import SQLite3
 
-/// Indexed Hermes sessions do not carry cwd metadata and cannot be filtered by working directory.
+/// A Hermes session indexed from `state.db`. The `sessions` table carries a `cwd` column, so
+/// callers can scope a lookup to a working directory (see
+/// ``HermesAgentIndex/loadSessions(needle:cwdFilter:offset:limit:stateDBPath:)`` and
+/// ``HermesAgentIndex/latestSessionID(cwd:stateDBPath:)``).
 public struct HermesAgentIndexedSession: Equatable, Sendable {
     public let sessionId: String
     public let source: String
@@ -82,7 +85,13 @@ public enum HermesAgentIndex {
             .appendingPathComponent("state.db")
     }
 
-    /// Loads Hermes sessions from state.db. Hermes does not store cwd metadata, so any non-nil cwdFilter returns no sessions and no errors.
+    /// Loads Hermes `cli`/`tui` sessions from state.db, newest first.
+    ///
+    /// When `cwdFilter` is non-nil, only sessions whose `cwd` column equals the filter are
+    /// returned. Matching is symlink-aware (the standardized path and its resolved form are both
+    /// accepted) because Hermes records `os.getcwd()` — which resolves symlinks — while cmux may
+    /// pass the logical launch directory. A row with a NULL/empty `cwd`, or a blank filter, never
+    /// matches. Pass `nil` to list every `cli`/`tui` session regardless of directory.
     public static func loadSessions(
         needle: String,
         cwdFilter: String?,
@@ -97,7 +106,8 @@ public enum HermesAgentIndex {
         guard !overflow else {
             return HermesAgentIndexResult(sessions: [], errors: [])
         }
-        guard cwdFilter == nil else {
+        let cwdCandidates = cwdFilter.map(cwdMatchCandidates(for:)) ?? []
+        if cwdFilter != nil, cwdCandidates.isEmpty {
             return HermesAgentIndexResult(sessions: [], errors: [])
         }
 
@@ -117,7 +127,7 @@ public enum HermesAgentIndex {
 
         do {
             return try withDatabase(snapshot.databaseURL.path) { db in
-                try loadSessions(db: db, needle: needle, offset: offset, limit: limit)
+                try loadSessions(db: db, needle: needle, cwdCandidates: cwdCandidates, offset: offset, limit: limit)
             }
         } catch {
             return HermesAgentIndexResult(
@@ -125,6 +135,44 @@ public enum HermesAgentIndex {
                 errors: ["Hermes Agent: cannot read state.db (\(errorDescription(error)))"]
             )
         }
+    }
+
+    /// Returns the id of the newest `cli`/`tui` session whose `cwd` matches `cwd`, or `nil` when
+    /// there is no match (including no `cwd` metadata, or a missing/unreadable `state.db`).
+    ///
+    /// Unlike ``loadSessions(needle:cwdFilter:offset:limit:stateDBPath:)`` this reads the live
+    /// `state.db` directly (read-only, WAL-safe) rather than copying it to a temp snapshot, so it
+    /// stays cheap on the process-scan auto-resume path where `state.db` can be large. Matching is
+    /// symlink-aware; because a wrong bind corrupts two sessions while a miss is recoverable, any
+    /// ambiguity or error resolves to `nil`.
+    public static func latestSessionID(
+        cwd: String,
+        stateDBPath: String = Self.defaultStateDBPath()
+    ) -> String? {
+        let cwdCandidates = cwdMatchCandidates(for: cwd)
+        guard !cwdCandidates.isEmpty,
+              FileManager.default.fileExists(atPath: stateDBPath) else {
+            return nil
+        }
+        let resolved = try? withDatabase(stateDBPath) { db -> String? in
+            try loadSessions(db: db, needle: "", cwdCandidates: cwdCandidates, offset: 0, limit: 1)
+                .sessions.first?.sessionId
+        }
+        return resolved ?? nil
+    }
+
+    /// The `cwd` values a stored session `cwd` may equal for `cwd` to be considered a match: the
+    /// standardized path and its symlink-resolved form. Empty for a blank input.
+    static func cwdMatchCandidates(for cwd: String) -> [String] {
+        let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let standardized = (trimmed as NSString).standardizingPath
+        let resolved = URL(fileURLWithPath: standardized).resolvingSymlinksInPath().path
+        var candidates: [String] = []
+        for candidate in [standardized, resolved] where !candidate.isEmpty && !candidates.contains(candidate) {
+            candidates.append(candidate)
+        }
+        return candidates
     }
 
     public static func loadTranscript(
@@ -146,6 +194,7 @@ public enum HermesAgentIndex {
     private static func loadSessions(
         db: OpaquePointer,
         needle: String,
+        cwdCandidates: [String],
         offset: Int,
         limit: Int
     ) throws -> HermesAgentIndexResult {
@@ -171,6 +220,11 @@ public enum HermesAgentIndex {
             LEFT JOIN messages m ON m.session_id = s.id
             WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
             """
+        // Bind order below MUST mirror the `?` order here: cwd candidates first, then needle.
+        if !cwdCandidates.isEmpty {
+            let placeholders = cwdCandidates.map { _ in "?" }.joined(separator: ", ")
+            sql += "\n  AND s.cwd IN (\(placeholders))"
+        }
         if hasNeedle {
             sql += """
                  AND (
@@ -203,13 +257,21 @@ public enum HermesAgentIndex {
         }
         defer { sqlite3_finalize(stmt) }
 
+        let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        var bindIndex: Int32 = 1
+        for candidate in cwdCandidates {
+            guard sqlite3_bind_text(stmt, bindIndex, candidate, -1, destructor) == SQLITE_OK else {
+                throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
+            }
+            bindIndex += 1
+        }
         if hasNeedle {
             let likePattern = "%\(trimmedNeedle)%"
-            let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-            for index in 1...5 {
-                guard sqlite3_bind_text(stmt, Int32(index), likePattern, -1, destructor) == SQLITE_OK else {
+            for _ in 0..<5 {
+                guard sqlite3_bind_text(stmt, bindIndex, likePattern, -1, destructor) == SQLITE_OK else {
                     throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
                 }
+                bindIndex += 1
             }
         }
 

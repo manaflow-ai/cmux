@@ -90,6 +90,19 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
+        // Memoize Hermes state.db lookups within a single scan so N same-(db, cwd) panes read once.
+        // The nested optional distinguishes "not looked up" (outer nil) from a cached miss
+        // (`.some(nil)`), so a genuine no-match is not re-queried per process.
+        var hermesSessionIDCache: [String: [String: String?]] = [:]
+        func hermesLatestSessionID(stateDBPath: String, cwd: String) -> String? {
+            if let cached = hermesSessionIDCache[stateDBPath]?[cwd] {
+                return cached
+            }
+            let resolvedSessionID = HermesAgentIndex.latestSessionID(cwd: cwd, stateDBPath: stateDBPath)
+            hermesSessionIDCache[stateDBPath, default: [:]][cwd] = resolvedSessionID
+            return resolvedSessionID
+        }
+
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
@@ -108,7 +121,9 @@ extension RestorableAgentSessionIndex {
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
-                      fileManager: fileManager
+                      cwd: cwd,
+                      fileManager: fileManager,
+                      stateDBSessionIDLookup: hermesLatestSessionID
                   ) else {
                 continue
             }
@@ -869,7 +884,9 @@ private extension CmuxVaultAgentSessionIDSource {
     func sessionIDResolution(
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        cwd: String?,
+        fileManager: FileManager,
+        stateDBSessionIDLookup: (_ stateDBPath: String, _ cwd: String) -> String?
     ) -> VaultAgentSessionIDResolution? {
         switch self {
         case .argvOption(let option):
@@ -898,6 +915,15 @@ private extension CmuxVaultAgentSessionIDSource {
                 return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
             }
             return nil
+        case .stateDB:
+            // Hermes mints its own id and rejects `--resume <unknown-id>`, so the id can only be
+            // read back from state.db, scoped to this pane's cwd. Multiple hermes panes/gateways
+            // share one state.db, so a directory-less or unmatched process records NO binding — a
+            // recoverable miss beats cross-binding two live sessions.
+            guard let cwd, !cwd.isEmpty else { return nil }
+            let stateDBPath = HermesAgentIndex.defaultStateDBPath(env: process.environment)
+            guard let sessionId = stateDBSessionIDLookup(stateDBPath, cwd) else { return nil }
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
         }
     }
 }

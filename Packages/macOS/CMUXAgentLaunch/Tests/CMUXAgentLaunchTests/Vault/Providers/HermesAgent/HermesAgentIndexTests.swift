@@ -41,8 +41,8 @@ struct HermesAgentIndexTests {
         #expect(result.sessions.first?.modified == Date(timeIntervalSince1970: 22))
     }
 
-    @Test("Searches messages and skips directory scoped requests")
-    func searchesMessagesAndSkipsDirectoryScopedRequests() throws {
+    @Test("Searches messages and excludes NULL-cwd rows from a directory-scoped request")
+    func searchesMessagesAndExcludesNullCwdFromScopedRequests() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
@@ -61,6 +61,7 @@ struct HermesAgentIndexTests {
             limit: 10,
             stateDBPath: dbURL.path
         )
+        // session-a has no cwd recorded, so a directory-scoped request must not return it.
         let scoped = HermesAgentIndex.loadSessions(
             needle: "",
             cwdFilter: "/tmp/repo",
@@ -130,6 +131,94 @@ struct HermesAgentIndexTests {
         #expect(scoped.errors.isEmpty)
         // Only repo-a sessions, newest first; the globally-newest repo-b session must NOT leak in.
         #expect(scoped.sessions.map(\.sessionId) == ["a-new", "a-old"])
+    }
+
+    @Test("latestSessionID returns the newest session for a cwd and never another cwd's session")
+    func latestSessionIDReturnsNewestSessionScopedToCwd() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+
+        let repoA = try makeDirectory(root.appendingPathComponent("repo-a", isDirectory: true))
+        let repoB = try makeDirectory(root.appendingPathComponent("repo-b", isDirectory: true))
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, cwd)
+        VALUES
+          ('a-old', 'cli', 'model-a', 10, '\(repoA)'),
+          ('a-new', 'tui', 'model-b', 50, '\(repoA)'),
+          ('b-newest-globally', 'cli', 'model-c', 999, '\(repoB)');
+        """)
+
+        #expect(HermesAgentIndex.latestSessionID(cwd: repoA, stateDBPath: dbURL.path) == "a-new")
+        #expect(HermesAgentIndex.latestSessionID(cwd: repoB, stateDBPath: dbURL.path) == "b-newest-globally")
+    }
+
+    @Test("latestSessionID and cwd filter exclude gateway sources and NULL-cwd rows")
+    func cwdScopedLookupExcludesGatewayAndNullCwd() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+
+        let repo = try makeDirectory(root.appendingPathComponent("repo", isDirectory: true))
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, cwd)
+        VALUES
+          ('gateway', 'telegram', 'model-a', 100, '\(repo)'),
+          ('null-cwd', 'cli', 'model-b', 90, NULL),
+          ('interactive', 'cli', 'model-c', 20, '\(repo)');
+        """)
+
+        // The gateway row (newest) and NULL-cwd row must be ignored; only the cli row for the cwd wins.
+        #expect(HermesAgentIndex.latestSessionID(cwd: repo, stateDBPath: dbURL.path) == "interactive")
+        let scoped = HermesAgentIndex.loadSessions(
+            needle: "",
+            cwdFilter: repo,
+            offset: 0,
+            limit: 10,
+            stateDBPath: dbURL.path
+        )
+        #expect(scoped.sessions.map(\.sessionId) == ["interactive"])
+    }
+
+    @Test("latestSessionID matches a cwd reached through a symlink")
+    func latestSessionIDMatchesThroughSymlink() throws {
+        let fm = FileManager.default
+        let root = try temporaryDirectory()
+        defer { try? fm.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+
+        let realDir = try makeDirectory(root.appendingPathComponent("real-repo", isDirectory: true), returningResolved: false)
+        let aliasURL = root.appendingPathComponent("alias-repo", isDirectory: false)
+        try fm.createSymbolicLink(at: aliasURL, withDestinationURL: URL(fileURLWithPath: realDir, isDirectory: true))
+        // Hermes stores os.getcwd(), i.e. the fully symlink-resolved path.
+        let storedCwd = URL(fileURLWithPath: realDir).resolvingSymlinksInPath().path
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, started_at, cwd)
+        VALUES ('through-symlink', 'cli', 10, '\(storedCwd)');
+        """)
+
+        // Querying via the symlinked path still resolves to the stored realpath.
+        #expect(HermesAgentIndex.latestSessionID(cwd: aliasURL.path, stateDBPath: dbURL.path) == "through-symlink")
+    }
+
+    @Test("latestSessionID returns nil for an unmatched cwd or a missing database")
+    func latestSessionIDReturnsNilForNoMatchOrMissingDB() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+        let repo = try makeDirectory(root.appendingPathComponent("repo", isDirectory: true))
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, started_at, cwd)
+        VALUES ('only', 'cli', 10, '\(repo)');
+        """)
+
+        #expect(HermesAgentIndex.latestSessionID(cwd: root.appendingPathComponent("other").path, stateDBPath: dbURL.path) == nil)
+        #expect(HermesAgentIndex.latestSessionID(cwd: repo, stateDBPath: root.appendingPathComponent("missing.db").path) == nil)
+        #expect(HermesAgentIndex.latestSessionID(cwd: "   ", stateDBPath: dbURL.path) == nil)
     }
 
     private func makeDirectory(_ url: URL, returningResolved: Bool = false) throws -> String {
