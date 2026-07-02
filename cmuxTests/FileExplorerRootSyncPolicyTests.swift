@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCore
 import Testing
 
 #if canImport(cmux_DEV)
@@ -91,5 +92,119 @@ struct RightSidebarKeyboardNavigationTests {
             isARepeat: false,
             keyCode: keyCode
         )
+    }
+}
+
+/// Regression coverage for
+/// https://github.com/manaflow-ai/cmux/issues/5471: the Files sidebar tree must
+/// re-root when the shell `cd`s inside a `cmux ssh` (remote SSH workspace)
+/// session. The remote shell reports its cwd over the relay
+/// (`surface.report_pwd`), which updates the focused remote terminal's workspace
+/// `currentDirectory`; the file-explorer root is derived from that value, so the
+/// tree follows the remote cwd.
+@MainActor
+@Suite("Right sidebar file tree cwd tracking")
+struct RightSidebarFileTreeRemoteRootTests {
+    @Test("Remote SSH file tree root follows the focused terminal's reported cwd")
+    func remoteSSHFileTreeRootFollowsReportedWorkingDirectory() throws {
+        let workspace = Workspace()
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "deploy@cmux-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64071,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh deploy@cmux-host"
+        )
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        #expect(workspace.isRemoteWorkspace)
+
+        let panelID = try #require(workspace.focusedTerminalPanel?.id)
+        #expect(workspace.isRemoteTerminalSurface(panelID))
+
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: nil,
+            target: "deploy@cmux-host"
+        )
+
+        // Initial cwd reported by the remote shell integration on first prompt.
+        #expect(workspace.updatePanelDirectory(panelId: panelID, directory: "/home/deploy"))
+        #expect(workspace.currentDirectory == "/home/deploy")
+        #expect(
+            Self.remoteRootPath(RightSidebarToolPanel.fileExplorerWorkspaceRoot(for: workspace))
+                == "/home/deploy"
+        )
+
+        // `cd /home/deploy/project` inside the SSH session — the tree must follow.
+        #expect(workspace.updatePanelDirectory(panelId: panelID, directory: "/home/deploy/project"))
+        #expect(workspace.currentDirectory == "/home/deploy/project")
+
+        let root = RightSidebarToolPanel.fileExplorerWorkspaceRoot(for: workspace)
+        #expect(Self.remoteRootPath(root) == "/home/deploy/project")
+        #expect(Self.isRemoteAvailable(root))
+
+        // Tear down the remote session so the test leaves no live connection
+        // state behind, matching the other WorkspaceRemoteConnectionTests.
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64071)
+    }
+
+    /// Guards the live re-root wiring behind issue #5471: a change to the
+    /// workspace's `currentDirectory` must flow through the panel's Combine
+    /// observation (`observeWorkspaceRootChanges` → `syncWorkspaceRoot` →
+    /// `applyWorkspaceRoot`) and actually re-root the backing `FileExplorerStore`,
+    /// not just the pure resolver above. A local workspace with real temp
+    /// directories keeps the store's listing deterministic; the remote-specific
+    /// root value is covered by the test above, and the observation/sync path is
+    /// shared by both transports.
+    @Test("Files sidebar panel re-roots its store when the workspace cwd changes")
+    func filesSidebarPanelReRootsStoreWhenWorkspaceDirectoryChanges() async throws {
+        let fileManager = FileManager.default
+        let dirA = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-cwd-a-\(UUID().uuidString)", isDirectory: true)
+        let dirB = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-cwd-b-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: dirA, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: dirB, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: dirA)
+            try? fileManager.removeItem(at: dirB)
+        }
+
+        let workspace = Workspace()
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminal = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true))
+        #expect(workspace.updatePanelDirectory(panelId: terminal.id, directory: dirA.path))
+        #expect(workspace.currentDirectory == dirA.path)
+
+        let sidebar = RightSidebarToolPanel(workspace: workspace, mode: .files)
+        let store = sidebar.fileExplorerStore
+        #expect(store.rootPath == dirA.path)
+
+        // Simulate a `cd`: the focused terminal reports a new working directory.
+        #expect(workspace.updatePanelDirectory(panelId: terminal.id, directory: dirB.path))
+
+        // The panel observes `$currentDirectory` and re-roots the store off the
+        // main run loop; wait for that to land.
+        for _ in 0..<100 {
+            if store.rootPath == dirB.path { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(store.rootPath == dirB.path)
+    }
+
+    private static func remoteRootPath(_ root: FileExplorerWorkspaceRoot) -> String? {
+        guard case let .remoteSSH(_, _, _, rootPath, _, _) = root else { return nil }
+        return rootPath
+    }
+
+    private static func isRemoteAvailable(_ root: FileExplorerWorkspaceRoot) -> Bool {
+        guard case let .remoteSSH(_, _, _, _, isAvailable, _) = root else { return false }
+        return isAvailable
     }
 }

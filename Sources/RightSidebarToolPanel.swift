@@ -184,39 +184,42 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
         store.showHiddenFiles = true
+        store.applyWorkspaceRoot(Self.fileExplorerWorkspaceRoot(for: workspace))
+    }
 
+    /// Resolves the Files/Find sidebar's file-explorer root for a workspace.
+    ///
+    /// Pure and side-effect free so the remote-SSH root↔cwd binding is unit
+    /// testable without a live ``FileExplorerStore`` or SSH transport. For a
+    /// remote `cmux ssh` workspace the root tracks ``Workspace/currentDirectory``,
+    /// which the focused remote terminal updates as the shell `cd`s, so the tree
+    /// follows directory changes inside the session
+    /// (https://github.com/manaflow-ai/cmux/issues/5471).
+    static func fileExplorerWorkspaceRoot(for workspace: Workspace) -> FileExplorerWorkspaceRoot {
         if workspace.isRemoteWorkspace {
             guard let configuration = workspace.remoteConfiguration,
                   configuration.transport == .ssh else {
-                store.applyWorkspaceRoot(.none)
-                return
+                return .none
             }
             let unavailableDetail = workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
-            store.applyWorkspaceRoot(
-                .remoteSSH(
-                    workspaceId: workspace.id,
-                    connection: SSHFileExplorerConnection(
-                        destination: configuration.destination,
-                        port: configuration.port,
-                        identityFile: configuration.identityFile,
-                        sshOptions: configuration.sshOptions
-                    ),
-                    displayTarget: configuration.displayTarget,
-                    rootPath: workspace.currentDirectory,
-                    isAvailable: workspace.remoteConnectionState == .connected,
-                    unavailableDetail: unavailableDetail
-                )
+            return .remoteSSH(
+                workspaceId: workspace.id,
+                connection: SSHFileExplorerConnection(
+                    destination: configuration.destination,
+                    port: configuration.port,
+                    identityFile: configuration.identityFile,
+                    sshOptions: configuration.sshOptions
+                ),
+                displayTarget: configuration.displayTarget,
+                rootPath: workspace.currentDirectory,
+                isAvailable: workspace.remoteConnectionState == .connected,
+                unavailableDetail: unavailableDetail
             )
-            return
         }
 
         let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !directory.isEmpty else {
-            store.applyWorkspaceRoot(.none)
-            return
-        }
-
-        store.applyWorkspaceRoot(.local(workspaceId: workspace.id, path: directory))
+        guard !directory.isEmpty else { return .none }
+        return .local(workspaceId: workspace.id, path: directory)
     }
 
     private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {
