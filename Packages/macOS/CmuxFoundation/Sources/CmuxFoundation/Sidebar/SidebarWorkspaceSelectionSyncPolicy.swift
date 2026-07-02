@@ -73,6 +73,37 @@ public struct SidebarWorkspaceSelectionSyncPolicy {
         return nil
     }
 
+    /// Workspace ids spanned by a shift-click range over the full workspace
+    /// order, dropping rows the sidebar currently hides.
+    ///
+    /// The range endpoints are indices into `liveWorkspaceIds` (the full list),
+    /// but the sidebar can render only a subset: a tag filter shows just the
+    /// matching workspaces, and collapsed groups hide their non-anchor members.
+    /// A range between two *visible* rows therefore walks over hidden ids in
+    /// between, so they must be excluded — otherwise a Shift-click would select
+    /// (and sync into the multi-selection) workspaces the user cannot see.
+    ///
+    /// Pass `visibleWorkspaceIds == nil` when no tag filter is active to keep
+    /// every id in range; `hiddenWorkspaceIds` carries collapsed-group members
+    /// that stay hidden regardless of any filter. Order follows the live list.
+    public func shiftClickRangeWorkspaceIds(
+        anchorIndex: Int,
+        clickedIndex: Int,
+        liveWorkspaceIds: [UUID],
+        visibleWorkspaceIds: Set<UUID>?,
+        hiddenWorkspaceIds: Set<UUID>
+    ) -> [UUID] {
+        let lower = min(anchorIndex, clickedIndex)
+        let upper = max(anchorIndex, clickedIndex)
+        guard lower >= 0, upper < liveWorkspaceIds.count else { return [] }
+        return liveWorkspaceIds[lower...upper].filter { id in
+            if let visibleWorkspaceIds, !visibleWorkspaceIds.contains(id) {
+                return false
+            }
+            return !hiddenWorkspaceIds.contains(id)
+        }
+    }
+
     /// Resulting anchor index after a workspace click (shift vs plain).
     public func anchorIndexAfterWorkspaceClick(
         isShiftClick: Bool,

@@ -10467,7 +10467,7 @@ struct VerticalTabsSidebar: View {
         }
 
         static func key(for tag: String) -> String {
-            tag.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            Workspace.customTagFoldingKey(tag)
         }
     }
 
@@ -12706,6 +12706,7 @@ struct VerticalTabsSidebar: View {
             notificationStore: notificationStore,
             tab: tab,
             index: index,
+            activeWorkspaceTagFilter: renderContext.activeWorkspaceTagFilter,
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
                 workspaceCount: renderContext.workspaceCount
@@ -13553,6 +13554,7 @@ struct TabItemView: View, Equatable {
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
+        lhs.activeWorkspaceTagFilter == rhs.activeWorkspaceTagFilter &&
         lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
         lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
@@ -13591,6 +13593,11 @@ struct TabItemView: View, Equatable {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
     let tab: Tab
     let index: Int
+    /// Active sidebar tag filter (nil when unfiltered). Used only by the
+    /// Shift-click range handler to drop hidden, non-matching workspaces from
+    /// the selection; it is compared in `==` so a filter change re-renders the
+    /// row (and refreshes its click closures) rather than acting on a stale value.
+    let activeWorkspaceTagFilter: String?
     let workspaceShortcutDigit: Int?
     let workspaceShortcutModifierSymbol: String
     let canCloseWorkspace: Bool
@@ -14952,13 +14959,10 @@ struct TabItemView: View, Equatable {
             : nil
 
         if isShift, let anchorIndex = shiftAnchorIndex {
-            let lower = min(anchorIndex, index)
-            let upper = max(anchorIndex, index)
-            // Filter out workspaces hidden inside collapsed groups so a
-            // Shift-click range never silently includes rows the user
-            // can't see (e.g. clicking a collapsed group's anchor and
-            // then Shift-clicking a row below would otherwise sweep
-            // every collapsed child between them).
+            // Rows hidden inside collapsed groups stay hidden regardless of any
+            // tag filter, so a Shift-click range must skip them (e.g. clicking a
+            // collapsed group's anchor then Shift-clicking a row below would
+            // otherwise sweep every collapsed child between them).
             let collapsedGroupIds: Set<UUID> = Set(
                 tabManager.workspaceGroups
                     .filter { $0.isCollapsed }
@@ -14967,14 +14971,30 @@ struct TabItemView: View, Equatable {
             let anchorIdsByGroup: [UUID: UUID] = Dictionary(
                 uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
             )
-            let rangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
-                if let gid = tab.groupId,
-                   collapsedGroupIds.contains(gid),
-                   anchorIdsByGroup[gid] != tab.id {
-                    return nil
+            let collapsedHiddenIds: Set<UUID> = Set(
+                tabManager.tabs.compactMap { tab -> UUID? in
+                    guard let gid = tab.groupId,
+                          collapsedGroupIds.contains(gid),
+                          anchorIdsByGroup[gid] != tab.id else { return nil }
+                    return tab.id
                 }
-                return tab.id
+            )
+            // When a tag filter is active the sidebar renders only matching
+            // workspaces; clamp the full-order range to that visible set so a
+            // Shift-click never selects a hidden, non-matching workspace (which
+            // would otherwise sync into the sidebar multi-selection).
+            let tagVisibleIds: Set<UUID>? = activeWorkspaceTagFilter.map { filterTag in
+                Set(tabManager.tabs.lazy
+                    .filter { Workspace.customTags($0.customTags, containMatchFor: filterTag) }
+                    .map(\.id))
             }
+            let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
+                anchorIndex: anchorIndex,
+                clickedIndex: index,
+                liveWorkspaceIds: workspaceIds,
+                visibleWorkspaceIds: tagVisibleIds,
+                hiddenWorkspaceIds: collapsedHiddenIds
+            )
             if isCommand {
                 selectedTabIds.formUnion(rangeIds)
             } else {

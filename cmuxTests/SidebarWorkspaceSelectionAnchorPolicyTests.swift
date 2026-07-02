@@ -117,4 +117,82 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
 
         #expect(nextAnchorIndex == 2)
     }
+
+    @MainActor
+    @Test
+    func shiftClickRangeExcludesTagFilterHiddenWorkspaces() {
+        // A(tagged), B(untagged, hidden by the filter), C(tagged). Filtering to
+        // the tag renders only A and C, so Shift-clicking A then C must select
+        // exactly [A, C] and never the hidden B between them.
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+
+        let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
+            anchorIndex: 0,
+            clickedIndex: 2,
+            liveWorkspaceIds: [a, b, c],
+            visibleWorkspaceIds: [a, c],
+            hiddenWorkspaceIds: []
+        )
+
+        #expect(rangeIds == [a, c])
+    }
+
+    @MainActor
+    @Test
+    func shiftClickRangeKeepsEveryIdWhenUnfiltered() {
+        // No tag filter (nil) and no collapsed rows: the range spans the full
+        // inclusive slice in live order.
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+
+        let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
+            anchorIndex: 2,
+            clickedIndex: 0,
+            liveWorkspaceIds: [a, b, c],
+            visibleWorkspaceIds: nil,
+            hiddenWorkspaceIds: []
+        )
+
+        #expect(rangeIds == [a, b, c])
+    }
+
+    @MainActor
+    @Test
+    func shiftClickRangeExcludesCollapsedGroupHiddenWorkspaces() {
+        // Collapsed-group members stay hidden regardless of any tag filter, so
+        // they are dropped from the range even when no filter is active.
+        let a = UUID()
+        let hidden = UUID()
+        let c = UUID()
+
+        let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
+            anchorIndex: 0,
+            clickedIndex: 2,
+            liveWorkspaceIds: [a, hidden, c],
+            visibleWorkspaceIds: nil,
+            hiddenWorkspaceIds: [hidden]
+        )
+
+        #expect(rangeIds == [a, c])
+    }
+
+    @MainActor
+    @Test
+    func shiftClickRangeReturnsEmptyForOutOfBoundsIndices() {
+        let a = UUID()
+        let b = UUID()
+
+        let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
+            anchorIndex: 0,
+            clickedIndex: 5,
+            liveWorkspaceIds: [a, b],
+            visibleWorkspaceIds: nil,
+            hiddenWorkspaceIds: []
+        )
+
+        #expect(rangeIds.isEmpty)
+    }
 }

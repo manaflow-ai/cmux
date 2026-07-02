@@ -37,6 +37,16 @@ import Testing
         #expect(normalized.first?.count == Workspace.maxCustomTagLength)
     }
 
+    @Test func customTagsMatchFilterCaseAndDiacriticInsensitively() {
+        // The sidebar tag filter and the Shift-click range clamp both match
+        // through this shared helper, so "In CI" must match a workspace tagged
+        // "in ci" while an unrelated tag does not.
+        #expect(Workspace.customTags(["in ci", "Ready"], containMatchFor: "In CI"))
+        #expect(Workspace.customTags(["café"], containMatchFor: "cafe"))
+        #expect(!Workspace.customTags(["Ready"], containMatchFor: "In CI"))
+        #expect(!Workspace.customTags([], containMatchFor: "In CI"))
+    }
+
     @Test func tabManagerAppliesTagsThroughSharedMutationPath() throws {
         let manager = TabManager()
         let first = try #require(manager.selectedWorkspace)

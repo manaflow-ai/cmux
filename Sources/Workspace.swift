@@ -4501,12 +4501,27 @@ final class Workspace: Identifiable, ObservableObject {
             if normalized.count > maxCustomTagLength {
                 normalized = String(normalized.prefix(maxCustomTagLength))
             }
-            let key = normalized.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            let key = Self.customTagFoldingKey(normalized)
             guard seenKeys.insert(key).inserted else { continue }
             normalizedTags.append(normalized)
         }
 
         return normalizedTags
+    }
+
+    /// Case- and diacritic-insensitive folding key for comparing custom tags.
+    /// The dedup in `normalizedCustomTags`, the sidebar tag projection, and the
+    /// Shift-click range clamp all fold through this one function so a tag
+    /// filter and the selection it drives agree on what "matches".
+    static func customTagFoldingKey(_ tag: String) -> String {
+        tag.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    /// Whether `tags` (after normalization) contain a tag matching `filterTag`
+    /// under the shared folding key.
+    static func customTags(_ tags: [String], containMatchFor filterTag: String) -> Bool {
+        let filterKey = customTagFoldingKey(filterTag)
+        return normalizedCustomTags(tags).contains { customTagFoldingKey($0) == filterKey }
     }
 
     static func customTags(fromEditingText text: String) -> [String] {
