@@ -60,5 +60,17 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// Remote host origin colors: tint each remote workspace's sidebar row and
+    /// tab with a stable per-host color (hashed from the host name into the
+    /// workspace palette, collisions taking the next color) so servers are easy
+    /// to tell apart and a given host shows the same color in every window. A
+    /// user's manual workspace color always wins. Defaults off; while off, remote
+    /// workspaces render with no origin tint.
+    public let remoteTmuxOriginColors = DefaultsKey<Bool>(
+        id: "remoteTmux.originColors.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.originColors.beta.enabled"
+    )
+
     public init() {}
 }
