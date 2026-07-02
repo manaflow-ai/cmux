@@ -25,7 +25,7 @@
 //   CMUX_CU_MAX_TREE    max AX-tree chars returned by computer_state (default 60000)
 
 import { spawn, execFile } from "node:child_process";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, rmSync } from "node:fs";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { homedir, tmpdir } from "node:os";
@@ -392,12 +392,19 @@ class AppServerSession {
 }
 
 let sessionPromise = null;
+// Synchronous handle to the live session so shutdown() can dispose the
+// app-server child without awaiting a promise.
+let currentSession = null;
 
 async function session() {
   if (!sessionPromise) {
-    sessionPromise = (async () => new AppServerSession(await resolveCodexBinary()))();
+    sessionPromise = (async () => {
+      currentSession = new AppServerSession(await resolveCodexBinary());
+      return currentSession;
+    })();
     sessionPromise.catch(() => {
       sessionPromise = null;
+      currentSession = null;
     });
   }
   return sessionPromise;
@@ -534,6 +541,11 @@ async function perceive(app) {
   return ok(content);
 }
 
+// Private capture dirs currently in flight, scrubbed synchronously on
+// shutdown so a client disconnect / signal during capture can't leave a
+// full-desktop PNG on disk.
+const activeCaptureDirs = new Set();
+
 async function desktopScreenshot(display) {
   if (
     !(await approveLocalCapability(
@@ -547,6 +559,11 @@ async function desktopScreenshot(display) {
   // the full-desktop PNG cannot be read or listed by another local user even
   // during the brief capture window.
   const dir = await mkdtemp(join(tmpdir(), "cmux-cu-shot-"));
+  // Register before capture so shutdown() can scrub it synchronously if the
+  // client disconnects / SIGINT lands while screencapture/readFile is still
+  // in flight (the async finally below would otherwise be bypassed by
+  // process.exit).
+  activeCaptureDirs.add(dir);
   const path = join(dir, "screenshot.png");
   const args = ["-x"];
   if (display != null) args.push("-D", String(display));
@@ -561,10 +578,8 @@ async function desktopScreenshot(display) {
         "Screen Recording permission for the terminal app; per-app capture via `app` does not."
     );
   } finally {
-    // Await deletion: this dir holds full-desktop pixels, and a client that
-    // closes the server right after receiving the image would let shutdown()
-    // exit the process before a fire-and-forget unlink ran, leaking it to tmp.
     await rm(dir, { recursive: true, force: true }).catch(() => {});
+    activeCaptureDirs.delete(dir);
   }
 }
 
@@ -990,10 +1005,19 @@ async function handleRequest(message) {
   }
 }
 
-async function shutdown() {
+function shutdown() {
+  // Synchronous scrub of any in-flight desktop-capture dirs before exit — the
+  // async finally in desktopScreenshot may not run once we exit the process.
+  for (const dir of activeCaptureDirs) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // best effort
+    }
+  }
+  activeCaptureDirs.clear();
   try {
-    const s = await Promise.race([sessionPromise, Promise.resolve(null)]);
-    s?.dispose();
+    if (currentSession) currentSession.dispose();
   } catch {
     // best effort
   }
