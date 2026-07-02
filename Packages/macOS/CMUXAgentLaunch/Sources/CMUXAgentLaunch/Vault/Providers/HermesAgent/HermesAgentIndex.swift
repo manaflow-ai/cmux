@@ -211,15 +211,25 @@ public enum HermesAgentIndex {
         // Bind only when the cwd has a single active session; 2+ rows is ambiguous → nil.
         var soleSessionID: String?
         var activeRowCount = 0
-        while sqlite3_step(stmt) == SQLITE_ROW {
+        var stepResult = sqlite3_step(stmt)
+        while stepResult == SQLITE_ROW {
             activeRowCount += 1
             if activeRowCount == 1 {
                 soleSessionID = sqliteText(stmt, 0)
             } else {
                 break
             }
+            stepResult = sqlite3_step(stmt)
         }
-        guard activeRowCount == 1, let sessionId = soleSessionID, !sessionId.isEmpty else {
+        // A single active row is trustworthy only if the scan actually completed (`SQLITE_DONE`). A
+        // transient `SQLITE_BUSY` or a schema/corruption error after the first row would otherwise look
+        // like a clean single result while a second active session went unread — resolve to nil so a
+        // partial read never risks binding the wrong conversation. (2+ rows already fails the count
+        // check as ambiguous.)
+        guard activeRowCount == 1,
+              stepResult == SQLITE_DONE,
+              let sessionId = soleSessionID,
+              !sessionId.isEmpty else {
             return nil
         }
         return sessionId
