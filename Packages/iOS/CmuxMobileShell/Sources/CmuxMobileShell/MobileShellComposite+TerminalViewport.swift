@@ -76,11 +76,22 @@ extension MobileShellComposite {
             let shouldRequestReplay = previousGrid.map { $0 != effectiveGrid } ?? true
             if shouldRequestReplay,
                hasTerminalOutputSink(surfaceID: surfaceID) {
-                let replayBarrierToken = currentTerminalReplayBarrierToken(
-                    surfaceID: surfaceID,
-                    prearmedToken: prearmedReplayBarrierToken
-                )
-                    ?? beginTerminalReplayBarrier(surfaceID: surfaceID)
+                let replayBarrierToken: UUID
+                if let prearmedToken = prearmedReplayBarrierToken,
+                   terminalReplayBarrierTokensBySurfaceID[surfaceID] == prearmedToken {
+                    // The pre-ACK barrier owns this resize; everything that
+                    // raced the acknowledgement was deferred against it.
+                    replayBarrierToken = prearmedToken
+                } else {
+                    // No prearmed barrier owns this resize (the reported grid
+                    // did not change, but the effective grid did). An
+                    // unrelated barrier's replay may already be in flight from
+                    // before the Mac applied the new grid; reusing its token
+                    // would dedupe the post-resize replay against that stale
+                    // request. Begin a fresh barrier so the resize always gets
+                    // its own authoritative replay.
+                    replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+                }
                 terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
                 MobileDebugLog.anchormux(
                     "terminal.output.viewport_resync surface=\(surfaceID) grid=\(effectiveGrid.columns)x\(effectiveGrid.rows)"
@@ -178,14 +189,6 @@ extension MobileShellComposite {
         }
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] = replayBarrierToken
         return replayBarrierToken
-    }
-
-    private func currentTerminalReplayBarrierToken(surfaceID: String, prearmedToken: UUID?) -> UUID? {
-        if let prearmedToken,
-           terminalReplayBarrierTokensBySurfaceID[surfaceID] == prearmedToken {
-            return prearmedToken
-        }
-        return terminalReplayBarrierTokensBySurfaceID[surfaceID]
     }
 
     private func finishPrearmedTerminalViewportBarrierWithoutResize(

@@ -608,6 +608,66 @@ import Testing
 }
 
 @MainActor
+@Test func terminalEffectiveGridChangeWithoutPrearmReplacesUnrelatedInFlightReplay() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "post-effective-resize-replay",
+    ])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
+
+    // A pipeline reset starts a replay that stays in flight (captured before
+    // the effective grid changes below).
+    await router.holdNextReplayResponses(count: 1)
+    store.terminalOutputNeedsReplay(surfaceID: surfaceID)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterBaseline + 1)
+
+    // The same natural report now acknowledges a different effective grid
+    // (another device's pin changed), so no barrier was prearmed. The resize
+    // must not dedupe its replay against the stale in-flight reset replay.
+    await router.setViewportEffectiveGrid(columns: 80, rows: 30)
+    let resizedGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    #expect(resizedGrid?.rows == 30)
+    let postResizeReplayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 2
+    )
+    #expect(
+        postResizeReplayRequested,
+        "an effective-grid change must request its own replay instead of reusing the stale in-flight one"
+    )
+    guard postResizeReplayRequested else {
+        await router.releaseAllHeld()
+        return
+    }
+
+    let replayChunk = try #require(await iterator.next())
+    #expect(String(data: replayChunk.data, encoding: .utf8) == "post-effective-resize-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+
+    // The superseded reset replay resolves afterwards and must be discarded.
+    await router.releaseAllHeld()
+    store.deliverTerminalBytes(Data("live-after-effective-resize".utf8), surfaceID: surfaceID)
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-effective-resize")
+}
+
+@MainActor
 @Test func terminalReplayRequestRejectsStaleBarrierToken() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
