@@ -20,6 +20,12 @@ enum AppshotCapturer {
     /// re-checked) and wedge every later appshot. Set process-wide via the
     /// system-wide AX element so every element's reads are bounded.
     private static let maxAccessibilityCallTimeout: Float = 1.0
+    /// Windows scanned when frame-matching the captured window. Each window costs
+    /// two AX reads (position + size), and a hostile app can report arbitrarily
+    /// many windows, so the scan is capped — realistic apps have far fewer. Past
+    /// this cap (or the walk deadline) the capture falls back to the focused
+    /// window rather than scan unboundedly.
+    private static let maxWindowsToScan = 64
     /// How many artifact files (PNGs + text dumps) to retain on disk. Appshots
     /// are sensitive window captures triggered by a repeated global hotkey, so
     /// the cache is bounded — older captures are evicted rather than left to
@@ -139,10 +145,17 @@ enum AppshotCapturer {
         AXUIElementSetMessagingTimeout(systemWide, maxAccessibilityCallTimeout)
         defer { AXUIElementSetMessagingTimeout(systemWide, 0) }
 
+        // One wall-clock budget for the ENTIRE capture: window resolution, the
+        // title read, and the node walk all share it, so a slow or hostile app
+        // (many windows and/or slow IPC) can't keep the capture — and
+        // `isCapturing` — pending well past the advertised budget. Each AX call
+        // is separately bounded by the process-wide messaging timeout above, so
+        // the worst-case overshoot is one in-flight call past the deadline.
+        let deadline = Date().addingTimeInterval(maxAccessibilityDuration)
         let app = AXUIElementCreateApplication(pid)
-        let root = resolveTargetWindow(app: app, matching: targetBounds) ?? app
+        let root = resolveTargetWindow(app: app, matching: targetBounds, deadline: deadline) ?? app
 
-        if axTitle.isEmpty,
+        if axTitle.isEmpty, Date() < deadline,
            let windowTitle = copyBoundedString(root, kAXTitleAttribute, limit: maxAccessibilityChars) {
             axTitle = windowTitle
         }
@@ -151,7 +164,6 @@ enum AppshotCapturer {
         var seen = Set<String>()
         var nodesVisited = 0
         var charCount = 0
-        let deadline = Date().addingTimeInterval(maxAccessibilityDuration)
         collectText(root, into: &pieces, seen: &seen, nodesVisited: &nodesVisited, charCount: &charCount, deadline: deadline)
         return pieces.joined(separator: "\n")
     }
@@ -176,11 +188,24 @@ enum AppshotCapturer {
     /// resized/closed mid-capture, a coordinate-space mismatch, or identical
     /// frames). The focused window is the most likely frontmost/captured window,
     /// so behavior never degrades below the previous version.
-    private static func resolveTargetWindow(app: AXUIElement, matching targetBounds: CGRect?) -> AXUIElement? {
+    private static func resolveTargetWindow(app: AXUIElement, matching targetBounds: CGRect?, deadline: Date) -> AXUIElement? {
         let windows = copyElements(app, kAXWindowsAttribute)
-        if let targetBounds, let windows,
-           let index = uniqueIndexOfFrame(matching: targetBounds, in: windows.map(axWindowFrame)) {
-            return windows[index]
+        if let targetBounds, let windows {
+            // Bound the frame scan by count AND by the shared deadline: each
+            // window costs two AX reads, and a hostile app can report arbitrarily
+            // many windows, so an unbounded scan could exhaust the capture budget
+            // before the walk even starts. Scanning a prefix keeps `frames`
+            // index-aligned with `windows`, so a match still selects the right
+            // element; a partial scan simply falls back to the focused window.
+            var frames: [CGRect?] = []
+            frames.reserveCapacity(min(windows.count, maxWindowsToScan))
+            for window in windows.prefix(maxWindowsToScan) {
+                guard Date() < deadline else { break }
+                frames.append(axWindowFrame(window))
+            }
+            if let index = uniqueIndexOfFrame(matching: targetBounds, in: frames) {
+                return windows[index]
+            }
         }
         if let focused = copyElement(app, kAXFocusedWindowAttribute) { return focused }
         return windows?.first
@@ -239,7 +264,9 @@ enum AppshotCapturer {
         nodesVisited += 1
 
         for attribute in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
-            guard charCount < maxAccessibilityChars else { return }
+            // Re-check the deadline before each AX read, not just once per node,
+            // so a node's several IPC calls can't overshoot the budget together.
+            guard charCount < maxAccessibilityChars, Date() < deadline else { return }
             // Fetch at most the remaining budget. For a text element's value this
             // uses a ranged AX read so a whole-document value is never materialized
             // in full on this hotkey path.
@@ -253,7 +280,8 @@ enum AppshotCapturer {
         // Fetch only as many children as the remaining node budget allows, so a
         // pathological node with thousands of children can't allocate a huge
         // array before the node cap/deadline stops traversal.
-        guard let children = copyChildren(element, max: maxAccessibilityNodes - nodesVisited) else { return }
+        guard Date() < deadline,
+              let children = copyChildren(element, max: maxAccessibilityNodes - nodesVisited) else { return }
         for child in children {
             collectText(child, into: &pieces, seen: &seen, nodesVisited: &nodesVisited, charCount: &charCount, deadline: deadline)
             if nodesVisited >= maxAccessibilityNodes || charCount >= maxAccessibilityChars || Date() >= deadline { return }
