@@ -27907,7 +27907,6 @@ export default CMUXSessionRestore;
                 lines.removeSubrange(index...endIndex)
             } else {
                 lines.remove(at: index)
-                index += 1
             }
         }
     }
