@@ -4597,8 +4597,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    // Internal (not private): the testing-support seams in
-    // AppDelegate+MainWindowTestingSupport.swift drive the same registration paths.
+    // Internal (not private): the test target's main-window testing seams
+    // (cmuxTests/AppDelegateMainWindowTestingSupport.swift, via @testable
+    // import) drive the same registration paths.
     func notifyMainWindowContextsDidChange() {
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
