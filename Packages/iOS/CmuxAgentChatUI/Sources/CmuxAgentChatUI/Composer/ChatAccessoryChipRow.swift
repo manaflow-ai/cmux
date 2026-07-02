@@ -1,10 +1,14 @@
 import CmuxAgentChat
 import CmuxMobileSupport
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 /// The horizontal shortcut row above the composer field.
 public struct ChatAccessoryChipRow: View {
-    private static let scrollEdgeFadeWidth: CGFloat = 34
+    private static let scrollLeadingHardStopWidth: CGFloat = 14
+    private static let scrollTrailingFadeWidth: CGFloat = 34
 
     private let agentState: ChatAgentState
     private let leadingShortcuts: [ChatAccessoryShortcut]
@@ -42,34 +46,56 @@ public struct ChatAccessoryChipRow: View {
     }
 
     public var body: some View {
+        HStack(spacing: 10) {
+            if !displayedLeadingShortcuts.isEmpty {
+                leadingShortcutCluster
+                    .layoutPriority(2)
+                    .zIndex(1)
+            }
+            if !displayedScrollableShortcuts.isEmpty {
+                scrollableShortcutStrip
+            }
+        }
+        .frame(height: 32)
+    }
+
+    private var leadingShortcutCluster: some View {
         HStack(spacing: 6) {
             ForEach(displayedLeadingShortcuts) { shortcut in
                 chip(shortcut)
             }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
 
-            if !displayedScrollableShortcuts.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(displayedScrollableShortcuts) { shortcut in
-                            chip(shortcut)
-                        }
-                    }
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
-                        scrollContentWidth = width
-                    }
-                    .padding(.horizontal, scrollNeedsEdgeFade ? Self.scrollEdgeFadeWidth : 2)
-                }
-                .frame(height: 32)
-                .layoutPriority(1)
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
-                    scrollViewportWidth = width
-                }
-                .mask {
-                    scrollEdgeFadeMask
+    private var scrollableShortcutStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(displayedScrollableShortcuts) { shortcut in
+                    chip(shortcut)
                 }
             }
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                scrollContentWidth = width
+            }
+            .padding(.leading, usesLeadingHardStop ? Self.scrollLeadingHardStopWidth : 0)
+            .padding(.trailing, scrollNeedsTrailingFade ? Self.scrollTrailingFadeWidth : 2)
         }
         .frame(height: 32)
+        .layoutPriority(1)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+            scrollViewportWidth = width
+        }
+        .compositingGroup()
+        .clipShape(.rect)
+        .mask {
+            scrollTrailingFadeMask
+        }
+        .overlay(alignment: .leading) {
+            if usesLeadingHardStop {
+                scrollLeadingHardStop
+            }
+        }
     }
 
     private var displayedLeadingShortcuts: [ChatAccessoryShortcut] {
@@ -96,8 +122,16 @@ public struct ChatAccessoryChipRow: View {
         !leadingShortcuts.isEmpty || !shortcuts.isEmpty
     }
 
-    private var scrollNeedsEdgeFade: Bool {
-        scrollContentWidth > scrollViewportWidth + 1
+    private var scrollNeedsTrailingFade: Bool {
+        scrollContentWidth + scrollLeadingInset + 2 > scrollViewportWidth + 1
+    }
+
+    private var usesLeadingHardStop: Bool {
+        !displayedLeadingShortcuts.isEmpty
+    }
+
+    private var scrollLeadingInset: CGFloat {
+        usesLeadingHardStop ? Self.scrollLeadingHardStopWidth : 0
     }
 
     private var stopShortcut: ChatAccessoryShortcut {
@@ -156,6 +190,7 @@ public struct ChatAccessoryChipRow: View {
                 .contentShape(.capsule)
         }
         .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
         .accessibilityIdentifier(shortcut.id)
         .accessibilityLabel(shortcut.accessibilityLabel ?? shortcut.title)
     }
@@ -170,17 +205,30 @@ public struct ChatAccessoryChipRow: View {
         }
     }
 
-    @ViewBuilder
-    private var scrollEdgeFadeMask: some View {
-        if scrollNeedsEdgeFade {
-            HStack(spacing: 0) {
-                LinearGradient(
-                    colors: [.clear, .black],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(width: Self.scrollEdgeFadeWidth)
+    private var scrollLeadingHardStop: some View {
+        Rectangle()
+            .fill(scrollHardStopFill)
+            .frame(width: Self.scrollLeadingHardStopWidth)
+            .overlay(alignment: .trailing) {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.16))
+                    .frame(width: 0.5)
+            }
+            .allowsHitTesting(false)
+    }
 
+    private var scrollHardStopFill: Color {
+        #if os(iOS)
+        Color(uiColor: .systemBackground)
+        #else
+        Color.black
+        #endif
+    }
+
+    @ViewBuilder
+    private var scrollTrailingFadeMask: some View {
+        if scrollNeedsTrailingFade {
+            HStack(spacing: 0) {
                 Rectangle()
                     .fill(.black)
 
@@ -189,7 +237,7 @@ public struct ChatAccessoryChipRow: View {
                     startPoint: .leading,
                     endPoint: .trailing
                 )
-                .frame(width: Self.scrollEdgeFadeWidth)
+                .frame(width: Self.scrollTrailingFadeWidth)
             }
         } else {
             Rectangle()
