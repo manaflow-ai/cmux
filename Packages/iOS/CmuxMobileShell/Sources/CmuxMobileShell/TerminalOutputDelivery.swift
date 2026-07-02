@@ -53,13 +53,32 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             frame.vtPatchBytes()
         }
     }
+
+    fileprivate mutating func appendBytes(from delivery: TerminalOutputDelivery) -> Bool {
+        guard replacementScope == nil,
+              delivery.replacementScope == nil,
+              viewportPolicy == delivery.viewportPolicy else {
+            return false
+        }
+        guard case .bytes(var bytes) = payload,
+              case .bytes(let nextBytes) = delivery.payload else {
+            return false
+        }
+        // Drop the enum's owner before append so Data can grow without copying the accumulated buffer.
+        payload = .bytes(Data())
+        bytes.append(nextBytes)
+        payload = .bytes(bytes)
+        return true
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.
 ///
-/// Raw byte chunks are nonreplaceable barriers. Render-grid chunks that repaint
-/// the whole viewport are replaceable while the iOS surface is still applying a
-/// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
+/// Raw byte chunks are nonreplaceable barriers, but contiguous raw chunks with
+/// the same viewport policy can be appended into one VT byte stream while
+/// backpressured. Render-grid chunks that repaint the whole viewport are
+/// replaceable while the iOS surface is still applying a prior chunk, so fast
+/// scroll gestures can skip obsolete intermediate frames.
 struct TerminalOutputDeliveryQueue: Sendable {
     private var inFlight = false
     private var pending: [TerminalOutputDelivery] = []
@@ -112,6 +131,10 @@ struct TerminalOutputDeliveryQueue: Sendable {
            lastIndex >= pendingHeadIndex,
            pending[lastIndex].replacementScope == replacementScope {
             pending[lastIndex] = delivery
+        } else if let lastIndex = pending.indices.last,
+                  lastIndex >= pendingHeadIndex,
+                  pending[lastIndex].appendBytes(from: delivery) {
+            return
         } else {
             pending.append(delivery)
         }

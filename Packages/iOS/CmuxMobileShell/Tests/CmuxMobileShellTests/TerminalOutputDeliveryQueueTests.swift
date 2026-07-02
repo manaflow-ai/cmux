@@ -789,21 +789,67 @@ private func waitForReplayRequestCount(
     #expect(queue.completeInFlight() == nil)
 }
 
-@Test func terminalOutputQueueDrainsRawFallbackBacklogInOrder() {
+@Test func terminalOutputQueueCoalescesContiguousRawBytesBehindBackpressure() throws {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
 
     #expect(queue.enqueue(inFlight) == inFlight)
     for index in 0..<128 {
-        let delivery = TerminalOutputDelivery(bytes: Data("raw-\(index)".utf8), replaceable: false)
+        let delivery = TerminalOutputDelivery(bytes: Data("raw-\(index)\n".utf8), replaceable: false)
         #expect(queue.enqueue(delivery) == nil)
     }
 
-    #expect(queue.pendingCount == 128)
-    for index in 0..<128 {
-        let expected = TerminalOutputDelivery(bytes: Data("raw-\(index)".utf8), replaceable: false)
-        #expect(queue.completeInFlight() == expected)
-    }
+    #expect(queue.pendingCount == 1)
+    let delivered = try #require(queue.completeInFlight())
+    let deliveredText = try #require(String(data: delivered.bytes, encoding: .utf8))
+    let expectedText = (0..<128).map { "raw-\($0)\n" }.joined()
+    #expect(deliveredText == expectedText)
+    #expect(queue.completeInFlight() == nil)
+    #expect(queue.isIdle)
+}
+
+@Test func terminalOutputQueueDoesNotCoalesceRawBytesAcrossViewportPolicyChanges() {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    let naturalBytes = TerminalOutputDelivery(
+        bytes: Data("natural".utf8),
+        replaceable: false,
+        viewportPolicy: .natural
+    )
+    let remoteGridBytes = TerminalOutputDelivery(
+        bytes: Data("remote".utf8),
+        replaceable: false,
+        viewportPolicy: .remoteGrid(columns: 16, rows: 4)
+    )
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(naturalBytes) == nil)
+    #expect(queue.enqueue(remoteGridBytes) == nil)
+
+    #expect(queue.pendingCount == 2)
+    #expect(queue.completeInFlight() == naturalBytes)
+    #expect(queue.completeInFlight() == remoteGridBytes)
+    #expect(queue.completeInFlight() == nil)
+}
+
+@Test func terminalOutputQueueDrainsMixedBacklogInOrderAcrossBarriers() {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    let firstRawBytes = TerminalOutputDelivery(bytes: Data("raw-a".utf8), replaceable: false)
+    let viewport = TerminalOutputDelivery(bytes: Data("viewport".utf8), replaceable: true)
+    let secondRawBytes = TerminalOutputDelivery(bytes: Data("raw-b".utf8), replaceable: false)
+    let thirdRawBytes = TerminalOutputDelivery(bytes: Data("raw-c".utf8), replaceable: false)
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(firstRawBytes) == nil)
+    #expect(queue.enqueue(viewport) == nil)
+    #expect(queue.enqueue(secondRawBytes) == nil)
+    #expect(queue.enqueue(thirdRawBytes) == nil)
+
+    #expect(queue.pendingCount == 3)
+    #expect(queue.completeInFlight() == firstRawBytes)
+    #expect(queue.completeInFlight() == viewport)
+    #expect(queue.completeInFlight()?.bytes == Data("raw-braw-c".utf8))
     #expect(queue.completeInFlight() == nil)
     #expect(queue.isIdle)
 }
