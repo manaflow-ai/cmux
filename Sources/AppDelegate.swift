@@ -2075,6 +2075,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
+        MainWindowScreenChangeRescue.shared.install()
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
@@ -3743,7 +3744,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return clampFrame(centered, within: visibleFrame, minWidth: minWidth, minHeight: minHeight)
     }
 
-    private nonisolated static func clampFrame(
+    // Internal (not private): MainWindowScreenRescueCore reuses this exact
+    // clamp so the live display-change rescue and session restore can never
+    // disagree on placement math.
+    nonisolated static func clampFrame(
         _ frame: CGRect,
         within visibleFrame: CGRect,
         minWidth: CGFloat,
@@ -3771,13 +3775,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
-    private nonisolated static func intersectionArea(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+    // Internal (not private): shared with MainWindowScreenRescueCore's
+    // target-display selection.
+    nonisolated static func intersectionArea(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
         let intersection = lhs.intersection(rhs)
         guard !intersection.isNull else { return 0 }
         return max(0, intersection.width) * max(0, intersection.height)
     }
 
-    private nonisolated static func distanceSquared(_ rect: CGRect, _ point: CGPoint) -> CGFloat {
+    // Internal (not private): shared with MainWindowScreenRescueCore's
+    // target-display selection.
+    nonisolated static func distanceSquared(_ rect: CGRect, _ point: CGPoint) -> CGFloat {
         let dx = rect.midX - point.x
         let dy = rect.midY - point.y
         return (dx * dx) + (dy * dy)
