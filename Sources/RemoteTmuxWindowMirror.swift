@@ -111,12 +111,8 @@ final class RemoteTmuxWindowMirror {
     /// Returns `true` once every pane surface is live and the size was applied (sent,
     /// or already current via the `lastClientSize` dedup); `false` while any surface
     /// has no live grid yet, so the caller should retry. Idempotent.
-    ///
-    /// `contentSizePoints` (the outer pixel area) is intentionally unused: sizing is
-    /// now derived from the rendered leaf grids, not the outer area. The parameter is
-    /// kept so the caller's resize-triggered call site is unchanged.
     @discardableResult
-    func updateClientSize(contentSizePoints: CGSize) -> Bool {
+    func updateClientSize() -> Bool {
         // Size tmux from the ACTUAL rendered leaf grids, summed through the layout
         // tree with tmux's 1-cell pane separators — NOT from the outer content area
         // divided by cell size. The outer/cell math counts the local SwiftUI split
@@ -125,7 +121,6 @@ final class RemoteTmuxWindowMirror {
         // misplaces the cursor in split panes. Reporting the real summed grid makes
         // tmux's per-pane width equal each surface's rendered width, so live %output
         // paints faithfully. Returns false (caller retries) until every leaf is live.
-        _ = contentSizePoints
         guard let grid = renderedLayoutGridCells(of: layout) else { return false }
         let cols = max(20, grid.cols)
         let rows = max(5, grid.rows)
@@ -155,9 +150,9 @@ final class RemoteTmuxWindowMirror {
     /// that window back into per-pane widths that match each surface — the invariant that
     /// keeps zsh's PROMPT_SP "%" filler from wrapping. Returns `nil` if `leafGrid`
     /// returns `nil` for any pane (its surface has no live grid yet), so the caller can
-    /// retry. Pure over `(node, leafGrid)` — no live-surface access — so it's unit
-    /// testable with stubbed leaf sizes.
-    static func summedGridCells(
+    /// retry. Pure over `(node, leafGrid)` — no live-surface access — so it's
+    /// `nonisolated` and unit testable with stubbed leaf sizes.
+    nonisolated static func summedGridCells(
         of node: RemoteTmuxLayoutNode,
         leafGrid: (Int) -> (cols: Int, rows: Int)?
     ) -> (cols: Int, rows: Int)? {
