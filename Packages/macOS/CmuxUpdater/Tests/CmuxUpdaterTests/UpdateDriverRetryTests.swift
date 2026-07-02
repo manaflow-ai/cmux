@@ -51,6 +51,40 @@ import Testing
         #expect(model.state == .checking(.init(cancel: {})))
     }
 
+    @Test func userCancelWhileRetryPillAwaitsReadinessReturnsToIdle() async {
+        let model = UpdateStateModel()
+        let actionDelegate = RecordingUpdateActionDelegate()
+        let driver = UpdateDriver(model: model, log: NullUpdateLog(), clock: ImmediateUpdateClock())
+        driver.actionDelegate = actionDelegate
+
+        // A transient CDN 504 schedules a retry. With the immediate clock the backoff fires at
+        // once and asks the controller to re-check, but the recording delegate never starts a real
+        // Sparkle check — so the pill stays parked in `.checking` with the driver's retry cancel
+        // closure, exactly as the real controller leaves it while waiting for `canCheckForUpdates`
+        // in `waitForReadinessThenCheck`.
+        driver.showUpdaterError(
+            Self.sparkleDownloadHTTPError(
+                statusCode: 504,
+                statusText: "gateway timed out",
+                urlString: "https://github.com/manaflow-ai/cmux/releases/download/v0.64.14/cmux-macos.dmg"
+            ),
+            acknowledgement: {}
+        )
+        await actionDelegate.waitForRetryRequests(atLeast: 1)
+
+        guard case let .checking(checking) = model.state else {
+            Issue.record("Expected the fired retry to leave the pill in .checking")
+            return
+        }
+
+        // Pressing Cancel on the still-checking retry pill must abort the retry and idle the pill.
+        // It must not no-op just because the retry-state preserve flag is set for the pending
+        // restart (the readiness-wait cancel regression, UpdateDriver.swift).
+        checking.cancel()
+
+        #expect(model.state == .idle)
+    }
+
     @Test func nonTransientDownload404SurfacesErrorWithoutRetry() {
         let model = UpdateStateModel()
         let actionDelegate = RecordingUpdateActionDelegate()
