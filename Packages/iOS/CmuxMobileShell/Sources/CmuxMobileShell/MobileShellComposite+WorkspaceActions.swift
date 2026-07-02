@@ -93,10 +93,10 @@ extension MobileShellComposite {
 
     /// Close a terminal surface on the Mac.
     ///
-    /// Foreground Mac rows are removed optimistically: the row disappears (and,
-    /// when it was the selected terminal, selection moves to its adjacent
-    /// neighbor) before the Mac responds. The local snapshot rolls back on send
-    /// failure or if no authoritative foreground refresh reconciles the close.
+    /// Sends the mutation to the Mac that owns the workspace, then re-syncs from
+    /// the authoritative workspace list. If the Mac rejects the close, for
+    /// example because the terminal became the workspace's last surface, the
+    /// refresh restores the row state on iOS.
     /// - Parameters:
     ///   - workspaceID: The workspace containing the terminal.
     ///   - terminalID: The terminal surface to close.
@@ -113,112 +113,14 @@ extension MobileShellComposite {
         // mutation that can only fail (the picker sheet also hides the delete
         // affordance at one row, this guards the API path).
         guard workspace.terminals.count > 1 else { return }
-        guard let removedIndex = workspace.terminals.firstIndex(where: { $0.id == terminalID }) else { return }
-        let removedTerminal = workspace.terminals[removedIndex]
         var params = workspaceMutationParams(id: workspaceID)
         params["surface_id"] = terminalID.rawValue
-        let target = workspaceMutationTarget(for: workspaceID)
-        guard let client = target.client else {
-            await refreshAfterWorkspaceMutation(target)
-            return
-        }
-        let rollbackSelectedTerminalID = selectedTerminalID
-        let canOptimisticallyRemove = target.isForeground
-        let optimisticMacKey = target.macDeviceID ?? workspace.macDeviceID ?? Self.foregroundAnonymousKey
-        if canOptimisticallyRemove {
-            removeTerminalRowOptimistically(
-                from: workspace,
-                terminalID: terminalID,
-                macKey: optimisticMacKey
-            )
-        }
-        let optimisticVersion = workspaceTopologyVersion
-        func rollbackOptimisticRemoval() {
-            guard canOptimisticallyRemove else { return }
-            restoreTerminalRowOptimistically(
-                removedTerminal,
-                at: removedIndex,
-                in: workspace,
-                macKey: optimisticMacKey,
-                selectedTerminalID: rollbackSelectedTerminalID
-            )
-        }
-        do {
-            let request = try MobileCoreRPCClient.requestData(
-                method: "terminal.close",
-                params: params
-            )
-            _ = try await client.sendRequest(request)
-        } catch {
-            rollbackOptimisticRemoval()
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            if target.isForeground {
-                markMacConnectionUnavailableIfNeeded(after: error)
-            }
-            mobileShellLog.error("workspace mutation failed action=terminal_close id=\(workspaceID.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
-            await refreshAfterWorkspaceMutation(target)
-            return
-        }
-        await refreshAfterWorkspaceMutation(target)
-        if canOptimisticallyRemove, workspaceTopologyVersion == optimisticVersion {
-            rollbackOptimisticRemoval()
-        }
-    }
-
-    private func restoreTerminalRowOptimistically(
-        _ terminal: MobileTerminalPreview,
-        at index: Int,
-        in workspace: MobileWorkspacePreview,
-        macKey: String,
-        selectedTerminalID: MobileTerminalPreview.ID?
-    ) {
-        guard workspaces.contains(where: {
-            $0.id == workspace.id && $0.rpcWorkspaceID == workspace.rpcWorkspaceID
-        }) else { return }
-        let remoteID = workspace.rpcWorkspaceID
-        guard var state = workspacesByMac[macKey],
-              let workspaceIndex = state.workspaces.firstIndex(where: { candidate in
-                  (candidate.remoteWorkspaceID ?? candidate.id) == remoteID
-              }) else { return }
-        var terminals = state.workspaces[workspaceIndex].terminals
-        guard !terminals.contains(where: { $0.id == terminal.id }) else {
-            self.selectedTerminalID = selectedTerminalID
-            return
-        }
-        terminals.insert(terminal, at: min(index, terminals.endIndex))
-        state.workspaces[workspaceIndex].terminals = terminals
-        workspacesByMac[macKey] = state
-        self.selectedTerminalID = selectedTerminalID
-    }
-
-    /// Drop `terminalID`'s row from the per-Mac source of truth and, when it was
-    /// the selected terminal, move selection to its adjacent neighbor (the next
-    /// row, else the previous one) before any network round trip. Purely local:
-    /// the caller's post-mutation re-sync snaps back to the Mac's authoritative
-    /// list, restoring the row if the close was rejected.
-    private func removeTerminalRowOptimistically(
-        from workspace: MobileWorkspacePreview,
-        terminalID: MobileTerminalPreview.ID,
-        macKey: String
-    ) {
-        if selectedTerminalID == terminalID,
-           let removedIndex = workspace.terminals.firstIndex(where: { $0.id == terminalID }) {
-            let followers = workspace.terminals[(removedIndex + 1)...]
-            let leaders = workspace.terminals[..<removedIndex].reversed()
-            if let neighbor = followers.first ?? leaders.first {
-                selectedTerminalID = neighbor.id
-            }
-        }
-        // Match by the Mac-local id (aggregation scopes the flat row ids, while
-        // the per-Mac entries keep original ids) plus terminal membership.
-        let remoteID = workspace.rpcWorkspaceID
-        guard var state = workspacesByMac[macKey],
-              let workspaceIndex = state.workspaces.firstIndex(where: { candidate in
-                  (candidate.remoteWorkspaceID ?? candidate.id) == remoteID
-                      && candidate.terminals.contains(where: { $0.id == terminalID })
-              }) else { return }
-        state.workspaces[workspaceIndex].terminals.removeAll { $0.id == terminalID }
-        workspacesByMac[macKey] = state
+        await sendWorkspaceMutation(
+            method: "terminal.close",
+            params: params,
+            id: workspaceID,
+            actionName: "terminal_close"
+        )
     }
 
     private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {

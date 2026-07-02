@@ -24,36 +24,8 @@ import Testing
         #expect(store.selectedTerminalID == terminalB)
     }
 
-    /// #7158's headline UX: the row disappears (and selection moves to the
-    /// neighbor) BEFORE the Mac responds — no laggy wait on the close + refresh
-    /// round trips. The router parks the terminal.close response so this state
-    /// is observed strictly pre-acknowledgement.
-    @Test func closeTerminalRemovesRowAndRepairsSelectionBeforeTheMacResponds() async throws {
-        let router = RoutingHostRouter()
-        let store = try await makeRoutingConnectedStore(router: router)
-        seedTerminalCloseWorkspace(on: store, supportsTerminalClose: true)
-        let workspaceID = MobileWorkspacePreview.ID(rawValue: RoutingHostRouter.workspaceID)
-        let terminalA = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA)
-        let terminalB = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalB)
-        store.selectedWorkspaceID = workspaceID
-        store.selectedTerminalID = terminalA
-        await router.setHoldFirstTerminalClose(true)
-
-        let close = Task { await store.closeTerminal(workspaceID: workspaceID, terminalID: terminalA) }
-        await router.awaitFirstTerminalCloseReached()
-
-        #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalB])
-        #expect(store.selectedTerminalID == terminalB)
-
-        await router.releaseFirstTerminalClose()
-        await close.value
-
-        #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalB])
-        #expect(store.selectedTerminalID == terminalB)
-    }
-
-    /// A rejected close must not desync the list (#6349 family): the optimistic
-    /// removal rolls back to the Mac's authoritative state on refresh.
+    /// A rejected close must not desync the list: the post-mutation refresh keeps
+    /// iOS on the Mac's authoritative state.
     @Test func closeTerminalRestoresRowWhenMacRejectsClose() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router)
@@ -73,8 +45,7 @@ import Testing
     }
 
     /// Closing a workspace's only terminal is not offered by the sheet and the
-    /// Mac rejects it anyway; the store must not even send the mutation (or
-    /// optimistically blank the workspace).
+    /// Mac rejects it anyway; the store must not even send the mutation.
     @Test func closeTerminalKeepsLastRemainingTerminal() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router)

@@ -52,10 +52,6 @@ actor RoutingHostRouter {
     private var firstPasteImageContinuation: CheckedContinuation<Void, Never>?
     private var firstPasteImageReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var rejectTerminalClose = false
-    private var holdFirstTerminalClose = false
-    private var firstTerminalCloseHeld = false
-    private var firstTerminalCloseContinuation: CheckedContinuation<Void, Never>?
-    private var firstTerminalCloseReachedWaiters: [CheckedContinuation<Void, Never>] = []
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
@@ -95,30 +91,9 @@ actor RoutingHostRouter {
     }
 
     /// Reject every terminal.close with an error frame, modeling a Mac that
-    /// refuses the close (e.g. the workspace's last surface). The authoritative
-    /// list keeps the terminal, so the optimistic removal must roll back.
+    /// refuses the close. The authoritative list keeps the terminal.
     func setRejectTerminalClose(_ reject: Bool) {
         rejectTerminalClose = reject
-    }
-
-    /// Park the FIRST terminal.close response until ``releaseFirstTerminalClose()``,
-    /// so a test can observe the optimistic row removal while the Mac has not
-    /// answered yet.
-    func setHoldFirstTerminalClose(_ hold: Bool) {
-        holdFirstTerminalClose = hold
-    }
-
-    /// Resolve when the first terminal.close request has arrived (and is parked).
-    func awaitFirstTerminalCloseReached() async {
-        if firstTerminalCloseHeld { return }
-        await withCheckedContinuation { firstTerminalCloseReachedWaiters.append($0) }
-    }
-
-    /// Release the parked first terminal.close so its response is sent.
-    func releaseFirstTerminalClose() {
-        let continuation = firstTerminalCloseContinuation
-        firstTerminalCloseContinuation = nil
-        continuation?.resume()
     }
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
@@ -209,15 +184,7 @@ actor RoutingHostRouter {
         case "terminal.close":
             let workspaceID = info.workspaceID ?? ""
             let surfaceID = info.surfaceID ?? ""
-            let index = terminalCloses.count
             terminalCloses.append((workspaceID: workspaceID, surfaceID: surfaceID))
-            if index == 0 && holdFirstTerminalClose {
-                firstTerminalCloseHeld = true
-                let reachedWaiters = firstTerminalCloseReachedWaiters
-                firstTerminalCloseReachedWaiters = []
-                for waiter in reachedWaiters { waiter.resume() }
-                await withCheckedContinuation { firstTerminalCloseContinuation = $0 }
-            }
             if rejectTerminalClose {
                 return try? Self.errorFrame(id: id, message: "terminal.close rejected")
             }
