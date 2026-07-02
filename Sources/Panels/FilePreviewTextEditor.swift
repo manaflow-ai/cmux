@@ -251,8 +251,17 @@ final class SavingTextView: NSTextView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        clearPendingShortcutChordPrefixes()
         applyFilePreviewTextEditorInsets()
         panel?.retryPendingFocus()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign {
+            clearPendingShortcutChordPrefixes()
+        }
+        return didResign
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -327,6 +336,11 @@ final class SavingTextView: NSTextView {
         let nextFont = GlobalFontMagnification.monospacedSystemFont(ofSize: previewFontSize, weight: .regular)
         font = nextFont
         typingAttributes[.font] = nextFont
+    }
+
+    private func clearPendingShortcutChordPrefixes() {
+        pendingSaveShortcutChordPrefix = nil
+        pendingPreviewFontZoomShortcutChordPrefix = nil
     }
 
     private func saveShortcutMatch(for event: NSEvent) -> Bool? {
