@@ -14042,7 +14042,21 @@ class TerminalController {
         reports = reports.filter { _, report in
             report.sticky || now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
         }
-        if let existingGeneration = reports[clientID]?.generation ?? mobileViewportGenerationsBySurfaceID[terminalPanel.id]?[clientID], generation.map({ existingGeneration > $0 }) ?? true { return nil }; if let generation { mobileViewportGenerationsBySurfaceID[terminalPanel.id, default: [:]][clientID] = generation }
+        // The generation fence orders only the dedicated viewport reports
+        // (which carry viewport_generation) against each other and against
+        // generation-carrying clears. Generationless piggybacks from
+        // terminal.input / terminal.paste / scroll / mobile.terminal.replay
+        // stay accepted: they ride live requests, so their dimensions are
+        // current by construction, and they remain the recovery path when a
+        // dedicated report fails or exhausts its retries. The separate fence
+        // map survives their overwrites, so a later stale dedicated report is
+        // still rejected.
+        if let generation {
+            if let existingGeneration = reports[clientID]?.generation
+                ?? mobileViewportGenerationsBySurfaceID[terminalPanel.id]?[clientID],
+               existingGeneration > generation { return nil }
+            mobileViewportGenerationsBySurfaceID[terminalPanel.id, default: [:]][clientID] = generation
+        }
         let reportIsSticky = sticky || (reports[clientID]?.sticky ?? false)
         reports[clientID] = MobileViewportReport(
             columns: columns,
