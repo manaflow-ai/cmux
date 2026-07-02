@@ -62,6 +62,14 @@ import Testing
         while process.isRunning, Date() < deadline {
             usleep(20_000)
         }
-        #expect(process.isRunning == false)
+        let stoppedByCancel = !process.isRunning
+        // Safety net: if SIGTERM were somehow ignored (heavy load, process-group edge
+        // cases, or a future cancel() regression), escalate to SIGKILL and reap the
+        // child before asserting so this test can never leak an orphaned `sleep`.
+        if process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+            process.waitUntilExit()
+        }
+        #expect(stoppedByCancel)
     }
 }
