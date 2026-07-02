@@ -205,36 +205,39 @@ class TerminalController {
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
     private nonisolated static let socketCommandSlowThresholdMs: Double = 500
 #endif
-    static var terminalProcessExitedMessage: String {
+    // The terminal-input message/error statics are nonisolated: pure,
+    // thread-safe bundle lookups, used by the v1 send bodies' off-main reply
+    // mapping (tranche E) as well as main-actor callers.
+    nonisolated static var terminalProcessExitedMessage: String {
         String(
             localized: "socket.terminal.processExited",
             defaultValue: "The terminal session has ended; reopen it or create a new terminal session."
         )
     }
 
-    static var terminalInputQueueFullMessage: String {
+    nonisolated static var terminalInputQueueFullMessage: String {
         String(
             localized: "socket.terminal.inputQueueFull",
             defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
         )
     }
 
-    static var terminalSurfaceUnavailableMessage: String {
+    nonisolated static var terminalSurfaceUnavailableMessage: String {
         String(
             localized: "socket.terminal.surfaceUnavailable",
             defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
         )
     }
 
-    private static var terminalProcessExitedSocketError: String {
+    private nonisolated static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
 
-    private static var terminalInputQueueFullSocketError: String {
+    private nonisolated static var terminalInputQueueFullSocketError: String {
         "ERROR: \(terminalInputQueueFullMessage)"
     }
 
-    private static var terminalSurfaceUnavailableSocketError: String {
+    private nonisolated static var terminalSurfaceUnavailableSocketError: String {
         "ERROR: \(terminalSurfaceUnavailableMessage)"
     }
 
@@ -1168,6 +1171,30 @@ class TerminalController {
                 return (true, listSurfaces(args))
             case "current_workspace":
                 return (true, currentWorkspace())
+            // The v1 send lane (tranche E): unescape/split/reply mapping run
+            // here on this worker thread around one narrow v2MainSync hop
+            // (resolve target + inject input + forceRefresh). All
+            // mainThreadCallable; the bodies are shared with the legacy
+            // processCommand dispatch.
+            case "send":
+                return (true, sendInput(args))
+            case "send_key":
+                return (true, sendKey(args))
+            case "send_surface":
+                return (true, sendInputToSurface(args))
+            case "send_key_surface":
+                return (true, sendKeyToSurface(args))
+            case "send_workspace":
+#if DEBUG
+                return (true, sendInputToWorkspace(args))
+#else
+                // send_workspace is DEBUG-only app-side (its processCommand
+                // case is compiled out); the policy lists it unconditionally,
+                // so mirror the Release main lane's legacy unknown-command
+                // reply instead of the internal-error backstop below (the
+                // debug.sidebar.simulate_drag precedent).
+                return (true, "ERROR: Unknown command 'send_workspace'. Use 'help' for available commands.")
+#endif
             default:
                 // The sidebar telemetry family: nonisolated coordinator bodies
                 // (parse/format on this worker thread, deferred mutations on
@@ -13295,101 +13322,171 @@ class TerminalController {
         }
     }
 
-    private func sendInput(_ text: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+    /// The shared v1 send hop outcome (tranche E of issue #5757): the hop
+    /// resolves the target and injects the input on the main actor; the reply
+    /// strings — including the localized terminal-input errors — are selected
+    /// off-main by each verb. Parse errors surface as cases so the hop can
+    /// keep the legacy evaluation order (the main-actor `tabManager` guard
+    /// BEFORE the usage/UUID errors).
+    private enum V1SendHopOutcome {
+        case tabManagerUnavailable
+        /// The precomputed parse failed (per-verb usage string off-main).
+        case parseError
+        /// send_workspace's workspace-id UUID parse failed.
+        case invalidWorkspaceID
+        case noFocusedTerminal
+        case surfaceNotFound
+        case workspaceNotFound
+        case noSelectedTerminalInWorkspace
+        /// The input was delivered or queued (both replied "OK").
+        case sent
+        case unknownKey
+        case inputQueueFull
+        case surfaceUnavailable
+        case processExited
+    }
 
-        var success = false
-        var error: String?
-        v2MainSync {
+    /// The legacy v1 escape-sequence unescaping (`\n` becomes `\r` — terminal
+    /// Enter sends CR), a pure transform run on the worker thread.
+    private nonisolated static func v1UnescapedSendText(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\\n", with: "\r")
+            .replacingOccurrences(of: "\\r", with: "\r")
+            .replacingOccurrences(of: "\\t", with: "\t")
+    }
+
+    /// Maps a terminal panel's text-send result to the shared hop outcome and
+    /// runs the legacy on-success forceRefresh (main actor).
+    private static func v1TextSendOutcome(
+        _ terminalPanel: TerminalPanel,
+        text: String,
+        refreshReason: String
+    ) -> V1SendHopOutcome {
+        switch terminalPanel.sendInputResult(text) {
+        case .sent:
+            terminalPanel.surface.forceRefresh(reason: refreshReason)
+            return .sent
+        case .queued:
+            return .sent
+        case .inputQueueFull:
+            return .inputQueueFull
+        case .surfaceUnavailable:
+            return .surfaceUnavailable
+        case .processExited:
+            return .processExited
+        }
+    }
+
+    /// Maps a terminal panel's named-key send result to the shared hop
+    /// outcome and runs the legacy on-success forceRefresh (main actor).
+    private static func v1KeySendOutcome(
+        _ terminalPanel: TerminalPanel,
+        keyName: String,
+        refreshReason: String
+    ) -> V1SendHopOutcome {
+        switch terminalPanel.sendNamedKeyResult(keyName) {
+        case .sent:
+            terminalPanel.surface.forceRefresh(reason: refreshReason)
+            return .sent
+        case .queued:
+            return .sent
+        case .unknownKey:
+            return .unknownKey
+        case .inputQueueFull:
+            return .inputQueueFull
+        case .surfaceUnavailable:
+            return .surfaceUnavailable
+        case .processExited:
+            return .processExited
+        }
+    }
+
+    /// `send` worker body (tranche E of issue #5757): the escape-sequence
+    /// unescaping runs on the calling socket-worker thread; the main-actor
+    /// `tabManager` guard, the focused-terminal resolution, and the input
+    /// injection + forceRefresh take one v2MainSync hop; the reply-string
+    /// mapping runs off-main. Shared by the worker lane and the legacy
+    /// processCommand dispatch (inline-collapsing hop).
+    private nonisolated func sendInput(_ text: String) -> String {
+        // Unescape common escape sequences
+        // Note: \n is converted to \r for terminal (Enter key sends \r)
+        let unescaped = Self.v1UnescapedSendText(text)
+        let outcome: V1SendHopOutcome = v2MainSync {
+            guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
                   let terminalPanel = tab.focusedTerminalPanel else {
-                error = "ERROR: No focused terminal"
-                return
+                return .noFocusedTerminal
             }
-
-            // Unescape common escape sequences
-            // Note: \n is converted to \r for terminal (Enter key sends \r)
-            let unescaped = text
-                .replacingOccurrences(of: "\\n", with: "\r")
-                .replacingOccurrences(of: "\\r", with: "\r")
-                .replacingOccurrences(of: "\\t", with: "\t")
-
-            switch terminalPanel.sendInputResult(unescaped) {
-            case .sent:
-                terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
-                success = true
-            case .queued:
-                success = true
-            case .inputQueueFull:
-                error = Self.terminalInputQueueFullSocketError
-                return
-            case .surfaceUnavailable:
-                error = Self.terminalSurfaceUnavailableSocketError
-                return
-            case .processExited:
-                error = Self.terminalProcessExitedSocketError
-                return
-            }
+            return Self.v1TextSendOutcome(
+                terminalPanel,
+                text: unescaped,
+                refreshReason: "terminalController.sendInput"
+            )
         }
-        if let error { return error }
-        return success ? "OK" : "ERROR: Failed to send input"
+        switch outcome {
+        case .tabManagerUnavailable: return "ERROR: TabManager not available"
+        case .noFocusedTerminal: return "ERROR: No focused terminal"
+        case .sent: return "OK"
+        case .inputQueueFull: return Self.terminalInputQueueFullSocketError
+        case .surfaceUnavailable: return Self.terminalSurfaceUnavailableSocketError
+        case .processExited: return Self.terminalProcessExitedSocketError
+        default: return "ERROR: Failed to send input"
+        }
     }
 
-    private func sendInputToWorkspace(_ args: String) -> String {
-        guard let tabManager else { return "ERROR: TabManager not available" }
+    /// `send_workspace` worker body (tranche E; DEBUG-only verb): the args
+    /// split, workspace-UUID parse, and unescaping run on the calling
+    /// socket-worker thread; the main-actor `tabManager` guard, the
+    /// cross-window workspace resolution, and the input injection +
+    /// forceRefresh take one v2MainSync hop (the parse errors are selected
+    /// inside it, after the guard, in the legacy order); the reply-string
+    /// mapping runs off-main. Shared by the worker lane and the legacy
+    /// processCommand dispatch (inline-collapsing hop).
+    private nonisolated func sendInputToWorkspace(_ args: String) -> String {
         let parts = args.split(separator: " ", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else { return "ERROR: Usage: send_workspace <workspace_id> <text>" }
-
-        let workspaceArg = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-        let text = parts[1]
-        guard let workspaceId = UUID(uuidString: workspaceArg) else {
-            return "ERROR: Invalid workspace ID"
+        let workspaceId: UUID?
+        let unescaped: String?
+        if parts.count == 2 {
+            workspaceId = UUID(uuidString: parts[0].trimmingCharacters(in: .whitespacesAndNewlines))
+            unescaped = Self.v1UnescapedSendText(parts[1])
+        } else {
+            workspaceId = nil
+            unescaped = nil
         }
 
-        var success = false
-        var error: String?
-        v2MainSync {
+        let outcome: V1SendHopOutcome = v2MainSync {
+            guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
+            guard let unescaped else { return .parseError }
+            guard let workspaceId else { return .invalidWorkspaceID }
             guard let targetManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
                 ?? (tabManager.tabs.contains(where: { $0.id == workspaceId }) ? tabManager : nil) else {
-                error = "ERROR: Workspace not found"
-                return
+                return .workspaceNotFound
             }
             guard let tab = targetManager.tabs.first(where: { $0.id == workspaceId }) else {
-                error = "ERROR: Workspace not found"
-                return
+                return .workspaceNotFound
             }
-
-            guard let terminalPanel = sendableWorkspaceTerminalPanel(in: tab) else {
-                error = "ERROR: No selected terminal in workspace"
-                return
+            guard let terminalPanel = self.sendableWorkspaceTerminalPanel(in: tab) else {
+                return .noSelectedTerminalInWorkspace
             }
-
-            let unescaped = text
-                .replacingOccurrences(of: "\\n", with: "\r")
-                .replacingOccurrences(of: "\\r", with: "\r")
-                .replacingOccurrences(of: "\\t", with: "\t")
-
-            switch terminalPanel.sendInputResult(unescaped) {
-            case .sent:
-                terminalPanel.surface.forceRefresh(reason: "terminalController.sendWorkspace")
-                success = true
-            case .queued:
-                success = true
-            case .inputQueueFull:
-                error = Self.terminalInputQueueFullSocketError
-                return
-            case .surfaceUnavailable:
-                error = Self.terminalSurfaceUnavailableSocketError
-                return
-            case .processExited:
-                error = Self.terminalProcessExitedSocketError
-                return
-            }
+            return Self.v1TextSendOutcome(
+                terminalPanel,
+                text: unescaped,
+                refreshReason: "terminalController.sendWorkspace"
+            )
         }
-
-        if let error { return error }
-        return success ? "OK" : "ERROR: Failed to send input"
+        switch outcome {
+        case .tabManagerUnavailable: return "ERROR: TabManager not available"
+        case .parseError: return "ERROR: Usage: send_workspace <workspace_id> <text>"
+        case .invalidWorkspaceID: return "ERROR: Invalid workspace ID"
+        case .workspaceNotFound: return "ERROR: Workspace not found"
+        case .noSelectedTerminalInWorkspace: return "ERROR: No selected terminal in workspace"
+        case .sent: return "OK"
+        case .inputQueueFull: return Self.terminalInputQueueFullSocketError
+        case .surfaceUnavailable: return Self.terminalSurfaceUnavailableSocketError
+        case .processExited: return Self.terminalProcessExitedSocketError
+        default: return "ERROR: Failed to send input"
+        }
     }
 
     private func sendableWorkspaceTerminalPanel(in workspace: Workspace) -> TerminalPanel? {
@@ -13430,115 +13527,116 @@ class TerminalController {
         return nil
     }
 
-    private func sendInputToSurface(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+    /// `send_surface` worker body (tranche E): the target/text split and
+    /// unescaping run on the calling socket-worker thread; the main-actor
+    /// `tabManager` guard, the target resolution (main-actor tab/panel maps),
+    /// and the input injection + forceRefresh take one v2MainSync hop (the
+    /// usage error is selected inside it, after the guard, in the legacy
+    /// order); the reply-string mapping runs off-main. Shared by the worker
+    /// lane and the legacy processCommand dispatch (inline-collapsing hop).
+    private nonisolated func sendInputToSurface(_ args: String) -> String {
         let parts = args.split(separator: " ", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else { return "ERROR: Usage: send_surface <id|idx> <text>" }
-
-        let target = parts[0]
-        let text = parts[1]
-
-        var success = false
-        var error: String?
-        v2MainSync {
-            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else {
-                error = "ERROR: Surface not found"
-                return
-            }
-            let unescaped = text
-                .replacingOccurrences(of: "\\n", with: "\r")
-                .replacingOccurrences(of: "\\r", with: "\r")
-                .replacingOccurrences(of: "\\t", with: "\t")
-
-            switch terminalPanel.sendInputResult(unescaped) {
-            case .sent:
-                terminalPanel.surface.forceRefresh(reason: "terminalController.sendSurface")
-                success = true
-            case .queued:
-                success = true
-            case .inputQueueFull:
-                error = Self.terminalInputQueueFullSocketError
-                return
-            case .surfaceUnavailable:
-                error = Self.terminalSurfaceUnavailableSocketError
-                return
-            case .processExited:
-                error = Self.terminalProcessExitedSocketError
-                return
-            }
+        let target: String?
+        let unescaped: String?
+        if parts.count == 2 {
+            target = parts[0]
+            unescaped = Self.v1UnescapedSendText(parts[1])
+        } else {
+            target = nil
+            unescaped = nil
         }
 
-        if let error { return error }
-        return success ? "OK" : "ERROR: Failed to send input"
+        let outcome: V1SendHopOutcome = v2MainSync {
+            guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
+            guard let target, let unescaped else { return .parseError }
+            guard let terminalPanel = self.resolveTerminalPanel(from: target, tabManager: tabManager) else {
+                return .surfaceNotFound
+            }
+            return Self.v1TextSendOutcome(
+                terminalPanel,
+                text: unescaped,
+                refreshReason: "terminalController.sendSurface"
+            )
+        }
+        switch outcome {
+        case .tabManagerUnavailable: return "ERROR: TabManager not available"
+        case .parseError: return "ERROR: Usage: send_surface <id|idx> <text>"
+        case .surfaceNotFound: return "ERROR: Surface not found"
+        case .sent: return "OK"
+        case .inputQueueFull: return Self.terminalInputQueueFullSocketError
+        case .surfaceUnavailable: return Self.terminalSurfaceUnavailableSocketError
+        case .processExited: return Self.terminalProcessExitedSocketError
+        default: return "ERROR: Failed to send input"
+        }
     }
 
-    private func sendKey(_ keyName: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-
-        var success = false
-        var error: String?
-        v2MainSync {
+    /// `send_key` worker body (tranche E): the main-actor `tabManager` guard,
+    /// the focused-terminal resolution, and the named-key injection +
+    /// forceRefresh take one v2MainSync hop (the key-name table lives inside
+    /// the panel's sendNamedKeyResult, so it stays in the hop); the
+    /// reply-string mapping runs off-main. Shared by the worker lane and the
+    /// legacy processCommand dispatch (inline-collapsing hop).
+    private nonisolated func sendKey(_ keyName: String) -> String {
+        let outcome: V1SendHopOutcome = v2MainSync {
+            guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
             guard let selectedId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == selectedId }),
                   let terminalPanel = tab.focusedTerminalPanel else {
-                error = "ERROR: No focused terminal"
-                return
+                return .noFocusedTerminal
             }
-
-            switch terminalPanel.sendNamedKeyResult(keyName) {
-            case .sent:
-                terminalPanel.surface.forceRefresh(reason: "terminalController.sendKey")
-                success = true
-            case .queued:
-                success = true
-            case .unknownKey:
-                error = "ERROR: Unknown key '\(keyName)'"
-            case .inputQueueFull:
-                error = Self.terminalInputQueueFullSocketError
-            case .surfaceUnavailable:
-                error = Self.terminalSurfaceUnavailableSocketError
-            case .processExited:
-                error = Self.terminalProcessExitedSocketError
-            }
+            return Self.v1KeySendOutcome(
+                terminalPanel,
+                keyName: keyName,
+                refreshReason: "terminalController.sendKey"
+            )
         }
-        if let error { return error }
-        return success ? "OK" : "ERROR: Failed to send key"
+        switch outcome {
+        case .tabManagerUnavailable: return "ERROR: TabManager not available"
+        case .noFocusedTerminal: return "ERROR: No focused terminal"
+        case .sent: return "OK"
+        case .unknownKey: return "ERROR: Unknown key '\(keyName)'"
+        case .inputQueueFull: return Self.terminalInputQueueFullSocketError
+        case .surfaceUnavailable: return Self.terminalSurfaceUnavailableSocketError
+        case .processExited: return Self.terminalProcessExitedSocketError
+        default: return "ERROR: Failed to send key"
+        }
     }
 
-    private func sendKeyToSurface(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+    /// `send_key_surface` worker body (tranche E): the target/key split runs
+    /// on the calling socket-worker thread; the main-actor `tabManager`
+    /// guard, the target resolution, and the named-key injection +
+    /// forceRefresh take one v2MainSync hop (the usage error is selected
+    /// inside it, after the guard, in the legacy order); the reply-string
+    /// mapping runs off-main. Shared by the worker lane and the legacy
+    /// processCommand dispatch (inline-collapsing hop).
+    private nonisolated func sendKeyToSurface(_ args: String) -> String {
         let parts = args.split(separator: " ", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else { return "ERROR: Usage: send_key_surface <id|idx> <key>" }
+        let target: String? = parts.count == 2 ? parts[0] : nil
+        let keyName: String? = parts.count == 2 ? parts[1] : nil
 
-        let target = parts[0]
-        let keyName = parts[1]
-
-        var success = false
-        var error: String?
-        v2MainSync {
-            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else {
-                error = "ERROR: Surface not found"
-                return
+        let outcome: V1SendHopOutcome = v2MainSync {
+            guard let tabManager = self.tabManager else { return .tabManagerUnavailable }
+            guard let target, let keyName else { return .parseError }
+            guard let terminalPanel = self.resolveTerminalPanel(from: target, tabManager: tabManager) else {
+                return .surfaceNotFound
             }
-            switch terminalPanel.sendNamedKeyResult(keyName) {
-            case .sent:
-                terminalPanel.surface.forceRefresh(reason: "terminalController.sendKeyToSurface")
-                success = true
-            case .queued:
-                success = true
-            case .unknownKey:
-                error = "ERROR: Unknown key '\(keyName)'"
-            case .inputQueueFull:
-                error = Self.terminalInputQueueFullSocketError
-            case .surfaceUnavailable:
-                error = Self.terminalSurfaceUnavailableSocketError
-            case .processExited:
-                error = Self.terminalProcessExitedSocketError
-            }
+            return Self.v1KeySendOutcome(
+                terminalPanel,
+                keyName: keyName,
+                refreshReason: "terminalController.sendKeyToSurface"
+            )
         }
-
-        if let error { return error }
-        return success ? "OK" : "ERROR: Failed to send key"
+        switch outcome {
+        case .tabManagerUnavailable: return "ERROR: TabManager not available"
+        case .parseError: return "ERROR: Usage: send_key_surface <id|idx> <key>"
+        case .surfaceNotFound: return "ERROR: Surface not found"
+        case .sent: return "OK"
+        case .unknownKey: return "ERROR: Unknown key '\(keyName ?? "")'"
+        case .inputQueueFull: return Self.terminalInputQueueFullSocketError
+        case .surfaceUnavailable: return Self.terminalSurfaceUnavailableSocketError
+        case .processExited: return Self.terminalProcessExitedSocketError
+        default: return "ERROR: Failed to send key"
+        }
     }
 
     // MARK: - Browser Panel Commands

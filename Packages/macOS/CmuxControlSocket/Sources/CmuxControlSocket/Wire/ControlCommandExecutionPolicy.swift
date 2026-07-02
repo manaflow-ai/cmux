@@ -247,6 +247,15 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "pane.surfaces",
         "system.identify",
         "system.tree",
+        // The v2 send lane (tranche E of issue #5757): text/key parsing and
+        // reply shaping run on the worker; the narrow hop resolves the target,
+        // injects the input on main (Ghostty surface input is main-bound
+        // AppKit/FFI), runs forceRefresh, and mints the success refs. The
+        // reply is load-bearing (queued/input_queue_full/process_exited drive
+        // caller retry), so the hop stays synchronous. Not focus-intent:
+        // sending input never activates or reselects anything.
+        "surface.send_text",
+        "surface.send_key",
     ]
 
     /// Socket-worker methods that are also safe to invoke from the main
@@ -289,6 +298,16 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "pane.surfaces",
         "system.identify",
         "system.tree",
+        // The v2 send lane (tranche E): one narrow, non-blocking hop each
+        // (resolve target + inject input + forceRefresh), so an inline
+        // main-thread run is exactly the legacy main-lane dispatch.
+        // surface.send_text is REQUIRED to be callable: the feed send-text
+        // path (AppDelegate.handleFeedRequestSendText) drives it through
+        // handleSocketLine on the main thread. surface.send_key shares the
+        // identical body shape, so an asymmetric policy would only invite
+        // drift.
+        "surface.send_text",
+        "surface.send_key",
     ]
 
     /// The v1 sidebar telemetry family, whose worker-lane bodies
@@ -371,16 +390,33 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "current_workspace",
     ]
 
+    /// The v1 terminal-send family (tranche E): nonisolated
+    /// `TerminalController` bodies whose escape-sequence unescaping, arg
+    /// splitting, and error-string mapping run on the worker around one
+    /// narrow v2MainSync hop (resolve target + inject input + forceRefresh).
+    /// `send_workspace` is DEBUG-only app-side; in Release its worker case
+    /// replies with the legacy unknown-command error (the
+    /// debug.sidebar.simulate_drag precedent). Internal (not private) so the
+    /// package tests can pin the exact set.
+    static let terminalSendV1Commands: Set<String> = [
+        "send",
+        "send_key",
+        "send_surface",
+        "send_key_surface",
+        "send_workspace",
+    ]
+
     /// v1 commands that run on the socket-worker thread instead of the main
     /// actor: `ping` (the dispatcher's former hard-coded fast path) plus the
-    /// sidebar telemetry, notification, terminal-read, and resolution-read
-    /// families. Internal (not private) so the package tests can pin the
-    /// exact set.
+    /// sidebar telemetry, notification, terminal-read, resolution-read, and
+    /// terminal-send families. Internal (not private) so the package tests
+    /// can pin the exact set.
     static let socketWorkerV1Commands: Set<String> =
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
             .union(terminalReadV1Commands)
             .union(resolutionReadV1Commands)
+            .union(terminalSendV1Commands)
             .union(["ping"])
 
     /// Worker-lane v1 commands that are also safe to invoke from the main
@@ -452,5 +488,15 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "list_workspaces",
         "list_surfaces",
         "current_workspace",
+        // The v1 sends (tranche E): one narrow, non-blocking hop each.
+        // send_workspace is REQUIRED to be callable: cmuxTests drive it
+        // through handleSocketLine on the main actor
+        // (TerminalAndGhosttyTests' daemon cold-send regression); the rest
+        // share the identical body shape.
+        "send",
+        "send_key",
+        "send_surface",
+        "send_key_surface",
+        "send_workspace",
     ]
 }

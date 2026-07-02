@@ -181,9 +181,11 @@ public protocol ControlSurfaceContext: AnyObject {
     /// The app-bundle-resolved localized terminal-input error strings, shared by
     /// `surface.send_text` and `surface.send_key`. The app resolves each
     /// `String(localized:)` so the package never binds them to the wrong bundle.
+    /// `nonisolated`: a pure, thread-safe bundle lookup, called by the
+    /// worker-lane send bodies' off-main reply shaping.
     ///
     /// - Returns: The input strings.
-    func controlSurfaceInputStrings() -> ControlSurfaceInputStrings
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings
 
     // MARK: - send_text / send_key
 

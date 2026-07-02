@@ -49,9 +49,12 @@ extension ControlCommandCoordinator {
         case "surface.resume.clear":
             return surfaceResumeClear(request.params)
         case "surface.send_text":
-            return surfaceSendText(request.params)
+            // Worker-lane sends (tranche E): the nonisolated bodies are shared
+            // with the socket dispatcher's worker lane; from this main-actor
+            // dispatch their hop collapses inline.
+            return surfaceSendText(request.params, context: context)
         case "surface.send_key":
-            return surfaceSendKey(request.params)
+            return surfaceSendKey(request.params, context: context)
         case "surface.report_tty": return surfaceReportTTY(request.params)
         case "surface.report_pwd": return surfaceReportPWD(request.params)
         case "surface.report_shell_state":

@@ -86,6 +86,30 @@ struct ControlCommandExecutionPolicyTests {
         }
     }
 
+    @Test func v2SendsRunOnTheWorkerAndAreMainThreadCallable() {
+        // Tranche E (issue #5757): one narrow hop each (resolve target +
+        // inject input + forceRefresh); parse and reply shaping on the
+        // worker. surface.send_text MUST stay callable — the feed send-text
+        // path (AppDelegate.handleFeedRequestSendText) drives it through
+        // handleSocketLine on the main thread; surface.send_key shares the
+        // identical non-blocking body shape.
+        #expect(ControlCommandExecutionPolicy(forMethod: "surface.send_text") == .socketWorker(mainThreadCallable: true))
+        #expect(ControlCommandExecutionPolicy(forMethod: "surface.send_key") == .socketWorker(mainThreadCallable: true))
+    }
+
+    @Test func v1SendsRunOnTheWorkerAndAreMainThreadCallable() {
+        // send_workspace MUST stay callable (TerminalAndGhosttyTests drives
+        // it through handleSocketLine on the main actor); the rest share the
+        // identical single-hop non-blocking body shape.
+        for command in [
+            "send", "send_key", "send_surface", "send_key_surface",
+            "send_workspace",
+        ] {
+            let policy = ControlCommandExecutionPolicy(forV1Command: command)
+            #expect(policy == .socketWorker(mainThreadCallable: true), "\(command)")
+        }
+    }
+
     @Test func onlyPureProbesAreMainThreadCallable() {
         #expect(ControlCommandExecutionPolicy(forMethod: "system.ping") == .socketWorker(mainThreadCallable: true))
         #expect(ControlCommandExecutionPolicy(forMethod: "system.capabilities") == .socketWorker(mainThreadCallable: true))
@@ -179,9 +203,9 @@ struct ControlCommandExecutionPolicyTests {
 
     @Test func v1CommandsDefaultToTheMainActor() {
         for command in [
-            "send", "send_key",
             "right_sidebar", "focus_surface",
             "sidebar_state", "reset_sidebar", "list_panes", "new_pane",
+            "new_workspace", "select_workspace", "close_workspace",
             "help", "",
             // The v2 namespace prefix rules (vm./remotes.) and v2 worker
             // method names must not leak into v1 classification.
@@ -243,8 +267,13 @@ struct ControlCommandExecutionPolicyTests {
             "list_surfaces", "current_workspace",
         ]
         #expect(ControlCommandExecutionPolicy.resolutionReadV1Commands == resolutionReads)
+        let sends: Set<String> = [
+            "send", "send_key", "send_surface", "send_key_surface",
+            "send_workspace",
+        ]
+        #expect(ControlCommandExecutionPolicy.terminalSendV1Commands == sends)
         let expectedWorker = telemetry.union(notification).union(terminalRead)
-            .union(resolutionReads).union(["ping"])
+            .union(resolutionReads).union(sends).union(["ping"])
         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
         // Every member except read_screen is deliberately main-thread
         // callable (deadlock-free inline: bus enqueues plus inline-collapsing

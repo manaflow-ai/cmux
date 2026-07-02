@@ -178,48 +178,129 @@ extension ControlCommandCoordinator {
 
     // MARK: - send_text / send_key
 
+    /// The pre-minted refs of a successful send's payload (minted inside the
+    /// hop in the payload's literal order: workspace, surface, window).
+    struct SurfaceSendRefs: Sendable {
+        let workspaceRef: JSONValue
+        let surfaceRef: JSONValue
+        let windowRef: JSONValue
+    }
+
+    /// The send hop outcome: the missing-param error (selected AFTER the
+    /// TabManager guard, matching the legacy order), or the send resolution
+    /// plus the success refs.
+    private enum SurfaceSendHopOutcome: Sendable {
+        case missingParam
+        case resolution(ControlSurfaceSendResolution, refs: SurfaceSendRefs?)
+    }
+
     /// `surface.send_text` — inject literal text into a terminal surface.
-    func surfaceSendText(_ params: [String: JSONValue]) -> ControlCallResult {
-        let routing = routingSelectors(params)
-        guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
+    ///
+    /// Worker-lane send (tranche E of issue #5757): text extraction runs on
+    /// the calling thread; routing resolution, the TabManager guard, the
+    /// missing-text check (kept AFTER the guard so multi-error requests keep
+    /// the legacy error precedence), the main-bound input injection +
+    /// forceRefresh witness, and the success-ref minting take ONE
+    /// `controlResolveOnMain` hop; reply shaping (localized error-string
+    /// selection) and encode run on the worker. The reply is load-bearing
+    /// (queued/input_queue_full/process_exited drive caller retry), so the
+    /// hop stays synchronous. mainThreadCallable: the feed send-text path
+    /// (AppDelegate.handleFeedRequestSendText) drives this verb through
+    /// handleSocketLine on the main thread, where the hop collapses inline.
+    nonisolated func surfaceSendText(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let context else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         // Legacy `params["text"] as? String` (no trim, no ref/UUID handling).
-        guard case .string(let text)? = params["text"] else {
-            return .err(code: "invalid_params", message: "Missing text", data: nil)
+        let text: String?
+        if case .string(let value)? = params["text"] {
+            text = value
+        } else {
+            text = nil
         }
-        let resolution = context?.controlSurfaceSendText(
-            routing: routing,
-            surfaceID: uuid(params, "surface_id"),
-            hasSurfaceIDParam: params["surface_id"] != nil,
-            text: text
-        ) ?? .tabManagerUnavailable
-        return surfaceSendResult(resolution)
+        let outcome: SurfaceSendHopOutcome = context.controlResolveOnMain { seam in
+            let routing = self.routingSelectors(params)
+            guard seam.controlSurfaceRoutingResolvesTabManager(routing: routing) else {
+                return .resolution(.tabManagerUnavailable, refs: nil)
+            }
+            guard let text else { return .missingParam }
+            let resolution = seam.controlSurfaceSendText(
+                routing: routing,
+                surfaceID: self.uuid(params, "surface_id"),
+                hasSurfaceIDParam: params["surface_id"] != nil,
+                text: text
+            )
+            return .resolution(resolution, refs: self.surfaceSendRefs(resolution))
+        }
+        switch outcome {
+        case .missingParam:
+            return .err(code: "invalid_params", message: "Missing text", data: nil)
+        case let .resolution(resolution, refs):
+            return surfaceSendResult(resolution, refs: refs, context: context)
+        }
     }
 
     /// `surface.send_key` — send a named key to a terminal surface.
-    func surfaceSendKey(_ params: [String: JSONValue]) -> ControlCallResult {
-        let routing = routingSelectors(params)
-        guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
+    /// Worker-lane send; same shape as ``surfaceSendText(_:context:)`` minus
+    /// the feed caller.
+    nonisolated func surfaceSendKey(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let context else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let key = string(params, "key") else {
-            return .err(code: "invalid_params", message: "Missing key", data: nil)
+        let key = string(params, "key")
+        let outcome: SurfaceSendHopOutcome = context.controlResolveOnMain { seam in
+            let routing = self.routingSelectors(params)
+            guard seam.controlSurfaceRoutingResolvesTabManager(routing: routing) else {
+                return .resolution(.tabManagerUnavailable, refs: nil)
+            }
+            guard let key else { return .missingParam }
+            let resolution = seam.controlSurfaceSendKey(
+                routing: routing,
+                surfaceID: self.uuid(params, "surface_id"),
+                hasSurfaceIDParam: params["surface_id"] != nil,
+                key: key
+            )
+            return .resolution(resolution, refs: self.surfaceSendRefs(resolution))
         }
-        let resolution = context?.controlSurfaceSendKey(
-            routing: routing,
-            surfaceID: uuid(params, "surface_id"),
-            hasSurfaceIDParam: params["surface_id"] != nil,
-            key: key
-        ) ?? .tabManagerUnavailable
-        return surfaceSendResult(resolution, key: key)
+        switch outcome {
+        case .missingParam:
+            return .err(code: "invalid_params", message: "Missing key", data: nil)
+        case let .resolution(resolution, refs):
+            return surfaceSendResult(resolution, refs: refs, key: key, context: context)
+        }
+    }
+
+    /// Mints the success payload's refs for a `.sent` resolution, inside the
+    /// hop, in the payload's literal order (workspace, surface, window); no
+    /// refs mint on error resolutions, exactly like the legacy in-payload
+    /// minting.
+    private func surfaceSendRefs(_ resolution: ControlSurfaceSendResolution) -> SurfaceSendRefs? {
+        guard case .sent(let windowID, let workspaceID, let surfaceID, _) = resolution else {
+            return nil
+        }
+        return SurfaceSendRefs(
+            workspaceRef: ref(.workspace, workspaceID),
+            surfaceRef: ref(.surface, surfaceID),
+            windowRef: ref(.window, windowID)
+        )
     }
 
     /// Shapes the shared send-text / send-key result, selecting the localized
     /// terminal-input error messages from the app-resolved strings.
-    private func surfaceSendResult(
+    /// `nonisolated`: runs on the worker over the Sendable resolution and the
+    /// hop's pre-minted success refs; the strings witness is a pure bundle
+    /// lookup.
+    private nonisolated func surfaceSendResult(
         _ resolution: ControlSurfaceSendResolution,
-        key: String? = nil
+        refs: SurfaceSendRefs?,
+        key: String? = nil,
+        context: (any ControlCommandContext)?
     ) -> ControlCallResult {
         let strings = context?.controlSurfaceInputStrings()
         switch resolution {
@@ -264,12 +345,12 @@ extension ControlCommandCoordinator {
         case .sent(let windowID, let workspaceID, let surfaceID, let queued):
             return .ok(.object([
                 "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
+                "workspace_ref": refs?.workspaceRef ?? .null,
                 "surface_id": .string(surfaceID.uuidString),
-                "surface_ref": ref(.surface, surfaceID),
+                "surface_ref": refs?.surfaceRef ?? .null,
                 "queued": .bool(queued),
                 "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
+                "window_ref": refs?.windowRef ?? .null,
             ]))
         }
     }

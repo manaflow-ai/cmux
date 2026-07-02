@@ -217,7 +217,7 @@ extension TerminalController {
 
     // MARK: - send_text / send_key
 
-    func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
         ControlSurfaceInputStrings(
             inputQueueFull: String(
                 localized: "socket.terminal.inputQueueFull",

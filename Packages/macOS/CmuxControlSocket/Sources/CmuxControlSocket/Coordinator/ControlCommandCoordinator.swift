@@ -91,9 +91,9 @@ public final class ControlCommandCoordinator {
 
     /// Runs one decoded request on the calling socket-worker thread if it is
     /// a coordinator-owned worker-lane method (the tranche-D resolution
-    /// reads); returns `nil` otherwise so the app-side worker dispatch can
-    /// fall through to its own cases (and finally to its loud
-    /// policy-without-handler backstop).
+    /// reads and the tranche-E sends); returns `nil` otherwise so the
+    /// app-side worker dispatch can fall through to its own cases (and
+    /// finally to its loud policy-without-handler backstop).
     ///
     /// Each body is `nonisolated`: pure parse and the JSON payload build/
     /// encode run on the calling thread, and every main-actor touch —
@@ -137,6 +137,10 @@ public final class ControlCommandCoordinator {
             return systemIdentify(request.params, context: context)
         case "system.tree":
             return systemTree(request.params, context: context)
+        case "surface.send_text":
+            return surfaceSendText(request.params, context: context)
+        case "surface.send_key":
+            return surfaceSendKey(request.params, context: context)
         default:
             return nil
         }
