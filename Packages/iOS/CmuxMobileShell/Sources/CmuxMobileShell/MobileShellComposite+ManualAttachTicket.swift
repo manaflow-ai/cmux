@@ -47,30 +47,42 @@ extension MobileShellComposite {
         attemptStartedAt: Date?
     ) async throws -> CmxAttachTicket {
         let directRoute = try Self.manualHostRoute(host: host, port: port)
-        let displayName = name.isEmpty ? host : name
-        if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
+        return try await manualRouteTicket(
+            displayName: name.isEmpty ? host : name,
+            route: directRoute,
+            syntheticMacDeviceID: "manual-\(host):\(port)",
+            attemptStartedAt: attemptStartedAt
+        )
+    }
+
+    /// Ticket for any stored/dialable route (host/port or iroh peer): mint via
+    /// the StackAuth-authenticated flow over the route itself when policy trusts
+    /// it, falling back to a synthetic ticket for hosts that lack
+    /// `mobile.attach_ticket.create` — exactly the manual-host behavior,
+    /// generalized so stored-Mac reconnect can dial iroh peer routes too.
+    func manualRouteTicket(
+        displayName: String,
+        route: CmxAttachRoute,
+        syntheticMacDeviceID: String,
+        attemptStartedAt: Date?
+    ) async throws -> CmxAttachTicket {
+        if MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
             do {
-                let ticket = try await requestManualAttachTicket(
-                    route: directRoute,
+                return try await requestManualAttachTicket(
+                    route: route,
                     displayName: displayName,
                     attemptStartedAt: attemptStartedAt
                 )
-                return ticket
             } catch {
                 guard Self.shouldFallbackToSyntheticManualTicket(after: error) else {
                     throw error
                 }
             }
-            return try syntheticManualHostTicket(
-                displayName: displayName,
-                macDeviceID: "manual-\(host):\(port)",
-                route: directRoute
-            )
         }
         return try syntheticManualHostTicket(
             displayName: displayName,
-            macDeviceID: "manual-\(host):\(port)",
-            route: directRoute
+            macDeviceID: syntheticMacDeviceID,
+            route: route
         )
     }
 

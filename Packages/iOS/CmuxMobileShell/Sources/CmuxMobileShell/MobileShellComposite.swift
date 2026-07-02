@@ -1539,18 +1539,49 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
 
-        let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
-        activeRoute = directRoute
+        guard let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port) else {
+            // Unreachable in practice: host and port were both validated above,
+            // and route construction only rejects an empty host or invalid port.
+            connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
+            connectionErrorGuidance = nil
+            connectionState = .disconnected
+            macConnectionStatus = .unavailable
+            clearRemoteConnectionContext()
+            return
+        }
+        await connectManualRoute(
+            displayName: trimmedName.isEmpty ? normalizedHost : trimmedName,
+            route: directRoute,
+            syntheticMacDeviceID: "manual-\(normalizedHost):\(port)",
+            pairedMacDeviceID: pairedMacDeviceID,
+            recordsPairingAttempt: recordsPairingAttempt,
+            ifStillCurrent: ifStillCurrent
+        )
+    }
+
+    /// The route-generic connect core shared by the manual-host flow and the
+    /// stored-Mac reconnect: mint a ticket over `route` (StackAuth mint with
+    /// synthetic fallback), then attach. Taking a full ``CmxAttachRoute`` is
+    /// what lets the stored-Mac auto-connect dial an iroh peer route — a
+    /// cmuxRelay Mac publishes no host/port route at all.
+    private func connectManualRoute(
+        displayName: String,
+        route: CmxAttachRoute,
+        syntheticMacDeviceID: String,
+        pairedMacDeviceID: String? = nil,
+        recordsPairingAttempt: Bool,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async {
+        activeRoute = route
         let attemptID = recordsPairingAttempt ? beginPairingAttempt(method: "manual") : beginPairingValidationAttempt()
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
-        let manualRoutes = directRoute.map { [$0] } ?? []
-        guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: manualRoutes) == .proceed else { return }
+        guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: [route]) == .proceed else { return }
         do {
-            let ticket = try await manualHostTicket(
-                name: trimmedName,
-                host: normalizedHost,
-                port: port,
+            let ticket = try await manualRouteTicket(
+                displayName: displayName,
+                route: route,
+                syntheticMacDeviceID: syntheticMacDeviceID,
                 attemptStartedAt: pairingAttemptStartedAt
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
@@ -1575,14 +1606,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearRemoteConnectionContext()
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return }
-            mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
+            mobileShellLog.error("manual route pairing failed: \(String(describing: error), privacy: .private)")
             // A definitive auth failure (expired/invalid token after the
             // refresh-then-retry in the RPC layer already gave up) must drive the
             // re-auth prompt, not the generic "could not connect / Retry" banner.
             if disconnectForAuthorizationFailureIfNeeded(error) {
                 return
             }
-            let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
+            let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? route)
             applyPairingFailure(category, phase: "connect")
             connectionState = .disconnected
             macConnectionStatus = .unavailable
@@ -1625,8 +1656,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         guard await isScopeCurrent(scope) else { finishStoredMacReconnectAttempt(generation: generation); return false }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        func reachableRoute(_ mac: MobilePairedMac) -> (String, Int)? {
-            Self.firstReconnectHostPortRoute(
+        func reachableRoute(_ mac: MobilePairedMac) -> CmxAttachRoute? {
+            Self.firstReconnectRoute(
                 mac.routes,
                 supportedKinds: supportedKinds,
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
@@ -1707,14 +1738,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for mac in candidates {
             guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope),
-                  let (host, port) = reachableRoute(mac) else { break }
+                  let route = reachableRoute(mac) else { break }
             let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
             guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope), !latestForgottenIDs.contains(mac.macDeviceID) else { break }
             // Best-effort registry refresh for this Mac in the background.
             refreshRoutesFromRegistry(for: mac, scope: scope)
-            await connectStoredMacHost(
-                name: mac.displayName ?? host, host: host, port: port,
-                pairedMacDeviceID: mac.macDeviceID)
+            if case let .hostPort(host, port) = route.endpoint {
+                await connectStoredMacHost(
+                    name: mac.displayName ?? host, host: host, port: port,
+                    pairedMacDeviceID: mac.macDeviceID)
+            } else {
+                // iroh peer route (cmuxRelay Macs publish only this): mint + attach
+                // over the stored route directly via the shared route core.
+                await connectManualRoute(
+                    displayName: mac.displayName ?? mac.macDeviceID,
+                    route: route,
+                    syntheticMacDeviceID: mac.macDeviceID,
+                    pairedMacDeviceID: mac.macDeviceID,
+                    recordsPairingAttempt: false)
+            }
             if connectionState == .connected { break }
         }
         restoringDeadline.cancel()
@@ -2749,6 +2791,46 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return firstHostPort(where: { _ in true })
     }
 
+    /// The first reachable stored route to a Mac for auto-reconnect, as a full
+    /// ``CmxAttachRoute``. Host/port routes keep the exact
+    /// ``firstReconnectHostPortRoute`` preference order (unchanged behavior for
+    /// Tailscale Macs); when a Mac has NO dialable host/port route, this falls
+    /// back to its first supported Stack-auth-trusted peer route (iroh).
+    ///
+    /// The fallback is what makes cmuxRelay Macs auto-connect at all: in that
+    /// mode the Mac publishes ONLY an iroh peer route (no host/port), so the
+    /// host/port-only selection returned nil, no candidate was dialed, and the
+    /// phone sat disconnected until the user re-paired. The stored iroh route
+    /// came from a real prior pairing (same trust model as a stored Tailscale
+    /// host/port), and its EndpointId is Keychain-stable on the Mac, so it
+    /// stays dialable across Mac relaunches.
+    static func firstReconnectRoute(
+        _ routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool = false
+    ) -> CmxAttachRoute? {
+        let supported = Set(supportedKinds)
+        let ordered = routes.sorted(by: Self.routeSortsBefore)
+        if let (host, port) = firstReconnectHostPortRoute(
+            routes, supportedKinds: supportedKinds, preferNonLoopback: preferNonLoopback
+        ) {
+            // Return the actual stored route (kind/priority intact), matched by
+            // the chosen endpoint.
+            return ordered.first { route in
+                guard supported.isEmpty || supported.contains(route.kind) else { return false }
+                guard case let .hostPort(routeHost, routePort) = route.endpoint else { return false }
+                return routeHost == host && routePort == port
+            }
+        }
+        return ordered.first { route in
+            guard supported.isEmpty || supported.contains(route.kind) else { return false }
+            guard case .peer = route.endpoint else { return false }
+            // Peer dials carry the Stack token for the re-mint, so only
+            // policy-trusted (encrypted) peer routes qualify.
+            return MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
+        }
+    }
+
     /// Whether `host` is a numeric IP literal (IPv4 or IPv6) rather than a name
     /// that needs DNS resolution. Used to prefer directly-dialable IP routes over
     /// MagicDNS hostnames, which fail to resolve on some clients.
@@ -3329,7 +3411,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func makeSecondaryClient(for mac: MobilePairedMac) async -> SecondaryClientHandle? {
         guard let runtime else { return nil }
         let supportedKinds = runtime.supportedRouteKinds
-        guard let (host, port) = Self.firstReconnectHostPortRoute(
+        // Full-route selection so iroh-only Macs (cmuxRelay mode publishes no
+        // host/port route) still join the aggregate; host/port keeps its
+        // existing preference order.
+        guard let dialRoute = Self.firstReconnectRoute(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
@@ -3338,10 +3423,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let ticket: CmxAttachTicket
         do {
-            ticket = try await manualHostTicket(
-                name: mac.displayName ?? host,
-                host: host,
-                port: port,
+            ticket = try await manualRouteTicket(
+                displayName: mac.displayName ?? mac.macDeviceID,
+                route: dialRoute,
+                syntheticMacDeviceID: mac.macDeviceID,
                 attemptStartedAt: nil
             )
         } catch {
@@ -3351,18 +3436,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return nil
         }
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
-        // Dial the route we PROVED reachable above (the non-loopback host/port the
-        // ticket was built from), NOT `supportedRoutes.first`: on a physical phone a
-        // Mac ticket can advertise a higher-priority `debugLoopback` (127.0.0.1)
-        // route, and dialing that makes every secondary subscription connect to the
-        // phone itself — so the Mac is unreachable and silently drops out of the
-        // aggregate. Prefer the exact matching route, then any non-loopback, then any.
-        let route = supportedRoutes.first(where: { route in
-            if case let .hostPort(routeHost, routePort) = route.endpoint {
-                return routeHost == host && routePort == port
-            }
-            return false
-        }) ?? supportedRoutes.first(where: { $0.kind != .debugLoopback })
+        // Dial the route we PROVED reachable above (the one the ticket was built
+        // from), NOT `supportedRoutes.first`: on a physical phone a Mac ticket can
+        // advertise a higher-priority `debugLoopback` (127.0.0.1) route, and
+        // dialing that makes every secondary subscription connect to the phone
+        // itself — so the Mac is unreachable and silently drops out of the
+        // aggregate. Prefer the exact matching endpoint, then any non-loopback,
+        // then any.
+        let route = supportedRoutes.first(where: { $0.endpoint == dialRoute.endpoint })
+            ?? supportedRoutes.first(where: { $0.kind != .debugLoopback })
             ?? supportedRoutes.first
         guard let route else { return nil }
         let client = MobileCoreRPCClient(
