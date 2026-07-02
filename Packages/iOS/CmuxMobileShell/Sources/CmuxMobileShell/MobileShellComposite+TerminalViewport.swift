@@ -27,7 +27,6 @@ extension MobileShellComposite {
         }
         let reportedGrid = MobileTerminalViewportSize(columns: columns, rows: rows)
         let previousReportedGrid = reportedTerminalViewportSizesBySurfaceID[surfaceID]
-        reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
         let prearmedReplayBarrierToken = prearmTerminalViewportReplayBarrierIfNeeded(
             surfaceID: surfaceID,
             previousReportedGrid: previousReportedGrid,
@@ -45,6 +44,7 @@ extension MobileShellComposite {
                     "client_id": clientID,
                     "viewport_columns": columns,
                     "viewport_rows": rows,
+                    "viewport_generation": Int(clamping: requestGeneration),
                 ]
             )
             let data = try await client.sendRequest(request)
@@ -69,6 +69,7 @@ extension MobileShellComposite {
                 )
                 return nil
             }
+            reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
             let effectiveGrid = MobileTerminalViewportSize(columns: grid.columns, rows: grid.rows)
             let previousGrid = effectiveViewportSizesBySurfaceID[surfaceID]
             effectiveViewportSizesBySurfaceID[surfaceID] = effectiveGrid

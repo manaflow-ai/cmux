@@ -383,3 +383,51 @@ import Testing
     #expect(!staleReplayRequested, "a stale barrier token must not start or cancel replay")
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == currentToken)
 }
+
+@MainActor
+@Test func terminalViewportFailedReportDoesNotConfirmNaturalGridForRetry() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "initial-viewport-replay", "retry-resize-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
+
+    await router.emptyNextViewportResponses()
+    let failedGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
+    #expect(failedGrid == nil)
+
+    await router.holdViewportRequest(number: 3)
+    let retryReport = Task {
+        await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
+    }
+    await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 3)
+
+    let staleAccepted = store.deliverTerminalBytes(
+        Data("stale-during-retry".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(!staleAccepted, "a same-size retry after a failed report must still prearm a barrier")
+
+    await router.releaseAllHeld()
+    let retryGrid = await retryReport.value
+    #expect(retryGrid?.rows == 30)
+    let replayAfterRetry = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1
+    )
+    #expect(replayAfterRetry, "the successful retry must request replay for the new effective grid")
+    let replayChunk = try #require(await iterator.next())
+    #expect(String(data: replayChunk.data, encoding: .utf8) == "retry-resize-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+}

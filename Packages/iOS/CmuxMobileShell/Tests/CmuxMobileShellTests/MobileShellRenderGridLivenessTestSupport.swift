@@ -82,7 +82,7 @@ actor LivenessHostRouter {
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
-    private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?
+    private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -225,7 +225,7 @@ actor LivenessHostRouter {
         heldViewportRequestNumbers.insert(number)
     }
 
-    func setViewportEffectiveGrid(columns: Int, rows: Int) { viewportEffectiveGridOverride = .init(columns: columns, rows: rows) }
+    func setViewportEffectiveGrid(columns: Int, rows: Int) { viewportEffectiveGridOverride = .init(columns: columns, rows: rows) }; func emptyNextViewportResponses(count: Int = 1) { emptyViewportResponsesRemaining += count }
 
     /// Forget the host-side registration, modeling a lost subscription behind
     /// a live RPC channel: the next subscribe reports
@@ -325,6 +325,7 @@ actor LivenessHostRouter {
             if heldViewportRequestNumbers.contains(viewportRequestCount) {
                 await park()
             }
+            if emptyViewportResponsesRemaining > 0 { emptyViewportResponsesRemaining -= 1; return try? Self.resultFrame(id: id, result: [:]) }
             // Mirror the Mac host: acknowledge the report with the effective
             // shared grid. Echoing the reported viewport models a single
             // attached device, whose report is always the effective minimum.

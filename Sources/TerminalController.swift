@@ -142,9 +142,7 @@ class TerminalController {
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     private struct MobileViewportReport {
-        var columns: Int
-        var rows: Int
-        var updatedAt: Date
+        var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
         /// Sticky reports come from the dedicated `mobile.terminal.viewport`
         /// RPC and live for the client's connection lifetime (cleared on
         /// disconnect or surface detach), so an idle paired device keeps its
@@ -14047,16 +14045,18 @@ class TerminalController {
         }
 
         let columns = min(max(rawColumns, 20), 300)
-        let rows = min(max(rawRows, 5), 120)
+        let rows = min(max(rawRows, 5), 120); let generation = v2Int(params, "viewport_generation").flatMap { $0 >= 0 ? UInt64($0) : nil }
         let now = Date()
         var reports = mobileViewportReportsBySurfaceID[terminalPanel.id] ?? [:]
         reports = reports.filter { _, report in
             report.sticky || now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
         }
+        if let generation, let existingGeneration = reports[clientID]?.generation, existingGeneration > generation,
+           let minColumns = reports.values.map(\.columns).min(), let minRows = reports.values.map(\.rows).min() { return (minColumns, minRows) }
         reports[clientID] = MobileViewportReport(
             columns: columns,
             rows: rows,
-            updatedAt: now,
+            updatedAt: now, generation: generation,
             sticky: sticky
         )
         mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
