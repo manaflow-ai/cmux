@@ -15,6 +15,7 @@ const forkVm = mock(() => ({ workflow: "fork" }));
 const openAttachEndpoint = mock(() => ({ workflow: "attach" }));
 const openSshEndpoint = mock(() => ({ workflow: "ssh" }));
 const restoreVm = mock(() => ({ workflow: "restore" }));
+const snapshotVm = mock(() => ({ workflow: "snapshot" }));
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_E2B_ENABLED",
@@ -52,6 +53,7 @@ mock.module("../services/vms/workflows", () => ({
   restoreVm,
   resetBaseVm,
   runVmWorkflow,
+  snapshotVm,
 }));
 
 const { GET, POST } = await import("../app/api/vm/route");
@@ -62,6 +64,7 @@ const { DELETE } = vmIdRoute;
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
 const forkRoute = await import("../app/api/vm/[id]/fork/route");
+const snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
 const { VmProviderOperationError } = await import("../services/vms/errors");
@@ -84,6 +87,7 @@ beforeEach(() => {
   openAttachEndpoint.mockClear();
   openSshEndpoint.mockClear();
   restoreVm.mockClear();
+  snapshotVm.mockClear();
 });
 
 afterEach(() => {
@@ -905,6 +909,41 @@ describe("VM REST auth", () => {
 
     const nonObject = await forkRoute.POST(
       new Request("https://cmux.test/api/vm/provider-vm-1/fork", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: "[]",
+      }),
+      context,
+    );
+
+    expect(nonObject.status).toBe(400);
+    expect(await nonObject.json()).toMatchObject({
+      error: "vm_expected_object",
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("returns client errors for invalid snapshot request bodies", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-1" }) };
+
+    const malformed = await snapshotRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/snapshot", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: "{",
+      }),
+      context,
+    );
+
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toMatchObject({
+      error: "vm_json_parse_failed",
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+
+    const nonObject = await snapshotRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/snapshot", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
         body: "[]",

@@ -7553,19 +7553,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 defaultValue: "Cloud VM command could not be launched."
             ))
         }
-        if didStart {
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 30_000_000_000)
-                guard let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel,
-                      loadingPanel.isLoading else {
-                    return
-                }
-                loadingPanel.showFailure(String(
-                    localized: "panel.cloudVM.loading.failed.timeout",
-                    defaultValue: "Cloud VM is still not ready. Check your connection and try again."
-                ))
-            }
-        }
         return didStart
     }
 
