@@ -12,18 +12,6 @@ public import Foundation
 /// no-ops once moved). The `Schedule*` methods preserve the legacy deferred
 /// mutation-bus semantics: they enqueue and return immediately, exactly as
 /// the original bodies did.
-/// The workspace loading-spinner state before and after a `workspace_loading`
-/// toggle, reported back to the caller (e.g. `before=ON;after=OFF`).
-public struct ControlSidebarWorkspaceLoadingState: Sendable, Equatable {
-    public let before: Bool
-    public let after: Bool
-
-    public init(before: Bool, after: Bool) {
-        self.before = before
-        self.after = after
-    }
-}
-
 @MainActor
 public protocol ControlSidebarContext: AnyObject {
     // MARK: Availability
