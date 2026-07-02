@@ -75,7 +75,8 @@ describe("after sign-in native handoff", () => {
     const html = await response.text();
     expect(html).toContain("Signed in to cmux");
     expect(html).toContain("Return to cmux");
-    expect(html).not.toContain("window.location.replace");
+    expect(html).toContain("window.location.replace");
+    expect(html).toContain("window.clearTimeout");
     expect(html).not.toContain("http-equiv=\"refresh\"");
 
     const callbackURL = new URL(returnHref(html));

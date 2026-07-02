@@ -211,13 +211,17 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
 function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
-  clearHandoffCookie: boolean,
+  autoOpen: boolean,
   switchAccountHref: string | null
 ): NextResponse {
   const { locale, messages } = localized;
   const escapedHref = escapeHtml(href);
+  const scriptHref = JSON.stringify(href).replaceAll("<", "\\u003c");
   const switchAccountAction = switchAccountHref
     ? `      <a class="secondary" href="${escapeHtml(switchAccountHref)}">${escapeHtml(messages.switchAccountButton)}</a>\n`
+    : "";
+  const autoOpenScript = autoOpen
+    ? `  <script>\n    const cmuxAutoOpen = window.setTimeout(() => window.location.replace(${scriptHref}), 1200);\n    document.querySelector("a.secondary")?.addEventListener("click", () => window.clearTimeout(cmuxAutoOpen));\n  </script>\n`
     : "";
   const escapedTitle = escapeHtml(messages.title);
   const escapedBody = escapeHtml(messages.body);
@@ -286,6 +290,7 @@ function nativeReturnResponse(
       <a class="primary" href="${escapedHref}">${escapedButton}</a>
 ${switchAccountAction}    </div>
   </main>
+${autoOpenScript}
 </body>
 </html>`,
     {
@@ -295,7 +300,7 @@ ${switchAccountAction}    </div>
       },
     }
   );
-  if (clearHandoffCookie) {
+  if (autoOpen) {
     response.cookies.set(NATIVE_HANDOFF_COOKIE, "", {
       httpOnly: true,
       maxAge: 0,
@@ -370,9 +375,9 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     ) {
       if (isAllowedNativeReturnTo(nativeReturnTo, request)) {
         const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
-        const clearHandoffCookie = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
+        const autoOpen = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
         if (href) {
-          return nativeReturnResponse(href, localizedMessages, clearHandoffCookie, switchAccountHref(request));
+          return nativeReturnResponse(href, localizedMessages, autoOpen, switchAccountHref(request));
         }
       }
       return NextResponse.redirect(new URL("/", request.url));
