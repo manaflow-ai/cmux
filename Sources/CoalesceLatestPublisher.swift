@@ -1,6 +1,12 @@
 import Combine
 import Foundation
 
+// CoalesceLatestPublisher and CoalesceLatestInner are one operator: the
+// Inner is the publisher's subscription and shares its file-private access
+// boundary. Splitting the Inner into its own file would force widening
+// `private` to `internal` for an implementation detail, so the pair
+// intentionally lives in this single file.
+
 // MARK: - Leading-edge coalescing
 
 extension Publisher where Failure == Never {
