@@ -10528,6 +10528,15 @@ struct VerticalTabsSidebar: View {
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
         let tabIds = visibleTabs.map(\.id)
+        // `tabIndexById` is intentionally keyed off the full `tabs` order, not the
+        // filtered `visibleTabs` above. `TabItemView.index` feeds Shift-click range
+        // selection (`updateSelection`) and the cmd-1..9 shortcut digit, all of which
+        // work in full-list coordinates (`anchorIndex`/`clickedIndex`/`liveWorkspaceIds`
+        // are the full order). A tag filter hides rows without renumbering workspaces,
+        // so a Shift-click range is walked over the full order and then clamped to the
+        // visible ids via `tagFilterMatchingIds`. Rebuilding this map from `visibleTabs`
+        // would silently break Shift-click whenever a hidden workspace precedes or sits
+        // between visible rows.
         let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
             ($0.element.id, $0.offset)
         })
