@@ -49,15 +49,24 @@ extension MarkdownPanel {
             // WKWebView exposes no *synchronous* selection API — reading the
             // current selection requires an async `evaluateJavaScript` — but
             // this property feeds synchronous menu validation for the
-            // "Use Selection for Find" (Cmd+E) item. So use first-responder as
-            // the synchronous proxy: when the preview web view is focused we
-            // defer the selection decision to WebKit, which owns the selection
-            // and no-ops gracefully when it is empty at Cmd+E time. This mirrors
-            // how AppKit delegates selection-based edit actions to a focused web
+            // "Use Selection for Find" (Cmd+E) item. So use focus as the
+            // synchronous proxy: when the preview web view is focused we defer
+            // the selection decision to WebKit, which owns the selection and
+            // no-ops gracefully when it is empty at Cmd+E time. This mirrors how
+            // AppKit delegates selection-based edit actions to a focused web
             // view. The `.text` branch below can check the real selection only
             // because NSTextView reports `selectedRange()` synchronously.
-            guard let webView = rendererSession.webView else { return false }
-            return webView.window?.firstResponder === webView
+            //
+            // Focus is not an identity check: WebKit routes first responder to a
+            // private content subview, not the WKWebView object itself, so a
+            // focused live preview fails `firstResponder === webView`. Treat the
+            // preview as focused when the WKWebView or any of its descendants
+            // owns first responder — the same containment test used by
+            // `isNativeFindInterfaceFocused`.
+            guard let webView = rendererSession.webView,
+                  let firstResponder = webView.window?.firstResponder else { return false }
+            if firstResponder === webView { return true }
+            return (firstResponder as? NSView)?.isDescendant(of: webView) == true
         case .text:
             guard let textView = attachedTextViewForFind else { return false }
             return textView.selectedRange().length > 0
