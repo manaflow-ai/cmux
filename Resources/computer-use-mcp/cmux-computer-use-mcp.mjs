@@ -79,21 +79,55 @@ function isCmuxShimDir(dir) {
   return /(^|\/)cmux-cli-shims(\/|$)/.test(normalized);
 }
 
+// A codex only counts if it speaks the app-server protocol — legacy CLIs
+// (e.g. a stray v0.2.x in /usr/local/bin) reject the subcommand, and picking
+// one would break every tool while a working Codex.app sits ignored.
+function supportsAppServer(binary) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(binary, ["app-server", "--help"], { stdio: ["ignore", "ignore", "ignore"] });
+    } catch {
+      resolve(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(false);
+    }, 10000);
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+  });
+}
+
 async function resolveCodexBinary() {
   const override = (process.env.CMUX_CU_CODEX || "").trim();
   if (override) {
-    if (await isExecutable(override)) return override;
-    throw new Error(`CMUX_CU_CODEX is set but not executable: ${override}`);
+    if (!(await isExecutable(override))) {
+      throw new Error(`CMUX_CU_CODEX is set but not executable: ${override}`);
+    }
+    if (!(await supportsAppServer(override))) {
+      throw new Error(`CMUX_CU_CODEX does not support \`codex app-server\`: ${override}`);
+    }
+    return override;
   }
   for (const dir of (process.env.PATH || "").split(delimiter)) {
     if (!dir || isCmuxShimDir(dir)) continue;
     const candidate = join(dir, "codex");
-    if (await isExecutable(candidate)) return candidate;
+    if ((await isExecutable(candidate)) && (await supportsAppServer(candidate))) return candidate;
   }
-  if (await isExecutable(CODEX_APP_BINARY)) return CODEX_APP_BINARY;
+  if ((await isExecutable(CODEX_APP_BINARY)) && (await supportsAppServer(CODEX_APP_BINARY))) {
+    return CODEX_APP_BINARY;
+  }
   throw new Error(
-    "codex binary not found. Install the Codex CLI (npm i -g @openai/codex) or " +
-      "Codex.app, or point CMUX_CU_CODEX at a codex binary."
+    "no codex with app-server support found. Install a current Codex CLI " +
+      "(npm i -g @openai/codex) or Codex.app, or point CMUX_CU_CODEX at one."
   );
 }
 

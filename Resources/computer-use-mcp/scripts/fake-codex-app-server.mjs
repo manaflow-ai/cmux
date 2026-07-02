@@ -10,6 +10,11 @@ if (process.argv[2] !== "app-server") {
   console.error(`fake-codex: unknown subcommand ${process.argv[2]}`);
   process.exit(2);
 }
+if (process.argv.includes("--help")) {
+  // The server probes candidates with `app-server --help` before using them.
+  console.log("fake codex app-server");
+  process.exit(0);
+}
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 let pendingToolCallId = null;

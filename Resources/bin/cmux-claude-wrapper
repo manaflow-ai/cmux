@@ -753,9 +753,18 @@ cmux_computer_use_json_escape() {
 # `codex` shim is on PATH in every cmux terminal, so a plain `command -v
 # codex` would always succeed; skip cmux shim dirs like the shims themselves
 # do when they fall back to the real binary.
+# A codex only counts if it actually speaks the app-server protocol the
+# computer-use engine runs on — legacy CLIs (e.g. a stray v0.2.x in
+# /usr/local/bin) reject the subcommand, and pinning one would surface 12
+# always-failing tools while a working Codex.app sits ignored.
+cmux_computer_use_codex_supports_app_server() {
+    "$1" app-server --help >/dev/null 2>&1
+}
+
 cmux_computer_use_resolve_codex() {
     if [[ -n "${CMUX_CU_CODEX:-}" ]]; then
         [[ -x "$CMUX_CU_CODEX" ]] || return 1
+        cmux_computer_use_codex_supports_app_server "$CMUX_CU_CODEX" || return 1
         printf '%s' "$CMUX_CU_CODEX"
         return 0
     fi
@@ -767,12 +776,14 @@ cmux_computer_use_resolve_codex() {
                 continue
                 ;;
         esac
-        if [[ -n "$dir" && -x "$dir/codex" ]]; then
+        if [[ -n "$dir" && -x "$dir/codex" ]] &&
+            cmux_computer_use_codex_supports_app_server "$dir/codex"; then
             printf '%s' "$dir/codex"
             return 0
         fi
     done
-    if [[ -x "/Applications/Codex.app/Contents/Resources/codex" ]]; then
+    if [[ -x "/Applications/Codex.app/Contents/Resources/codex" ]] &&
+        cmux_computer_use_codex_supports_app_server "/Applications/Codex.app/Contents/Resources/codex"; then
         printf '%s' "/Applications/Codex.app/Contents/Resources/codex"
         return 0
     fi

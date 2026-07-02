@@ -887,6 +887,7 @@ def computer_use_sandbox(
     codex_in_shim_dir_only: bool = False,
     disabled: bool = False,
     codex_override: str | None = None,
+    legacy_codex_first: bool = False,
 ):
     def setup(tmp: Path, env: dict) -> None:
         if script:
@@ -905,6 +906,13 @@ def computer_use_sandbox(
             codex_dir.mkdir(parents=True, exist_ok=True)
             make_executable(codex_dir / "codex", "#!/usr/bin/env bash\nexit 0\n")
             env["PATH"] = f"{codex_dir}:{env['PATH']}"
+        if legacy_codex_first:
+            # A codex that rejects `app-server` (like a stray v0.2.x): the
+            # resolver must skip it and keep looking.
+            legacy_dir = tmp / "legacy-codex"
+            legacy_dir.mkdir(parents=True, exist_ok=True)
+            make_executable(legacy_dir / "codex", "#!/usr/bin/env bash\nexit 1\n")
+            env["PATH"] = f"{legacy_dir}:{env['PATH']}"
         if codex_in_shim_dir_only:
             shim_dir = tmp / "cmux-cli-shims" / "surface-test"
             shim_dir.mkdir(parents=True, exist_ok=True)
@@ -934,6 +942,11 @@ def computer_use_sandbox(
                 override_dir = tmp / "codex-override"
                 override_dir.mkdir(parents=True, exist_ok=True)
                 make_executable(override_dir / "codex", "#!/usr/bin/env bash\nexit 0\n")
+                env["CMUX_CU_CODEX"] = str(override_dir / "codex")
+            elif codex_override == "<sandbox-legacy-codex>":
+                override_dir = tmp / "codex-override"
+                override_dir.mkdir(parents=True, exist_ok=True)
+                make_executable(override_dir / "codex", "#!/usr/bin/env bash\nexit 1\n")
                 env["CMUX_CU_CODEX"] = str(override_dir / "codex")
             else:
                 env["CMUX_CU_CODEX"] = codex_override
@@ -1102,6 +1115,45 @@ def test_computer_use_mcp_honors_codex_override(failures: list[str]) -> None:
     expect(
         injected_mcp_config_index(real_argv) is None,
         f"computer use broken override: expected no injection, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_mcp_skips_codex_without_app_server(failures: list[str]) -> None:
+    # A legacy codex earlier on PATH that rejects `app-server` must be skipped
+    # in favor of the working one later on PATH, and the WORKING binary must
+    # be the one pinned into the injected config.
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(legacy_codex_first=True),
+    )
+    expect(code == 0, f"computer use legacy-skip: wrapper exited {code}: {stderr}", failures)
+    config = extract_injected_mcp_config(real_argv)
+    expect(
+        config is not None,
+        f"computer use legacy-skip: expected injection via the working codex, got {real_argv}",
+        failures,
+    )
+    if config is not None:
+        pinned = config.get("mcpServers", {}).get("cmux-computer-use", {}).get("env", {}).get("CMUX_CU_CODEX", "")
+        expect(
+            pinned.endswith("/codex-bin/codex"),
+            f"computer use legacy-skip: expected the app-server-capable codex pinned, got {config}",
+            failures,
+        )
+
+    # An explicit override that rejects `app-server` decides alone: no
+    # injection, no fallback.
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-legacy-codex>"),
+    )
+    expect(code == 0, f"computer use legacy override: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use legacy override: expected no injection, got {real_argv}",
         failures,
     )
 
@@ -2133,6 +2185,7 @@ def main() -> int:
     test_computer_use_mcp_skipped_when_disabled(failures)
     test_computer_use_mcp_skipped_when_server_script_missing(failures)
     test_computer_use_mcp_honors_codex_override(failures)
+    test_computer_use_mcp_skips_codex_without_app_server(failures)
     test_computer_use_mcp_ignores_cmux_codex_shims(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
     test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures)
