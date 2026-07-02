@@ -32,17 +32,27 @@ public struct AgentBackgroundWorkStatus: Equatable, Sendable {
     /// parsed JSON, e.g. `ClaudeHookParsedInput.rawObject`). Claude Code drops finished
     /// tasks from `background_tasks`, so a task present with a non-terminal status means
     /// work is still running; any `session_crons` entry means the session expects to
-    /// wake itself later. Wrong-typed or missing fields yield "no work" and never crash.
+    /// wake itself later.
+    ///
+    /// Trust-boundary rule: an ABSENT field means "no background work" (older clients
+    /// never send it, and they must keep hibernating), but a PRESENT field this parser
+    /// cannot read — schema drift to a keyed object, an array of non-objects — fails
+    /// CLOSED as one active task. This payload is the only guard between hibernation's
+    /// group SIGTERM and a live background process; unreadable evidence of work must
+    /// keep the pane alive (until the next parseable Stop), never authorize the kill.
     public init(hookObject object: [String: Any]?) {
-        let tasks = agentHookArrayOfObjects(object?["background_tasks"])
-        let crons = agentHookArrayOfObjects(object?["session_crons"])
-        let running = tasks.reduce(into: 0) { count, task in
+        let tasks = AgentHookFieldParse(value: object?["background_tasks"])
+        let crons = AgentHookFieldParse(value: object?["session_crons"])
+        let running = tasks.objects.reduce(into: tasks.unreadableCount) { count, task in
             let status = ((task["status"] as? String) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
             if !agentBackgroundTerminalStatuses.contains(status) { count += 1 }
         }
-        self.init(runningBackgroundTaskCount: running, scheduledCronCount: crons.count)
+        self.init(
+            runningBackgroundTaskCount: running,
+            scheduledCronCount: crons.objects.count + crons.unreadableCount
+        )
     }
 
     /// Whether the pane has live background work and must stay out of hibernation.
@@ -62,8 +72,26 @@ private let agentBackgroundTerminalStatuses: Set<String> = [
     "exited", "timeout", "timedout",
 ]
 
-/// Coerce a JSON value into an array of objects, tolerating wrong/missing types.
-private func agentHookArrayOfObjects(_ value: Any?) -> [[String: Any]] {
-    guard let array = value as? [Any] else { return [] }
-    return array.compactMap { $0 as? [String: Any] }
+/// One parsed hook array field: the readable object entries, plus how many values were
+/// present but unreadable (a non-array field, or non-object array elements). Callers
+/// decide what unreadable means; the background-work parser fails closed on it.
+private struct AgentHookFieldParse {
+    let objects: [[String: Any]]
+    let unreadableCount: Int
+
+    init(value: Any?) {
+        guard let value else {
+            objects = []
+            unreadableCount = 0
+            return
+        }
+        guard let array = value as? [Any] else {
+            objects = []
+            unreadableCount = 1
+            return
+        }
+        let parsed = array.compactMap { $0 as? [String: Any] }
+        objects = parsed
+        unreadableCount = array.count - parsed.count
+    }
 }

@@ -89,14 +89,32 @@ struct AgentBackgroundWorkStatusTests {
         #expect(noStatus.isActive)
     }
 
-    @Test("Missing, nil, and malformed payloads are inactive")
-    func malformedPayloadsAreInactive() {
+    @Test("Absent payloads are inactive (older clients keep hibernating)")
+    func absentPayloadsAreInactive() {
+        // Clients older than 2.1.145 never send these fields; hibernation must keep
+        // working for them, so absence means "no background work".
         #expect(!AgentBackgroundWorkStatus(hookObject: nil).isActive)
         #expect(!AgentBackgroundWorkStatus(hookObject: [:]).isActive)
-        // Wrong types must not crash or false-positive.
-        #expect(!AgentBackgroundWorkStatus(hookObject: ["background_tasks": "nope"]).isActive)
-        #expect(!AgentBackgroundWorkStatus(hookObject: ["background_tasks": 7]).isActive)
-        #expect(!AgentBackgroundWorkStatus(hookObject: ["background_tasks": ["a", "b"]]).isActive)
+        #expect(!AgentBackgroundWorkStatus(hookObject: ["hook_event_name": "Stop"]).isActive)
+    }
+
+    @Test("Present-but-unreadable payloads fail closed as active")
+    func unreadablePayloadsFailClosedActive() {
+        // This payload is the only guard between hibernation's group SIGTERM and a live
+        // background process. A field that is PRESENT but unparseable (schema drift to a
+        // keyed object, an array of non-objects) is unreadable evidence of work — it must
+        // keep the pane alive, never authorize the kill. Must not crash either.
+        #expect(AgentBackgroundWorkStatus(hookObject: ["background_tasks": "nope"]).isActive)
+        #expect(AgentBackgroundWorkStatus(hookObject: ["background_tasks": 7]).isActive)
+        #expect(AgentBackgroundWorkStatus(hookObject: ["background_tasks": ["a", "b"]]).isActive)
+        #expect(AgentBackgroundWorkStatus(hookObject: ["background_tasks": ["t1": ["status": "running"]]]).isActive)
+        #expect(AgentBackgroundWorkStatus(hookObject: ["session_crons": "soon"]).isActive)
+        // A readable terminal-status entry alongside unreadable garbage: garbage wins.
+        #expect(AgentBackgroundWorkStatus(hookObject: [
+            "background_tasks": [["status": "completed"], "garbage"],
+        ]).isActive)
+        // An EMPTY array is readable and clean: inactive.
+        #expect(!AgentBackgroundWorkStatus(hookObject: ["background_tasks": [Any]()]).isActive)
     }
 
     @Test("Status matching ignores case and surrounding whitespace")

@@ -26225,7 +26225,9 @@ struct CMUXCLI {
                 isBlocking: blocking
             )
         }
-        if containsCompletionCue(lower) {
+        // A blocking prompt never classifies as completion ("Task completed. Continue?"
+        // would durably write `.idle` mid-question); it falls through to `.needsInput`.
+        if containsCompletionCue(lower), !blocking {
             let body = message.isEmpty
                 ? String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed")
                 : message
@@ -26284,7 +26286,7 @@ struct CMUXCLI {
             let body = message.isEmpty ? "Claude reported an error" : message
             return ("Error", body)
         }
-        if containsCompletionCue(lower) {
+        if containsCompletionCue(lower), !AgentNotification(signal: signal, message: message).isBlockingPrompt {
             let body = message.isEmpty ? "Task completed" : message
             return ("Completed", body)
         }

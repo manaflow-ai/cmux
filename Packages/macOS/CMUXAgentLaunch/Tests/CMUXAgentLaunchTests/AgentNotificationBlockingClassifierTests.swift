@@ -88,6 +88,11 @@ struct AgentNotificationBlockingClassifierTests {
             "Claude has a question for you, please answer",
             "Question: which approach do you want?",
             "The agent has a question — reply to continue",
+            // Completion wording must not defuse a live question: the CLI classifier
+            // orders completion cues before waiting cues, so blocking here is what keeps
+            // "done + question" text from durably writing `.idle` mid-prompt.
+            "Task completed. Continue?",
+            "Build finished — deploy to staging?",
         ]
         for message in blocking {
             #expect(
