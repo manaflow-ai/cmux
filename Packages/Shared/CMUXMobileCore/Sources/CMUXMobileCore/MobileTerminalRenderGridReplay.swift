@@ -54,7 +54,6 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         var bytes = Data()
         let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
-        let charsetReset = "\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B"
         let rowsToClear = Set(frame.clearedRows).union(frame.rowSpans.map(\.row)).sorted()
         for row in rowsToClear {
             bytes.append(sgrBytes(for: defaultStyle))
@@ -89,16 +88,17 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         var bytes = Data()
         let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
+        let screenStateReset = "\u{1B}[1\"q\u{1B}[0\"q\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B"
 
         // Apply the whole restore inside a synchronized update so the client
         // never presents the empty reset/clear frame before the snapshot lands.
         // Avoid `ESC c`: RIS clears before synchronized output can be enabled.
         // These are Ghostty-supported resets for state the replay depends on:
-        // main display, charset mapping, scroll margins, tabs, active screen,
-        // cursor position, viewport contents, and scrollback.
+        // main display, protected cells, charset mapping, scroll margins, tabs,
+        // active screen, cursor position, viewport contents, and scrollback.
         bytes.append(Data((
             "\u{1B}[?2026h\u{1B}[0$}\u{1B}[r\u{1B}[?69l\u{1B}[?5W\u{1B}[?1049l" +
-            charsetReset + "\u{1B}[H\u{1B}[2J\u{1B}[3J"
+            screenStateReset + "\u{1B}[H\u{1B}[2J\u{1B}[3J"
         ).utf8))
 
         // Dynamic default colors (OSC 10/11/12). Cells already carry explicit
@@ -126,7 +126,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                 terminateLast: true
             )
             bytes.append(Data("\u{1B}[?1049h".utf8))
-            bytes.append(Data(charsetReset.utf8))
+            bytes.append(Data(screenStateReset.utf8))
             bytes.append(sgrBytes(for: defaultStyle))
             appendFlowLines(
                 &bytes,

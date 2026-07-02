@@ -720,6 +720,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
+    var pendingTerminalInputDroppedRenderGridSurfaceIDs: Set<String>
     private var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
     var terminalReplaySurfaceIDsInFlight: Set<String>
     private var terminalReplayRequestIDsInFlightBySurfaceID: [String: UUID]
@@ -921,6 +922,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.reportedViewportSizesByTerminalKey = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
+        self.pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         self.terminalActiveScreenBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalReplayRequestIDsInFlightBySurfaceID = [:]
@@ -5246,6 +5248,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelAllTerminalReplayTasks()
         deliveredTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalByteEndSeqBySurfaceID = [:]
+        pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         terminalActiveScreenBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
@@ -6628,7 +6631,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let canRenderGridAdvancePendingSeq = terminalOutputTransport == .renderGrid
             || (terminalOutputTransport == .hybrid && terminalActiveScreenBySurfaceID[surfaceID] == .alternate)
         if canRenderGridAdvancePendingSeq, terminalEventListenerTask != nil {
+            let previousPendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID]
             let targetSeq = max(remoteSeq, pendingTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0)
+            if let previousPendingSeq,
+               targetSeq == previousPendingSeq,
+               pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID) != nil {
+                MobileDebugLog.anchormux(
+                    "sync.input_seq_replay_after_drop surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)"
+                )
+                requestTerminalReplay(surfaceID: surfaceID)
+                return
+            }
+            if let previousPendingSeq, previousPendingSeq != targetSeq {
+                pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
+            }
             pendingTerminalByteEndSeqBySurfaceID[surfaceID] = targetSeq
             MobileDebugLog.anchormux("sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)")
             refreshTerminalEventSubscription(reason: "input_seq_wait")
@@ -6655,6 +6671,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID],
            endSeq >= pendingSeq {
             pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
             MobileDebugLog.anchormux("sync.input_seq_caught_up surface=\(surfaceID) seq=\(endSeq)")
         }
     }
@@ -6668,6 +6685,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         let token = UUID()
         terminalReplayBarrierTokensBySurfaceID[surfaceID] = token
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -6911,6 +6929,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         #endif
@@ -6961,6 +6980,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func shouldDropRenderGridBehindPendingInput(_ renderGrid: MobileTerminalRenderGridFrame, source: String) -> Bool {
         guard let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
               renderGrid.stateSeq < pendingSeq else { return false }
+        pendingTerminalInputDroppedRenderGridSurfaceIDs.insert(renderGrid.surfaceID)
         MobileDebugLog.anchormux("sync.render_grid_wait_input source=\(source) surface=\(renderGrid.surfaceID) frame=\(renderGrid.stateSeq) pending=\(pendingSeq)")
         return true
     }

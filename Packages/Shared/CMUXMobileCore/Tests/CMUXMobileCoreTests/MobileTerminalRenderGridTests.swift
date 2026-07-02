@@ -24,7 +24,8 @@ import Testing
     // (CHA-positioned spans), then restore the cursor.
     #expect(String(data: frame.vtReplacementBytes(), encoding: .utf8) ==
         "\u{1B}[?2026h\u{1B}[0$}\u{1B}[r\u{1B}[?69l\u{1B}[?5W\u{1B}[?1049l" +
-        "\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B\u{1B}[H\u{1B}[2J\u{1B}[3J" +
+        "\u{1B}[1\"q\u{1B}[0\"q\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B" +
+        "\u{1B}[H\u{1B}[2J\u{1B}[3J" +
         "\u{1B}[?7l\u{1B}[?25l\u{1B}[0m" +
         "\u{1B}[0m\u{1B}[1Galpha" +
         "\r\n\u{1B}[0m" +

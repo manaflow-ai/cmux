@@ -78,6 +78,44 @@ import Testing
 }
 
 @MainActor
+@Test func renderGridInputPendingSequenceRequestsReplayAfterDroppedFrameAndRepeatedAck() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+    let transport = try #require(box.get())
+
+    await store.submitTerminalRawInput(Data("a".utf8), surfaceID: "live-terminal")
+    let firstInputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
+    #expect(firstInputSent)
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 99,
+        text: "missed-target"
+    ))
+    let staleFrameDelivered = try await pollUntil(attempts: 50) {
+        collector.lines.contains { $0.contains("missed-target") }
+    }
+    #expect(!staleFrameDelivered)
+
+    await store.submitTerminalRawInput(Data("b".utf8), surfaceID: "live-terminal")
+    let secondInputSent = try await pollUntil { await router.count(of: "terminal.input") >= 2 }
+    #expect(secondInputSent)
+    let replayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountAfterMount
+    }
+    #expect(replayRequested, "a pending input target that survived a dropped frame and another ACK must request replay")
+    collector.unmount()
+}
+
+@MainActor
 @Test func renderGridReplayBehindPendingInputRequestsBarrierRetryAfterDroppedOutput() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
