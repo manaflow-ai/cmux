@@ -113,6 +113,8 @@ extension MobileShellComposite {
         // mutation that can only fail (the picker sheet also hides the delete
         // affordance at one row, this guards the API path).
         guard workspace.terminals.count > 1 else { return }
+        guard let removedIndex = workspace.terminals.firstIndex(where: { $0.id == terminalID }) else { return }
+        let removedTerminal = workspace.terminals[removedIndex]
         var params = workspaceMutationParams(id: workspaceID)
         params["surface_id"] = terminalID.rawValue
         let target = workspaceMutationTarget(for: workspaceID)
@@ -120,7 +122,6 @@ extension MobileShellComposite {
             await refreshAfterWorkspaceMutation(target)
             return
         }
-        let rollbackWorkspacesByMac = workspacesByMac
         let rollbackSelectedTerminalID = selectedTerminalID
         let canOptimisticallyRemove = target.isForeground
         if canOptimisticallyRemove {
@@ -129,8 +130,12 @@ extension MobileShellComposite {
         let optimisticVersion = workspaceTopologyVersion
         func rollbackOptimisticRemoval() {
             guard canOptimisticallyRemove else { return }
-            workspacesByMac = rollbackWorkspacesByMac
-            selectedTerminalID = rollbackSelectedTerminalID
+            restoreTerminalRowOptimistically(
+                removedTerminal,
+                at: removedIndex,
+                in: workspace,
+                selectedTerminalID: rollbackSelectedTerminalID
+            )
         }
         do {
             let request = try MobileCoreRPCClient.requestData(
@@ -139,10 +144,7 @@ extension MobileShellComposite {
             )
             _ = try await client.sendRequest(request)
         } catch {
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else {
-                rollbackOptimisticRemoval()
-                return
-            }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             if target.isForeground {
                 markMacConnectionUnavailableIfNeeded(after: error)
             }
@@ -153,6 +155,34 @@ extension MobileShellComposite {
         await refreshAfterWorkspaceMutation(target)
         if canOptimisticallyRemove, workspaceTopologyVersion == optimisticVersion {
             rollbackOptimisticRemoval()
+        }
+    }
+
+    private func restoreTerminalRowOptimistically(
+        _ terminal: MobileTerminalPreview,
+        at index: Int,
+        in workspace: MobileWorkspacePreview,
+        selectedTerminalID: MobileTerminalPreview.ID?
+    ) {
+        guard workspaces.contains(where: {
+            $0.id == workspace.id && $0.rpcWorkspaceID == workspace.rpcWorkspaceID
+        }) else { return }
+        let remoteID = workspace.rpcWorkspaceID
+        for (macKey, state) in workspacesByMac {
+            guard let workspaceIndex = state.workspaces.firstIndex(where: { candidate in
+                (candidate.remoteWorkspaceID ?? candidate.id) == remoteID
+            }) else { continue }
+            var updatedState = state
+            var terminals = updatedState.workspaces[workspaceIndex].terminals
+            guard !terminals.contains(where: { $0.id == terminal.id }) else {
+                self.selectedTerminalID = selectedTerminalID
+                return
+            }
+            terminals.insert(terminal, at: min(index, terminals.endIndex))
+            updatedState.workspaces[workspaceIndex].terminals = terminals
+            workspacesByMac[macKey] = updatedState
+            self.selectedTerminalID = selectedTerminalID
+            return
         }
     }
 
