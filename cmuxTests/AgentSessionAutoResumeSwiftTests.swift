@@ -223,6 +223,169 @@ struct AgentSessionAutoResumeSwiftTests {
         }
     }
 
+    /// The #7155 fix heals at the source: spurious reports during the resumed
+    /// run are rejected, so the pane's tracked cwd, the workspace
+    /// `currentDirectory`, and `resolvedWorkingDirectory()` all stay on the
+    /// resumed session's directory rather than the clobbered home value — the
+    /// shared state every cwd consumer reads.
+    @MainActor
+    @Test func spuriousHomeReportsDuringResumedRunKeepTrackedAndWorkspaceCwd() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-resume-consumers")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId, homeDir) = try restoreResumedAgentWorkspaceUnderSpuriousHomeReports(
+                projectDir: projectDir
+            )
+            try #require(restored.focusedPanelId == restoredPanelId)
+            try #require(homeDir != projectDir)
+
+            #expect(restored.panelDirectories[restoredPanelId] == projectDir)
+            #expect(restored.currentDirectory == projectDir)
+            #expect(restored.resolvedWorkingDirectory() == projectDir)
+        }
+    }
+
+    /// The heal only rejects a divergent report while the session directory still
+    /// exists. If it was deleted mid-run the next report is the real fallback and
+    /// must be accepted (mirroring the #6617 deleted-directory semantics), so the
+    /// pane and its splits follow the reported cwd rather than a dead path.
+    @MainActor
+    @Test func spuriousReportAcceptedWhenSessionDirectoryDeletedDuringResumedRun() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-resume-deleted")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId) = try restoreWorkspaceWithAutoResumedClaudeAgent(
+                savedDirectory: projectDir
+            )
+            let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+            try #require(homeDir != projectDir)
+
+            // Consume the one-shot #6617 guard with the first spurious report.
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeDir)
+            try #require(restored.panelDirectories[restoredPanelId] == projectDir)
+
+            // The session directory is deleted mid-run; the next report is the
+            // real fallback and the resumed-run heal must accept it.
+            try FileManager.default.removeItem(atPath: projectDir)
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeDir)
+            #expect(restored.panelDirectories[restoredPanelId] == homeDir)
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == homeDir)
+        }
+    }
+
+    /// Once the resumed agent exits (the pane's shell reaches a prompt again) the
+    /// pane leaves the resumed state and its anchor is cleared, so live reports
+    /// are honored again — the recovery the #7155 reporter observed after
+    /// quitting Claude.
+    @MainActor
+    @Test func liveReportsHonoredAfterResumedAgentExits() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-resume-exit")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+            let repairedDir = try makeTemporaryProjectDirectory(prefix: "cmux-resume-exit-repaired")
+            defer { try? FileManager.default.removeItem(atPath: repairedDir) }
+
+            let (restored, restoredPanelId, _) = try restoreResumedAgentWorkspaceUnderSpuriousHomeReports(
+                projectDir: projectDir
+            )
+            try #require(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == projectDir)
+
+            // The agent exits: the shell reaches a prompt, clearing the resumed
+            // state and the anchor.
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
+            try #require(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
+            #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
+
+            // A genuine post-exit report is now honored.
+            #expect(restored.updatePanelDirectory(panelId: restoredPanelId, directory: repairedDir))
+            #expect(restored.panelDirectories[restoredPanelId] == repairedDir)
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == repairedDir)
+        }
+    }
+
+    /// An explicit working-directory request always wins over the resumed-run
+    /// heal: callers that pass a directory (e.g. "new terminal here") are honored
+    /// even while the pane hosts a resumed agent (#7155).
+    @MainActor
+    @Test func explicitWorkingDirectoryStillWinsForResumedPaneSplit() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-resume-explicit")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+            let explicitDir = try makeTemporaryProjectDirectory(prefix: "cmux-resume-explicit-target")
+            defer { try? FileManager.default.removeItem(atPath: explicitDir) }
+
+            let (restored, restoredPanelId, _) = try restoreResumedAgentWorkspaceUnderSpuriousHomeReports(
+                projectDir: projectDir
+            )
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false,
+                workingDirectory: explicitDir
+            ))
+            #expect(split.requestedWorkingDirectory == explicitDir)
+        }
+    }
+
+    /// The resume session-directory anchor is carried through the detached-surface
+    /// transfer, so moving a resumed-agent pane to another workspace keeps the
+    /// #7155 heal working: a spurious report in the destination is still rejected
+    /// (regression guard for the detach/attach path).
+    @MainActor
+    @Test func detachCarriesResumeSessionDirectorySoHealSurvivesWorkspaceMove() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-resume-detach")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (source, sourcePanelId) = try restoreWorkspaceWithAutoResumedClaudeAgent(
+                savedDirectory: projectDir
+            )
+            try #require(source.restoredResumeSessionWorkingDirectoriesByPanelId[sourcePanelId] == projectDir)
+
+            let detached = try #require(source.detachSurface(panelId: sourcePanelId))
+            #expect(detached.restoredResumeSessionWorkingDirectory == projectDir)
+
+            let destination = Workspace()
+            let destinationPaneId = try #require(destination.bonsplitController.focusedPaneId)
+            let attachedPanelId = try #require(
+                destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false)
+            )
+            #expect(destination.restoredResumeSessionWorkingDirectoriesByPanelId[attachedPanelId] == projectDir)
+            #expect(destination.restoredAgentResumeStatesByPanelId[attachedPanelId] == .autoResumeCommandRunning)
+
+            // The moved pane's shell still can't reach a prompt, so a spurious
+            // home report in the destination is rejected just as in the source.
+            let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+            try #require(homeDir != projectDir)
+            #expect(!destination.updatePanelDirectory(panelId: attachedPanelId, directory: homeDir))
+        }
+    }
+
     /// Restores a workspace whose focused pane auto-resumes a Claude session in
     /// `projectDir`, then delivers the two spurious home reports #7155 hits in
     /// the field while the resumed agent holds the pane's foreground: the
