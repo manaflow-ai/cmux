@@ -2652,7 +2652,11 @@ final class CmuxConfigStore: ObservableObject {
     /// `type: "agent"` action that sends shell input to a terminal, so this extension
     /// entry point must fail closed and return only workspace-command actions.
     func resolvedNewWorkspaceActionForExtension() -> CmuxResolvedConfigAction? {
-        resolvedNewWorkspaceAction()
+        guard let action = resolvedNewWorkspaceAction(),
+              action.workspaceCommandName != nil else {
+            return nil
+        }
+        return action
     }
 
     func resolvedAction(id: String) -> CmuxResolvedConfigAction? {
