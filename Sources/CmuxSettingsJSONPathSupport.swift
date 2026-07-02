@@ -292,6 +292,10 @@ enum BrowserSettingsFileMapping {
         .init(jsonKey: "showSearchSuggestions", defaultsKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey),
         .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey),
         .init(
+            jsonKey: "askWhereToSaveDownloads",
+            defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openTerminalLinksInCmuxBrowser",
             defaultsKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey
         ),
@@ -430,6 +434,7 @@ extension CmuxSettingsFileStore {
         "browser.theme",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
+        "browser.askWhereToSaveDownloads",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.hostsToOpenInEmbeddedBrowser",

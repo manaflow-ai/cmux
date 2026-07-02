@@ -737,13 +737,13 @@
       "layoutItem1": "Prikvačeni redovi najvišeg nivoa (radni prostori i grupe).",
       "layoutItem2": "Neprikvačeni redovi najvišeg nivoa (radni prostori i grupe).",
       "creatingTitle": "Kreiranje grupe",
-      "creatingIntro": "Grupa se kreira na jedan od dva načina: putem prečice na tastaturi ili kontekstualnog menija workspace-a. Oba načina umeću novi sidreni workspace iznad odabira i premještaju odabrane workspace-ove u grupu. Kada grupa postoji, upravljate njome i dodajete joj workspace-ove iz zaglavlja grupe (pogledajte Upravljanje grupom u nastavku).",
-      "keyboardTitle": "S tastature ({shortcut})",
-      "keyboardDesc": "Odaberite dva ili više radnih prostora u bočnoj traci, zatim pritisnite {shortcut}. Novi sidreni radni prostor umeće se iznad odabira i svi odabrani radni prostori postaju potomci. Grupa se automatski imenuje Group 1, Group 2 i tako dalje — preimenujte je bilo kada putem kontekstnog menija zaglavlja.",
+      "creatingIntro": "Grupa se kreira iz prečice na tastaturi ili kontekstnog menija bočne trake. Prazne grupe umeću svježi sidreni radni prostor kao zaglavlje grupe. Grupe zasnovane na odabiru umeću to sidro iznad odabira i premještaju odabrane radne prostore u grupu. Kada grupa postoji, upravljate njom i dodajete radne prostore iz zaglavlja grupe (pogledajte Upravljanje grupom ispod).",
+      "keyboardTitle": "Iz prečica na tastaturi",
+      "keyboardDesc": "Pritisnite ⌃⌘G za kreiranje nove prazne grupe radnih prostora. Odaberite dva ili više radnih prostora u bočnoj traci, zatim pritisnite {shortcut} da grupišete odabir. Oba puta kreiraju svježi sidreni radni prostor i automatski imenuju grupu kao Group 1, Group 2 i tako dalje. Preimenujte je bilo kada iz kontekstnog menija zaglavlja.",
       "keyboardNote": "{shortcut} se podudara s podrazumijevanom prečicom za React Grab. Rukovalac grupe troši kombinaciju tipki samo kada postoji eksplicitan višestruki odabir od najmanje dva radna prostora u bočnoj traci, pa se React Grab i dalje aktivira pri pojedinačnom odabiru te u kontekstu preglednika ili terminala. Promijenite je u Postavke → Tastatura ako ne želite da to dvoje dijele tipku.",
       "keyboardSingle": "Grupe s jednom karticom ne kreiraju se putem prečice. Za to koristite stavku Nova grupa iz radnog prostora u kontekstualnom meniju radnog prostora.",
       "contextMenuTitle": "Iz kontekstnog menija radnog prostora",
-      "contextMenuDesc": "Desnim klikom kliknite bilo koji radni prostor u bočnoj traci i odaberite Nova grupa iz radnog prostora, ili Nova grupa iz odabira kada je odabrano više radnih prostora. Ovo koristi isto ponašanje automatskog imenovanja kao i prečica.",
+      "contextMenuDesc": "Kliknite desnim klikom na bilo koji radni prostor u bočnoj traci i odaberite Nova prazna grupa radnih prostora, Nova grupa iz radnog prostora ili Nova grupa iz odabira kada je odabrano više radnih prostora. Prazan prostor ispod liste bočne trake također nudi Nova prazna grupa radnih prostora. Ovi putevi koriste isto automatsko imenovanje kao prečice.",
       "managingTitle": "Upravljanje grupom",
       "managingIntro": "Kada grupa postoji, kontekstualni meni njenog zaglavlja i dugme + na zaglavlju omogućavaju vam da upravljate grupom i dodajete joj workspace-ove. Nijedno od njih ne kreira novu grupu.",
       "headerMenuTitle": "Iz kontekstnog menija zaglavlja grupe",
@@ -1595,7 +1595,8 @@
   "afterSignIn": {
     "title": "Prijavljeni ste u cmux",
     "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
-    "button": "Vrati se u cmux"
+    "button": "Vrati se u cmux",
+    "switchAccountButton": "Koristi drugi račun"
   },
   "landing": {
     "bestTerminal": {
