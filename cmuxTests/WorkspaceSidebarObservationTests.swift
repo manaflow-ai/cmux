@@ -197,10 +197,11 @@ struct WorkspaceSidebarObservationTests {
     }
 
     @Test func coalesceLatestDropsStalePendingValueWhenLeadingSupersedesOverdueTrailing() {
+        let scheduler = VirtualCoalesceScheduler()
         let subject = PassthroughSubject<Int, Never>()
         var received: [Int] = []
         let cancellable = subject
-            .coalesceLatest(for: .milliseconds(50), scheduler: RunLoop.main)
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
             .sink { received.append($0) }
         defer { cancellable.cancel() }
 
@@ -208,10 +209,11 @@ struct WorkspaceSidebarObservationTests {
         subject.send(2) // leading edge: opens window
         subject.send(3) // pending trailing value for the open window
         #expect(received == [1, 2])
+        #expect(scheduler.scheduledActionCount == 1)
 
-        // Stall the main run loop past the trailing deadline WITHOUT pumping
-        // it, so the scheduled callback is overdue when the next value lands.
-        Thread.sleep(forTimeInterval: 0.12)
+        // The deadline passes WITHOUT the scheduled callback running,
+        // modeling a stalled main run loop with an overdue timer.
+        scheduler.advance(by: 0.12)
         subject.send(4) // deadline passed: new leading edge must supersede 3
 
         #expect(
@@ -219,7 +221,7 @@ struct WorkspaceSidebarObservationTests {
             "A newer leading value after an overdue deadline must drop the stale pending value."
         )
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        scheduler.runScheduledActions()
         #expect(
             received == [1, 2, 4],
             "The overdue trailing callback must not emit the superseded stale value out of order."
@@ -252,5 +254,53 @@ private final class ObservationChangeFlag: @unchecked Sendable {
 
     func mark() {
         fired = true
+    }
+}
+
+// Deterministic Combine scheduler for coalesceLatest tests: `now` only moves
+// via advance(by:), and scheduled actions run only when runScheduledActions()
+// is called, so overdue-timer interleavings are exact instead of wall-clock.
+private final class VirtualCoalesceScheduler: Scheduler {
+    typealias SchedulerTimeType = RunLoop.SchedulerTimeType
+    typealias SchedulerOptions = Never
+
+    private(set) var now = SchedulerTimeType(Date(timeIntervalSinceReferenceDate: 0))
+    var minimumTolerance: SchedulerTimeType.Stride { .seconds(0) }
+    private var scheduledActions: [() -> Void] = []
+
+    var scheduledActionCount: Int { scheduledActions.count }
+
+    func advance(by seconds: TimeInterval) {
+        now = SchedulerTimeType(now.date.addingTimeInterval(seconds))
+    }
+
+    func runScheduledActions() {
+        let actions = scheduledActions
+        scheduledActions = []
+        actions.forEach { $0() }
+    }
+
+    func schedule(options: Never?, _ action: @escaping () -> Void) {
+        action()
+    }
+
+    func schedule(
+        after date: SchedulerTimeType,
+        tolerance: SchedulerTimeType.Stride,
+        options: Never?,
+        _ action: @escaping () -> Void
+    ) {
+        scheduledActions.append(action)
+    }
+
+    func schedule(
+        after date: SchedulerTimeType,
+        interval: SchedulerTimeType.Stride,
+        tolerance: SchedulerTimeType.Stride,
+        options: Never?,
+        _ action: @escaping () -> Void
+    ) -> Cancellable {
+        scheduledActions.append(action)
+        return AnyCancellable {}
     }
 }
