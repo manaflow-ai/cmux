@@ -71,6 +71,7 @@ actor LivenessHostRouter {
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
     private var replayRequestCount = 0
+    private var replayResponseCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
     private var heldReplayResponsesRemaining = 0
     private var hasActiveSubscription = false
@@ -88,6 +89,10 @@ actor LivenessHostRouter {
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
+    }
+
+    func replayResponsesServed() -> Int {
+        replayResponseCount
     }
 
     @discardableResult
@@ -185,6 +190,12 @@ actor LivenessHostRouter {
 
     func enqueueReplayRenderGrid(_ renderGrid: MobileTerminalRenderGridFrame) {
         replayPayloads.append((text: nil, sequence: nil, renderGrid: renderGrid))
+    }
+
+    func enqueueReplayRenderGridFrames(_ frames: [MobileTerminalRenderGridFrame]) {
+        for frame in frames {
+            enqueueReplayRenderGrid(frame)
+        }
     }
 
     func failNextReplay(count: Int = 1) {
@@ -299,6 +310,9 @@ actor LivenessHostRouter {
             } else if heldReplayRequestNumbers.contains(replayRequestCount) {
                 await park()
             }
+            defer {
+                replayResponseCount += 1
+            }
             if replayFailuresRemaining > 0 {
                 replayFailuresRemaining -= 1
                 return try? Self.errorFrame(id: id, message: "replay failed")
@@ -321,6 +335,9 @@ actor LivenessHostRouter {
                     result["render_grid"] = renderGridObject
                     result["columns"] = renderGrid.columns
                     result["rows"] = renderGrid.rows
+                    if result["seq"] == nil {
+                        result["seq"] = renderGrid.stateSeq
+                    }
                 }
                 return try? Self.resultFrame(id: id, result: result)
             }
@@ -514,6 +531,34 @@ func attachURL(for ticket: CmxAttachTicket) throws -> String {
     return "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"
 }
 
+/// Poll until `condition` is true, bounded at `attempts` x 10ms. Returns the
+/// final value so tests can assert both presence and (bounded) absence.
+@MainActor
+func pollUntil(
+    attempts: Int = 300,
+    _ condition: @MainActor () async -> Bool
+) async throws -> Bool {
+    for _ in 0..<attempts {
+        if await condition() {
+            return true
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    return await condition()
+}
+
+@MainActor
+func waitForReplayResponsesServed(
+    _ expectedCount: Int,
+    router: LivenessHostRouter,
+    _ message: String
+) async throws {
+    let settled = try await pollUntil {
+        await router.replayResponsesServed() >= expectedCount
+    }
+    #expect(settled, "\(message)")
+}
+
 @MainActor
 func makeConnectedStore(
     router: LivenessHostRouter,
@@ -531,6 +576,10 @@ func makeConnectedStore(
     let ticket = try makeTicket(clock: clock)
     let connected = await store.connectPairingURL(try attachURL(for: ticket))
     #expect(connected, "scripted connect must succeed")
+    let capabilitiesResolved = try await pollUntil {
+        !store.supportedHostCapabilities.isEmpty
+    }
+    #expect(capabilitiesResolved, "scripted connect must resolve host capabilities")
     return store
 }
 
