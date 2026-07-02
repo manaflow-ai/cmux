@@ -343,7 +343,7 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
         let freshBackButton = app.buttons["MobileWorkspaceBackButton"]
-        let freshTitleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let freshTitleMenu = workspaceTitleElement(in: app)
         let freshTerminalDropdown = app.buttons["MobileTerminalDropdown"]
         assertWorkspaceToolbarVisible(
             backButton: freshBackButton,
@@ -391,7 +391,7 @@ final class cmuxUITests: XCTestCase {
     func testWorkspaceDetailToolbarSurvivesDelayedTerminalLifecycle() throws {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp()
         let backButton = app.buttons["MobileWorkspaceBackButton"]
-        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let titleMenu = workspaceTitleElement(in: app)
         let terminalDropdown = app.buttons["MobileTerminalDropdown"]
 
         assertWorkspaceToolbarVisible(
@@ -426,7 +426,7 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
         ])
         let backButton = app.buttons["MobileWorkspaceBackButton"]
-        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let titleMenu = workspaceTitleElement(in: app)
         let terminalDropdown = app.buttons["MobileTerminalDropdown"]
 
         RunLoop.current.run(until: Date().addingTimeInterval(2.5))
@@ -450,7 +450,7 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE": "1",
         ])
         let backButton = app.buttons["MobileWorkspaceBackButton"]
-        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let titleMenu = workspaceTitleElement(in: app)
         let chatButton = app.buttons["MobileWorkspaceAgentChatButton"]
         let terminalDropdown = app.buttons["MobileTerminalDropdown"]
 
@@ -477,7 +477,7 @@ final class cmuxUITests: XCTestCase {
         tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
 
         let backButton = app.buttons["MobileWorkspaceBackButton"]
-        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let titleMenu = workspaceTitleElement(in: app)
         let terminalDropdown = app.buttons["MobileTerminalDropdown"]
 
         assertWorkspaceToolbarVisible(
@@ -1833,7 +1833,7 @@ final class cmuxUITests: XCTestCase {
             launchEnvironment[key] = value
         }
         let app = launchApp(mockData: false, environment: launchEnvironment)
-        XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 8))
+        XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
         return app
     }
 
@@ -1843,12 +1843,12 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL": "1",
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
         ])
-        if !app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 4) {
+        if !workspaceTitleElement(in: app).waitForExistence(timeout: 4) {
             let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
             XCTAssertTrue(row.waitForExistence(timeout: 8))
             row.tap()
         }
-        XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 8))
+        XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
         return app
     }
@@ -2422,6 +2422,11 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    @MainActor
+    private func workspaceTitleElement(in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)["MobileWorkspaceTitleMenu"].firstMatch
     }
 
     @MainActor
