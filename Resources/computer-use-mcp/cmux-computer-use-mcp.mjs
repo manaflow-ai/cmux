@@ -663,14 +663,14 @@ const TOOLS = [
   {
     name: "computer_click",
     description:
-      "Click in an app. Prefer `element` (index from the latest computer_state). Use x/y screen points only when no element fits.",
+      "Click in an app. Prefer `element` (index from the latest computer_state). Use x/y only when no element fits; they are screenshot pixel coordinates measured on the latest computer_state/computer_screenshot image.",
     inputSchema: {
       type: "object",
       properties: {
         app: { type: "string" },
         element: { type: "number", description: "Element index from latest computer_state" },
-        x: { type: "number" },
-        y: { type: "number" },
+        x: { type: "number", description: "Screenshot pixel x (from the latest captured image)" },
+        y: { type: "number", description: "Screenshot pixel y (from the latest captured image)" },
       },
       required: ["app"],
       additionalProperties: false,
@@ -735,15 +735,16 @@ const TOOLS = [
   },
   {
     name: "computer_drag",
-    description: "Drag within an app from one screen point to another.",
+    description:
+      "Drag within an app between two points, in screenshot pixel coordinates measured on the latest computer_state/computer_screenshot image.",
     inputSchema: {
       type: "object",
       properties: {
         app: { type: "string" },
-        fromX: { type: "number" },
-        fromY: { type: "number" },
-        toX: { type: "number" },
-        toY: { type: "number" },
+        fromX: { type: "number", description: "Screenshot pixel x of the drag start" },
+        fromY: { type: "number", description: "Screenshot pixel y of the drag start" },
+        toX: { type: "number", description: "Screenshot pixel x of the drag end" },
+        toY: { type: "number", description: "Screenshot pixel y of the drag end" },
       },
       required: ["app", "fromX", "fromY", "toX", "toY"],
       additionalProperties: false,
