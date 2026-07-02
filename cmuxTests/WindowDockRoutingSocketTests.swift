@@ -238,6 +238,7 @@ struct WindowDockRoutingSocketTests {
             let explicitForeignDockSurfaceIdRaw = try #require(explicitForeignDockPaneCreate["dock_surface_id"] as? String)
             let explicitForeignDockSurfaceId = try #require(UUID(uuidString: explicitForeignDockSurfaceIdRaw))
             #expect(explicitForeignDockPaneCreate["workspace_id"] as? String == dockWindowId.uuidString)
+            #expect(explicitForeignDockPaneCreate["window_id"] as? String == dockWindowId.uuidString)
             #expect(otherWindowDock.containsPanel(explicitForeignDockSurfaceId))
             #expect(!activeWindowDock.containsPanel(explicitForeignDockSurfaceId))
 
@@ -383,6 +384,12 @@ struct WindowDockRoutingSocketTests {
             fileExplorerState.setVisible(true)
             fileExplorerState.mode = .dock
             appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: dockWindow)
+            // Close shortcuts route to the focused window, and the earlier
+            // surface.focus made the FIRST window key. A real Cmd+W in the
+            // second window requires that window to be focused, so pin the
+            // shortcut-routing focus there the way a user's click would.
+            appDelegate.debugSetShortcutRoutingFocusedWindowForTesting(dockWindow)
+            defer { appDelegate.debugResetShortcutRoutingStateForTesting() }
             let closeEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: dockWindow.windowNumber, context: nil, characters: "w", charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13))
 
             #expect(appDelegate.debugHandleCustomShortcut(event: closeEvent))

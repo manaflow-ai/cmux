@@ -162,7 +162,7 @@ extension AppDelegate {
     /// never silently retarget a different window's tree.
     func dockReferenceTabManager(for dock: DockSplitStore) -> TabManager? {
         if dock.scope == .global {
-            return tabManagerFor(windowId: dock.workspaceId)
+            return tabManagerForWindowDockOwner(dock.workspaceId)
         }
         return tabManagerFor(tabId: dock.workspaceId)
     }
