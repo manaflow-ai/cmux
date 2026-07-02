@@ -17,6 +17,7 @@ struct WorkspaceListView: View {
     let host: String
     let connectionStatus: MobileMacConnectionStatus
     let navigationStyle: WorkspaceNavigationStyle
+    var showsNavigationToolbar = true
     /// Whether workspace-row titles wrap (multi-line) instead of truncating to a
     /// single line. Passed in as a value snapshot so no `@Observable` store
     /// crosses the `List` boundary.
@@ -267,21 +268,23 @@ struct WorkspaceListView: View {
         .searchable(text: $searchText)
         .toolbar {
             #if os(iOS)
-            ToolbarItem(placement: .topBarLeading) {
-                settingsMenu
-            }
-            ToolbarItem(placement: .principal) {
-                macTitlePicker(machineSnapshots: displayedMachineSnapshots)
-            }
-            if showsDevicesButton {
+            if showsNavigationToolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    devicesButton
+                    settingsMenu
                 }
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkspaceListFilterMenu(filter: $filter, machines: displayedFilterMachines)
-                if canCreateWorkspace {
-                    newWorkspaceButton
+                ToolbarItem(placement: .principal) {
+                    macTitlePicker(machineSnapshots: displayedMachineSnapshots)
+                }
+                if showsDevicesButton {
+                    ToolbarItem(placement: .topBarLeading) {
+                        devicesButton
+                    }
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    WorkspaceListFilterMenu(filter: $filter, machines: displayedFilterMachines)
+                    if canCreateWorkspace {
+                        newWorkspaceButton
+                    }
                 }
             }
             #else

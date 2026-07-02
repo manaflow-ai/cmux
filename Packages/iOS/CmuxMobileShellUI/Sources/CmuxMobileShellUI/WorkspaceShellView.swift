@@ -96,6 +96,7 @@ struct WorkspaceShellView: View {
                 host: store.connectedHostName,
                 connectionStatus: listConnectionStatus,
                 navigationStyle: .push,
+                showsNavigationToolbar: compactNavigationPath.isEmpty,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 previewLineLimit: displaySettings.workspacePreviewLineCount,
                 unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
