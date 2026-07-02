@@ -1,14 +1,18 @@
 // Server-to-server proxy for iOS product analytics. The native app posts a batch
-// of validated, `ios_`-prefixed events here; the route authenticates the Stack
-// user, enforces an event-name allowlist + size bounds, stamps the authenticated
-// user id as the distinct id, and forwards the batch to PostHog with the project
-// key held server-side. This decouples the app from the PostHog wire format and
-// SDK version and lets us resample/drop server-side without an app update.
+// of validated, `ios_`-prefixed events here; the route applies an anonymous
+// Vercel Firewall rate limit, opportunistically reads the Stack user, enforces
+// an event-name allowlist + size bounds, stamps the authenticated user id as the
+// distinct id, and forwards the batch to PostHog with the project key held
+// server-side. This decouples the app from the PostHog wire format and SDK
+// version and lets us resample/drop server-side without an app update.
 //
 // Auth + bounded-body shape mirrors the proven `web/app/api/device-tokens/route.ts`
 // (plain async/await), deliberately not the Effect pattern used elsewhere under
 // `web/app/api/**`, to stay structurally identical to that directly-analogous route.
 
+import { checkRateLimit } from "@vercel/firewall";
+
+import { env } from "../../../env";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { verifyRequest } from "../../../../services/vms/auth";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
@@ -32,6 +36,9 @@ type IncomingEvent = {
 };
 
 export async function POST(request: Request): Promise<Response> {
+  const rateLimitResponse = await anonymousRateLimitResponse(request);
+  if (rateLimitResponse) return rateLimitResponse;
+
   // Auth is read opportunistically, NOT required: the two-phase identity design
   // depends on pre-auth events (install, sign-in attempts, pairing) flowing while
   // the user is still anonymous. When a Stack session is present we stamp the
@@ -40,17 +47,10 @@ export async function POST(request: Request): Promise<Response> {
   // gate, not auth. The PostHog key is already public (the web client posts to
   // r.cmux.com directly), so an anonymous proxy is no weaker than today.
   //
-  // Rate limiting is deferred for Phase A (tracked in
-  // https://github.com/manaflow-ai/cmux/issues/5569). The only reusable limiter in
-  // the codebase (`services/apns/rateLimit.ts`) is a per-`userId` Postgres-
-  // transaction gate, which does not fit an anonymous-first, high-volume telemetry
-  // ingest path (no user id pre-auth, and a DB write + advisory lock per analytics
-  // batch would defeat a lightweight proxy; in-memory limiting does not work on
-  // Vercel's per-instance stateless functions). The shape gate (allowlist + 64 KB
-  // body cap + per-batch/per-event bounds below) limits payload abuse; a dedicated
-  // anonymous IP/edge rate limit on cmux's own compute is the follow-up. The
-  // downstream PostHog quota risk is no worse than the already-public direct
-  // r.cmux.com path.
+  // The Vercel Firewall limit above gates repeated anonymous requests before the
+  // route spends auth/body-parse/PostHog work. The shape gate (allowlist + 64 KB
+  // body cap + per-batch/per-event bounds below) still limits payload abuse inside
+  // a single allowed request.
   const user = await verifyRequest(request, { allowCookie: false });
 
   const body = await readBoundedJsonObject(request, MAX_ANALYTICS_REQUEST_BYTES);
@@ -85,6 +85,35 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: "forward_failed" }, forwarded.status);
   }
   return jsonResponse({ ok: true, forwarded: accepted.length });
+}
+
+async function anonymousRateLimitResponse(request: Request): Promise<Response | null> {
+  if (process.env.VERCEL !== "1") return null;
+
+  const rateLimitId = env.CMUX_ANALYTICS_RATE_LIMIT_ID;
+  if (!rateLimitId) {
+    console.error("analytics.events.rate_limit_not_configured");
+    return jsonResponse({ error: "rate_limit_unavailable" }, 503);
+  }
+
+  try {
+    const result = await checkRateLimit(rateLimitId, { request });
+    const rateLimitError = result.error as string | undefined;
+    if (result.rateLimited || rateLimitError === "blocked") {
+      return jsonResponse({ error: "rate_limited" }, 429);
+    } else if (rateLimitError === "not-found") {
+      console.error("analytics.events.rate_limit_not_found", rateLimitId);
+      return jsonResponse({ error: "rate_limit_unavailable" }, 503);
+    } else if (rateLimitError) {
+      console.error("analytics.events.rate_limit_error_unknown", rateLimitError);
+      return jsonResponse({ error: "rate_limit_unavailable" }, 503);
+    }
+  } catch (catchError) {
+    console.error("analytics.events.rate_limit_error", catchError);
+    return jsonResponse({ error: "rate_limit_unavailable" }, 503);
+  }
+
+  return null;
 }
 
 function sanitizeEvent(candidate: unknown): IncomingEvent | null {
