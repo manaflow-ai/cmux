@@ -1179,9 +1179,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         }
     }
 
-    // Internal (not private) so regression coverage can drive the text -> non-text transition
-    // directly; the only production caller remains the async `resolvePreviewModeIfNeeded`.
-    func applyResolvedPreviewMode(_ mode: FilePreviewMode) {
+    private func applyResolvedPreviewMode(_ mode: FilePreviewMode) {
         guard previewMode != mode else { return }
         if mode != .text {
             textLoadGeneration += 1
