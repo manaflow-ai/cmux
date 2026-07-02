@@ -3761,10 +3761,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
-        let shouldReportNaturalSize = naturalSize != lastReportedSize ||
+        let naturalGridChanged = naturalSize != lastReportedSize
+        let shouldReportNaturalSize = naturalGridChanged ||
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
         let awaitingViewportEchoForPlacement: (cols: Int, rows: Int)?
-        if shouldReportNaturalSize {
+        if naturalGridChanged {
             awaitingViewportEchoForPlacement = (cols: naturalSize.columns, rows: naturalSize.rows)
         } else {
             awaitingViewportEchoForPlacement = awaitingViewportEcho.map { (cols: $0.columns, rows: $0.rows) }
@@ -3773,7 +3774,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             width: max(1, CGFloat(naturalSize.pixelWidth) / scale),
             height: max(1, CGFloat(naturalSize.pixelHeight) / scale)
         )
-        let previousTopGapCorrection = shouldReportNaturalSize
+        let previousTopGapCorrection = naturalGridChanged
             ? false
             : lastRenderRectAllowsTopGapCorrection
         let allowsLargeTopGapCorrection = renderPlacement.allowsLargeTopGapCorrection(
