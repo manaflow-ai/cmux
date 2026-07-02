@@ -115,9 +115,7 @@ struct WorkspaceDetailView: View {
         #if os(iOS)
         if isChatMode, let session = chosenChatSession {
             chatContent(session)
-                // Emerge from the toolbar (top edge) rather than snapping in,
-                // matching standard toolbar-driven transitions.
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .transition(.opacity)
         } else if let browser = activeBrowser {
             browserContent(browser)
         } else {
