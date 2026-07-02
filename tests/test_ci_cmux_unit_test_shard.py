@@ -107,6 +107,7 @@ def main() -> int:
                 return 1
             shard_selectors = output.read_text(encoding="utf-8").splitlines()
             for focused_selector in (
+                "-only-testing:cmuxTests/AgentChatTranscriptResolverTests",
                 "-only-testing:cmuxTests/BrowserSystemProxyMirrorTests",
                 "-only-testing:cmuxTests/GhosttyOptionAsAltModsTests",
             ):
