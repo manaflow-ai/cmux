@@ -1444,30 +1444,46 @@ final class MobileHostService {
     private nonisolated static let irohSecretKeyKeychainService = "dev.cmux.iroh.host-secret-key"
     private nonisolated static let irohSecretKeyByteCount = 32
 
-    /// The Mac's persisted iroh secret key. Stored in the Keychain as a generic
-    /// password with `AfterFirstUnlockThisDeviceOnly` and no iCloud sync (a synced
-    /// key would let two Macs claim one EndpointId), so the Mac keeps one stable
-    /// EndpointId across launches. Generated once via CryptoKit's Ed25519 (the
-    /// curve iroh uses); a fresh ephemeral key is returned if the Keychain write
-    /// fails so the host still binds.
+    /// The Mac's persisted iroh secret key, so the Mac keeps ONE stable
+    /// EndpointId across launches (a rotated id kills every stored/registry
+    /// iroh route on the phone). Never synced (a synced key would let two Macs
+    /// claim one EndpointId).
     ///
-    /// Observed wedge this must recover from: an item created by an EARLIER,
-    /// differently-signed build ACL-blocks this build's read forever. The old
-    /// code then tried to delete using the READ query (which carries
-    /// `kSecReturnData`/`kSecMatchLimit`, invalid for `SecItemDelete`), the
-    /// delete never removed the item, the add failed as a duplicate, and the
-    /// host fell back to a fresh ephemeral key on EVERY launch — rotating the
-    /// EndpointId and killing every stored/registry iroh route each restart.
-    /// The rewrite path below deletes with a minimal (class, service) query and
-    /// falls back to `SecItemUpdate` on a duplicate, so the identity rotates at
-    /// most once per re-signed build, never per launch.
+    /// Storage is deliberately NOT the legacy file-based login keychain: an
+    /// item created there by an earlier, differently-signed build makes
+    /// securityd park `SecItemCopyMatching` behind a user-consent dialog
+    /// (`SecItemCopyMatching_osx` ignores `kSecUseAuthenticationUI`), which
+    /// wedged `MobileHostService.start()` on launch and rotated the identity
+    /// on every re-signed dev build. Instead:
+    ///
+    /// 1. The DATA PROTECTION keychain (`kSecUseDataProtectionKeychain`),
+    ///    which is access-group scoped and never shows consent dialogs, for
+    ///    builds entitled to use it (production signing).
+    /// 2. A 0600 key file under Application Support, namespaced by bundle id
+    ///    (two tagged dev apps must not share one EndpointId), for dev builds
+    ///    whose ad-hoc signature has no application identifier
+    ///    (`errSecMissingEntitlement`). Same protection class as `~/.ssh`
+    ///    keys, and — unlike an ACL'd keychain item — survives re-signs.
+    ///
+    /// A fresh ephemeral key is returned only when both stores fail, so the
+    /// host still binds.
+    ///
+    /// Deliberately NO migration read of the legacy login-keychain item: that
+    /// read is the unbounded consent-dialog hang (the CSSM path has no timeout
+    /// and ignores `kSecUseAuthenticationUI`), and no RELEASED build ever wrote
+    /// the legacy item — iroh has only shipped in dev builds — so the one-time
+    /// identity rotation on upgrade affects dev dogfooders only and self-heals
+    /// via re-pair or the presence route push. The orphan is left untouched.
     private nonisolated static func loadOrCreateIrohSecretKey() -> [UInt8] {
-        let readQuery: [String: Any] = [
+        // 1. Data-protection keychain (prompt-free by construction).
+        let baseQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: irohSecretKeyKeychainService,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseDataProtectionKeychain as String: true,
         ]
+        var readQuery = baseQuery
+        readQuery[kSecReturnData as String] = true
+        readQuery[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let readStatus = SecItemCopyMatching(readQuery as CFDictionary, &result)
         if readStatus == errSecSuccess,
@@ -1475,35 +1491,64 @@ final class MobileHostService {
            data.count == irohSecretKeyByteCount {
             return [UInt8](data)
         }
-        mobileHostLog.info("iroh secret key read missed (status \(readStatus, privacy: .public)); rewriting")
 
+        // 2. Dev key file (per bundle id).
+        if let fileKey = try? Data(contentsOf: irohSecretKeyFileURL()),
+           fileKey.count == irohSecretKeyByteCount {
+            return [UInt8](fileKey)
+        }
+
+        // First run (or unreadable state): mint a key and persist it.
         let key = Data(Curve25519.Signing.PrivateKey().rawRepresentation)
-        // Minimal identity-only query: valid for delete/update (the read query
-        // is NOT — return/match attributes make SecItemDelete reject it).
-        let itemQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: irohSecretKeyKeychainService,
-        ]
-        let deleteStatus = SecItemDelete(itemQuery as CFDictionary)
-        var insert = itemQuery
+        var insert = baseQuery
         insert[kSecValueData as String] = key
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         var writeStatus = SecItemAdd(insert as CFDictionary, nil)
         if writeStatus == errSecDuplicateItem {
-            // The old item survived the delete (e.g. ACL held by a previous
-            // build): overwrite its value in place instead of giving up.
-            writeStatus = SecItemUpdate(
-                itemQuery as CFDictionary,
-                [kSecValueData as String: key] as CFDictionary
-            )
+            // An item exists but did not read back cleanly: replace its value.
+            _ = SecItemDelete(baseQuery as CFDictionary)
+            writeStatus = SecItemAdd(insert as CFDictionary, nil)
         }
-        if writeStatus != errSecSuccess {
+        if writeStatus == errSecSuccess {
+            return [UInt8](key)
+        }
+        // Unentitled (dev) build: fall back to the key file.
+        do {
+            let url = try irohSecretKeyFileURLCreatingDirectory()
+            try key.write(to: url, options: [.atomic])
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600], ofItemAtPath: url.path
+            )
+            return [UInt8](key)
+        } catch {
             mobileHostLog.error(
-                "failed to persist iroh secret key (read \(readStatus, privacy: .public), delete \(deleteStatus, privacy: .public), write \(writeStatus, privacy: .public)); using ephemeral"
+                "failed to persist iroh secret key (keychain \(writeStatus, privacy: .public), file \(String(describing: error), privacy: .public)); using ephemeral"
             )
+            return [UInt8](key)
         }
-        return [UInt8](key)
     }
+
+    /// The dev fallback key file: Application Support/cmux/, namespaced by
+    /// bundle id so concurrently-installed tagged dev builds keep distinct
+    /// iroh identities.
+    private nonisolated static func irohSecretKeyFileURL() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.unknown"
+        return base
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("iroh-host-secret-key-\(bundleID)")
+    }
+
+    private nonisolated static func irohSecretKeyFileURLCreatingDirectory() throws -> URL {
+        let url = irohSecretKeyFileURL()
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        return url
+    }
+
 
     /// Whether an incoming connection's remote peer is on the loopback interface.
     ///
