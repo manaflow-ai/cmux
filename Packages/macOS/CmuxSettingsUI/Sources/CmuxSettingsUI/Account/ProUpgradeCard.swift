@@ -23,7 +23,7 @@ struct ProUpgradeCard: View {
                     .cmuxFont(size: 13, weight: .medium)
                 Text(String(
                     localized: "settings.account.pro.subtitle",
-                    defaultValue: "Cloud dev boxes, the iOS app, and cmux AI. $20/month billed yearly."
+                    defaultValue: "Cloud dev boxes, the iOS app, and cmux AI. $30/month billed annually."
                 ))
                 .cmuxFont(size: 11)
                 .foregroundColor(.secondary)

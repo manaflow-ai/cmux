@@ -96,7 +96,7 @@
     },
     "pro": {
       "name": "Pro",
-      "price": "$20",
+      "price": "$30",
       "cta": "Get Pro",
       "featuresLead": "Everything in Free, plus:",
       "features": [
@@ -109,8 +109,7 @@
       "vaultFeatures": [
         "cmux Vault: every session backed up to the cloud and searchable",
         "Unlimited session history across all your machines"
-      ],
-      "priceNote": "Billed yearly ($240/year), or $30 month-to-month."
+      ]
     },
     "team": {
       "name": "Team",
@@ -333,7 +332,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $20 per month billed yearly ($30 month-to-month) and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
+          "a": "Pro is $30 per month billed annually ($45 per month if billed monthly) and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
