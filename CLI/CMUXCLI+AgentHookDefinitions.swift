@@ -58,6 +58,7 @@ extension CMUXCLI {
             case antigravityJSON(timeoutSeconds: Int) // ~/.gemini/config/hooks.json named hook groups
             case rovoDevYAML
             case hermesAgentYAML
+            case tomlArrayTable // ~/.kimi-code/config.toml [[hooks]] array-of-tables
         }
 
         struct HookEvent {
@@ -367,6 +368,23 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             feedHookEvents: ["PreToolUse"]
+        ),
+        AgentHookDef(
+            name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
+            configDir: ".kimi-code", configFile: "config.toml", configDirEnvOverride: "KIMI_CODE_HOME",
+            binaryName: "kimi",
+            sessionStoreSuffix: "kimi", disableEnvVar: "CMUX_KIMI_HOOKS_DISABLED",
+            hookMarker: "cmux hooks kimi", format: .tomlArrayTable,
+            events: [
+                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "PermissionRequest", cmuxSubcommand: "notification"),
+                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "StopFailure", cmuxSubcommand: "notification"),
+                .init(agentEvent: "Interrupt", cmuxSubcommand: "stop"),
+                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+            ],
+            feedHookEvents: ["PreToolUse", "PostToolUse", "PermissionRequest"]
         ),
     ]
 
