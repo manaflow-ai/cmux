@@ -243,6 +243,8 @@ public struct CMUXMobileRootScene: View {
             WorkspaceListLayoutPreviewView()
         } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
+        } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
+            MobileBottomScrollStressView()
         } else {
             CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
         }
