@@ -50,10 +50,10 @@ import Testing
     )
 
     #expect(String(data: frame.vtPatchBytes(), encoding: .utf8) ==
-        "\u{1B}[?6l\u{1B}[?7l" +
+        "\u{1B}[s\u{1B}[?6l\u{1B}[?7l" +
         "\u{1B}[0m\u{1B}[1;1H\u{1B}[2K" +
         "\u{1B}[1;1H\u{1B}[0mα🇰🇷B" +
-        "\u{1B}[0m\u{1B}[?7h"
+        "\u{1B}[0m\u{1B}[?7h\u{1B}[u"
     )
 }
 
@@ -71,10 +71,10 @@ import Testing
     )
 
     #expect(String(data: frame.vtPatchBytes(), encoding: .utf8) ==
-        "\u{1B}[?6l\u{1B}[?7l" +
+        "\u{1B}[s\u{1B}[?6l\u{1B}[?7l" +
         "\u{1B}[0m\u{1B}[1;1H\u{1B}[2K" +
         "\u{1B}[1;1H\u{1B}[0mA B" +
-        "\u{1B}[0m\u{1B}[?7h"
+        "\u{1B}[0m\u{1B}[?7h\u{1B}[u"
     )
 }
 
@@ -142,8 +142,8 @@ import Testing
     ))
 
     let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
-    #expect(vt.hasPrefix("\u{1B}[?6l\u{1B}[?7l"))
-    #expect(vt.hasSuffix("\u{1B}[0m\u{1B}[?7h"))
+    #expect(vt.hasPrefix("\u{1B}[s\u{1B}[?6l\u{1B}[?7l"))
+    #expect(vt.hasSuffix("\u{1B}[0m\u{1B}[?7h\u{1B}[u"))
     #expect(rows[0] == "alpha   ")
     #expect(rows[1] == "row-one!")
 }

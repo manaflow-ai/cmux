@@ -46,10 +46,7 @@ struct LivenessTestRuntime: MobileSyncRuntime {
 
 // MARK: - Scripted host (router + transport)
 
-struct LivenessViewportReport: Sendable {
-    var columns: Int
-    var rows: Int
-}
+struct LivenessViewportReport: Sendable { var columns: Int; var rows: Int }
 
 /// Scripts the Mac side of the persistent RPC connection: answers the
 /// connect-time `workspace.list`, the `mobile.host.status` capability and
@@ -85,7 +82,7 @@ actor LivenessHostRouter {
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
-    private var emptyReplayResponsesRemaining = 0
+    private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -228,6 +225,8 @@ actor LivenessHostRouter {
         heldViewportRequestNumbers.insert(number)
     }
 
+    func setViewportEffectiveGrid(columns: Int, rows: Int) { viewportEffectiveGridOverride = .init(columns: columns, rows: rows) }
+
     /// Forget the host-side registration, modeling a lost subscription behind
     /// a live RPC channel: the next subscribe reports
     /// `already_subscribed: false`.
@@ -330,10 +329,7 @@ actor LivenessHostRouter {
             // shared grid. Echoing the reported viewport models a single
             // attached device, whose report is always the effective minimum.
             var result: [String: Any] = [:]
-            if let viewportReport {
-                result["columns"] = viewportReport.columns
-                result["rows"] = viewportReport.rows
-            }
+            if let viewportReport = viewportEffectiveGridOverride ?? viewportReport { result["columns"] = viewportReport.columns; result["rows"] = viewportReport.rows }
             return try? Self.resultFrame(id: id, result: result)
         case "terminal.input":
             return try? Self.resultFrame(id: id, result: [

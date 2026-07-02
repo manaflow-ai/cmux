@@ -718,7 +718,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
     var secondaryAggregationScopeGeneration = 0
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
-    var effectiveViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]
+    var effectiveViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]; var reportedTerminalViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]
     var viewportReportGenerationsBySurfaceID: [String: UInt64]
     var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
@@ -922,7 +922,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.connectionAttemptGeneration = UUID()
         self.chatEventSourceGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
-        self.effectiveViewportSizesBySurfaceID = [:]
+        self.effectiveViewportSizesBySurfaceID = [:]; self.reportedTerminalViewportSizesBySurfaceID = [:]
         self.viewportReportGenerationsBySurfaceID = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
@@ -5250,7 +5250,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func resetTerminalOutputTracking() {
         cancelAllTerminalReplayTasks()
-        effectiveViewportSizesBySurfaceID = [:]
+        effectiveViewportSizesBySurfaceID = [:]; reportedTerminalViewportSizesBySurfaceID = [:]
         viewportReportGenerationsBySurfaceID = [:]
         deliveredTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalByteEndSeqBySurfaceID = [:]
@@ -6959,7 +6959,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
-        effectiveViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
+        effectiveViewportSizesBySurfaceID.removeValue(forKey: surfaceID); reportedTerminalViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -7024,7 +7024,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replayBarrierToken: UUID? = nil,
         coveredReplayBarrierDroppedOutputCount: UInt64? = nil
     ) {
-        let replayBarrierTokenForRequest = replayBarrierToken
+        if let replayBarrierToken, terminalReplayBarrierTokensBySurfaceID[surfaceID] != replayBarrierToken { return }; let replayBarrierTokenForRequest = replayBarrierToken
             ?? terminalReplayBarrierTokensBySurfaceID[surfaceID]
         let coveredReplayBarrierDroppedOutputCountForRequest = replayBarrierTokenForRequest == nil
             ? nil

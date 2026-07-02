@@ -25,12 +25,13 @@ extension MobileShellComposite {
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return nil
         }
-        let previousGridBeforeRequest = effectiveViewportSizesBySurfaceID[surfaceID]
+        let reportedGrid = MobileTerminalViewportSize(columns: columns, rows: rows)
+        let previousReportedGrid = reportedTerminalViewportSizesBySurfaceID[surfaceID]
+        reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
         let prearmedReplayBarrierToken = prearmTerminalViewportReplayBarrierIfNeeded(
             surfaceID: surfaceID,
-            previousGrid: previousGridBeforeRequest,
-            columns: columns,
-            rows: rows
+            previousReportedGrid: previousReportedGrid,
+            reportedGrid: reportedGrid
         )
         let requestGeneration = (viewportReportGenerationsBySurfaceID[surfaceID] ?? 0) + 1
         viewportReportGenerationsBySurfaceID[surfaceID] = requestGeneration
@@ -74,7 +75,10 @@ extension MobileShellComposite {
             let shouldRequestReplay = previousGrid.map { $0 != effectiveGrid } ?? true
             if shouldRequestReplay,
                hasTerminalOutputSink(surfaceID: surfaceID) {
-                let replayBarrierToken = prearmedReplayBarrierToken
+                let replayBarrierToken = currentTerminalReplayBarrierToken(
+                    surfaceID: surfaceID,
+                    prearmedToken: prearmedReplayBarrierToken
+                )
                     ?? beginTerminalReplayBarrier(surfaceID: surfaceID)
                 terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
                 MobileDebugLog.anchormux(
@@ -108,6 +112,7 @@ extension MobileShellComposite {
     /// detach). Fire-and-forget; the Mac also clears on connection close.
     public func clearTerminalViewport(surfaceID: String) {
         viewportReportGenerationsBySurfaceID[surfaceID, default: 0] += 1
+        reportedTerminalViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         guard let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return
@@ -131,9 +136,8 @@ extension MobileShellComposite {
 
     private func prearmTerminalViewportReplayBarrierIfNeeded(
         surfaceID: String,
-        previousGrid: MobileTerminalViewportSize?,
-        columns: Int,
-        rows: Int
+        previousReportedGrid: MobileTerminalViewportSize?,
+        reportedGrid: MobileTerminalViewportSize
     ) -> UUID? {
         guard hasTerminalOutputSink(surfaceID: surfaceID) else { return nil }
         if let pendingToken = terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] {
@@ -144,12 +148,18 @@ extension MobileShellComposite {
             }
             terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         }
-        guard previousGrid.map({ $0.columns != columns || $0.rows != rows }) ?? true else {
-            return nil
-        }
+        guard previousReportedGrid != reportedGrid else { return nil }
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] = replayBarrierToken
         return replayBarrierToken
+    }
+
+    private func currentTerminalReplayBarrierToken(surfaceID: String, prearmedToken: UUID?) -> UUID? {
+        if let prearmedToken,
+           terminalReplayBarrierTokensBySurfaceID[surfaceID] == prearmedToken {
+            return prearmedToken
+        }
+        return terminalReplayBarrierTokensBySurfaceID[surfaceID]
     }
 
     private func finishPrearmedTerminalViewportBarrierWithoutResize(

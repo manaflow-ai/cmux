@@ -304,3 +304,82 @@ import Testing
     )
     #expect(!extraReplayRequested, "the stale resize ACK must not clear or replay after the revert")
 }
+
+@MainActor
+@Test func terminalViewportSameNaturalReportUnderCappedGridDoesNotPrearmBarrier() async throws {
+    let router = LivenessHostRouter()
+    await router.setViewportEffectiveGrid(columns: 80, rows: 30)
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "initial-viewport-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    let baselineGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 100, rows: 50)
+    #expect(baselineGrid?.columns == 80)
+    #expect(baselineGrid?.rows == 30)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
+
+    await router.holdViewportRequest(number: 2)
+    let repeatReport = Task {
+        await store.updateTerminalViewport(surfaceID: surfaceID, columns: 100, rows: 50)
+    }
+    await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 2)
+
+    let liveAccepted = store.deliverTerminalBytes(
+        Data("live-while-repeat-held".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(liveAccepted, "same natural report must not prearm a barrier while the effective grid is capped")
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-while-repeat-held")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: liveChunk.streamToken)
+
+    await router.releaseAllHeld()
+    let repeatedGrid = await repeatReport.value
+    #expect(repeatedGrid?.columns == 80)
+    #expect(repeatedGrid?.rows == 30)
+    let extraReplayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!extraReplayRequested, "same natural report under the same effective grid must not replay")
+}
+
+@MainActor
+@Test func terminalReplayRequestRejectsStaleBarrierToken() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    let staleToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    let currentToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    let replayCountBeforeStaleRequest = await router.count(of: "mobile.terminal.replay")
+    store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: staleToken)
+
+    let staleReplayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountBeforeStaleRequest + 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!staleReplayRequested, "a stale barrier token must not start or cancel replay")
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == currentToken)
+}
