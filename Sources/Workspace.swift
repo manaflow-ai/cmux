@@ -10613,6 +10613,23 @@ final class Workspace: Identifiable, ObservableObject {
     }
 #endif
 
+    /// Running count of redraw requests received via `redrawVisibleSurfaces()`.
+    /// Lightweight instrumentation for the "Redraw Window" action; the routing test
+    /// reads it (via `@testable import`) to confirm requests reach only the selected
+    /// workspace.
+    var redrawVisibleSurfacesRequestCount = 0
+
+    /// Force the visible terminal surfaces in this workspace to re-run their geometry
+    /// reconcile and repaint. This is the user-facing "Redraw Window" escape hatch for
+    /// clearing transient visual distortion (e.g. stale/garbled terminal frames that can
+    /// appear after a window-restore on app/Mac restart — see issue #6031). It reuses the
+    /// same event-driven geometry-reconcile + `forceRefresh()` pass that runs after split
+    /// and move churn, so no content is lost — only the rendering is recomputed.
+    func redrawVisibleSurfaces() {
+        redrawVisibleSurfacesRequestCount += 1
+        scheduleTerminalGeometryReconcile()
+    }
+
     func scheduleTerminalGeometryReconcile() {
         beginEventDrivenLayoutFollowUp(
             reason: "workspace.geometry",
