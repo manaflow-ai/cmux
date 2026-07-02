@@ -208,16 +208,7 @@ extension TerminalController {
         dock: DockSplitStore,
         aliasTabManager: TabManager? = nil
     ) -> Bool {
-        if windowDockMismatchesExplicitWindow(routing, dock: dock) { return true }
-        if windowDockMismatchesExplicitDockSurfaceOrPane(routing, dock: dock) { return true }
-        guard let workspaceID = routing.workspaceID else { return false }
-        if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
-            guard let aliasTabManager,
-                  let aliasWindowId = AppDelegate.shared?.windowId(for: aliasTabManager) else { return false }
-            return aliasWindowId != dock.workspaceId
-        }
-        guard AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceID) != nil else { return false }
-        return workspaceID != dock.workspaceId
+        windowDockRoutingConflicts(routing, dockOwnerId: dock.workspaceId, aliasTabManager: aliasTabManager)
     }
 
     /// Whether a Dock create request carries explicit selectors that name a
@@ -227,6 +218,22 @@ extension TerminalController {
         _ routing: ControlRoutingSelectors,
         dockOwnerId: UUID,
         aliasTabManager: TabManager
+    ) -> Bool {
+        windowDockRoutingConflicts(routing, dockOwnerId: dockOwnerId, aliasTabManager: aliasTabManager)
+    }
+
+    /// The single selector-conflict check behind both forms above: whether the
+    /// routing explicitly names a window Dock other than `dockOwnerId`'s — via
+    /// `window_id`, a Dock surface/pane in another window's Dock, the legacy
+    /// alias resolving to another window, or a different Dock-owner
+    /// `workspace_id`. Window Docks are 1:1 with windows and an owner id IS its
+    /// window id, so comparing ids is equivalent to comparing stores. Works on
+    /// the id, not the store, so contradictory requests can be rejected without
+    /// lazily materializing a Dock.
+    func windowDockRoutingConflicts(
+        _ routing: ControlRoutingSelectors,
+        dockOwnerId: UUID,
+        aliasTabManager: TabManager?
     ) -> Bool {
         if routing.hasWindowIDParam,
            let requestedWindowID = routing.windowID,
@@ -245,7 +252,8 @@ extension TerminalController {
         }
         guard let workspaceID = routing.workspaceID else { return false }
         if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
-            guard let aliasWindowId = AppDelegate.shared?.windowId(for: aliasTabManager) else { return false }
+            guard let aliasTabManager,
+                  let aliasWindowId = AppDelegate.shared?.windowId(for: aliasTabManager) else { return false }
             return aliasWindowId != dockOwnerId
         }
         guard AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceID) != nil else { return false }
