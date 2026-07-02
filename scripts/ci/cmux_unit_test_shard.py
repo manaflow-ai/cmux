@@ -23,9 +23,19 @@ XCTEST_METHOD_RE = re.compile(
     r"func\s+(test[A-Za-z0-9_]*)\s*\("
 )
 LARGE_SUITE_METHOD_THRESHOLD = 40
+# Suites excluded from the weight-balanced shard pool and run instead by their
+# own non-tolerant `-only-testing` step on the focused-regression shard (see
+# .github/workflows/ci.yml). These suites create real SwiftUI/WebKit/Ghostty
+# app-host windows, so they must run in isolation rather than co-located with
+# arbitrary shard neighbours. Pinning them here also keeps the shard partition
+# stable: because assignment is greedy weight-balanced bin-packing, folding a
+# new app-host suite into the pool perturbs the running bucket weights and
+# reshuffles which pre-existing order-sensitive suites co-locate in a shard,
+# which can surface latent app-host test-isolation cascades.
 FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserSystemProxyMirrorTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
+    "cmuxTests/BrowserPageZoomPreferenceTests",
 }
 
 

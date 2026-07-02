@@ -524,6 +524,30 @@ jobs:
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
             test
 
+      - name: Run browser page zoom preference regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Focused gate for the persisted browser page-zoom preference. This
+          # suite instantiates real BrowserPanel/WKWebView app-host windows, so
+          # it is pinned out of the weight-balanced shard pool
+          # (FOCUSED_GATE_SELECTORS in scripts/ci/cmux_unit_test_shard.py) and
+          # run here in isolation. Keeping it out of the pool also preserves the
+          # shard partition: adding a new app-host suite to the greedy
+          # bin-packing reshuffles which pre-existing order-sensitive suites
+          # co-locate in a shard, which can surface latent isolation cascades.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/BrowserPageZoomPreferenceTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail
