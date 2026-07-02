@@ -2103,6 +2103,133 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(palette.map(\.hex), ["#2244FF", "#00F5D4"])
     }
 
+    func testSettingsFileStoreAppliesWorkspaceStateColors() throws {
+        let defaults = UserDefaults.standard
+        let catalog = SettingCatalog().workspaceColors
+        let previousEnabled = defaults.object(forKey: catalog.stateColorsEnabled.userDefaultsKey)
+        let previousMode = defaults.object(forKey: catalog.stateColorMode.userDefaultsKey)
+        let previousColors = defaults.dictionary(forKey: catalog.stateColors.userDefaultsKey) as? [String: String]
+        let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
+        let previousLegacyOverrides = defaults.dictionary(forKey: "workspaceTabColor.defaultOverrides") as? [String: String]
+        let previousLegacyCustomColors = defaults.array(forKey: "workspaceTabColor.customColors") as? [String]
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            WorkspaceTabColorSettings.reset(defaults: defaults)
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: catalog.stateColorsEnabled.userDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: catalog.stateColorsEnabled.userDefaultsKey)
+            }
+            if let previousMode {
+                defaults.set(previousMode, forKey: catalog.stateColorMode.userDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: catalog.stateColorMode.userDefaultsKey)
+            }
+            if let previousColors {
+                defaults.set(previousColors, forKey: catalog.stateColors.userDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: catalog.stateColors.userDefaultsKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+            if let previousPalette {
+                defaults.set(previousPalette, forKey: WorkspaceTabColorSettings.paletteKey)
+            }
+            if let previousLegacyOverrides {
+                defaults.set(previousLegacyOverrides, forKey: "workspaceTabColor.defaultOverrides")
+            }
+            if let previousLegacyCustomColors {
+                defaults.set(previousLegacyCustomColors, forKey: "workspaceTabColor.customColors")
+            }
+        }
+
+        WorkspaceTabColorSettings.reset(defaults: defaults)
+        defaults.removeObject(forKey: catalog.stateColorsEnabled.userDefaultsKey)
+        defaults.removeObject(forKey: catalog.stateColorMode.userDefaultsKey)
+        defaults.removeObject(forKey: catalog.stateColors.userDefaultsKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "stateColorsEnabled": true,
+                "stateColorMode": "blend",
+                "stateColors": {
+                  "running": null,
+                  "waiting": "#0055ff",
+                  "idle": "#222222"
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let client = UserDefaultsSettingsClient(defaults: defaults)
+        XCTAssertTrue(client.value(for: catalog.stateColorsEnabled))
+        XCTAssertEqual(client.value(for: catalog.stateColorMode), .blend)
+        XCTAssertEqual(
+            client.value(for: catalog.stateColors),
+            [
+                "needsInput": "#0055FF",
+                "idle": "#222222",
+            ]
+        )
+
+        do {
+            WorkspaceTabColorSettings.reset(defaults: defaults)
+            defaults.removeObject(forKey: catalog.stateColorMode.userDefaultsKey)
+            defaults.removeObject(forKey: catalog.stateColors.userDefaultsKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "workspaceColors": {
+                    "stateColorMode": "adaptive",
+                    "stateColors": "running",
+                    "colors": {
+                      "Neon Mint": "#00f5d4"
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            let client = UserDefaultsSettingsClient(defaults: defaults)
+            XCTAssertEqual(client.value(for: catalog.stateColorMode), catalog.stateColorMode.defaultValue)
+            XCTAssertEqual(client.value(for: catalog.stateColors), catalog.stateColors.defaultValue)
+            let palette = WorkspaceTabColorSettings.palette(defaults: defaults)
+            XCTAssertEqual(palette.map(\.name), ["Neon Mint"])
+            XCTAssertEqual(palette.map(\.hex), ["#00F5D4"])
+        }
+    }
+
     func testManagedWorkspaceColorsRestoreLegacyPaletteWhenFileSettingIsRemoved() throws {
         let defaults = UserDefaults.standard
         let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]

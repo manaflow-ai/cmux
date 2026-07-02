@@ -9581,6 +9581,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
+    let workspaceStateColorResolver: WorkspaceStateColorResolver
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
 
@@ -9637,6 +9638,11 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+        workspaceStateColorResolver = WorkspaceStateColorResolver(
+            isEnabled: settings.value(for: catalog.workspaceColors.stateColorsEnabled),
+            mode: settings.value(for: catalog.workspaceColors.stateColorMode),
+            colorHexByState: settings.value(for: catalog.workspaceColors.stateColors)
+        )
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
     }
 
@@ -9647,6 +9653,16 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     ) -> Bool {
         guard defaults.object(forKey: key) != nil else { return defaultValue }
         return defaults.bool(forKey: key)
+    }
+
+    func resolvedWorkspaceColorHex(
+        manualColorHex: String?,
+        agentLifecycleState: AgentHibernationLifecycleState
+    ) -> String? {
+        workspaceStateColorResolver.resolvedColorHex(
+            manualColorHex: manualColorHex,
+            agentLifecycleState: agentLifecycleState
+        )
     }
 
 }
@@ -10070,6 +10086,9 @@ struct VerticalTabsSidebar: View {
     /// has no TabItemView, so no implicit per-row publisher subscription
     /// would otherwise fire on `cd` while it's not selected.
     @State private var anchorCwdRevision: Int = 0
+    /// Bumped when a workspace agent lifecycle changes so group headers can
+    /// refresh their state-derived color even when no member row is mounted.
+    @State var groupAgentLifecycleRevision: Int = 0
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
@@ -10718,6 +10737,17 @@ struct VerticalTabsSidebar: View {
                     // unrelated sidebar event fires.
                     anchorCwdRevision &+= 1
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .workspaceAgentLifecycleDidChange)) { notification in
+                    // Mirror anchorCwdRevision for agent-state colors: a collapsed
+                    // group's header aggregates its members' lifecycle, but those
+                    // members have no mounted row to drive a refresh, so the
+                    // header tint would otherwise stay stale until an unrelated
+                    // sidebar event fires. Scope to this window's workspaces so
+                    // agent churn in other windows doesn't invalidate this sidebar.
+                    guard let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
+                          renderContext.workspaceById[workspaceId] != nil else { return }
+                    groupAgentLifecycleRevision &+= 1
+                }
                 .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionDidHideEvent.notificationName)) { notification in
                     // Group collapse hides some workspaces without changing
                     // focus or wiping the rest of the multi-selection. Strip
@@ -10798,6 +10828,7 @@ struct VerticalTabsSidebar: View {
             }
             .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
+                groupAgentLifecycleRevision &+= 1
             }
             // Fade the extension's content out at the bottom so it dissolves behind the
             // sidebar footer instead of overlapping it sharply, matching the default
@@ -10933,6 +10964,7 @@ struct VerticalTabsSidebar: View {
             }
             .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
+                groupAgentLifecycleRevision &+= 1
             }
             .onReceive(
                 NotificationCenter.default.publisher(for: BrowserStackSidebar.stateDidLoadNotification)
@@ -13211,6 +13243,10 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsGitBranch: Bool
         let usesViewportAwarePath: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+        // Resolves the row's state-derived color, so toggling Agent State Colors,
+        // switching replace/blend, or editing a state color in Settings must
+        // rebuild the cached snapshot instead of reusing a stale customColorHex.
+        let workspaceStateColorResolver: WorkspaceStateColorResolver
     }
 
     struct VerticalBranchDirectoryLine: Equatable {
@@ -13680,7 +13716,8 @@ struct TabItemView: View, Equatable {
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             showsGitBranch: sidebarShowGitBranch,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
-            visibleAuxiliaryDetails: visibleAuxiliaryDetails
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails,
+            workspaceStateColorResolver: settings.workspaceStateColorResolver
         )
     }
 
@@ -14837,7 +14874,10 @@ struct TabItemView: View, Equatable {
             title: tab.title,
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
-            customColorHex: tab.customColor,
+            customColorHex: settings.resolvedWorkspaceColorHex(
+                manualColorHex: tab.customColor,
+                agentLifecycleState: tab.sidebarAgentHibernationLifecycleState()
+            ),
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,

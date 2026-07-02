@@ -16,8 +16,19 @@ public struct WorkspaceColorsSection: View {
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
     @State private var selectionHex: DefaultsValueModel<String>
     @State private var badgeHex: DefaultsValueModel<String>
+    @State private var stateColorsEnabled: DefaultsValueModel<Bool>
+    @State private var stateColorMode: DefaultsValueModel<WorkspaceStateColorMode>
+    @State private var stateColors: DefaultsValueModel<[String: String]>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
     @State private var paletteReconcileTracker = WorkspacePaletteColorReconcileTracker()
+
+    private struct AgentStateColorRow: Identifiable {
+        let rawValue: String
+        let title: String
+        let defaultHex: String?
+
+        var id: String { rawValue }
+    }
 
     /// Built-in palette order and default hexes. Mirrors
     /// `WorkspaceTabColorSettings.defaultPalette` in the legacy app target.
@@ -55,6 +66,9 @@ public struct WorkspaceColorsSection: View {
         _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
+        _stateColorsEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.stateColorsEnabled))
+        _stateColorMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.stateColorMode))
+        _stateColors = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.stateColors))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
     }
 
@@ -77,6 +91,9 @@ public struct WorkspaceColorsSection: View {
             indicator,
             selectionHex,
             badgeHex,
+            stateColorsEnabled,
+            stateColorMode,
+            stateColors,
             paletteModel,
         ]
         models.forEach { $0.startObserving() }
@@ -117,6 +134,38 @@ public struct WorkspaceColorsSection: View {
             )
             SettingsCardDivider()
 
+            SettingsCardRow(
+                configurationReview: .json("workspaceColors.stateColorsEnabled"),
+                String(localized: "settings.workspaceColors.stateColorsEnabled", defaultValue: "Agent State Colors"),
+                subtitle: String(localized: "settings.workspaceColors.stateColorsEnabled.subtitle", defaultValue: "Tint sidebar workspace tabs from the current agent state.")
+            ) {
+                Toggle("", isOn: Binding(get: { stateColorsEnabled.current }, set: { stateColorsEnabled.set($0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("workspaceColors.stateColorMode"),
+                String(localized: "settings.workspaceColors.stateColorMode", defaultValue: "State Color Behavior"),
+                subtitle: String(localized: "settings.workspaceColors.stateColorMode.subtitle", defaultValue: "Choose how state colors interact with manual workspace colors."),
+                controlWidth: 196
+            ) {
+                Picker("", selection: Binding(get: { stateColorMode.current }, set: { stateColorMode.set($0) })) {
+                    ForEach(WorkspaceStateColorMode.allCases, id: \.self) { mode in
+                        Text(stateColorModeLabel(mode)).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            ForEach(agentStateColorRows()) { row in
+                stateColorRow(row)
+                SettingsCardDivider()
+            }
+
             SettingsCardNote(
                 String(localized: "settings.workspaceColors.dictionaryNote", defaultValue: "Edit cmux.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries.")
             )
@@ -149,6 +198,60 @@ public struct WorkspaceColorsSection: View {
                 .controlSize(.small)
             }
         }
+    }
+
+    @ViewBuilder
+    private func stateColorRow(_ row: AgentStateColorRow) -> some View {
+        let currentHex = stateColors.current[row.rawValue]
+        SettingsCardRow(
+            configurationReview: .json("workspaceColors.stateColors"),
+            searchAnchorID: "setting:workspaceColors:state-colors-\(row.rawValue)",
+            row.title
+        ) {
+            HStack(spacing: 8) {
+                if currentHex != nil {
+                    Button(String(localized: "settings.workspaceColors.stateColor.clear", defaultValue: "Clear")) {
+                        setStateColor(nil, for: row.rawValue)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                if currentHex != row.defaultHex {
+                    Button(String(localized: "settings.workspaceColors.stateColor.reset", defaultValue: "Reset")) {
+                        setStateColor(row.defaultHex, for: row.rawValue)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                // When a state is cleared (`currentHex == nil`) the resolver
+                // applies no tint, so the swatch shows a neutral gray that
+                // matches the "No tint" label instead of falling back to the
+                // built-in default hex — otherwise a cleared running/needsInput
+                // row would still display its orange/blue default swatch while
+                // the label and the sidebar both say no tint. "Reset" restores
+                // the default.
+                ColorPicker("", selection: Binding(
+                    get: { Color(cmuxHex: currentHex ?? "#8E8E93") ?? Color(nsColor: .systemBlue) },
+                    set: { newColor in setStateColor(newColor.cmuxHexString, for: row.rawValue) }
+                ), supportsOpacity: false)
+                .labelsHidden()
+                .frame(width: 38)
+                Text(currentHex ?? String(localized: "settings.workspaceColors.stateColor.noTint", defaultValue: "No tint"))
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 76, alignment: .trailing)
+            }
+        }
+    }
+
+    private func setStateColor(_ hex: String?, for rawValue: String) {
+        var snapshot = stateColors.current
+        if let hex {
+            snapshot[rawValue] = hex
+        } else {
+            snapshot.removeValue(forKey: rawValue)
+        }
+        stateColors.set(snapshot)
     }
 
     @ViewBuilder
@@ -273,6 +376,40 @@ public struct WorkspaceColorsSection: View {
         case .leftRail: return String(localized: "sidebar.activeTabIndicator.leftRail", defaultValue: "Left Rail")
         case .solidFill: return String(localized: "sidebar.activeTabIndicator.solidFill", defaultValue: "Solid Fill")
         }
+    }
+
+    private func stateColorModeLabel(_ mode: WorkspaceStateColorMode) -> String {
+        switch mode {
+        case .replace:
+            return String(localized: "settings.workspaceColors.stateColorMode.replace", defaultValue: "Replace Manual Color")
+        case .blend:
+            return String(localized: "settings.workspaceColors.stateColorMode.blend", defaultValue: "Blend With Manual Color")
+        }
+    }
+
+    private func agentStateColorRows() -> [AgentStateColorRow] {
+        [
+            AgentStateColorRow(
+                rawValue: "running",
+                title: String(localized: "settings.workspaceColors.stateColor.running", defaultValue: "Running"),
+                defaultHex: WorkspaceColorsCatalogSection.defaultStateColors["running"]
+            ),
+            AgentStateColorRow(
+                rawValue: "needsInput",
+                title: String(localized: "settings.workspaceColors.stateColor.needsInput", defaultValue: "Needs Input"),
+                defaultHex: WorkspaceColorsCatalogSection.defaultStateColors["needsInput"]
+            ),
+            AgentStateColorRow(
+                rawValue: "idle",
+                title: String(localized: "settings.workspaceColors.stateColor.idle", defaultValue: "Idle"),
+                defaultHex: WorkspaceColorsCatalogSection.defaultStateColors["idle"]
+            ),
+            AgentStateColorRow(
+                rawValue: "unknown",
+                title: String(localized: "settings.workspaceColors.stateColor.unknown", defaultValue: "Unknown"),
+                defaultHex: WorkspaceColorsCatalogSection.defaultStateColors["unknown"]
+            ),
+        ]
     }
 
 

@@ -920,6 +920,43 @@
           "default": null,
           "description": "Override the unread notification badge color."
         },
+        "stateColorsEnabled": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.workspaceColors.stateColorsEnabled",
+          "description": "Color sidebar workspace tabs by their current agent lifecycle state (Settings > Workspace Colors)."
+        },
+        "stateColorMode": {
+          "type": "string",
+          "enum": ["replace", "blend"],
+          "default": "replace",
+          "descriptionKey": "schemaDescriptions.workspaceColors.stateColorMode",
+          "description": "How an agent-state color combines with a workspace's manual color. 'replace' shows the state color instead of the manual color; 'blend' mixes the two."
+        },
+        "stateColors": {
+          "type": "object",
+          "descriptionKey": "schemaDescriptions.workspaceColors.stateColors",
+          "description": "Hex colors keyed by agent lifecycle state. Set a state to null to drop its color; omitted states keep their defaults.",
+          "default": {
+            "running": "#A04000",
+            "needsInput": "#1565C0"
+          },
+          "properties": {
+            "running": { "$ref": "#/$defs/colorHexOrNull" },
+            "needsInput": { "$ref": "#/$defs/colorHexOrNull" },
+            "idle": { "$ref": "#/$defs/colorHexOrNull" },
+            "unknown": { "$ref": "#/$defs/colorHexOrNull" },
+            "waiting": {
+              "$ref": "#/$defs/colorHexOrNull",
+              "description": "Deprecated alias for needsInput."
+            },
+            "needs-input": {
+              "$ref": "#/$defs/colorHexOrNull",
+              "description": "Deprecated alias for needsInput."
+            }
+          },
+          "additionalProperties": false
+        },
         "colors": {
           "type": "object",
           "description": "Full named workspace color palette. Include built-in entries you want to keep, remove keys to remove colors, and add more named entries to extend the picker.",

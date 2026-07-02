@@ -31,6 +31,9 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.app.workspaceInheritWorkingDirectory) == true)
         #expect(client.value(for: catalog.app.newWorkspacePlacement) == .afterCurrent)
         #expect(client.value(for: catalog.workspaceColors.indicatorStyle) == .leftRail)
+        #expect(client.value(for: catalog.workspaceColors.stateColorsEnabled) == false)
+        #expect(client.value(for: catalog.workspaceColors.stateColorMode) == .replace)
+        #expect(client.value(for: catalog.workspaceColors.stateColors) == WorkspaceColorsCatalogSection.defaultStateColors)
         #expect(client.value(for: catalog.workspaceGroups.anchorCloseSuppressed) == false)
         #expect(client.value(for: catalog.workspaceGroups.newWorkspacePlacement) == .afterCurrent)
         #expect(client.value(for: catalog.terminal.titleUpdateCoalescingEnabled) == false)
@@ -57,6 +60,17 @@ struct UserDefaultsSettingsClientTests {
 
         client.set(.solidFill, for: catalog.workspaceColors.indicatorStyle)
         #expect(defaults.string(forKey: "sidebarActiveTabIndicatorStyle") == "solidFill")
+
+        client.set(true, for: catalog.workspaceColors.stateColorsEnabled)
+        #expect(defaults.object(forKey: "workspaceColors.stateColorsEnabled") as? Bool == true)
+
+        client.set(.blend, for: catalog.workspaceColors.stateColorMode)
+        #expect(defaults.string(forKey: "workspaceColors.stateColorMode") == "blend")
+        #expect(client.value(for: catalog.workspaceColors.stateColorMode) == .blend)
+
+        client.set(["running": "#112233"], for: catalog.workspaceColors.stateColors)
+        #expect(defaults.dictionary(forKey: "workspaceColors.stateColors") as? [String: String] == ["running": "#112233"])
+        #expect(client.value(for: catalog.workspaceColors.stateColors) == ["running": "#112233"])
 
         client.set(.end, for: catalog.workspaceGroups.newWorkspacePlacement)
         #expect(defaults.string(forKey: "workspaceGroup.newWorkspacePlacement") == "end")
@@ -108,6 +122,24 @@ struct UserDefaultsSettingsClientTests {
 
         await store.set(.top, for: catalog.app.newWorkspacePlacement)
         #expect(client.value(for: catalog.app.newWorkspacePlacement) == .top)
+    }
+}
+
+@Suite("WorkspaceStateColorMode decode")
+struct WorkspaceStateColorModeDecodeTests {
+    @Test func decodesRawValues() {
+        #expect(WorkspaceStateColorMode.decodeFromUserDefaults("replace") == .replace)
+        #expect(WorkspaceStateColorMode.decodeFromJSON("blend") == .blend)
+    }
+
+    @Test func rejectsUnknownValues() {
+        #expect(WorkspaceStateColorMode.decodeFromUserDefaults("merge") == nil)
+        #expect(WorkspaceStateColorMode.decodeFromJSON(7) == nil)
+    }
+
+    @Test func encodesRawValues() {
+        #expect(WorkspaceStateColorMode.replace.encodeForUserDefaults() as? String == "replace")
+        #expect(WorkspaceStateColorMode.blend.encodeForJSON() as? String == "blend")
     }
 }
 
