@@ -18,6 +18,12 @@ Cases:
   (f) Downgrading the rows from `LazyVStack` to a plain eager `VStack` fails.
   (g) Dropping `.frame(minHeight:)` from `workspaceScrollContent` fails.
   (h) Renaming/removing a guarded function fails loudly (no silent skip).
+  (j) A clean TabItemView row region passes.
+  (k) The #6556 rowHeightProbe shape (GeometryReader + @State height in a row)
+      fails — this exact code shipped in stable v0.64.17 and livelocked in the
+      wild on 2026-07-02.
+  (l) Per-row `.anchorPreference` (the #5323 virtualization defeat) fails.
+  (m) A required row type missing from its file fails loudly (no silent skip).
 """
 
 import importlib.util
@@ -260,6 +266,65 @@ def main():
             run_guard(write_fixture(workdir, "Renamed.swift", renamed)),
             False, "renamed guarded function fails (no silent skip)",
         ) else 1
+
+        # (j) Clean TabItemView row region passes.
+        def row_fixture(row_body):
+            return fixture(GOOD_SCROLL, GOOD_ROWS) + (
+                "struct TabItemView: View, Equatable {\n"
+                "    let tab: Tab\n"
+                "    var body: some View {\n"
+                + row_body
+                + "\n    }\n"
+                "}\n"
+            )
+
+        clean_row = row_fixture(
+            "        HStack { Text(tab.title) }\n"
+            "            .contentShape(Rectangle())"
+        )
+        failures += 0 if expect(
+            run_guard(write_fixture(workdir, "CleanRow.swift", clean_row)),
+            True, "clean TabItemView row region passes",
+        ) else 1
+
+        # (k) The #6556 rowHeightProbe shape: GeometryReader writing @State row
+        # height from inside a row. This exact code shipped in stable v0.64.17
+        # and livelocked in the wild (issue #2586, 2026-07-02 spindump).
+        probe_row = row_fixture(
+            "        HStack { Text(tab.title) }\n"
+            "            .background {\n"
+            "                GeometryReader { proxy in\n"
+            "                    Color.clear.onAppear { rowHeight = proxy.size.height }\n"
+            "                }\n"
+            "            }"
+        )
+        failures += 0 if expect(
+            run_guard(write_fixture(workdir, "ProbeRow.swift", probe_row)),
+            False, "#6556 rowHeightProbe (GeometryReader in row) fails",
+        ) else 1
+
+        # (l) Per-row anchorPreference publication (the #5323 defeat).
+        anchor_row = row_fixture(
+            "        HStack { Text(tab.title) }\n"
+            "            .anchorPreference(key: RowFrameKey.self, value: .bounds) { [tab.id: $0] }"
+        )
+        failures += 0 if expect(
+            run_guard(write_fixture(workdir, "AnchorRow.swift", anchor_row)),
+            False, "per-row .anchorPreference (#5323 shape) fails",
+        ) else 1
+
+        # (m) A required row type missing from its file must fail loudly.
+        guard_mod = load_guard_module()
+        missing_row_violations = guard_mod.check_source(
+            "import SwiftUI\nstruct SomethingElse: View { var body: some View { Text(\"x\") } }\n",
+            set(),
+            require_functions=False,
+            required_row_types=("SidebarWorkspaceGroupHeaderView",),
+        )
+        row_rename_ok = any("could not locate type" in v for v in missing_row_violations)
+        print("[{0}] missing required row type fails loudly".format(
+            "PASS" if row_rename_ok else "FAIL"))
+        failures += 0 if row_rename_ok else 1
 
         # (i) Custom-Layout discovery must cover repo-owned Packages/ (where cmux
         # migrates app code) and exclude build/vendor trees. (#6870 review)
