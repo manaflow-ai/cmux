@@ -146,9 +146,9 @@
 691	Sources/NotificationSoundSettings.swift
 691	cmuxTests/TaskManagerResourcesTests.swift
 690	cmuxTests/SessionIndexViewTests.swift
+683	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 683	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 683	Sources/Panels/CodexAppServerSession.swift
-681	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
 680	Sources/FileExplorerSearchController.swift
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
@@ -168,8 +168,8 @@
 635	cmuxUITests/RightSidebarChromeHeightUITests.swift
 632	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
+628	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTests.swift
 627	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
-624	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTests.swift
 620	cmuxTests/FinderFileDropRegressionTests.swift
 620	cmuxTests/TerminalNotificationQueueTests.swift
 615	Sources/SettingsNavigation.swift
