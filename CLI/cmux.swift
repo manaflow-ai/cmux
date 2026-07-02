@@ -7382,7 +7382,10 @@ struct CMUXCLI {
         }
         if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
             let text = unescapeSendText(commandText + "\\n")
-            let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
+            let sendParams: [String: Any] = [
+                "text": text,
+                "workspace_id": wsId
+            ]
             _ = try client.sendV2(method: "surface.send_text", params: sendParams)
         }
     }
