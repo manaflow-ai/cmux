@@ -290,6 +290,31 @@ import Testing
         }
     }
 
+    @Test func persistAfterExitRejectsTranscriptDerivedTitleWhenAutoNamingDisabled() throws {
+        try withAutoNamingSetting(false) {
+            try withManager { _, workspace in
+                workspace.applyProcessTitle("project-directory")
+
+                // A transcript-derived title (`auto_derived`) is a *new* auto-naming
+                // action, so persist-after-exit must still honor the opt-in even
+                // though it otherwise bypasses the setting to preserve titles cmux
+                // already applied.
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Investigate auth bug",
+                    "persist_after_exit": true,
+                    "auto_derived": true
+                ])
+
+                #expect(envelope["ok"] as? Bool == false)
+                let error = try #require(envelope["error"] as? [String: Any])
+                #expect(error["code"] as? String == "disabled")
+                #expect(workspace.customTitle == nil)
+                #expect(workspace.title == "project-directory")
+            }
+        }
+    }
+
     @Test func clearAutoTitleOnlyClearsAutoOwnedWorkspace() throws {
         try withAutoNamingSetting(false) {
             try withManager { _, workspace in
