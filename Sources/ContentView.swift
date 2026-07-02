@@ -11223,7 +11223,72 @@ struct VerticalTabsSidebar: View {
                 )
             }
             return .accepted
+
+        case .runWorkspaceCommand(let name, let workingDirectory):
+            let configContext = cmuxConfigStore.executionContext(startingFrom: workingDirectory)
+            guard let action = configContext.resolvedWorkspaceCommandAction(identifier: name) else {
+                return .rejected(String(
+                    localized: "sidebar.extensions.action.workspaceCommandNotFound",
+                    defaultValue: "Workspace command not found"
+                ))
+            }
+            return runCMUXSidebarExtensionConfiguredAction(
+                action,
+                configStore: configContext,
+                workingDirectory: workingDirectory
+            )
+
+        case .invokeNewWorkspaceAction(let workingDirectory):
+            let configContext = cmuxConfigStore.executionContext(startingFrom: workingDirectory)
+            guard let action = configContext.resolvedNewWorkspaceActionForExtension() else {
+                return .rejected(String(
+                    localized: "sidebar.extensions.action.newWorkspaceActionNotFound",
+                    defaultValue: "New workspace action not configured"
+                ))
+            }
+            return runCMUXSidebarExtensionConfiguredAction(
+                action,
+                configStore: configContext,
+                workingDirectory: workingDirectory
+            )
         }
+    }
+
+    private func runCMUXSidebarExtensionConfiguredAction(
+        _ action: CmuxResolvedConfigAction,
+        configStore: CmuxConfigStore,
+        workingDirectory: String?
+    ) -> CmuxSidebarActionResult {
+        // The extension action result must reflect whether the command actually
+        // ran. Force synchronous trust confirmation so a pending confirmation
+        // sheet cannot report `.accepted` before the user approves (or cancels)
+        // the prompt; `execute` then returns the true accept/deny outcome.
+        let didRun = CmuxConfigExecutor.execute(
+            action: action,
+            commands: configStore.loadedCommands,
+            commandSourcePaths: configStore.commandSourcePaths,
+            tabManager: tabManager,
+            baseCwd: cmuxSidebarExtensionCommandBaseCwd(workingDirectory),
+            globalConfigPath: configStore.globalConfigPath,
+            forcesSynchronousConfirmation: true
+        )
+        return didRun ? .accepted : .rejected(String(
+            localized: "sidebar.extensions.action.commandRejected",
+            defaultValue: "Command could not be run"
+        ))
+    }
+
+    private func cmuxSidebarExtensionCommandBaseCwd(_ workingDirectory: String?) -> String {
+        if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workingDirectory.isEmpty {
+            return workingDirectory
+        }
+        return defaultCMUXSidebarExtensionCommandBaseCwd()
+    }
+
+    private func defaultCMUXSidebarExtensionCommandBaseCwd() -> String {
+        tabManager.selectedWorkspace?.resolvedWorkingDirectory()
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
     }
 
     private func cmuxSidebarExtensionOptionalHTTPURL(from urlString: String?) -> (url: URL?, accepted: Bool) {

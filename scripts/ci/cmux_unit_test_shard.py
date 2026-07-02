@@ -25,6 +25,10 @@ XCTEST_METHOD_RE = re.compile(
 LARGE_SUITE_METHOD_THRESHOLD = 40
 FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserSystemProxyMirrorTests",
+    # This suite intentionally exercises native WebKit inspector detach/attach
+    # crash paths. XCTest does not honor -only-testing order reliably enough to
+    # keep it last, so CI runs it in a separate crash-tolerant invocation.
+    "cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
 }
 

@@ -905,6 +905,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             return String(localized: "sidebar.extensions.permission.openURL.detail", defaultValue: "Open links from the extension")
         case .createWorkspaceWithPath:
             return String(localized: "sidebar.extensions.permission.createWorkspaceWithPath.detail", defaultValue: "Create workspaces for specific local folders")
+        case .runWorkspaceCommand:
+            return String(localized: "sidebar.extensions.permission.runWorkspaceCommand.detail", defaultValue: "Run workspace commands the user defined in cmux.json")
         }
     }
 
@@ -1030,6 +1032,8 @@ private extension CmuxExtensionActionScope {
             return String(localized: "sidebar.extensions.actionScope.openURL", defaultValue: "Open URLs")
         case .createWorkspaceWithPath:
             return String(localized: "sidebar.extensions.actionScope.createWorkspaceWithPath", defaultValue: "Create workspaces with paths")
+        case .runWorkspaceCommand:
+            return String(localized: "sidebar.extensions.actionScope.runWorkspaceCommand", defaultValue: "Run workspace commands")
         }
     }
 }
