@@ -23,6 +23,7 @@ public struct ChatScreen: View {
     private let accessoryShortcuts: [ChatAccessoryShortcut]
     private let onOpenTerminal: () -> Void
     private let providesOwnChrome: Bool
+    private let runsStoreTask: Bool
 
     /// Creates the screen.
     ///
@@ -41,12 +42,16 @@ public struct ChatScreen: View {
     ///     Open-Terminal button. Pass `false` when embedded in a host that
     ///     supplies its own navigation chrome (the in-place workspace
     ///     toggle), so the two don't fight and drop the header.
+    ///   - runsStoreTask: Whether this screen should run the conversation
+    ///     subscription. Pass `false` when a parent keeps the store warm while
+    ///     the chat UI is not mounted.
     public init(
         store: ChatConversationStore,
         draft: Binding<String> = .constant(""),
         accessoryLeadingShortcuts: [ChatAccessoryShortcut] = [],
         accessoryShortcuts: [ChatAccessoryShortcut] = [],
         providesOwnChrome: Bool = true,
+        runsStoreTask: Bool = true,
         onOpenTerminal: @escaping () -> Void
     ) {
         _store = State(initialValue: store)
@@ -54,6 +59,7 @@ public struct ChatScreen: View {
         self.accessoryLeadingShortcuts = accessoryLeadingShortcuts
         self.accessoryShortcuts = accessoryShortcuts
         self.providesOwnChrome = providesOwnChrome
+        self.runsStoreTask = runsStoreTask
         self.onOpenTerminal = onOpenTerminal
     }
 
@@ -76,7 +82,10 @@ public struct ChatScreen: View {
             providesOwnChrome: providesOwnChrome,
             onOpenTerminal: onOpenTerminal
         ))
-        .task { await store.run() }
+        .task {
+            guard runsStoreTask else { return }
+            await store.run()
+        }
         #if canImport(UIKit)
         .onChange(of: store.rows.last?.id) { announceLatestAgentProse() }
         .onChange(of: store.lastErrorDescription) { announceLastError() }

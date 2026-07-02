@@ -6,7 +6,6 @@ import CmuxFoundation
 import Bonsplit
 import CmuxWorkspaces
 import CmuxTerminal
-
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
     case bonsplitPane
@@ -20,7 +19,6 @@ enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
         self == .tmuxActivePane
     }
 }
-
 struct TmuxOverlayExperimentSettings {
     static let enabledKey = "tmuxOverlayExperimentEnabled"
     static let targetKey = "tmuxOverlayExperimentTarget"
@@ -139,12 +137,11 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
-    @AppStorage(WorkspacePresentationModeSettings.modeKey)
-    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
-
-    private var isMinimalMode: Bool { WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal }
+#if DEBUG
+    @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
+#endif
 
     static func panelVisibleInUI(
         isWorkspaceVisible: Bool,
@@ -158,6 +155,9 @@ struct WorkspaceContentView: View {
     }
 
     var body: some View {
+#if DEBUG
+        let _ = { minimalModeInvalidationProbe.workspaceContentBody?() }()
+#endif
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
@@ -363,7 +363,7 @@ struct WorkspaceContentView: View {
                 bonsplitView
             }
         }
-        .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+        .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
     }
 
     private func syncBonsplitNotificationBadges() {

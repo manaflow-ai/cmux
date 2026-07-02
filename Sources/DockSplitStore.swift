@@ -29,9 +29,7 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
-    // Internal (not private) so the cross-container surface-transfer extension
-    // (`DockSplitStore+SurfaceTransfer`) can move a live panel in/out of the
-    // Dock's registry without tearing it down.
+    // Internal so cross-container transfers can move live panels without tearing them down.
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
@@ -56,6 +54,8 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
+    @ObservationIgnored var terminalViewReattachCoalescingDepth = 0
+    @ObservationIgnored var pendingTerminalViewReattachPanelIds: Set<UUID> = []
 
     /// Weak registry of every live Dock store. Lets control-surface routing
     /// resolve a Dock surface/pane by querying only the workspaces that actually
