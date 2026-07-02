@@ -2689,6 +2689,10 @@ struct ContentView: View {
             )
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in
+            scheduleTitlebarThemeRefresh(reason: "systemAppearanceChanged")
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
             scheduleTitlebarTextRefresh()

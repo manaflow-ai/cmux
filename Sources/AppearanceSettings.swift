@@ -2,6 +2,11 @@ import AppKit
 import SwiftUI
 import CmuxTerminalCore
 
+extension Notification.Name {
+    /// Posted by SystemAppearanceObserver when NSApp.effectiveAppearance changes (#6385).
+    static let systemAppearanceDidChange = Notification.Name("cmux.systemAppearanceDidChange")
+}
+
 enum AppearanceMode: String, CaseIterable, Identifiable {
     case system
     case light
@@ -306,6 +311,121 @@ final class AppearanceSettingsUserDefaultsObserver {
         guard rawValue != lastObservedRawValue else { return }
         let appliedMode = environment.applyStoredMode(rawValue, source)
         lastObservedRawValue = appliedMode.rawValue
+    }
+}
+
+/// Shared observation contract used by `AppIconAppearanceObserver` (cmuxApp.swift)
+/// and `SystemAppearanceObserver`.
+protocol EffectiveAppearanceObservation: AnyObject {
+    func invalidate()
+}
+
+extension NSKeyValueObservation: EffectiveAppearanceObservation {}
+
+/// Keeps the app chrome in sync with live macOS appearance changes while the
+/// appearance mode is `system`.
+///
+/// With `NSApplication.appearance == nil`, AppKit updates `effectiveAppearance`
+/// when the OS switches Light/Dark, but the SwiftUI hosting layer does not
+/// reliably re-resolve the ambient `colorScheme` for already-visible windows
+/// (visible when the switch is triggered by Shortcuts' "Set Appearance" or the
+/// scheduled Auto switch, #6385). This observer KVO-watches
+/// `NSApp.effectiveAppearance` and, in system mode, briefly re-applies the
+/// freshly resolved concrete appearance and restores `nil` on the next runloop
+/// tick — forcing the hosting layer to pick up the new scheme without giving up
+/// system-follow — then posts `.systemAppearanceDidChange` so cached chrome
+/// snapshots can invalidate.
+///
+/// The nil restore is deliberately deferred to the next runloop tick: AppKit
+/// coalesces same-tick `NSApplication.appearance` writes, so a synchronous
+/// concrete→nil round-trip would never reach the hosting layer. `nil` is the
+/// steady state being restored, so a late restore is always safe.
+///
+/// It is intentionally separate from `AppIconAppearanceObserver`, which observes
+/// the same key path but is torn down whenever the app icon isn't in automatic
+/// mode, so it cannot be relied upon to refresh app chrome. The two observers
+/// own different lifecycles on purpose: the icon observer's teardown is keyed
+/// to icon mode, while chrome refresh must stay armed for the whole app
+/// lifetime — a single shared observer would couple those lifecycles.
+final class SystemAppearanceObserver {
+    struct Environment {
+        let startEffectiveAppearanceObservation: (@escaping () -> Void) -> EffectiveAppearanceObservation?
+        let currentAppearanceModeRawValue: () -> String?
+        let systemPrefersDark: () -> Bool
+        let setApplicationAppearance: (NSAppearance?) -> Void
+        let synchronizeTerminalThemeWithAppearance: (NSAppearance?, String) -> Void
+        let postSystemAppearanceDidChange: () -> Void
+        let scheduleOnMainQueue: (@escaping () -> Void) -> Void
+
+        static func live() -> Environment {
+            Environment(
+                startEffectiveAppearanceObservation: { handler in
+                    guard let app = NSApp else { return nil }
+                    return app.observe(\.effectiveAppearance, options: []) { _, _ in
+                        DispatchQueue.main.async { handler() }
+                    }
+                },
+                currentAppearanceModeRawValue: {
+                    UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
+                },
+                systemPrefersDark: { AppearanceSettings.SystemAppearance.current().prefersDark },
+                setApplicationAppearance: { NSApplication.shared.appearance = $0 },
+                synchronizeTerminalThemeWithAppearance: { appearance, source in
+                    GhosttyApp.shared.synchronizeThemeWithAppearance(appearance, source: source)
+                },
+                postSystemAppearanceDidChange: {
+                    NotificationCenter.default.post(name: .systemAppearanceDidChange, object: nil)
+                },
+                scheduleOnMainQueue: { DispatchQueue.main.async(execute: $0) }
+            )
+        }
+    }
+
+    static let shared = SystemAppearanceObserver()
+
+    private let environment: Environment
+    private let source: String
+    private var observation: EffectiveAppearanceObservation?
+    private var lastResolvedPrefersDark: Bool?
+    private var kickGeneration = 0
+
+    init(environment: Environment = .live(), source: String = "cmuxApp.systemAppearanceObserver") {
+        self.environment = environment
+        self.source = source
+    }
+
+    deinit { stopObserving() }
+
+    func startObserving() {
+        guard observation == nil else { return }
+        lastResolvedPrefersDark = environment.systemPrefersDark()
+        observation = environment.startEffectiveAppearanceObservation { [weak self] in
+            self?.handleEffectiveAppearanceChange()
+        }
+    }
+
+    func stopObserving() {
+        observation?.invalidate()
+        observation = nil
+    }
+
+    private func handleEffectiveAppearanceChange() {
+        guard observation != nil else { return }
+        guard AppearanceSettings.mode(for: environment.currentAppearanceModeRawValue()) == .system else { return }
+        let prefersDark = environment.systemPrefersDark()
+        guard prefersDark != lastResolvedPrefersDark else { return }
+        lastResolvedPrefersDark = prefersDark
+        kickGeneration += 1
+        let generation = kickGeneration
+        let appearance = NSAppearance(named: prefersDark ? .darkAqua : .aqua)
+        environment.setApplicationAppearance(appearance)
+        environment.scheduleOnMainQueue { [weak self] in
+            guard let self, self.kickGeneration == generation else { return }
+            guard AppearanceSettings.mode(for: self.environment.currentAppearanceModeRawValue()) == .system else { return }
+            self.environment.setApplicationAppearance(nil)
+        }
+        environment.synchronizeTerminalThemeWithAppearance(appearance, source)
+        environment.postSystemAppearanceDidChange()
     }
 }
 
