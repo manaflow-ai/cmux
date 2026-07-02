@@ -97,7 +97,7 @@ import Testing
         full: true
     ))
     let fullChunk = try #require(await iterator.next())
-    #expect(String(data: fullChunk.data, encoding: .utf8).contains("live-full-takes-over"))
+    #expect(String(decoding: fullChunk.data, as: UTF8.self).contains("live-full-takes-over"))
 
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,

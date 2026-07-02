@@ -53,14 +53,19 @@ extension MobileShellComposite {
         // The stale floor is the delivered high-water mark, surviving a replay
         // barrier via the pre-barrier stash: a buffered frame from before the
         // barrier must not paint (and must not establish an outdated baseline)
-        // while the fresh authoritative replay is pending.
-        let staleFloorSeq = max(
-            deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] ?? 0,
-            terminalPreBarrierDeliveredEndSeqBySurfaceID[renderGrid.surfaceID] ?? 0
-        )
-        if staleFloorSeq > renderGrid.stateSeq {
+        // while the fresh authoritative replay is pending. Against the STASH
+        // the rejection includes EQUAL sequences — the surface already shows
+        // that content and render grids re-emit at unchanged byte sequences,
+        // so a same-seq buffered full frame must not cancel the pending
+        // replay. Against the live delivered mark only strictly-older frames
+        // are stale, so steady-state same-seq re-emits (resize repaints)
+        // still deliver.
+        let deliveredSeqValue = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] ?? 0
+        let preBarrierFloorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[renderGrid.surfaceID]
+        if deliveredSeqValue > renderGrid.stateSeq
+            || preBarrierFloorSeq.map({ $0 >= renderGrid.stateSeq }) ?? false {
             MobileDebugLog.anchormux(
-                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(staleFloorSeq) frame=\(renderGrid.stateSeq)"
+                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(max(deliveredSeqValue, preBarrierFloorSeq ?? 0)) frame=\(renderGrid.stateSeq)"
             )
             return
         }

@@ -56,6 +56,15 @@ import Testing
         text: "stale-buffered-full",
         full: true
     ))
+    // Render grids re-emit at unchanged byte sequences, so a buffered full
+    // frame at EXACTLY the floor sequence is equally pre-barrier: it must not
+    // cancel the pending replay either.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 50,
+        text: "same-seq-buffered-full",
+        full: true
+    ))
 
     // A current full frame is still the legitimate live recovery baseline.
     await transport.deliver(try renderGridEventFrame(
@@ -70,7 +79,7 @@ import Testing
 
     #expect(lines.last?.contains("fresh-full") == true)
     #expect(
-        !lines.contains { $0.contains("stale-buffered-full") },
+        !lines.contains { $0.contains("stale-buffered-full") || $0.contains("same-seq-buffered-full") },
         "a pre-barrier full frame must not paint over the pending follow-up replay"
     )
     #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 70)
