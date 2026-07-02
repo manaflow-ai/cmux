@@ -33,6 +33,7 @@ extension Workspace {
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
         let resumeBinding: SurfaceResumeBindingSnapshot?
+        let resumeBindingHistory: [SurfaceResumeBindingSnapshot]
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
@@ -61,6 +62,7 @@ extension Workspace {
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 resumeBinding: resumeBinding,
+                resumeBindingHistory: resumeBindingHistory,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,

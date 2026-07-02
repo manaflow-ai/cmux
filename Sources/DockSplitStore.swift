@@ -33,6 +33,8 @@ final class DockSplitStore: BonsplitDelegate {
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
+    var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    var surfaceResumeBindingHistoriesByPanelId: [UUID: [SurfaceResumeBindingSnapshot]] = [:]
     private var hasLoadedConfiguration = false
     private var configurationLoadTask: Task<Void, Never>?
     private var configurationIdentityTask: Task<Void, Never>?
@@ -130,6 +132,21 @@ final class DockSplitStore: BonsplitDelegate {
 
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
         panels[panelId] as? BrowserPanel
+    }
+
+    /// The active resume binding carried for a Dock terminal (set when a surface
+    /// with a binding is transferred in). Mirrors `Workspace.surfaceResumeBinding`.
+    func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
+        surfaceResumeBindingsByPanelId[panelId]
+    }
+
+    /// Newest-first recoverable resume history for a Dock terminal, including the
+    /// active binding. Mirrors `Workspace.surfaceResumeBindingHistory`.
+    func surfaceResumeBindingHistory(panelId: UUID) -> [SurfaceResumeBindingSnapshot] {
+        Workspace.normalizedSurfaceResumeBindingHistory(
+            [surfaceResumeBindingsByPanelId[panelId]].compactMap { $0 }
+                + (surfaceResumeBindingHistoriesByPanelId[panelId] ?? [])
+        )
     }
 
     func browserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {
@@ -633,6 +650,8 @@ final class DockSplitStore: BonsplitDelegate {
             guard let panelId = surfaceIdToPanelId.removeValue(forKey: tabId) else { continue }
             panelCancellables[panelId]?.cancel()
             panelCancellables.removeValue(forKey: panelId)
+            surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+            surfaceResumeBindingHistoriesByPanelId.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
             if let panel = panels.removeValue(forKey: panelId) { panel.close() }
         }

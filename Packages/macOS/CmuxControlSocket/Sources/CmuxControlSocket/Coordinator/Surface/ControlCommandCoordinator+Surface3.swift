@@ -136,8 +136,13 @@ extension ControlCommandCoordinator {
                 "surface_ref": ref(.surface, snapshot.surfaceID),
                 "cleared": .bool(snapshot.cleared),
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
+                "resume_binding_history": surfaceResumeBindingHistoryPayload(snapshot.bindingHistory),
             ]))
         }
+    }
+
+    func surfaceResumeBindingHistoryPayload(_ bindings: [ControlSurfaceResumeBinding]) -> JSONValue {
+        .array(bindings.map { surfaceResumeBindingPayload($0) })
     }
 
     /// The byte-faithful twin of `v2SurfaceResumeBindingPayload`: a `null` binding

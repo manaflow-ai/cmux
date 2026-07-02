@@ -35,6 +35,7 @@ extension DockSocketLifecycleTests {
             restorableAgent: nil,
             restorableAgentResumeState: nil,
             resumeBinding: nil,
+            resumeBindingHistory: [],
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,

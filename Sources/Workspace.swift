@@ -158,6 +158,7 @@ extension Workspace {
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        surfaceResumeBindingHistoriesByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
@@ -509,6 +510,7 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
             )
+            let resumeBindingHistory = surfaceResumeBindingHistory(panelId: panelId, including: resumeBinding)
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
                 scrollback: resolvedScrollback,
@@ -521,6 +523,7 @@ extension Workspace {
                     )
                 },
                 resumeBinding: resumeBinding,
+                resumeBindingHistory: resumeBindingHistory.isEmpty ? nil : resumeBindingHistory,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
@@ -1152,6 +1155,7 @@ extension Workspace {
                 continue
             }
             if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) {
+                recordSurfaceResumeBindingInHistory(storedBinding, panelId: panelId)
                 surfaceResumeBindingsByPanelId[panelId] = detectedBinding
             } else if storedBinding.isProcessDetected {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
@@ -1187,6 +1191,9 @@ extension Workspace {
             let resumeBinding = Self.resumeBindingForSessionRestore(
                 snapshot.terminal?.resumeBinding,
                 restorableAgent: snapshotRestorableAgent
+            )
+            let resumeBindingHistory = Self.normalizedSurfaceResumeBindingHistory(
+                [resumeBinding].compactMap { $0 } + (snapshot.terminal?.resumeBindingHistory ?? [])
             )
             let restorableAgent = Self.restorableAgentForSessionRestore(
                 snapshotRestorableAgent,
@@ -1418,6 +1425,14 @@ extension Workspace {
                 surfaceResumeBindingsByPanelId[terminalPanel.id] = storedResumeBinding
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
+            }
+            let restoredResumeBindingHistory = Self.normalizedSurfaceResumeBindingHistory(
+                [effectiveResumeBindingForStartup ?? resumeBinding].compactMap { $0 } + resumeBindingHistory
+            )
+            if restoredResumeBindingHistory.isEmpty {
+                surfaceResumeBindingHistoriesByPanelId.removeValue(forKey: terminalPanel.id)
+            } else {
+                surfaceResumeBindingHistoriesByPanelId[terminalPanel.id] = restoredResumeBindingHistory
             }
             // A terminal whose startup command cds itself (agent resume, tmux
             // attach, agent-hook) is spawned without a working directory, so its
@@ -2599,6 +2614,7 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    var surfaceResumeBindingHistoriesByPanelId: [UUID: [SurfaceResumeBindingSnapshot]] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable
@@ -4866,7 +4882,83 @@ final class Workspace: Identifiable, ObservableObject {
         guard checkpointId == nil || checkpointId == restoredAgent.sessionId else {
             return
         }
+        removeSurfaceResumeBindingFromHistory(panelId: panelId, binding: binding)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+    }
+
+    nonisolated private static func shouldRecordSurfaceResumeBindingInHistory(
+        _ binding: SurfaceResumeBindingSnapshot
+    ) -> Bool {
+        guard !binding.isProcessDetected else { return false }
+        guard let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
+              !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return true
+    }
+
+    nonisolated private static func surfaceResumeBindingHistoryIdentity(
+        _ binding: SurfaceResumeBindingSnapshot
+    ) -> [String] {
+        let source = binding.source ?? ""
+        let kind = binding.kind ?? ""
+        if let checkpointId = binding.checkpointId, !checkpointId.isEmpty {
+            return ["checkpoint", source, kind, checkpointId]
+        }
+        // Environment is part of the replayed startup input, so two otherwise
+        // identical bindings with different env are distinct resume options.
+        // Emit each entry as separate key/value elements (sorted) so element-wise
+        // array comparison stays unambiguous.
+        let environment = (binding.environment ?? [:]).sorted { $0.key < $1.key }
+            .flatMap { [$0.key, $0.value] }
+        return ["command", source, kind, binding.cwd ?? "", binding.command] + environment
+    }
+
+    nonisolated static func normalizedSurfaceResumeBindingHistory(
+        _ candidates: [SurfaceResumeBindingSnapshot]
+    ) -> [SurfaceResumeBindingSnapshot] {
+        let maxHistoryEntries = 8
+        var seen: Set<[String]> = []
+        var normalized: [SurfaceResumeBindingSnapshot] = []
+        normalized.reserveCapacity(min(candidates.count, maxHistoryEntries))
+        for candidate in candidates where shouldRecordSurfaceResumeBindingInHistory(candidate) {
+            let identity = surfaceResumeBindingHistoryIdentity(candidate)
+            guard seen.insert(identity).inserted else { continue }
+            normalized.append(candidate)
+            if normalized.count == maxHistoryEntries {
+                break
+            }
+        }
+        return normalized
+    }
+
+    private func recordSurfaceResumeBindingInHistory(
+        _ binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID
+    ) {
+        guard Self.shouldRecordSurfaceResumeBindingInHistory(binding) else { return }
+        let existing = surfaceResumeBindingHistoriesByPanelId[panelId] ?? []
+        surfaceResumeBindingHistoriesByPanelId[panelId] = Self.normalizedSurfaceResumeBindingHistory(
+            [binding] + existing
+        )
+    }
+
+    private func removeSurfaceResumeBindingFromHistory(
+        panelId: UUID,
+        binding removedBinding: SurfaceResumeBindingSnapshot
+    ) {
+        guard let existing = surfaceResumeBindingHistoriesByPanelId[panelId], !existing.isEmpty else {
+            return
+        }
+        let removedIdentity = Self.surfaceResumeBindingHistoryIdentity(removedBinding)
+        let filtered = existing.filter {
+            Self.surfaceResumeBindingHistoryIdentity($0) != removedIdentity
+        }
+        if filtered.isEmpty {
+            surfaceResumeBindingHistoriesByPanelId.removeValue(forKey: panelId)
+        } else {
+            surfaceResumeBindingHistoriesByPanelId[panelId] = filtered
+        }
     }
 
     @discardableResult
@@ -4877,16 +4969,34 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
+        recordSurfaceResumeBindingInHistory(binding, panelId: panelId)
         return true
     }
 
     @discardableResult
     func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+        let removed = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        if let removed {
+            removeSurfaceResumeBindingFromHistory(
+                panelId: panelId,
+                binding: removed
+            )
+        }
+        return removed != nil
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         surfaceResumeBindingsByPanelId[panelId]
+    }
+
+    func surfaceResumeBindingHistory(
+        panelId: UUID,
+        including activeBinding: SurfaceResumeBindingSnapshot? = nil
+    ) -> [SurfaceResumeBindingSnapshot] {
+        Self.normalizedSurfaceResumeBindingHistory(
+            [activeBinding ?? surfaceResumeBindingsByPanelId[panelId]].compactMap { $0 } +
+                (surfaceResumeBindingHistoriesByPanelId[panelId] ?? [])
+        )
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
@@ -5188,6 +5298,9 @@ final class Workspace: Identifiable, ObservableObject {
             validSurfaceIds.contains($0.key)
         }
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        surfaceResumeBindingHistoriesByPanelId = surfaceResumeBindingHistoriesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         restoredAgentResumeStatesByPanelId = restoredAgentResumeStatesByPanelId.filter {
@@ -9371,6 +9484,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+            surfaceResumeBindingHistoriesByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
@@ -9434,6 +9548,14 @@ final class Workspace: Identifiable, ObservableObject {
             surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
         } else {
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+        }
+        let detachedResumeBindingHistory = Self.normalizedSurfaceResumeBindingHistory(
+            [detached.resumeBinding].compactMap { $0 } + detached.resumeBindingHistory
+        )
+        if detachedResumeBindingHistory.isEmpty {
+            surfaceResumeBindingHistoriesByPanelId.removeValue(forKey: detached.panelId)
+        } else {
+            surfaceResumeBindingHistoriesByPanelId[detached.panelId] = detachedResumeBindingHistory
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let markdownPanel = detached.panel as? MarkdownPanel,
@@ -12244,6 +12366,7 @@ extension Workspace: BonsplitDelegate {
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
             )
+            let resumeBindingHistory = surfaceResumeBindingHistory(panelId: panelId, including: resumeBinding)
             let agentRuntime = agentRuntimeState(forPanelId: panelId)
             splitLayout.storeDetachedTransfer(DetachedSurfaceTransfer(
                 sourceWorkspaceId: id,
@@ -12268,6 +12391,7 @@ extension Workspace: BonsplitDelegate {
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 resumeBinding: resumeBinding,
+                resumeBindingHistory: resumeBindingHistory,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)

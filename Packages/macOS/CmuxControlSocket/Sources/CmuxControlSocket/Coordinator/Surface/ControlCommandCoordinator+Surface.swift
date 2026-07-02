@@ -106,6 +106,7 @@ extension ControlCommandCoordinator {
                 item["initial_command"] = orNull(surface.initialCommand)
                 item["tmux_start_command"] = orNull(surface.tmuxStartCommand)
                 item["resume_binding"] = surfaceResumeBindingPayload(surface.resumeBinding)
+                item["resume_binding_history"] = surfaceResumeBindingHistoryPayload(surface.resumeBindingHistory)
             }
             return .object(item)
         }

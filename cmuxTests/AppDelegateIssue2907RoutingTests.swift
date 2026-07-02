@@ -877,6 +877,79 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.source, "agent-hook")
     }
 
+    func testSurfaceResumeGetKeepsDisplacedAgentHookBindingReachable() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        _ = try v2Result(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+                "name": "Codex",
+                "kind": "codex",
+                "command": "codex resume real-thread",
+                "checkpoint_id": "real-thread",
+                "source": "agent-hook",
+                "auto_resume": true,
+            ]
+        )
+        _ = try v2Result(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+                "name": "Codex",
+                "kind": "codex",
+                "command": "codex resume recap-thread",
+                "checkpoint_id": "recap-thread",
+                "source": "agent-hook",
+                "auto_resume": true,
+            ]
+        )
+
+        let getResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let activeBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
+        XCTAssertEqual(activeBinding["checkpoint_id"] as? String, "recap-thread")
+        let history = try XCTUnwrap(getResult["resume_binding_history"] as? [[String: Any]])
+        XCTAssertEqual(history.compactMap { $0["checkpoint_id"] as? String }, ["recap-thread", "real-thread"])
+        XCTAssertEqual(history.compactMap { $0["source"] as? String }, ["agent-hook", "agent-hook"])
+    }
+
     func testSurfaceResumeClearCheckpointGuardKeepsDifferentBinding() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

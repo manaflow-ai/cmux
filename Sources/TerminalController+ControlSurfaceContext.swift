@@ -77,6 +77,12 @@ extension TerminalController: ControlSurfaceContext {
         )
     }
 
+    func controlResumeBindingHistory(
+        from bindings: [SurfaceResumeBindingSnapshot]
+    ) -> [ControlSurfaceResumeBinding] {
+        bindings.compactMap { controlResumeBinding(from: $0) }
+    }
+
     // MARK: - list
 
     func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? {
@@ -126,7 +132,10 @@ extension TerminalController: ControlSurfaceContext {
                 isTerminal: terminalPanel != nil,
                 resumeBinding: terminalPanel != nil
                     ? controlResumeBinding(from: ws.surfaceResumeBinding(panelId: panel.id))
-                    : nil
+                    : nil,
+                resumeBindingHistory: terminalPanel != nil
+                    ? controlResumeBindingHistory(from: ws.surfaceResumeBindingHistory(panelId: panel.id))
+                    : []
             )
         }
 
@@ -177,7 +186,12 @@ extension TerminalController: ControlSurfaceContext {
                     v2NonEmptyString($0.surface.debugTmuxStartCommand())
                 },
                 isTerminal: terminalPanel != nil,
-                resumeBinding: nil
+                resumeBinding: terminalPanel != nil
+                    ? controlResumeBinding(from: dock.surfaceResumeBinding(panelId: panel.id))
+                    : nil,
+                resumeBindingHistory: terminalPanel != nil
+                    ? controlResumeBindingHistory(from: dock.surfaceResumeBindingHistory(panelId: panel.id))
+                    : []
             )
         }
 
