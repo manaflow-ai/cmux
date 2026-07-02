@@ -388,6 +388,37 @@ struct AgentSessionAutoResumeSwiftTests {
         }
     }
 
+    /// A spurious report carrying a display label during a resumed run must not
+    /// attach that label to the corrected session directory — the label
+    /// described the spurious location (#7155).
+    @MainActor
+    @Test func repairedSpuriousReportDropsItsDisplayLabel() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-resume-label")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId) = try restoreWorkspaceWithAutoResumedClaudeAgent(
+                savedDirectory: projectDir
+            )
+            let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+            try #require(homeDir != projectDir)
+
+            // Consume the one-shot #6617 guard, then deliver a spurious report
+            // that also carries a display label.
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeDir)
+            restored.updatePanelDirectory(
+                panelId: restoredPanelId,
+                directory: homeDir,
+                displayLabel: "spurious-home-label"
+            )
+
+            #expect(restored.panelDirectories[restoredPanelId] == projectDir)
+            #expect(restored.panelDirectoryDisplayLabels[restoredPanelId] != "spurious-home-label")
+        }
+    }
+
     /// Restores a workspace whose focused pane auto-resumes a Claude session in
     /// `projectDir`, then delivers the two spurious home reports #7155 hits in
     /// the field while the resumed agent holds the pane's foreground: the

@@ -5,7 +5,7 @@
 17978	Sources/AppDelegate.swift
 16484	Sources/ContentView.swift
 14293	Sources/TerminalController.swift
-13170	Sources/Workspace.swift
+13174	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12212	Sources/GhosttyTerminalView.swift
 11671	Sources/Panels/BrowserPanel.swift
@@ -103,10 +103,10 @@
 937	Sources/TextBoxMentionIndexStore.swift
 929	Sources/Panels/TerminalPanel.swift
 918	Sources/Panels/BrowserPopupWindowController.swift
+915	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 905	Sources/CmuxSSHURLRequest.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 885	cmuxTests/SidebarWorkspaceDropPlannerTests.swift
-884	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 881	Sources/DockSplitStore.swift
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift

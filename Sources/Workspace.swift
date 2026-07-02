@@ -4604,15 +4604,19 @@ final class Workspace: Identifiable, ObservableObject {
            shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
             return false
         }
+        var effectiveDisplayLabel = displayLabel
         if source == .liveReport,
            let repaired = repairedResumedAgentPaneDirectory(panelId: panelId, reportedDirectory: trimmed) {
-            // A spurious report during a resumed run: record ground truth instead
-            // of clobbering the pane (#7155).
+            // A spurious report during a resumed run: record the session directory
+            // instead of clobbering the pane (#7155). The report's directory — and
+            // any display label it carried — describe the spurious location, so
+            // drop the label rather than attach it to the corrected directory.
             trimmed = repaired
+            effectiveDisplayLabel = nil
         }
         let directoryChanged = panelDirectories[panelId] != trimmed
         if directoryChanged { panelDirectories[panelId] = trimmed }
-        let trimmedDisplayLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedDisplayLabel = effectiveDisplayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDisplayLabel.isEmpty {
             if panelDirectoryDisplayLabels[panelId] != trimmedDisplayLabel {
                 panelDirectoryDisplayLabels[panelId] = trimmedDisplayLabel
