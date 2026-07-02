@@ -56,18 +56,22 @@ struct WorkspaceDetailContainer: View {
                     signOut: signOut
                 )
                 .onAppear {
+                    #if DEBUG
                     MobileDebugLog.anchormux(
                         "toolbar.container.detailAppear requested=\(workspaceID?.rawValue ?? "nil") resolved=\(workspace.id.rawValue) selected=\(store.selectedWorkspaceID?.rawValue ?? "nil") terminals=\(workspace.terminals.count) back=\(backButtonConfiguration != nil)"
                     )
+                    #endif
                     if store.selectedWorkspaceID != workspace.id {
                         store.selectedWorkspaceID = workspace.id
                     }
                 }
+                #if DEBUG
                 .onDisappear {
                     MobileDebugLog.anchormux(
                         "toolbar.container.detailDisappear requested=\(workspaceID?.rawValue ?? "nil") resolved=\(workspace.id.rawValue) selected=\(store.selectedWorkspaceID?.rawValue ?? "nil")"
                     )
                 }
+                #endif
                 .task(id: workspace.id) {
                     await store.openWorkspace(workspace.id)
                 }
@@ -78,14 +82,17 @@ struct WorkspaceDetailContainer: View {
                 )
             }
         }
+        #if DEBUG
         .onAppear {
             MobileDebugLog.anchormux("toolbar.container.appear \(debugSignature)")
         }
         .onChange(of: debugSignature) { _, signature in
             MobileDebugLog.anchormux("toolbar.container.change \(signature)")
         }
+        #endif
     }
 
+    #if DEBUG
     private var debugSignature: String {
         [
             "requested=\(workspaceID?.rawValue ?? "nil")",
@@ -96,4 +103,5 @@ struct WorkspaceDetailContainer: View {
             "back=\(backButtonConfiguration != nil)",
         ].joined(separator: " ")
     }
+    #endif
 }

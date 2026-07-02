@@ -107,9 +107,12 @@ struct WorkspaceDetailView: View {
                 await runWarmChatConversation()
             }
             .onChange(of: selectedTerminalID) { _, _ in
+                #if DEBUG
                 MobileDebugLog.anchormux("toolbar.detail.selectedTerminal \(debugToolbarSignature)")
+                #endif
                 refreshCachedChatToggleAnchor()
             }
+            #if DEBUG
             .onChange(of: debugToolbarSignature) { _, signature in
                 MobileDebugLog.anchormux("toolbar.detail.change \(signature)")
             }
@@ -119,6 +122,7 @@ struct WorkspaceDetailView: View {
             .onDisappear {
                 MobileDebugLog.anchormux("toolbar.detail.disappear \(debugToolbarSignature)")
             }
+            #endif
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
@@ -177,6 +181,7 @@ struct WorkspaceDetailView: View {
         }
     }
 
+    #if DEBUG
     private var debugToolbarSignature: String {
         [
             "workspace=\(workspace.id.rawValue)",
@@ -190,6 +195,7 @@ struct WorkspaceDetailView: View {
             "width=\(Int(contentWidth))",
         ].joined(separator: " ")
     }
+    #endif
 
     @ViewBuilder
     private var toolbarTitleLabel: some View {
