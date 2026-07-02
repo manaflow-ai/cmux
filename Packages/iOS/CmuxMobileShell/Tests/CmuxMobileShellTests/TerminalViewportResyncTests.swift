@@ -471,6 +471,78 @@ import Testing
 }
 
 @MainActor
+@Test func terminalViewportPendingAckReplaysRecoveryRequestSuppressedDuringAck() async throws {
+    let router = LivenessHostRouter()
+    await router.setViewportEffectiveGrid(columns: 80, rows: 30)
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "deferred-recovery-replay",
+    ])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    let baselineGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 100, rows: 50)
+    #expect(baselineGrid?.columns == 80)
+    #expect(baselineGrid?.rows == 30)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
+
+    // A changed natural report is in flight (pre-ACK) while the capped
+    // effective grid will come back unchanged.
+    await router.holdViewportRequest(number: 2)
+    let pendingReport = Task {
+        await store.updateTerminalViewport(surfaceID: surfaceID, columns: 120, rows: 60)
+    }
+    await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 2)
+
+    // A recovery path (liveness probe repair, resync, advisory) asks for an
+    // authoritative replay. It must defer to the pending acknowledgement,
+    // not fire a competing replay.
+    store.requestTerminalReplay(surfaceID: surfaceID)
+    let competingReplay = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!competingReplay, "recovery replays must defer to the pending viewport acknowledgement")
+
+    // When the report resolves without a resize, the deferred recovery
+    // request must be serviced instead of silently discarded.
+    await router.releaseAllHeld()
+    let repeatedGrid = await pendingReport.value
+    #expect(repeatedGrid?.columns == 80)
+    #expect(repeatedGrid?.rows == 30)
+    let deferredReplayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1
+    )
+    #expect(
+        deferredReplayRequested,
+        "a without-resize resolution must replay the recovery request suppressed during the acknowledgement"
+    )
+    guard deferredReplayRequested else { return }
+
+    let recoveryChunk = try #require(await iterator.next())
+    #expect(String(data: recoveryChunk.data, encoding: .utf8) == "deferred-recovery-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: recoveryChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+
+    store.deliverTerminalBytes(Data("live-after-deferred-replay".utf8), surfaceID: surfaceID)
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-deferred-replay")
+}
+
+@MainActor
 @Test func terminalReplayRequestRejectsStaleBarrierToken() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
