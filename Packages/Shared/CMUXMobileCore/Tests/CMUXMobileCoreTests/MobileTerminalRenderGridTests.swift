@@ -23,15 +23,18 @@ import Testing
     // flow: reset supported state, clear, paint each viewport row
     // (CHA-positioned spans), then restore the cursor.
     #expect(String(data: frame.vtReplacementBytes(), encoding: .utf8) ==
-        "\u{1B}[?2026h\u{1B}[0$}\u{1B}[r\u{1B}[?69l\u{1B}[?5W\u{1B}[?1049l" +
-        "\u{1B}[1\"q\u{1B}[0\"q\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B" +
-        "\u{1B}[H\u{1B}[2J\u{1B}[3J" +
+        "\u{1B}[?2026h\u{1B}[0$}\u{1B}[>m\u{1B}[r\u{1B}[?69l\u{1B}[?5W\u{1B}[?1049l" +
+        "\u{1B}[1\"q\u{1B}[0\"q\u{1B}[999<u\u{1B}[0;1=u\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B" +
+        "\u{1B}[H\u{1B}[2J\u{1B}[3J\u{1B}[?1049h" +
+        "\u{1B}[1\"q\u{1B}[0\"q\u{1B}[999<u\u{1B}[0;1=u\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B" +
+        "\u{1B}[H\u{1B}[2J\u{1B}[?1049l\u{1B}[H" +
         "\u{1B}[?7l\u{1B}[?25l\u{1B}[0m" +
         "\u{1B}[0m\u{1B}[1Galpha" +
         "\r\n\u{1B}[0m" +
         "\r\n\u{1B}[0m\u{1B}[1G beta" +
         "\r\n\u{1B}[0m" +
         "\u{1B}[0m\u{1B}[2 q\u{1B}[?25h\u{1B}[3;6H" +
+        "\u{1B}7" +
         "\u{1B}[?2026l"
     )
 }
@@ -328,9 +331,9 @@ import Testing
     #expect(vt.contains("\u{1B}[?2004h")) // bracketed paste restored
     #expect(vt.contains("\u{1B}[4h"))     // ANSI insert mode restored without `?`
     #expect(vt.contains("\u{1B}[?1049l")) // left alternate before clearing primary scrollback
-    // The alt-screen mode in `modes` is ignored; the only `?1049h` is the one
-    // emitted from `activeScreen`.
-    #expect(vt.components(separatedBy: "\u{1B}[?1049h").count - 1 == 1)
+    // The alt-screen mode in `modes` is ignored; the two `?1049h` emissions are
+    // the synchronized reset prelude and the captured active screen.
+    #expect(vt.components(separatedBy: "\u{1B}[?1049h").count - 1 == 2)
 }
 
 @Test func renderGridFullSnapshotFlowsScrollbackBeforeViewport() throws {
