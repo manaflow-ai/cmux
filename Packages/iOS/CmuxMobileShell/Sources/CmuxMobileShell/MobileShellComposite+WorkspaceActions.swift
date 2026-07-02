@@ -93,10 +93,11 @@ extension MobileShellComposite {
 
     /// Close a terminal surface on the Mac.
     ///
-    /// Sends the mutation to the Mac that owns the workspace, then re-syncs from
-    /// the authoritative workspace list. If the Mac rejects the close, for
-    /// example because the terminal is the workspace's last surface, the refresh
-    /// restores the row state on iOS.
+    /// The row is removed optimistically: it disappears (and, when it was the
+    /// selected terminal, selection moves to its adjacent neighbor) before the
+    /// Mac responds. The authoritative workspace-list re-sync after the request
+    /// reconciles either way — a rejected close (for example the workspace's
+    /// last surface) restores the row.
     /// - Parameters:
     ///   - workspaceID: The workspace containing the terminal.
     ///   - terminalID: The terminal surface to close.
@@ -105,17 +106,59 @@ extension MobileShellComposite {
         terminalID: MobileTerminalPreview.ID
     ) async {
         guard workspaceActionCapabilities(for: workspaceID).supportsTerminalCloseActions else { return }
-        guard workspaces.first(where: { $0.id == workspaceID })?.terminals.contains(where: { $0.id == terminalID }) == true else {
+        guard let workspace = workspaces.first(where: { $0.id == workspaceID }),
+              workspace.terminals.contains(where: { $0.id == terminalID }) else {
             return
         }
+        // The Mac rejects closing a workspace's last surface; don't send a
+        // mutation that can only fail (the picker sheet also hides the delete
+        // affordance at one row, this guards the API path).
+        guard workspace.terminals.count > 1 else { return }
+        // Params resolve the owning Mac and window through the current
+        // `workspaces` rows, so build them before the optimistic removal.
         var params = workspaceMutationParams(id: workspaceID)
         params["surface_id"] = terminalID.rawValue
+        removeTerminalRowOptimistically(from: workspace, terminalID: terminalID)
         await sendWorkspaceMutation(
             method: "terminal.close",
             params: params,
             id: workspaceID,
             actionName: "terminal_close"
         )
+    }
+
+    /// Drop `terminalID`'s row from the per-Mac source of truth and, when it was
+    /// the selected terminal, move selection to its adjacent neighbor (the next
+    /// row, else the previous one) before any network round trip. Purely local:
+    /// the caller's post-mutation re-sync snaps back to the Mac's authoritative
+    /// list, restoring the row if the close was rejected.
+    private func removeTerminalRowOptimistically(
+        from workspace: MobileWorkspacePreview,
+        terminalID: MobileTerminalPreview.ID
+    ) {
+        if selectedTerminalID == terminalID,
+           let removedIndex = workspace.terminals.firstIndex(where: { $0.id == terminalID }) {
+            let followers = workspace.terminals[(removedIndex + 1)...]
+            let leaders = workspace.terminals[..<removedIndex].reversed()
+            if let neighbor = followers.first ?? leaders.first {
+                // Chrome-initiated selection: the surface that comes up must not
+                // grab the keyboard, exactly like a picker tap.
+                selectTerminalFromChrome(neighbor.id)
+            }
+        }
+        // Match by the Mac-local id (aggregation scopes the flat row ids, while
+        // the per-Mac entries keep original ids) plus terminal membership.
+        let remoteID = workspace.rpcWorkspaceID
+        for (macKey, state) in workspacesByMac {
+            guard let workspaceIndex = state.workspaces.firstIndex(where: { candidate in
+                (candidate.remoteWorkspaceID ?? candidate.id) == remoteID
+                    && candidate.terminals.contains(where: { $0.id == terminalID })
+            }) else { continue }
+            var updatedState = state
+            updatedState.workspaces[workspaceIndex].terminals.removeAll { $0.id == terminalID }
+            workspacesByMac[macKey] = updatedState
+            return
+        }
     }
 
     private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {
