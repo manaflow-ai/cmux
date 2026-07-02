@@ -737,13 +737,13 @@
       "layoutItem1": "Sabitlenmiş üst düzey satırlar (çalışma alanları ve gruplar).",
       "layoutItem2": "Sabitlenmemiş üst düzey satırlar (çalışma alanları ve gruplar).",
       "creatingTitle": "Bir grup oluşturma",
-      "creatingIntro": "Bir grup iki yoldan biriyle oluşturulur: klavye kısayolu veya bir workspace bağlam menüsü. Her ikisi de seçimin üzerine yeni bir çapa workspace ekler ve seçili workspace’leri gruba taşır. Bir grup oluşturulduktan sonra, onu grup başlığından yönetir ve ona workspace eklersiniz (aşağıdaki Bir grubu yönetme bölümüne bakın).",
-      "keyboardTitle": "Klavyeden ({shortcut})",
-      "keyboardDesc": "Kenar çubuğunda iki veya daha fazla çalışma alanı seçin, ardından {shortcut} tuşlarına basın. Seçimin üzerine yeni bir bağlantı çalışma alanı eklenir ve seçilen tüm çalışma alanları alt öğeler haline gelir. Grup otomatik olarak Group 1, Group 2 ve bu şekilde adlandırılır; başlık bağlam menüsü aracılığıyla istediğiniz zaman yeniden adlandırın.",
+      "creatingIntro": "Bir grup, klavye kısayolu veya kenar çubuğu bağlam menüsünden oluşturulur. Boş gruplar, grup başlığı olarak yeni bir ankraj çalışma alanı ekler. Seçime dayalı gruplar bu ankrajı seçimin üstüne ekler ve seçili çalışma alanlarını gruba taşır. Grup oluşturulduktan sonra grubu yönetir ve çalışma alanlarını grup başlığından eklersin (aşağıdaki Grup yönetme bölümüne bak).",
+      "keyboardTitle": "Klavye kısayollarından",
+      "keyboardDesc": "Yeni bir boş çalışma alanı grubu oluşturmak için ⌃⌘G tuşlarına bas. Kenar çubuğunda iki veya daha fazla çalışma alanı seç, ardından seçimi gruplamak için {shortcut} tuşlarına bas. Her iki yol da yeni bir ankraj çalışma alanı oluşturur ve grubu Group 1, Group 2 vb. olarak otomatik adlandırır. Başlık bağlam menüsünden istediğin zaman yeniden adlandırabilirsin.",
       "keyboardNote": "{shortcut}, React Grab'in varsayılanıyla çakışır. Grup işleyicisi yalnızca kenar çubuğunda en az iki çalışma alanından oluşan açık bir çoklu seçim olduğunda bu tuş bileşimini tüketir, bu nedenle React Grab tek seçimde ve tarayıcı ya da terminal bağlamlarında hâlâ çalışır. İkisinin bir tuşu paylaşmasını istemiyorsanız Ayarlar → Klavye bölümünden yeniden atayın.",
       "keyboardSingle": "Tek sekmeli gruplar kısayoldan oluşturulmaz. Bunun için çalışma alanı bağlam menüsündeki Bu çalışma alanından yeni grup girişini kullanın.",
       "contextMenuTitle": "Bir çalışma alanı bağlam menüsünden",
-      "contextMenuDesc": "Kenar çubuğundaki herhangi bir çalışma alanına sağ tıklayın ve Bu çalışma alanından yeni grup öğesini seçin veya birden fazla çalışma alanı seçiliyken Seçimden yeni grup öğesini seçin. Bu, kısayolla aynı otomatik adlandırma davranışını kullanır.",
+      "contextMenuDesc": "Kenar çubuğundaki herhangi bir çalışma alanına sağ tıkla ve Yeni Boş Çalışma Alanı Grubu, Çalışma Alanından Yeni Grup veya birden fazla çalışma alanı seçiliyken Seçimden Yeni Grup seçeneğini seç. Kenar çubuğu listesinin altındaki boş alan da Yeni Boş Çalışma Alanı Grubu seçeneğini sunar. Bu yollar kısayollarla aynı otomatik adlandırma davranışını kullanır.",
       "managingTitle": "Bir grubu yönetme",
       "managingIntro": "Bir grup oluşturulduktan sonra, başlığının bağlam menüsü ve başlıktaki + düğmesi grubu yönetmenize ve ona workspace eklemenize olanak tanır. İkisi de yeni bir grup oluşturmaz.",
       "headerMenuTitle": "Grup başlığı bağlam menüsünden",
@@ -819,6 +819,9 @@
           "scrollSpeed": "Terminalde fare tekerleği ve dokunmatik yüzey kaydırma değerlerine uygulanan çarpan. Yüksek değerler daha hızlı, düşük değerler daha yavaş kaydırır.",
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
           "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Etkinleştirildiğinde, bir bildirim banner'ı yalnızca yüzeyi tam olarak odaklanmış yüzey olduğunda otomatik olarak geri çekilir. Şu anda görünür olan workspace içinde odaklanmamış bir yüzey için gönderilen bir banner, workspace görünür olduğunda geri çekilmek yerine, siz o yüzeye odaklanana (ya da tıklayana/kapatana) kadar görünür kalır. Kapalı, eski workspace görünürlüğüne dayalı geri çekme davranışını korur."
         },
         "browser": {
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
@@ -1068,7 +1071,8 @@
       "closeWorkspaceDesc": "Bir çalışma alanını kapat.",
       "splitCommands": "Bölme komutları",
       "newSplitDesc": "Yeni bir bölünmüş panel oluştur. Yönler: left, right, up, down.",
-      "listSurfacesDesc": "Geçerli çalışma alanındaki tüm yüzeyleri listele.",
+      "listPanelsDesc": "Geçerli çalışma alanındaki tüm yüzeyleri listele.",
+      "listPaneSurfacesDesc": "Odaklanmış paneldeki yüzeyleri listele.",
       "focusSurfaceDesc": "Belirli bir yüzeye odaklan.",
       "inputCommands": "Girdi komutları",
       "sendDesc": "Odaklanılan terminale metin girdisi gönder.",
@@ -1590,7 +1594,8 @@
   "afterSignIn": {
     "title": "cmux oturumu açıldı",
     "body": "cmux otomatik olarak açılmadıysa aşağıdaki düğmeyi kullanın.",
-    "button": "cmux’a dön"
+    "button": "cmux’a dön",
+    "switchAccountButton": "Farklı bir hesap kullan"
   },
   "landing": {
     "bestTerminal": {
