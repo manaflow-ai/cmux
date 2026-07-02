@@ -202,21 +202,35 @@ public final class UpdateController {
         checkForUpdatesWhenReady()
     }
 
-    /// Retry after a transient Sparkle download failure. Unlike a user-started fresh check,
-    /// this preserves any in-progress install/attempt intent so a retried archive download can
-    /// continue silently after Sparkle finds the same update again.
+    /// Retry after a transient Sparkle download failure. Unlike a user-started fresh check, this
+    /// preserves any in-progress install/attempt intent so a retried archive download continues
+    /// silently after Sparkle finds the same update again.
     ///
-    /// The driver passes `preservingInstallIntent: true` when the failure occurred during a
-    /// download/extract/install phase. We additionally OR in ``AttemptUpdateCoordinator/isMonitoring``
-    /// so intent is preserved when the failure lands during the coordinator's own re-resolve
-    /// check (issue #6366), before the install state machine reaches a downloading phase.
+    /// The reaction is chosen by the pure ``transientRetryPlan(preservingInstallIntent:coordinatorIsMonitoring:)``:
+    /// restart the coordinator's already-monitored check, re-arm the coordinator so the retried
+    /// check auto-confirms (when the interrupted phase carried install intent but the coordinator
+    /// was not yet monitoring — issue #6366), or run a plain fresh check.
     ///
     /// - Parameter preservingInstallIntent: Whether the retry request came from a Sparkle
     ///   install/download phase whose update choice should be auto-confirmed again.
     public func retryAfterTransientFailure(preservingInstallIntent: Bool = false) {
-        let shouldPreserveInstallIntent = preservingInstallIntent || attemptCoordinator.isMonitoring
-        log.append("retrying update after transient download failure (preserveInstallIntent=\(shouldPreserveInstallIntent))")
-        checkForUpdatesWhenReady(preservingInstallIntent: shouldPreserveInstallIntent)
+        let plan = Self.transientRetryPlan(
+            preservingInstallIntent: preservingInstallIntent,
+            coordinatorIsMonitoring: attemptCoordinator.isMonitoring
+        )
+        log.append("retrying update after transient download failure (plan=\(plan))")
+        switch plan {
+        case .restartMonitoredCheck:
+            // Preserve the interrupted session's install intent so the retried check re-resolves and
+            // (the coordinator being already monitoring) auto-confirms the update it finds.
+            checkForUpdatesWhenReady(preservingInstallIntent: true)
+        case .rearmConfirmedInstall:
+            // Arm the attempt coordinator on the retried check via the shared attempt path so the
+            // update it finds is auto-confirmed, matching the pre-failure install intent.
+            performAttemptAction(attemptCoordinator.requestInstallLatest(currentState: model.state))
+        case .plainCheck:
+            checkForUpdatesWhenReady(preservingInstallIntent: false)
+        }
     }
 
     private func performCheckForUpdates(preservingInstallIntent: Bool = false) {
