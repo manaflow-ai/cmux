@@ -2926,17 +2926,23 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func zoomInFocusedTextFilePreview() -> Bool {
-        focusedTextFilePreviewPanel?.zoomTextPreviewIn() ?? false
+        guard let panel = focusedTextFilePreviewPanel else { return false }
+        _ = panel.zoomTextPreviewIn()
+        return true
     }
 
     @discardableResult
     func zoomOutFocusedTextFilePreview() -> Bool {
-        focusedTextFilePreviewPanel?.zoomTextPreviewOut() ?? false
+        guard let panel = focusedTextFilePreviewPanel else { return false }
+        _ = panel.zoomTextPreviewOut()
+        return true
     }
 
     @discardableResult
     func resetZoomFocusedTextFilePreview() -> Bool {
-        focusedTextFilePreviewPanel?.resetTextPreviewZoom() ?? false
+        guard let panel = focusedTextFilePreviewPanel else { return false }
+        _ = panel.resetTextPreviewZoom()
+        return true
     }
 
     @discardableResult
