@@ -540,10 +540,11 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
     let transport = try #require(box.get())
 
     // Burn the whole retry budget in a barrier episode that ultimately
-    // succeeds: two failed replays consume maxTerminalReplayFailureRetries,
-    // the third succeeds and the barrier clears through the ack path, which
-    // does not reset the counter.
-    await router.failNextReplay(count: 2)
+    // succeeds: maxTerminalReplayFailureRetries failed replays consume the
+    // budget, the next succeeds and the barrier clears through the output
+    // ack path, which leaves the counter untouched (markTerminalBytesDelivered
+    // only clears it on catch-up, and no pending input target is set here).
+    await router.failNextReplay(count: MobileShellComposite.maxTerminalReplayFailureRetries)
     try await router.enqueueReplayRenderGridFrames([
         renderGridFrame(surfaceID: surfaceID, seq: 10, text: "barrier-recovered"),
     ])
