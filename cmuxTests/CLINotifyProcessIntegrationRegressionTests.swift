@@ -1763,6 +1763,72 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["title"] as? String, "Review OAuth Flow")
     }
 
+    func testClaudeSessionEndSkipsPersistWhenSiblingSessionIsRunning() throws {
+        let context = try makeClaudeHookContext(name: "claude-session-end-title-sibling")
+        defer { context.cleanup() }
+
+        // `isCurrent()` / SessionEnd is per-surface (issue #5908), so the exiting
+        // split below is still "current" for its own surface even though a sibling
+        // Claude session is live in another surface of the SAME workspace. The
+        // exit-title write must not stamp its stale title over the workspace while
+        // that sibling still owns the auto title.
+        let endingSessionId = "ending-title-session-sibling"
+        let siblingSessionId = "sibling-running-session"
+        let transcriptURL = context.root.appendingPathComponent("ending-title-session-sibling.jsonl")
+        try [
+            #"{"type":"ai-title","aiTitle":"Exiting split title","sessionId":"ending-title-session-sibling"}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                endingSessionId: [
+                    "sessionId": endingSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+                siblingSessionId: [
+                    "sessionId": siblingSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": "\(context.surfaceId)-sibling",
+                    "cwd": context.root.path,
+                    "runtimeStatus": "running",
+                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(endingSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let titleRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertFalse(
+            titleRequests.contains { $0["persist_after_exit"] as? Bool == true },
+            "Expected SessionEnd to skip persisting a title while a sibling session is still running, saw \(context.state.commands)"
+        )
+    }
+
     func testNestedCodexPromptAndStopDoNotReplaceParentResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "codex-nested-resume-guard")
         defer { context.cleanup() }
