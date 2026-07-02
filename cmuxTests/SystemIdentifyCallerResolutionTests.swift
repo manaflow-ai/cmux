@@ -92,24 +92,33 @@ struct SystemIdentifyCallerResolutionTests {
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
 
-        let manager = TabManager()
-        let staleWorkspace = try #require(manager.selectedWorkspace)
-        let targetWorkspace = manager.addWorkspace(select: false)
-        let targetSurfaceID = try #require(targetWorkspace.focusedPanelId)
-        let targetPaneID = targetWorkspace.paneId(forPanelId: targetSurfaceID)?.id
-        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        TerminalController.shared.setActiveTabManager(manager)
+        do {
+            let manager = TabManager()
+            let staleWorkspace = try #require(manager.selectedWorkspace)
+            let targetWorkspace = manager.addWorkspace(select: false)
+            let targetSurfaceID = try #require(targetWorkspace.focusedPanelId)
+            let targetPaneID = targetWorkspace.paneId(forPanelId: targetSurfaceID)?.id
+            let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            TerminalController.shared.setActiveTabManager(manager)
 
-        return Fixture(
-            previousAppDelegate: previousAppDelegate,
-            appDelegate: appDelegate,
-            windowID: windowID,
-            manager: manager,
-            staleWorkspace: staleWorkspace,
-            targetWorkspace: targetWorkspace,
-            targetSurfaceID: targetSurfaceID,
-            targetPaneID: targetPaneID
-        )
+            return Fixture(
+                previousAppDelegate: previousAppDelegate,
+                appDelegate: appDelegate,
+                windowID: windowID,
+                manager: manager,
+                staleWorkspace: staleWorkspace,
+                targetWorkspace: targetWorkspace,
+                targetSurfaceID: targetSurfaceID,
+                targetPaneID: targetPaneID
+            )
+        } catch {
+            // Fixture construction mutates the AppDelegate.shared global before the
+            // throwing #require calls run. If one throws, the caller never binds a
+            // Fixture, so its `defer { fixture.tearDown() }` never registers — restore
+            // the global here so a failed setup can't leak into other serialized tests.
+            AppDelegate.shared = previousAppDelegate
+            throw error
+        }
     }
 
     private func identifyCaller(params: [String: Any]) throws -> [String: Any] {
