@@ -7034,6 +7034,56 @@ extension SessionPersistenceTests {
         XCTAssertEqual(terminal.resumeBinding?.kind, "livesh")
     }
 
+    func testLiveShellProcessDetectedResumeBindingParsesProcessTitleSessionID() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.liveshResumeBindingForTesting(
+                processName: "livesh",
+                processPath: nil,
+                arguments: [
+                    "livesh (sh_d696534c) ~/work/oh-my-pi  ",
+                    "CMUX_BUNDLED_CLI_PATH=/Users/example/Applications/cmux.app/Contents/Resources/bin/cmux",
+                ],
+                environment: ["PWD": "/Users/example/work/oh-my-pi"]
+            )
+        )
+
+        XCTAssertEqual(binding.kind, "livesh")
+        XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertEqual(binding.allowsAutomaticResume, true)
+        XCTAssertEqual(binding.checkpointId, "sh_d696534c")
+        XCTAssertEqual(binding.cwd, "/Users/example/work/oh-my-pi")
+        XCTAssertEqual(binding.command, "'livesh' '--open' 'sh_d696534c'")
+    }
+
+    func testLiveShellProcessDetectedResumeBindingUsesExecutablePathWithProcessTitleArgv() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.liveshResumeBindingForTesting(
+                processName: "livesh",
+                processPath: "/Users/example/.local/bin/livesh",
+                arguments: ["livesh (sh_891aeef7a8d7403580b4c7200cfedaa3)"],
+                environment: ["PWD": "/Users/example/work/cmux.plus"]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "sh_891aeef7a8d7403580b4c7200cfedaa3")
+        XCTAssertEqual(
+            binding.command,
+            "'/Users/example/.local/bin/livesh' '--open' 'sh_891aeef7a8d7403580b4c7200cfedaa3'"
+        )
+        XCTAssertFalse(binding.command.contains("livesh ("))
+    }
+
+    func testLiveShellProcessDetectedResumeBindingRejectsUnsafeProcessTitleSessionID() {
+        let binding = SurfaceResumeBindingIndex.liveshResumeBindingForTesting(
+            processName: "livesh (sh_bad;rm)",
+            processPath: nil,
+            arguments: ["livesh (sh_bad;rm)"],
+            environment: ["PWD": "/tmp/project"]
+        )
+
+        XCTAssertNil(binding)
+    }
+
     func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(

@@ -5,9 +5,9 @@ import Foundation
 /// (`Workspace.effectiveSurfaceResumeBinding`, `LiveShellChildExitHandler`,
 /// `palette.killFocusedLiveShell`) can recognize them.
 ///
-/// Detection contract: livesh self-reexecs to `livesh --open <sh_id>` after creating a daemon
-/// shell. The bridge process therefore carries the session id in its argv, which is what we
-/// match here. The id is treated as the resume checkpoint so cmux restart → `livesh --open <id>`
+/// Detection contract: a livesh bridge may expose the daemon shell id either as
+/// `livesh --open <sh_id>` argv or as a process title such as `livesh (sh_id)`.
+/// The id is treated as the resume checkpoint so cmux restart → `livesh --open <id>`
 /// reattaches the same daemon-owned shell instead of forking a new one.
 enum LiveShellResumeParser {
     static func binding(
@@ -23,7 +23,7 @@ enum LiveShellResumeParser {
             arguments: arguments
         )
         guard observed.isLiveshProcess,
-              let sessionId = liveshSessionId(in: observed.arguments),
+              let sessionId = liveshSessionId(observed: observed),
               isSafeSessionID(sessionId) else {
             return nil
         }
@@ -46,9 +46,22 @@ enum LiveShellResumeParser {
 
     static func argumentLooksLikeLivesh(_ argument: String) -> Bool {
         let normalized = argument.lowercased()
+        if argumentLooksLikeLiveshProcessTitle(normalized) {
+            return true
+        }
         let pathComponents = (normalized as NSString).pathComponents
         let basename = pathComponents.last ?? normalized
-        return basename == "livesh"
+        return basename == "livesh" || argumentLooksLikeLiveshProcessTitle(basename)
+    }
+
+    static func argumentLooksLikeLiveshProcessTitle(_ argument: String) -> Bool {
+        let normalized = argument.lowercased()
+        if normalized.hasPrefix("livesh (") || normalized.hasPrefix("livesh(") {
+            return true
+        }
+        let pathComponents = (normalized as NSString).pathComponents
+        let basename = pathComponents.last ?? normalized
+        return basename.hasPrefix("livesh (") || basename.hasPrefix("livesh(")
     }
 
     private struct ObservedLiveshProcess {
@@ -76,14 +89,26 @@ enum LiveShellResumeParser {
 
     private static func liveshExecutable(observed: ObservedLiveshProcess) -> String {
         if let first = normalized(observed.arguments.first),
-           argumentLooksLikeLivesh(first) {
+           argumentLooksLikeLivesh(first),
+           !argumentLooksLikeLiveshProcessTitle(first) {
             return first
         }
         if let path = normalized(observed.processPath),
-           argumentLooksLikeLivesh(path) {
+           argumentLooksLikeLivesh(path),
+           !argumentLooksLikeLiveshProcessTitle(path) {
             return path
         }
         return "livesh"
+    }
+
+    private static func liveshSessionId(observed: ObservedLiveshProcess) -> String? {
+        if let sessionId = liveshSessionId(in: observed.arguments) {
+            return sessionId
+        }
+        if let sessionId = liveshSessionId(inProcessTitle: observed.processName) {
+            return sessionId
+        }
+        return observed.arguments.lazy.compactMap(liveshSessionId(inProcessTitle:)).first
     }
 
     private static func liveshSessionId(in arguments: [String]) -> String? {
@@ -102,6 +127,66 @@ enum LiveShellResumeParser {
             index += 1
         }
         return nil
+    }
+
+    private static func liveshSessionId(inProcessTitle rawValue: String) -> String? {
+        guard let value = normalized(rawValue) else { return nil }
+        for candidate in processTitleCandidates(from: value) {
+            guard let sessionId = liveshSessionId(inProcessTitleCandidate: candidate) else {
+                continue
+            }
+            return sessionId
+        }
+        return nil
+    }
+
+    private static func processTitleCandidates(from value: String) -> [String] {
+        let basename = (value as NSString).lastPathComponent
+        return basename == value ? [value] : [value, basename]
+    }
+
+    private static func liveshSessionId(inProcessTitleCandidate value: String) -> String? {
+        guard let titleStart = liveshProcessTitleStart(in: value),
+              let open = value[titleStart...].firstIndex(of: "("),
+              let close = value[value.index(after: open)...].firstIndex(of: ")") else {
+            return nil
+        }
+        let candidate = String(value[value.index(after: open)..<close])
+        guard candidate.hasPrefix("sh_") else { return nil }
+        return normalized(candidate)
+    }
+
+    private static func liveshProcessTitleStart(in value: String) -> String.Index? {
+        var searchStart = value.startIndex
+        while searchStart < value.endIndex,
+              let range = value.range(
+                  of: "livesh",
+                  options: [.caseInsensitive],
+                  range: searchStart..<value.endIndex
+              ) {
+            let isPathComponentStart = range.lowerBound == value.startIndex ||
+                value[value.index(before: range.lowerBound)] == "/"
+            if isPathComponentStart,
+               let suffixStart = liveshProcessTitleSuffixStart(after: range.upperBound, in: value) {
+                return suffixStart
+            }
+            searchStart = range.upperBound
+        }
+        return nil
+    }
+
+    private static func liveshProcessTitleSuffixStart(
+        after executableEnd: String.Index,
+        in value: String
+    ) -> String.Index? {
+        guard executableEnd < value.endIndex else { return nil }
+        if value[executableEnd] == "(" {
+            return value.index(executableEnd, offsetBy: -("livesh".count))
+        }
+        guard value[executableEnd] == " " else { return nil }
+        let open = value.index(after: executableEnd)
+        guard open < value.endIndex, value[open] == "(" else { return nil }
+        return value.index(executableEnd, offsetBy: -("livesh".count))
     }
 
     /// Session ids generated by liveshd ought to be `sh_<uuid>`-shaped, but be permissive

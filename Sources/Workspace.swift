@@ -1378,7 +1378,9 @@ extension Workspace {
         case .terminal:
             let snapshotRestorableAgent = snapshot.terminal?.agent
             let persistedResumeBinding = snapshot.terminal?.resumeBinding
-            let restorableAgent = Self.restorableAgentForSessionRestore(
+            let resumeBinding = persistedResumeBinding
+            let liveShellResumeOwnsStartup = resumeBinding?.kind == "livesh"
+            let restorableAgent = liveShellResumeOwnsStartup ? nil : Self.restorableAgentForSessionRestore(
                 snapshotRestorableAgent,
                 resumeBinding: persistedResumeBinding
             )
@@ -1386,8 +1388,20 @@ extension Workspace {
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
+            // A livesh binding owns the shell and any OMP/Pi/agent already running inside it.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
-            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
+            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit && !liveShellResumeOwnsStartup
+            let resumeBindingForStartup =
+                restoredHibernation != nil ||
+                (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
+                    ? nil
+                    : resumeBinding
+            let effectiveResumeBindingForStartup = sessionRestorePolicy.approvedSurfaceResumeBinding(
+                resumeBindingForStartup,
+                autoResumeAgentSessions: shouldAutoResumeAgent,
+                promptForApproval: true,
+                approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+            )
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoresRemoteWorkspaceTerminalSnapshot =
                 remoteStartupCommand != nil &&
