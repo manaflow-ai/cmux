@@ -698,26 +698,7 @@ class TabManager: ObservableObject {
 
     private func sweepStaleAgentPIDs() {
         for tab in tabs {
-            var keysToRemove: [String] = []
-            for (key, pid) in tab.agentPIDs {
-                guard pid > 0 else {
-                    keysToRemove.append(key)
-                    continue
-                }
-                // kill(pid, 0) probes process liveness without sending a signal.
-                // ESRCH = process doesn't exist (stale). EPERM = process exists
-                // but we lack permission (not stale, keep tracking).
-                errno = 0
-                if kill(pid, 0) == -1, POSIXErrorCode(rawValue: errno) == .ESRCH {
-                    keysToRemove.append(key)
-                }
-            }
-            if !keysToRemove.isEmpty {
-                for key in keysToRemove {
-                    tab.clearAgentPID(key: key, clearStatus: true, refreshPorts: false)
-                }
-                let remainingAgentPIDs = Set(tab.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-                PortScanner.shared.refreshAgentPorts(workspaceId: tab.id, agentPIDs: remainingAgentPIDs)
+            if tab.clearStaleAgentPIDs() {
                 // Also clear stale notifications (e.g. "Doing well, thanks!")
                 // left behind when Claude was killed without SessionEnd firing.
                 AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
@@ -965,7 +946,8 @@ class TabManager: ObservableObject {
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String],
-        workspaceEnvironment: [String: String] = [:]
+        workspaceEnvironment: [String: String] = [:],
+        allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         Workspace(
             title: title,
@@ -977,6 +959,7 @@ class TabManager: ObservableObject {
             initialTerminalInput: initialTerminalInput,
             initialTerminalEnvironment: initialTerminalEnvironment,
             workspaceEnvironment: workspaceEnvironment,
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             closeTabWarningDefaults: closeTabWarningDefaults
         )
     }
@@ -1060,7 +1043,8 @@ class TabManager: ObservableObject {
         placementOverride: WorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
-        normalizeWorkspaceGroupsAfterInsert: Bool = true
+        normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
@@ -1118,7 +1102,8 @@ class TabManager: ObservableObject {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
-                workspaceEnvironment: workspaceEnvironment
+                workspaceEnvironment: workspaceEnvironment,
+                allowTextBoxFocusDefault: select && allowTextBoxFocusDefault
             )
             applyCreationChromeInheritance(
                 to: newWorkspace,
