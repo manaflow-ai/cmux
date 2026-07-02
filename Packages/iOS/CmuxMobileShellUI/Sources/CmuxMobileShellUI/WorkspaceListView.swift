@@ -268,19 +268,23 @@ struct WorkspaceListView: View {
         .searchable(text: $searchText)
         .toolbar {
             #if os(iOS)
-            if showsNavigationToolbar {
-                ToolbarItem(placement: .topBarLeading) {
+            ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
+                if showsNavigationToolbar {
                     settingsMenu
                 }
-                ToolbarItem(placement: .principal) {
+            }
+            ToolbarItem(id: "workspace-list-title", placement: .principal) {
+                if showsNavigationToolbar {
                     macTitlePicker(machineSnapshots: displayedMachineSnapshots)
                 }
-                if showsDevicesButton {
-                    ToolbarItem(placement: .topBarLeading) {
-                        devicesButton
-                    }
+            }
+            ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
+                if showsNavigationToolbar && showsDevicesButton {
+                    devicesButton
                 }
-                ToolbarItemGroup(placement: .topBarTrailing) {
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if showsNavigationToolbar {
                     WorkspaceListFilterMenu(filter: $filter, machines: displayedFilterMachines)
                     if canCreateWorkspace {
                         newWorkspaceButton
