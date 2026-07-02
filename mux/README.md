@@ -1,0 +1,51 @@
+# cmux-mux
+
+A decoupled terminal-multiplexer backend for cmux, with a bundled tmux-like TUI. The multiplexer core owns workspaces → tabs → panes; each pane is a real PTY whose output feeds libghostty-vt, the terminal engine extracted from Ghostty and built from this repo's `ghostty/` submodule. Frontends only read render snapshots and send input, so the same session state can be drawn by the Ratatui TUI in any terminal today and attached to real Ghostty surfaces in the cmux app later.
+
+## Layout
+
+- `crates/ghostty-vt-sys` — raw FFI. build.rs compiles `libghostty-vt.a` from `../ghostty` with zig (`-Demit-lib-vt=true`, ReleaseFast) and generates bindings from `include/ghostty/vt.h` with bindgen.
+- `crates/ghostty-vt` — safe wrapper: `Terminal` (vt parsing, modes, callbacks, plain-text dump), `RenderState` (dirty-tracked viewport snapshots), `KeyEncoder` (legacy + kitty keyboard protocol, synced from terminal modes).
+- `crates/mux-core` — the backend: session model, PTY runtime (portable-pty, one reader thread per pane), layout math shared by frontends, and the JSON control socket.
+- `crates/mux-tui` — the `cmux-mux` binary: crossterm + Ratatui frontend.
+
+## Build and run
+
+Requires zig 0.15.2 (same pin as CI, see `scripts/install-zig-ci.sh`) and a Rust toolchain. The ghostty submodule must be initialized.
+
+```bash
+cd mux
+cargo run -p mux-tui            # TUI, session "main"
+cargo run -p mux-tui -- --headless --session agents   # backend only
+cargo test                      # unit + integration tests
+```
+
+Keys (prefix Ctrl-b, tmux-style): `c` new tab, `n`/`p`/`1`-`9` switch tab, `%` split right, `"` split down, `h j k l`/arrows move focus, `x` kill pane, `w` next workspace, `W` new workspace, PageUp/PageDown scrollback, `d` quit, `Ctrl-b` twice sends a literal Ctrl-b. Mouse: click focuses, wheel scrolls (arrow keys on the alternate screen).
+
+## Control socket
+
+Every instance serves a JSON-lines protocol on a unix socket (default `$TMPDIR/cmux-mux-<uid>/<session>.sock`, also exported to panes as `CMUX_MUX_SOCKET`). One request per line:
+
+```bash
+SOCK=${TMPDIR:-/tmp}/cmux-mux-$(id -u)/main.sock
+printf '%s\n' '{"id":1,"cmd":"identify"}' | nc -U "$SOCK"
+printf '%s\n' '{"id":2,"cmd":"list-workspaces"}' | nc -U "$SOCK"
+printf '%s\n' '{"id":3,"cmd":"send","pane":1,"text":"ls\r"}' | nc -U "$SOCK"
+printf '%s\n' '{"id":4,"cmd":"read-screen","pane":1}' | nc -U "$SOCK"
+```
+
+Commands: `identify`, `list-workspaces`, `send` (text or base64 `bytes`), `read-screen`, `new-tab`, `new-workspace`, `split` (`dir`: `right`/`down`), `kill-pane`, `resize-pane`. This is the attach surface for the cmux app: the app can drive a headless session and render panes on real Ghostty surfaces because both sides speak the same VT state.
+
+## Design notes
+
+- The pty reader thread is the only writer into a pane's `Terminal`; renderers take the terminal lock just long enough to snapshot into their own `RenderState`, so slow frontends never block pty IO.
+- Query responses (DSR, DECRQM, ...) generated during parsing are queued by the write-pty callback and flushed to the pty after each parse batch.
+- Input is encoded with ghostty's key encoder synced from the pane's terminal modes each keystroke, so cursor-key application mode and the kitty keyboard protocol work end to end.
+- Children get `TERM=xterm-256color` by default; set `--term xterm-ghostty` (or `CMUX_MUX_TERM`) when the ghostty terminfo is installed.
+
+## Current limitations
+
+- One frontend process per session (no detach/reattach daemon yet; the socket already provides headless control).
+- No mouse-event forwarding to applications (viewport scroll and alternate-screen arrow fallback only).
+- Kitty graphics state is tracked by the engine but not rendered by the TUI.
+- Split ratios are fixed at 50% (no interactive divider drag yet).
