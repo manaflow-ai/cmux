@@ -500,6 +500,26 @@
           "default": 10,
           "description": "Maximum number of lines the rich terminal TextBox input can grow to before it scrolls."
         },
+        "focusedSplitBorder": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.terminal.focusedSplitBorder",
+          "description": "Outline the focused pane with an accent border while a workspace is split into multiple panes, so the active split is unmistakable. Complements the unfocused-split dimming. Set false to disable."
+        },
+        "focusedSplitBorderColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "descriptionKey": "schemaDescriptions.terminal.focusedSplitBorderColor",
+          "description": "Optional #RRGGBB hex override for the focused-split border color. null (the default) follows the system accent color."
+        },
+        "focusedSplitBorderWidth": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 8,
+          "default": 2,
+          "descriptionKey": "schemaDescriptions.terminal.focusedSplitBorderWidth",
+          "description": "Focused-split border stroke width, in points."
+        },
         "textBoxDefaultSubmitAction": {
           "type": "string",
           "default": "text-entry",

@@ -108,6 +108,8 @@ extension CmuxSettingsFileStore {
                         "maxWarmRenderers": RendererRealizationSettings.defaultMaxWarmRenderers,
                     ],
                     "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,
+                    "focusedSplitBorder": TerminalFocusedSplitBorderSettings.defaultEnabled,
+                    "focusedSplitBorderWidth": TerminalFocusedSplitBorderSettings.defaultWidth,
                     "resumeCommands": [],
                 ],
             ],
