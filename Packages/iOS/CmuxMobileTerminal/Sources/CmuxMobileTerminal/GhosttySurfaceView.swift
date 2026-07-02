@@ -684,7 +684,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// so a transient drop self-heals; a matching confirmed result resets the count.
     private var viewportReportRetries = 0
     private static let maxViewportReportRetries = 3
-    /// Monotonic stamp for each natural-grid report handed to the delegate.
+    /// Monotonic stamp for each natural-grid report queued for the delegate.
     /// `applyConfirmedViewSize(cols:rows:reportID:)` applies an echo only when
     /// its ID is still the newest, so an out-of-order RPC reply for an older
     /// (e.g. keyboard-up) report cannot re-pin a grid the surface outgrew —
@@ -3069,7 +3069,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 if viewportReportSettleFrames >= Self.viewportReportSettleThreshold {
                     pendingViewportReport = nil
                     viewportReportSettleFrames = 0
-                    viewportReportID &+= 1
                     MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
                     delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
                 }
@@ -3293,6 +3292,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "zoom.viewport.retry \(viewportReportRetries)/\(Self.maxViewportReportRetries) "
             + "grid=\(pending.columns)x\(pending.rows)"
         )
+        viewportReportID &+= 1
+        awaitingViewportEcho = pending
         pendingViewportReport = pending
         viewportReportSettleFrames = 0
     }
@@ -3748,6 +3749,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         syncSnapshotFallback()
 
         guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else { return }
+        viewportReportID &+= 1
         lastReportedSize = reportGrid
         awaitingViewportEcho = reportGrid
         // Debounce the actual report (a PTY resize on the Mac) until the grid
