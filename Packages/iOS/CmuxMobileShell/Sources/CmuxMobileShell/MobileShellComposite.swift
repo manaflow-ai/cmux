@@ -6628,12 +6628,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let canRenderGridAdvancePendingSeq = terminalOutputTransport == .renderGrid
             || (terminalOutputTransport == .hybrid && terminalActiveScreenBySurfaceID[surfaceID] == .alternate)
         if canRenderGridAdvancePendingSeq, terminalEventListenerTask != nil {
-            let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID]
-            let targetSeq = max(remoteSeq, pendingSeq ?? 0)
+            let targetSeq = max(remoteSeq, pendingTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0)
             pendingTerminalByteEndSeqBySurfaceID[surfaceID] = targetSeq
-            MobileDebugLog.anchormux(
-                "sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)"
-            )
+            MobileDebugLog.anchormux("sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)")
             refreshTerminalEventSubscription(reason: "input_seq_wait")
             return
         }
@@ -6859,9 +6856,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
-        guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else {
-            return
-        }
+        guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else { return }
         if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
            deliveredSeq > renderGrid.stateSeq {
             MobileDebugLog.anchormux(
@@ -6963,17 +6958,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func shouldDropRenderGridBehindPendingInput(
-        _ renderGrid: MobileTerminalRenderGridFrame,
-        source: String
-    ) -> Bool {
+    private func shouldDropRenderGridBehindPendingInput(_ renderGrid: MobileTerminalRenderGridFrame, source: String) -> Bool {
         guard let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
-              renderGrid.stateSeq < pendingSeq else {
-            return false
-        }
-        MobileDebugLog.anchormux(
-            "sync.render_grid_wait_input source=\(source) surface=\(renderGrid.surfaceID) frame=\(renderGrid.stateSeq) pending=\(pendingSeq)"
-        )
+              renderGrid.stateSeq < pendingSeq else { return false }
+        MobileDebugLog.anchormux("sync.render_grid_wait_input source=\(source) surface=\(renderGrid.surfaceID) frame=\(renderGrid.stateSeq) pending=\(pendingSeq)")
         return true
     }
 
