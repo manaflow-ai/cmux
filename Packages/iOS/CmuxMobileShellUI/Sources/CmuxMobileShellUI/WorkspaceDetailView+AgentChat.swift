@@ -99,6 +99,7 @@ extension WorkspaceDetailView {
                     set: { chatDrafts[session.id] = $0 }
                 ),
                 backButtonConfiguration: backButtonConfiguration,
+                isTitleMenuEnabled: hasTitleMenuActions,
                 titleMenuContent: { titleMenuContent },
                 onExitChat: {
                     withAnimation(.snappy(duration: 0.28)) {

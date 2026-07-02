@@ -49,7 +49,7 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
-    /// Live pane width, used to width-cap the leading glass title pill so a long
+    /// Live pane width, used to width-cap the centered glass title pill so a long
     /// workspace name truncates instead of underlapping the toolbar buttons.
     @State private var contentWidth: CGFloat = 0
     /// Captured at the moment the "View as Text" action is tapped so the
@@ -57,6 +57,7 @@ struct WorkspaceDetailView: View {
     /// workspace selection changes underneath it (e.g. Mac-side sync) while
     /// the sheet is open; the sheet loads its snapshot once per presentation.
     @State private var textSheetSurfaceID: String?
+    @State private var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle: when on (and a session exists) the detail renders
     /// the agent chat inline in place of the terminal. The toolbar button
     /// flips this; there is no cover and no Done button.
@@ -84,7 +85,6 @@ struct WorkspaceDetailView: View {
     /// that every push arrived.
     @Environment(\.scenePhase) var scenePhase
     #endif
-
     /// The active browser surface for this workspace, when a browser pane is open.
     private var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
@@ -110,9 +110,7 @@ struct WorkspaceDetailView: View {
         #if os(iOS)
         if isChatMode, let session = chosenChatSession {
             chatContent(session)
-                // Emerge from the toolbar (top edge) rather than snapping in,
-                // matching standard toolbar-driven transitions.
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .transition(.opacity)
         } else if let browser = activeBrowser {
             browserContent(browser)
         } else {
@@ -141,18 +139,15 @@ struct WorkspaceDetailView: View {
         .mobileTerminalNavigationChrome()
         .toolbar {
             if backButtonConfiguration != nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    workspaceBackToolbarButton
-                }
-                if #available(iOS 26.0, *) {
-                    ToolbarSpacer(.fixed, placement: .topBarLeading)
-                }
+                ToolbarItem(placement: .topBarLeading) { workspaceBackToolbarButton }
             }
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItem(placement: .principal) {
                 WorkspaceTitleMenu(
                     contentWidth: contentWidth,
                     hasBackButton: backButtonConfiguration != nil,
+                    hasTrailingCluster: true,
                     hasChatToggle: shouldShowChatToggle,
+                    isEnabled: hasTitleMenuActions,
                     menuContent: { titleMenuContent }
                 ) {
                     Text(browser.title ?? workspace.name)
@@ -311,18 +306,15 @@ struct WorkspaceDetailView: View {
         .toolbar {
             #if os(iOS)
             if backButtonConfiguration != nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    workspaceBackToolbarButton
-                }
-                if #available(iOS 26.0, *) {
-                    ToolbarSpacer(.fixed, placement: .topBarLeading)
-                }
+                ToolbarItem(placement: .topBarLeading) { workspaceBackToolbarButton }
             }
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItem(placement: .principal) {
                 WorkspaceTitleMenu(
                     contentWidth: contentWidth,
                     hasBackButton: backButtonConfiguration != nil,
+                    hasTrailingCluster: true,
                     hasChatToggle: shouldShowChatToggle,
+                    isEnabled: hasTitleMenuActions,
                     menuContent: { titleMenuContent }
                 ) {
                     WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
@@ -363,8 +355,8 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// Compact-stack back button colocated with the leading title so both
-    /// terminal and chat modes share one toolbar order.
+    /// Leading back-button island. No explicit `.buttonStyle(.glass)`: iOS 26 backs
+    /// toolbar items in glass; a 2nd layer renders as an oversized square (see chat pane).
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
@@ -385,6 +377,7 @@ struct WorkspaceDetailView: View {
             requestClose: requestCloseWorkspaceFromMenu
         )
     }
+
     #endif
 
     private var newWorkspaceToolbarButton: some View {
@@ -408,11 +401,15 @@ struct WorkspaceDetailView: View {
     // because `Menu` has no will-open hook (the menu simply floats over the live
     // keyboard like any nav-bar menu).
     var terminalPickerToolbarButton: some View {
-        Menu {
-            terminalPickerMenuContent
+        let liveRows = terminalPickerLiveRows
+        let rows = terminalPickerRows.isEmpty ? liveRows : terminalPickerRows
+        let selection = rows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
+
+        return Menu {
+            terminalPickerMenuContent(rows: rows, selectedID: selection?.id)
         } label: {
             Label(
-                selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
+                selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
                 systemImage: "rectangle.stack"
             )
             .labelStyle(.iconOnly)
@@ -420,19 +417,24 @@ struct WorkspaceDetailView: View {
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
-        .accessibilityValue(host)
+        .accessibilityValue(selection?.name ?? "")
+        .onAppear(perform: syncTerminalPickerRows)
+        .onChange(of: liveRows) { _, _ in syncTerminalPickerRows() }
     }
 
     @ViewBuilder
-    private var terminalPickerMenuContent: some View {
+    private func terminalPickerMenuContent(
+        rows: [TerminalPickerMenuRow],
+        selectedID: MobileTerminalPreview.ID?
+    ) -> some View {
         Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(workspace.terminals) { terminal in
+            ForEach(rows) { terminal in
                 Button {
                     selectTerminalFromPicker(terminal.id)
                 } label: {
                     Label(
                         terminal.name,
-                        systemImage: terminal.id == selectedTerminal?.id && activeBrowser == nil
+                        systemImage: terminal.id == selectedID && activeBrowser == nil
                             ? "checkmark.circle.fill"
                             : "terminal"
                     )
@@ -480,8 +482,7 @@ struct WorkspaceDetailView: View {
 
             #if DEBUG
             Button(action: copyDebugLogsFromMenu) {
-                // DEV-only debug tooling; not shipped, so not localized.
-                Label("Copy Debug Logs", systemImage: "doc.on.clipboard")
+                Label(L10n.string("mobile.debug.copyLogs", defaultValue: "Copy Debug Logs"), systemImage: "doc.on.clipboard")
             }
             .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
             #endif
@@ -497,13 +498,19 @@ struct WorkspaceDetailView: View {
         #endif
     }
 
+    private func syncTerminalPickerRows() {
+        let rows = terminalPickerLiveRows
+        guard terminalPickerRows != rows else { return }
+        terminalPickerRows = rows
+    }
+
     #if canImport(UIKit)
     #if DEBUG
     private func copyDebugLogsFromMenu() {
         // Include "what the user sees" (the visible terminal text) above the
         // debug log so a pasted bug report shows the on-screen content too.
-        let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
         Task { @MainActor in
+            let terminalText = await GhosttySurfaceView.visibleTerminalSnapshot()
             let count = await MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
@@ -629,10 +636,10 @@ struct WorkspaceDetailView: View {
         // Only the agent path reads the terminal/debug snapshots; reading them is
         // cheap and harmless on the email path, but skip the work when unused.
         // `visibleTerminalSnapshot()` reads off the output queue with a bounded
-        // wait (never a main-thread `ghostty_surface_read_text`, which blanks the
+        // async deadline (never a main-thread `ghostty_surface_read_text`, which blanks the
         // terminal). The debug-log snapshot is awaited from its actor.
-        let terminalText = routesToAgent ? GhosttySurfaceView.visibleTerminalSnapshot() : ""
         Task { @MainActor in
+            let terminalText = routesToAgent ? await GhosttySurfaceView.visibleTerminalSnapshot() : ""
             let debugLogText = routesToAgent ? await MobileDebugLog.shared.sink.snapshotWithCount().1 : ""
             let outcome = await store.submitFeedback(
                 message: note,

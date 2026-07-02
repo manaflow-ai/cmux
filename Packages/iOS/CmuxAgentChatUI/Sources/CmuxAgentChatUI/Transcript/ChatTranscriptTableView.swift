@@ -44,12 +44,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.allowsSelection = false
         tableView.accessibilityIdentifier = "ChatTranscriptTableView"
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            tableView.topEdgeEffect.style = .soft
-            tableView.bottomEdgeEffect.style = .soft
-        }
-        #endif
+        tableView.applyScrollEdgeEffects(topSoft: true, bottomSoft: true)
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         context.coordinator.attach(tableView)
@@ -150,11 +145,10 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             defer { isApplyingDataUpdate = false }
             tableView.reloadData()
             tableView.layoutIfNeeded()
-
-            if shouldScrollToBottom || wasAtBottom {
+            if shouldScrollToBottom || (wasAtBottom && !tableView.isUserScrollMomentumActive) {
                 pendingContentUpdateAnchor = nil
                 scrollToBottom(in: tableView, animated: false)
-            } else if let anchor {
+            } else if let anchor, !tableView.isUserScrollMomentumActive {
                 restore(anchor, in: tableView)
                 pendingContentUpdateAnchor = anchor
             }
@@ -168,7 +162,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             items.count
         }
 
-        @MainActor
         func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
             let cell = tableView.dequeueReusableCell(withIdentifier: "ChatTranscriptCell")
                 ?? UITableViewCell(style: .default, reuseIdentifier: "ChatTranscriptCell")
@@ -220,11 +213,12 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             isHandlingLayout = true
             defer { isHandlingLayout = false }
 
-            if tableView.isViewportInsetsExternallyDriven {
+            if tableView.isUserScrollMomentumActive {
+                pendingContentUpdateAnchor = nil
                 updateBottomState(from: tableView)
                 return
             }
-            if isApplyingDataUpdate {
+            if tableView.isViewportInsetsExternallyDriven || isApplyingDataUpdate {
                 updateBottomState(from: tableView)
                 return
             }
@@ -401,7 +395,6 @@ private struct ChatTranscriptTableConfiguration {
     }
 
     @ViewBuilder
-    @MainActor
     func view(for item: ChatTranscriptTableItem, tableWidth: CGFloat) -> some View {
         itemView(for: item)
             .padding(.horizontal, theme.horizontalMargin)
@@ -415,7 +408,6 @@ private struct ChatTranscriptTableConfiguration {
     }
 
     @ViewBuilder
-    @MainActor
     private func itemView(for item: ChatTranscriptTableItem) -> some View {
         switch item {
         case .loadingMore:
