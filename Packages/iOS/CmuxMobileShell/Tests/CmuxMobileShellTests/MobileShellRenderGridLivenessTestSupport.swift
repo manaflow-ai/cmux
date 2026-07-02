@@ -79,6 +79,7 @@ actor LivenessHostRouter {
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0
+    private var terminalInputSeqs: [UInt64] = []
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -184,6 +185,10 @@ actor LivenessHostRouter {
 
     func enqueueEmptyReplayResponses(count: Int = 1) {
         emptyReplayResponsesRemaining += count
+    }
+
+    func enqueueTerminalInputSeqs(_ seqs: [UInt64]) {
+        terminalInputSeqs.append(contentsOf: seqs)
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -308,8 +313,9 @@ actor LivenessHostRouter {
         case "mobile.events.unsubscribe", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.input":
+            let terminalSeq = terminalInputSeqs.isEmpty ? 100 : terminalInputSeqs.removeFirst()
             return try? Self.resultFrame(id: id, result: [
-                "terminal_seq": 100,
+                "terminal_seq": terminalSeq,
             ])
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
