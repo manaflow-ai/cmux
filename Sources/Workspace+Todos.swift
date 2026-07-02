@@ -98,6 +98,14 @@ extension Workspace {
         todoState.checklist.setChecklistItemState(id: id, state: state)
     }
 
+    /// Rewrites one checklist item's text (same normalization as add).
+    ///
+    /// - Returns: `true` if the item existed and the text was non-empty.
+    @discardableResult
+    func setChecklistItemText(id: UUID, text: String) -> Bool {
+        todoState.checklist.setChecklistItemText(id: id, text: text)
+    }
+
     /// Removes one checklist item.
     ///
     /// - Returns: `true` if the item existed.

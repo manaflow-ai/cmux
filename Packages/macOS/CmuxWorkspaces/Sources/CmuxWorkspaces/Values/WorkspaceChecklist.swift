@@ -72,6 +72,22 @@ extension Array where Element == WorkspaceChecklistItem {
         return true
     }
 
+    /// Rewrites one item's text by id, applying the same normalization as
+    /// ``addChecklistItem(_:state:origin:id:)``.
+    ///
+    /// - Parameters:
+    ///   - id: The item to edit.
+    ///   - text: The replacement text (trimmed; empty is rejected; capped at
+    ///     ``WorkspaceChecklistItem/maxTextLength`` characters).
+    /// - Returns: `true` if the item existed and the text was non-empty.
+    @discardableResult
+    public mutating func setChecklistItemText(id: UUID, text: String) -> Bool {
+        guard let normalized = WorkspaceChecklistItem.normalizedText(text),
+              let index = firstIndex(where: { $0.id == id }) else { return false }
+        self[index].text = normalized
+        return true
+    }
+
     /// Removes one item by id.
     ///
     /// - Parameter id: The item to remove.

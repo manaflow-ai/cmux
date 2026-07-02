@@ -23,6 +23,8 @@ extension ControlCommandCoordinator {
             return workspaceTodoAdd(request.params)
         case "workspace.todo.set_state":
             return workspaceTodoSetState(request.params)
+        case "workspace.todo.edit":
+            return workspaceTodoEdit(request.params)
         case "workspace.todo.remove":
             return workspaceTodoRemove(request.params)
         case "workspace.todo.clear":
@@ -292,6 +294,30 @@ extension ControlCommandCoordinator {
             itemID: selector.itemID,
             itemIndex: selector.itemIndex,
             stateRaw: stateRaw
+        ) ?? .tabManagerUnavailable
+        if let error = workspaceTodoMutationError(resolution) { return error }
+        guard case .resolved(let windowID, let item, _, let checklist) = resolution else {
+            return .err(code: "internal", message: "Unexpected resolution", data: nil)
+        }
+        return .ok(workspaceTodoMutationPayload(
+            windowID: windowID, item: item, removedCount: nil, checklist: checklist
+        ))
+    }
+
+    /// `workspace.todo.edit` — rewrite one item's text by id or index.
+    func workspaceTodoEdit(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let selector = workspaceTodoItemSelector(params) else {
+            return .err(code: "invalid_params", message: "Missing id or index", data: nil)
+        }
+        guard let text = string(params, "text") else {
+            return .err(code: "invalid_params", message: "Missing or invalid text", data: nil)
+        }
+        let resolution = context?.controlWorkspaceTodoEdit(
+            routing: routingSelectors(params),
+            workspaceID: uuid(params, "workspace_id"),
+            itemID: selector.itemID,
+            itemIndex: selector.itemIndex,
+            text: text
         ) ?? .tabManagerUnavailable
         if let error = workspaceTodoMutationError(resolution) { return error }
         guard case .resolved(let windowID, let item, _, let checklist) = resolution else {

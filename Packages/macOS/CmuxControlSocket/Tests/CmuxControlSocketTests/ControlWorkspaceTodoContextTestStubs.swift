@@ -40,6 +40,14 @@ extension ControlWorkspaceTodoContext {
         stateRaw: String
     ) -> ControlWorkspaceTodoMutationResolution { .tabManagerUnavailable }
 
+    func controlWorkspaceTodoEdit(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        itemID: UUID?,
+        itemIndex: Int?,
+        text: String
+    ) -> ControlWorkspaceTodoMutationResolution { .tabManagerUnavailable }
+
     func controlWorkspaceTodoRemove(
         routing: ControlRoutingSelectors,
         workspaceID: UUID?,

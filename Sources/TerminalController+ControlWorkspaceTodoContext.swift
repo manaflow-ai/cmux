@@ -256,6 +256,38 @@ extension TerminalController: ControlWorkspaceTodoContext {
         }
     }
 
+    func controlWorkspaceTodoEdit(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        itemID: UUID?,
+        itemIndex: Int?,
+        text: String
+    ) -> ControlWorkspaceTodoMutationResolution {
+        switch resolveTodoWorkspace(routing: routing, workspaceID: workspaceID) {
+        case .tabManagerUnavailable:
+            return .tabManagerUnavailable
+        case .notFound:
+            return .notFound
+        case .found(let tabManager, let workspace):
+            guard let normalized = WorkspaceChecklistItem.normalizedText(text) else {
+                return .emptyText
+            }
+            guard let item = todoItem(in: workspace, itemID: itemID, itemIndex: itemIndex),
+                  workspace.setChecklistItemText(id: item.id, text: normalized) else {
+                return .itemNotFound
+            }
+            var updated = item
+            updated.text = normalized
+            WorkspaceTodoFeature.markUsed()
+            return .resolved(
+                windowID: AppDelegate.shared?.windowId(for: tabManager),
+                item: todoItemSnapshot(updated),
+                removedCount: 0,
+                checklist: todoChecklistSnapshot(for: workspace)
+            )
+        }
+    }
+
     func controlWorkspaceTodoRemove(
         routing: ControlRoutingSelectors,
         workspaceID: UUID?,

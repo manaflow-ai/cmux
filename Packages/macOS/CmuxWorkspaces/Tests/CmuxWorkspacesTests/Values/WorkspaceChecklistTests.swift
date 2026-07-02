@@ -43,6 +43,22 @@ import Testing
         #expect(items.count == WorkspaceChecklistItem.maxChecklistItems)
     }
 
+    @Test func setTextByIdNormalizesAndRejectsEmpty() {
+        var items = [
+            WorkspaceChecklistItem(text: "a"),
+            WorkspaceChecklistItem(text: "b"),
+        ]
+        let edited = items.setChecklistItemText(id: items[1].id, text: "  b revised  \n")
+        #expect(edited)
+        #expect(items[1].text == "b revised")
+        #expect(items[0].text == "a")
+        let emptyEdit = items.setChecklistItemText(id: items[1].id, text: "   ")
+        #expect(!emptyEdit)
+        #expect(items[1].text == "b revised")
+        let unknownEdit = items.setChecklistItemText(id: UUID(), text: "x")
+        #expect(!unknownEdit)
+    }
+
     @Test func setStateByIdUpdatesOnlyThatItem() {
         var items = [
             WorkspaceChecklistItem(text: "a"),

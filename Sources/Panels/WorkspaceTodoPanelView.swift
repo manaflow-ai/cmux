@@ -23,7 +23,8 @@ struct WorkspaceTodoPanelView: View {
             if let workspace = panel.workspace {
                 WorkspaceTodoPaneContent(
                     workspace: workspace,
-                    todoState: workspace.todoState
+                    todoState: workspace.todoState,
+                    isFocused: isFocused
                 )
             } else {
                 Text(String(
@@ -48,11 +49,14 @@ struct WorkspaceTodoPanelView: View {
 private struct WorkspaceTodoPaneContent: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var todoState: WorkspaceTodoState
+    let isFocused: Bool
 
     @State private var isStatusPopoverPresented = false
-    @State private var isAddingItem = false
     @State private var pendingItemText = ""
     @FocusState private var addFieldFocused: Bool
+    @State private var editingItemId: UUID?
+    @State private var editingText = ""
+    @FocusState private var editFieldFocused: Bool
 
     private static let itemFontSize: CGFloat = 13
     private static let checkboxPointSize: CGFloat = 13
@@ -104,6 +108,12 @@ private struct WorkspaceTodoPaneContent: View {
             addItemRow
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
+        }
+        // The add field is armed whenever the pane holds focus, so typing a
+        // new item needs zero extra clicks after `cmux todo open`.
+        .onAppear { if isFocused { addFieldFocused = true } }
+        .onChange(of: isFocused) { _, focused in
+            if focused, editingItemId == nil { addFieldFocused = true }
         }
         .accessibilityIdentifier("WorkspaceTodoPane")
     }
@@ -194,16 +204,34 @@ private struct WorkspaceTodoPaneContent: View {
                     ? String(localized: "sidebar.checklist.uncheckTooltip", defaultValue: "Mark as pending")
                     : String(localized: "sidebar.checklist.checkTooltip", defaultValue: "Mark as completed")
             )
-            Text(item.text)
+            if editingItemId == item.id {
+                TextField(
+                    String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
+                    text: $editingText
+                )
+                .textFieldStyle(.plain)
                 .font(.system(size: Self.itemFontSize))
-                .foregroundColor(isCompleted ? .secondary : .primary)
-                .strikethrough(isCompleted)
-                .opacity(isCompleted ? 0.6 : 1)
-                .textSelection(.enabled)
+                .foregroundColor(.primary)
+                .focused($editFieldFocused)
+                .onSubmit { commitItemEdit(item.id) }
+                .onExitCommand(perform: cancelItemEdit)
+                .accessibilityIdentifier("WorkspaceTodoPaneEditItemField")
+            } else {
+                Text(item.text)
+                    .font(.system(size: Self.itemFontSize))
+                    .foregroundColor(isCompleted ? .secondary : .primary)
+                    .strikethrough(isCompleted)
+                    .opacity(isCompleted ? 0.6 : 1)
+                    .contentShape(Rectangle())
+                    .onTapGesture { beginItemEdit(item) }
+            }
             Spacer(minLength: 0)
         }
         .padding(.vertical, 1)
         .contextMenu {
+            Button(String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")) {
+                beginItemEdit(item)
+            }
             if item.state != .inProgress {
                 Button(String(localized: "sidebar.checklist.markInProgress", defaultValue: "Mark In Progress")) {
                     WorkspaceTodoActions.setChecklistItemState(id: item.id, state: .inProgress, in: workspace)
@@ -224,41 +252,23 @@ private struct WorkspaceTodoPaneContent: View {
         }
     }
 
-    // MARK: Add-item row (pinned at the bottom)
+    // MARK: Add-item row (pinned at the bottom, always armed)
 
-    @ViewBuilder
     private var addItemRow: some View {
-        if isAddingItem {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                CmuxSystemSymbolImage(systemName: "square", pointSize: Self.checkboxPointSize)
-                    .foregroundColor(.secondary)
-                TextField(
-                    String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
-                    text: $pendingItemText
-                )
-                .textFieldStyle(.plain)
-                .font(.system(size: Self.itemFontSize))
-                .foregroundColor(.primary)
-                .focused($addFieldFocused)
-                .onSubmit(commitPendingItem)
-                .onExitCommand(perform: cancelPendingItem)
-                .accessibilityIdentifier("WorkspaceTodoPaneAddItemField")
-            }
-        } else {
-            Button {
-                isAddingItem = true
-                addFieldFocused = true
-            } label: {
-                HStack(spacing: 7) {
-                    CmuxSystemSymbolImage(systemName: "plus", pointSize: 11)
-                    Text(String(localized: "sidebar.checklist.addItem", defaultValue: "Add item"))
-                        .font(.system(size: Self.itemFontSize))
-                }
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            CmuxSystemSymbolImage(systemName: "square", pointSize: Self.checkboxPointSize)
                 .foregroundColor(.secondary)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("WorkspaceTodoPaneAddItemRow")
+            TextField(
+                String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
+                text: $pendingItemText
+            )
+            .textFieldStyle(.plain)
+            .font(.system(size: Self.itemFontSize))
+            .foregroundColor(.primary)
+            .focused($addFieldFocused)
+            .onSubmit(commitPendingItem)
+            .onExitCommand(perform: cancelPendingItem)
+            .accessibilityIdentifier("WorkspaceTodoPaneAddItemField")
         }
     }
 
@@ -266,18 +276,36 @@ private struct WorkspaceTodoPaneContent: View {
     private func commitPendingItem() {
         let text = pendingItemText
         pendingItemText = ""
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            cancelPendingItem()
-            return
-        }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         WorkspaceTodoActions.addChecklistItem(text: text, to: workspace)
         addFieldFocused = true
     }
 
-    /// Esc dismisses the field without committing.
+    /// Esc clears a partial entry and releases keyboard focus.
     private func cancelPendingItem() {
         pendingItemText = ""
-        isAddingItem = false
         addFieldFocused = false
+    }
+
+    // MARK: Item text editing
+
+    private func beginItemEdit(_ item: WorkspaceChecklistItem) {
+        editingItemId = item.id
+        editingText = item.text
+        editFieldFocused = true
+    }
+
+    /// Enter commits the trimmed replacement text; empty keeps the old text.
+    private func commitItemEdit(_ id: UUID) {
+        let text = editingText
+        cancelItemEdit()
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        WorkspaceTodoActions.editChecklistItem(id: id, text: text, in: workspace)
+    }
+
+    private func cancelItemEdit() {
+        editingItemId = nil
+        editingText = ""
+        editFieldFocused = false
     }
 }

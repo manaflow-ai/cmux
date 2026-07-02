@@ -27,9 +27,11 @@ struct SidebarWorkspaceChecklistPopover: View {
     let onClose: @MainActor () -> Void
 
     @State private var showsAllItems = false
-    @State private var isAddingItem = false
     @State private var pendingItemText = ""
     @FocusState private var addFieldFocused: Bool
+    @State private var editingItemId: UUID?
+    @State private var editingText = ""
+    @FocusState private var editFieldFocused: Bool
 
     private static let itemFontSize: CGFloat = 13
     /// Checkbox glyphs draw at 13pt (the inline row's base is 8pt·scale).
@@ -64,9 +66,11 @@ struct SidebarWorkspaceChecklistPopover: View {
             footer
         }
         .frame(width: 320, alignment: .leading)
+        // The add field is always armed: focus it on open so the user can
+        // type a new item with zero extra clicks.
+        .onAppear { addFieldFocused = true }
         .task(id: model.addFieldActivationToken) {
             guard model.addFieldActivationToken > 0 else { return }
-            isAddingItem = true
             addFieldFocused = true
         }
         .accessibilityIdentifier("SidebarWorkspaceChecklistPopover")
@@ -109,18 +113,37 @@ struct SidebarWorkspaceChecklistPopover: View {
                     ? String(localized: "sidebar.checklist.uncheckTooltip", defaultValue: "Mark as pending")
                     : String(localized: "sidebar.checklist.checkTooltip", defaultValue: "Mark as completed")
             )
-            Text(item.text)
+            if editingItemId == item.id {
+                TextField(
+                    String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
+                    text: $editingText
+                )
+                .textFieldStyle(.plain)
                 .font(.system(size: Self.itemFontSize))
-                .foregroundColor(isCompleted ? .secondary : .primary)
-                .strikethrough(isCompleted)
-                .opacity(isCompleted ? 0.6 : 1)
-                .lineLimit(3)
-                .truncationMode(.tail)
+                .foregroundColor(.primary)
+                .focused($editFieldFocused)
+                .onSubmit { commitItemEdit(item.id) }
+                .onExitCommand(perform: cancelItemEdit)
+                .accessibilityIdentifier("SidebarChecklistPopoverEditItemField")
+            } else {
+                Text(item.text)
+                    .font(.system(size: Self.itemFontSize))
+                    .foregroundColor(isCompleted ? .secondary : .primary)
+                    .strikethrough(isCompleted)
+                    .opacity(isCompleted ? 0.6 : 1)
+                    .lineLimit(3)
+                    .truncationMode(.tail)
+                    .contentShape(Rectangle())
+                    .onTapGesture { beginItemEdit(item) }
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
         .contextMenu {
+            Button(String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")) {
+                beginItemEdit(item)
+            }
             if item.state != .inProgress {
                 Button(String(localized: "sidebar.checklist.markInProgress", defaultValue: "Mark In Progress")) {
                     actions.setItemState(item.id, .inProgress)
@@ -165,66 +188,67 @@ struct SidebarWorkspaceChecklistPopover: View {
         .accessibilityIdentifier("SidebarChecklistPopoverMoreRow")
     }
 
-    // MARK: Add-item row
+    // MARK: Add-item row (always armed — typing needs zero extra clicks)
 
-    @ViewBuilder
     private var addItemRow: some View {
-        if isAddingItem {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                CmuxSystemSymbolImage(systemName: "square", pointSize: Self.checkboxPointSize)
-                    .foregroundColor(.secondary)
-                TextField(
-                    String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
-                    text: $pendingItemText
-                )
-                .textFieldStyle(.plain)
-                .font(.system(size: Self.itemFontSize))
-                .foregroundColor(.primary)
-                .focused($addFieldFocused)
-                .onSubmit(commitPendingItem)
-                .onExitCommand(perform: cancelPendingItem)
-                .accessibilityIdentifier("SidebarChecklistPopoverAddItemField")
-            }
-            .padding(.horizontal, 4)
-            .padding(.vertical, 2)
-        } else {
-            Button {
-                isAddingItem = true
-                addFieldFocused = true
-            } label: {
-                HStack(spacing: 6) {
-                    CmuxSystemSymbolImage(systemName: "plus", pointSize: 11)
-                    Text(String(localized: "sidebar.checklist.addItem", defaultValue: "Add item"))
-                        .font(.system(size: Self.itemFontSize))
-                }
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            CmuxSystemSymbolImage(systemName: "square", pointSize: Self.checkboxPointSize)
                 .foregroundColor(.secondary)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 2)
-            .accessibilityIdentifier("SidebarChecklistPopoverAddItemRow")
+            TextField(
+                String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
+                text: $pendingItemText
+            )
+            .textFieldStyle(.plain)
+            .font(.system(size: Self.itemFontSize))
+            .foregroundColor(.primary)
+            .focused($addFieldFocused)
+            .onSubmit(commitPendingItem)
+            .onExitCommand(perform: cancelPendingItem)
+            .accessibilityIdentifier("SidebarChecklistPopoverAddItemField")
         }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
     }
 
     /// Enter commits the trimmed text and re-arms the field for the next item.
     private func commitPendingItem() {
         let text = pendingItemText
         pendingItemText = ""
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            cancelPendingItem()
-            return
-        }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.addItem(text)
         addFieldFocused = true
     }
 
-    /// Esc dismisses the field without committing.
+    /// Esc clears a partial entry, or closes the popover when already empty.
     private func cancelPendingItem() {
-        pendingItemText = ""
-        isAddingItem = false
-        addFieldFocused = false
-        onConsumeAddFieldActivation()
+        if pendingItemText.isEmpty {
+            onConsumeAddFieldActivation()
+            onClose()
+        } else {
+            pendingItemText = ""
+        }
+    }
+
+    // MARK: Item text editing
+
+    private func beginItemEdit(_ item: WorkspaceChecklistItem) {
+        editingItemId = item.id
+        editingText = item.text
+        editFieldFocused = true
+    }
+
+    /// Enter commits the trimmed replacement text; empty keeps the old text.
+    private func commitItemEdit(_ id: UUID) {
+        let text = editingText
+        cancelItemEdit()
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        actions.editItem(id, text)
+    }
+
+    private func cancelItemEdit() {
+        editingItemId = nil
+        editingText = ""
+        editFieldFocused = false
     }
 
     // MARK: Footer

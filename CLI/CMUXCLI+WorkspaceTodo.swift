@@ -115,7 +115,7 @@ extension CMUXCLI {
             return
         }
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "todo requires a subcommand. Try: add, list, check, uncheck, start, rm, clear, set, open")
+            throw CLIError(message: "todo requires a subcommand. Try: add, list, check, uncheck, start, edit, rm, clear, set, open")
         }
         let (params, rest) = try workspaceTodoTarget(
             Array(commandArgs.dropFirst()), client: client, windowOverride: windowOverride
@@ -148,6 +148,18 @@ extension CMUXCLI {
             stateParams["state"] = ["check": "completed", "uncheck": "pending", "start": "in-progress"][sub]
             let payload = try client.sendV2(method: "workspace.todo.set_state", params: stateParams)
             printTodoMutationPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "edit":
+            let positional = rest.filter { !$0.hasPrefix("--") }
+            guard positional.count >= 2 else {
+                throw CLIError(message: "Usage: cmux todo edit <index|id> \"new text\"")
+            }
+            var editParams = params
+            for (key, value) in try workspaceTodoItemSelectorParams(positional[0]) {
+                editParams[key] = value
+            }
+            editParams["text"] = positional.dropFirst().joined(separator: " ")
+            let payload = try client.sendV2(method: "workspace.todo.edit", params: editParams)
+            printTodoMutationPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         case "rm", "remove":
             guard let selector = rest.first(where: { !$0.hasPrefix("--") }) else {
                 throw CLIError(message: "Usage: cmux todo rm <index|id>")
@@ -170,7 +182,7 @@ extension CMUXCLI {
             let payload = try client.sendV2(method: "workspace.todo.open", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
         default:
-            throw CLIError(message: "Unknown todo subcommand: \(sub). Try: add, list, check, uncheck, start, rm, clear, set, open")
+            throw CLIError(message: "Unknown todo subcommand: \(sub). Try: add, list, check, uncheck, start, edit, rm, clear, set, open")
         }
     }
 
@@ -286,6 +298,7 @@ extension CMUXCLI {
       check <index|id>        Mark an item completed
       uncheck <index|id>      Mark an item pending
       start <index|id>        Mark an item in-progress
+      edit <index|id> "text"  Rewrite an item's text
       rm <index|id>           Remove an item
       clear                   Remove every item
       set ['<json>']          Atomically replace the whole checklist from a

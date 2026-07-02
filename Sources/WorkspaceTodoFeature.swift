@@ -95,6 +95,12 @@ enum WorkspaceTodoActions {
     }
 
     /// Removes one checklist item.
+    /// Rewrites one checklist item's text (empty text is a no-op).
+    static func editChecklistItem(id: UUID, text: String, in workspace: Workspace) {
+        guard workspace.setChecklistItemText(id: id, text: text) else { return }
+        WorkspaceTodoFeature.markUsed()
+    }
+
     static func removeChecklistItem(id: UUID, from workspace: Workspace) {
         guard workspace.removeChecklistItem(id: id) else { return }
         WorkspaceTodoFeature.markUsed()

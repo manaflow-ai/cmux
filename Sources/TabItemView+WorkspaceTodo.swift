@@ -100,6 +100,9 @@ extension TabItemView {
             addItem: { [tab] text in
                 WorkspaceTodoActions.addChecklistItem(text: text, to: tab)
             },
+            editItem: { [tab] itemId, text in
+                WorkspaceTodoActions.editChecklistItem(id: itemId, text: text, in: tab)
+            },
             openPane: { [tab] in
                 WorkspaceTodoActions.openTodoPane(for: tab)
             }

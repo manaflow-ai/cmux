@@ -39,6 +39,8 @@ struct SidebarWorkspaceChecklistActions {
     let setItemState: @MainActor (UUID, WorkspaceChecklistItem.State) -> Void
     let removeItem: @MainActor (UUID) -> Void
     let addItem: @MainActor (String) -> Void
+    /// Rewrites one item's text (tap-to-edit).
+    let editItem: @MainActor (UUID, String) -> Void
     /// Opens the workspace's todo pane (checklist popover footer).
     let openPane: @MainActor () -> Void
 }
@@ -81,6 +83,9 @@ struct SidebarWorkspaceChecklistSection: View {
     @State private var isAddingItem = false
     @State private var pendingItemText = ""
     @FocusState private var addFieldFocused: Bool
+    @State private var editingItemId: UUID?
+    @State private var editingText = ""
+    @FocusState private var editFieldFocused: Bool
 
     /// Popover presentation only applies once a summary line exists.
     private var presentsPopover: Bool {
@@ -221,16 +226,35 @@ struct SidebarWorkspaceChecklistSection: View {
                     ? String(localized: "sidebar.checklist.uncheckTooltip", defaultValue: "Mark as pending")
                     : String(localized: "sidebar.checklist.checkTooltip", defaultValue: "Mark as completed")
             )
-            Text(item.text)
+            if editingItemId == item.id {
+                TextField(
+                    String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
+                    text: $editingText
+                )
+                .textFieldStyle(.plain)
                 .font(itemFont)
-                .foregroundColor(isCompleted ? secondaryColor : primaryColor)
-                .strikethrough(isCompleted)
-                .opacity(isCompleted ? 0.6 : 1)
-                .lineLimit(2)
-                .truncationMode(.tail)
+                .foregroundColor(primaryColor)
+                .focused($editFieldFocused)
+                .onSubmit { commitItemEdit(item.id) }
+                .onExitCommand(perform: cancelItemEdit)
+                .accessibilityIdentifier("SidebarChecklistEditItemField")
+            } else {
+                Text(item.text)
+                    .font(itemFont)
+                    .foregroundColor(isCompleted ? secondaryColor : primaryColor)
+                    .strikethrough(isCompleted)
+                    .opacity(isCompleted ? 0.6 : 1)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .contentShape(Rectangle())
+                    .onTapGesture { beginItemEdit(item) }
+            }
             Spacer(minLength: 0)
         }
         .contextMenu {
+            Button(String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")) {
+                beginItemEdit(item)
+            }
             if item.state != .inProgress {
                 Button(String(localized: "sidebar.checklist.markInProgress", defaultValue: "Mark In Progress")) {
                     actions.setItemState(item.id, .inProgress)
@@ -329,5 +353,27 @@ struct SidebarWorkspaceChecklistSection: View {
         isAddingItem = false
         addFieldFocused = false
         onConsumeAddFieldActivation()
+    }
+
+    // MARK: Item text editing
+
+    private func beginItemEdit(_ item: WorkspaceChecklistItem) {
+        editingItemId = item.id
+        editingText = item.text
+        editFieldFocused = true
+    }
+
+    /// Enter commits the trimmed replacement text; empty keeps the old text.
+    private func commitItemEdit(_ id: UUID) {
+        let text = editingText
+        cancelItemEdit()
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        actions.editItem(id, text)
+    }
+
+    private func cancelItemEdit() {
+        editingItemId = nil
+        editingText = ""
+        editFieldFocused = false
     }
 }

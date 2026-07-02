@@ -90,6 +90,24 @@ public protocol ControlWorkspaceTodoContext: AnyObject {
         stateRaw: String
     ) -> ControlWorkspaceTodoMutationResolution
 
+    /// Rewrites one checklist item's text for `workspace.todo.edit`.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - workspaceID: The explicit target workspace, or `nil` for the
+    ///     resolved window's selected workspace.
+    ///   - itemID: The item's id, if the caller addressed it by id.
+    ///   - itemIndex: The item's 0-based index, if addressed by index.
+    ///   - text: The replacement text (normalized like add; empty rejected).
+    /// - Returns: The mutation resolution.
+    func controlWorkspaceTodoEdit(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        itemID: UUID?,
+        itemIndex: Int?,
+        text: String
+    ) -> ControlWorkspaceTodoMutationResolution
+
     /// Removes one checklist item for `workspace.todo.remove`.
     ///
     /// - Parameters:
