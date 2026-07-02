@@ -2575,6 +2575,15 @@ extension CMUXCLI {
         return line
     }
 
+    // Every git spawn goes through this builder so GIT_OPTIONAL_LOCKS=0 (an
+    // env assignment consumed by /usr/bin/env) is never omitted: observing
+    // commands like `git diff` otherwise refresh the index under
+    // .git/index.lock and race the user's own git operations (#4779). Required
+    // locks (update-ref, stash create) are unaffected by the variable.
+    private func gitEnvArguments(in directory: String, _ arguments: [String]) -> [String] {
+        ["GIT_OPTIONAL_LOCKS=0", "git", "-C", directory] + arguments
+    }
+
     private func gitStdout(
         _ arguments: [String],
         in directory: String,
@@ -2582,7 +2591,7 @@ extension CMUXCLI {
     ) throws -> String {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", directory] + arguments,
+            arguments: gitEnvArguments(in: directory, arguments),
             timeout: timeout
         )
         if result.timedOut {
@@ -2607,7 +2616,7 @@ extension CMUXCLI {
     ) throws -> String {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", directory] + arguments,
+            arguments: gitEnvArguments(in: directory, arguments),
             timeout: timeout
         )
         if result.timedOut {
@@ -2628,7 +2637,7 @@ extension CMUXCLI {
     ) throws -> Data {
         let result = CLIProcessRunner.runProcessData(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", directory] + arguments,
+            arguments: gitEnvArguments(in: directory, arguments),
             timeout: timeout
         )
         if result.timedOut {
@@ -2767,7 +2776,7 @@ extension CMUXCLI {
         }
         let objectCheck = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", repoRoot, "cat-file", "-e", "\(baselineHash)^{blob}"],
+            arguments: gitEnvArguments(in: repoRoot, ["cat-file", "-e", "\(baselineHash)^{blob}"]),
             timeout: 30
         )
         guard !objectCheck.timedOut, objectCheck.status == 0 else {
@@ -2843,7 +2852,7 @@ extension CMUXCLI {
         }
         let objectCheck = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", repoRoot, "cat-file", "-e", "\(baselineHash)^{blob}"],
+            arguments: gitEnvArguments(in: repoRoot, ["cat-file", "-e", "\(baselineHash)^{blob}"]),
             timeout: 30
         )
         guard !objectCheck.timedOut, objectCheck.status == 0 else {
@@ -3268,7 +3277,7 @@ extension CMUXCLI {
     private func agentTurnDiffBaselineCommit(in repoRoot: String) throws -> String {
         let stashResult = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", repoRoot, "stash", "create", "cmux last turn baseline"],
+            arguments: gitEnvArguments(in: repoRoot, ["stash", "create", "cmux last turn baseline"]),
             timeout: 60
         )
         if stashResult.timedOut {
@@ -3396,7 +3405,7 @@ extension CMUXCLI {
             guard !stillRetained else { continue }
             _ = CLIProcessRunner.runProcess(
                 executablePath: "/usr/bin/env",
-                arguments: ["git", "-C", repoRoot, "update-ref", "-d", agentTurnDiffBaselineRefName(for: record.baseCommit)],
+                arguments: gitEnvArguments(in: repoRoot, ["update-ref", "-d", agentTurnDiffBaselineRefName(for: record.baseCommit)]),
                 timeout: 30
             )
         }
@@ -3414,7 +3423,7 @@ extension CMUXCLI {
                 guard !stillRetained else { continue }
                 _ = CLIProcessRunner.runProcess(
                     executablePath: "/usr/bin/env",
-                    arguments: ["git", "-C", repoRoot, "update-ref", "-d", agentTurnDiffBaselineUntrackedRefName(for: blob)],
+                    arguments: gitEnvArguments(in: repoRoot, ["update-ref", "-d", agentTurnDiffBaselineUntrackedRefName(for: blob)]),
                     timeout: 30
                 )
             }

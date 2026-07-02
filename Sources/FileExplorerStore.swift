@@ -1331,7 +1331,9 @@ enum GitStatusProvider {
         identityFile: String?, sshOptions: [String]
     ) -> [String: GitFileStatus] {
         let escapedDir = directory.replacingOccurrences(of: "'", with: "'\\''")
-        let cmd = "cd '\(escapedDir)' 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null && echo '---GIT_STATUS---' && git status --porcelain 2>/dev/null"
+        // GIT_OPTIONAL_LOCKS=0 rather than --no-optional-locks: remote hosts
+        // with git < 2.15 reject the unknown flag but ignore the env var.
+        let cmd = "cd '\(escapedDir)' 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null && echo '---GIT_STATUS---' && GIT_OPTIONAL_LOCKS=0 git status --porcelain 2>/dev/null"
         guard let output = runSSH(
             command: cmd, destination: destination,
             port: port, identityFile: identityFile, sshOptions: sshOptions
@@ -1403,6 +1405,11 @@ enum GitStatusProvider {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = arguments
+        // Observing a repo must never take .git/index.lock: a bare `git status`
+        // opportunistically rewrites the index under that lock and makes the
+        // user's own rebase/commit fail with "index.lock: File exists" (#4779).
+        process.environment = ProcessInfo.processInfo.environment
+            .merging(["GIT_OPTIONAL_LOCKS": "0"]) { _, new in new }
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
         let pipe = Pipe()
         process.standardOutput = pipe
