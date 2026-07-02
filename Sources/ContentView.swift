@@ -13553,46 +13553,42 @@ struct TabItemView: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
 
-                // Trailing status cluster. A right spinner shares the close
-                // corner and the hover x takes over; the close slot always
-                // reserves its width so hover never re-lays-out the row.
+                // Trailing corner slot, flush right: spinner (while loading),
+                // else the right-positioned badge; the hover x takes over. The
+                // slot always reserves its width so hover never re-lays-out
+                // the row.
                 if trailingStatusActive || canCloseWorkspace {
-                    HStack(spacing: max(4, 4 * fontScale)) {
-                        if badgeOnTrailing {
+                    ZStack(alignment: .trailing) {
+                        if spinnerOnTrailing {
+                            loadingSpinnerView(side: scaledUnreadBadgeSize)
+                                .opacity(canCloseWorkspace && showCloseButton ? 0 : 1)
+                                .transition(.opacity)
+                        } else if badgeOnTrailing {
                             unreadBadgeView(size: scaledUnreadBadgeSize)
+                                .opacity(canCloseWorkspace && showCloseButton ? 0 : 1)
                                 .transition(.opacity)
                         }
                         if canCloseWorkspace {
-                            ZStack {
-                                if spinnerOnTrailing {
-                                    loadingSpinnerView(side: scaledUnreadBadgeSize)
-                                        .opacity(showCloseButton ? 0 : 1)
-                                        .transition(.opacity)
-                                }
-                                Button(action: {
-                                    #if DEBUG
-                                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                                    #endif
-                                    tabManager.closeWorkspaceWithConfirmation(tab)
-                                }) {
-                                    Image(systemName: "xmark")
-                                        .cmuxSymbolRasterSize(scaledFontSize(9), weight: .medium)
-                                        .foregroundColor(activeSecondaryColor(0.7))
-                                        .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .safeHelp(closeButtonTooltip)
-                                .opacity(showCloseButton ? 1 : 0)
-                                .allowsHitTesting(showCloseButton)
-                                .accessibilityHidden(!showCloseButton)
+                            Button(action: {
+                                #if DEBUG
+                                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                                #endif
+                                tabManager.closeWorkspaceWithConfirmation(tab)
+                            }) {
+                                Image(systemName: "xmark")
+                                    .cmuxSymbolRasterSize(scaledFontSize(9), weight: .medium)
+                                    .foregroundColor(activeSecondaryColor(0.7))
+                                    .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
+                                    .contentShape(Rectangle())
                             }
-                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize)
-                        } else if spinnerOnTrailing {
-                            loadingSpinnerView(side: scaledUnreadBadgeSize)
-                                .transition(.opacity)
+                            .buttonStyle(.plain)
+                            .safeHelp(closeButtonTooltip)
+                            .opacity(showCloseButton ? 1 : 0)
+                            .allowsHitTesting(showCloseButton)
+                            .accessibilityHidden(!showCloseButton)
                         }
                     }
+                    .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .trailing)
                 }
             }
             // Width/opacity only — never row height (#5764) — so reordering
