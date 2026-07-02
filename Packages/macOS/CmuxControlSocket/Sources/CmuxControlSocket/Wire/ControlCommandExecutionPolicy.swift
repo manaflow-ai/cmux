@@ -196,14 +196,31 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",
+        // The notification-create family and workspace.set_auto_title run the
+        // same single-hop worker shape (parse/bridge/encode on the worker, one
+        // v2MainSync around the shared main-actor dispatch). The hop stays
+        // synchronous so a create's reply (which echoes the resolved
+        // workspace/surface/window identity) is written only after the store
+        // mutation — create-then-list on one connection still reads its own
+        // write. `notification.reconcile` is NOT here: it is a mobile-host
+        // data-plane verb (v2MobileDispatch), not a control-socket method, so
+        // no execution policy applies to it.
+        "notification.create",
+        "notification.create_for_surface",
+        "notification.create_for_target",
+        "notification.create_for_caller",
+        "workspace.set_auto_title",
     ]
 
     /// Socket-worker methods that are also safe to invoke from the main
     /// thread. `system.ping`/`system.capabilities` are pure probes; the
-    /// surface-telemetry twins qualify because their worker bodies are
+    /// telemetry twins, the notification-create family, and
+    /// workspace.set_auto_title qualify because their worker bodies are
     /// non-blocking end-to-end — one `v2MainSync` hop that collapses to an
     /// inline call for a main-thread caller, with no semaphore or cross-thread
-    /// wait anywhere in the body.
+    /// wait anywhere in the body (cmuxTests drive workspace.set_auto_title and
+    /// notification.create_for_caller through handleSocketLine on the main
+    /// actor).
     private static let mainThreadCallableSocketWorkerMethods: Set<String> = [
         "system.ping",
         "system.capabilities",
@@ -211,6 +228,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",
+        "notification.create",
+        "notification.create_for_surface",
+        "notification.create_for_target",
+        "notification.create_for_caller",
+        "workspace.set_auto_title",
     ]
 
     /// The v1 sidebar telemetry family, whose worker-lane bodies
@@ -255,11 +277,28 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "ports_kick",
     ]
 
+    /// The v1 notification family, whose worker-lane bodies live on
+    /// `TerminalController`: parse/format on the worker; `notify_target_async`
+    /// and `clear_notifications` are pure mutation-bus enqueues (zero main
+    /// hops, hooks nohup them and discard the reply); the synchronous
+    /// notify/list verbs keep one `v2MainSync` hop because their replies
+    /// depend on tab/surface resolution or the delivered store state.
+    private static let notificationV1Commands: Set<String> = [
+        "notify",
+        "notify_surface",
+        "notify_target",
+        "notify_target_async",
+        "list_notifications",
+        "clear_notifications",
+    ]
+
     /// v1 commands that run on the socket-worker thread instead of the main
     /// actor: `ping` (the dispatcher's former hard-coded fast path) plus the
-    /// sidebar telemetry family.
+    /// sidebar telemetry and notification families.
     private static let socketWorkerV1Commands: Set<String> =
-        sidebarTelemetryV1Commands.union(["ping"])
+        sidebarTelemetryV1Commands
+            .union(notificationV1Commands)
+            .union(["ping"])
 
     /// Worker-lane v1 commands that are also safe to invoke from the main
     /// thread. Must be a subset of ``socketWorkerV1Commands``. The telemetry
