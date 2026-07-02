@@ -253,13 +253,37 @@ public final class SocketControlServer {
     /// rearm, a live socket that stops answering `ping` during a suspend. Healing
     /// then would restart over the scheduled recovery and reset the failure
     /// streak, defeating the backoff under sustained resource pressure (e.g.
-    /// `EMFILE`). The activation heal exists only for the case where *nothing*
-    /// re-arms recovery (#6406), so it must stand down whenever this reports the
-    /// server is already recovering. See
+    /// `EMFILE`).
+    ///
+    /// Those two flags are published from the main actor, but the failure is
+    /// detected on the accept queue, which latches an in-flight recovery hop
+    /// (`AcceptRecoveryState.recoveryHopInFlight`) *before* dispatching the
+    /// main-actor task that sets them. That leading edge is a third pending
+    /// window — recovery is committed but not yet reflected in the listener
+    /// snapshot — so it must count too, or an activation landing in it would
+    /// restart over the scheduled backoff and reset the accept-failure streak.
+    /// The latch is honored only for the live generation: a hop keyed to a
+    /// superseded generation is a stale drain from a listener that has since
+    /// been replaced, and must not block the heal.
+    ///
+    /// The activation heal exists only for the case where *nothing* re-arms
+    /// recovery (#6406), so it must stand down whenever this reports the server
+    /// is already recovering. See
     /// ``SocketListenerActivationRecoveryPolicy/rebindShouldProceed(capturedGeneration:currentGeneration:serverRecoveryPending:)``.
     public nonisolated var hasPendingAcceptRecovery: Bool {
         let snapshot = listenerStateSnapshot()
-        return snapshot.pendingRearmGeneration != nil || snapshot.listenerReadSourceSuspended
+        if snapshot.pendingRearmGeneration != nil || snapshot.listenerReadSourceSuspended {
+            return true
+        }
+        // Leading edge: the accept queue latches the in-flight recovery hop
+        // before the main-actor task publishes the rearm/suspend flags above.
+        // Honor it only for the live generation — a latch from a superseded
+        // generation is a stale drain, not a pending recovery. Sequential,
+        // non-nested lock read: `listenerStateSnapshot()` releases the state
+        // mirror before this acquires the recovery lock, so no lock-order cycle.
+        return acceptRecovery.withLock { recovery in
+            recovery.recoveryHopInFlight && recovery.generation == snapshot.activeGeneration
+        }
     }
 
     /// The socket path remote-session restore should reconnect through, or
