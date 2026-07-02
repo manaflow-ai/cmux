@@ -219,24 +219,10 @@ public protocol ControlSurfaceContext: AnyObject {
         key: String
     ) -> ControlSurfaceSendResolution
 
-    // MARK: - read_text
-
-    /// Reads terminal text for `surface.read_text`.
-    ///
-    /// - Parameters:
-    ///   - routing: The routing selectors.
-    ///   - surfaceID: The explicit `surface_id`, or `nil` for the focused surface.
-    ///   - hasSurfaceIDParam: Whether a `surface_id` param was present at all.
-    ///   - includeScrollback: Whether to include scrollback.
-    ///   - lineLimit: The optional tail line limit (already validated `> 0`).
-    /// - Returns: The read-text resolution.
-    func controlSurfaceReadText(
-        routing: ControlRoutingSelectors,
-        surfaceID: UUID?,
-        hasSurfaceIDParam: Bool,
-        includeScrollback: Bool,
-        lineLimit: Int?
-    ) -> ControlSurfaceReadTextResolution
+    // `surface.read_text` has no witness here: it runs on the socket-worker lane
+    // (issue #5757) so its full-scrollback formatting stays off the main actor,
+    // which the @MainActor coordinator seam cannot host. The app dispatches it
+    // directly via `TerminalController.v2SurfaceReadText`.
 
     // MARK: - resume.set / get / clear
 

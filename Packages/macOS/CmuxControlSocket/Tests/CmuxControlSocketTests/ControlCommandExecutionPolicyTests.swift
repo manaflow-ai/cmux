@@ -62,6 +62,16 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func terminalReadsRunOnTheWorkerAndAreNotMainThreadCallable() {
+        // Tranche C (issue #5757): the Ghostty capture is one v2MainSync hop,
+        // the (possibly multi-MB) scrollback formatting runs on the worker.
+        // NOT mainThreadCallable — a main-thread in-process caller would run
+        // that formatting inline on the main thread, which is exactly the
+        // stall the lane move removes, and no in-process caller needs it.
+        #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_text") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
+    }
+
     @Test func v1PingRunsOnTheWorkerAndIsMainThreadCallable() {
         // `ping` is the dispatcher's former hard-coded worker fast path; it is
         // a pure probe, so in-process main-thread callers may run it inline.
@@ -195,10 +205,17 @@ struct ControlCommandExecutionPolicyTests {
             "list_notifications", "clear_notifications",
         ]
         #expect(ControlCommandExecutionPolicy.notificationV1Commands == notification)
-        let expectedWorker = telemetry.union(notification).union(["ping"])
+        let terminalRead: Set<String> = ["read_screen"]
+        #expect(ControlCommandExecutionPolicy.terminalReadV1Commands == terminalRead)
+        let expectedWorker = telemetry.union(notification).union(terminalRead).union(["ping"])
         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
-        // Every current member is deliberately main-thread callable
-        // (deadlock-free inline: bus enqueues plus inline-collapsing hops).
-        #expect(ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands == expectedWorker)
+        // Every member except read_screen is deliberately main-thread
+        // callable (deadlock-free inline: bus enqueues plus inline-collapsing
+        // hops). read_screen opts out so its multi-MB formatting can never
+        // run inline on the main thread.
+        #expect(
+            ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands
+                == expectedWorker.subtracting(terminalRead)
+        )
     }
 }

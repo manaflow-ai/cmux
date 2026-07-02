@@ -95,6 +95,20 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.terminal.set_font",
         "system.top",
         "system.memory",
+        // `surface.read_text` reads a terminal's visible or full-scrollback
+        // text and formats it (line tailing, candidate scoring, base64
+        // encoding). On the main actor that formatting stalls the run loop
+        // under heavy agent load
+        // (https://github.com/manaflow-ai/cmux/issues/5757), so it runs on
+        // the worker lane: only the routing resolution and the Ghostty FFI
+        // capture take a minimal `v2MainSync` hop while the formatting stays
+        // off the main actor. The @MainActor ControlCommandCoordinator seam
+        // cannot host that split, so the method stays app-side like the
+        // browser.* lane (`TerminalController.v2SurfaceReadText`). NOT
+        // mainThreadCallable: the whole point is that the multi-MB formatting
+        // never runs inline on the main thread, and no in-process main-thread
+        // caller needs it.
+        "surface.read_text",
         // `workspace.env` is a read that resolves a workspace and copies its
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.
@@ -302,13 +316,23 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "clear_notifications",
     ]
 
+    /// The v1 terminal-read family (tranche C): `read_screen` is the v1 twin
+    /// of `surface.read_text` — the Ghostty FFI capture takes one minimal
+    /// `v2MainSync` hop and the (possibly multi-MB) tail/merge/base64
+    /// formatting runs on the worker. Internal (not private) so the package
+    /// tests can pin the exact set.
+    static let terminalReadV1Commands: Set<String> = [
+        "read_screen",
+    ]
+
     /// v1 commands that run on the socket-worker thread instead of the main
     /// actor: `ping` (the dispatcher's former hard-coded fast path) plus the
-    /// sidebar telemetry and notification families. Internal (not private) so
-    /// the package tests can pin the exact set.
+    /// sidebar telemetry, notification, and terminal-read families. Internal
+    /// (not private) so the package tests can pin the exact set.
     static let socketWorkerV1Commands: Set<String> =
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
+            .union(terminalReadV1Commands)
             .union(["ping"])
 
     /// Worker-lane v1 commands that are also safe to invoke from the main
@@ -326,6 +350,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// config-file read), exactly as the legacy main-lane dispatch did.
     /// In-process main-thread callers and cmuxTests exercise these verbs via
     /// `handleSocketLine` on the main actor.
+    ///
+    /// `read_screen` is deliberately NOT here (matching `surface.read_text`):
+    /// its formatting can be multi-MB, running it inline on a main-thread
+    /// caller defeats the off-main split, and no in-process main-thread
+    /// caller uses it.
     static let mainThreadCallableSocketWorkerV1Commands: Set<String> = [
         "ping",
         "set_status",

@@ -745,6 +745,65 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertFalse(mainLane[0].isEmpty)
     }
 
+    @Test func testSurfaceReadTextIsServicedOnTheWorkerLane() async throws {
+        let socketPath = makeSocketPath("v2-read-text-worker")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+        // Release the focused terminal's Ghostty surface so the capture hop
+        // fails deterministically at the raw-snapshot read: the reply must be
+        // the legacy `internal_error` bytes. A worker-lane dispatch drift
+        // (policy lists the method but the worker switch case is missing)
+        // would instead answer the loud "has no worker handler" backstop, and
+        // a coordinator re-lift would answer method_not_found — both caught
+        // here.
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        panel.surface.releaseSurfaceForTesting()
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        // surface.read_text is worker-lane and NOT mainThreadCallable: an
+        // in-process main-thread caller is rejected with invalid_dispatch
+        // instead of running the (possibly multi-MB) scrollback formatting
+        // inline on the main thread. A `read_text`'s reply cannot land while
+        // the main thread is wedged (its Ghostty capture legitimately takes
+        // one v2MainSync hop), so unlike the set_status worker-lane proof
+        // below this round-trip runs with the main actor free.
+        let inline = TerminalController.shared.handleSocketLine(
+            #"{"id":"rt-main","method":"surface.read_text","params":{}}"#
+        )
+        XCTAssertTrue(inline.contains("invalid_dispatch"), inline)
+        XCTAssertTrue(inline.contains("surface.read_text must run off the main thread"), inline)
+
+        // Worker-lane round-trip from a background sender (timeout-bounded by
+        // the await): byte-faithful legacy error for a released surface.
+        let envelope = try await sendV2RequestAsync(
+            method: "surface.read_text",
+            params: ["workspace_id": workspace.id.uuidString],
+            to: socketPath
+        )
+        XCTAssertEqual(envelope["ok"] as? Bool, false)
+        let error = try XCTUnwrap(envelope["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "internal_error")
+        XCTAssertEqual(error["message"] as? String, "Failed to read terminal text")
+
+        // v1 twin: read_screen shares the capture-hop/format-off-main split
+        // and the not-mainThreadCallable policy.
+        let v1Inline = TerminalController.shared.handleSocketLine("read_screen")
+        XCTAssertEqual(v1Inline, "ERROR: read_screen must run off the main thread")
+        let v1Replies = try await sendV1CommandsAsync(["read_screen"], to: socketPath)
+        XCTAssertEqual(v1Replies, ["ERROR: Terminal surface not found"])
+    }
+
     @Test func testV1SetStatusIsServicedOnWorkerLaneWhileMainThreadIsBlocked() throws {
         let socketPath = makeSocketPath("v1-status-worker")
         let manager = TabManager()
