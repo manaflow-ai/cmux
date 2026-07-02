@@ -104,8 +104,17 @@ struct WorkspaceTabColorPaletteStore {
         defaults.removeObject(forKey: legacyCustomColorsKey)
     }
 
-    func normalizedHex(_ raw: String) -> String? {
+    /// Returns the normalized `#RRGGBB` hex for a raw color, or `nil` when invalid.
+    ///
+    /// This is a pure transform that uses no store state. Callers that only need
+    /// normalization should use the static form to avoid allocating a throwaway
+    /// store instance.
+    static func normalizedHex(_ raw: String) -> String? {
         WorkspaceColorHex(raw)?.rawValue
+    }
+
+    func normalizedHex(_ raw: String) -> String? {
+        Self.normalizedHex(raw)
     }
 
     func resolvedColorHex(_ raw: String) -> String? {

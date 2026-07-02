@@ -811,7 +811,7 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(value)
         }
         if let raw = jsonString(section["tintColor"]) {
-            guard let normalized = WorkspaceTabColorPaletteStore().normalizedHex(raw) else {
+            guard let normalized = WorkspaceTabColorPaletteStore.normalizedHex(raw) else {
                 logInvalid("sidebarAppearance.tintColor", sourcePath: sourcePath)
                 return
             }
@@ -1125,7 +1125,7 @@ final class CmuxSettingsFileStore {
             return .some(nil)
         }
         guard let raw = jsonString(rawValue),
-              let normalized = WorkspaceTabColorPaletteStore().normalizedHex(raw) else {
+              let normalized = WorkspaceTabColorPaletteStore.normalizedHex(raw) else {
             logInvalid(path, sourcePath: sourcePath)
             return nil
         }

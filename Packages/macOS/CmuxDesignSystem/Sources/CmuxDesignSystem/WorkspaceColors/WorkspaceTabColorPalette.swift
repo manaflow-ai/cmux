@@ -130,7 +130,9 @@ public struct WorkspaceTabColorPalette: Equatable, Sendable {
     /// - Returns: A sorted newline-delimited `name=value` fingerprint.
     public func cacheFingerprint(stored: [String: String]?) -> String {
         effectivePaletteMap(stored: stored)
-            .sorted { lhs, rhs in lhs.key.localizedStandardCompare(rhs.key) == .orderedAscending }
+            // Locale-independent ordering keeps the fingerprint stable across
+            // locale changes so caches are not invalidated spuriously.
+            .sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: "\n")
     }
