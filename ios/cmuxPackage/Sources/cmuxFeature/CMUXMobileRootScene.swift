@@ -239,6 +239,8 @@ public struct CMUXMobileRootScene: View {
             MobileZoomStressView()
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
             MobileBottomScrollStressView()
+        } else if ProcessInfo.processInfo.environment["CMUX_FULL_REPLAY_SCROLL_STRESS"] == "1" {
+            MobileBottomScrollStressView(scenario: .fullReplayOffset)
         } else {
             CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
         }

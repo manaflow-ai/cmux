@@ -324,6 +324,23 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testScrollbackPositionSurvivesAuthoritativeFullReplay() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_FULL_REPLAY_SCROLL_STRESS": "1",
+        ])
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+
+        let dock = waitForDock(in: app, timeout: 12, describe: "full-replay scroll stress completed") {
+            $0["bottomStressPhase"] == "done" || $0["bottomStressPhase"] == "regressed"
+        }
+        XCTAssertEqual(
+            dock["bottomStressPhase"],
+            "done",
+            "Authoritative full replay must not move the phone-owned scrollback viewport. dock=\(dock)"
+        )
+    }
+
+    @MainActor
     func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()

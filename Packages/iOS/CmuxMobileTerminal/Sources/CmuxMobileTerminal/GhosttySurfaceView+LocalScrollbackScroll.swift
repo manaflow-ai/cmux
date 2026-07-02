@@ -22,5 +22,21 @@ extension GhosttySurfaceView {
         ghostty_surface_mouse_scroll(surface, 0, lines, 0)
         drawForWakeup()
     }
+
+    /// Row-exact viewport scroll on the local mirror via ghostty's
+    /// `scroll_page_lines` binding action. Unlike the wheel path above, this is
+    /// not subject to the discrete `mouse-scroll-multiplier` (3x by default),
+    /// so callers restoring a measured scrollbar offset get exactly that many
+    /// rows. Negative `lines` scroll upwards, into history.
+    func scrollLocalViewportRows(_ lines: Int) {
+        guard lines != 0, let surface else { return }
+        let action = "scroll_page_lines:\(lines)"
+        outputQueue.async {
+            action.withCString { pointer in
+                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+            }
+        }
+        drawForWakeup()
+    }
 }
 #endif

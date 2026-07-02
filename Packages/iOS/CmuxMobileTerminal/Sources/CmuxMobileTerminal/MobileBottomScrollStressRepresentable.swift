@@ -3,8 +3,10 @@ import SwiftUI
 import UIKit
 
 struct MobileBottomScrollStressRepresentable: UIViewRepresentable {
+    let scenario: MobileBottomScrollStressScenario
+
     func makeCoordinator() -> MobileBottomScrollStressCoordinator {
-        MobileBottomScrollStressCoordinator()
+        MobileBottomScrollStressCoordinator(scenario: scenario)
     }
 
     func makeUIView(context: Context) -> UIView {

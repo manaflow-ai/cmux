@@ -176,7 +176,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         break
                     }
                     if !chunk.data.isEmpty {
-                        let applied = await surfaceView.processOutputAndWait(chunk.data)
+                        let applied = chunk.isFullReplacement
+                            ? await surfaceView.processFullReplacementOutputAndWait(chunk.data)
+                            : await surfaceView.processOutputAndWait(chunk.data)
                         guard applied else {
                             store.terminalOutputDidReset(
                                 surfaceID: surfaceID,
