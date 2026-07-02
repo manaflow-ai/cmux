@@ -1,5 +1,3 @@
-import Foundation
-
 /// Computes the DECRST sequence that clears mouse-tracking modes left stuck
 /// "on" by a program that exited without disabling them.
 ///
