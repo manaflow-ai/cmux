@@ -12,7 +12,7 @@
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8032	Sources/Panels/BrowserPanelView.swift
 8016	CLI/cmux_open.swift
-7842	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+7846	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7404	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
@@ -122,6 +122,7 @@
 803	Packages/iOS/CmuxMobilePairedMac/Sources/CmuxMobilePairedMac/MobilePairedMacStore.swift
 802	Sources/TerminalController+ControlPaneContext.swift
 797	Sources/ClosedItemHistory.swift
+792	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridOversizedViewportTests.swift
 782	CLI/CMUXCLI+AgentHookDefinitions.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 773	Sources/App/MenuBarExtraController.swift
@@ -135,7 +136,6 @@
 739	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 738	Packages/macOS/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 724	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
-719	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridOversizedViewportTests.swift
 718	Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 716	Sources/TaskManagerSnapshot.swift
 715	Sources/AppleScriptSupport.swift

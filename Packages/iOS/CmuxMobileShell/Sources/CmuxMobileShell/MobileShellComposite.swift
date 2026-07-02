@@ -6883,18 +6883,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
-        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
-           deliveredSeq > renderGrid.stateSeq {
-            MobileDebugLog.anchormux(
-                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(deliveredSeq) frame=\(renderGrid.stateSeq)"
-            )
-            return
-        }
         // A producer grid larger than this phone's reported viewport can never
         // replay faithfully (issue #7202): rows beyond the local grid clamp
         // onto the bottom row and over-wide rows wrap, splicing adjacent rows.
         // Hold the surface's output and drive the Mac back to a capped grid
-        // instead of painting the divergence.
+        // instead of painting the divergence. The grid dimensions are a valid
+        // divergence signal even on a stale frame — under continuous hybrid
+        // output, raw bytes advance the delivered sequence past the coalesced
+        // render-grid emit, so waiting for a non-stale frame could skip the
+        // guard for the whole divergence.
         guard renderGridFrameFitsReportedViewport(renderGrid, surfaceID: renderGrid.surfaceID) else {
             holdTerminalOutputForOversizedGrid(
                 columns: renderGrid.columns,
@@ -6905,6 +6902,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         noteFittingRenderGridFrame(surfaceID: renderGrid.surfaceID)
+        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
+           deliveredSeq > renderGrid.stateSeq {
+            MobileDebugLog.anchormux(
+                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(deliveredSeq) frame=\(renderGrid.stateSeq)"
+            )
+            return
+        }
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
         let deliveryDecision: RenderGridEventDeliveryDecision = source == "event"
             ? renderGridEventDeliveryDecision(renderGrid, previous: previousScreen)

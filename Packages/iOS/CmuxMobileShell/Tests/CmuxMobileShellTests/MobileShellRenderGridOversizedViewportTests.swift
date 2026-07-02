@@ -669,6 +669,79 @@ private func unsequencedTerminalBytesEventFrame(
 }
 
 @MainActor
+@Test func staleOversizedRenderGridFrameStillTriggersRecovery() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    // Raw bytes advance the delivered sequence past the frame's stateSeq,
+    // exactly like continuous hybrid output outrunning the coalesced
+    // render-grid emit.
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 0,
+        text: "pre-probe"
+    ))
+    let probeDelivered = try await pollUntil { collector.lines.contains { $0.contains("pre-probe") } }
+    #expect(probeDelivered, "raw bytes must flow before the oversized frame arrives")
+
+    _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    let replayBaseline = await router.count(of: "mobile.terminal.replay")
+
+    let convergedFrames = try (0..<2).map { index in
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 40 + UInt64(index),
+            columns: 20,
+            rows: 6,
+            full: true,
+            rowSpans: [
+                MobileTerminalRenderGridFrame.RowSpan(row: 0, column: 0, styleID: 0, text: "converged"),
+            ]
+        )
+    }
+    await router.enqueueReplayRenderGridFrames(convergedFrames)
+
+    // The oversized frame is STALE (stateSeq 5 < delivered 9): its grid
+    // dimensions must still trigger the divergence recovery.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 5,
+        columns: 90,
+        rows: 40,
+        text: "oversized",
+        full: false
+    ))
+    let sawRecoveryReplay = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayBaseline
+    }
+    #expect(
+        sawRecoveryReplay,
+        "a stale oversized frame is still a diverged-grid signal and must arm the recovery"
+    )
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 9,
+        text: "SPLICE-BYTES"
+    ))
+    _ = try await pollUntil(attempts: 30) { collector.lines.contains { $0.contains("SPLICE-BYTES") } }
+    #expect(
+        collector.lines.contains { $0.contains("SPLICE-BYTES") } == false,
+        "bytes authored for the diverged grid must be held even when the divergence signal arrived on a stale frame"
+    )
+    let convergedDelivered = try await pollUntil { collector.lines.contains { $0.contains("converged") } }
+    #expect(convergedDelivered, "the recovery replay must repaint the mirror once the grid fits")
+    collector.unmount()
+}
+
+@MainActor
 @Test func fittingRenderGridFramesKeepOutputFlowing() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
