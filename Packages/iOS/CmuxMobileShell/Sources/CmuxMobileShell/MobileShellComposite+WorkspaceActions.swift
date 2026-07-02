@@ -150,12 +150,12 @@ extension MobileShellComposite {
             )
             _ = try await client.sendRequest(request)
         } catch {
+            rollbackOptimisticRemoval()
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             if target.isForeground {
                 markMacConnectionUnavailableIfNeeded(after: error)
             }
             mobileShellLog.error("workspace mutation failed action=terminal_close id=\(workspaceID.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
-            rollbackOptimisticRemoval()
             return
         }
         await refreshAfterWorkspaceMutation(target)
