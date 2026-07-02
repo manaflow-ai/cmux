@@ -46,8 +46,11 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
         coordinator.stop()
-        // The deinit fallback that used to free the libghostty surface is gone, so
-        // direct owners must dispose explicitly or leak the C surface/bridge.
+        // Quiesce the surface deterministically on teardown (resigns input,
+        // stops the display link, and halts accessibility reads), matching the
+        // production `GhosttySurfaceRepresentable`. The C surface itself is freed
+        // by `GhosttySurfaceView.deinit`; this just stops work promptly instead
+        // of waiting for ARC to release the view.
         (uiView as? GhosttySurfaceView)?.prepareForDismantle()
     }
 
@@ -142,4 +145,5 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
         }
     }
 }
+
 #endif

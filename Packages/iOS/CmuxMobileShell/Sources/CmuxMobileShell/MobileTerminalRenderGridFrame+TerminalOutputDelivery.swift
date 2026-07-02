@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 
 extension MobileTerminalRenderGridFrame {
     /// True when this delta fully replaces the visible viewport without needing
@@ -11,5 +12,14 @@ extension MobileTerminalRenderGridFrame {
             return false
         }
         return true
+    }
+
+    var mobileViewportPolicy: MobileTerminalOutputViewportPolicy {
+        switch activeScreen {
+        case .alternate:
+            return .remoteGrid(columns: columns, rows: rows)
+        case .primary:
+            return .natural
+        }
     }
 }

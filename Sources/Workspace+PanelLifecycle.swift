@@ -358,6 +358,7 @@ extension Workspace {
         removeSurfaceMappings(forPanelId: panelId)
 
         panelDirectories.removeValue(forKey: panelId)
+        panelDirectoryDisplayLabels.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)

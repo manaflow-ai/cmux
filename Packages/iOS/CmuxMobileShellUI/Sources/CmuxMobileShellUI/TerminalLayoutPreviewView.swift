@@ -63,9 +63,11 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {}
 
-    /// Free the libghostty surface explicitly: ``GhosttySurfaceView`` no longer
-    /// disposes from `deinit`, so a direct owner that skips this leaks the C
-    /// surface/bridge.
+    /// Quiesce the surface on teardown (resigns input, stops the display link,
+    /// and halts accessibility reads), matching the production
+    /// ``GhosttySurfaceRepresentable``. The C surface itself is freed by
+    /// ``GhosttySurfaceView`` `deinit`; calling this just stops work promptly
+    /// instead of waiting for ARC to release the view.
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
         (uiView as? GhosttySurfaceView)?.prepareForDismantle()
     }

@@ -6,6 +6,7 @@ final class ChatScrollEdgeCoordinator {
     private var bottomInteraction: UIInteraction?
     private weak var bottomInteractionTableView: ChatTranscriptUITableView?
     private weak var topContentScrollViewController: UIViewController?
+    private weak var topContentScrollViewTableView: ChatTranscriptUITableView?
 
     func configure(
         tableView: ChatTranscriptUITableView?,
@@ -23,38 +24,41 @@ final class ChatScrollEdgeCoordinator {
     }
 
     private func configureEdgeEffect(for tableView: ChatTranscriptUITableView?) {
-        #if compiler(>=6.3)
         guard let tableView else { return }
-        if #available(iOS 26.0, *) {
-            tableView.topEdgeEffect.style = .soft
-            tableView.bottomEdgeEffect.style = .soft
-        }
-        #endif
+        tableView.applyScrollEdgeEffects(topSoft: true, bottomSoft: true)
     }
 
     private func configureContentScrollView(
         _ tableView: ChatTranscriptUITableView?,
         owner: UIViewController
     ) {
-        #if compiler(>=6.3)
         if #available(iOS 26.0, *) {
-            let topController = tableView == nil
-                ? nil
-                : nearestNavigationContentViewController(from: owner) ?? owner
+            guard let tableView else {
+                clearTopContentScrollViewController()
+                return
+            }
+            let topController = nearestNavigationContentViewController(from: owner) ?? owner
             if topContentScrollViewController !== topController {
                 clearTopContentScrollViewController()
                 topContentScrollViewController = topController
             }
-            topController?.setContentScrollView(tableView, for: .top)
+            if topContentScrollViewTableView !== tableView {
+                #if DEBUG
+                topContentScrollViewTableView?.recordTopContentScrollViewRegistration(false)
+                #endif
+                topContentScrollViewTableView = tableView
+            }
+            topController.setContentScrollView(tableView, for: .top)
+            #if DEBUG
+            tableView.recordTopContentScrollViewRegistration(true)
+            #endif
         }
-        #endif
     }
 
     private func configureBottomInteraction(
         _ tableView: ChatTranscriptUITableView?,
         composerView: UIView
     ) {
-        #if compiler(>=6.3)
         if #available(iOS 26.0, *) {
             guard let tableView else {
                 resetBottomInteraction()
@@ -76,7 +80,6 @@ final class ChatScrollEdgeCoordinator {
                 bottomInteractionTableView = tableView
             }
         }
-        #endif
     }
 
     private func resetBottomInteraction() {
@@ -88,12 +91,14 @@ final class ChatScrollEdgeCoordinator {
     }
 
     private func clearTopContentScrollViewController() {
-        #if compiler(>=6.3)
         if #available(iOS 26.0, *) {
             topContentScrollViewController?.setContentScrollView(nil, for: .top)
         }
+        #if DEBUG
+        topContentScrollViewTableView?.recordTopContentScrollViewRegistration(false)
         #endif
         topContentScrollViewController = nil
+        topContentScrollViewTableView = nil
     }
 
     private func nearestNavigationContentViewController(
