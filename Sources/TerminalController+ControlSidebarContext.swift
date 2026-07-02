@@ -109,6 +109,11 @@ extension TerminalController: ControlSidebarContext {
         if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
             return true
         }
+        // The manual namespace is reserved for workspace_loading; a custom
+        // vault agent must not claim it (hibernation ignores manual keys).
+        guard !AgentHibernationLifecycleStatusKeys.isManualKey(key) else {
+            return false
+        }
         guard let tab = controlSidebarResolveMutationTab(target),
               CmuxVaultAgentRegistration.isValidID(key) else {
             return false

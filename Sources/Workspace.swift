@@ -4695,7 +4695,26 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func clearAgentLifecycleStates(panelId: UUID) {
-        guard agentLifecycleStatesByPanelId.removeValue(forKey: panelId) != nil else { return }
+        guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
+        // Manual loaders are workspace-scoped: keep them on this panel when it
+        // survives an agent lifecycle reset, or migrate them to another panel
+        // when this one is closing, so `cmux workspace loading on` does not
+        // vanish with an unrelated panel.
+        let manualStates = removed.filter { AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+        if !manualStates.isEmpty {
+            let host: UUID? = if panels[panelId] != nil {
+                panelId
+            } else if let focused = focusedPanelId, focused != panelId, panels[focused] != nil {
+                focused
+            } else {
+                panels.keys.first(where: { $0 != panelId })
+            }
+            if let host {
+                for (key, lifecycle) in manualStates {
+                    agentLifecycleStatesByPanelId[host, default: [:]][key] = lifecycle
+                }
+            }
+        }
         recordAgentLifecycleChange(panelId: panelId)
     }
 

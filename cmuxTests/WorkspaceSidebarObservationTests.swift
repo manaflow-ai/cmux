@@ -293,6 +293,20 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func clearAgentLifecycleStatesPreservesManualLoadersOnLivePanel() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        workspace.setAgentLifecycle(key: "manual", panelId: panelId, lifecycle: .running)
+
+        // Agent lifecycle resets clear agent keys but must not drop the
+        // workspace-scoped manual loader with them.
+        workspace.clearAgentLifecycleStates(panelId: panelId)
+
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["codex"] == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["manual"] == .running)
+    }
+
     @Test func activeCodingAgentCountOnlyCountsRunningAgents() {
         let firstPanelId = UUID()
         let secondPanelId = UUID()
