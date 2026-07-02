@@ -35,6 +35,8 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let authenticated: Bool
 }
+// Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
+// AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
 
 nonisolated private struct RemotePTYSocketTarget {
     let controller: RemoteSessionCoordinator?
@@ -11615,7 +11617,8 @@ class TerminalController {
                 return
             }
             let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-            let (title, subtitle, body) = parseNotificationPayload(args)
+            let (title, subtitle, body, meta) = parseNotificationPayload(args)
+            guard shouldDeliverAgentNotification(meta) else { return }
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
@@ -11647,7 +11650,8 @@ class TerminalController {
                 result = "ERROR: Surface not found"
                 return
             }
-            let (title, subtitle, body) = parseNotificationPayload(payload)
+            let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+            guard shouldDeliverAgentNotification(meta) else { return }
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
@@ -11670,7 +11674,8 @@ class TerminalController {
         let tabArg = parts[0]
         let panelArg = parts[1]
         let payload = parts.count > 2 ? parts[2] : ""
-        let (title, subtitle, body) = parseNotificationPayload(payload)
+        let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+        guard shouldDeliverAgentNotification(meta) else { return "OK" }
 
         if let workspaceId = UUID(uuidString: tabArg),
            let panelId = UUID(uuidString: panelArg) {
@@ -11744,7 +11749,21 @@ class TerminalController {
         guard !payload.isEmpty else {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
-        let (title, subtitle, body) = parseNotificationPayload(payload)
+        let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+
+        // Agent-tagged notifications carry a category + a background-work-pending
+        // flag; gate delivery by the user's notification settings. Untagged
+        // notifications (meta == nil) always pass, preserving prior behavior.
+        guard shouldDeliverAgentNotification(meta) else {
+#if DEBUG
+            if let meta {
+                cmuxDebugLog(
+                    "socket.notifyTargetAsync.gated category=\(meta.category.rawValue) pending=\(meta.pending) workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8))"
+                )
+            }
+#endif
+            return "OK"
+        }
 #if DEBUG
         cmuxDebugLog(
             "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
@@ -12582,16 +12601,58 @@ class TerminalController {
         return nil
     }
 
-    private func parseNotificationPayload(_ args: String) -> (String, String, String) {
+    /// Parses a `title|subtitle|body` notification payload, plus an OPTIONAL 4th
+    /// `meta` segment (e.g. `c=turn-complete;p=1`) that agent hooks append to gate
+    /// delivery by user config. The 4th segment is only treated as meta when it
+    /// begins with `c=`; otherwise it is folded back into the body, so legacy
+    /// callers whose body itself contains `|` parse byte-identically to before
+    /// (the fold reconstructs exactly the `maxSplits: 2` result).
+    private func parseNotificationPayload(_ args: String) -> (title: String, subtitle: String, body: String, meta: AgentNotificationMeta?) {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return ("Notification", "", "") }
-        let parts = trimmed.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+        guard !trimmed.isEmpty else { return ("Notification", "", "", nil) }
+        var parts = trimmed.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+        var meta: AgentNotificationMeta? = nil
+        if parts.count == 4 {
+            // The 4th segment is treated as gating metadata only when it parses
+            // as the FULL `c=<category>;p=<0|1>` grammar. Anything else — including
+            // a legacy body that happens to contain "|c=..." — is folded back into
+            // the body so pre-meta callers parse byte-identically to before.
+            // Conscious tradeoff: this reserves exactly three trailing literals
+            // ("|c=turn-complete;p=<0|1>", "|c=needs-permission;p=<0|1>",
+            // "|c=idle-reminder;p=<0|1>") in notify payloads; any other "c=..."
+            // tail (unknown categories included) stays part of the body. Accepted
+            // because the only meta producers are cmux's own agent hooks (whose
+            // fields are |-sanitized) and a collision requires one of those exact
+            // suffixes.
+            let candidate = parts[3].trimmingCharacters(in: .whitespacesAndNewlines)
+            if candidate.hasPrefix("c="), let parsed = AgentNotificationMeta(meta: candidate) {
+                meta = parsed
+            } else {
+                parts[2] += "|" + parts[3]
+            }
+            parts.removeLast()
+        }
         let title = parts.count > 0 ? parts[0].trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let subtitle = parts.count > 2 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let body = parts.count > 2
             ? parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
             : (parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : "")
-        return (title.isEmpty ? "Notification" : title, subtitle, body)
+        return (title.isEmpty ? "Notification" : title, subtitle, body, meta)
+    }
+
+    /// Applies the user's agent-notification settings to a parsed meta tag.
+    /// `nil` meta (legacy/untagged payloads) always delivers.
+    private func shouldDeliverAgentNotification(_ meta: AgentNotificationMeta?) -> Bool {
+        guard let meta else { return true }
+        let catalog = NotificationsCatalogSection()
+        let turnMode = AgentTurnCompleteMode(rawValue: catalog.agentTurnComplete.value(in: .standard)) ?? .whenIdle
+        return agentNotificationShouldDeliver(
+            category: meta.category,
+            pending: meta.pending,
+            permissionEnabled: catalog.agentPermissionPrompt.value(in: .standard),
+            turnMode: turnMode,
+            idleEnabled: catalog.agentIdleReminder.value(in: .standard)
+        )
     }
 
     private func closeWorkspace(_ tabId: String) -> String {
