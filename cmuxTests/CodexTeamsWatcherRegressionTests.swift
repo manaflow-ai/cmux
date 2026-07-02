@@ -160,6 +160,7 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
                 if errno == EINTR { continue }
                 continue
             }
+            Self.suppressSIGPIPE(on: clientFD)
             connectionQueue.async { [weak self] in
                 self?.handle(clientFD: clientFD)
             }
@@ -395,6 +396,13 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    private static func suppressSIGPIPE(on fd: Int32) {
+        // A peer that closed its end can otherwise raise SIGPIPE on write and
+        // terminate the whole test host; make write return EPIPE instead.
+        var value: Int32 = 1
+        _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &value, socklen_t(MemoryLayout<Int32>.size))
     }
 
     private static func bindLoopbackTCP() throws -> (fd: Int32, port: Int) {
