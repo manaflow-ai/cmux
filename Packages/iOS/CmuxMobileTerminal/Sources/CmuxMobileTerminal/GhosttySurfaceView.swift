@@ -911,7 +911,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let inputProxy = TerminalInputTextView()
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
-            self.resetCursorBlink()
+            self.handleUserProducedInput()
             #if DEBUG
             self.lastInputTimestamp = CACurrentMediaTime()
             #endif
@@ -925,7 +925,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         inputProxy.onBackspace = { [weak self] in
             guard let self else { return }
-            self.resetCursorBlink()
+            self.handleUserProducedInput()
             // Send DEL (0x7F) directly to transport as raw byte.
             let data = Data([0x7F])
             TerminalInputDebugLog.log("surface.onBackspace data=\(TerminalInputDebugLog.dataSummary(data))")
@@ -933,12 +933,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         inputProxy.onEscapeSequence = { [weak self] data in
             guard let self else { return }
-            self.resetCursorBlink()
+            self.handleUserProducedInput()
             TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
         inputProxy.onPasteImage = { [weak self] data, format in
             guard let self else { return }
+            self.handleUserProducedInput()
             TerminalInputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
             self.delegate?.ghosttySurfaceView(self, didPasteImage: data, format: format)
         }
@@ -2529,17 +2530,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func scrollInitialOutputToBottomIfNeeded() {
-        guard shouldScrollInitialOutputToBottom, let surface else { return }
+        guard shouldScrollInitialOutputToBottom, surface != nil else { return }
         shouldScrollInitialOutputToBottom = false
-        // `ghostty_surface_binding_action` takes the same internal surface lock
-        // as `process_output`/`render_now`. This runs on the MAIN thread (inside
-        // the `processOutput` completion hop), so calling it inline would contend
-        // that lock against the off-main renderer/IO during a render storm and
-        // wedge main on libghostty's futex. Dispatch it on the serial surface
-        // queue like the absolute `set_font_size` push (see
-        // `applyPendingFontSizeIfNeeded`); enqueuing after any pending
-        // `process_output` also preserves ordering. The return was already
-        // discarded.
+        enqueueScrollToBottom()
+    }
+
+    /// Enqueues Ghostty's `scroll_to_bottom` binding action on the serial
+    /// surface queue. `ghostty_surface_binding_action` takes the same internal
+    /// surface lock as `process_output`/`render_now`. Callers run on the MAIN
+    /// thread, so calling it inline would contend that lock against the
+    /// off-main renderer/IO during a render storm and wedge main on
+    /// libghostty's futex. Dispatch it on the serial surface queue like the
+    /// absolute `set_font_size` push (see `applyPendingFontSizeIfNeeded`);
+    /// enqueuing after any pending `process_output` also preserves ordering.
+    /// The return is discarded.
+    func enqueueScrollToBottom() {
+        guard let surface else { return }
         let action = "scroll_to_bottom"
         outputQueue.async {
             action.withCString { pointer in
@@ -2985,6 +2991,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         displayLink?.invalidate()
         displayLink = nil
         cursorOverlayLayer?.isHidden = true
+    }
+
+    /// Shared reaction to user-produced terminal input (typing, backspace,
+    /// escape sequences, paste): restart the cursor blink and optimistically
+    /// snap the local mirror to the bottom of scrollback. The mirror is
+    /// display-only — the Mac echoes input at the prompt — so a user who types
+    /// while scrolled up would otherwise keep looking at old scrollback and
+    /// read the terminal as frozen. Passive output never forces this jump;
+    /// only explicit user input does (plus the one-time initial-output scroll
+    /// in `scrollInitialOutputToBottomIfNeeded`).
+    private func handleUserProducedInput() {
+        resetCursorBlink()
+        enqueueScrollToBottom()
     }
 
     /// Reset cursor to visible and restart blink cycle (call on user input).
