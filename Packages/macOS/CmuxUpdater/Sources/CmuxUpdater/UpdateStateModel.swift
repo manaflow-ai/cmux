@@ -40,6 +40,18 @@ public final class UpdateStateModel {
     /// Creates an empty model in the ``UpdateState/idle`` state.
     public init() {}
 
+    // MARK: - cmux-originated update errors
+
+    /// The `NSError` domain for update errors that cmux itself raises (as opposed to Sparkle or
+    /// `NSURLError`). Errors in this domain carry user-ready, already-localized copy in their
+    /// `localizedDescription`.
+    public nonisolated static let updateErrorDomain = "cmux.update"
+    /// `updateErrorDomain` code for "the updater was asked to check but wasn't ready in time".
+    public nonisolated static let updaterNotReadyCode = 1
+    /// `updateErrorDomain` code for "the user asked to install but the flow never started
+    /// downloading" (the install-watchdog trip).
+    public nonisolated static let installDidNotStartCode = 2
+
     // MARK: - Change stream
 
     /// A stream that emits once whenever ``state`` or ``overrideState`` changes.
@@ -341,6 +353,8 @@ public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
     case signatureError
     /// Offline `NSURLError`: "No Internet Connection".
     case noInternet
+    /// cmux.update install-watchdog trip: "Update Didn't Start" (the install-loop guard).
+    case installDidNotStart
 
     /// The label shown for this scenario in the debug menu.
     public var menuTitle: String {
@@ -353,6 +367,7 @@ public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
         case .diskImageTranslocation: return "Disk Image / Translocated (1003)"
         case .signatureError: return "Signature Error (3001)"
         case .noInternet: return "No Internet"
+        case .installDidNotStart: return "Install Didn’t Start (watchdog)"
         }
     }
 
@@ -399,6 +414,13 @@ public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
         case .noInternet:
             return NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet, userInfo: [
                 NSLocalizedDescriptionKey: "The Internet connection appears to be offline.",
+            ])
+        case .installDidNotStart:
+            return NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode, userInfo: [
+                NSLocalizedDescriptionKey: String(
+                    localized: "update.error.didNotStart.message",
+                    defaultValue: "cmux couldn’t start the update. Check your internet connection and try again."
+                ),
             ])
         }
     }
