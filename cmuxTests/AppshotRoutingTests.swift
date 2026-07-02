@@ -9,7 +9,11 @@ import Testing
 
 /// Unit tests for the pure appshot logic: the single-line prompt formatting and
 /// the 60-second recency routing decision. The capture itself (ScreenCaptureKit
-/// + Accessibility) is integration-only and exercised manually.
+/// + Accessibility) and `AppshotController`'s delivery of each route — including
+/// the `.noRecentTarget` fallback to the active agent (the front window's
+/// focused terminal), which opens a fresh workspace only when no terminal
+/// exists — are integration-only and exercised manually, since they depend on
+/// live `AppDelegate`/AppKit state rather than the pure state modeled here.
 ///
 /// Prompt assertions are locale-neutral (paths, interpolated names, structural
 /// invariants, and presence/absence-by-behavior) so they don't depend on the
@@ -139,30 +143,30 @@ import Testing
         #expect(route == .append(workspaceId: interactive.workspace, panelId: interactive.panel))
     }
 
-    @Test func newThreadWhenEverythingIsStale() {
+    @Test func reportsNoRecentTargetWhenEverythingIsStale() {
         let now = Date()
         let state = AppshotRoutingState(
             lastRoute: AppshotAgentRef(workspaceId: UUID(), panelId: UUID(), at: now.addingTimeInterval(-200)),
             lastInteractiveAgent: AppshotAgentRef(workspaceId: UUID(), panelId: UUID(), at: now.addingTimeInterval(-61))
         )
         let route = state.resolvedRoute(now: now, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: true)
-        #expect(route == .newThread)
+        #expect(route == .noRecentTarget)
     }
 
-    @Test func newThreadWhenRecentTargetNoLongerExists() {
+    @Test func reportsNoRecentTargetWhenRecentTargetNoLongerExists() {
         let now = Date()
         let state = AppshotRoutingState(
             lastRoute: AppshotAgentRef(workspaceId: UUID(), panelId: UUID(), at: now.addingTimeInterval(-5))
         )
         let route = state.resolvedRoute(now: now, lastRouteSurfaceExists: false, lastInteractiveSurfaceExists: false)
-        #expect(route == .newThread)
+        #expect(route == .noRecentTarget)
     }
 
-    @Test func newThreadWhenStateIsEmpty() {
+    @Test func reportsNoRecentTargetWhenStateIsEmpty() {
         let route = AppshotRoutingState().resolvedRoute(
             now: Date(), lastRouteSurfaceExists: false, lastInteractiveSurfaceExists: false
         )
-        #expect(route == .newThread)
+        #expect(route == .noRecentTarget)
     }
 
     @Test func recencyBoundaryIsInclusive() {

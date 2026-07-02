@@ -32,7 +32,10 @@ struct AppshotRoutingState: Equatable {
     ///   still exists, stack onto it (consecutive appshots stay together).
     /// - Otherwise, if the user interacted with an agent within the window and
     ///   that surface still exists, append to it.
-    /// - Otherwise start a new thread.
+    /// - Otherwise report `.noRecentTarget`; this decision does not itself pick a
+    ///   destination. The caller owns the fallback — `AppshotController` routes
+    ///   to the active agent (the front window's focused terminal) and opens a
+    ///   fresh workspace only when no terminal surface exists.
     ///
     /// `lastRouteSurfaceExists` / `lastInteractiveSurfaceExists` are computed by
     /// the caller on the main actor (terminal-panel existence is main-actor
@@ -54,14 +57,18 @@ struct AppshotRoutingState: Equatable {
            lastInteractiveSurfaceExists {
             return .append(workspaceId: agent.workspaceId, panelId: agent.panelId)
         }
-        return .newThread
+        return .noRecentTarget
     }
 }
 
 /// Where an appshot should be delivered.
 enum AppshotRoute: Equatable {
-    /// Append to (and submit into) an existing agent surface.
+    /// Append to (and stage into) an existing agent surface.
     case append(workspaceId: UUID, panelId: UUID)
-    /// Start a fresh workspace/thread because no recent agent qualifies.
-    case newThread
+    /// No recent appshot route or interacted-with agent qualifies within the
+    /// recency window. This is a "no recent target" signal, not an instruction
+    /// to open a new workspace: `AppshotController` still prefers the active
+    /// agent (the front window's focused terminal) and only opens a fresh
+    /// workspace when no terminal surface exists.
+    case noRecentTarget
 }

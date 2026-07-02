@@ -41,12 +41,12 @@ enum AppshotCapturer {
         // round-trips — and PNG encoding plus the file writes are CPU/disk work,
         // so run all of it off the bounded cooperative thread pool rather than
         // blocking a pool thread. (The window/app title prefers the AX title,
-        // falling back to the CGWindowList title captured above.)
-        // CGImage is an immutable CoreGraphics value; safe to hand to the queue.
-        nonisolated(unsafe) let capturedImage = image
+        // falling back to the CGWindowList title captured above.) `image` is an
+        // immutable, Sendable `CGImage?`, so it crosses into the queue closure
+        // like the other Sendable value captures.
         return await withCheckedContinuation { (continuation: CheckedContinuation<AppshotCapture?, Never>) in
             DispatchQueue.global(qos: .userInitiated).async {
-                let imagePath = capturedImage.flatMap { writePNG($0) }
+                let imagePath = image.flatMap { writePNG($0) }
                 var title = window.title
                 var textPath: String?
                 if accessibility {

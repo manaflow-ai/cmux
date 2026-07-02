@@ -107,7 +107,7 @@ final class AppshotController {
             } else {
                 routeToActiveAgentOrNewWorkspace(prompt: prompt, now: now)
             }
-        case .newThread:
+        case .noRecentTarget:
             routeToActiveAgentOrNewWorkspace(prompt: prompt, now: now)
         }
     }
