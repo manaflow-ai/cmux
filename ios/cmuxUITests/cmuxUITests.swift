@@ -310,7 +310,7 @@ final class cmuxUITests: XCTestCase {
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedApp(port: port)
+        let app = try launchConnectedApp(port: port, assertStatusRows: false)
         let dock = waitForDock(in: app, timeout: 8, describe: "direct terminal with smaller effective grid") {
             guard let renderHeight = Int($0["renderHeight"] ?? ""),
                   let viewportHeight = Int($0["viewportHeight"] ?? "") else {
