@@ -44,12 +44,6 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         patchBytes()
     }
 
-    /// DEC private mode codes that switch screens or save the cursor. The
-    /// active screen is restored explicitly via the frame's `activeScreen`, so
-    /// these are never replayed from `modes` (replaying them would
-    /// double-switch).
-    private let screenSwitchModeCodes: Set<Int> = [47, 1047, 1048, 1049]
-
     private func deltaPatchBytes() -> Data {
         var bytes = Data()
         let stylesByID = styleMapByID(frame.styles)
@@ -98,9 +92,11 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         // main display, protected cells, key/input flags, OSC 8 hyperlinks,
         // charset mapping, scroll margins, tabs, both screens, cursor position,
         // viewport contents, and scrollback.
-        bytes.append(Data("\u{1B}[?2026h\u{1B}[0$}\u{1B}[>m\u{1B}[r\u{1B}[?69l\u{1B}[?5W\u{1B}[?1049l".utf8))
+        bytes.append(Data("\u{1B}[?2026h\u{1B}[0$}\u{1B}[>m\u{1B}[r\u{1B}[?69l\u{1B}[?5W".utf8))
+        appendStructuralScreenReset(to: &bytes)
         bytes.append(Data(hyperlinkStateReset.utf8))
         bytes.append(Data(screenStateReset.utf8))
+        appendDefaultModeBaseline(to: &bytes)
 
         // Dynamic default colors (OSC 10/11/12). Nil frame values reset the
         // previous override so a full snapshot behaves like the old RIS path.
@@ -169,7 +165,10 @@ public struct MobileTerminalRenderGridReplay: Sendable {
 
         // Reapply modes last so autowrap returns to its captured value
         // (undoing the temporary `?7l`) and mouse/paste/app-key modes are live.
-        for mode in frame.modes where !screenSwitchModeCodes.contains(mode.code) {
+        // The baseline also covers older frames that omitted `modes`, so stale
+        // state from a reused surface cannot leak through the full replay.
+        appendDefaultModeBaseline(to: &bytes)
+        for mode in frame.modes where !isReplayExcludedMode(mode) {
             bytes.append(modeBytes(mode))
         }
 

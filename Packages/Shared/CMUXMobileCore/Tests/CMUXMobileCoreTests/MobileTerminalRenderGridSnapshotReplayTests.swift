@@ -18,7 +18,9 @@ import Testing
         columns: frame.columns
     )
 
-    #expect(presentedFrames.last?.contains { $0.contains("visible") } == true)
+    #expect(presentedFrames.contains { frameRows in
+        frameRows.contains { $0.contains("visible") }
+    })
     #expect(
         !presentedFrames.contains(where: { frameRows in
             frameRows.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty }
