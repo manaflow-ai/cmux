@@ -223,6 +223,115 @@ struct AgentSessionAutoResumeSwiftTests {
         }
     }
 
+    /// Agent-hook-only restores can auto-resume without a restorable-agent
+    /// snapshot. They still run a startup command that cds itself, so they need
+    /// the same #7155 cwd rescue as restorable-agent restores.
+    @MainActor
+    @Test func splitFromBindingOnlyAutoResumedAgentPaneInheritsSessionCwdWhenTrackedCwdClobbered() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-binding-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId) = try restoreWorkspaceWithAutoResumedAgentHookBindingOnly(
+                savedDirectory: projectDir
+            )
+            try #require(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent == nil)
+            try #require(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning
+            )
+            _ = try clobberResumedAgentTrackedCwd(restored, panelId: restoredPanelId, projectDir: projectDir)
+            restored.foregroundProcessWorkingDirectoryProvider = { _ in nil }
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == projectDir)
+        }
+    }
+
+    @MainActor
+    @Test func splitAfterBindingOnlyAutoResumeExitsFollowsTrackedCwdAgain() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-binding-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+            let repairedDir = try makeTemporaryProjectDirectory(prefix: "cmux-binding-post-exit")
+            defer { try? FileManager.default.removeItem(atPath: repairedDir) }
+
+            let (restored, restoredPanelId) = try restoreWorkspaceWithAutoResumedAgentHookBindingOnly(
+                savedDirectory: projectDir
+            )
+            _ = try clobberResumedAgentTrackedCwd(restored, panelId: restoredPanelId, projectDir: projectDir)
+
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
+            try #require(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
+            #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: repairedDir)
+
+            var providerConsulted = false
+            restored.foregroundProcessWorkingDirectoryProvider = { _ in
+                providerConsulted = true
+                return projectDir
+            }
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == repairedDir)
+            #expect(!providerConsulted)
+        }
+    }
+
+    /// The #7155 rescue state follows a detached pane. Otherwise a reattached
+    /// auto-resumed pane can keep `.autoResumeCommandRunning` but lose the
+    /// recorded session directory, so an unavailable live cwd would fall back
+    /// to the clobbered tracked cwd.
+    @MainActor
+    @Test func detachedResumedAgentPaneKeepsSessionCwdFallbackWhenReattached() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-detach-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (source, sourcePanelId, homeDir) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
+                projectDir: projectDir
+            )
+            source.foregroundProcessWorkingDirectoryProvider = { _ in nil }
+
+            let detached = try #require(source.detachSurface(panelId: sourcePanelId))
+            #expect(source.restoredResumeSessionWorkingDirectoriesByPanelId[sourcePanelId] == nil)
+
+            let destination = Workspace()
+            let paneId = try #require(destination.bonsplitController.allPaneIds.first)
+            let attachedPanelId = try #require(destination.attachDetachedSurface(
+                detached,
+                inPane: paneId,
+                focus: false
+            ))
+            try #require(attachedPanelId == sourcePanelId)
+            try #require(destination.panelDirectories[attachedPanelId] == homeDir)
+            try #require(
+                destination.restoredAgentResumeStatesByPanelId[attachedPanelId] == .autoResumeCommandRunning
+            )
+            destination.foregroundProcessWorkingDirectoryProvider = { _ in nil }
+
+            let split = try #require(destination.newTerminalSplit(
+                from: attachedPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == projectDir)
+        }
+    }
+
     /// Restores a workspace whose focused pane auto-resumes a Claude session in
     /// `projectDir`, then clobbers the pane's tracked cwd the way #7155 hits it
     /// in the field: the one-shot #6617 guard swallows the first spurious home
@@ -240,6 +349,20 @@ struct AgentSessionAutoResumeSwiftTests {
             restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning
         )
 
+        let homeDir = try clobberResumedAgentTrackedCwd(
+            restored,
+            panelId: restoredPanelId,
+            projectDir: projectDir
+        )
+        return (restored, restoredPanelId, homeDir)
+    }
+
+    @MainActor
+    private func clobberResumedAgentTrackedCwd(
+        _ restored: Workspace,
+        panelId restoredPanelId: UUID,
+        projectDir: String
+    ) throws -> String {
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
         try #require(homeDir != projectDir)
 
@@ -253,7 +376,7 @@ struct AgentSessionAutoResumeSwiftTests {
         try #require(restored.panelDirectories[restoredPanelId] == homeDir)
         try #require(restored.currentDirectory == homeDir)
 
-        return (restored, restoredPanelId, homeDir)
+        return homeDir
     }
 
     private func makeTemporaryProjectDirectory(prefix: String) throws -> String {
@@ -484,6 +607,50 @@ struct AgentSessionAutoResumeSwiftTests {
         let restoredPanelId = try #require(restored.focusedPanelId)
 
         // Restore replays the persisted directory onto the workspace and panel.
+        #expect(restored.currentDirectory == savedDirectory)
+        #expect(restored.panelDirectories[restoredPanelId] == savedDirectory)
+
+        return (restored, restoredPanelId)
+    }
+
+    /// Builds a workspace that restores solely from a cmux-owned agent-hook
+    /// binding: no restorable-agent snapshot is present, but the approved
+    /// binding still auto-runs a startup command rooted at `savedDirectory`.
+    @MainActor
+    private func restoreWorkspaceWithAutoResumedAgentHookBindingOnly(
+        savedDirectory: String
+    ) throws -> (workspace: Workspace, panelId: UUID) {
+        let sessionId = "claude-binding-only-resume-\(UUID().uuidString)"
+        let source = Workspace()
+        source.currentDirectory = savedDirectory
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.updatePanelDirectory(panelId: sourcePanelId, directory: savedDirectory)
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Claude",
+                kind: "claude",
+                command: "{ cd -- '\(savedDirectory)' 2>/dev/null || [ ! -d '\(savedDirectory)' ]; } && 'claude' '--resume' '\(sessionId)'",
+                cwd: savedDirectory,
+                checkpointId: sessionId,
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 1_777_777_777
+            ),
+        ])
+
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        #expect(snapshot.panels.first?.terminal?.agent == nil)
+        #expect(snapshot.panels.first?.terminal?.resumeBinding?.cwd == savedDirectory)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restored.focusedPanelId)
+
         #expect(restored.currentDirectory == savedDirectory)
         #expect(restored.panelDirectories[restoredPanelId] == savedDirectory)
 

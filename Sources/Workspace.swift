@@ -1328,14 +1328,12 @@ extension Workspace {
                 !startupHandlesWorkingDirectory
                 ? (suppressWorkspaceRemoteStartupCommand ? savedWorkingDirectory : workingDirectory)
                 : nil
-            let restoredAgentWillRunStartupCommand = restorableAgent != nil && (
+            let restoredAgentWillRunStartupCommand =
                 restoredAgentResumeLaunch?.initialCommand != nil ||
                 (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true)
-            )
-            let restoredAgentWillRunStartupInput = restorableAgent != nil && (
+            let restoredAgentWillRunStartupInput =
                 restoredAgentResumeLaunch?.initialInput != nil ||
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
-            )
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -1467,19 +1465,6 @@ extension Workspace {
                 } else {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
                 }
-                // While the auto-resumed agent holds the pane's foreground no
-                // prompt runs, so a stray post-restore report can park the
-                // tracked cwd on the surface default with nothing left to
-                // repair it. Keep the resolved session directory for the run's
-                // lifetime so split/new-tab inheritance can rescue it (#7155).
-                if restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput,
-                   restoredDirectoryIsLocalPath,
-                   let resumeSessionDirectory = savedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !resumeSessionDirectory.isEmpty {
-                    restoredResumeSessionWorkingDirectoriesByPanelId[terminalPanel.id] = resumeSessionDirectory
-                } else {
-                    restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
-                }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {
@@ -1490,8 +1475,29 @@ extension Workspace {
                     )
                 }
             } else {
-                clearRestoredAgentSnapshot(panelId: terminalPanel.id)
+                restoredAgentSnapshotsByPanelId.removeValue(forKey: terminalPanel.id)
+                if restoredAgentWillRunStartupCommand {
+                    restoredAgentResumeStatesByPanelId[terminalPanel.id] = .autoResumeCommandRunning
+                } else if restoredAgentWillRunStartupInput {
+                    restoredAgentResumeStatesByPanelId[terminalPanel.id] = .awaitingAutoResumeCommand
+                } else {
+                    restoredAgentResumeStatesByPanelId.removeValue(forKey: terminalPanel.id)
+                }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
+            }
+            // While an auto-resumed agent-hook or restorable-agent launcher
+            // holds the pane's foreground no prompt runs, so a stray
+            // post-restore report can park the tracked cwd on the surface
+            // default with nothing left to repair it. Keep the resolved
+            // session directory for the run's lifetime so split/new-tab
+            // inheritance can rescue it (#7155).
+            if restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput,
+               restoredDirectoryIsLocalPath,
+               let resumeSessionDirectory = savedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !resumeSessionDirectory.isEmpty {
+                restoredResumeSessionWorkingDirectoriesByPanelId[terminalPanel.id] = resumeSessionDirectory
+            } else {
+                restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
@@ -4658,6 +4664,8 @@ final class Workspace: Identifiable, ObservableObject {
                 restoredAgent: restoredAgent,
                 shellState: state
             )
+        } else {
+            updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
 #if DEBUG
         cmuxDebugLog(
@@ -4835,6 +4843,22 @@ final class Workspace: Identifiable, ObservableObject {
                 break
             }
         case .unknown:
+            break
+        }
+    }
+
+    private func updateBindingOnlyRestoredAgentResumeState(
+        panelId: UUID,
+        shellState: PanelShellActivityState
+    ) {
+        switch (shellState, restoredAgentResumeStatesByPanelId[panelId]) {
+        case (.commandRunning, .some(.awaitingAutoResumeCommand)):
+            restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+        case (.promptIdle, .some(.autoResumeCommandRunning)),
+             (.promptIdle, .some(.observedAgentCommandRunning)):
+            restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        default:
             break
         }
     }
@@ -9429,6 +9453,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
@@ -9480,13 +9505,19 @@ final class Workspace: Identifiable, ObservableObject {
         if let restorableAgent = detached.restorableAgent {
             restoredAgentSnapshotsByPanelId[detached.panelId] = restorableAgent
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
-            if let resumeState = detached.restorableAgentResumeState {
-                restoredAgentResumeStatesByPanelId[detached.panelId] = resumeState
-            } else {
-                restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
-            }
+        } else {
+            restoredAgentSnapshotsByPanelId.removeValue(forKey: detached.panelId)
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
+        }
+        if let resumeState = detached.restorableAgentResumeState {
+            restoredAgentResumeStatesByPanelId[detached.panelId] = resumeState
         } else {
             restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
+        }
+        if let resumeSessionWorkingDirectory = detached.restoredResumeSessionWorkingDirectory {
+            restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = resumeSessionWorkingDirectory
+        } else {
+            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
         }
         if let resumeBinding = detached.resumeBinding, !resumeBinding.isProcessDetected {
             surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
@@ -12309,6 +12340,7 @@ extension Workspace: BonsplitDelegate {
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectoriesByPanelId[panelId],
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
