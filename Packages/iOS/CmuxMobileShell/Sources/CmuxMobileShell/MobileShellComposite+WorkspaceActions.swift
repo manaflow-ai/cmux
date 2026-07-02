@@ -124,8 +124,13 @@ extension MobileShellComposite {
         }
         let rollbackSelectedTerminalID = selectedTerminalID
         let canOptimisticallyRemove = target.isForeground
+        let optimisticMacKey = target.macDeviceID ?? workspace.macDeviceID ?? Self.foregroundAnonymousKey
         if canOptimisticallyRemove {
-            removeTerminalRowOptimistically(from: workspace, terminalID: terminalID)
+            removeTerminalRowOptimistically(
+                from: workspace,
+                terminalID: terminalID,
+                macKey: optimisticMacKey
+            )
         }
         let optimisticVersion = workspaceTopologyVersion
         func rollbackOptimisticRemoval() {
@@ -134,6 +139,7 @@ extension MobileShellComposite {
                 removedTerminal,
                 at: removedIndex,
                 in: workspace,
+                macKey: optimisticMacKey,
                 selectedTerminalID: rollbackSelectedTerminalID
             )
         }
@@ -162,28 +168,26 @@ extension MobileShellComposite {
         _ terminal: MobileTerminalPreview,
         at index: Int,
         in workspace: MobileWorkspacePreview,
+        macKey: String,
         selectedTerminalID: MobileTerminalPreview.ID?
     ) {
         guard workspaces.contains(where: {
             $0.id == workspace.id && $0.rpcWorkspaceID == workspace.rpcWorkspaceID
         }) else { return }
         let remoteID = workspace.rpcWorkspaceID
-        for (macKey, state) in workspacesByMac {
-            guard let workspaceIndex = state.workspaces.firstIndex(where: { candidate in
-                (candidate.remoteWorkspaceID ?? candidate.id) == remoteID
-            }) else { continue }
-            var updatedState = state
-            var terminals = updatedState.workspaces[workspaceIndex].terminals
-            guard !terminals.contains(where: { $0.id == terminal.id }) else {
-                self.selectedTerminalID = selectedTerminalID
-                return
-            }
-            terminals.insert(terminal, at: min(index, terminals.endIndex))
-            updatedState.workspaces[workspaceIndex].terminals = terminals
-            workspacesByMac[macKey] = updatedState
+        guard var state = workspacesByMac[macKey],
+              let workspaceIndex = state.workspaces.firstIndex(where: { candidate in
+                  (candidate.remoteWorkspaceID ?? candidate.id) == remoteID
+              }) else { return }
+        var terminals = state.workspaces[workspaceIndex].terminals
+        guard !terminals.contains(where: { $0.id == terminal.id }) else {
             self.selectedTerminalID = selectedTerminalID
             return
         }
+        terminals.insert(terminal, at: min(index, terminals.endIndex))
+        state.workspaces[workspaceIndex].terminals = terminals
+        workspacesByMac[macKey] = state
+        self.selectedTerminalID = selectedTerminalID
     }
 
     /// Drop `terminalID`'s row from the per-Mac source of truth and, when it was
@@ -193,7 +197,8 @@ extension MobileShellComposite {
     /// list, restoring the row if the close was rejected.
     private func removeTerminalRowOptimistically(
         from workspace: MobileWorkspacePreview,
-        terminalID: MobileTerminalPreview.ID
+        terminalID: MobileTerminalPreview.ID,
+        macKey: String
     ) {
         if selectedTerminalID == terminalID,
            let removedIndex = workspace.terminals.firstIndex(where: { $0.id == terminalID }) {
@@ -206,16 +211,13 @@ extension MobileShellComposite {
         // Match by the Mac-local id (aggregation scopes the flat row ids, while
         // the per-Mac entries keep original ids) plus terminal membership.
         let remoteID = workspace.rpcWorkspaceID
-        for (macKey, state) in workspacesByMac {
-            guard let workspaceIndex = state.workspaces.firstIndex(where: { candidate in
-                (candidate.remoteWorkspaceID ?? candidate.id) == remoteID
-                    && candidate.terminals.contains(where: { $0.id == terminalID })
-            }) else { continue }
-            var updatedState = state
-            updatedState.workspaces[workspaceIndex].terminals.removeAll { $0.id == terminalID }
-            workspacesByMac[macKey] = updatedState
-            return
-        }
+        guard var state = workspacesByMac[macKey],
+              let workspaceIndex = state.workspaces.firstIndex(where: { candidate in
+                  (candidate.remoteWorkspaceID ?? candidate.id) == remoteID
+                      && candidate.terminals.contains(where: { $0.id == terminalID })
+              }) else { return }
+        state.workspaces[workspaceIndex].terminals.removeAll { $0.id == terminalID }
+        workspacesByMac[macKey] = state
     }
 
     private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {
