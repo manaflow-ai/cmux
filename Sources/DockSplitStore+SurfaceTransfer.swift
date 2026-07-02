@@ -108,6 +108,12 @@ extension DockSplitStore {
             isDirty: panel.isDirty,
             isLoading: detached.isLoading,
             isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
+            // The Dock has no pinned-tab concept (no `pinnedPanelIds`; every Dock
+            // `createTab`/`newSurface` site creates unpinned tabs). `detached.isPinned`
+            // is intentionally preserved only in the stored transfer above so a
+            // workspace→Dock→workspace round-trip restores the pin once the panel
+            // lands back in a workspace, where `Workspace.attachDetachedSurface`
+            // applies it. Passing it here would create a pin the Dock cannot show.
             isPinned: false,
             inPane: paneId
         ) else {
@@ -119,6 +125,15 @@ extension DockSplitStore {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
+        // Preserve the full transfer payload — including deferred-resume metadata
+        // (`restorableAgentAutoResumeOnVisit`, `resumeBinding`, agent snapshots) —
+        // so it survives the Dock round-trip. The Dock has no deferred-resume
+        // engine and, like the pre-existing `resumeBinding` path, does not execute
+        // pending resume while a panel is docked; `Workspace.attachDetachedSurface`
+        // re-arms `restoredAgentAutoResumeOnVisitPanelIds` and reinstalls the
+        // resume closure when the panel returns to a workspace, where the next
+        // visit resumes it. Running resume from the Dock would require duplicating
+        // that Workspace machinery here and is intentionally out of scope.
         detachedSurfaceTransfersByPanelId[detached.panelId] = detached
         withCoalescedTerminalViewReattach {
             applyVisibility(to: panel)
