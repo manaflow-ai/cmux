@@ -104,6 +104,15 @@ extension TerminalController {
     /// owner id likewise wins over surface/pane containment; a mismatched
     /// routed surface/pane then fails the downstream `containsPanel`/
     /// `containsPane` guards.
+    ///
+    /// A NON-Dock `workspace_id` deliberately does NOT conflict with Dock
+    /// surface/pane containment here (unlike the browser resolvers'
+    /// `windowDockSelectorsConflict`): the CLI injects the caller's
+    /// `CMUX_WORKSPACE_ID` unconditionally on this command family even with an
+    /// explicit surface UUID (see `close-surface` in cli/cmux.swift), so
+    /// rejecting that combination would break Dock surface targeting from
+    /// every main-area terminal. The globally-unique surface id stays the most
+    /// specific selector, matching the retired Global Dock's semantics.
     func windowDockForRouting(_ routing: ControlRoutingSelectors, tabManager: TabManager) -> DockSplitStore? {
         func matches(_ dock: DockSplitStore) -> Bool {
             !windowDockMismatchesExplicitWindow(routing, dock: dock)
