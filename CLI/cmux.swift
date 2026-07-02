@@ -23574,6 +23574,9 @@ struct CMUXCLI {
                 case "Waiting":
                     notifyCategory = .idleReminder
                     notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
+                case "Completed":
+                    notifyCategory = .turnComplete
+                    notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
                 default:
                     notifyCategory = .other
                     notifyPending = false
@@ -23880,7 +23883,15 @@ struct CMUXCLI {
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
-                    let payload = notificationPayload(title: title, subtitle: waitingSubtitle, body: needsInputBody)
+                    // A question/plan-approval prompt blocks the agent on the user's
+                    // decision, so it gates under "Agent Needs Permission" like the
+                    // interactive permission_prompt path.
+                    let payload = notificationPayload(
+                        title: title,
+                        subtitle: waitingSubtitle,
+                        body: needsInputBody,
+                        meta: notifyMeta(.needsPermission, pending: false)
+                    )
                     _ = try? sendV1Command(
                         "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
                         client: client
