@@ -23273,13 +23273,15 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
+                // Status pill matches lifecycle: live background work shows "Running" (antigravity-lane display).
+                let stopStatusRunning = lifecycleAfterStop == .running
                 try? setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Idle",
-                    icon: "pause.circle.fill",
-                    color: "#8E8E93"
+                    value: stopStatusRunning ? String(localized: "agent.generic.status.running", defaultValue: "Running") : "Idle",
+                    icon: stopStatusRunning ? "bolt.fill" : "pause.circle.fill",
+                    color: stopStatusRunning ? "#4C8DFF" : "#8E8E93"
                 )
                 if let completion {
                     let title = String(
