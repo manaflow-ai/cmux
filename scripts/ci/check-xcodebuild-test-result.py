@@ -33,6 +33,18 @@ crashed or skipped remainder from masking. Real app-host shards reach this
 branch: a non-zero exit with ``Test Suite 'Selected tests' failed at ...`` +
 ``Executed 225 tests, with 9 failures (0 unexpected)`` and no
 ``** TEST SUCCEEDED **``.
+
+The app-host shards also run Swift Testing (``@Test``/``#expect``) beside XCTest.
+Swift Testing reports through its own run-level summary
+(``Test run with N tests in M suites passed/failed``), has no "unexpected"
+concept, and never prints an ``Executed N tests, with M failures (K unexpected)``
+line -- so the XCTest summary scan is structurally blind to it. A Swift Testing
+failure whose XCTest side is clean would therefore be accepted, which is the
+#5641 masking one framework over. So a Swift Testing run whose *failed* run-level
+summary is present fails the check regardless of the XCTest tally. Only that
+run-level summary counts: individual ``✘ Test foo() failed`` events are
+per-attempt and get retried to green on passing shards, so they are not read as
+failures.
 """
 
 from __future__ import annotations
@@ -43,8 +55,16 @@ import sys
 from pathlib import Path
 
 
+# The ``(?:\d+\s+tests?\s+skipped\s+and\s+)?`` group tolerates the skipped-test
+# clause xcodebuild inserts before the failure count when a suite has skips --
+# ``Executed 183 tests, with 1 test skipped and 11 failures (0 unexpected)`` --
+# so the skipped variant still parses to (tests, failures, unexpected). Without
+# it the paired aggregate summary is unparseable and a completed run whose
+# failures are all expected is falsely rejected.
 SUMMARY_RE = re.compile(
-    r"Executed\s+(\d+)\s+tests?,\s+with\s+(\d+)\s+failures?\s+\((\d+)\s+unexpected\)"
+    r"Executed\s+(\d+)\s+tests?,\s+with\s+"
+    r"(?:\d+\s+tests?\s+skipped\s+and\s+)?"
+    r"(\d+)\s+failures?\s+\((\d+)\s+unexpected\)"
 )
 
 # Exit code both CI watchdogs use when they kill xcodebuild.
@@ -80,6 +100,37 @@ PASSED_COMPLETION_RE = re.compile(
 FAILED_COMPLETION_RE = re.compile(
     r"Test Suite '(?:Selected tests|All tests)' failed at "
 )
+
+
+# Swift Testing (the framework behind ``@Test``/``#expect``) runs alongside
+# XCTest in the app-host shards and prints its OWN run-level summary after the
+# whole plan (retries included) settles::
+#
+#     ✔ Test run with 439 tests in 48 suites passed after 40.272 seconds.
+#     ✘ Test run with 439 tests in 48 suites failed after 40.272 seconds with 38 issues.
+#
+# It has no "unexpected" concept and never emits an ``Executed N tests, with M
+# failures (K unexpected)`` line, so the XCTest summary scan above is structurally
+# blind to it: a Swift Testing failure whose XCTest side is clean (0 unexpected)
+# would be accepted -- the #5641 masking, one framework over.
+#
+# Only the *failed* run-level line is a reliable signal. Individual
+# ``✘ Test foo() failed`` / ``recorded an issue`` events are per-attempt and get
+# retried -- a live *passing* shard's log carries a dozen of them with NO failed
+# run-level summary -- so they must NOT be read as failures (that would false-red
+# a shard that actually passed). The run-level summary itself can even be absent
+# on a passing shard (app-host restarts churn the host process), so a missing
+# summary must NOT be treated as an abort either. Matching only the run-level
+# ``failed`` summary rejects a genuinely-failed Swift Testing run while never
+# tripping on a shard that passed.
+SWIFT_TESTING_FAILED_RE = re.compile(
+    r"Test run with \d+ tests? in \d+ suites? failed"
+)
+
+
+def swift_testing_failed(output: str) -> bool:
+    """True when Swift Testing printed a *failed* run-level summary."""
+    return SWIFT_TESTING_FAILED_RE.search(output) is not None
 
 
 def reached_passing_completion(output: str) -> bool:
@@ -141,6 +192,21 @@ def main(argv: list[str]) -> int:
         return 0
 
     output = args.log_path.read_text(encoding="utf-8", errors="replace")
+
+    # Swift Testing runs beside XCTest in these shards but reports through its own
+    # run-level summary, which the XCTest-only scan below cannot see. Gate on its
+    # *failed* run-level summary first so a Swift Testing failure can never be
+    # masked by a clean XCTest tally -- the #5641 masking generalized to the newer
+    # framework. (Only the run-level ``failed`` summary counts: per-attempt
+    # ``✘ Test foo() failed`` events get retried to green on passing shards, so
+    # they are not treated as failures here.)
+    if swift_testing_failed(output):
+        print(
+            "Unexpected test failures detected: Swift Testing reported a failed run "
+            "(its issues carry no XCTest '(N unexpected)' line and would otherwise be "
+            "masked)"
+        )
+        return 1
 
     summaries: list[tuple[int, int, int, str]] = []
     for line in output.splitlines():
