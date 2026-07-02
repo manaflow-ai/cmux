@@ -147,7 +147,7 @@ import Testing
         // emails DO match, so the copy must name the auth-environment cause and
         // the --prod-auth remedy instead of the authFailed "same email" advice
         // (https://github.com/manaflow-ai/cmux/issues/7145).
-        let category = MobilePairingFailureCategory.authEnvironmentMismatch
+        let category = MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: true)
         #expect(category.analyticsReason == "auth_environment_mismatch")
         #expect(category.message.contains("development auth environment"))
         #expect(category.message != MobilePairingFailureCategory.authFailed.message)
@@ -155,6 +155,20 @@ import Testing
         #expect(category.guidance?.contains("--prod-auth") == true)
         // Signing out cannot move the account to another Stack project, so this
         // must not drive the re-auth (Sign Out) prompt.
+        #expect(!category.isAuthorizationFailure)
+    }
+
+    @Test func authEnvironmentMismatchReverseDirectionHasItsOwnCopy() {
+        // A production-auth phone scanning a dev Mac's QR: same per-project
+        // impossibility, opposite direction — the copy must describe the dev
+        // Mac (not claim this build is a dev build) and point at release-Mac
+        // pairing rather than --prod-auth.
+        let category = MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: false)
+        #expect(category.analyticsReason == "auth_environment_mismatch")
+        #expect(category.message.contains("development auth environment"))
+        #expect(category.message != MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: true).message)
+        #expect(!category.message.contains("Make sure both devices are signed in"))
+        #expect(category.guidance?.contains("release cmux app") == true)
         #expect(!category.isAuthorizationFailure)
     }
 
@@ -219,7 +233,8 @@ import Testing
             .accountMismatch,
             .emailMismatch(expected: "mac@example.com", actual: "phone@example.com"),
             .authFailed,
-            .authEnvironmentMismatch,
+            .authEnvironmentMismatch(macChannelIsRelease: true),
+            .authEnvironmentMismatch(macChannelIsRelease: false),
             .ticketExpired,
             .invalidCode,
             .unrecognizedVersion,

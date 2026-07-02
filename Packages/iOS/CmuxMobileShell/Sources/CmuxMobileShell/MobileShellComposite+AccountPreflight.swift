@@ -16,19 +16,19 @@ extension MobileShellComposite {
     /// Stack-token verification.
     ///
     /// A user-id mismatch is explained as
-    /// ``MobilePairingFailureCategory/authEnvironmentMismatch`` only when the
-    /// two auth channels are DECLARED to differ — never inferred from the
-    /// phone alone. The emitting Mac stamps its channel into the pairing URL's
-    /// scheme (release Macs emit ``CmxPairingURLScheme/release``, dev Macs
-    /// ``CmxPairingURLScheme/development``; #6038), so `scannedScheme` is an
-    /// explicit Mac-side signal: a development-auth phone
-    /// (`isDevelopmentAuthEnvironment`) scanning a release-Mac QR can never
-    /// match its production `ub` — Stack user ids are per-project — and gets
-    /// the truthful cross-channel copy
-    /// (https://github.com/manaflow-ai/cmux/issues/7145). Every other mismatch
-    /// (prod phone, dev↔dev with genuinely different accounts, or an unknown
-    /// scheme) keeps ``MobilePairingFailureCategory/authFailed``, so the #6028
-    /// binding and its copy are unchanged on same-channel paths.
+    /// ``MobilePairingFailureCategory/authEnvironmentMismatch(macChannelIsRelease:)``
+    /// only when the two auth channels are DECLARED to differ — never inferred
+    /// from the phone alone. The emitting Mac stamps its channel into the
+    /// pairing URL's scheme (release Macs emit ``CmxPairingURLScheme/release``,
+    /// dev Macs ``CmxPairingURLScheme/development``; #6038), so `scannedScheme`
+    /// is an explicit Mac-side signal, and Stack user ids are per-project so a
+    /// cross-project binding can never match. Both directions are covered: a
+    /// development-auth phone scanning a release-Mac QR (the sideloaded-dogfood
+    /// bug, https://github.com/manaflow-ai/cmux/issues/7145) and a
+    /// production-auth phone scanning a dev-Mac QR. Every same-channel or
+    /// unknown-scheme mismatch keeps
+    /// ``MobilePairingFailureCategory/authFailed``, so the #6028 binding and
+    /// its copy are unchanged there.
     static func emailFailure(
         for ticket: CmxAttachTicket,
         scannedScheme: String?,
@@ -39,12 +39,19 @@ extension MobileShellComposite {
         if let expectedUserID = Self.mobileShellNormalizedNonEmpty(ticket.macUserID) {
             guard let actualUserID = Self.mobileShellNormalizedNonEmpty(actualUserID) else { return nil }
             guard actualUserID == expectedUserID else {
-                let macDeclaresReleaseChannel = scannedScheme.map {
+                let macDeclaresRelease = scannedScheme.map {
                     CmxPairingURLScheme.release.caseInsensitiveCompare($0) == .orderedSame
                 } ?? false
-                return (isDevelopmentAuthEnvironment && macDeclaresReleaseChannel)
-                    ? .authEnvironmentMismatch
-                    : .authFailed
+                let macDeclaresDevelopment = scannedScheme.map {
+                    CmxPairingURLScheme.development.caseInsensitiveCompare($0) == .orderedSame
+                } ?? false
+                if isDevelopmentAuthEnvironment, macDeclaresRelease {
+                    return .authEnvironmentMismatch(macChannelIsRelease: true)
+                }
+                if !isDevelopmentAuthEnvironment, macDeclaresDevelopment {
+                    return .authEnvironmentMismatch(macChannelIsRelease: false)
+                }
+                return .authFailed
             }
             return nil
         }

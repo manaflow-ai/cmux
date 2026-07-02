@@ -47,7 +47,7 @@ import Testing
             isDevelopmentAuthEnvironment: true
         )
 
-        #expect(category == .authEnvironmentMismatch)
+        #expect(category == .authEnvironmentMismatch(macChannelIsRelease: true))
         let message = try #require(category?.message)
         #expect(message.contains("development auth environment"))
         #expect(message != MobilePairingFailureCategory.authFailed.message)
@@ -56,6 +56,27 @@ import Testing
         #expect(category?.analyticsReason == "auth_environment_mismatch")
         // Re-authenticating cannot move the account to another Stack project,
         // so this must not drive the Sign Out re-auth prompt.
+        #expect(category?.isAuthorizationFailure == false)
+    }
+
+    @Test func prodPhoneScanningDevMacQRNamesTheAuthEnvironmentToo() throws {
+        // The reverse direction: a production-auth phone (TestFlight, or a
+        // --prod-auth dev build) scanning a dev Mac's QR (scheme cmux-ios-dev)
+        // hits the same per-project impossibility and must get the truthful
+        // channel copy — not the "same email" advice.
+        let category = MobileShellComposite.emailFailure(
+            for: try ticket(macUserID: "dev-user-id"),
+            scannedScheme: CmxPairingURLScheme.development,
+            actualUserID: "prod-user-id",
+            actualEmail: "same@example.com",
+            isDevelopmentAuthEnvironment: false
+        )
+
+        #expect(category == .authEnvironmentMismatch(macChannelIsRelease: false))
+        let message = try #require(category?.message)
+        #expect(message.contains("development auth environment"))
+        #expect(!message.contains("Make sure both devices are signed in"))
+        #expect(category?.guidance?.contains("release cmux app") == true)
         #expect(category?.isAuthorizationFailure == false)
     }
 
@@ -70,7 +91,7 @@ import Testing
             isDevelopmentAuthEnvironment: true
         )
 
-        #expect(category == .authEnvironmentMismatch)
+        #expect(category == .authEnvironmentMismatch(macChannelIsRelease: true))
     }
 
     @Test func devPhoneScanningDevMacQRMismatchIsAGenuineAccountFailure() throws {

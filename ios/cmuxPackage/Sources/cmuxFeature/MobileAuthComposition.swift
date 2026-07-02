@@ -227,13 +227,15 @@ public struct MobileAuthComposition {
     /// Ordinary upgrades and first launches therefore never clear, while the
     /// FIRST `--prod-auth` launch over a signed-in dev install correctly does
     /// (its cached dev-project identity must not prime under production
-    /// auth). The clear is only requested when local auth state actually
-    /// exists; a fresh container switching projects has nothing stale to
-    /// drop. (Keychain tokens surviving an app reinstall are the one case
-    /// this misses: the defaults — including any cached identity — died with
-    /// the container, so the worst outcome is one failed restore that the
-    /// coordinator's stale-clear path already handles, with no wrong identity
-    /// shown.)
+    /// auth). A recorded project change ALWAYS clears — deliberately not
+    /// gated on the defaults caches being non-empty, because the Stack token
+    /// store is keychain-backed and project-scoped: tokens for the target
+    /// project can outlive empty defaults (a signed-out interlude on another
+    /// channel, or a reinstall), and returning to that project must start
+    /// from a clean slate rather than silently resurrecting an old session.
+    /// Clearing an already-empty state is a no-op, and auto-login is
+    /// unaffected (the clear rides ``AuthLaunchOptions/clearStaleAuthOnLaunch``,
+    /// not the UI-test flag).
     nonisolated static func detectAuthProjectSwitch(
         resolvedProjectID: String,
         buildDefaultProjectID: String,
@@ -241,9 +243,7 @@ public struct MobileAuthComposition {
     ) -> Bool {
         let previous = defaults.string(forKey: storedStackProjectIDKey) ?? buildDefaultProjectID
         defaults.set(resolvedProjectID, forKey: storedStackProjectIDKey)
-        guard previous != resolvedProjectID else { return false }
-        return defaults.bool(forKey: sessionCacheDefaultsKey)
-            || defaults.object(forKey: cachedUserDefaultsKey) != nil
+        return previous != resolvedProjectID
     }
 
     private static var apnsEnvironment: String {

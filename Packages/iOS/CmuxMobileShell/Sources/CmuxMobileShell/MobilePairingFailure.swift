@@ -49,18 +49,23 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// token, or a release-vs-development build mismatch).
     case authFailed
     /// The QR's account binding (`ub`) cannot match because the two auth
-    /// channels differ: this build signs in to cmux's development auth
-    /// environment while the scanned URL's scheme declares a release-channel
-    /// Mac (release Macs emit `cmux-ios`, #6038). Stack user ids are
-    /// per-project, so a development-environment id never equals the
-    /// production id a release Mac stamps into its QR — even for the same
-    /// email. Telling the user to "sign in with the same email" would be
-    /// wrong; the fix is rebuilding the phone app with production auth
-    /// (`ios/scripts/reload.sh --prod-auth`) or pairing with a dev-channel
-    /// Mac (https://github.com/manaflow-ai/cmux/issues/7145). A dev↔dev
-    /// user-id mismatch is a genuine different-account failure and stays
-    /// ``authFailed``.
-    case authEnvironmentMismatch
+    /// channels are DECLARED to differ: the scanned URL's scheme names the
+    /// Mac's channel (release Macs emit `cmux-ios`, dev Macs `cmux-ios-dev`,
+    /// #6038) and it is the opposite of this build's resolved auth
+    /// environment. Stack user ids are per-project, so a development-project
+    /// id never equals a production-project id — even for the same email.
+    /// Telling the user to "sign in with the same email" would be wrong; the
+    /// copy names the actual channel conflict per direction
+    /// (https://github.com/manaflow-ai/cmux/issues/7145). Same-channel
+    /// (dev↔dev, prod↔prod) user-id mismatches are genuine different-account
+    /// failures and stay ``authFailed``.
+    ///
+    /// `macChannelIsRelease` is the direction: `true` = development-auth
+    /// phone scanning a release Mac's QR (the sideloaded-dogfood bug; remedy
+    /// `--prod-auth`), `false` = production-auth phone (TestFlight/App Store,
+    /// or a `--prod-auth` dev build) scanning a dev Mac's QR (remedy: pair
+    /// with a release Mac, or use a development-auth phone build).
+    case authEnvironmentMismatch(macChannelIsRelease: Bool)
     /// The pairing link/QR expired; a fresh one is needed.
     case ticketExpired
     /// The scanned/typed input was not a pairing QR cmux recognizes (malformed,
@@ -213,10 +218,16 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.authorizationFailed",
                 defaultValue: "Couldn't verify your account with this Mac. Make sure both devices are signed in with the same email, then try again."
             )
-        case .authEnvironmentMismatch:
+        case let .authEnvironmentMismatch(macChannelIsRelease):
+            if macChannelIsRelease {
+                return L10n.string(
+                    "mobile.pairing.authEnvironmentMismatch",
+                    defaultValue: "This dev build is signed in to cmux's development auth environment, so its account can never match a Mac running the release app — even with the same email."
+                )
+            }
             return L10n.string(
-                "mobile.pairing.authEnvironmentMismatch",
-                defaultValue: "This dev build is signed in to cmux's development auth environment, so its account can never match a Mac running the release app — even with the same email."
+                "mobile.pairing.authEnvironmentMismatch.devMac",
+                defaultValue: "This iPhone uses cmux's production sign-in, but this Mac runs a dev build on the development auth environment, so their accounts can never match — even with the same email."
             )
         case .ticketExpired:
             return L10n.string(
@@ -289,10 +300,16 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.sameAccount",
                 defaultValue: "Both devices must be signed in to the same cmux account."
             )
-        case .authEnvironmentMismatch:
+        case let .authEnvironmentMismatch(macChannelIsRelease):
+            if macChannelIsRelease {
+                return L10n.string(
+                    "mobile.pairing.guidance.authEnvironment",
+                    defaultValue: "Rebuild this app with production auth (ios/scripts/reload.sh --prod-auth), or pair with a dev-channel Mac signed in to the same account."
+                )
+            }
             return L10n.string(
-                "mobile.pairing.guidance.authEnvironment",
-                defaultValue: "Rebuild this app with production auth (ios/scripts/reload.sh --prod-auth), or pair with a dev-channel Mac signed in to the same account."
+                "mobile.pairing.guidance.authEnvironment.devMac",
+                defaultValue: "Pair with a Mac running the release cmux app, or use a development-auth iPhone build (ios/scripts/reload.sh without --prod-auth) for dev Macs."
             )
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(
