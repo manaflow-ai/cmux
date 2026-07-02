@@ -214,16 +214,20 @@ private struct UpdatePillPopoverAnchor: NSViewRepresentable {
 /// Menu item that shows "Install Update and Relaunch" when an update is ready.
 public struct InstallUpdateMenuItem: View {
     private let model: UpdateStateModel
+    private let actions: any UpdateActionsHost
 
     /// Creates the menu item for `model`.
-    public init(model: UpdateStateModel) {
+    public init(model: UpdateStateModel, actions: any UpdateActionsHost) {
         self.model = model
+        self.actions = actions
     }
 
     public var body: some View {
         if model.state.isInstallable {
             Button(String(localized: "update.installAndRelaunch", defaultValue: "Install Update and Relaunch")) {
-                model.state.confirm()
+                // Re-resolve to the latest available version before installing rather than
+                // installing the version that was current when this menu item appeared (#6366).
+                actions.attemptUpdate()
             }
         }
     }
