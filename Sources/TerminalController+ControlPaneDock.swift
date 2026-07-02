@@ -8,6 +8,7 @@ extension TerminalController {
     /// main area, splitting the Dock's own Bonsplit tree. Browser-disabled is
     /// handled by `controlPaneCreate` before this is reached.
     func dockPaneCreate(
+        routing: ControlRoutingSelectors,
         tabManager: TabManager,
         panelType: PanelType,
         url: URL?,
@@ -28,6 +29,9 @@ extension TerminalController {
         guard let app = AppDelegate.shared,
               let dock = app.windowDock(for: tabManager) else {
             return .workspaceNotFound
+        }
+        guard !windowDockCreateRoutingConflicts(routing, dock: dock) else {
+            return .dockConflictingRoutingSelectors(message: dockConflictingRoutingSelectorsMessage())
         }
         // An explicit source surface must live in the Dock tree; do not silently
         // fall back to another Dock pane (mirrors the workspace `.noSourceSurface`).

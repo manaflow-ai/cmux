@@ -319,6 +319,7 @@ extension TerminalController: ControlPaneContext {
 
         if case .dock = placement {
             return dockPaneCreate(
+                routing: routing,
                 tabManager: tabManager,
                 panelType: panelType,
                 url: url,

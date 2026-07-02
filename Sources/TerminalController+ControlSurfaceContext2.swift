@@ -321,6 +321,7 @@ extension TerminalController {
 
         if case .dock = placement {
             return dockSurfaceCreate(
+                routing: routing,
                 tabManager: tabManager,
                 panelType: panelType,
                 url: url,

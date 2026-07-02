@@ -29,6 +29,7 @@ extension TerminalController {
     /// Creates a surface (tab) in the routed window's right-sidebar Dock. The
     /// Dock hosts terminal and browser surfaces only; agent-session is unsupported.
     func dockSurfaceCreate(
+        routing: ControlRoutingSelectors,
         tabManager: TabManager,
         panelType: PanelType,
         url: URL?,
@@ -43,6 +44,9 @@ extension TerminalController {
         guard let app = AppDelegate.shared,
               let dock = app.windowDock(for: tabManager) else {
             return .workspaceNotFound
+        }
+        guard !windowDockCreateRoutingConflicts(routing, dock: dock) else {
+            return .dockConflictingRoutingSelectors(message: dockConflictingRoutingSelectorsMessage())
         }
         guard let paneId = dock.resolvePane(requestedPaneID: inputs.requestedPaneID) else {
             return .paneNotFound
@@ -121,7 +125,8 @@ extension TerminalController {
         }
         if let workspaceID = routing.workspaceID {
             if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
-                return AppDelegate.shared?.windowDock(for: tabManager)
+                guard let dock = AppDelegate.shared?.windowDock(for: tabManager) else { return nil }
+                return matches(dock) ? dock : nil
             }
             if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: workspaceID) {
                 return matches(dock) ? dock : nil
@@ -174,6 +179,13 @@ extension TerminalController {
               workspaceID != AppDelegate.windowDockAliasWorkspaceId,
               AppDelegate.shared?.existingWindowDock(forWindowId: workspaceID) != nil else { return false }
         return workspaceID != dock.workspaceId
+    }
+
+    /// Whether a Dock create request carries explicit selectors that name a
+    /// different window Dock than the one the create path resolved. Create has
+    /// no post-mutation containment guard, so reject these before adding panels.
+    func windowDockCreateRoutingConflicts(_ routing: ControlRoutingSelectors, dock: DockSplitStore) -> Bool {
+        windowDockMismatchesExplicitSelectors(routing, dock: dock)
     }
 
     /// Focuses the Dock's owning window, makes it the active manager, and

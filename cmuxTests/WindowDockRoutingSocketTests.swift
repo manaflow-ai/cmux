@@ -233,6 +233,16 @@ struct WindowDockRoutingSocketTests {
                 "pane_id": otherPane.id.uuidString,
             ])
             #expect(readPaneConflict["ok"] as? Bool == false)
+            let aliasSurfaceConflict = try v2Envelope(method: "surface.list", params: [
+                "workspace_id": AppDelegate.windowDockAliasWorkspaceId.uuidString,
+                "surface_id": otherDockSurfaceId.uuidString,
+            ])
+            #expect(aliasSurfaceConflict["ok"] as? Bool == false)
+            let aliasPaneConflict = try v2Envelope(method: "pane.list", params: [
+                "workspace_id": AppDelegate.windowDockAliasWorkspaceId.uuidString,
+                "pane_id": otherPane.id.uuidString,
+            ])
+            #expect(aliasPaneConflict["ok"] as? Bool == false)
 
             // A workspace_id naming a NON-Dock scope contradicts a Dock surface
             // selector the same way.
@@ -261,6 +271,35 @@ struct WindowDockRoutingSocketTests {
             #expect(focusResult["window_id"] as? String == activeWindowId.uuidString)
             #expect(focusResult["workspace_id"] as? String == activeWindowId.uuidString)
             #expect(activeWindowDock.focusedPanelId == dockSurfaceId)
+
+            // Dock creates mutate immediately, so contradictory owner selectors
+            // must be rejected before adding panels to either Dock.
+            let activeDockPanelCount = activeWindowDock.panels.count
+            let otherDockPanelCount = otherWindowDock.panels.count
+            let conflictingSurfaceCreate = try v2Envelope(method: "surface.create", params: [
+                "placement": "dock",
+                "type": "terminal",
+                "window_id": activeWindowId.uuidString,
+                "workspace_id": dockWindowId.uuidString,
+            ])
+            #expect(conflictingSurfaceCreate["ok"] as? Bool == false)
+            let surfaceCreateError = try #require(conflictingSurfaceCreate["error"] as? [String: Any])
+            #expect(surfaceCreateError["code"] as? String == "invalid_params")
+            #expect(activeWindowDock.panels.count == activeDockPanelCount)
+            #expect(otherWindowDock.panels.count == otherDockPanelCount)
+
+            let conflictingPaneCreate = try v2Envelope(method: "pane.create", params: [
+                "placement": "dock",
+                "type": "terminal",
+                "direction": "right",
+                "window_id": activeWindowId.uuidString,
+                "workspace_id": dockWindowId.uuidString,
+            ])
+            #expect(conflictingPaneCreate["ok"] as? Bool == false)
+            let paneCreateError = try #require(conflictingPaneCreate["error"] as? [String: Any])
+            #expect(paneCreateError["code"] as? String == "invalid_params")
+            #expect(activeWindowDock.panels.count == activeDockPanelCount)
+            #expect(otherWindowDock.panels.count == otherDockPanelCount)
 
             let closeAction = KeyboardShortcutSettings.Action.closeTab
             let hadCloseShortcut = UserDefaults.standard.object(forKey: closeAction.defaultsKey) != nil
