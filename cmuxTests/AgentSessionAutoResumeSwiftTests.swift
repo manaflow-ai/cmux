@@ -175,6 +175,95 @@ struct AgentSessionAutoResumeSwiftTests {
         }
     }
 
+    /// Regression for #7155: while a restored auto-resumed agent (e.g. Claude)
+    /// still holds the pane's foreground, the shell never reaches a prompt, so
+    /// the pane's tracked cwd cannot self-correct. The restore guard (#6617)
+    /// swallows only the FIRST spurious post-restore report; any later stray
+    /// report parks the tracked cwd on the surface default (home) for the rest
+    /// of the resumed run. A ⌘D split from that pane must still inherit the
+    /// directory the resumed session lives in, not the clobbered home value.
+    @MainActor
+    @Test func splitFromResumedAgentPaneInheritsSessionCwdWhenTrackedCwdClobbered() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-split-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId, _) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
+                projectDir: projectDir
+            )
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == projectDir)
+        }
+    }
+
+    /// Same clobbered field state as the split test, exercised through the
+    /// shared resolver's ⌘T entrypoint: a new tab in the focused pane must also
+    /// inherit the resumed session's directory (#7155).
+    @MainActor
+    @Test func newTabFromResumedAgentPaneInheritsSessionCwdWhenTrackedCwdClobbered() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-newtab-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, _, _) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
+                projectDir: projectDir
+            )
+
+            let created = try #require(restored.newTerminalSurfaceInFocusedPane(focus: false))
+            #expect(created.requestedWorkingDirectory == projectDir)
+        }
+    }
+
+    /// Restores a workspace whose focused pane auto-resumes a Claude session in
+    /// `projectDir`, then clobbers the pane's tracked cwd the way #7155 hits it
+    /// in the field: the one-shot #6617 guard swallows the first spurious home
+    /// report, and a second stray report then lands home in `panelDirectories`
+    /// (and the workspace cwd) with no prompt left to repair it while the
+    /// resumed agent keeps the foreground.
+    @MainActor
+    private func restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
+        projectDir: String
+    ) throws -> (workspace: Workspace, panelId: UUID, homeDirectory: String) {
+        let (restored, restoredPanelId) = try restoreWorkspaceWithAutoResumedClaudeAgent(
+            savedDirectory: projectDir
+        )
+        try #require(
+            restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning
+        )
+
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+        try #require(homeDir != projectDir)
+
+        // First spurious report: swallowed by the one-shot #6617 guard.
+        restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeDir)
+        try #require(restored.panelDirectories[restoredPanelId] == projectDir)
+
+        // Second stray report: the guard is spent, so home lands in every
+        // tracked record while the resumed agent still runs in `projectDir`.
+        restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeDir)
+        try #require(restored.panelDirectories[restoredPanelId] == homeDir)
+        try #require(restored.currentDirectory == homeDir)
+
+        return (restored, restoredPanelId, homeDir)
+    }
+
+    private func makeTemporaryProjectDirectory(prefix: String) throws -> String {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+            .path
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        return path
+    }
+
     /// Builds a workspace whose focused terminal hosts an auto-resumable Claude
     /// agent-hook session rooted at `savedDirectory`, snapshots it, and restores
     /// it into a fresh workspace. Returns the restored workspace and the restored
