@@ -223,8 +223,15 @@ public struct WorkspaceColorsSection: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
+                // When a state is cleared (`currentHex == nil`) the resolver
+                // applies no tint, so the swatch shows a neutral gray that
+                // matches the "No tint" label instead of falling back to the
+                // built-in default hex — otherwise a cleared running/needsInput
+                // row would still display its orange/blue default swatch while
+                // the label and the sidebar both say no tint. "Reset" restores
+                // the default.
                 ColorPicker("", selection: Binding(
-                    get: { Color(cmuxHex: currentHex ?? row.defaultHex ?? "#8E8E93") ?? Color(nsColor: .systemBlue) },
+                    get: { Color(cmuxHex: currentHex ?? "#8E8E93") ?? Color(nsColor: .systemBlue) },
                     set: { newColor in setStateColor(newColor.cmuxHexString, for: row.rawValue) }
                 ), supportsOpacity: false)
                 .labelsHidden()
