@@ -187,6 +187,8 @@ extension TerminalController {
             guard dock.panels[surfaceId] != nil else {
                 return .surfaceNotFound(surfaceId)
             }
+            // `surface.trigger_flash` is not focus intent: flash a visible Dock
+            // panel if it is already rendered, but never reveal/raise its window.
             dock.triggerFocusFlash(panelId: surfaceId)
             return .flashed(
                 windowID: dockResultWindowId(for: dock, tabManager: tabManager),

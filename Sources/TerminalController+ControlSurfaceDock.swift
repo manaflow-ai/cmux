@@ -169,14 +169,6 @@ extension TerminalController {
         return owningTabManager
     }
 
-    /// Focus-allowance-respecting variant of `focusAndRevealWindowDock` for
-    /// flash-style operations: window focus stays behind `v2MaybeFocusWindow`.
-    func maybeFocusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) {
-        let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
-        v2MaybeFocusWindow(for: owningTabManager)
-        revealDockForFocus(tabManager: owningTabManager)
-    }
-
     /// The window-Dock branch of `controlSurfaceClose`: closes the routed
     /// Dock's resolved surface and reports the Dock's owning window. Returns
     /// `nil` when the routing does not target a window Dock (the caller falls

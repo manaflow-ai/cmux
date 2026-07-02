@@ -244,6 +244,52 @@ struct AppDelegateRenameShortcutContextTests {
         }
     }
 
+    @Test func focusedWindowDockBrowserCmdRUsesReloadShortcut() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+            BrowserAvailabilitySettings.setDisabled(false)
+            defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let pane = try #require(dock.resolvePane(requestedPaneID: nil))
+            let browserPanelId = try #require(dock.newSurface(kind: .browser, inPane: pane, focus: true))
+            let browserPanel = try #require(dock.browserPanel(for: browserPanelId))
+
+            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
+            #expect(dock.focusedPanelId == browserPanelId)
+
+            let browserReloadPosted = ShortcutNotificationFlag()
+            let browserReloadToken = NotificationCenter.default.addObserver(
+                forName: .debugBrowserReloadShortcutInvoked,
+                object: browserPanel,
+                queue: nil
+            ) { _ in
+                browserReloadPosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(browserReloadToken) }
+
+            let event = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command],
+                keyCode: 15,
+                windowNumber: window.windowNumber
+            ))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(browserReloadPosted.wasPosted)
+        }
+    }
+
     @Test func reactGrabShortcutRoutesFromFocusedTerminalToSingleBrowserPane() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
