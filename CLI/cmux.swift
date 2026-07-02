@@ -23534,6 +23534,14 @@ struct CMUXCLI {
                 notifyCategory = .other
                 notifyPending = false
             }
+
+            // An idle reminder while background work is still pending is not a
+            // real "waiting for input" state: the pane is still running (the Stop
+            // hook set it to Running) and the app suppresses this banner. Skip the
+            // "Needs input" pill/lifecycle so the idle nag can't undo the Running
+            // status; the app still gates the (tagged) notification itself.
+            let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
+
             let payload = notificationPayload(
                 title: title,
                 subtitle: summary.subtitle,
@@ -23541,7 +23549,7 @@ struct CMUXCLI {
                 meta: notifyMeta(notifyCategory, pending: notifyPending)
             )
 
-            if let sessionId = parsedInput.sessionId {
+            if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -23554,21 +23562,23 @@ struct CMUXCLI {
                 )
             }
 
-            setAgentLifecycle(
-                client: client,
-                key: Self.claudeCodeStatusKey,
-                lifecycle: .needsInput,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
-            _ = try? setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF", pid: claudePid
-            )
+            if !suppressNeedsInputState {
+                setAgentLifecycle(
+                    client: client,
+                    key: Self.claudeCodeStatusKey,
+                    lifecycle: .needsInput,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+                _ = try? setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    value: "Needs input",
+                    icon: "bell.fill",
+                    color: "#4C8DFF", pid: claudePid
+                )
+            }
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
 
