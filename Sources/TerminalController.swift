@@ -12533,6 +12533,12 @@ class TerminalController {
             // as the FULL `c=<category>;p=<0|1>` grammar. Anything else — including
             // a legacy body that happens to contain "|c=..." — is folded back into
             // the body so pre-meta callers parse byte-identically to before.
+            // Conscious tradeoff: this reserves the exact trailing grammar
+            // "|c=<known-category>;p=<0|1>" in notify payloads. A legacy body
+            // deliberately ending in that full form would be reinterpreted as
+            // metadata; accepted because the only producers are cmux's own agent
+            // hooks (whose fields are |-sanitized) and the collision requires an
+            // exact, valid category+flag suffix.
             let candidate = parts[3].trimmingCharacters(in: .whitespacesAndNewlines)
             if candidate.hasPrefix("c="), let parsed = AgentNotificationMeta(meta: candidate) {
                 meta = parsed

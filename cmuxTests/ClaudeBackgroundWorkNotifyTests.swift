@@ -154,6 +154,37 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "permission_prompt must tag needs-permission; saw \(context.state.snapshot())")
     }
 
+    @Test func notificationWithoutTypeFallsBackToCueClassification() throws {
+        // Older claude clients omit notification_type; the permission cue in the
+        // message must still gate the alert under "Agent Needs Permission".
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "notif-cue")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-notif-cue",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-notif-cue",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+        let result = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"notif-cue-session","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude needs your permission to run a tool"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(result)
+        #expect(notifyLine(context.state.snapshot(), containing: "c=needs-permission;p=0") != nil,
+                "Permission-cue notification without notification_type must tag needs-permission; saw \(context.state.snapshot())")
+    }
+
     @Test func idlePromptAfterPendingStopReadsCachedPending() throws {
         // Stop (pending) then idle_prompt on the SAME session: the idle nag must
         // inherit the cached pending flag because its payload lacks background_tasks.

@@ -23479,6 +23479,12 @@ struct CMUXCLI {
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
             var summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
+            // The classifier's subtitle is a stable internal literal ("Permission",
+            // "Waiting", "Error", "Completed", "Attention" — see
+            // classifyClaudeNotification). Capture it before the saved-body swap
+            // below so payloads without a notification_type field (older claude
+            // clients, nested payloads) can still gate under the right setting.
+            let classifiedSubtitle = summary.subtitle
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
@@ -23548,8 +23554,20 @@ struct CMUXCLI {
                 notifyCategory = .idleReminder
                 notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
             default:
-                notifyCategory = .other
-                notifyPending = false
+                // No (or unknown) notification_type: fall back to the summarizer's
+                // cue classification so older clients still gate under the right
+                // setting. Unclassified alerts stay .other and always deliver.
+                switch classifiedSubtitle {
+                case "Permission":
+                    notifyCategory = .needsPermission
+                    notifyPending = false
+                case "Waiting":
+                    notifyCategory = .idleReminder
+                    notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
+                default:
+                    notifyCategory = .other
+                    notifyPending = false
+                }
             }
 
             // An idle reminder while background work is still pending is not a
