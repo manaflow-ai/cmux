@@ -374,6 +374,9 @@ extension Workspace {
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
             recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
+            if let recordedIdentity = runtimeState.agentPIDProcessIdentities[key] {
+                agentPIDProcessIdentitiesByKey[key] = recordedIdentity
+            }
             didAdoptAgentPID = true
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {

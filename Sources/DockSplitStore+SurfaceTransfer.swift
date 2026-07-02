@@ -50,7 +50,15 @@ extension DockSplitStore {
         } else {
             liveTerminalDirectory = nil
         }
-        let detachedDirectory = liveTerminalDirectory ?? preservedTransfer?.directory
+        let detachedDirectory: String?
+        var liveTerminalDirectoryIsDirectory: ObjCBool = false
+        if let liveTerminalDirectory,
+           FileManager.default.fileExists(atPath: liveTerminalDirectory, isDirectory: &liveTerminalDirectoryIsDirectory),
+           liveTerminalDirectoryIsDirectory.boolValue {
+            detachedDirectory = liveTerminalDirectory
+        } else {
+            detachedDirectory = preservedTransfer?.directory
+        }
         // Agent resume metadata can likewise go stale while docked (the Dock
         // receives no shell-activity or agent lifecycle updates), so re-emit
         // it only while the agent is not proven dead: recorded agent pids

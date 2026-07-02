@@ -39,6 +39,35 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
+    @Test func detachedAgentRuntimeAdoptionPreservesSavedPIDIdentity() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let pidKey = "claude_code.detached-reused-pid"
+        let livePid = getpid()
+        let currentIdentity = try #require(Workspace.agentPIDProcessIdentity(pid: livePid))
+        let savedIdentity = AgentPIDProcessIdentity(
+            pid: livePid,
+            startSeconds: currentIdentity.startSeconds &- 1,
+            startMicroseconds: currentIdentity.startMicroseconds
+        )
+
+        workspace.adoptDetachedAgentRuntimeState(
+            Workspace.DetachedAgentRuntimeState(
+                panelId: panelId,
+                statusEntries: [:],
+                agentPIDs: [pidKey: livePid],
+                agentPIDProcessIdentities: [pidKey: savedIdentity],
+                agentPIDKeys: [pidKey]
+            )
+        )
+
+        #expect(workspace.agentPIDProcessIdentitiesByKey[pidKey] == savedIdentity)
+        #expect(workspace.clearStaleAgentPIDs(panelId: panelId, refreshPorts: false))
+        #expect(workspace.agentPIDs[pidKey] == nil)
+        #expect(workspace.agentPIDProcessIdentitiesByKey[pidKey] == nil)
+    }
+
+    @MainActor
     @Test func claudeAgentHookResumeBindingRestoresFromLaunchCwdWhenRuntimeCwdDrifted() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
