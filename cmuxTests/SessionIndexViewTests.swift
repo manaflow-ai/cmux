@@ -245,13 +245,25 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    /// Reverses `CodexResumeRetryShell.wrappedCommand`, recovering the inner
+    /// launched command from the `/bin/zsh -lc '<retry script>'` wrapper. The
+    /// retry script runs the wrapped command as a single
+    /// `{ <command>; } 2>"$_cmux_codex_retry_pipe"` launch line, so we strip the
+    /// outer zsh quoting and then extract `<command>` from that line.
     static func unwrapRetryWrappedShellCommand(_ command: String) -> String {
         let prefix = "/bin/zsh -lc "
         guard command.hasPrefix(prefix) else { return command }
         var quoted = String(command.dropFirst(prefix.count))
         guard quoted.hasPrefix("'"), quoted.hasSuffix("'") else { return quoted }
         quoted = String(quoted.dropFirst().dropLast())
-        return quoted.replacingOccurrences(of: "'\\''", with: "'")
+        let script = quoted.replacingOccurrences(of: "'\\''", with: "'")
+        let launchSuffix = "; } 2>\"$_cmux_codex_retry_pipe\""
+        guard let suffixRange = script.range(of: launchSuffix) else { return script }
+        let beforeSuffix = script[..<suffixRange.lowerBound]
+        guard let braceRange = beforeSuffix.range(of: "{ ", options: .backwards) else {
+            return script
+        }
+        return String(beforeSuffix[braceRange.upperBound...])
     }
 
     /// Reverses `AgentResumeArgv.portableCodexResumeShellCommand`, recovering the

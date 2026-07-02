@@ -359,10 +359,16 @@ struct SessionEntry: Identifiable, Hashable {
             if let effort, !effort.isEmpty {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
+            // Mirror the claude case: the wrapper-resolver token lives *inside*
+            // `parts[0]` ("<token> resume <id>"), so it must reach the shell
+            // unquoted. `portableCodexResumeShellCommand` wraps the joined command
+            // in `/bin/sh -c '…'` (leaving the token's command substitution live),
+            // whereas `renderedPortableCodexResumeShellCommand` single-quotes each
+            // part — which would neutralize the token. Keep the cwd guard outside
+            // the retry shell in `resumeCommandWithCwd`.
             return CodexResumeRetryShell().wrappedCommand(
-                AgentResumeArgv.renderedPortableCodexResumeShellCommand(
-                    parts: parts,
-                    quote: Self.shellSingleQuote
+                AgentResumeArgv.portableCodexResumeShellCommand(
+                    posixCommand: parts.joined(separator: " ")
                 ),
                 quote: Self.shellSingleQuote
             )
