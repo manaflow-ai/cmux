@@ -117,6 +117,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private var composerController: UIHostingController<TerminalComposerView>?
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
+        /// Serializes the natural-grid viewport reports and their echoes. One
+        /// detached Task per report (the previous shape) let Task scheduling
+        /// scramble the send order AND let the echo of an old keyboard-up
+        /// report resolve after the newer keyboard-down echo, permanently
+        /// re-pinning the phone to the stale smaller grid (empty space above
+        /// the terminal). Built on attach, torn down on detach.
+        private var viewportReportScheduler: TerminalViewportReportScheduler?
         /// Bumped on every mount/unmount transition so a deferred close completion
         /// can tell whether it is still the latest transition. Guards the
         /// close-then-quickly-reopen race: an interrupted close animation still runs
@@ -134,6 +141,40 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceView = surfaceView
             guard let store else { return }
             let surfaceID = surfaceID
+            viewportReportScheduler = TerminalViewportReportScheduler(
+                send: { [weak self] report in
+                    guard let self, let store = self.store else { return nil }
+                    return await store.updateTerminalViewport(
+                        surfaceID: self.surfaceID,
+                        columns: report.columns,
+                        rows: report.rows
+                    )
+                },
+                apply: { [weak self, weak surfaceView] report, effectiveGrid in
+                    guard let self, let surfaceView else { return }
+                    guard let effectiveGrid else {
+                        // No effective grid came back (RPC timed out or
+                        // returned nil). Left unhandled, the render stays
+                        // pinned to the prior effective grid and looks like a
+                        // frozen / letterboxed terminal even though the main
+                        // thread is fine. Re-arm the report so a transient
+                        // drop self-heals (bounded inside the surface).
+                        MobileDebugLog.anchormux(
+                            "zoom.viewport.noEffective grid=\(report.columns)x\(report.rows)"
+                        )
+                        surfaceView.retryViewportReport()
+                        return
+                    }
+                    surfaceView.markViewportReportConfirmed()
+                    if case .remoteGrid = self.activeViewportPolicy {
+                        surfaceView.applyConfirmedViewSize(
+                            cols: effectiveGrid.columns,
+                            rows: effectiveGrid.rows,
+                            reportID: report.id
+                        )
+                    }
+                }
+            )
             // Drive every output chunk into the libghostty surface. Ending this
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
@@ -209,6 +250,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask = nil
             liveFontTask?.cancel()
             liveFontTask = nil
+            viewportReportScheduler?.cancel()
+            viewportReportScheduler = nil
         }
 
         // MARK: - Composer band hosting
@@ -344,39 +387,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
             // Report our natural grid to the Mac. The output stream decides
             // whether the phone should keep that natural grid (primary screen)
             // or pin to the Mac grid (alternate-screen render-grid replay).
+            // The scheduler serializes the RPCs (send order = report order,
+            // so the PTY settles on the NEWEST grid) and drops echoes whose
+            // report was superseded while in flight; the surface additionally
+            // rejects any echo whose reportID is no longer the newest.
             guard size.columns > 0, size.rows > 0 else { return }
-            Task { @MainActor [weak self, weak surfaceView] in
-                guard let self, let store = self.store else { return }
-                guard let effectiveGrid = await store.updateTerminalViewport(
-                    surfaceID: self.surfaceID,
-                    columns: size.columns,
-                    rows: size.rows
-                ) else {
-                    // No effective grid came back (RPC timed out or returned
-                    // nil). Left unhandled, the render stays pinned to the prior
-                    // effective grid and looks like a frozen / letterboxed
-                    // terminal even though the main thread is fine. Re-arm the
-                    // report so a transient drop self-heals (bounded inside the
-                    // surface). Logged so the dogfood log still distinguishes
-                    // this from a true main-thread wedge.
-                    MobileDebugLog.anchormux("zoom.viewport.noEffective grid=\(size.columns)x\(size.rows)")
-                    surfaceView?.retryViewportReport()
-                    return
-                }
-                if case .remoteGrid = self.activeViewportPolicy {
-                    surfaceView?.applyConfirmedViewSize(
-                        cols: effectiveGrid.columns,
-                        rows: effectiveGrid.rows,
-                        matchingReportedSize: size
-                    )
-                } else {
-                    surfaceView?.markViewportReportConfirmed(matchingReportedSize: size)
-                }
-            }
+            viewportReportScheduler?.submit(
+                .init(id: reportID, columns: size.columns, rows: size.rows)
+            )
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {
