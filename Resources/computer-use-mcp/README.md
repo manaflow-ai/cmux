@@ -64,6 +64,17 @@ Inside the cmux app bundle the script is at
 `cmux.app/Contents/Resources/cmux-computer-use-mcp.mjs`; in this repo it is
 `Resources/computer-use-mcp/cmux-computer-use-mcp.mjs`.
 
+## Per-app approvals
+
+Codex Computer Use asks the human before controlling each app. This server
+keeps that: the engine's approval elicitation ("Allow Codex to use
+Calculator?") is forwarded to the MCP client as a standard MCP
+`elicitation/create`, so in an interactive Claude session the user sees a
+native Accept/Decline prompt. Clients that never declared elicitation support
+get a fail-closed decline, and headless runs (`claude -p`) cancel the prompt —
+unattended automation must consciously opt in with `CMUX_CU_AUTO_APPROVE=1`.
+Approvals live in the engine per app for the lifetime of the MCP session.
+
 ## Config (env)
 
 - `CMUX_CU_CODEX` — path to the codex binary. Default: `codex` on PATH
@@ -74,6 +85,8 @@ Inside the cmux app bundle the script is at
 - `CMUX_CU_TIMEOUT_MS` — per-command timeout (default `180000`).
 - `CMUX_CU_MAX_TREE` — max AX-tree characters returned by `computer_state`
   (default `60000`).
+- `CMUX_CU_AUTO_APPROVE=1` — pre-approve the engine's per-app control
+  elicitations (headless automation only; see "Per-app approvals").
 
 ## Tools (12)
 

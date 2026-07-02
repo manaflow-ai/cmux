@@ -51,6 +51,11 @@ function positiveIntegerEnv(name, fallback) {
 
 const TIMEOUT_MS = positiveIntegerEnv("CMUX_CU_TIMEOUT_MS", 180000);
 const MAX_TREE = positiveIntegerEnv("CMUX_CU_MAX_TREE", 60000);
+// Explicit opt-in for headless automation: pre-approve the engine's per-app
+// control elicitations instead of forwarding them to the MCP client. Headless
+// clients (e.g. `claude -p`) cannot show the approval prompt and cancel it,
+// so unattended runs need this consciously set.
+const AUTO_APPROVE = process.env.CMUX_CU_AUTO_APPROVE === "1";
 const CODEX_APP_BINARY = "/Applications/Codex.app/Contents/Resources/codex";
 
 async function isExecutable(path) {
@@ -193,15 +198,27 @@ class AppServerSession {
       return;
     }
     // Server -> client request: answer like a non-interactive Codex client.
-    // Computer-use control elicitations are accepted (that IS the tool's
-    // purpose); command/file approvals are declined — this server only ever
-    // drives the computer-use MCP, never shell or patch tools.
+    // Computer-use approval elicitations are forwarded to the MCP client so
+    // the human keeps the same per-app approval Codex Computer Use shows
+    // (fail closed when the client cannot prompt); command/file approvals are
+    // declined — this server only ever drives the computer-use MCP, never
+    // shell or patch tools.
     if (message.method && message.id != null) {
+      if (message.method === "mcpServer/elicitation/request") {
+        Promise.resolve()
+          .then(() => forwardElicitationToClient(message.params))
+          .catch(() => ({ action: "decline" }))
+          .then((result) => {
+            try {
+              this.write({ id: message.id, result });
+            } catch {
+              // session died while the user was deciding; nothing to answer
+            }
+          });
+        return;
+      }
       let result = {};
       switch (message.method) {
-        case "mcpServer/elicitation/request":
-          result = { action: "accept", content: {} };
-          break;
         case "item/permissions/requestApproval":
           result = { permissions: {}, scope: "turn" };
           break;
@@ -601,8 +618,13 @@ const TOOLS = [
       if (result?.isError) return { content: result.content ?? [text("(error)")], isError: true };
       const s = await session();
       // Screenshot-only capture: the agent sees the image but NOT the element
-      // table, so this binds the app without authorizing element indices.
-      if (s.alive) s.boundApps.add(app);
+      // table this get_app_state just rebuilt, so bind the app and REVOKE any
+      // earlier element-index authorization — the agent's indices refer to a
+      // table that no longer exists.
+      if (s.alive) {
+        s.boundApps.add(app);
+        s.snapshotApps.delete(app);
+      }
       const image = firstImage(result);
       return ok(image ? [image] : [text("(captured, no image)")]);
     },
@@ -755,10 +777,50 @@ function mcpError(id, code, message) {
   process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } })}\n`);
 }
 
+// ---- Server -> client requests (elicitation forwarding) ----
+
+let clientSupportsElicitation = false;
+let nextOutboundId = 1;
+const outboundPending = new Map();
+
+function mcpClientRequest(method, params) {
+  return new Promise((resolve, reject) => {
+    const id = `cu-${nextOutboundId++}`;
+    const timer = setTimeout(() => {
+      outboundPending.delete(id);
+      reject(new Error(`${method} to the MCP client timed out after ${TIMEOUT_MS}ms`));
+    }, TIMEOUT_MS);
+    outboundPending.set(id, { resolve, reject, timer });
+    process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+  });
+}
+
+// Computer Use's per-app approval arrives as `mcpServer/elicitation/request`
+// (message + MCP-shaped requestedSchema). Forward it as a real MCP
+// `elicitation/create` so the human approves in their own agent session —
+// the same approval Codex Computer Use shows natively. Fail closed (decline)
+// when the client never declared elicitation support or errors/times out.
+async function forwardElicitationToClient(params) {
+  if (AUTO_APPROVE) return { action: "accept", content: {} };
+  if (!clientSupportsElicitation) return { action: "decline" };
+  let message = String(params?.message ?? "The computer-use engine requests approval.");
+  if (params?.mode === "url" && params?.url) {
+    message = `${message}\n\nOpen and complete: ${params.url}`.trim();
+  }
+  const requestedSchema =
+    (params?.mode === "form" || params?.mode === "openai/form") && params?.requestedSchema
+      ? params.requestedSchema
+      : { type: "object", properties: {} };
+  const result = await mcpClientRequest("elicitation/create", { message, requestedSchema });
+  if (result?.action === "accept") return { action: "accept", content: result?.content ?? {} };
+  return { action: result?.action === "cancel" ? "cancel" : "decline" };
+}
+
 async function handleRequest(message) {
   const { id, method, params } = message;
   switch (method) {
     case "initialize":
+      clientSupportsElicitation = params?.capabilities?.elicitation != null;
       mcpReply(id, {
         protocolVersion: SUPPORTED_MCP_PROTOCOL_VERSIONS.has(params?.protocolVersion)
           ? params.protocolVersion
@@ -813,7 +875,18 @@ stdinLines.on("line", (line) => {
   } catch {
     return;
   }
-  if (message.id === undefined || message.method === undefined) return; // notification/response
+  if (message.id !== undefined && message.method === undefined) {
+    // Response to one of our server->client requests (elicitation/create).
+    const entry = outboundPending.get(message.id);
+    if (entry) {
+      outboundPending.delete(message.id);
+      clearTimeout(entry.timer);
+      if (message.error) entry.reject(new Error(message.error?.message ?? "client request failed"));
+      else entry.resolve(message.result);
+    }
+    return;
+  }
+  if (message.id === undefined || message.method === undefined) return; // notification
   handleRequest(message).catch((error) => {
     mcpError(message.id, -32603, error?.message ?? String(error));
   });

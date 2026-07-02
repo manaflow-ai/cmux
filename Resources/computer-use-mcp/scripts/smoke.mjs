@@ -12,6 +12,7 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -26,7 +27,17 @@ const transport = new StdioClientTransport({
   env: { ...process.env },
   stderr: "inherit",
 });
-const client = new Client({ name: "cmux-cu-smoke", version: "0.2.0" });
+// The human running this smoke consents to it driving the engine, so the
+// per-app control elicitations are accepted here (and logged). Real agent
+// sessions get the interactive Accept/Decline prompt instead.
+const client = new Client(
+  { name: "cmux-cu-smoke", version: "0.2.0" },
+  { capabilities: { elicitation: {} } }
+);
+client.setRequestHandler(ElicitRequestSchema, async (request) => {
+  console.log(`  [smoke] auto-accepting elicitation: ${request.params.message}`);
+  return { action: "accept", content: {} };
+});
 await client.connect(transport);
 
 const REQUIRED_TOOLS = [
