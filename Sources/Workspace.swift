@@ -111,6 +111,23 @@ enum TerminalSplitPaneTintPlanner {
         return TerminalSplitPaneTintAssignment(source: sourceColor, newPane: newPaneColor)
     }
 
+    /// The hex to persist for a pane's auto-assigned split tint, or nil when the
+    /// live background override is not a cmux-owned tint and must not be made
+    /// sticky across restarts.
+    ///
+    /// `paneBackgroundOverrideColor` is a shared surface slot: terminal OSC
+    /// background changes (`GHOSTTY_ACTION_COLOR_CHANGE`) and Ghostty config
+    /// reloads (`GHOSTTY_ACTION_CONFIG_CHANGE`) also write it. Persisting it
+    /// unconditionally would resurrect a transient terminal-controlled
+    /// background as a cmux pane tint on the next session restore. Only a live
+    /// override that still equals the color cmux assigned (`autoAssignedHex`) is
+    /// a cmux-owned tint; a terminal overwrite or a config-reload clear makes the
+    /// two diverge, so the value drops out of persistence.
+    static func persistableTintHex(liveOverrideHex: String?, autoAssignedHex: String?) -> String? {
+        guard let liveOverrideHex, liveOverrideHex == autoAssignedHex else { return nil }
+        return liveOverrideHex
+    }
+
     private static func tintColor(baseColor: NSColor, accentColor: NSColor) -> NSColor? {
         guard let base = baseColor.usingColorSpace(.sRGB),
               let accent = accentColor.usingColorSpace(.sRGB) else {
@@ -613,7 +630,10 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                backgroundColorHex: terminalPanel.surface.paneBackgroundOverrideColor?.hexString(),
+                backgroundColorHex: TerminalSplitPaneTintPlanner.persistableTintHex(
+                    liveOverrideHex: terminalPanel.surface.paneBackgroundOverrideColor?.hexString(),
+                    autoAssignedHex: terminalPanel.surface.autoAssignedSplitTintHex
+                ),
                 wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
@@ -1472,9 +1492,17 @@ extension Workspace {
             ) else {
                 return nil
             }
-            if let backgroundColorHex = snapshot.terminal?.backgroundColorHex,
+            // Only cmux-owned split tints are persisted (see
+            // `TerminalSplitPaneTintPlanner.persistableTintHex`), and they are
+            // resurrected only while the feature is enabled: disabling
+            // `terminal.autoTintSplitPanes` must not bring back an auto-assigned
+            // tint across a restart. Re-record provenance so a later snapshot
+            // recognises the restored color as a cmux tint.
+            if TerminalSplitPaneTintSettings().isEnabled(defaults: terminalSplitPaneTintDefaults),
+               let backgroundColorHex = snapshot.terminal?.backgroundColorHex,
                let backgroundColor = NSColor(hex: backgroundColorHex) {
                 terminalPanel.surface.paneBackgroundOverrideColor = backgroundColor
+                terminalPanel.surface.autoAssignedSplitTintHex = backgroundColorHex
             }
             // Re-bind the resumed agent session from cmux's own authority, keyed
             // on the surface that was actually created. `terminalPanel.id` equals
@@ -7203,6 +7231,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Assigns distinct background tints to a terminal split's two panels.
     ///
+    /// Each assignment also records its hex on `surface.autoAssignedSplitTintHex`
+    /// so session persistence can tell a cmux-owned tint apart from a
+    /// terminal-controlled background sharing the same
+    /// `paneBackgroundOverrideColor` slot (see
+    /// `TerminalSplitPaneTintPlanner.persistableTintHex`).
+    ///
     /// Known v1 limitation (PR #6981): tints live in `paneBackgroundOverrideColor`,
     /// the surface's OSC/config background slot, so a Ghostty config/theme reload
     /// (`GHOSTTY_ACTION_CONFIG_CHANGE`) clears them until the next split re-assigns.
@@ -7224,11 +7258,13 @@ final class Workspace: Identifiable, ObservableObject {
             newPaneNeedsTint: newPanel.surface.paneBackgroundOverrideColor == nil
         )
 
-        if let sourceColor = assignment.source {
-            sourcePanel?.surface.paneBackgroundOverrideColor = sourceColor
+        if let sourceColor = assignment.source, let sourcePanel {
+            sourcePanel.surface.paneBackgroundOverrideColor = sourceColor
+            sourcePanel.surface.autoAssignedSplitTintHex = sourceColor.hexString()
         }
         if let newPaneColor = assignment.newPane {
             newPanel.surface.paneBackgroundOverrideColor = newPaneColor
+            newPanel.surface.autoAssignedSplitTintHex = newPaneColor.hexString()
         }
     }
 

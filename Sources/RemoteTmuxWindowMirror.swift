@@ -123,6 +123,7 @@ final class RemoteTmuxWindowMirror {
             }
             panel.surface.paneBackgroundOverrideColor = color
             let hex = color.hexString()
+            panel.surface.autoAssignedSplitTintHex = hex
             usedHexes.insert(hex)
             selectedHexes.insert(hex)
         }

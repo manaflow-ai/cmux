@@ -176,6 +176,50 @@ import Testing
         #expect(restored.backgroundColorHex == "#123456")
     }
 
+    @Test func persistableTintHexKeepsLiveCmuxAssignedTint() {
+        // A live override that still equals the color cmux assigned is a
+        // cmux-owned split tint and must survive session persistence.
+        #expect(
+            TerminalSplitPaneTintPlanner.persistableTintHex(
+                liveOverrideHex: "#6EA8FE",
+                autoAssignedHex: "#6EA8FE"
+            ) == "#6EA8FE"
+        )
+    }
+
+    @Test func persistableTintHexDropsTerminalControlledOverride() {
+        // No cmux provenance: the override is a terminal OSC / theme background,
+        // not a split tint, so it must not be persisted as a sticky pane tint.
+        #expect(
+            TerminalSplitPaneTintPlanner.persistableTintHex(
+                liveOverrideHex: "#001122",
+                autoAssignedHex: nil
+            ) == nil
+        )
+    }
+
+    @Test func persistableTintHexDropsTintOverwrittenByTerminal() {
+        // cmux assigned #6EA8FE, but the terminal later OSC-set #001122; the live
+        // override no longer matches provenance, so it is terminal-controlled now.
+        #expect(
+            TerminalSplitPaneTintPlanner.persistableTintHex(
+                liveOverrideHex: "#001122",
+                autoAssignedHex: "#6EA8FE"
+            ) == nil
+        )
+    }
+
+    @Test func persistableTintHexDropsClearedTint() {
+        // A Ghostty config reload cleared the override; there is nothing to
+        // persist even though provenance still remembers the old assignment.
+        #expect(
+            TerminalSplitPaneTintPlanner.persistableTintHex(
+                liveOverrideHex: nil,
+                autoAssignedHex: "#6EA8FE"
+            ) == nil
+        )
+    }
+
     private func withIsolatedDefaults(_ body: (UserDefaults) throws -> Void) throws {
         let suiteName = "cmux.split-pane-tint.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
