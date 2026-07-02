@@ -7201,6 +7201,11 @@ final class Workspace: Identifiable, ObservableObject {
         TerminalSplitPaneTintPlanner.nextColor(baseColor: baseColor, usedHexes: usedHexes)
     }
 
+    /// Assigns distinct background tints to a terminal split's two panels.
+    ///
+    /// Known v1 limitation (PR #6981): tints live in `paneBackgroundOverrideColor`,
+    /// the surface's OSC/config background slot, so a Ghostty config/theme reload
+    /// (`GHOSTTY_ACTION_CONFIG_CHANGE`) clears them until the next split re-assigns.
     private func applyAutomaticSplitPaneTints(sourcePanelId: UUID, newPanel: TerminalPanel) {
         guard TerminalSplitPaneTintSettings().isEnabled(defaults: terminalSplitPaneTintDefaults) else { return }
         let sourcePanel = terminalPanel(for: sourcePanelId)
