@@ -68,6 +68,10 @@ final class HostAccountFlow: AccountFlow {
         NSWorkspace.shared.open(AuthEnvironment.pricingURL)
     }
 
+    var isProUpgradeAvailable: Bool {
+        CmuxFeatureFlags.shared.isProUpgradeUIEnabled
+    }
+
     private static func identity(from user: CMUXAuthUser?) -> AccountIdentity? {
         guard let user else { return nil }
         return AccountIdentity(

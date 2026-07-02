@@ -210,6 +210,9 @@ jobs:
       - name: Validate Swift file length budget
         run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
 
+      - name: Validate feature flags (naming, owners, expiry, single use, no reuse)
+        run: python3 scripts/lint-feature-flags.py
+
       - name: Validate test determinism gate
         run: python3 scripts/check-test-determinism.py --strict
 

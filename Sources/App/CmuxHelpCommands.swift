@@ -23,7 +23,9 @@ extension cmuxApp {
 
             helpResourceButton(.githubIssues)
             helpResourceButton(.discord)
-            helpResourceButton(.upgradeToPro)
+            if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
+                helpResourceButton(.upgradeToPro)
+            }
 
             Divider()
 

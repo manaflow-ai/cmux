@@ -58,4 +58,9 @@ public protocol AccountFlow: AnyObject {
     /// browser. The host decides the destination URL so dev builds can
     /// point at a local web server.
     func openProUpgrade()
+
+    /// Whether the Pro upgrade row should render. The host backs this with
+    /// a remotely toggleable feature flag; `true` when flags are
+    /// unavailable so the row degrades to always-on.
+    var isProUpgradeAvailable: Bool { get }
 }

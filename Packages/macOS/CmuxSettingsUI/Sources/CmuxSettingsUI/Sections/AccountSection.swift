@@ -32,10 +32,12 @@ public struct AccountSection: View {
                 AccountIdentityCard(flow: accountFlow)
             }
             .settingsSearchAnchors(["setting:account:account"])
-            SettingsCard {
-                ProUpgradeCard(flow: accountFlow)
+            if accountFlow?.isProUpgradeAvailable ?? true {
+                SettingsCard {
+                    ProUpgradeCard(flow: accountFlow)
+                }
+                .settingsSearchAnchors(["setting:account:pro"])
             }
-            .settingsSearchAnchors(["setting:account:pro"])
         }
     }
 }

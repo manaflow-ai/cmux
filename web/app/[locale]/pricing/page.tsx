@@ -2,22 +2,15 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
+import { ProCtaLink } from "../components/pro-cta-link";
 import { ProWelcomeBanner } from "../components/pro-welcome-banner";
 import { DOWNLOAD_URL } from "../../lib/download";
 import { buildAlternates } from "../../../i18n/seo";
 
-// Feature flag: the Pro checkout flow (Stack Auth hosted purchase via
-// /api/billing/checkout). Defaults on in local dev (dev Stack project has the
-// `pro` product and test mode) and off in production until the prod product
-// and Stripe Connect are live. Set NEXT_PUBLIC_CMUX_CHECKOUT_ENABLED=1|0 to
-// force it either way (e.g. enable on a Vercel preview).
-const SHOW_CHECKOUT =
-  process.env.NEXT_PUBLIC_CMUX_CHECKOUT_ENABLED === "1" ||
-  (process.env.NEXT_PUBLIC_CMUX_CHECKOUT_ENABLED === undefined &&
-    process.env.NODE_ENV === "development");
-// One click into checkout when the flag is on; install stays the entry point
-// until billing is public.
-const PRO_CTA_URL = SHOW_CHECKOUT ? "/api/billing/checkout" : DOWNLOAD_URL;
+// The Pro CTA destination is decided at runtime by the PostHog
+// `pro-checkout-enabled-release` flag inside <ProCtaLink> (see
+// app/lib/feature-flags.ts); the download link is the safe fallback.
+const PRO_CHECKOUT_URL = "/api/billing/checkout";
 // Team is per-seat ($35/user/month). Install is still the entry point, so the
 // Team CTA points at the download today; swap for the team checkout URL once
 // the billing flow is public.
@@ -114,7 +107,9 @@ export default function PricingPage() {
             price={t("pro.price")}
             period={t("perMonth")}
           >
-            <PrimaryLink href={PRO_CTA_URL}>{t("pro.cta")}</PrimaryLink>
+            <ProCtaLink checkoutHref={PRO_CHECKOUT_URL} fallbackHref={DOWNLOAD_URL}>
+              {t("pro.cta")}
+            </ProCtaLink>
             <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
             <FeatureList items={proFeatures} />
           </PlanCard>

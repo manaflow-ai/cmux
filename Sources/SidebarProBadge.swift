@@ -18,6 +18,12 @@ struct SidebarProBadge: View {
     }
 
     var body: some View {
+        if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
+            badgeButton
+        }
+    }
+
+    private var badgeButton: some View {
         Button {
             NSWorkspace.shared.open(AuthEnvironment.pricingURL)
         } label: {
