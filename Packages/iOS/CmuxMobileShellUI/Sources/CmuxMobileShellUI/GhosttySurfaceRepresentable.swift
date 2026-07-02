@@ -117,8 +117,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private var composerController: UIHostingController<TerminalComposerView>?
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
-        private var activeRemoteGridForPlacement: (columns: Int, rows: Int)?
-        private var activeRemoteGridAllowsTopGapCorrection = false
         /// Serializes the natural-grid viewport reports and their echoes. One
         /// detached Task per report (the previous shape) let Task scheduling
         /// scramble the send order AND let the echo of an old keyboard-up
@@ -189,8 +187,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     switch chunk.viewportPolicy {
                     case .natural:
                         self.activeViewportPolicy = .natural
-                        self.activeRemoteGridForPlacement = nil
-                        self.activeRemoteGridAllowsTopGapCorrection = false
                         if chunk.data.isEmpty {
                             surfaceView.useNaturalViewSize()
                         } else {
@@ -205,10 +201,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         }
                     case .remoteGrid(let columns, let rows):
                         self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
-                        let allowsTopGapCorrection = self.remoteGridAllowsTopGapCorrection(
-                            columns: columns,
-                            rows: rows
-                        )
+                        let allowsTopGapCorrection = !chunk.data.isEmpty
                         if chunk.data.isEmpty {
                             surfaceView.applyViewSize(
                                 cols: columns,
@@ -261,19 +254,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
-        private func remoteGridAllowsTopGapCorrection(columns: Int, rows: Int) -> Bool {
-            if let activeRemoteGridForPlacement {
-                if activeRemoteGridForPlacement.columns != columns ||
-                    activeRemoteGridForPlacement.rows != rows {
-                    activeRemoteGridAllowsTopGapCorrection = false
-                }
-            } else {
-                activeRemoteGridAllowsTopGapCorrection = true
-            }
-            activeRemoteGridForPlacement = (columns: columns, rows: rows)
-            return activeRemoteGridAllowsTopGapCorrection
-        }
-
         func detach() {
             outputTask?.cancel()
             outputTask = nil
@@ -281,8 +261,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             liveFontTask = nil
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
-            activeRemoteGridForPlacement = nil
-            activeRemoteGridAllowsTopGapCorrection = false
         }
 
         // MARK: - Composer band hosting
