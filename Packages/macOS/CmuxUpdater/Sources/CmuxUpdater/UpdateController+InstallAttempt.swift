@@ -66,8 +66,19 @@ extension UpdateController {
         case .startFreshCheck:
             checkForUpdates()
         case .confirmInstall:
-            log.append("attemptUpdate installing freshly resolved update")
-            model.state.confirm()
+            // Reactions process drained snapshots, so the live state can have moved past the
+            // snapshot that produced this action. Confirm only a live "Update Available" prompt
+            // (its reply is unconsumed; a snapshot's may already have been answered). If the
+            // prompt vanished in the meantime (e.g. the user dismissed it mid-drain), the
+            // attempt is over — disarm the watchdog so the leftover deadline can't fire a
+            // spurious "Update Didn't Start" over whatever the user does next.
+            if case .updateAvailable = model.state {
+                log.append("attemptUpdate installing freshly resolved update")
+                model.state.confirm()
+            } else {
+                log.append("attemptUpdate hand-off skipped (prompt no longer showing)")
+                installWatchdog.disarm()
+            }
         }
     }
 }

@@ -13,7 +13,7 @@ struct UpdateErrorView: View {
     var body: some View {
         let title = UpdateStateModel.userFacingErrorTitle(for: error.error)
         let message = UpdateStateModel.userFacingErrorMessage(for: error.error)
-        let downloadURL = UpdateStateModel.manualDownloadURL(for: error.error)
+        let downloadURL = UpdateStateModel.manualDownloadURL(for: error.error, feedURLString: error.feedURLString)
         let details = UpdateStateModel.errorDetails(
             for: error.error,
             technicalDetails: error.technicalDetails,

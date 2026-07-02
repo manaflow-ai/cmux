@@ -188,6 +188,32 @@ import Testing
         #expect(!harness.controller.attemptCoordinator.isMonitoring)
     }
 
+    /// If the resolved prompt vanishes before the confirm hand-off runs (the user dismissed it
+    /// mid-drain, so the live state has moved past the drained snapshot), the controller must
+    /// not reply to the already-answered snapshot, and must disarm the watchdog so the leftover
+    /// deadline can't fire a spurious error afterwards.
+    @Test func vanishedPromptSkipsHandOffAndDisarms() async {
+        let harness = Harness()
+        let stalePrompt = ChoiceBox()
+
+        harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
+        harness.controller.attemptUpdate()
+        await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
+
+        // Dismiss callback, fresh check restarts, resolution and the user's dismissal land
+        // back-to-back: by the time the confirm hand-off runs, the prompt is gone.
+        harness.model.setState(.idle)
+        harness.model.setState(.checking(.init(cancel: {})))
+        let freshPrompt = ChoiceBox()
+        harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
+        harness.model.setState(.idle)
+
+        await waitUntil("watchdog to disarm") { !harness.controller.installWatchdog.isArmed }
+        #expect(freshPrompt.choice == nil)
+        await harness.clock.fireDeadlines()
+        #expect(harness.model.state.isIdle)
+    }
+
     /// The user cancelling the attempt's fresh check ends the attempt: the watchdog disarms, so
     /// releasing its deadline later must NOT surface a spurious "Update Didn't Start" error over
     /// whatever the user does next.

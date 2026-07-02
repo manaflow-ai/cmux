@@ -130,6 +130,26 @@ import Testing
         #expect(UpdateStateModel.manualDownloadURL(for: notReady) == nil)
     }
 
+    /// The manual-download recovery routes to the failing build's own channel: a nightly feed
+    /// gets the nightly release page, everything else the latest stable DMG. A NIGHTLY user must
+    /// never be pointed at a stable download as the fix for a nightly install failure.
+    @Test func manualDownloadRoutesToTheActiveChannel() throws {
+        let didNotStart = NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode)
+        let nightlyFeed = "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
+
+        let nightlyURL = try #require(UpdateStateModel.manualDownloadURL(for: didNotStart, feedURLString: nightlyFeed))
+        #expect(nightlyURL.absoluteString.contains("/nightly"))
+        #expect(!nightlyURL.absoluteString.contains("latest/download"))
+
+        let stableURL = try #require(UpdateStateModel.manualDownloadURL(for: didNotStart, feedURLString: "https://cmux.com/appcast.xml"))
+        #expect(stableURL.absoluteString.contains("latest/download"))
+
+        // Sparkle's own install failures route by channel the same way.
+        let sparkleInstallFailure = NSError(domain: SUSparkleErrorDomain, code: 4005)
+        let sparkleNightlyURL = try #require(UpdateStateModel.manualDownloadURL(for: sparkleInstallFailure, feedURLString: nightlyFeed))
+        #expect(sparkleNightlyURL.absoluteString.contains("/nightly"))
+    }
+
     /// An unrecognized cmux.update code renders the generic failure title instead of silently
     /// masquerading as "Updater Not Ready".
     @Test func unknownCmuxUpdateCodeFallsBackToGenericTitle() {

@@ -138,12 +138,16 @@ extension UpdateStateModel {
     /// button for). Returns `nil` for feed, signature, configuration, and "already up to date"
     /// errors, where a manual download would not help or could be unsafe (notably
     /// signature/validation failures).
-    public static func manualDownloadURL(for error: any Swift.Error) -> URL? {
+    /// - Parameter feedURLString: The feed URL in effect at failure time (carried on
+    ///   ``UpdateState/Error``), used to route the recovery to the failing build's own channel:
+    ///   a NIGHTLY build must be pointed at the nightly release, not the latest stable DMG.
+    public static func manualDownloadURL(for error: any Swift.Error,
+                                         feedURLString: String? = nil) -> URL? {
         let nsError = error as NSError
         if nsError.domain == updateErrorDomain, nsError.code == installDidNotStartCode {
             // The in-app install never got going; grabbing the build directly is the natural
             // recovery, same as for Sparkle's own download/install failures below.
-            return URL(string: manualDownloadURLString)
+            return manualDownloadURL(feedURLString: feedURLString)
         }
         guard nsError.domain == SUSparkleErrorDomain else { return nil }
         switch nsError.code {
@@ -152,10 +156,21 @@ extension UpdateStateModel {
              3000,                                    // SUUnarchivingError
              4000, 4001, 4002, 4003, 4004, 4005, 4006, // file copy / auth / installer failures
              4010, 4012:                              // agent invalidation / write-permission failures
-            return URL(string: manualDownloadURLString)
+            return manualDownloadURL(feedURLString: feedURLString)
         default:
             return nil
         }
+    }
+
+    /// The channel-appropriate manual-download target: the latest stable DMG, or the nightly
+    /// release page when the failing feed is the nightly channel (nightly assets embed the build
+    /// number, so there is no fixed latest-DMG URL; the release page is). The channel test
+    /// mirrors ``UpdateFeedResolver``'s (`/nightly/` in the feed path).
+    private static func manualDownloadURL(feedURLString: String?) -> URL? {
+        if let feedURLString, feedURLString.contains("/nightly/") {
+            return URL(string: nightlyManualDownloadURLString)
+        }
+        return URL(string: manualDownloadURLString)
     }
 
     /// Builds the multi-line technical detail block shown in the error popover.
@@ -212,6 +227,9 @@ extension UpdateStateModel {
     /// The canonical direct-download URL for the latest stable release artifact, used as the
     /// manual fallback when Sparkle's in-app install path fails.
     private static let manualDownloadURLString = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg"
+
+    /// The nightly channel's manual-download target: the rolling nightly release page.
+    private static let nightlyManualDownloadURLString = "https://github.com/manaflow-ai/cmux/releases/tag/nightly"
 
     /// Whether an error reflects Sparkle's updater helper agent never connecting.
     ///
