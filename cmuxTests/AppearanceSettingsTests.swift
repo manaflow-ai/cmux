@@ -536,6 +536,91 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertEqual(synchronizedSource, "test.defaultsObserver")
     }
 
+    // MARK: - SystemAppearanceObserver (#6385)
+
+    private final class FakeEffectiveAppearanceObservation: EffectiveAppearanceObservation {
+        private(set) var invalidateCount = 0
+        func invalidate() { invalidateCount += 1 }
+    }
+
+    func testSystemAppearanceObserverPostsNotificationWhenEffectiveAppearanceChanges() {
+        var capturedHandler: (() -> Void)?
+        var postCount = 0
+        let observation = FakeEffectiveAppearanceObservation()
+
+        let observer = SystemAppearanceObserver(
+            environment: .init(
+                startEffectiveAppearanceObservation: { handler in
+                    capturedHandler = handler
+                    return observation
+                },
+                postNotification: { postCount += 1 }
+            )
+        )
+
+        observer.startObserving()
+        XCTAssertNotNil(capturedHandler, "startObserving should register an effective-appearance observation")
+        XCTAssertEqual(postCount, 0, "Observation start alone must not post a refresh")
+
+        // Simulate macOS flipping NSApp.effectiveAppearance (scheduled Auto switch).
+        capturedHandler?()
+        XCTAssertEqual(postCount, 1, "An effective-appearance change must post .systemAppearanceDidChange")
+
+        capturedHandler?()
+        XCTAssertEqual(postCount, 2, "Each subsequent appearance change must post again")
+    }
+
+    func testSystemAppearanceObserverStartIsIdempotent() {
+        var startCount = 0
+        let observer = SystemAppearanceObserver(
+            environment: .init(
+                startEffectiveAppearanceObservation: { _ in
+                    startCount += 1
+                    return FakeEffectiveAppearanceObservation()
+                },
+                postNotification: {}
+            )
+        )
+
+        observer.startObserving()
+        observer.startObserving()
+        XCTAssertEqual(startCount, 1, "Repeated startObserving must not register duplicate observations")
+    }
+
+    func testSystemAppearanceObserverStopInvalidatesAndSilencesFurtherChanges() {
+        var capturedHandler: (() -> Void)?
+        var postCount = 0
+        let observation = FakeEffectiveAppearanceObservation()
+
+        let observer = SystemAppearanceObserver(
+            environment: .init(
+                startEffectiveAppearanceObservation: { handler in
+                    capturedHandler = handler
+                    return observation
+                },
+                postNotification: { postCount += 1 }
+            )
+        )
+
+        observer.startObserving()
+        observer.stopObserving()
+        XCTAssertEqual(observation.invalidateCount, 1, "stopObserving must invalidate the KVO observation")
+
+        // A late KVO callback after teardown must not post a refresh.
+        capturedHandler?()
+        XCTAssertEqual(postCount, 0, "No refresh should be posted once the observer is stopped")
+    }
+
+    func testLiveSystemAppearanceObserverPostsToInjectedNotificationCenter() {
+        let notificationCenter = NotificationCenter()
+        let expectation = expectation(forNotification: .systemAppearanceDidChange, object: nil, notificationCenter: notificationCenter)
+
+        let environment = SystemAppearanceObserver.Environment.live(notificationCenter: notificationCenter)
+        environment.postNotification()
+
+        wait(for: [expectation], timeout: 1.0)
+    }
+
     private func withTemporaryAppearanceDefaults(
         appearanceMode: String,
         appleInterfaceStyle: String?,
