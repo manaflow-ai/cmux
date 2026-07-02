@@ -5890,7 +5890,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/workspace fork repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
-            "{ cd -- '/tmp/workspace fork repo' 2>/dev/null || [ ! -d '/tmp/workspace fork repo' ]; } && "
+            "cd -- '/tmp/workspace fork repo' 2>/dev/null || [ ! -d '/tmp/workspace fork repo' ] && "
                 + codexRetryWrappedForTest("'/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'")
                 + "\n"
         )
@@ -5993,7 +5993,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/fallback repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
-            "{ cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ]; } && "
+            "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && "
                 + codexRetryWrappedForTest("'/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'")
                 + "\n"
         )
@@ -6218,7 +6218,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(launch.initialTerminalCommand, "ssh -tt cmux-macmini")
         XCTAssertEqual(
             launch.initialTerminalInput,
-            "{ cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ]; } && "
+            "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && "
                 + codexRetryWrappedForTest("'/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'")
                 + "\n"
         )
@@ -6257,7 +6257,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.remoteConfiguration)
         XCTAssertEqual(
             launch.initialTerminalInput,
-            "{ cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ]; } && "
+            "cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ] && "
                 + codexRetryWrappedForTest("'/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'")
                 + "\n"
         )

@@ -7908,7 +7908,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["auto_resume"] as? Bool, true)
         XCTAssertEqual(
             request["command"] as? String,
-            "{ cd -- '\(root.path)' 2>/dev/null || [ ! -d '\(root.path)' ]; } && "
+            "cd -- '\(root.path)' 2>/dev/null || [ ! -d '\(root.path)' ] && "
                 + codexRetryWrappedForTest("'/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'")
         )
     }
