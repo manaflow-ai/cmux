@@ -1,10 +1,6 @@
 import CmuxFoundation
 import Foundation
 
-enum GitFileStatus: Equatable {
-    case modified, added, deleted, renamed, untracked
-}
-
 /// Runs non-locking `git status --porcelain` and parses results into a path-to-status map.
 struct GitStatusProvider: Sendable {
     private static let nonLockingGitEnvironmentKey = "GIT_OPTIONAL_LOCKS"
