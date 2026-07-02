@@ -36,6 +36,27 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
     return try #require(value)
 }
 
+@Suite struct SidebarWorkspaceReorderGatePolicyTests {
+    @Test func allowsRelativeReorderWhenNoTagFilterIsActive() {
+        expectTrue(
+            SidebarWorkspaceReorderGatePolicy().allowsRelativeReorder(activeWorkspaceTagFilter: nil)
+        )
+    }
+
+    @Test func blocksRelativeReorderWhileTagFilterHidesRows() {
+        // A tag filter renders only matching rows while drag / Move Up / Move Down
+        // still commit in full `tabManager.tabs` coordinates, so hidden rows make a
+        // ±1 move a visible no-op. The gate must refuse until the filter clears, and
+        // any non-nil filter tag counts as active.
+        expectFalse(
+            SidebarWorkspaceReorderGatePolicy().allowsRelativeReorder(activeWorkspaceTagFilter: "backend")
+        )
+        expectFalse(
+            SidebarWorkspaceReorderGatePolicy().allowsRelativeReorder(activeWorkspaceTagFilter: "frontend")
+        )
+    }
+}
+
 @Suite struct SidebarWorkspaceDropPlannerTests {
     @Test func WorkspaceDropTargetCollectionStaysDisabledWhenNoDragIsActive() {
         expectFalse(SidebarDropPlanner().shouldCollectWorkspaceDropTargets(draggedTabId: nil))

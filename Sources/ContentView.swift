@@ -12465,7 +12465,9 @@ struct VerticalTabsSidebar: View {
         // inference). Refuse to reorder while filtered — no indicator is drawn
         // and the row stays put; clear the filter to reorder. Keyboard and
         // socket/CLI reorders use full-list ids and are unaffected.
-        guard renderContext.activeWorkspaceTagFilter == nil else { return nil }
+        guard SidebarWorkspaceReorderGatePolicy().allowsRelativeReorder(
+            activeWorkspaceTagFilter: renderContext.activeWorkspaceTagFilter
+        ) else { return nil }
         guard let draggedTabId = dragState.draggedTabId else { return nil }
         return SidebarWorkspaceReorderDropResolver().plan(
             for: SidebarWorkspaceReorderDropRequest(
@@ -14823,12 +14825,12 @@ struct TabItemView: View, Equatable {
         Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
             moveBy(-1)
         }
-        .disabled(index == 0)
+        .disabled(index == 0 || activeWorkspaceTagFilter != nil)
 
         Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
             moveBy(1)
         }
-        .disabled(index >= tabManager.tabs.count - 1)
+        .disabled(index >= tabManager.tabs.count - 1 || activeWorkspaceTagFilter != nil)
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
             tabManager.moveTabsToTop(Set(targetIds))
@@ -14965,6 +14967,16 @@ struct TabItemView: View, Equatable {
     }
 
     private func moveBy(_ delta: Int) {
+        // Relative reorders run in full `tabManager.tabs` coordinates (`index` is the
+        // full-list index). Under a tag filter the sidebar shows only matching rows,
+        // so a ±1 step can cross a hidden workspace and leave the visible order
+        // unchanged — the same divergence that disables drag reordering while
+        // filtered (`workspaceReorderPlan`). Refuse here too so the context-menu and
+        // accessibility Move Up/Down actions stay consistent with drag; clear the
+        // filter to reorder.
+        guard SidebarWorkspaceReorderGatePolicy().allowsRelativeReorder(
+            activeWorkspaceTagFilter: activeWorkspaceTagFilter
+        ) else { return }
         let targetIndex = index + delta
         guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
         guard tabManager.reorderWorkspace(tabId: tab.id, toIndex: targetIndex) else { return }
