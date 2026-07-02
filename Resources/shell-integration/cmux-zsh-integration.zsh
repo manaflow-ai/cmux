@@ -1298,12 +1298,10 @@ _cmux_report_pr_for_path() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
-    local branch repo_slug="" gh_output="" gh_error="" err_file="" number state url status_opt="" gh_status
+    local branch gh_output="" gh_error="" err_file="" number state url status_opt="" gh_status
     local now="${EPOCHSECONDS:-$SECONDS}"
     local prefix="" branch_file="" repo_file="" result_file="" timestamp_file="" no_pr_branch_file=""
     local cache_branch="" cache_result="" cache_no_pr_branch=""
-    local -a gh_repo_args
-    gh_repo_args=()
     branch="$(_cmux_git_branch_for_path "$repo_path" 2>/dev/null || true)"
     if [[ -z "$branch" ]] || ! command -v gh >/dev/null 2>&1; then
         _cmux_pr_debug_log "$branch" "cache-miss:clear"
@@ -1332,17 +1330,14 @@ _cmux_report_pr_for_path() {
         _cmux_pr_debug_log "$branch" "cache-miss"
     fi
 
-    repo_slug="$(_cmux_github_repo_slug_for_path "$repo_path")"
-    if [[ -n "$repo_slug" ]]; then
-        gh_repo_args=(--repo "$repo_slug")
-    fi
-
+    # Don't pass --repo to gh; let it resolve the repository from git tracking
+    # info in the working directory.  This handles fork-based PRs where origin
+    # points to the fork but the PR targets the upstream (parent) repo.
     err_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-gh-pr-view.XXXXXX" 2>/dev/null || true)"
     [[ -n "$err_file" ]] || return 1
     gh_output="$(
         builtin cd "$repo_path" 2>/dev/null \
             && gh pr view "$branch" \
-                "${gh_repo_args[@]}" \
                 --json number,state,url \
                 --jq '[.number, .state, .url] | @tsv' \
                 2>"$err_file"
