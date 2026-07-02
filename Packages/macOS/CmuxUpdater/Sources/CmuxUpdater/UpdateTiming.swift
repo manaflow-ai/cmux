@@ -17,4 +17,13 @@ public enum UpdateTiming {
     /// How long a check may stay in the "checking" state before it is treated as a
     /// silent "no updates" result (covers a Sparkle check that never calls back).
     public static let checkTimeoutDuration: TimeInterval = 10.0
+
+    /// How long after the user asks to install an update the flow may stay in a non-progressing
+    /// state (still checking or still merely "update available") before the updater surfaces a
+    /// visible "Update Didn't Start" error instead of silently doing nothing. Must stay well above
+    /// ``checkTimeoutDuration`` so a stalled check resolves to "No Updates Available" first, and
+    /// well above the real click→download latency (a few seconds) so a healthy install never
+    /// trips it. Guards the class of bug where a coordination gap left the "Update Available" pill
+    /// looping without ever downloading and with no error shown.
+    public static let installWatchdogTimeout: TimeInterval = 25.0
 }

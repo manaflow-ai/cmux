@@ -42,6 +42,9 @@ public final class UpdateController {
     private var noUpdateDismissTask: Task<Void, Never>?
     private var backgroundProbeTask: Task<Void, Never>?
     private var recheckTask: Task<Void, Never>?
+    /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
+    /// flow never reaches downloading/installing (or another visible outcome). See ``attemptUpdate``.
+    private let installWatchdog: InstallWatchdog
 
     // Readiness retry. Sparkle's `canCheckForUpdates` exposes no push signal usable under
     // Swift 6 strict concurrency (KVO on the @MainActor `SPUUpdater` "sends" a non-Sendable
@@ -97,6 +100,7 @@ public final class UpdateController {
             defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         }
 
+        self.installWatchdog = InstallWatchdog(clock: clock, timeout: UpdateTiming.installWatchdogTimeout)
         let model = UpdateStateModel()
         let driver = UpdateDriver(model: model, log: log, clock: clock, isDevLikeBundle: isDevLikeBundle)
         self.driver = driver
@@ -115,6 +119,7 @@ public final class UpdateController {
         backgroundProbeTask?.cancel()
         readyCheckTask?.cancel()
         recheckTask?.cancel()
+        // installWatchdog cancels its own pending timer in its deinit (it is released with self).
     }
 
     // MARK: - Reaction stream
@@ -140,6 +145,11 @@ public final class UpdateController {
         if attemptCoordinator.isMonitoring {
             performAttemptAction(attemptCoordinator.handleStateChange(state))
         }
+        // Disarm the install watchdog the moment the flow progresses the install or shows a clear
+        // outcome, so a healthy install (or a real error / "no updates") never trips it.
+        if installWatchdog.isArmed, InstallWatchdog.installAttemptResolved(state) {
+            installWatchdog.disarm()
+        }
         scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
     }
 
@@ -152,7 +162,39 @@ public final class UpdateController {
     /// surfaced, so a newer release published in the meantime is installed directly rather than
     /// prompting the user again right after relaunch (issue #6366).
     public func attemptUpdate() {
-        performAttemptAction(attemptCoordinator.requestInstallLatest(currentState: model.state))
+        let action = attemptCoordinator.requestInstallLatest(currentState: model.state)
+        if action == .startFreshCheck {
+            // The user committed to installing. Arm the watchdog so that if the flow never reaches
+            // downloading/installing (or another visible outcome) it surfaces an error instead of
+            // silently looping on "Update Available".
+            installWatchdog.arm { [weak self] in self?.fireInstallWatchdogIfStalled() }
+        }
+        performAttemptAction(action)
+    }
+
+    private func fireInstallWatchdogIfStalled() {
+        installWatchdog.disarm()
+        guard InstallWatchdog.installAttemptStalled(model.state) else { return }
+        attemptCoordinator.cancel()
+        log.append("install watchdog fired: update did not start within \(Int(installWatchdog.timeoutSeconds))s")
+        let error = NSError(
+            domain: UpdateStateModel.updateErrorDomain,
+            code: UpdateStateModel.installDidNotStartCode,
+            userInfo: [NSLocalizedDescriptionKey: String(
+                localized: "update.error.didNotStart.message",
+                defaultValue: "cmux couldn’t start the update. Check your internet connection and try again."
+            )]
+        )
+        model.setState(.error(.init(
+            error: error,
+            retry: { [weak self] in
+                self?.model.setState(.idle)
+                self?.attemptUpdate()
+            },
+            dismiss: { [weak self] in self?.model.setState(.idle) },
+            technicalDetails: "install attempt stalled without reaching download",
+            feedURLString: driver.resolvedFeedURLString()
+        )))
     }
 
     private func performAttemptAction(_ action: AttemptUpdateCoordinator.Action) {
@@ -273,8 +315,8 @@ public final class UpdateController {
             if case .checking = self.model.state {
                 self.model.setState(.error(.init(
                     error: NSError(
-                        domain: "cmux.update",
-                        code: 1,
+                        domain: UpdateStateModel.updateErrorDomain,
+                        code: UpdateStateModel.updaterNotReadyCode,
                         userInfo: [NSLocalizedDescriptionKey: String(localized: "update.error.notReady", defaultValue: "Updater is still starting. Try again in a moment.")]
                     ),
                     retry: { [weak self] in self?.checkForUpdates() },

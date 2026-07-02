@@ -12,6 +12,14 @@ extension UpdateStateModel {
     /// A short, user-facing title for an update error.
     public static func userFacingErrorTitle(for error: any Swift.Error) -> String {
         let nsError = error as NSError
+        if nsError.domain == updateErrorDomain {
+            switch nsError.code {
+            case installDidNotStartCode:
+                return String(localized: "update.error.didNotStart.title", defaultValue: "Update Didn’t Start")
+            default:
+                return String(localized: "update.error.updaterNotReady.title", defaultValue: "Updater Not Ready")
+            }
+        }
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
@@ -63,6 +71,13 @@ extension UpdateStateModel {
     /// A user-facing explanatory message for an update error.
     public static func userFacingErrorMessage(for error: any Swift.Error) -> String {
         let nsError = error as NSError
+        if nsError.domain == updateErrorDomain {
+            // cmux-originated errors already carry user-ready, localized copy.
+            let description = nsError.localizedDescription
+            if !description.isEmpty {
+                return description
+            }
+        }
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
