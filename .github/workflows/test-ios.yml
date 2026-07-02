@@ -147,6 +147,13 @@ jobs:
           # or app-target dependency, so it runs as a real CI gate here.
           swift test --package-path Packages/Shared/CmuxSyncStore
 
+      - name: Run CmuxMobileShell package tests
+        run: |
+          # iOS shell replay/liveness regressions live in this package target.
+          # Keep them under the iOS package gate so PR CI enforces the mobile
+          # terminal mirror behavior without relying on local-only SwiftPM runs.
+          swift test --package-path Packages/iOS/CmuxMobileShell
+
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
