@@ -719,6 +719,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var secondaryAggregationScopeGeneration = 0
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var effectiveViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]
+    private var viewportReportGenerationsBySurfaceID: [String: UInt64]
     var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
@@ -921,6 +922,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.chatEventSourceGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.effectiveViewportSizesBySurfaceID = [:]
+        self.viewportReportGenerationsBySurfaceID = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.terminalActiveScreenBySurfaceID = [:]
@@ -5247,6 +5249,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func resetTerminalOutputTracking() {
         cancelAllTerminalReplayTasks()
         effectiveViewportSizesBySurfaceID = [:]
+        viewportReportGenerationsBySurfaceID = [:]
         deliveredTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalActiveScreenBySurfaceID = [:]
@@ -7020,6 +7023,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return nil
         }
+        let requestGeneration = (viewportReportGenerationsBySurfaceID[surfaceID] ?? 0) + 1
+        viewportReportGenerationsBySurfaceID[surfaceID] = requestGeneration
         do {
             let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
             let request = try MobileCoreRPCClient.requestData(
@@ -7034,6 +7039,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             let data = try await client.sendRequest(request)
             guard remoteClient === client else { return nil }
+            guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else { return nil }
             guard let payload = try? MobileTerminalViewportResponse.decode(data),
                   let grid = payload.effectiveGrid else {
                 return nil
@@ -7052,6 +7058,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return (grid.columns, grid.rows)
         } catch {
+            guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else { return nil }
             mobileShellLog.error("viewport report failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return nil
         }
@@ -7060,6 +7067,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Tell the Mac to drop this device's viewport pin for a surface (on
     /// detach). Fire-and-forget; the Mac also clears on connection close.
     public func clearTerminalViewport(surfaceID: String) {
+        viewportReportGenerationsBySurfaceID[surfaceID, default: 0] += 1
         guard let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return

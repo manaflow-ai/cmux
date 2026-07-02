@@ -78,6 +78,8 @@ actor LivenessHostRouter {
     private var replayRequestCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
     private var heldReplayResponsesRemaining = 0
+    private var viewportRequestCount = 0
+    private var heldViewportRequestNumbers: Set<Int> = []
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
@@ -220,6 +222,12 @@ actor LivenessHostRouter {
         heldReplayResponsesRemaining += count
     }
 
+    /// Hold the Nth `mobile.terminal.viewport` response (1-based), allowing a
+    /// later viewport report to acknowledge before an older one.
+    func holdViewportRequest(number: Int) {
+        heldViewportRequestNumbers.insert(number)
+    }
+
     /// Forget the host-side registration, modeling a lost subscription behind
     /// a live RPC channel: the next subscribe reports
     /// `already_subscribed: false`.
@@ -235,6 +243,7 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers = []
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
+        heldViewportRequestNumbers = []
         let continuations = heldContinuations
         heldContinuations = []
         for continuation in continuations {
@@ -313,6 +322,10 @@ actor LivenessHostRouter {
         case "mobile.events.unsubscribe":
             return try? Self.resultFrame(id: id, result: [:])
         case "mobile.terminal.viewport":
+            viewportRequestCount += 1
+            if heldViewportRequestNumbers.contains(viewportRequestCount) {
+                await park()
+            }
             // Mirror the Mac host: acknowledge the report with the effective
             // shared grid. Echoing the reported viewport models a single
             // attached device, whose report is always the effective minimum.

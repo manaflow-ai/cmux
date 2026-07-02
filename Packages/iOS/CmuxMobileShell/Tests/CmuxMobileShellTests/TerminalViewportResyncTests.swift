@@ -133,3 +133,42 @@ import Testing
     let liveChunk = try #require(await iterator.next())
     #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-reassert")
 }
+
+@MainActor
+@Test func terminalViewportIgnoresStaleResizeAcknowledgements() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let replayCountAfterColdAttach = await router.count(of: "mobile.terminal.replay")
+
+    await router.holdViewportRequest(number: 1)
+    let staleReport = Task {
+        await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    }
+    await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 1)
+
+    let latestGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
+    #expect(latestGrid?.columns == 80)
+    #expect(latestGrid?.rows == 30)
+
+    await router.releaseAllHeld()
+    let staleGrid = await staleReport.value
+    #expect(staleGrid?.columns == nil)
+    #expect(staleGrid?.rows == nil)
+
+    let staleReplayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterColdAttach + 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!staleReplayRequested, "a stale viewport acknowledgement must not request replay")
+}
