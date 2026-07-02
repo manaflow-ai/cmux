@@ -1071,7 +1071,8 @@
       "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
       "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",
       "shortcutsWhenOperators": "boolean operators, typed comparisons, regex match, and list membership. Comparisons bind tighter than && and ||.",
-      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
+      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:",
+      "shortcutsCommandsIntro": "Assign your own keyboard shortcut to any Command Palette command — including commands that ship without a built-in shortcut, such as opening the current directory in your editor. Keys are command ids (the same ids shown in the palette, for example <code>palette.openFolderInVSCodeInline</code>); values are a single-stroke shortcut. Chords are not supported here — use a single keystroke that includes a primary modifier (⌘, ⌥, or ⌃). The shortcut fires the command on the focused window; a command unavailable in the current context does nothing. Use <code>null</code> (or <code>\"\"</code>, <code>none</code>, <code>clear</code>, <code>unbound</code>, <code>disabled</code>) to clear a binding. The easiest way to manage these is <settings>Settings → Keyboard Shortcuts → Custom Commands</settings>, which fuzzy-finds commands and blocks a keystroke that already belongs to a built-in action or another command."
     },
     "customCommands": {
       "title": "Custom Commands",
@@ -1185,6 +1186,9 @@
       "chordsRuleSingle": "Use a plain string for a one-step shortcut.",
       "chordsRuleArray": "Use a two-item array for a chord. The first item is the prefix stroke, the second is the key that follows it.",
       "chordsRuleSyntax": "Each item uses the same syntax as regular bindings, for example cmd+b, ctrl+b, shift+/, or ctrl+1.",
+      "customCommandsTitle": "Custom command shortcuts",
+      "customCommandsIntro": "Bind a single keystroke to any Command Palette command from <settings>Settings → Keyboard Shortcuts → Custom Commands</settings>, or directly under <settingsFile>shortcuts.commands</settingsFile> in cmux.json. See the <configurationLink>configuration docs</configurationLink> for the file format.",
+      "customCommandsCallout": "Recording a keystroke already used by a built-in action or another command is blocked with a banner, so a custom shortcut can't silently shadow a built-in action or collide with another command. Custom command shortcuts are single-stroke only.",
       "searchPlaceholder": "Search shortcuts...",
       "searchLabel": "Search keyboard shortcuts",
       "noResults": "No shortcuts found",

@@ -863,7 +863,8 @@
       "shortcutsWhenBooleanKeys": "boolean anahtarlar. Bilinmeyen veya bulunmayan bir anahtar false kabul edilir; true ve false sabitleri de kabul edilir.",
       "shortcutsWhenTypedKeys": "karşılaştırmalar için türlü anahtarlar: sağ kenar çubuğunun etkin modu (dize) ile bölme ve çalışma alanı sayıları (tamsayılar).",
       "shortcutsWhenOperators": "boolean işleçler, türlü karşılaştırmalar, düzenli ifade eşleşmesi ve liste üyeliği. Karşılaştırmalar && ve || işleçlerinden daha sıkı bağlanır.",
-      "shortcutsWhenExample": "Örneğin bu ayar, sağ kenar çubuğu odaklı olmadığı sürece Ctrl+1–9 ile çalışma alanlarını seçer (Ctrl+1–5'i kenar çubuğunun mod değiştiricisine bırakır) ve çalışma alanında birden çok bölme varken yüzey seçimini Bul kenar çubuğuyla sınırlar:"
+      "shortcutsWhenExample": "Örneğin bu ayar, sağ kenar çubuğu odaklı olmadığı sürece Ctrl+1–9 ile çalışma alanlarını seçer (Ctrl+1–5'i kenar çubuğunun mod değiştiricisine bırakır) ve çalışma alanında birden çok bölme varken yüzey seçimini Bul kenar çubuğuyla sınırlar:",
+      "shortcutsCommandsIntro": "Komut paletindeki herhangi bir komuta kendi klavye kısayolunuzu atayın — geçerli dizini düzenleyicinizde açmak gibi yerleşik kısayolu olmayan komutlar dahil. Anahtarlar komut kimlikleridir (palette gösterilen kimliklerin aynısı, örneğin <code>palette.openFolderInVSCodeInline</code>); değerler tek vuruşluk bir kısayoldur. Akorlar burada desteklenmez — birincil bir değiştirici (⌘, ⌥ veya ⌃) içeren tek bir tuş vuruşu kullanın. Kısayol, komutu odaklanmış pencerede çalıştırır; mevcut bağlamda kullanılamayan bir komut hiçbir şey yapmaz. Bir bağlamayı temizlemek için <code>null</code> (veya <code>\"\"</code>, <code>none</code>, <code>clear</code>, <code>unbound</code>, <code>disabled</code>) kullanın. Bunları yönetmenin en kolay yolu <settings>Ayarlar → Klavye Kısayolları → Özel Komutlar</settings>, komutları bulanık olarak arar ve halihazırda yerleşik bir eyleme veya başka bir komuta ait olan bir tuş vuruşunu engeller."
     },
     "customCommands": {
       "title": "Özel Komutlar",
@@ -1030,7 +1031,10 @@
         "wn-reload": "Yapılandırmayı yeniden yükle",
         "wn-quit": "Çık"
       },
-      "metaTitle": "Klavye kısayolları"
+      "metaTitle": "Klavye kısayolları",
+      "customCommandsTitle": "Özel komut kısayolları",
+      "customCommandsIntro": "<settings>Ayarlar → Klavye Kısayolları → Özel Komutlar</settings> üzerinden veya doğrudan cmux.json içindeki <settingsFile>shortcuts.commands</settingsFile> altında, komut paletindeki herhangi bir komuta tek bir tuş vuruşu bağlayın. Dosya biçimi için <configurationLink>yapılandırma belgelerine</configurationLink> bakın.",
+      "customCommandsCallout": "Yerleşik bir eylem veya başka bir komut tarafından zaten kullanılan bir tuş vuruşunu kaydetmek bir afişle engellenir; böylece özel bir kısayol yerleşik bir eylemi sessizce gölgeleyemez veya başka bir komutla çakışamaz. Özel komut kısayolları yalnızca tek vuruşludur."
     },
     "api": {
       "title": "CLI Referansı",

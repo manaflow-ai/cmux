@@ -35,5 +35,17 @@ public struct KeyboardShortcutsCatalogSection: SettingCatalogSection {
         defaultValue: [:]
     )
 
+    /// User-assigned shortcuts for Command Palette commands, keyed by command
+    /// id (e.g. `palette.openFolderInVSCode`). Single-stroke only. Unlike
+    /// ``bindings`` (which overrides built-in cmux actions), these let a user
+    /// bind a shortcut to any palette command that ships without one. The app
+    /// target dispatches them on the focused window; the Settings UI's
+    /// "Custom Commands" section records and conflict-checks them.
+    /// ``StoredShortcut/unbound`` for a command represents an explicit clear.
+    public let commands = JSONKey<[String: StoredShortcut]>(
+        id: "shortcuts.commands",
+        defaultValue: [:]
+    )
+
     public init() {}
 }

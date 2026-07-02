@@ -5274,6 +5274,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Runs a Command Palette command by id on the focused (or `preferredWindow`)
+    /// window without opening the palette. Used by the custom `shortcuts.commands`
+    /// keyboard-shortcut dispatcher; the window's `ContentView` rebuilds its
+    /// command list with live context and runs the match (or no-ops if the
+    /// command is gated out by its `when`/`enablement` clause).
+    func requestCommandPaletteRunCommand(
+        commandId: String,
+        preferredWindow: NSWindow? = nil,
+        source: String = "api.commandPaletteRunCommand"
+    ) {
+        // Unlike opening the palette, firing a command must not mutate focus
+        // state up front: a context-gated shortcut whose command is unavailable
+        // is a silent no-op, so exiting browser focus mode here would be a
+        // surprising side effect of pressing a dead binding. Any focus change is
+        // left to the command's own action when `ContentView` actually runs it.
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        NotificationCenter.default.post(
+            name: .commandPaletteRunCommandRequested,
+            object: targetWindow,
+            userInfo: ["commandId": commandId]
+        )
+#if DEBUG
+        cmuxDebugLog(
+            "shortcut.palette.runCommand source=\(source) commandId=\(commandId) " +
+            "target={\(debugWindowToken(targetWindow))}"
+        )
+#endif
+    }
+
     func requestCommandPaletteRenameTab(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteRenameTab") {
         postCommandPaletteRequest(
             kind: .renameTab,
@@ -13970,7 +13999,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Custom Command Palette command shortcuts (`shortcuts.commands`) are
+        // matched last so a built-in action always wins a shared keystroke
+        // (the Settings recorder blocks such conflicts up front, but dispatch
+        // order makes the precedence robust regardless of how cmux.json was
+        // edited). On a match the event is consumed even when the command is
+        // gated out by its `when`/`enablement` clause — the window's
+        // `ContentView` decides whether to run or silently no-op.
+        if let commandId = firstMatchingCommandShortcut(event: event) {
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+            requestCommandPaletteRunCommand(
+                commandId: commandId,
+                preferredWindow: targetWindow,
+                source: "shortcut.commandShortcut"
+            )
+            return true
+        }
+
         return false
+    }
+
+    /// The command id whose user-assigned `shortcuts.commands` binding matches
+    /// `event`, or `nil`. Bindings are single-stroke and require a primary
+    /// modifier (⌘/⌥/⌃); they are indexed at reload into per-modifier-mask buckets
+    /// (a deterministically ordered, capped snapshot — not rebuilt per event).
+    ///
+    /// `matchConfiguredShortcut` requires exact modifier-mask equality, so this
+    /// probes only the bucket for the event's modifier mask. Ordinary unmodified
+    /// or shift-only typing — the latency-critical path — maps to an empty bucket
+    /// and returns after a single hash probe, O(1) regardless of how many bindings
+    /// `shortcuts.commands` holds. Only a keystroke carrying a bound modifier
+    /// combination scans, and then only the entries sharing that exact combination.
+    private func firstMatchingCommandShortcut(event: NSEvent) -> String? {
+        let modifierMask = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags).rawValue
+        let candidates = KeyboardShortcutSettings.commandShortcutsMatchingModifierMask(modifierMask)
+        guard !candidates.isEmpty else { return nil }
+        for entry in candidates {
+            if matchConfiguredShortcut(event: event, shortcut: entry.shortcut) {
+                return entry.commandId
+            }
+        }
+        return nil
     }
 
     func shouldSuppressSplitShortcutForTransientTerminalFocusState(

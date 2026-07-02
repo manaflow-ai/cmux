@@ -863,7 +863,8 @@
       "shortcutsWhenBooleanKeys": "claves booleanas. Una clave desconocida o ausente se evalúa como false; también se aceptan los literales true y false.",
       "shortcutsWhenTypedKeys": "claves tipadas para comparaciones: el modo activo de la barra lateral derecha (cadena) y los recuentos de paneles y espacios de trabajo (enteros).",
       "shortcutsWhenOperators": "operadores booleanos, comparaciones tipadas, coincidencia por expresión regular y pertenencia a listas. Las comparaciones ligan más fuerte que && y ||.",
-      "shortcutsWhenExample": "Por ejemplo, esto hace que Ctrl+1–9 seleccione espacios de trabajo en todas partes salvo cuando la barra lateral derecha tiene el foco (dejando Ctrl+1–5 libre para el selector de modo de la barra lateral), y limita la selección de superficie a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles:"
+      "shortcutsWhenExample": "Por ejemplo, esto hace que Ctrl+1–9 seleccione espacios de trabajo en todas partes salvo cuando la barra lateral derecha tiene el foco (dejando Ctrl+1–5 libre para el selector de modo de la barra lateral), y limita la selección de superficie a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles:",
+      "shortcutsCommandsIntro": "Asigne su propio atajo de teclado a cualquier comando de la paleta de comandos, incluidos los comandos que no traen un atajo integrado, como abrir el directorio actual en su editor. Las claves son id de comando (los mismos que se muestran en la paleta, por ejemplo <code>palette.openFolderInVSCodeInline</code>); los valores son un atajo de una sola pulsación. Aquí no se admiten acordes: use una sola pulsación que incluya un modificador principal (⌘, ⌥ o ⌃). El atajo ejecuta el comando en la ventana enfocada; un comando no disponible en el contexto actual no hace nada. Use <code>null</code> (o <code>\"\"</code>, <code>none</code>, <code>clear</code>, <code>unbound</code>, <code>disabled</code>) para borrar una asignación. La forma más sencilla de gestionarlos es <settings>Ajustes → Atajos de teclado → Comandos personalizados</settings>, que busca comandos de forma aproximada y bloquea una pulsación que ya pertenece a una acción integrada o a otro comando."
     },
     "customCommands": {
       "title": "Comandos personalizados",
@@ -1030,7 +1031,10 @@
         "wn-reload": "Recargar configuración",
         "wn-quit": "Salir"
       },
-      "metaTitle": "Atajos de teclado"
+      "metaTitle": "Atajos de teclado",
+      "customCommandsTitle": "Atajos de comando personalizados",
+      "customCommandsIntro": "Asigne una sola pulsación a cualquier comando de la paleta de comandos desde <settings>Ajustes → Atajos de teclado → Comandos personalizados</settings>, o directamente en <settingsFile>shortcuts.commands</settingsFile> en cmux.json. Consulte la <configurationLink>documentación de configuración</configurationLink> para el formato del archivo.",
+      "customCommandsCallout": "Grabar una pulsación que ya usa una acción integrada u otro comando se bloquea con un aviso, de modo que un atajo personalizado no pueda ocultar silenciosamente una acción integrada ni chocar con otro comando. Los atajos de comando personalizados son de una sola pulsación."
     },
     "api": {
       "title": "Referencia de CLI",

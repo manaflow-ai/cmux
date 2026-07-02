@@ -2868,6 +2868,18 @@ struct ContentView: View {
             openCommandPaletteSwitcher()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRunCommandRequested)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            guard let commandId = notification.userInfo?["commandId"] as? String else { return }
+            runCommandPaletteCommandById(commandId)
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .defaultTerminalRegistrationDidChange)) { _ in
             refreshCachedDefaultTerminalStatus()
         })
@@ -6282,7 +6294,14 @@ struct ContentView: View {
         "ios", "ipados", "iphone", "ipad", "phone", "tablet", "qr",
     ]
 
-    private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
+    /// All built-in Command Palette command contributions — pure metadata
+    /// (ids, context-derived titles/subtitles/keywords, `when`/`enablement`
+    /// gates) with no dependency on live window state. Single source of truth
+    /// shared by the live palette command builder
+    /// (``commandPaletteCommandContributions()``) and the Settings "Custom
+    /// Commands" catalog (``HostSettingsActions/commandShortcutCatalog()``), so
+    /// the bindable command set and the palette never drift.
+    static func builtInCommandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
@@ -6497,7 +6516,7 @@ struct ContentView: View {
             let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
             contributions.append(
                 CommandPaletteCommandContribution(
-                    commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
+                    commandId: Self.commandPaletteExtensionSidebarCommandID(descriptor.id),
                     title: constant(String.localizedStringWithFormat(titleFormat, title)),
                     subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")),
                     keywords: ["sidebar", "switch", "extension", title.lowercased()]
@@ -6760,7 +6779,7 @@ struct ContentView: View {
         for entry in WorkspaceTabColorSettings.palette() {
             contributions.append(
                 CommandPaletteCommandContribution(
-                    commandId: commandPaletteWorkspaceColorCommandID(entry.name),
+                    commandId: Self.commandPaletteWorkspaceColorCommandID(entry.name),
                     title: constant(workspaceColorCommandTitle(entry.name)),
                     subtitle: workspaceSubtitle,
                     keywords: ["workspace", "color", "palette", entry.name.lowercased()],
@@ -6866,7 +6885,7 @@ struct ContentView: View {
                 enablement: { $0.bool(CommandPaletteContextKeys.workspaceCanMarkUnread) }
             )
         )
-        appendIdentifierCopyCommandContributions(
+        Self.appendIdentifierCopyCommandContributions(
             to: &contributions,
             workspaceSubtitle: workspaceSubtitle,
             panelSubtitle: panelSubtitle
@@ -6894,7 +6913,7 @@ struct ContentView: View {
                 }
             )
         )
-        appendMoveTabToNewWorkspaceCommandContribution(to: &contributions, panelSubtitle: panelSubtitle)
+        Self.appendMoveTabToNewWorkspaceCommandContribution(to: &contributions, panelSubtitle: panelSubtitle)
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleTabPin",
@@ -7456,13 +7475,26 @@ struct ContentView: View {
             )
         )
 
+        return contributions
+    }
+
+    /// The contributions active for this window: every built-in
+    /// (``builtInCommandPaletteCommandContributions()``) plus the
+    /// config-derived entries that depend on live `cmuxConfigStore` state
+    /// (configuration-issue commands and user `actions` marked for the
+    /// palette).
+    private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
+        var contributions = Self.builtInCommandPaletteCommandContributions()
+
         let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
         for issue in cmuxConfigStore.configurationIssues {
+            let issueTitle = commandPaletteCmuxConfigIssueTitle(issue)
+            let issueSubtitle = commandPaletteCmuxConfigIssueSubtitle(issue)
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: commandPaletteCmuxConfigIssueCommandID(issue),
-                    title: constant(commandPaletteCmuxConfigIssueTitle(issue)),
-                    subtitle: constant(commandPaletteCmuxConfigIssueSubtitle(issue)),
+                    title: { _ in issueTitle },
+                    subtitle: { _ in issueSubtitle },
                     keywords: ["cmux", "config", "json", "schema", "error", "warning"]
                 )
             )
@@ -7476,8 +7508,8 @@ struct ContentView: View {
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: action.id,
-                    title: constant(actionTitle),
-                    subtitle: constant(subtitleText),
+                    title: { _ in actionTitle },
+                    subtitle: { _ in subtitleText },
                     keywords: action.keywords
                 )
             )
@@ -7506,7 +7538,7 @@ struct ContentView: View {
         return "palette.cmuxConfig.issue.\(String(hash, radix: 16))"
     }
 
-    private func commandPaletteWorkspaceColorCommandID(_ colorName: String) -> String {
+    private static func commandPaletteWorkspaceColorCommandID(_ colorName: String) -> String {
         var hash: UInt64 = 1_469_598_103_934_665_603
         for byte in colorName.utf8 {
             hash ^= UInt64(byte)
@@ -7515,7 +7547,7 @@ struct ContentView: View {
         return "palette.workspaceColor.\(String(hash, radix: 16))"
     }
 
-    private func commandPaletteExtensionSidebarCommandID(_ providerId: String) -> String {
+    private static func commandPaletteExtensionSidebarCommandID(_ providerId: String) -> String {
         var hash: UInt64 = 1_469_598_103_934_665_603
         for byte in providerId.utf8 {
             hash ^= UInt64(byte)
@@ -7688,7 +7720,7 @@ struct ContentView: View {
         // was visible when the flag was on still resolves after a runtime flip.
         // Visibility is gated by `descriptors`; the handler set is the superset.
         for descriptor in CmuxExtensionSidebarSelection.allDescriptors {
-            registry.register(commandId: commandPaletteExtensionSidebarCommandID(descriptor.id)) {
+            registry.register(commandId: Self.commandPaletteExtensionSidebarCommandID(descriptor.id)) {
                 CmuxExtensionSidebarSelection.setProviderId(descriptor.id)
             }
         }
@@ -7829,7 +7861,7 @@ struct ContentView: View {
             tabManager.applyWorkspaceColor(nil, toWorkspaceIds: [workspace.id])
         }
         for entry in WorkspaceTabColorSettings.palette() {
-            registry.register(commandId: commandPaletteWorkspaceColorCommandID(entry.name)) {
+            registry.register(commandId: Self.commandPaletteWorkspaceColorCommandID(entry.name)) {
                 guard let workspace = tabManager.selectedWorkspace else {
                     NSSound.beep()
                     return
@@ -8548,6 +8580,48 @@ struct ContentView: View {
                 dismissCommandPalette(restoreFocus: false)
             }
         }
+    }
+
+    /// Runs the palette command with `commandId` — the handler for a custom
+    /// `shortcuts.commands` keyboard shortcut fired on this window. The command
+    /// list is rebuilt with the window's live context, so a command gated out by
+    /// its `when`/`enablement` clause is simply absent and the press is a silent
+    /// no-op (the app-level handler still consumes the event on any binding
+    /// match). Usage is recorded so frequently-fired commands keep their palette
+    /// ranking boost.
+    ///
+    /// A `dismissOnRun == false` command drives an *in-palette* input flow (e.g.
+    /// rename / edit-description, which switch `commandPaletteMode` to an input
+    /// mode that only renders while the palette is presented). For those, the
+    /// palette is presented first so the flow's UI is visible; self-contained
+    /// commands run directly without showing any palette UI.
+    private func runCommandPaletteCommandById(_ commandId: String) {
+        // Resolve the command list against a freshly-built context (refreshing
+        // terminal open-target availability) rather than the cached palette
+        // context, which only updates on a palette search refresh. Otherwise a
+        // context-gated command (e.g. the VS Code serve-web stop/restart entries)
+        // could be wrongly treated as unavailable until the palette was opened.
+        let terminalOpenTargets = resolveCommandPaletteTerminalOpenTargets(for: .commands)
+        let commandsContext = commandPaletteCommandsContext(terminalOpenTargets: terminalOpenTargets)
+        let commands = commandPaletteEntries(
+            for: .commands,
+            includeSurfaces: false,
+            commandsContext: commandsContext
+        )
+        guard let command = commands.first(where: { $0.id == commandId }) else {
+#if DEBUG
+            cmuxDebugLog("palette.runById commandId=\(commandId) result=noop(unavailable)")
+#endif
+            return
+        }
+#if DEBUG
+        cmuxDebugLog("palette.runById commandId=\(commandId) result=run dismissOnRun=\(command.dismissOnRun ? 1 : 0)")
+#endif
+        recordCommandPaletteUsage(command.id)
+        if !command.dismissOnRun, !isCommandPalettePresented {
+            presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+        }
+        command.action()
     }
 
     private func commandPalettePostRunFocusTarget(for command: CommandPaletteCommand) -> CommandPaletteRestoreFocusTarget? {

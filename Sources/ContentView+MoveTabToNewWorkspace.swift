@@ -4,7 +4,7 @@ import CmuxFoundation
 import SwiftUI
 
 extension ContentView {
-    func appendMoveTabToNewWorkspaceCommandContribution(
+    static func appendMoveTabToNewWorkspaceCommandContribution(
         to contributions: inout [CommandPaletteCommandContribution],
         panelSubtitle: @escaping (CommandPaletteContextSnapshot) -> String
     ) {

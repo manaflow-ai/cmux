@@ -863,7 +863,8 @@
       "shortcutsWhenBooleanKeys": "chiavi booleane. Una chiave sconosciuta o assente vale false; sono accettati anche i letterali true e false.",
       "shortcutsWhenTypedKeys": "chiavi tipizzate per i confronti: la modalità attiva della barra laterale destra (stringa) e i conteggi di riquadri e spazi di lavoro (interi).",
       "shortcutsWhenOperators": "operatori booleani, confronti tipizzati, corrispondenza regex e appartenenza a liste. I confronti legano più strettamente di && e ||.",
-      "shortcutsWhenExample": "Ad esempio, questo fa sì che Ctrl+1–9 selezioni gli spazi di lavoro ovunque tranne quando la barra laterale destra ha il focus (lasciando Ctrl+1–5 al selettore di modalità della barra laterale), e limita la selezione della superficie alla barra laterale Trova quando lo spazio di lavoro ha più riquadri:"
+      "shortcutsWhenExample": "Ad esempio, questo fa sì che Ctrl+1–9 selezioni gli spazi di lavoro ovunque tranne quando la barra laterale destra ha il focus (lasciando Ctrl+1–5 al selettore di modalità della barra laterale), e limita la selezione della superficie alla barra laterale Trova quando lo spazio di lavoro ha più riquadri:",
+      "shortcutsCommandsIntro": "Assegna una scorciatoia da tastiera a qualsiasi comando della palette dei comandi, inclusi i comandi privi di una scorciatoia integrata, come aprire la directory corrente nel tuo editor. Le chiavi sono id di comando (gli stessi mostrati nella palette, ad esempio <code>palette.openFolderInVSCodeInline</code>); i valori sono una scorciatoia a singola pressione. Gli accordi non sono supportati qui: usa una singola pressione che includa un modificatore principale (⌘, ⌥ o ⌃). La scorciatoia attiva il comando nella finestra attiva; un comando non disponibile nel contesto corrente non fa nulla. Usa <code>null</code> (o <code>\"\"</code>, <code>none</code>, <code>clear</code>, <code>unbound</code>, <code>disabled</code>) per cancellare un'associazione. Il modo più semplice per gestirle è <settings>Impostazioni → Abbreviazioni da tastiera → Comandi personalizzati</settings>, che cerca i comandi in modo approssimativo e blocca una pressione che appartiene già a un'azione integrata o a un altro comando."
     },
     "customCommands": {
       "title": "Comandi personalizzati",
@@ -1030,7 +1031,10 @@
         "wn-reload": "Ricarica configurazione",
         "wn-quit": "Esci"
       },
-      "metaTitle": "Scorciatoie da tastiera"
+      "metaTitle": "Scorciatoie da tastiera",
+      "customCommandsTitle": "Scorciatoie di comando personalizzate",
+      "customCommandsIntro": "Associa una singola pressione a qualsiasi comando della palette dei comandi da <settings>Impostazioni → Abbreviazioni da tastiera → Comandi personalizzati</settings>, o direttamente sotto <settingsFile>shortcuts.commands</settingsFile> in cmux.json. Consulta la <configurationLink>documentazione di configurazione</configurationLink> per il formato del file.",
+      "customCommandsCallout": "La registrazione di una pressione già usata da un'azione integrata o da un altro comando viene bloccata con un banner, così una scorciatoia personalizzata non può oscurare silenziosamente un'azione integrata né entrare in conflitto con un altro comando. Le scorciatoie di comando personalizzate sono a singola pressione."
     },
     "api": {
       "title": "Riferimento CLI",

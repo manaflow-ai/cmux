@@ -55,6 +55,18 @@ export default function KeyboardShortcutsPage() {
         <li>{t("chordsRuleSyntax")}</li>
       </ul>
 
+      <DocsHeading level={2} id="custom-commands" className="scroll-mt-24">{t("customCommandsTitle")}</DocsHeading>
+      <p>
+        {t.rich("customCommandsIntro", {
+          settings: (chunks) => <strong>{chunks}</strong>,
+          settingsFile: (chunks) => <code>{chunks}</code>,
+          configurationLink: (chunks) => (
+            <Link href="/docs/configuration#shortcuts-commands">{chunks}</Link>
+          ),
+        })}
+      </p>
+      <Callout type="info">{t("customCommandsCallout")}</Callout>
+
       <KeyboardShortcuts />
     </>
   );

@@ -70,6 +70,24 @@ final class CmuxSettingsFileStore {
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var whenClausesByAction: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
+    private var commandShortcutsByCommandId: [String: StoredShortcut] = [:]
+    /// Live `shortcuts.commands` bindings indexed by each (single) stroke's
+    /// normalized modifier mask, rebuilt once per reload (prefiltered to non-unbound
+    /// entries, capped at ``maxDispatchableCommandShortcuts``). The per-keystroke
+    /// dispatcher (`firstMatchingCommandShortcut`) probes only the bucket for the
+    /// event's modifier mask. Every command shortcut requires a primary modifier
+    /// (⌘/⌥/⌃), so ordinary unmodified or shift-only typing — the latency-critical
+    /// path — maps to an absent bucket and dispatch is O(1) regardless of how many
+    /// bindings `shortcuts.commands` holds (issue #6431 review follow-up).
+    private var commandShortcutsByModifierMask: [UInt: [(commandId: String, shortcut: StoredShortcut)]] = [:]
+
+    /// Upper bound on the number of `shortcuts.commands` bindings that participate
+    /// in per-keystroke dispatch. The Settings conflict checker already prevents
+    /// duplicate keystrokes, so a UI-built config never approaches this; the cap
+    /// only bounds a hand-edited cmux.json so a pathologically large map cannot
+    /// turn a modified keystroke into unbounded work. Far above the command
+    /// catalog size, so binding every command stays well within it.
+    static let maxDispatchableCommandShortcuts = 1000
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeLegacyDerivedManagedUserDefaultKeys: Set<String> = []
@@ -153,6 +171,7 @@ final class CmuxSettingsFileStore {
             (
                 shortcuts: shortcutsByAction,
                 whenClauses: whenClausesByAction,
+                commandShortcuts: commandShortcutsByCommandId,
                 importedManagedDefaults: importedManagedDefaults,
                 sourcePath: activeSourcePath
             )
@@ -171,6 +190,8 @@ final class CmuxSettingsFileStore {
         synchronized {
             shortcutsByAction = resolved.shortcuts
             whenClausesByAction = resolved.whenClauses
+            commandShortcutsByCommandId = resolved.commandShortcuts
+            commandShortcutsByModifierMask = Self.makeCommandShortcutDispatchIndex(resolved.commandShortcuts).byModifierMask
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
             activeLegacyDerivedManagedUserDefaultKeys = resolved.legacyDerivedManagedUserDefaultKeys
@@ -181,6 +202,7 @@ final class CmuxSettingsFileStore {
 
         if previousState.shortcuts != resolved.shortcuts
             || previousState.whenClauses != resolved.whenClauses
+            || previousState.commandShortcuts != resolved.commandShortcuts
             || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
         }
@@ -188,6 +210,45 @@ final class CmuxSettingsFileStore {
 
     func override(for action: KeyboardShortcutSettings.Action) -> StoredShortcut? {
         synchronized { shortcutsByAction[action] }
+    }
+
+    /// User-assigned Command Palette command shortcuts (`shortcuts.commands`),
+    /// keyed by command id. Entries that resolve to ``StoredShortcut/unbound``
+    /// are dropped so the dispatcher only sees live single-stroke bindings.
+    func commandShortcuts() -> [String: StoredShortcut] {
+        synchronized {
+            commandShortcutsByCommandId.filter { !$0.value.isUnbound }
+        }
+    }
+
+    /// Command shortcuts whose stroke carries exactly `modifierMask` — the bucket
+    /// the per-keystroke dispatcher probes. Empty for unmodified or shift-only
+    /// masks because every command shortcut requires a primary modifier (⌘/⌥/⌃),
+    /// so ordinary typing dispatches in O(1). Reading it is a single lock-guarded
+    /// dictionary lookup.
+    func commandShortcutsMatchingModifierMask(_ modifierMask: UInt) -> [(commandId: String, shortcut: StoredShortcut)] {
+        synchronized { commandShortcutsByModifierMask[modifierMask] ?? [] }
+    }
+
+    /// Builds the per-keystroke command-shortcut dispatch index from a resolved
+    /// `shortcuts.commands` map: a deterministically ordered, prefiltered list
+    /// (unbound entries dropped, capped at ``maxDispatchableCommandShortcuts``)
+    /// plus that list bucketed by normalized modifier mask. Pure and `static` so
+    /// the bucketing and cap invariants are unit-testable without a live store.
+    static func makeCommandShortcutDispatchIndex(
+        _ commandShortcuts: [String: StoredShortcut],
+        limit: Int = CmuxSettingsFileStore.maxDispatchableCommandShortcuts
+    ) -> (
+        ordered: [(commandId: String, shortcut: StoredShortcut)],
+        byModifierMask: [UInt: [(commandId: String, shortcut: StoredShortcut)]]
+    ) {
+        let ordered = commandShortcuts
+            .filter { !$0.value.isUnbound }
+            .sorted { $0.key < $1.key }
+            .prefix(max(0, limit))
+            .map { (commandId: $0.key, shortcut: $0.value) }
+        let byModifierMask = Dictionary(grouping: ordered) { $0.shortcut.modifierFlags.rawValue }
+        return (ordered, byModifierMask)
     }
 
     /// The `when`-clause override for an action parsed from `shortcuts.when` in
@@ -974,7 +1035,8 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("showModifierHoldHints") {
             logInvalid("shortcuts.showModifierHoldHints", sourcePath: sourcePath)
         }
-        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" {
+        for (key, rawValue) in section
+        where key != "bindings" && key != "showModifierHoldHints" && key != "when" && key != "commands" {
             bindings[key] = rawValue
         }
 
@@ -991,6 +1053,78 @@ final class CmuxSettingsFileStore {
         }
 
         parseShortcutWhenClauses(section["when"], sourcePath: sourcePath, snapshot: &snapshot)
+        parseCommandShortcuts(section["commands"], sourcePath: sourcePath, snapshot: &snapshot)
+    }
+
+    /// Parses the optional `shortcuts.commands` map — `{ "<commandId>":
+    /// "<shortcut>" }` — into per-command-id ``StoredShortcut`` overrides.
+    /// Each binding is **single-stroke only**: a chord (two-element array or a
+    /// `second` stroke) is rejected so a custom command shortcut can never
+    /// silently shadow a tmux-style built-in chord. `null` / `"none"` etc. map
+    /// to ``StoredShortcut/unbound`` (an explicit clear). Invalid entries are
+    /// logged and skipped.
+    private func parseCommandShortcuts(
+        _ rawValue: Any?,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let rawValue else { return }
+        guard let commandsSection = rawValue as? [String: Any] else {
+            logInvalid("shortcuts.commands", sourcePath: sourcePath)
+            return
+        }
+        for (commandId, rawBinding) in commandsSection {
+            guard !commandId.isEmpty else { continue }
+            guard let shortcut = parseCommandShortcutValue(rawBinding) else {
+                cmuxSettingsFileStoreLogger.warning("ignoring invalid shortcuts.commands binding for '\(commandId, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                continue
+            }
+            snapshot.commandShortcuts[commandId] = shortcut
+        }
+    }
+
+    /// Decodes one `shortcuts.commands` value into a single-stroke
+    /// ``StoredShortcut``. Accepts a string (`"cmd+shift+v"`), the package's
+    /// nested object form (`{ "first": { … } }`), or an explicit unbind marker
+    /// (`null` / `""` / `none` / …). A chord — a two-element string array or a
+    /// non-null `second` stroke — is rejected (`nil`) so custom command
+    /// shortcuts stay single-stroke.
+    private func parseCommandShortcutValue(_ rawValue: Any) -> StoredShortcut? {
+        if rawValue is NSNull { return .unbound }
+
+        let shortcut: StoredShortcut
+        if let stroke = jsonString(rawValue) {
+            guard let parsed = StoredShortcut.parseConfig(stroke, allowBareFirstStroke: false) else {
+                return nil
+            }
+            if parsed.isUnbound { return .unbound }
+            if parsed.hasChord { return nil }
+            shortcut = parsed
+        } else if rawValue is [Any] {
+            // A chord array is explicitly unsupported for command shortcuts.
+            return nil
+        } else if let object = rawValue as? [String: Any] {
+            if let secondValue = object["second"], !(secondValue is NSNull) {
+                return nil
+            }
+            guard let firstValue = object["first"],
+                  let first = parseShortcutStrokeObject(firstValue) else {
+                return nil
+            }
+            if first.key.isEmpty { return .unbound }
+            shortcut = StoredShortcut(first: first)
+        } else {
+            return nil
+        }
+
+        // Command shortcuts must include a *primary* modifier (⌘, ⌥, or ⌃).
+        // They are installed in the app-level key monitor and fire before the
+        // terminal/browser receives the key, so a bare key (incl. Space) or a
+        // shift-only printable key like ⇧Y would otherwise run the command every
+        // time the user types that character. Shift alone is not enough.
+        let firstStroke = shortcut.firstStroke
+        guard firstStroke.command || firstStroke.option || firstStroke.control else { return nil }
+        return shortcut
     }
 
     /// Parses the optional `shortcuts.when` map — `{ "<actionId>": "<predicate>" }`
@@ -1804,12 +1938,17 @@ private struct ResolvedSettingsSnapshot {
     /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a
     /// binding to a focus context (see ``ShortcutWhenClause``).
     var whenClauses: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
+    /// User-assigned Command Palette command shortcuts parsed from
+    /// `shortcuts.commands`, keyed by command id. Single-stroke only; the app
+    /// dispatches a match on the focused window.
+    var commandShortcuts: [String: StoredShortcut] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
     var legacyDerivedManagedUserDefaultKeys: Set<String> = []
     var managedCustomSettings = ManagedCustomSettings()
 
     mutating func fillMissingSettings(from fallback: ResolvedSettingsSnapshot) {
         if path == nil && (!fallback.shortcuts.isEmpty ||
+            !fallback.commandShortcuts.isEmpty ||
             !fallback.managedUserDefaults.isEmpty ||
             !fallback.managedCustomSettings.isEmpty) {
             path = fallback.path
@@ -1819,6 +1958,9 @@ private struct ResolvedSettingsSnapshot {
         }
         for (action, clause) in fallback.whenClauses where whenClauses[action] == nil {
             whenClauses[action] = clause
+        }
+        for (commandId, shortcut) in fallback.commandShortcuts where commandShortcuts[commandId] == nil {
+            commandShortcuts[commandId] = shortcut
         }
         for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
             managedUserDefaults[key] = value

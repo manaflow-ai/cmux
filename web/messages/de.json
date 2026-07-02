@@ -863,7 +863,8 @@
       "shortcutsWhenBooleanKeys": "boolesche Schlüssel. Ein unbekannter oder fehlender Schlüssel gilt als false; die Literale true und false werden ebenfalls akzeptiert.",
       "shortcutsWhenTypedKeys": "typisierte Schlüssel für Vergleiche: der aktive Modus der rechten Seitenleiste (Zeichenkette) sowie Pane- und Workspace-Anzahl (Ganzzahlen).",
       "shortcutsWhenOperators": "boolesche Operatoren, typisierte Vergleiche, Regex-Abgleich und Listenzugehörigkeit. Vergleiche binden stärker als && und ||.",
-      "shortcutsWhenExample": "Damit wählt Ctrl+1–9 zum Beispiel überall Workspaces aus, außer wenn die rechte Seitenleiste fokussiert ist (Ctrl+1–5 bleibt für den Modus-Umschalter der Seitenleiste frei), und die Surface-Auswahl ist auf die Suchen-Seitenleiste beschränkt, wenn der Workspace mehrere Panes hat:"
+      "shortcutsWhenExample": "Damit wählt Ctrl+1–9 zum Beispiel überall Workspaces aus, außer wenn die rechte Seitenleiste fokussiert ist (Ctrl+1–5 bleibt für den Modus-Umschalter der Seitenleiste frei), und die Surface-Auswahl ist auf die Suchen-Seitenleiste beschränkt, wenn der Workspace mehrere Panes hat:",
+      "shortcutsCommandsIntro": "Weisen Sie jedem Befehl der Befehlspalette ein eigenes Tastenkürzel zu — einschließlich Befehlen ohne eingebautes Kürzel, etwa das Öffnen des aktuellen Verzeichnisses im Editor. Schlüssel sind Befehls-IDs (dieselben IDs wie in der Palette, zum Beispiel <code>palette.openFolderInVSCodeInline</code>); Werte sind ein Kürzel mit einem Anschlag. Akkorde werden hier nicht unterstützt — verwenden Sie einen einzelnen Tastendruck mit einem primären Modifikator (⌘, ⌥ oder ⌃). Das Kürzel löst den Befehl im fokussierten Fenster aus; ein im aktuellen Kontext nicht verfügbarer Befehl bewirkt nichts. Verwenden Sie <code>null</code> (oder <code>\"\"</code>, <code>none</code>, <code>clear</code>, <code>unbound</code>, <code>disabled</code>), um eine Bindung zu löschen. Am einfachsten verwalten Sie diese unter <settings>Einstellungen → Tastaturkurzbefehle → Benutzerdefinierte Befehle</settings>, wo Befehle unscharf gesucht werden und ein Tastendruck blockiert wird, der bereits zu einer eingebauten Aktion oder einem anderen Befehl gehört."
     },
     "customCommands": {
       "title": "Benutzerdefinierte Befehle",
@@ -1030,7 +1031,10 @@
         "wn-reload": "Konfiguration neu laden",
         "wn-quit": "Beenden"
       },
-      "metaTitle": "Tastenkürzel"
+      "metaTitle": "Tastenkürzel",
+      "customCommandsTitle": "Eigene Befehlskürzel",
+      "customCommandsIntro": "Weisen Sie über <settings>Einstellungen → Tastaturkurzbefehle → Benutzerdefinierte Befehle</settings> oder direkt unter <settingsFile>shortcuts.commands</settingsFile> in cmux.json einem beliebigen Befehl der Befehlspalette einen einzelnen Tastendruck zu. Das Dateiformat finden Sie in der <configurationLink>Konfigurationsdokumentation</configurationLink>.",
+      "customCommandsCallout": "Das Aufzeichnen eines Tastendrucks, der bereits von einer eingebauten Aktion oder einem anderen Befehl verwendet wird, wird mit einem Banner blockiert, sodass ein eigenes Kürzel keine eingebaute Aktion stillschweigend überschreiben oder mit einem anderen Befehl kollidieren kann. Eigene Befehlskürzel haben nur einen Anschlag."
     },
     "api": {
       "title": "CLI-Referenz",
