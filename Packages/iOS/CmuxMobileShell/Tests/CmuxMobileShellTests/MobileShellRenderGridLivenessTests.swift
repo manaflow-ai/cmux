@@ -554,6 +554,60 @@ import Testing
     collector.unmount()
 }
 
+/// Regression: the repaired-subscription catch-up must supersede an in-flight
+/// cold-attach replay for the same surface. `requestTerminalReplay` coalesces
+/// (no-ops) while a replay is already in flight, so if the user types — and the
+/// re-subscribe repairs a lost host registration — before the cold-attach
+/// replay has completed, the repaired catch-up would otherwise be silently
+/// dropped, leaving the surface behind the input response sequence with no
+/// follow-up replay.
+@MainActor
+@Test func repairReplaySupersedesInFlightColdAttachReplay() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    // One post-gap frame; the superseding repair replay must deliver it.
+    await router.setReplayFrames([
+        (seq: 12, text: "repaired-input"),
+    ])
+    // Park the cold-attach (mount) replay so it is still in flight when the
+    // repair fires, reproducing the race the fix guards against.
+    await router.holdNextReplayResponses(count: 1)
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    // The cold-attach replay request leaves the phone but its response stays
+    // parked, so the surface has no locally rendered sequence yet.
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms the cold-attach replay")
+
+    // Lose the subscription, then type: the input reports the Mac advanced past
+    // the (still-empty) local sequence while the cold-attach replay is in flight.
+    await router.dropSubscription()
+    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
+
+    // The repaired subscription must supersede the in-flight cold-attach replay
+    // and issue a fresh catch-up replay rather than coalescing behind it.
+    // Without the fix, requestTerminalReplay no-ops on the in-flight guard and
+    // this second replay never leaves the phone.
+    let replayedAfterRepair = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 2 }
+    #expect(
+        replayedAfterRepair,
+        "repair must supersede the in-flight cold-attach replay, not coalesce the catch-up behind it"
+    )
+    let deliveredRepairReplay = try await pollUntil { collector.lines.contains { $0.contains("repaired-input") } }
+    #expect(deliveredRepairReplay, "the superseding replay must deliver the post-gap frame to the mounted sink")
+    collector.unmount()
+    await router.releaseAllHeld()
+}
+
 /// A repaired `input_seq_wait` re-subscribe is global: when the host reports
 /// `already_subscribed: false`, every mounted surface may have missed
 /// render-grid events during the registration gap, not just the surface that
