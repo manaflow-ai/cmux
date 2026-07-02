@@ -357,6 +357,72 @@ import Testing
 }
 
 @MainActor
+@Test func terminalViewportPrearmedBarrierWithoutResizeReplaysDiscardedOutput() async throws {
+    let router = LivenessHostRouter()
+    await router.setViewportEffectiveGrid(columns: 80, rows: 30)
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "post-prearm-replay",
+    ])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    let baselineGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 100, rows: 50)
+    #expect(baselineGrid?.columns == 80)
+    #expect(baselineGrid?.rows == 30)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
+
+    // Two live chunks the surface has not applied yet: one yielded to the
+    // stream and one queued behind it. Pre-arming a barrier resets this
+    // queue, so the queued chunk can never reach the surface.
+    #expect(store.deliverTerminalBytes(Data("undelivered-live-a".utf8), surfaceID: surfaceID))
+    #expect(store.deliverTerminalBytes(Data("undelivered-live-b".utf8), surfaceID: surfaceID))
+
+    // A changed natural report pre-arms the barrier even though the capped
+    // effective grid comes back unchanged, so the report resolves without a
+    // resize. The discarded output must still be replaced by a replay
+    // instead of silently resuming live output with a gap.
+    let repeatedGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 120, rows: 60)
+    #expect(repeatedGrid?.columns == 80)
+    #expect(repeatedGrid?.rows == 30)
+    let replayAfterPrearm = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1
+    )
+    #expect(
+        replayAfterPrearm,
+        "a prearmed barrier that discarded undelivered output must replay when the report resolves without a resize"
+    )
+    guard replayAfterPrearm else { return }
+
+    // The chunk yielded before the pre-arm still drains from the stream
+    // buffer; its stream token is stale, so processing it is a no-op.
+    let staleYieldedChunk = try #require(await iterator.next())
+    #expect(String(data: staleYieldedChunk.data, encoding: .utf8) == "undelivered-live-a")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: staleYieldedChunk.streamToken)
+
+    let replayChunk = try #require(await iterator.next())
+    #expect(String(data: replayChunk.data, encoding: .utf8) == "post-prearm-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+
+    // Live output resumes once the replay covered the discarded bytes.
+    store.deliverTerminalBytes(Data("live-after-prearm-replay".utf8), surfaceID: surfaceID)
+    let resumedChunk = try #require(await iterator.next())
+    #expect(String(data: resumedChunk.data, encoding: .utf8) == "live-after-prearm-replay")
+}
+
+@MainActor
 @Test func terminalReplayRequestRejectsStaleBarrierToken() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()

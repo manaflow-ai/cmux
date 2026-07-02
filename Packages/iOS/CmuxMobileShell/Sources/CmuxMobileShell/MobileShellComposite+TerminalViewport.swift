@@ -156,7 +156,16 @@ extension MobileShellComposite {
             terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         }
         guard previousReportedGrid != reportedGrid else { return nil }
+        // beginTerminalReplayBarrier discards this surface's undelivered
+        // output queue and rotates its stream token. Record that discard as
+        // dropped output before arming so a report that later resolves
+        // without a resize still replays authoritative state instead of
+        // resuming live output with the discarded bytes missing.
+        let hadUndeliveredOutput = !(terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle ?? true)
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+        if hadUndeliveredOutput {
+            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+        }
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] = replayBarrierToken
         return replayBarrierToken
     }
