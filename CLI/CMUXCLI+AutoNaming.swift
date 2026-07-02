@@ -88,14 +88,11 @@ struct AutoNamingTranscriptMessage: Codable, Equatable, Sendable {
 /// preserving backend selection (Vertex/Bedrock/Anthropic) so the call works
 /// for users on any auth path.
 struct AutoNamingEnvironmentPolicy: Sendable {
-    /// Exact variables that mark a live agent session or cmux terminal and
-    /// must never reach the summarizer.
+    /// Exact variables marking a live agent session or cmux terminal; never pass them to the summarizer.
     private static let scrubbedExactKeys: Set<String> = [
         "CLAUDECODE",
-        "CLAUDE_CODE",
-        "CLAUDE_CODE_CHILD_SESSION",
-        "CLAUDE_CODE_ENTRYPOINT",
-        "CLAUDE_CODE_PARENT_SESSION_ID",
+        "CLAUDE_CODE", "CLAUDE_CODE_CHILD_SESSION",
+        "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_PARENT_SESSION_ID",
         "CLAUDE_CODE_SESSION_ID",
         "CLAUDE_CODE_EXECPATH",
         "CLAUDE_CODE_SSE_PORT",
