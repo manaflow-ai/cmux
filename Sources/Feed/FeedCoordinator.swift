@@ -103,9 +103,7 @@ final class FeedCoordinator: @unchecked Sendable {
         // a blocking Feed reply, so they are *not* excluded here and fall
         // through to the blocking semaphore path.
         guard let requestId = event.requestId, waitTimeout > 0, Self.isBlockingDecisionEvent(event.hookEventName),
-              !(event.source == WorkstreamSource.codex.rawValue
-                && event.hookEventName == .permissionRequest
-                && !event.isCodexAppServerApproval) else {
+              !event.isCodexHookPermissionTelemetry else {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     FeedCoordinator.shared.store.ingest(event)

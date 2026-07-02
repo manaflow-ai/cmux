@@ -285,7 +285,7 @@ public final class WorkstreamStore {
         // app-server (Teams) approvals share the same event name + source but
         // are real decisions cmux owns, so they must fall through to the
         // actionable `.permissionRequest` arm below.
-        case .permissionRequest where source == .codex && !event.isCodexAppServerApproval:
+        case .permissionRequest where event.isCodexHookPermissionTelemetry:
             return (.toolUse, .toolUse(toolName: event.toolName ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
         case .permissionRequest:
             let payload = WorkstreamPayload.permissionRequest(

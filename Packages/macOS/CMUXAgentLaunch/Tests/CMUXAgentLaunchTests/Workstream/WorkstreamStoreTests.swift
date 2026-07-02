@@ -196,6 +196,76 @@ struct WorkstreamStoreTests {
         #expect(store.pending.isEmpty)
     }
 
+    @Test("isCodexHookPermissionTelemetry discriminates hook telemetry from app-server approvals")
+    func codexHookPermissionTelemetryPredicate() {
+        // The single canonical discriminator every raw-`WorkstreamEvent`
+        // consumer shares — store decode, blocking Feed ingest, AND agent-chat
+        // session-state derivation (`AgentChatSessionRegistry.nextState`). A
+        // Codex CLI hook `PermissionRequest` is non-blocking telemetry (Codex
+        // owns the reviewer), so it must never read as a pending cmux decision:
+        // no store approval card, no blocking Feed wait, and — the regression
+        // this guards — no `needsInput` session state once the wire event is
+        // named `PermissionRequest`.
+
+        // Codex CLI hook telemetry: no `codex-app-server-` request id.
+        let hookTelemetry = WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"echo hi"}"#,
+            requestId: "codex-session-PermissionRequest-Bash-1730000000000"
+        )
+        #expect(hookTelemetry.isCodexHookPermissionTelemetry)
+        #expect(!hookTelemetry.isCodexAppServerApproval)
+
+        // Codex app-server (Teams) approval: bridge request id + app_server_method.
+        let appServerApproval = WorkstreamEvent(
+            sessionId: "codex-app-server",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            toolName: "Bash",
+            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","command":"rm -rf build"}"#,
+            requestId: "codex-app-server-approval-1"
+        )
+        #expect(!appServerApproval.isCodexHookPermissionTelemetry)
+        #expect(appServerApproval.isCodexAppServerApproval)
+
+        // Stray `app_server_method` without the bridge request id stays telemetry.
+        let strayMarker = WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            toolName: "Bash",
+            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","command":"echo hi"}"#,
+            requestId: "codex-session-PermissionRequest-Bash-1730000000000"
+        )
+        #expect(strayMarker.isCodexHookPermissionTelemetry)
+        #expect(!strayMarker.isCodexAppServerApproval)
+
+        // A Claude PermissionRequest is a real cmux decision, not Codex telemetry.
+        let claudeApproval = WorkstreamEvent(
+            sessionId: "claude-session",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"echo hi"}"#,
+            requestId: "claude-approval-1"
+        )
+        #expect(!claudeApproval.isCodexHookPermissionTelemetry)
+        #expect(!claudeApproval.isCodexAppServerApproval)
+
+        // A non-permission Codex event is not permission telemetry.
+        let codexPreTool = WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .preToolUse,
+            source: "codex",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"echo hi"}"#
+        )
+        #expect(!codexPreTool.isCodexHookPermissionTelemetry)
+    }
+
     @Test("Codex CLI lifecycle feed events stay telemetry")
     func codexLifecycleFeedEventsStayTelemetry() {
         let store = WorkstreamStore(

@@ -187,6 +187,23 @@ extension WorkstreamEvent {
         }
         return (object["app_server_method"] as? String) != nil
     }
+
+    /// True when this `PermissionRequest` is Codex CLI hook telemetry — the
+    /// non-blocking counterpart to ``isCodexAppServerApproval``.
+    ///
+    /// Codex CLI emits a `PermissionRequest` hook before its own approval
+    /// reviewer runs, so it is *not* a pending cmux decision: cmux records it
+    /// as tool-use activity, never a needs-input/approval state. This is the
+    /// single canonical predicate every raw-`WorkstreamEvent` consumer must
+    /// use to tell hook telemetry apart from a real app-server approval, so
+    /// that renaming the wire event to `PermissionRequest` cannot leak a false
+    /// actionable/needs-input signal into any consumer (store decode, blocking
+    /// Feed ingest, or agent-chat session-state derivation).
+    public var isCodexHookPermissionTelemetry: Bool {
+        source == WorkstreamSource.codex.rawValue
+            && hookEventName == .permissionRequest
+            && !isCodexAppServerApproval
+    }
 }
 
 private struct JSONDynamicKey: CodingKey {
