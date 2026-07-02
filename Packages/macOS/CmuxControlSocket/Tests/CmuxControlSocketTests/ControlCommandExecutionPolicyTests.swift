@@ -105,17 +105,47 @@ struct ControlCommandExecutionPolicyTests {
         }
     }
 
+    @Test func v1NotificationFamilyRunsOnTheWorkerAndIsMainThreadCallable() {
+        // Tranche B2: parse on the worker; notify_target_async and
+        // clear_notifications are pure bus enqueues, the synchronous verbs
+        // carry one inline-collapsing v2MainSync hop, so main-thread
+        // in-process callers stay safe.
+        for command in [
+            "notify", "notify_surface", "notify_target", "notify_target_async",
+            "list_notifications", "clear_notifications",
+        ] {
+            let policy = ControlCommandExecutionPolicy(forV1Command: command)
+            #expect(policy == .socketWorker(mainThreadCallable: true), "\(command)")
+        }
+    }
+
+    @Test func v2NotificationCreateFamilyRunsOnTheWorkerAndIsMainThreadCallable() {
+        // notification.reconcile is deliberately absent: it is a mobile-host
+        // data-plane verb (v2MobileDispatch), not a control-socket method.
+        for method in [
+            "notification.create", "notification.create_for_surface",
+            "notification.create_for_target", "notification.create_for_caller",
+            "workspace.set_auto_title",
+        ] {
+            let policy = ControlCommandExecutionPolicy(forMethod: method)
+            #expect(policy == .socketWorker(mainThreadCallable: true), "\(method)")
+        }
+        #expect(ControlCommandExecutionPolicy(forMethod: "notification.reconcile") == .mainActor)
+        // The read-side notification verbs stay on the main lane.
+        #expect(ControlCommandExecutionPolicy(forMethod: "notification.list") == .mainActor)
+        #expect(ControlCommandExecutionPolicy(forMethod: "notification.clear") == .mainActor)
+    }
+
     @Test func v1CommandsDefaultToTheMainActor() {
         for command in [
             "send", "send_key",
             "list_workspaces", "right_sidebar", "focus_surface",
             "sidebar_state", "reset_sidebar", "list_panes", "new_pane",
-            "notify", "notify_target", "list_notifications",
             "help", "",
             // The v2 namespace prefix rules (vm./remotes.) and v2 worker
             // method names must not leak into v1 classification.
             "vm.create", "remotes.list", "system.ping",
-            "surface.report_pwd",
+            "surface.report_pwd", "notification.create",
         ] {
             let policy = ControlCommandExecutionPolicy(forV1Command: command)
             #expect(policy == .mainActor, "\(command)")
@@ -160,10 +190,15 @@ struct ControlCommandExecutionPolicyTests {
             "report_pwd", "report_shell_state", "report_tty", "ports_kick",
         ]
         #expect(ControlCommandExecutionPolicy.sidebarTelemetryV1Commands == telemetry)
-        let expectedWorker = telemetry.union(["ping"])
+        let notification: Set<String> = [
+            "notify", "notify_surface", "notify_target", "notify_target_async",
+            "list_notifications", "clear_notifications",
+        ]
+        #expect(ControlCommandExecutionPolicy.notificationV1Commands == notification)
+        let expectedWorker = telemetry.union(notification).union(["ping"])
         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
         // Every current member is deliberately main-thread callable
-        // (non-blocking inline: bus enqueues plus inline-collapsing hops).
+        // (deadlock-free inline: bus enqueues plus inline-collapsing hops).
         #expect(ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands == expectedWorker)
     }
 }

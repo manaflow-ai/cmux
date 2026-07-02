@@ -1039,6 +1039,22 @@ class TerminalController {
         "surface.report_shell_state",
         "surface.report_tty",
         "surface.ports_kick",
+        // The notification-create family (coordinator domain, plus the
+        // app-side create_for_caller resolver in the legacy switch) and
+        // workspace.set_auto_title. The synchronous hop keeps each reply
+        // ordered after its hop body, matching the legacy main-lane ordering
+        // exactly, and keeps set_auto_title's apply-then-reply semantics for
+        // naming engines. NOTE: for the create verbs that is NOT an
+        // unconditional read-your-write guarantee — with notification policy
+        // hooks configured, TerminalNotificationStore.addNotification defers
+        // the store apply into a Task past its return, so the create reply
+        // can precede store visibility (identical to baseline); do not build
+        // on create-then-list ordering.
+        "notification.create",
+        "notification.create_for_surface",
+        "notification.create_for_target",
+        "notification.create_for_caller",
+        "workspace.set_auto_title",
     ]
 
     private nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
@@ -1101,6 +1117,22 @@ class TerminalController {
             switch cmd {
             case "ping":
                 return (true, "PONG")
+            // The v1 notification family: nonisolated bodies on this
+            // controller (parse on this worker thread; notify_target_async and
+            // clear_notifications are pure bus enqueues, the others carry one
+            // v2MainSync hop).
+            case "notify":
+                return (true, notifyCurrent(args))
+            case "notify_surface":
+                return (true, notifySurface(args))
+            case "notify_target":
+                return (true, notifyTarget(args))
+            case "notify_target_async":
+                return (true, notifyTargetQueued(args))
+            case "list_notifications":
+                return (true, listNotifications())
+            case "clear_notifications":
+                return (true, clearNotifications(args))
             default:
                 // The sidebar telemetry family: nonisolated coordinator bodies
                 // (parse/format on this worker thread, deferred mutations on
@@ -3175,14 +3207,14 @@ class TerminalController {
         return NSNull()
     }
 
-    private static func notificationCreatedAtString(_ date: Date) -> String {
+    private nonisolated static func notificationCreatedAtString(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: date)
     }
 
-    private static func notificationListTrailingField(_ value: String) -> String {
+    private nonisolated static func notificationListTrailingField(_ value: String) -> String {
         "pct:" + value
             .replacingOccurrences(of: "%", with: "%25")
             .replacingOccurrences(of: "|", with: "%7C")
@@ -11852,125 +11884,133 @@ class TerminalController {
         return success ? "OK" : "ERROR: Panel not found"
     }
 
-    private func notifyCurrent(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-
-        var result = "OK"
-        v2MainSync {
+    /// `notify` — worker-lane body: the payload parse (which never fails)
+    /// runs on the calling thread; the TabManager/selected-tab guards and the
+    /// synchronous delivery are the command's single main hop, in the legacy
+    /// guard order, so the reply is written only after the notification is in
+    /// the store.
+    private nonisolated func notifyCurrent(_ args: String) -> String {
+        let (title, subtitle, body) = parseNotificationPayload(args)
+        return v2MainSync {
+            guard let tabManager = self.tabManager else { return "ERROR: TabManager not available" }
             guard let tabId = tabManager.selectedTabId else {
-                result = "ERROR: No tab selected"
-                return
+                return "ERROR: No tab selected"
             }
             let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-            let (title, subtitle, body) = parseNotificationPayload(args)
-            deliverNotificationSynchronously(
+            self.deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
                 body: body
             )
+            return "OK"
         }
-        return result
     }
 
-    private func notifySurface(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+    /// `notify_surface` — worker-lane body: the argument split and payload
+    /// parse run on the calling thread; the guards run inside the single main
+    /// hop in the legacy order (TabManager first, then the missing-argument
+    /// usage error) so multi-error requests report the same error as before.
+    private nonisolated func notifySurface(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "ERROR: Missing surface id or index" }
-
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
-        let surfaceArg = parts[0]
+        let surfaceArg = parts.first ?? ""
         let payload = parts.count > 1 ? parts[1] : ""
-
-        var result = "OK"
-        v2MainSync {
-            guard let tabId = tabManager.selectedTabId,
-                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
-                result = "ERROR: No tab selected"
-                return
-            }
-            guard let surfaceId = resolveSurfaceId(from: surfaceArg, tab: tab) else {
-                result = "ERROR: Surface not found"
-                return
-            }
-            let (title, subtitle, body) = parseNotificationPayload(payload)
-            deliverNotificationSynchronously(
-                tabId: tabId,
-                surfaceId: surfaceId,
-                title: title,
-                subtitle: subtitle,
-                body: body
-            )
-        }
-        return result
-    }
-
-    private func notifyTarget(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
-
-        let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
-        guard parts.count >= 2 else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
-
-        let tabArg = parts[0]
-        let panelArg = parts[1]
-        let payload = parts.count > 2 ? parts[2] : ""
         let (title, subtitle, body) = parseNotificationPayload(payload)
 
-        if let workspaceId = UUID(uuidString: tabArg),
-           let panelId = UUID(uuidString: panelArg) {
-            var result = "OK"
-            v2MainSync {
-                guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
-                    result = "ERROR: Tab not found"
-                    return
+        return v2MainSync {
+            guard let tabManager = self.tabManager else { return "ERROR: TabManager not available" }
+            guard !trimmed.isEmpty else { return "ERROR: Missing surface id or index" }
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return "ERROR: No tab selected"
+            }
+            guard let surfaceId = self.resolveSurfaceId(from: surfaceArg, tab: tab) else {
+                return "ERROR: Surface not found"
+            }
+            self.deliverNotificationSynchronously(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+            return "OK"
+        }
+    }
+
+    /// `notify_target` — worker-lane body: split/UUID/payload parse on the
+    /// calling thread; the legacy guard order (TabManager, then the usage
+    /// errors, then the UUID fast path vs index/name fallback) runs inside the
+    /// single main hop, which collapses the two former per-branch hops into
+    /// one (the branches were mutually exclusive per request).
+    private nonisolated func notifyTarget(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
+        let tabArg = parts.count > 0 ? parts[0] : ""
+        let panelArg = parts.count > 1 ? parts[1] : ""
+        let payload = parts.count > 2 ? parts[2] : ""
+        let (title, subtitle, body) = parseNotificationPayload(payload)
+        let fastPath: (workspaceId: UUID, panelId: UUID)?
+        if let workspaceId = UUID(uuidString: tabArg), let panelId = UUID(uuidString: panelArg) {
+            fastPath = (workspaceId, panelId)
+        } else {
+            fastPath = nil
+        }
+
+        return v2MainSync {
+            guard let tabManager = self.tabManager else { return "ERROR: TabManager not available" }
+            guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
+            guard parts.count >= 2 else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
+
+            if let fastPath {
+                guard let tab = self.tabForSidebarMutation(id: fastPath.workspaceId) else {
+                    return "ERROR: Tab not found"
                 }
-                guard tab.panels[panelId] != nil else {
-                    result = "ERROR: Panel not found"
-                    return
+                guard tab.panels[fastPath.panelId] != nil else {
+                    return "ERROR: Panel not found"
                 }
-                deliverNotificationSynchronously(
-                    tabId: workspaceId,
-                    surfaceId: panelId,
+                self.deliverNotificationSynchronously(
+                    tabId: fastPath.workspaceId,
+                    surfaceId: fastPath.panelId,
                     title: title,
                     subtitle: subtitle,
                     body: body
                 )
+                return "OK"
             }
-            return result
-        }
 
-        var result = "OK"
-        v2MainSync {
             let tab: Tab?
             if let tabId = UUID(uuidString: tabArg) {
-                tab = tabForSidebarMutation(id: tabId)
+                tab = self.tabForSidebarMutation(id: tabId)
             } else {
-                tab = resolveTab(from: tabArg, tabManager: tabManager)
+                tab = self.resolveTab(from: tabArg, tabManager: tabManager)
             }
             guard let tab else {
-                result = "ERROR: Tab not found"
-                return
+                return "ERROR: Tab not found"
             }
             guard let panelId = UUID(uuidString: panelArg),
                   tab.panels[panelId] != nil else {
-                result = "ERROR: Panel not found"
-                return
+                return "ERROR: Panel not found"
             }
-            deliverNotificationSynchronously(
+            self.deliverNotificationSynchronously(
                 tabId: tab.id,
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
                 body: body
             )
+            return "OK"
         }
-        return result
     }
 
-    private func notifyTargetQueued(_ args: String) -> String {
+    /// `notify_target_async` — worker-lane body with ZERO main hops: parse +
+    /// mutation-bus enqueue on the calling thread (the bus coalesces and
+    /// drains on the main actor). Explicitly fire-and-forget: hooks nohup it
+    /// and discard the reply; existence checks are deferred to bus delivery
+    /// by design.
+    private nonisolated func notifyTargetQueued(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
@@ -12008,22 +12048,39 @@ class TerminalController {
         return "OK"
     }
 
-    private func listNotifications() -> String {
-        var result = ""
-        v2MainSync {
-            let lines = TerminalNotificationStore.shared.notifications.enumerated().map { index, notification in
-                let surfaceText = notification.surfaceId?.uuidString ?? "none"
-                let readText = notification.isRead ? "read" : "unread"
-                let createdAt = Self.notificationCreatedAtString(notification.createdAt)
-                let tabTitle = Self.notificationListTrailingField(AppDelegate.shared?.tabTitle(for: notification.tabId) ?? "")
-                return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.subtitle)|\(notification.body)|\(createdAt)|\(tabTitle)"
+    /// `list_notifications` — worker-lane body: one main hop snapshots the
+    /// store (plus each notification's tab title); the ISO8601 formatting,
+    /// percent-escaping, and line join run on the calling thread.
+    private nonisolated func listNotifications() -> String {
+        let rows: [(id: UUID, tabId: UUID, surfaceText: String, readText: String, title: String, subtitle: String, body: String, createdAt: Date, tabTitle: String)] = v2MainSync {
+            TerminalNotificationStore.shared.notifications.map { notification in
+                (
+                    id: notification.id,
+                    tabId: notification.tabId,
+                    surfaceText: notification.surfaceId?.uuidString ?? "none",
+                    readText: notification.isRead ? "read" : "unread",
+                    title: notification.title,
+                    subtitle: notification.subtitle,
+                    body: notification.body,
+                    createdAt: notification.createdAt,
+                    tabTitle: AppDelegate.shared?.tabTitle(for: notification.tabId) ?? ""
+                )
             }
-            result = lines.joined(separator: "\n")
         }
+        let lines = rows.enumerated().map { index, row in
+            let createdAt = Self.notificationCreatedAtString(row.createdAt)
+            let tabTitle = Self.notificationListTrailingField(row.tabTitle)
+            return "\(index):\(row.id.uuidString)|\(row.tabId.uuidString)|\(row.surfaceText)|\(row.readText)|\(row.title)|\(row.subtitle)|\(row.body)|\(createdAt)|\(tabTitle)"
+        }
+        let result = lines.joined(separator: "\n")
         return result.isEmpty ? "No notifications" : result
     }
 
-    private func clearNotifications(_ args: String) -> String {
+    /// `clear_notifications` — worker-lane body with ZERO main hops: parse on
+    /// the calling thread; every branch is a lock-guarded mutation-bus enqueue
+    /// (the tab/panel resolution runs inside the deferred main-actor closure,
+    /// exactly as before — the bus already returned OK before apply).
+    private nonisolated func clearNotifications(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             TerminalMutationBus.shared.enqueueClearAllNotifications()
@@ -12829,7 +12886,7 @@ class TerminalController {
         return nil
     }
 
-    private func parseNotificationPayload(_ args: String) -> (String, String, String) {
+    private nonisolated func parseNotificationPayload(_ args: String) -> (String, String, String) {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return ("Notification", "", "") }
         let parts = trimmed.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
@@ -13148,7 +13205,7 @@ class TerminalController {
         SidebarMetadataArgumentParser().tokenize(args)
     }
 
-    private func parseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
+    private nonisolated func parseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
         sidebarMetadataArgumentParser.parseOptions(args)
     }
 
@@ -13177,7 +13234,7 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == selectedId })
     }
 
-    private func parseSidebarMutationTabTarget(
+    private nonisolated func parseSidebarMutationTabTarget(
         options: [String: String]
     ) -> (target: SidebarMutationTabTarget?, error: String?) {
         // `SidebarMetadataArgumentParser.parseMutationTabTarget` already returns the
@@ -13225,7 +13282,7 @@ class TerminalController {
         sidebarMetadataArgumentParser.normalizedOptionValue(value)
     }
 
-    private func parseOptionalPanelIdOption(
+    private nonisolated func parseOptionalPanelIdOption(
         options: [String: String],
         usage: String
     ) -> (panelId: UUID?, error: String?) {
