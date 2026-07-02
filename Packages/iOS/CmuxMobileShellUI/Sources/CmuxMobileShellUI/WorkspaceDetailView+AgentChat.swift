@@ -92,15 +92,10 @@ extension WorkspaceDetailView {
                 session: session,
                 conversation: conversation,
                 store: store,
-                workspaceName: workspace.name,
-                tabName: tabName(for: session),
                 draft: Binding(
                     get: { chatDrafts[session.id] ?? "" },
                     set: { chatDrafts[session.id] = $0 }
                 ),
-                backButtonConfiguration: backButtonConfiguration,
-                isTitleMenuEnabled: hasTitleMenuActions,
-                titleMenuContent: { titleMenuContent },
                 onExitChat: {
                     withAnimation(.snappy(duration: 0.28)) {
                         isChatMode = false
@@ -111,22 +106,6 @@ extension WorkspaceDetailView {
             .id(session.id)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .mobileChatTopScrollEdgeLayout(legacyTopPadding: terminalTopPadding)
-            .mobileTerminalNavigationChrome()
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    toolbarTrailingCluster
-                }
-            }
-            .task(id: chatRefreshKey) { await refreshChatSessions() }
-            .closeWorkspaceConfirmation(
-                isPresented: $isConfirmingClose,
-                confirm: confirmCloseWorkspaceFromMenu
-            )
-            .workspaceRenameDialog(
-                isPresented: $isRenamePresented,
-                text: $renameText,
-                onSave: commitRenameFromDialog
-            )
         } else {
             Color.clear
                 .task(id: session.id) {

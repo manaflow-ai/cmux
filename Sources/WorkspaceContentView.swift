@@ -6,45 +6,6 @@ import CmuxFoundation
 import Bonsplit
 import CmuxWorkspaces
 import CmuxTerminal
-enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
-    case surface
-    case bonsplitPane
-    case tmuxActivePane
-
-    var usesWorkspacePaneOverlay: Bool {
-        self == .bonsplitPane
-    }
-
-    var usesTmuxActivePaneOverlay: Bool {
-        self == .tmuxActivePane
-    }
-}
-struct TmuxOverlayExperimentSettings {
-    static let enabledKey = "tmuxOverlayExperimentEnabled"
-    static let targetKey = "tmuxOverlayExperimentTarget"
-    static let defaultEnabled = false
-    static let defaultTarget: TmuxOverlayExperimentTarget = .surface
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
-    }
-
-    static func target(defaults: UserDefaults = .standard) -> TmuxOverlayExperimentTarget {
-        target(
-            enabled: isEnabled(defaults: defaults),
-            rawValue: defaults.string(forKey: targetKey)
-        )
-    }
-
-    static func target(enabled: Bool, rawValue: String?) -> TmuxOverlayExperimentTarget {
-        guard enabled else { return .surface }
-        guard let rawValue,
-              let target = TmuxOverlayExperimentTarget(rawValue: rawValue) else {
-            return defaultTarget
-        }
-        return target
-    }
-}
 
 private enum WorkspaceTitlebarInteractionMetrics {
     // Keep in sync with the minimal-mode titlebar strip so the monitor only
@@ -52,20 +13,56 @@ private enum WorkspaceTitlebarInteractionMetrics {
     static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
 }
 
-struct TmuxWorkspacePaneOverlayRenderState: Equatable {
-    let workspaceId: UUID
-    let unreadRects: [CGRect]
-    let flashRect: CGRect?
-    let flashToken: UInt64
-    let flashReason: WorkspaceAttentionFlashReason?
+private struct WorkspacePanelContentHostView: View {
+    let workspace: Workspace
+    let panel: any Panel
+    let paneId: PaneID
+    let isFocused: Bool
+    let isSelectedInPane: Bool
+    let isVisibleInUI: Bool
+    let portalPriority: Int
+    let isSplit: Bool
+    let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
+    let customSidebarTabManager: TabManager?
+    let hasUnreadNotification: Bool
+    let onFocus: () -> Void
+    let onRequestPanelFocus: () -> Void
+    let onResumeAgentHibernation: () -> Void
+    let onAutoResumeAgentHibernation: () -> Void
+    let onTriggerFlash: () -> Void
+
+    var body: some View {
+        PanelContentView(
+            panel: panel,
+            workspaceId: workspace.id,
+            paneId: paneId,
+            isFocused: isFocused,
+            isSelectedInPane: isSelectedInPane,
+            isVisibleInUI: isVisibleInUI,
+            portalPriority: portalPriority,
+            isSplit: isSplit,
+            appearance: appearance,
+            windowAppearance: windowAppearance,
+            customSidebarTabManager: customSidebarTabManager,
+            hasUnreadNotification: hasUnreadNotification,
+            terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+            workspaceDisplayName: workspace.customTitle ?? workspace.title,
+            onFocus: onFocus,
+            onRequestPanelFocus: onRequestPanelFocus,
+            onResumeAgentHibernation: onResumeAgentHibernation,
+            onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
+            onTriggerFlash: onTriggerFlash
+        )
+    }
 }
 
 @MainActor
-final class TmuxWorkspacePaneOverlayModel: ObservableObject {
-    @Published private(set) var unreadRects: [CGRect] = []
-    @Published private(set) var flashRect: CGRect?
-    @Published private(set) var flashStartedAt: Date?
-    @Published private(set) var flashReason: WorkspaceAttentionFlashReason?
+final class TmuxWorkspacePaneOverlayModel {
+    private(set) var unreadRects: [CGRect] = []
+    private(set) var flashRect: CGRect?
+    private(set) var flashStartedAt: Date?
+    private(set) var flashReason: WorkspaceAttentionFlashReason?
 
     private var currentWorkspaceId: UUID?
     private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
@@ -230,9 +227,9 @@ struct WorkspaceContentView: View {
                         workspace.bonsplitController.focusPane(paneId)
                     }
                 } else {
-                    PanelContentView(
+                    WorkspacePanelContentHostView(
+                        workspace: workspace,
                         panel: panel,
-                        workspaceId: workspace.id,
                         paneId: paneId,
                         isFocused: isFocused,
                         isSelectedInPane: isSelectedInPane,
@@ -241,8 +238,6 @@ struct WorkspaceContentView: View {
                         isSplit: isSplit,
                         appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
-                        terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
-                        workspaceDisplayName: workspace.customTitle ?? workspace.title,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
                             // active workspace. This prevents divergence between the blue focused-tab
@@ -653,6 +648,11 @@ extension WorkspaceContentView {
             }
             if let tmuxStartCommand = terminalPanel.surface.tmuxStartCommand {
                 parts.append("tmuxStartCommand:\(tmuxStartCommand)")
+            }
+            if let pendingLaunchCommand = terminalPanel.textBoxState.pendingLaunchCommand?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !pendingLaunchCommand.isEmpty {
+                parts.append("textBoxPendingLaunchCommand:\(pendingLaunchCommand)")
             }
         }
         if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
