@@ -27,6 +27,28 @@ import Testing
         #expect(store.shouldAutoFocusTerminalSurface(terminalB.rawValue) == true)
     }
 
+    @Test func selectedTerminalCloseKeepsSuppressionUntilRefreshRepairsSelection() async throws {
+        let router = RoutingHostRouter()
+        await router.delayNextTerminalCloseVisibility(workspaceListRefreshCount: 1)
+        let store = try await makeRoutingConnectedStore(router: router)
+        seedTerminalCloseWorkspace(on: store, supportsTerminalClose: true)
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: RoutingHostRouter.workspaceID)
+        let terminalA = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA)
+        let terminalB = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalB)
+        store.selectedWorkspaceID = workspaceID
+        store.selectedTerminalID = terminalA
+
+        await store.closeTerminal(workspaceID: workspaceID, terminalID: terminalA)
+        #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalA, terminalB])
+        #expect(store.selectedTerminalID == terminalA)
+
+        await store.refreshWorkspaces()
+
+        #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalB])
+        #expect(store.selectedTerminalID == terminalB)
+        #expect(store.shouldAutoFocusTerminalSurface(terminalB.rawValue) == false)
+    }
+
     /// Overlapping selected-terminal closes must not share one global
     /// suppression bit. If close A completes while close B is still in flight,
     /// A's cleanup must not disarm B's pending selection-repair suppression.
@@ -212,7 +234,7 @@ import Testing
         let failureMessage = await store.closeTerminal(workspaceID: workspaceID, terminalID: terminalA)
 
         #expect(await router.recordedTerminalCloses().count == 1)
-        #expect(failureMessage == "terminal.close rejected")
+        #expect(failureMessage == "The terminal could not be closed. Try again.")
         #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalA, terminalB])
         #expect(store.selectedTerminalID == terminalA)
         #expect(store.shouldAutoFocusTerminalSurface(terminalA.rawValue) == true)

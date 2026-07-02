@@ -58,6 +58,8 @@ actor RoutingHostRouter {
     private var rejectTerminalClose = false
     private var rejectTerminalCloseCode: String?
     private var rejectTerminalCloseMessage = "terminal.close rejected"
+    private var staleWorkspaceListRefreshesBeforeCloseVisible = 0
+    private var pendingClosedTerminalIDs: Set<String> = []
     private var failWorkspaceList = false
 
     static let workspaceID = "ws-route"
@@ -120,6 +122,12 @@ actor RoutingHostRouter {
         rejectTerminalCloseMessage = reject ? "Unauthorized terminal close" : "terminal.close rejected"
     }
 
+    /// Keep the next successful terminal.close visible for `count` workspace-list
+    /// refreshes before the authoritative list observes it as closed.
+    func delayNextTerminalCloseVisibility(workspaceListRefreshCount count: Int) {
+        staleWorkspaceListRefreshesBeforeCloseVisible = count
+    }
+
     /// Fail workspace-list refreshes while leaving other RPCs available.
     func setFailWorkspaceList(_ fail: Bool) {
         failWorkspaceList = fail
@@ -170,9 +178,10 @@ actor RoutingHostRouter {
             if failWorkspaceList {
                 return try? Self.errorFrame(id: id, message: "workspace.list failed")
             }
-            let focusedTerminalID = terminalIDs.first { !closedTerminalIDs.contains($0) }
+            let closedTerminalIDsSnapshot = closedTerminalIDs
+            let focusedTerminalID = terminalIDs.first { !closedTerminalIDsSnapshot.contains($0) }
             let terminals: [[String: Any]] = terminalIDs.enumerated().compactMap { index, terminalID in
-                guard !closedTerminalIDs.contains(terminalID) else { return nil }
+                guard !closedTerminalIDsSnapshot.contains(terminalID) else { return nil }
                 return [
                     "id": terminalID,
                     "title": String(Character(UnicodeScalar(65 + index)!)),
@@ -181,7 +190,7 @@ actor RoutingHostRouter {
                     "is_focused": terminalID == focusedTerminalID,
                 ]
             }
-            return try? Self.resultFrame(id: id, result: [
+            let response = try? Self.resultFrame(id: id, result: [
                 "workspaces": [
                     [
                         "id": Self.workspaceID,
@@ -192,6 +201,14 @@ actor RoutingHostRouter {
                     ],
                 ],
             ])
+            if staleWorkspaceListRefreshesBeforeCloseVisible > 0 {
+                staleWorkspaceListRefreshesBeforeCloseVisible -= 1
+                if staleWorkspaceListRefreshesBeforeCloseVisible == 0 {
+                    closedTerminalIDs.formUnion(pendingClosedTerminalIDs)
+                    pendingClosedTerminalIDs.removeAll()
+                }
+            }
+            return response
         case "mobile.host.status":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_fidelity": "render_grid",
@@ -242,7 +259,11 @@ actor RoutingHostRouter {
                     message: rejectTerminalCloseMessage
                 )
             }
-            closedTerminalIDs.insert(surfaceID)
+            if staleWorkspaceListRefreshesBeforeCloseVisible > 0 {
+                pendingClosedTerminalIDs.insert(surfaceID)
+            } else {
+                closedTerminalIDs.insert(surfaceID)
+            }
             return try? Self.resultFrame(id: id, result: [
                 "closed": true,
                 "workspace_id": workspaceID,

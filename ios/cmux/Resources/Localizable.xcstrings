@@ -6053,6 +6053,108 @@
         }
       }
     },
+    "mobile.terminal.closeFailed.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal needs confirmation on your Mac before it can be closed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルを閉じるには、Mac での確認が必要です。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.closeFailed.connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac did not respond. Check the connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac から応答がありませんでした。接続を確認してからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.closeFailed.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal could not be closed. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを閉じられませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.closeFailed.lastSurface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open another terminal or browser before deleting this one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この項目を削除する前に、別のターミナルまたはブラウザを開いてください。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.closeFailed.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルはもう利用できません。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.closeFailed.protected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned terminals can't be deleted from the picker. Unpin it on your Mac, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めされたターミナルはピッカーから削除できません。Mac でピン留めを解除してからもう一度お試しください。"
+          }
+        }
+      }
+    },
     "mobile.terminal.new": {
       "extractionState": "manual",
       "localizations": {

@@ -114,13 +114,16 @@ extension MobileShellComposite {
         var params = workspaceMutationParams(id: workspaceID)
         params["surface_id"] = terminalID.rawValue
         beginSelectedTerminalCloseAutoFocusSuppression(for: terminalID)
-        defer { endSelectedTerminalCloseAutoFocusSuppression(for: terminalID) }
-        return await sendWorkspaceMutation(
+        let failureMessage = await sendWorkspaceMutation(
             method: "terminal.close",
             params: params,
             id: workspaceID,
             actionName: "terminal_close"
         )
+        if failureMessage != nil || connectionState != .connected {
+            endSelectedTerminalCloseAutoFocusSuppression(for: terminalID)
+        }
+        return failureMessage
     }
 
     private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {
@@ -159,7 +162,7 @@ extension MobileShellComposite {
             )
             _ = try await client.sendRequest(request)
         } catch {
-            failureMessage = error.localizedDescription
+            failureMessage = localizedMutationFailureMessage(for: error, actionName: actionName)
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return nil }
             // Only the foreground connection's health drives the foreground
             // unavailable/reconnect UI; a failed write to a secondary Mac must not
@@ -172,6 +175,63 @@ extension MobileShellComposite {
         // Re-sync the authoritative list for the Mac we actually mutated.
         await refreshAfterWorkspaceMutation(target)
         return failureMessage
+    }
+
+    private func localizedMutationFailureMessage(for error: any Error, actionName: String) -> String {
+        if actionName == "terminal_close" {
+            return localizedTerminalCloseFailureMessage(for: error)
+        }
+        return error.localizedDescription
+    }
+
+    private func localizedTerminalCloseFailureMessage(for error: any Error) -> String {
+        guard let connectionError = error as? MobileShellConnectionError else {
+            return L10n.string(
+                "mobile.terminal.closeFailed.generic",
+                defaultValue: "The terminal could not be closed. Try again."
+            )
+        }
+        switch connectionError {
+        case .connectionClosed, .requestTimedOut:
+            return L10n.string(
+                "mobile.terminal.closeFailed.connection",
+                defaultValue: "The Mac did not respond. Check the connection and try again."
+            )
+        case let .rpcError(code, _):
+            switch code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "not_found":
+                return L10n.string(
+                    "mobile.terminal.closeFailed.notFound",
+                    defaultValue: "This terminal is no longer available."
+                )
+            case "invalid_state":
+                return L10n.string(
+                    "mobile.terminal.closeFailed.lastSurface",
+                    defaultValue: "Open another terminal or browser before deleting this one."
+                )
+            case "protected":
+                return L10n.string(
+                    "mobile.terminal.closeFailed.protected",
+                    defaultValue: "Pinned terminals can't be deleted from the picker. Unpin it on your Mac, then try again."
+                )
+            case "confirmation_required":
+                return L10n.string(
+                    "mobile.terminal.closeFailed.confirmationRequired",
+                    defaultValue: "This terminal needs confirmation on your Mac before it can be closed."
+                )
+            default:
+                return L10n.string(
+                    "mobile.terminal.closeFailed.generic",
+                    defaultValue: "The terminal could not be closed. Try again."
+                )
+            }
+        case .invalidResponse, .insecureManualRoute, .attachTicketExpired,
+             .authorizationFailed, .accountMismatch:
+            return L10n.string(
+                "mobile.terminal.closeFailed.generic",
+                defaultValue: "The terminal could not be closed. Try again."
+            )
+        }
     }
 
     private func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {
