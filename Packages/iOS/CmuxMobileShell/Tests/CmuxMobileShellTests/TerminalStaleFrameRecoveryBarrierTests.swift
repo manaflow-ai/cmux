@@ -44,6 +44,10 @@ import Testing
         text: "delta-before-ack",
         full: false
     ))
+    let deltaDroppedByBarrier = try await pollUntil {
+        store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] == 1
+    }
+    #expect(deltaDroppedByBarrier, "the pre-ack delta must be consumed (and dropped) before the ack")
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: baselineChunk.streamToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
     #expect(store.terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] == 50)
@@ -127,6 +131,10 @@ import Testing
         text: "delta-before-ack",
         full: false
     ))
+    let deltaDroppedByBarrier = try await pollUntil {
+        store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] == 1
+    }
+    #expect(deltaDroppedByBarrier, "the pre-ack delta must be consumed (and dropped) before the ack")
     await router.enqueueReplayRenderGrid(try renderGridFrame(
         surfaceID: surfaceID,
         seq: 3,
@@ -196,6 +204,10 @@ import Testing
         text: "delta-before-ack",
         full: false
     ))
+    let deltaDroppedByBarrier = try await pollUntil {
+        store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] == 1
+    }
+    #expect(deltaDroppedByBarrier, "the pre-ack delta must be consumed (and dropped) before the ack")
     await router.failNextReplay(count: 3)
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: baselineChunk.streamToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 4)
@@ -266,6 +278,10 @@ import Testing
         activeScreen: .alternate,
         full: false
     ))
+    let deltaDroppedByBarrier = try await pollUntil {
+        store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] == 1
+    }
+    #expect(deltaDroppedByBarrier, "the pre-ack delta must be consumed (and dropped) before the ack")
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: baselineChunk.streamToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
     let alternateBaselinePreserved = try await pollUntil {
