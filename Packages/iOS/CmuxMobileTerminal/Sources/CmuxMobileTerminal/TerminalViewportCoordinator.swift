@@ -54,7 +54,7 @@ struct TerminalViewportCoordinator {
             width: bounds.width,
             height: max(1, containerSize.height)
         )
-        let liveViewportHeight = terminalLiveViewportHeight(
+        let liveViewportHeight = liveViewportHeight(
             inputs: inputs,
             boundsHeight: bounds.height,
             fallbackHeight: layoutViewport.height
@@ -75,19 +75,19 @@ struct TerminalViewportCoordinator {
         )
     }
 
-}
-
-private func terminalLiveViewportHeight(
-    inputs: TerminalViewportInputs,
-    boundsHeight: CGFloat,
-    fallbackHeight: CGFloat
-) -> CGFloat {
-    guard inputs.chromeVisible,
-          let frame = inputs.toolbarPresentationFrame ?? inputs.toolbarFrame,
-          !frame.isNull,
-          !frame.isEmpty else {
-        return fallbackHeight
+    private func liveViewportHeight(
+        inputs: TerminalViewportInputs,
+        boundsHeight: CGFloat,
+        fallbackHeight: CGFloat
+    ) -> CGFloat {
+        guard inputs.chromeVisible,
+              let frame = inputs.toolbarPresentationFrame ?? inputs.toolbarFrame,
+              !frame.isNull,
+              !frame.isEmpty else {
+            return fallbackHeight
+        }
+        return min(max(1, frame.minY), max(1, boundsHeight))
     }
-    return min(max(1, frame.minY), max(1, boundsHeight))
+
 }
 #endif
