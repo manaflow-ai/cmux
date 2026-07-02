@@ -213,6 +213,21 @@ jobs:
       - name: Validate test determinism gate
         run: python3 scripts/check-test-determinism.py --strict
 
+  secret-scan:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Run gitleaks secret scan
+        run: ./scripts/secret-scan.sh
+
+      - name: Validate gitleaks allowlist scope
+        run: ./scripts/secret-scan.sh --self-test
+
   remote-daemon-tests:
     needs: changes
     if: ${{ needs.changes.outputs.go == 'true' }}
@@ -1893,6 +1908,7 @@ jobs:
     needs:
       - changes
       - workflow-guard-tests
+      - secret-scan
       - remote-daemon-tests
       - web-typecheck
       - react-apps-check
