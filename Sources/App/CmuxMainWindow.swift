@@ -178,7 +178,12 @@ final class CmuxMainWindow: NSWindow {
         ) {
             return frameRect
         }
-        return super.constrainFrameRect(frameRect, to: screen)
+        return Self.recoveredOffscreenFrame(
+            frameRect,
+            styleMask: styleMask,
+            windowMinSize: minSize,
+            mouseLocation: NSEvent.mouseLocation
+        ) ?? super.constrainFrameRect(frameRect, to: screen)
     }
 
     /// Whether `proposedFrame` is reachable enough across `visibleFrames` that
@@ -228,6 +233,69 @@ extension CmuxMainWindow {
             y: min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - height),
             width: width,
             height: height
+        )
+    }
+
+    /// Move a main window back onto a connected display when its frame would be
+    /// stranded off-screen (e.g. the display it lived on was disconnected).
+    /// No-op when the frame already has a grabbable on-screen slice.
+    static func applyOffscreenRecoveryIfNeeded(
+        _ window: CmuxMainWindow,
+        mouseLocation: NSPoint? = NSEvent.mouseLocation
+    ) {
+        guard !window.styleMask.contains(.fullScreen) else { return }
+
+        let visibleFrames = NSScreen.screens.map(\.visibleFrame)
+        guard !shouldPreserveFrameDuringConstrain(window.frame, visibleFrames: visibleFrames) else {
+            return
+        }
+
+        guard let recovered = recoveredOffscreenFrame(
+            window.frame,
+            styleMask: window.styleMask,
+            windowMinSize: window.minSize,
+            mouseLocation: mouseLocation
+        ) else {
+            return
+        }
+        guard recovered != window.frame else { return }
+        window.setFrame(recovered, display: true, animate: false)
+    }
+
+    static func recoveredOffscreenFrame(
+        _ frame: NSRect,
+        styleMask: NSWindow.StyleMask,
+        windowMinSize: NSSize = .zero,
+        mouseLocation: NSPoint?
+    ) -> NSRect? {
+        let screens = NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) }
+        let fallbackVisibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+        let minimumFrameSize = minimumFrameSize(
+            for: styleMask,
+            windowMinSize: windowMinSize
+        )
+        return MultiMonitorWindowGeometry.recoveredFrame(
+            frame,
+            minimumSize: minimumFrameSize,
+            screens: screens,
+            mouseLocation: mouseLocation,
+            fallbackVisibleFrame: fallbackVisibleFrame,
+            inset: 0
+        )
+    }
+
+    private static func minimumFrameSize(
+        for styleMask: NSWindow.StyleMask,
+        windowMinSize: NSSize
+    ) -> NSSize {
+        let contentMinimum = NSRect(origin: .zero, size: minimumContentSize)
+        let convertedMinimum = NSWindow.frameRect(
+            forContentRect: contentMinimum,
+            styleMask: styleMask
+        ).size
+        return NSSize(
+            width: max(windowMinSize.width, convertedMinimum.width),
+            height: max(windowMinSize.height, convertedMinimum.height)
         )
     }
 }
