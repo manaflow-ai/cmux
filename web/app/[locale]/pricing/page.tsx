@@ -1,10 +1,35 @@
-import { getTranslations, setRequestLocale } from "next-intl/server";
+import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
-import { buildAlternates } from "../../../i18n/seo";
 import { SiteHeader } from "../components/site-header";
-import { DownloadButton } from "../components/download-button";
-import { ProCheckoutButton } from "../components/pro-checkout-button";
 import { ProWelcomeBanner } from "../components/pro-welcome-banner";
+import { DOWNLOAD_URL } from "../../lib/download";
+import { buildAlternates } from "../../../i18n/seo";
+
+// Feature flag: the Pro checkout flow (Stack Auth hosted purchase via
+// /api/billing/checkout). Defaults on in local dev (dev Stack project has the
+// `pro` product and test mode) and off in production until the prod product
+// and Stripe Connect are live. Set NEXT_PUBLIC_CMUX_CHECKOUT_ENABLED=1|0 to
+// force it either way (e.g. enable on a Vercel preview).
+const SHOW_CHECKOUT =
+  process.env.NEXT_PUBLIC_CMUX_CHECKOUT_ENABLED === "1" ||
+  (process.env.NEXT_PUBLIC_CMUX_CHECKOUT_ENABLED === undefined &&
+    process.env.NODE_ENV === "development");
+// One click into checkout when the flag is on; install stays the entry point
+// until billing is public.
+const PRO_CTA_URL = SHOW_CHECKOUT ? "/api/billing/checkout" : DOWNLOAD_URL;
+// Team is per-seat ($35/user/month). Install is still the entry point, so the
+// Team CTA points at the download today; swap for the team checkout URL once
+// the billing flow is public.
+const TEAM_CTA_URL = DOWNLOAD_URL;
+const SALES_EMAIL = "founders@manaflow.com";
+
+// Feature flag: cmux Vault (cloud session backup, cross-session search, and
+// unlimited cross-machine history) isn't shipped yet. Keep its pricing copy out
+// of the page until it's live. Flip to `true` to surface every Vault entry
+// again: the Pro feature bullets, the compare rows, the FAQ, and the meta
+// description all key off this flag.
+const SHOW_VAULT = false;
 
 export async function generateMetadata({
   params,
@@ -15,98 +40,380 @@ export async function generateMetadata({
   const t = await getTranslations({ locale, namespace: "pricing" });
   return {
     title: t("metaTitle"),
-    description: t("metaDescription"),
+    description: SHOW_VAULT ? t("metaDescription") : t("metaDescriptionNoVault"),
     alternates: buildAlternates(locale, "/pricing"),
   };
 }
 
-const FREE_FEATURES = ["f1", "f2", "f3", "f4"] as const;
-const PRO_FEATURES = ["p1", "p2", "p3", "p4", "p5"] as const;
+export default function PricingPage() {
+  const t = useTranslations("pricing");
 
-export default async function PricingPage({
-  params,
-}: {
-  params: Promise<{ locale: string }>;
-}) {
-  const { locale } = await params;
-  setRequestLocale(locale);
+  const freeFeatures = t.raw("free.features") as string[];
+  const proBaseFeatures = t.raw("pro.features") as string[];
+  const proVaultFeatures = t.raw("pro.vaultFeatures") as string[];
+  // Vault bullets slot back in right after the Cloud VM compute-hours line.
+  const proFeatures = SHOW_VAULT
+    ? [...proBaseFeatures.slice(0, 2), ...proVaultFeatures, ...proBaseFeatures.slice(2)]
+    : proBaseFeatures;
+  const teamFeatures = t.raw("team.features") as string[];
+  const enterpriseFeatures = t.raw("enterprise.features") as string[];
+  const compareRows = (t.raw("compare.rows") as CompareRow[]).filter(
+    (row) => SHOW_VAULT || !row.vault,
+  );
+  const sizeRows = t.raw("sizes.rows") as SizeRow[];
+  const faqItems = (t.raw("faq.items") as FaqItem[]).filter(
+    (item) => SHOW_VAULT || !item.vault,
+  );
 
-  const t = await getTranslations("pricing");
+  const linkClass =
+    "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
 
   return (
     <div className="min-h-screen">
-      <SiteHeader section={t("section")} />
-      <main className="w-full max-w-3xl mx-auto px-6 py-16 sm:py-24">
+      <SiteHeader />
+
+      <main className="w-full max-w-6xl mx-auto px-6 py-16 sm:py-20">
+        {/* Post-checkout / billing states from /api/billing/checkout|confirm */}
         <Suspense fallback={null}>
           <ProWelcomeBanner />
         </Suspense>
 
-        <h1 className="text-2xl font-semibold tracking-tight mb-3">
-          {t("title")}
-        </h1>
-        <p className="text-base text-muted mb-10" style={{ lineHeight: 1.5 }}>
-          {t("subtitle")}
-        </p>
+        {/* Title */}
+        <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
 
-        <div className="grid gap-6 sm:grid-cols-2">
+        {/* Tier cards */}
+        <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch">
           {/* Free */}
-          <section className="rounded-xl border border-border p-6 flex flex-col">
-            <h2 className="text-sm font-semibold tracking-tight">
-              {t("free.name")}
-            </h2>
-            <p className="mt-3">
-              <span className="text-2xl font-semibold tracking-tight">
-                {t("free.price")}
-              </span>
+          <PlanCard
+            name={t("free.name")}
+            price={t("free.price")}
+            period={t("perMonth")}
+          >
+            <PrimaryLink href={DOWNLOAD_URL}>{t("free.cta")}</PrimaryLink>
+            <p className="mt-5 text-sm font-medium text-muted">
+              {t("free.featuresLead")}
             </p>
-            <p className="text-sm text-muted mt-1 mb-5">{t("free.tagline")}</p>
-            <ul
-              className="space-y-2.5 text-sm mb-6 flex-1"
-              style={{ lineHeight: 1.4 }}
-            >
-              {FREE_FEATURES.map((key) => (
-                <li key={key} className="flex gap-2.5">
-                  <span className="text-muted shrink-0">-</span>
-                  <span className="text-muted">{t(`free.${key}`)}</span>
-                </li>
-              ))}
-            </ul>
-            <div>
-              <DownloadButton size="sm" location="pricing_free" />
-            </div>
-          </section>
+            <FeatureList items={freeFeatures} muted />
+          </PlanCard>
 
           {/* Pro */}
-          <section className="rounded-xl border border-foreground/25 p-6 flex flex-col">
-            <h2 className="text-sm font-semibold tracking-tight">
-              {t("pro.name")}
-            </h2>
-            <p className="mt-3">
-              <span className="text-2xl font-semibold tracking-tight">
-                {t("pro.price")}
-              </span>
-              <span className="text-sm text-muted">{t("pro.priceUnit")}</span>
+          <PlanCard
+            name={t("pro.name")}
+            price={t("pro.price")}
+            period={t("perMonth")}
+          >
+            <PrimaryLink href={PRO_CTA_URL}>{t("pro.cta")}</PrimaryLink>
+            <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
+            <FeatureList items={proFeatures} />
+          </PlanCard>
+
+          {/* Team */}
+          <PlanCard
+            name={t("team.name")}
+            price={t("team.price")}
+            period={t("perUserMonth")}
+          >
+            <PrimaryLink href={TEAM_CTA_URL}>{t("team.cta")}</PrimaryLink>
+            <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
+            <FeatureList items={teamFeatures} />
+          </PlanCard>
+
+          {/* Enterprise */}
+          <PlanCard
+            name={t("enterprise.name")}
+            price={t("enterprise.price")}
+          >
+            <SecondaryLink href={`mailto:${SALES_EMAIL}`}>
+              {t("enterprise.cta")}
+            </SecondaryLink>
+            <p className="mt-5 text-sm font-medium">
+              {t("enterprise.featuresLead")}
             </p>
-            <p className="text-sm text-muted mt-1 mb-5">{t("pro.priceNote")}</p>
-            <ul
-              className="space-y-2.5 text-sm mb-6 flex-1"
-              style={{ lineHeight: 1.4 }}
-            >
-              {PRO_FEATURES.map((key) => (
-                <li key={key} className="flex gap-2.5">
-                  <span className="text-muted shrink-0">-</span>
-                  <span className="text-muted">{t(`pro.${key}`)}</span>
-                </li>
-              ))}
-            </ul>
-            <div>
-              <ProCheckoutButton size="sm" location="pricing_pro" />
-            </div>
-          </section>
+            <FeatureList items={enterpriseFeatures} />
+          </PlanCard>
         </div>
 
-        <p className="text-sm text-muted mt-6">{t("cancelNote")}</p>
+        {/* Compare plans. Header row is sticky under the 48px h-12 site header.
+            No overflow-x wrapper: an overflow container becomes a scroll context
+            on both axes and would anchor the sticky header to itself instead of
+            the page. */}
+        <section className="mt-16">
+          <table className="w-full border-separate border-spacing-0 text-[15px]">
+            <thead>
+              <tr>
+                <th className="sticky top-12 z-20 bg-background border-b border-border py-3 pr-4 text-left align-bottom font-medium min-w-[12rem]" />
+                <ColumnHead name={t("free.name")} price={t("free.price")} />
+                <ColumnHead
+                  name={t("pro.name")}
+                  price={`${t("pro.price")}${t("perMonth")}`}
+                />
+                <ColumnHead
+                  name={t("team.name")}
+                  price={`${t("team.price")}${t("perUserMonth")}`}
+                />
+                <ColumnHead
+                  name={t("enterprise.name")}
+                  price={t("enterprise.price")}
+                />
+              </tr>
+            </thead>
+            <tbody>
+              {compareRows.map((row, i) => (
+                <tr key={i}>
+                  <th
+                    scope="row"
+                    className="border-b border-border py-3 pr-4 text-left font-normal align-top"
+                  >
+                    {row.label}
+                  </th>
+                  <CompareCell value={row.free} />
+                  <CompareCell value={row.pro} />
+                  <CompareCell value={row.team} />
+                  <CompareCell value={row.enterprise} />
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        {/* Cloud VM sizes */}
+        <section className="mt-16 border-t border-border pt-10">
+          <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
+            {t("sizes.title")}
+          </h2>
+          <p className="text-[15px] text-muted max-w-2xl">{t("sizes.body")}</p>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full border-collapse text-[15px]">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="py-3 pr-4 text-left align-bottom font-medium min-w-[10rem]">
+                    {t("sizes.colSize")}
+                  </th>
+                  <th className="px-4 py-3 text-left align-bottom font-medium">
+                    {t("sizes.colUse")}
+                  </th>
+                  <th className="px-4 py-3 text-left align-bottom font-medium whitespace-nowrap">
+                    {t("sizes.colRate")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {sizeRows.map((row, i) => (
+                  <tr key={i} className="border-b border-border">
+                    <th
+                      scope="row"
+                      className="py-3 pr-4 text-left font-normal align-top whitespace-nowrap"
+                    >
+                      {row.size}
+                    </th>
+                    <td className="px-4 py-3 text-left align-top text-muted">
+                      {row.use}
+                    </td>
+                    <td className="px-4 py-3 text-left align-top whitespace-nowrap">
+                      {row.rate}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section className="mt-16 border-t border-border pt-10">
+          <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
+            {t("faq.title")}
+          </h2>
+          <div
+            className="space-y-5 text-[15px] max-w-2xl"
+            style={{ lineHeight: 1.5 }}
+          >
+            {faqItems.map((item, i) => (
+              <div key={i}>
+                <p className="font-medium mb-1">{item.q}</p>
+                <p className="text-muted">{item.a}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-8 text-[15px] text-muted">
+            {t.rich("help", {
+              discord: (chunks) => (
+                <a
+                  href="https://discord.gg/xsgFEVrWCZ"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={linkClass}
+                >
+                  {chunks}
+                </a>
+              ),
+              github: (chunks) => (
+                <a
+                  href="https://github.com/manaflow-ai/cmux"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={linkClass}
+                >
+                  {chunks}
+                </a>
+              ),
+              email: (chunks) => (
+                <a href="mailto:founders@manaflow.ai" className={linkClass}>
+                  {chunks}
+                </a>
+              ),
+            })}
+          </p>
+        </section>
       </main>
     </div>
   );
 }
+
+function PlanCard({
+  name,
+  price,
+  period,
+  children,
+}: {
+  name: string;
+  price: string;
+  period?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex h-full flex-col border border-border p-6">
+      <h2 className="text-sm font-medium tracking-tight">{name}</h2>
+      <div className="mt-3 flex items-baseline gap-1.5">
+        <span className="text-3xl font-medium tracking-tight">{price}</span>
+        {period ? <span className="text-sm text-muted">{period}</span> : null}
+      </div>
+      <div className="mt-6">{children}</div>
+    </div>
+  );
+}
+
+function FeatureList({ items, muted }: { items: string[]; muted?: boolean }) {
+  return (
+    <ul
+      className={`mt-4 space-y-2.5 text-[15px] leading-relaxed ${
+        muted ? "text-muted" : ""
+      }`}
+    >
+      {items.map((item, i) => (
+        <li key={i} className="flex gap-2.5">
+          <CheckIcon />
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CheckIcon({ inline }: { inline?: boolean }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={inline ? "shrink-0" : "mt-1 shrink-0 text-muted"}
+      aria-hidden="true"
+    >
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
+
+function PrimaryLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      className="inline-flex w-full items-center justify-center whitespace-nowrap bg-foreground px-5 py-2.5 text-[15px] font-medium hover:opacity-85 transition-opacity"
+      style={{ color: "var(--background)", textDecoration: "none" }}
+    >
+      {children}
+    </a>
+  );
+}
+
+function SecondaryLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      className="inline-flex w-full items-center justify-center whitespace-nowrap border border-border px-5 py-2.5 text-[15px] font-medium text-foreground hover:bg-code-bg transition-colors"
+    >
+      {children}
+    </a>
+  );
+}
+
+type FaqItem = {
+  q: string;
+  a: string;
+  // Marks a Vault-specific question (see SHOW_VAULT).
+  vault?: boolean;
+};
+
+type CompareRow = {
+  label: string;
+  free: string;
+  pro: string;
+  team: string;
+  enterprise: string;
+  // Marks a row that only applies once cmux Vault ships (see SHOW_VAULT).
+  vault?: boolean;
+};
+
+type SizeRow = {
+  size: string;
+  use: string;
+  rate: string;
+};
+
+function ColumnHead({ name, price }: { name: string; price: string }) {
+  return (
+    <th className="sticky top-12 z-20 bg-background border-b border-border px-4 py-3 text-left align-bottom font-medium">
+      {name}
+      <span className="block text-xs font-normal text-muted">{price}</span>
+    </th>
+  );
+}
+
+function CompareCell({ value }: { value: string }) {
+  const base = "border-b border-border px-4 py-3 text-left align-top";
+  if (value === "true") {
+    return (
+      <td className={base}>
+        <span className="inline-flex text-foreground">
+          <CheckIcon inline />
+        </span>
+      </td>
+    );
+  }
+  if (value === "false") {
+    return (
+      <td className={`${base} text-muted`} aria-label="Not included">
+        <span aria-hidden="true">–</span>
+      </td>
+    );
+  }
+  return <td className={`${base} text-[13px] text-muted`}>{value}</td>;
+}
+

@@ -110,13 +110,6 @@ export function SiteHeader({
 
         <div className="flex flex-col gap-3 text-sm text-muted px-4 pb-4">
           <Link
-            href="/pricing"
-            onClick={close}
-            className="hover:text-foreground transition-colors py-1"
-          >
-            {t("pricing")}
-          </Link>
-          <Link
             href="/docs/getting-started"
             onClick={close}
             className="hover:text-foreground transition-colors py-1"
@@ -143,6 +136,13 @@ export function SiteHeader({
             className="hover:text-foreground transition-colors py-1"
           >
             {t("community")}
+          </Link>
+          <Link
+            href="/pricing"
+            onClick={close}
+            className="hover:text-foreground transition-colors py-1"
+          >
+            {t("pricing")}
           </Link>
           <GitHubStarsBadge location="mobile_drawer" />
           <div className="pt-2">
