@@ -4086,6 +4086,15 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
+        case "todo":
+            try runTodoNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
         case "list-workspaces":
             Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
             try runWorkspaceListCommand(
@@ -5419,6 +5428,7 @@ struct CMUXCLI {
         "swap-pane",
         "tab-action",
         "themes",
+        "todo",
         "top",
         "tree",
         "trigger-flash",
@@ -7950,7 +7960,7 @@ struct CMUXCLI {
         guard let sub = commandArgs.first?.lowercased() else {
             throw CLIError(message: String(
                 localized: "cli.error.workspaceSubcommandRequired",
-                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, reconnect, disconnect, group"
+                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, status, reconnect, disconnect, group"
             ))
         }
         let rest = Array(commandArgs.dropFirst())
@@ -8009,6 +8019,14 @@ struct CMUXCLI {
                 windowOverride: windowOverride,
                 mode: .namespace
             )
+        case "status":
+            try runWorkspaceStatusCommand(
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
         case "select":
             try runWorkspaceSelectCommand(
                 commandName: "workspace select",
@@ -8043,7 +8061,7 @@ struct CMUXCLI {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.error.workspaceSubcommandUnknown",
-                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, reconnect, disconnect, group"
+                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, status, reconnect, disconnect, group"
                 ),
                 locale: .current,
                 sub
@@ -14131,6 +14149,8 @@ struct CMUXCLI {
         switch command {
         case "remotes", "remote":
             return Self.remotesUsage
+        case "todo":
+            return Self.todoUsage
         case "ping":
             return """
             Usage: cmux ping
@@ -14865,6 +14885,8 @@ struct CMUXCLI {
               close <workspace>       Close a workspace
               rename <workspace> --title <new>
               select <workspace>      Make a workspace active
+              status [set <lane|auto>]
+                                      Show or pin the workspace todo status
               reconnect [workspace]   Reconnect a remote (SSH) workspace, including one
                                       whose automatic reconnect paused because the host
                                       was unreachable
@@ -34488,6 +34510,8 @@ export default CMUXSessionRestore;
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
           reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
           workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
+          workspace status [set <lane|auto>] [--workspace <id|ref|index>] [--window <id|ref|index>]
+          todo <add|list|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]

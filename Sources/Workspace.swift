@@ -116,7 +116,7 @@ extension Workspace {
             (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
             (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
         let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
-        return SessionWorkspaceSnapshot(
+        var snapshot = SessionWorkspaceSnapshot(
             workspaceId: id,
             processTitle: processTitle,
             customTitle: customTitle,
@@ -141,6 +141,8 @@ extension Workspace {
             remote: remoteConfiguration?.sessionSnapshot(),
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
+        snapshot.captureTodoState(from: self)
+        return snapshot
     }
 
     @discardableResult
@@ -214,6 +216,7 @@ extension Workspace {
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
+        restoreTodoState(from: snapshot)
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -2592,6 +2595,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
+    /// Todo lifecycle state: manual status override + persisted checklist
+    /// (all logic lives in `Workspace+Todos.swift`).
+    let todoState = WorkspaceTodoState()
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []

@@ -1854,6 +1854,13 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// User-defined per-workspace environment variables (issue #5995). Optional
     /// with a `nil` default so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
+    /// Manual task-status override raw values and the persisted checklist.
+    /// Optional-with-nil-default (the `groupId` back-compat pattern); the
+    /// bridging to/from live `WorkspaceTodoState` lives in
+    /// `SessionPersistence+Todos.swift`.
+    var taskStatusOverride: String? = nil
+    var taskStatusInferredAtOverride: String? = nil
+    var checklist: [SessionChecklistItemSnapshot]? = nil
 }
 
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
