@@ -6904,7 +6904,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return
         }
-        clearOversizedTerminalGridRecovery(surfaceID: renderGrid.surfaceID)
+        noteFittingRenderGridFrame(surfaceID: renderGrid.surfaceID)
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
         let deliveryDecision: RenderGridEventDeliveryDecision = source == "event"
             ? renderGridEventDeliveryDecision(renderGrid, previous: previousScreen)

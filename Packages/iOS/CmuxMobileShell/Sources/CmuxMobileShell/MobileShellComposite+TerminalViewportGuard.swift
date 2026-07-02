@@ -177,9 +177,32 @@ extension MobileShellComposite {
         }
     }
 
-    /// A fitting frame arrived; end any oversized-grid recovery pacing so a
-    /// later divergence starts a fresh recovery immediately.
-    func clearOversizedTerminalGridRecovery(surfaceID: String) {
-        oversizedTerminalGridRecoveryLastAttemptsBySurfaceID.removeValue(forKey: surfaceID)
+    /// A fitting frame arrived: end the oversized-grid recovery pacing so a
+    /// later divergence starts fresh, and un-wedge an exhausted recovery
+    /// barrier.
+    ///
+    /// When every bounded replay retry was spent on still-diverged responses,
+    /// the barrier survives (dropped output preserves it) with no replay in
+    /// flight, and the drop path refuses to arm one after exhaustion. Fitting
+    /// frames would then be dropped forever — the stream would freeze at the
+    /// exact moment the Mac converged. Restart the barrier (resetting the
+    /// budget) so the fitting replay repaints and releases it.
+    func noteFittingRenderGridFrame(surfaceID: String) {
+        guard oversizedTerminalGridRecoveryLastAttemptsBySurfaceID
+            .removeValue(forKey: surfaceID) != nil else {
+            return
+        }
+        guard terminalByteContinuationsBySurfaceID[surfaceID] != nil,
+              terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil,
+              !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
+              terminalReplayFailureRetryExhausted(surfaceID: surfaceID) else {
+            return
+        }
+        MobileDebugLog.anchormux("terminal.output.oversized_grid_converged_rearm surface=\(surfaceID)")
+        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+        // The fitting frame itself is dropped by the restarted barrier below;
+        // record it so empty/not-delivered responses keep the recovery alive.
+        recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
+        requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
 }
