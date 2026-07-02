@@ -91,6 +91,19 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         )
     }
 
+    func testDoesNotPreserveFrameWithTitlebarStrandedAboveScreen() {
+        // A monitor disconnect can leave a window with 200pt of body visible at
+        // the bottom of the surviving screen while its entire titlebar — the
+        // only drag surface, since cmux main windows are not otherwise movable —
+        // sits above the screen top. The veto must NOT preserve this frame;
+        // AppKit's default constrain is the rescue path that pulls it back.
+        let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let frame = NSRect(x: 100, y: 700, width: 800, height: 600) // maxY 1300
+        XCTAssertFalse(
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
+        )
+    }
+
     func testDoesNotPreserveWhenNoScreensAvailable() {
         let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         XCTAssertFalse(
