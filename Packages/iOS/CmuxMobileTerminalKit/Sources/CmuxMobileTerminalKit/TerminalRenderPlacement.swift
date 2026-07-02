@@ -82,13 +82,9 @@ public struct TerminalRenderPlacement: Sendable {
         guard !previousRenderAllowedTopGapCorrection else { return true }
         guard let awaitingViewportEcho else { return true }
 
-        let awaitingGridOutgrowsPinned =
-            awaitingViewportEcho.cols > pinnedGrid.cols ||
-            awaitingViewportEcho.rows > pinnedGrid.rows
-        let currentNaturalReachedAwaitingGrid =
-            naturalGrid.cols >= awaitingViewportEcho.cols &&
-            naturalGrid.rows >= awaitingViewportEcho.rows
-        return !(awaitingGridOutgrowsPinned && currentNaturalReachedAwaitingGrid)
+        let awaitingRowsOutgrowPinned = awaitingViewportEcho.rows > pinnedGrid.rows
+        let currentNaturalReachedAwaitingRows = naturalGrid.rows >= awaitingViewportEcho.rows
+        return !(awaitingRowsOutgrowPinned && currentNaturalReachedAwaitingRows)
     }
 
     /// Map a pointer location to the rendered terminal grid.
