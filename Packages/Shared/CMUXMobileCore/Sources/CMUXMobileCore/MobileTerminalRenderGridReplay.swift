@@ -89,18 +89,20 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
         let screenStateReset = "\u{1B}[1\"q\u{1B}[0\"q\u{1B}[999<u\u{1B}[0;1=u\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B"
+        let hyperlinkStateReset = "\u{1B}]8;;\u{1B}\\"
 
         // Apply the whole restore inside a synchronized update so the client
         // never presents the empty reset/clear frame before the snapshot lands.
         // Avoid `ESC c`: RIS clears before synchronized output can be enabled.
         // These are Ghostty-supported resets for state the replay depends on:
-        // main display, protected cells, key/input flags, charset mapping,
-        // scroll margins, tabs, both screens, cursor position, viewport
-        // contents, and scrollback.
+        // main display, protected cells, key/input flags, OSC 8 hyperlinks,
+        // charset mapping, scroll margins, tabs, both screens, cursor position,
+        // viewport contents, and scrollback.
         bytes.append(Data((
             "\u{1B}[?2026h\u{1B}[0$}\u{1B}[>m\u{1B}[r\u{1B}[?69l\u{1B}[?5W\u{1B}[?1049l" +
+            hyperlinkStateReset +
             screenStateReset + "\u{1B}[H\u{1B}[2J\u{1B}[3J" +
-            "\u{1B}[?1049h" + screenStateReset + "\u{1B}[H\u{1B}[2J" +
+            "\u{1B}[?1049h" + hyperlinkStateReset + screenStateReset + "\u{1B}[H\u{1B}[2J" +
             "\u{1B}[?1049l\u{1B}[H"
         ).utf8))
 

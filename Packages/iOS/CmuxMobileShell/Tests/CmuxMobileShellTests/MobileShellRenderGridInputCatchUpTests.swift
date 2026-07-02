@@ -100,6 +100,69 @@ import Testing
 }
 
 @MainActor
+@Test func staleRenderGridFramesDoNotPoisonPendingInputCatchUp() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 99,
+        text: "baseline"
+    ))
+    let baselineDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("baseline") }
+    }
+    #expect(baselineDelivered)
+
+    await store.submitTerminalRawInput(Data("a".utf8), surfaceID: "live-terminal")
+    let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
+    #expect(inputSent)
+    let replayCountAfterInput = await router.count(of: "mobile.terminal.replay")
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 98,
+        text: "older-than-delivered",
+        full: false
+    ))
+    let staleFrameDelivered = try await pollUntil(attempts: 50) {
+        collector.lines.contains { $0.contains("older-than-delivered") }
+    }
+    #expect(!staleFrameDelivered)
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 100,
+        text: "target-delta",
+        full: false
+    ))
+    let targetFrameDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("target-delta") }
+    }
+    #expect(
+        targetFrameDelivered,
+        "stale frames older than the delivered sequence must not mark delta continuity unsafe"
+    )
+    let replayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterInput + 1,
+        timeoutNanoseconds: 500_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!replayRequested, "accepted target deltas must not force a replay after a stale frame")
+    collector.unmount()
+}
+
+@MainActor
 @Test func renderGridInputPendingSequenceRequiresReplayAfterDroppedDelta() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

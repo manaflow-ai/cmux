@@ -6873,7 +6873,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
-        guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else { return }
         if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
            deliveredSeq > renderGrid.stateSeq {
             MobileDebugLog.anchormux(
@@ -6881,6 +6880,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return
         }
+        guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else { return }
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
         let deliveryDecision: RenderGridEventDeliveryDecision = source == "event"
             ? renderGridEventDeliveryDecision(renderGrid, previous: previousScreen)
