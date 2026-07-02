@@ -30812,6 +30812,7 @@ export default CMUXSessionRestore;
                     cwd: hookCwd ?? mapped?.cwd
                 )
                 let lifecycle = suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)
+                let storedRuntimeStatus: AgentHookRuntimeStatus? = suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
                 if (def.name == "grok" || def.name == "antigravity"),
@@ -30829,7 +30830,7 @@ export default CMUXSessionRestore;
                         lastBody: summary.body,
                         lastNotificationStatus: summary.status,
                         updateLastNotificationStatus: true,
-                        runtimeStatus: runtimeStatus(for: summary.status),
+                        runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: true,
                         autoNameMessages: autoNamingMessages(
                             for: def,
@@ -30852,7 +30853,7 @@ export default CMUXSessionRestore;
                         lastBody: summary.body,
                         lastNotificationStatus: summary.status,
                         updateLastNotificationStatus: true,
-                        runtimeStatus: runtimeStatus(for: summary.status),
+                        runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: summary.status != nil
                     )
                 }
