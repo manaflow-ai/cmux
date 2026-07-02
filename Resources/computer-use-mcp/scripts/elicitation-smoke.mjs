@@ -20,7 +20,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const serverPath = join(here, "..", "cmux-computer-use-mcp.mjs");
 const fakeCodex = join(here, "fake-codex-app-server.mjs");
 
-async function run({ withElicitation }) {
+async function run({ withElicitation, tool = "computer_apps", args = {} }) {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [serverPath],
@@ -40,7 +40,7 @@ async function run({ withElicitation }) {
     });
   }
   await client.connect(transport);
-  const res = await client.callTool({ name: "computer_apps", arguments: {} });
+  const res = await client.callTool({ name: tool, arguments: args });
   const text = (res.content ?? [])
     .filter((c) => c.type === "text")
     .map((c) => c.text)
@@ -63,4 +63,20 @@ if (!declined.isError || !declined.text.includes("elicitation:decline")) {
   process.exit(1);
 }
 
-console.log("PASS: elicitation forwarding + fail-closed decline");
+// Local perception tools (window enumeration, desktop capture) bypass the
+// codex engine, so they must sit behind the same approval boundary.
+const windowsDeclined = await run({ withElicitation: false, tool: "computer_windows", args: {} });
+console.log(`computer_windows without elicitation support -> isError=${windowsDeclined.isError}`);
+if (!windowsDeclined.isError || !windowsDeclined.text.includes("not approved")) {
+  console.error("FAIL: expected fail-closed decline for local window enumeration");
+  process.exit(1);
+}
+
+const shotDeclined = await run({ withElicitation: false, tool: "computer_screenshot", args: {} });
+console.log(`desktop screenshot without elicitation support -> isError=${shotDeclined.isError}`);
+if (!shotDeclined.isError || !shotDeclined.text.includes("not approved")) {
+  console.error("FAIL: expected fail-closed decline for desktop capture");
+  process.exit(1);
+}
+
+console.log("PASS: elicitation forwarding + fail-closed decline (engine and local capabilities)");

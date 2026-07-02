@@ -454,6 +454,14 @@ async function perceive(app) {
 }
 
 async function desktopScreenshot(display) {
+  if (
+    !(await approveLocalCapability(
+      "desktop-screenshot",
+      "Allow cmux computer use to capture the entire desktop (all apps and screens)?"
+    ))
+  ) {
+    return err("full-desktop capture was not approved; pass `app` for per-app capture instead");
+  }
   const path = join(
     tmpdir(),
     `cmux-cu-screenshot-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}.png`
@@ -755,6 +763,14 @@ const TOOLS = [
       additionalProperties: false,
     },
     run: async ({ match }) => {
+      if (
+        !(await approveLocalCapability(
+          "window-list",
+          "Allow cmux computer use to list every on-screen window (apps, titles, positions)?"
+        ))
+      ) {
+        return err("window enumeration was not approved");
+      }
       try {
         return ok([text(JSON.stringify(await listWindows(match), null, 2))]);
       } catch (error) {
@@ -800,6 +816,26 @@ function mcpClientRequest(method, params) {
 // `elicitation/create` so the human approves in their own agent session —
 // the same approval Codex Computer Use shows natively. Fail closed (decline)
 // when the client never declared elicitation support or errors/times out.
+// Local perception (desktop screenshots, window enumeration) does not go
+// through the Codex engine, so it gets the same human approval boundary via
+// the forwarded-elicitation machinery. Grants are cached per capability for
+// the lifetime of this MCP session, mirroring the engine's per-app approvals.
+const grantedLocalCapabilities = new Set();
+
+async function approveLocalCapability(key, message) {
+  if (grantedLocalCapabilities.has(key)) return true;
+  const result = await forwardElicitationToClient({
+    message,
+    mode: "form",
+    requestedSchema: { type: "object", properties: {} },
+  });
+  if (result.action === "accept") {
+    grantedLocalCapabilities.add(key);
+    return true;
+  }
+  return false;
+}
+
 async function forwardElicitationToClient(params) {
   if (AUTO_APPROVE) return { action: "accept", content: {} };
   if (!clientSupportsElicitation) return { action: "decline" };
