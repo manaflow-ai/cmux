@@ -4657,11 +4657,16 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         fallback: AgentHibernationLifecycleState?
     ) -> AgentHibernationLifecycleState {
-        guard let panelStates = agentLifecycleStatesByPanelId[panelId],
-              !panelStates.isEmpty else {
+        // Manual loaders (`cmux workspace loading`, keyed `manual`/`manual:<id>`)
+        // share this map to drive the sidebar spinner, but they are cosmetic:
+        // they must not make a panel's restorable agent look running/needs-input
+        // to hibernation decisions.
+        let states = (agentLifecycleStatesByPanelId[panelId] ?? [:])
+            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+            .map(\.value)
+        guard !states.isEmpty else {
             return fallback ?? .unknown
         }
-        let states = Array(panelStates.values)
         if states.contains(.running) { return .running }
         if states.contains(.needsInput) { return .needsInput }
         if states.contains(.unknown) { return .unknown }

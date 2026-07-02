@@ -23938,10 +23938,17 @@ struct CMUXCLI {
         }
 
         // Named loaders live under the reserved manual namespace so several can
-        // stack into the count without colliding with agent keys.
+        // stack into the count without colliding with agent keys. The id is
+        // interpolated into a whitespace-tokenized v1 socket line, so restrict
+        // it to a shell-safe charset instead of letting "build step" split into
+        // extra arguments server-side.
         let manual = AgentHibernationLifecycleStatusKeys.manualKey
         let key: String
         if let rawId = idArg?.trimmingCharacters(in: .whitespacesAndNewlines), !rawId.isEmpty {
+            let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+            guard rawId.unicodeScalars.allSatisfy(allowed.contains) else {
+                throw CLIError(message: "Invalid --id '\(rawId)'. Use letters, digits, '.', '_', or '-' (no spaces).")
+            }
             key = "\(manual):\(rawId)"
         } else {
             key = manual
