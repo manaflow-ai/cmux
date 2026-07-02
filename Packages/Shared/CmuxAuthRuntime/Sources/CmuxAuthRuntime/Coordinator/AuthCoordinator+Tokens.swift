@@ -23,6 +23,25 @@ extension AuthCoordinator {
     ///   surviving refresh token (retryable); ``AuthError/unauthorized`` once the
     ///   session is definitively gone (also clears local auth state).
     public func accessToken() async throws -> String {
+        do {
+            return try await runTokenTouchingPhase(.accessToken, timeout: timeouts.network) {
+                try await self.accessTokenWithoutStateClear()
+            }
+        } catch AuthError.unauthorized {
+            if let devToken = await devAuthAccessTokenFallback() {
+                return devToken
+            }
+            clearAuthState(preservePendingCode: true)
+            throw AuthError.unauthorized
+        }
+    }
+
+    /// Returns the currently stored access token without refreshing or mutating auth state.
+    public func storedAccessToken() async -> String? {
+        await client.storedAccessToken()
+    }
+
+    private func accessTokenWithoutStateClear() async throws -> String {
         if let token = await client.accessToken() {
             return token
         }
@@ -31,24 +50,31 @@ extension AuthCoordinator {
             return "cmux-ui-test-stack-token"
         }
         #endif
-        if launch.includesDevAuth, let credentials = debugCredentials {
-            try? await signInWithPassword(
-                email: credentials.email,
-                password: credentials.password,
-                setLoading: false
-            )
-            if let token = await client.accessToken() {
-                return token
-            }
-        }
         // A surviving refresh token means the failure was transient
         // (network/server), so stay retryable; a missing one means the SDK
         // definitively cleared the session and the user must sign in again.
+        // The caller performs the published-state clear only for the winning,
+        // current request; late timed-out token tasks must not mutate auth UI.
         if await client.refreshToken() != nil {
             throw AuthError.networkError
         }
-        clearAuthState(preservePendingCode: true)
         throw AuthError.unauthorized
+    }
+
+    private func devAuthAccessTokenFallback() async -> String? {
+        #if DEBUG
+        guard launch.includesDevAuth, let credentials = debugCredentials else {
+            return nil
+        }
+        try? await signInWithPassword(
+            email: credentials.email,
+            password: credentials.password,
+            setLoading: false
+        )
+        return await client.accessToken()
+        #else
+        return nil
+        #endif
     }
 
     /// The current refresh token, if any. Native API calls authenticate with
@@ -92,6 +118,17 @@ extension AuthCoordinator {
     ///   ``clearAuthState()`` so ``isAuthenticated`` flips to `false` and the
     ///   root scene routes to the sign-in page instead of showing a stale shell.
     public func forceRefreshAccessToken() async throws -> String {
+        do {
+            return try await runTokenTouchingPhase(.forceRefreshAccessToken, timeout: timeouts.network) {
+                try await self.forceRefreshAccessTokenWithoutStateClear()
+            }
+        } catch AuthError.unauthorized {
+            clearAuthState(preservePendingCode: true)
+            throw AuthError.unauthorized
+        }
+    }
+
+    private func forceRefreshAccessTokenWithoutStateClear() async throws -> String {
         if let token = await client.forceRefreshAccessToken() {
             return token
         }
@@ -101,7 +138,6 @@ extension AuthCoordinator {
         if await client.refreshToken() != nil {
             throw AuthError.networkError
         }
-        clearAuthState(preservePendingCode: true)
         throw AuthError.unauthorized
     }
 }

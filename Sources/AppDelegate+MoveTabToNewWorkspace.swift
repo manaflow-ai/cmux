@@ -58,6 +58,11 @@ extension AppDelegate {
         placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
+        let hasExplicitTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        if !hasExplicitTitle,
+           let source = windowRegistry.locateSurface(surfaceId: panelId) {
+            source.tabManager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+        }
         environment.mainWindowRouter.moveSurfaceToNewWorkspace(
             panelId: panelId,
             destinationManager: destinationManager,

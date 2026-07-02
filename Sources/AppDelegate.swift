@@ -2370,6 +2370,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
+        // DEV-only: auto-publish this Mac's attach route to the signed-in user's
+        // paired-Macs backup so a fresh dev iOS build restores it. No-op on
+        // Release or when the flag is off.
+        MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         terminalControl.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
         terminalControl.agentChatTranscriptService = agentChatTranscriptService
         auth.start()

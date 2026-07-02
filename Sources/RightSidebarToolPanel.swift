@@ -84,7 +84,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard let store = sessionIndexStoreStorage else { return }
             syncSessionIndexRoot(from: workspace, store: store)
-        case .feed, .dock:
+        case .feed, .dock, .customSidebar:
             break
         }
     }
@@ -142,7 +142,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             guard let anchor = sessionIndexFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .feed, .dock:
+        case .feed, .dock, .customSidebar:
             break
         }
     }
@@ -164,7 +164,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .feed, .dock:
+        case .feed, .dock, .customSidebar:
             return nil
         }
     }
@@ -291,7 +291,7 @@ struct RightSidebarToolPanelView: View {
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)
             )
-        case .feed, .dock:
+        case .feed, .dock, .customSidebar:
             EmptyView()
         }
     }
@@ -317,7 +317,7 @@ struct RightSidebarToolPanelView: View {
     }
 }
 
-private struct RightSidebarToolFocusAnchor: NSViewRepresentable {
+struct RightSidebarToolFocusAnchor: NSViewRepresentable {
     final class Coordinator {
         var onViewChange: (RightSidebarToolFocusAnchorView?) -> Void
         weak var attachedView: RightSidebarToolFocusAnchorView?
@@ -361,7 +361,7 @@ private struct RightSidebarToolFocusAnchor: NSViewRepresentable {
     }
 }
 
-fileprivate final class RightSidebarToolFocusAnchorView: NSView {
+final class RightSidebarToolFocusAnchorView: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {

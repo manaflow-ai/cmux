@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import CmuxWorkspaces
 import SwiftUI
 
@@ -65,7 +66,7 @@ struct ConfigSettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(currentSnapshot.displayPaths, id: \.self) { path in
                     Text(verbatim: path)
-                        .font(.system(size: 12, weight: .regular, design: .monospaced))
+                        .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
@@ -99,7 +100,7 @@ struct ConfigSettingsView: View {
             HStack(spacing: 8) {
                 if !statusMessage.isEmpty {
                     Text(statusMessage)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundColor(statusIsError ? .red : .secondary)
                 }
 
@@ -284,7 +285,7 @@ private struct ConfigSettingsBanner: View {
             Image(systemName: "info.circle")
                 .foregroundStyle(.secondary)
             Text(text)
-                .font(.footnote)
+                .cmuxFont(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -319,7 +320,6 @@ private struct ConfigSettingsTextView: NSViewRepresentable {
         textView.isEditable = isEditable
         textView.isSelectable = true
         textView.string = text
-        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         textView.textColor = .textColor
         textView.backgroundColor = .textBackgroundColor
         textView.insertionPointColor = .textColor
@@ -335,6 +335,7 @@ private struct ConfigSettingsTextView: NSViewRepresentable {
             height: CGFloat.greatestFiniteMagnitude
         )
         textView.delegate = context.coordinator
+        context.coordinator.installGlobalFontObserver(for: textView)
 
         scrollView.documentView = textView
         return scrollView
@@ -352,13 +353,27 @@ private struct ConfigSettingsTextView: NSViewRepresentable {
         textView.backgroundColor = .textBackgroundColor
         textView.textColor = .textColor
         textView.insertionPointColor = .textColor
+        context.coordinator.applyGlobalFont(to: textView)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
+        var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
         init(text: Binding<String>) {
             self.text = text
+        }
+
+        func installGlobalFontObserver(for textView: NSTextView) {
+            applyGlobalFont(to: textView)
+            globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.applyGlobalFont(to: textView)
+            }
+        }
+
+        func applyGlobalFont(to textView: NSTextView) {
+            textView.font = GlobalFontMagnification.monospacedSystemFont(ofSize: 12, weight: .regular)
         }
 
         func textDidChange(_ notification: Notification) {

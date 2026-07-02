@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxCanvasUI
 import CmuxControlSocket
 import CmuxFoundation
 import CmuxSettings
@@ -36,6 +37,18 @@ import CmuxTerminal
 /// In release builds `ControlDebugContext` has no requirements, so the
 /// conformance is an empty extension — matching the legacy `#if DEBUG` switch
 /// cases that compiled the whole domain out.
+#if DEBUG
+@MainActor
+func debugShowCanvasCommandScrollHint(in workspace: Workspace) -> Bool {
+    guard workspace.layoutMode == .canvas,
+          let rootView = workspace.canvasModel.viewport as? CanvasRootView else {
+        return false
+    }
+    rootView.debugShowCommandScrollHint()
+    return true
+}
+#endif
+
 extension TerminalController: ControlDebugContext {
 #if DEBUG
     // MARK: - Session-snapshot benchmarks
@@ -113,6 +126,21 @@ extension TerminalController: ControlDebugContext {
     }
 
     func controlDebugCaptureScreenshot(label: String) -> String { captureScreenshot(label) }
+
+    func controlDebugShowCanvasCommandScrollHint(
+        routing: ControlRoutingSelectors
+    ) -> ControlCanvasActionResolution {
+        guard let workspace = resolveCanvasWorkspace(routing: routing) else {
+            return .workspaceNotFound
+        }
+        guard workspace.layoutMode == .canvas else {
+            return .notCanvasMode
+        }
+        guard debugShowCanvasCommandScrollHint(in: workspace) else {
+            return .viewportUnavailable
+        }
+        return .ok(mode: workspace.layoutMode.rawValue)
+    }
 
     // MARK: - debug.type
 
@@ -239,8 +267,8 @@ extension TerminalController: ControlDebugContext {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
         }
-        let state = textView.debugInteract(action: action)
-        // `debugInteract` emits String/Bool/Int leaves only, so the bridge
+        let state = textView.performControlInteraction(action: action)
+        // `performControlInteraction` emits String/Bool/Int leaves only, so the bridge
         // cannot fail; the empty-object fallback keeps the conversion total.
         return ControlDebugTextBoxInteraction(
             surfaceID: panel.id,
@@ -341,11 +369,11 @@ extension TerminalController: ControlDebugContext {
         // the legacy `[String: Any]` params are reconstructed exactly
         // (`foundationObject` is the inverse of the dispatcher's bridging) and
         // the favicon body runs verbatim.
-        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { _, ws, surfaceId, browserPanel in
+        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { workspaceId, surfaceId, browserPanel in
             let pngData = browserPanel.faviconPNGData
             return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "has_favicon": pngData != nil,

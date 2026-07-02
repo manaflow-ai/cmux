@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSidebar
 import Foundation
 
@@ -18,5 +19,35 @@ extension RightSidebarMode {
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
         )
+    }
+}
+
+enum RightSidebarKeyboardNavigation {
+    enum DisclosureAction {
+        case collapse
+        case expand
+    }
+
+    static func moveDelta(for event: NSEvent) -> Int? {
+        event.rightSidebarMoveDelta
+    }
+
+    static func disclosureAction(for event: NSEvent) -> DisclosureAction? {
+        switch event.rightSidebarDisclosureAction {
+        case .collapse:
+            return .collapse
+        case .expand:
+            return .expand
+        case nil:
+            return nil
+        }
+    }
+
+    static func isPlainSlash(_ event: NSEvent) -> Bool {
+        event.isPlainRightSidebarSlash
+    }
+
+    static func isPlainPrintableText(_ event: NSEvent) -> Bool {
+        event.isPlainRightSidebarPrintableText
     }
 }

@@ -179,6 +179,105 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     return keyCode == 3
 }
 
+func shouldRouteCommandPaletteSelectionNavigation(
+    delta: Int?,
+    isInteractive: Bool,
+    usesInlineTextHandling: Bool
+) -> Bool {
+    guard delta != nil, isInteractive else { return false }
+    return !usesInlineTextHandling
+}
+
+func shouldConsumeShortcutWhileCommandPaletteVisible(
+    isCommandPaletteVisible: Bool,
+    normalizedFlags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16
+) -> Bool {
+    guard isCommandPaletteVisible else { return false }
+
+    // Escape dismisses the palette, and must not leak through to the
+    // underlying terminal or browser content.
+    if normalizedFlags.isEmpty, keyCode == 53 {
+        return true
+    }
+
+    guard normalizedFlags.contains(.command) else { return false }
+
+    let normalizedChars = chars.lowercased()
+
+    if normalizedFlags == [.command] {
+        if normalizedChars == "a"
+            || normalizedChars == "c"
+            || normalizedChars == "v"
+            || normalizedChars == "x"
+            || normalizedChars == "z"
+            || normalizedChars == "y" {
+            return false
+        }
+
+        switch keyCode {
+        case 49, 51, 117, 123, 124:
+            return false
+        default:
+            break
+        }
+    }
+
+    if normalizedFlags == [.command, .shift], normalizedChars == "z" {
+        return false
+    }
+
+    return true
+}
+
+func shouldSubmitCommandPaletteWithReturn(
+    keyCode: UInt16,
+    flags: NSEvent.ModifierFlags,
+    mode: String
+) -> Bool {
+    guard keyCode == 36 || keyCode == 76 else { return false }
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    if normalizedFlags.isEmpty {
+        return true
+    }
+    if normalizedFlags == [.shift] {
+        return mode != "workspace_description_input"
+    }
+    return false
+}
+
+func commandPaletteFieldEditorHasMarkedText(in window: NSWindow) -> Bool {
+    if let editor = window.firstResponder as? NSTextView {
+        return editor.hasMarkedText()
+    }
+    if let textField = window.firstResponder as? NSTextField,
+       let editor = textField.currentEditor() as? NSTextView {
+        return editor.hasMarkedText()
+    }
+    return false
+}
+
+func shouldHandleCommandPaletteShortcutEvent(
+    _ event: NSEvent,
+    paletteWindow: NSWindow?
+) -> Bool {
+    guard let paletteWindow else { return false }
+    if let eventWindow = event.window {
+        return eventWindow === paletteWindow
+    }
+    let eventWindowNumber = event.windowNumber
+    if eventWindowNumber > 0 {
+        return eventWindowNumber == paletteWindow.windowNumber
+    }
+    if let keyWindow = NSApp.keyWindow {
+        return keyWindow === paletteWindow
+    }
+    return false
+}
+
 func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,

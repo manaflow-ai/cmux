@@ -118,16 +118,32 @@ enum AppSettingsFileMapping {
 }
 
 enum NotificationSettingsFileMapping {
+    private static let notifications = NotificationsCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "dockBadge", defaultsKey: NotificationDefaultsToggle.dockBadge.key),
         .init(jsonKey: "showInMenuBar", defaultsKey: MenuBarExtraSettings.showInMenuBarKey),
         .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationDefaultsToggle.paneRing.key),
         .init(jsonKey: "paneFlash", defaultsKey: NotificationDefaultsToggle.paneFlash.key),
+        .init(
+            jsonKey: "suppressOnlyFocusedSurface",
+            defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "agentPermissionPrompt",
+            defaultsKey: notifications.agentPermissionPrompt.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "agentIdleReminder",
+            defaultsKey: notifications.agentIdleReminder.userDefaultsKey
+        ),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
         .init(jsonKey: "customSoundFilePath", defaultsKey: NotificationSoundSettings.customFilePathKey),
         .init(jsonKey: "command", defaultsKey: NotificationCustomCommandRunner.defaultsKey),
+        // agentTurnComplete is enum-valued and validated explicitly in
+        // parseNotificationsSection, like notifications.sound.
     ]
 }
 
@@ -344,6 +360,10 @@ extension CmuxSettingsFileStore {
         "notifications.command",
         "notifications.hooks",
         "notifications.hooksMode",
+        "notifications.suppressOnlyFocusedSurface",
+        "notifications.agentPermissionPrompt",
+        "notifications.agentTurnComplete",
+        "notifications.agentIdleReminder",
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",

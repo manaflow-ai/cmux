@@ -302,6 +302,15 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             sample["resident_memory_fallback_source"] as? String,
             CmuxTopProcessMemorySource.rusageResidentSize.rawValue
         )
+        XCTAssertEqual(sample["cmux_scope"] as? Bool, true)
+
+        let unscopedSnapshot = CmuxTopProcessSnapshot(
+            processes: [],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: false,
+            includesCMUXScope: false
+        )
+        XCTAssertEqual(unscopedSnapshot.samplePayload()["cmux_scope"] as? Bool, false)
 
         let fallbackSnapshot = CmuxTopProcessSnapshot(
             processes: [

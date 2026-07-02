@@ -14,7 +14,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.5.1"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
         .package(path: "../CmuxFoundation"),
     ],
     targets: [
@@ -32,7 +32,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxUpdaterTests",
-            dependencies: ["CmuxUpdater"],
+            dependencies: [
+                "CmuxUpdater",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

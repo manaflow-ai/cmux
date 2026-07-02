@@ -1,6 +1,8 @@
 public import Foundation
-public import UniformTypeIdentifiers
+import CoreServices
+import CmuxSettings
 import ImageIO
+public import UniformTypeIdentifiers
 
 /// Pure filename and download-policy resolution for the browser download paths.
 ///
@@ -11,6 +13,8 @@ import ImageIO
 /// injected at construction so the string resolves in the app bundle; see the
 /// app-side `init()` convenience that supplies it.
 public struct BrowserDownloadFilenameResolver: Sendable {
+    private static let maxFilenameCollisionAttempts = 100
+
     /// Localized fallback filename used when no usable name can be derived.
     private let defaultFilename: String
 
@@ -36,12 +40,15 @@ public struct BrowserDownloadFilenameResolver: Sendable {
     }
 
     /// The reason a navigation response should become a download, or `nil` when it
-    /// can be shown inline. Returns `content-disposition`, `forceDownloadMIME`, or
-    /// `cannotShowMIME`.
+    /// can be shown inline. Returns `content-disposition`, `forceDownloadMIME`,
+    /// `subframePDFUserAction`, or `cannotShowMIME`.
     public func navigationResponseDownloadReason(
         mimeType: String?,
         canShowMIMEType: Bool,
-        contentDisposition: String?
+        contentDisposition: String?,
+        isForMainFrame: Bool = true,
+        allowsSubframeDownload: Bool = false,
+        isUserActivatedPreviouslyRenderedSubframePDF: Bool = false
     ) -> String? {
         if shouldForceDownload(mimeType: nil, contentDisposition: contentDisposition) {
             return "content-disposition"
@@ -49,7 +56,37 @@ public struct BrowserDownloadFilenameResolver: Sendable {
         if shouldForceDownload(mimeType: mimeType, contentDisposition: nil) {
             return "forceDownloadMIME"
         }
+        if !isForMainFrame,
+           isUserActivatedPreviouslyRenderedSubframePDF,
+           isPDFMIMEType(mimeType) {
+            return "subframePDFUserAction"
+        }
+        guard isForMainFrame else { return nil }
         return canShowMIMEType ? nil : "cannotShowMIME"
+    }
+
+    /// Whether a trusted main-frame PDF navigation should print after load.
+    public func shouldPrintPDFAfterLoad(
+        mimeType: String?,
+        responseURL: URL?,
+        isForMainFrame: Bool,
+        hasTrustedPrintIntent: Bool
+    ) -> Bool {
+        guard hasTrustedPrintIntent, isForMainFrame, isPDFMIMEType(mimeType) else {
+            return false
+        }
+        return isPDFPrintRequestURL(responseURL)
+    }
+
+    /// Whether a URL carries the browser PDF print request marker.
+    public func isPDFPrintRequestURL(_ url: URL?) -> Bool {
+        guard let components = url.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else {
+            return false
+        }
+        return components.queryItems?.contains {
+            $0.name.caseInsensitiveCompare("print") == .orderedSame &&
+                (($0.value ?? "").caseInsensitiveCompare("true") == .orderedSame || $0.value == "1")
+        } == true
     }
 
     /// Whether the response's HTTP status permits saving the payload (2xx allows,
@@ -147,11 +184,64 @@ public struct BrowserDownloadFilenameResolver: Sendable {
     ) -> String {
         if let suggested = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines),
            !suggested.isEmpty {
-            return self.suggestedFilename(suggestedFilename: suggested, response: nil, sourceURL: URL(fileURLWithPath: "download"), imageType: nil)
+            return self.suggestedFilename(
+                suggestedFilename: suggested,
+                response: nil,
+                sourceURL: URL(fileURLWithPath: "download"),
+                imageType: nil
+            )
         }
         let ext = ParsedDataURL.filenameExtension(forMIMEType: mimeType) ?? "bin"
         let base = (mimeType?.lowercased().hasPrefix("image/") ?? false) ? "image" : "download"
         return "\(base).\(ext)"
+    }
+
+    /// Whether browser downloads should prompt for a destination.
+    public func shouldAskWhereToSaveDownloads(defaults: UserDefaults = .standard) -> Bool {
+        let setting = SettingCatalog().browser.askWhereToSaveDownloads
+        if defaults.object(forKey: setting.userDefaultsKey) == nil {
+            return setting.defaultValue
+        }
+        return defaults.bool(forKey: setting.userDefaultsKey)
+    }
+
+    /// The user's downloads directory, falling back to `~/Downloads`.
+    public func downloadsDirectory(fileManager: FileManager = .default) -> URL {
+        if let directory = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+            return directory
+        }
+        return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Downloads", isDirectory: true)
+    }
+
+    /// A collision-free destination URL in `directory` for the sanitized filename.
+    public func uniqueDownloadDestination(
+        suggestedFilename: String,
+        in directory: URL,
+        fileManager: FileManager = .default
+    ) -> URL {
+        let safeFilename = sanitizedFilename(suggestedFilename, fallbackURL: nil)
+        let candidate = directory.appendingPathComponent(safeFilename, isDirectory: false)
+        guard fileManager.fileExists(atPath: candidate.path) else {
+            return candidate
+        }
+
+        let nsFilename = safeFilename as NSString
+        let base = nsFilename.deletingPathExtension.isEmpty ? defaultFilename : nsFilename.deletingPathExtension
+        let ext = nsFilename.pathExtension
+        var index = 1
+        while index <= Self.maxFilenameCollisionAttempts {
+            let dedupedName = ext.isEmpty ? "\(base) (\(index))" : "\(base) (\(index)).\(ext)"
+            let url = directory.appendingPathComponent(dedupedName, isDirectory: false)
+            if !fileManager.fileExists(atPath: url.path) {
+                return url
+            }
+            index += 1
+        }
+
+        let uuid = UUID().uuidString
+        let fallbackName = ext.isEmpty ? "\(base)-\(uuid)" : "\(base)-\(uuid).\(ext)"
+        return directory.appendingPathComponent(fallbackName, isDirectory: false)
     }
 
     private func imageFilename(
@@ -215,6 +305,10 @@ public struct BrowserDownloadFilenameResolver: Sendable {
         return normalized.isEmpty ? nil : normalized
     }
 
+    private func isPDFMIMEType(_ mimeType: String?) -> Bool {
+        Self.normalizedMIMEType(mimeType) == "application/pdf"
+    }
+
     private static func contentDispositionRequestsAttachment(_ contentDisposition: String?) -> Bool {
         guard let rawType = contentDisposition?.split(separator: ";", maxSplits: 1).first else {
             return false
@@ -242,5 +336,55 @@ public struct BrowserDownloadFilenameResolver: Sendable {
             return preferred
         }
         return "img"
+    }
+}
+
+public extension URL {
+    /// Applies macOS web-download quarantine metadata for non-local source URLs.
+    func cmuxApplyWebDownloadQuarantine(sourceURL: URL?) throws {
+        guard let sourceURL,
+              !sourceURL.isFileURL else {
+            return
+        }
+
+        var quarantineProperties: [String: Any] = [
+            kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
+            kLSQuarantineTimeStampKey as String: Date(),
+            kLSQuarantineAgentNameKey as String: Self.cmuxDownloadQuarantineAgentName(),
+        ]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier,
+           !bundleIdentifier.isEmpty {
+            quarantineProperties[kLSQuarantineAgentBundleIdentifierKey as String] = bundleIdentifier
+        }
+        if let sanitizedSourceURL = Self.cmuxSanitizedDownloadSourceURL(sourceURL) {
+            quarantineProperties[kLSQuarantineDataURLKey as String] = sanitizedSourceURL
+            quarantineProperties[kLSQuarantineOriginURLKey as String] = sanitizedSourceURL
+        }
+
+        var resourceValues = URLResourceValues()
+        resourceValues.quarantineProperties = quarantineProperties
+        var fileURL = self
+        try fileURL.setResourceValues(resourceValues)
+    }
+
+    private static func cmuxDownloadQuarantineAgentName() -> String {
+        let candidate = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "cmux"
+        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "cmux" : trimmed
+    }
+
+    private static func cmuxSanitizedDownloadSourceURL(_ sourceURL: URL) -> URL? {
+        let scheme = sourceURL.scheme?.lowercased()
+        guard scheme == "http" || scheme == "https",
+              var components = URLComponents(url: sourceURL, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        return components.url
     }
 }

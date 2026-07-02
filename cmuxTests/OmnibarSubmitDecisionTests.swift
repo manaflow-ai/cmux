@@ -297,3 +297,137 @@ import Testing
         #expect(decision == .navigate(text: "claude.c"))
     }
 }
+
+// Regression coverage for https://github.com/manaflow-ai/cmux/issues/6250:
+// a physical Return delivered to focused web content (the WKWebView) must not
+// reach the omnibar coordinator as a submit. AppKit dispatches
+// `performKeyEquivalent` across the whole window view hierarchy, so the omnibar
+// field's coordinator runs `handleKeyEvent` even while the omnibar is unfocused
+// and has no field editor. Without a focus guard the unguarded Return case calls
+// `onSubmit`, which hard-navigates the pane to the URL the omnibar shows — a
+// spurious reload that aborts in-flight `fetch`/XHR in SPAs and presents as data
+// loss. The coordinator must only treat Return/Escape/arrows as its own while
+// the field is actually being edited (`currentEditor() != nil`).
+@MainActor
+@Suite struct BrowserOmnibarUnfocusedKeyGuardTests {
+    private final class OmnibarActionRecorder {
+        var submitCount = 0
+        var escapeCount = 0
+        var moveSelectionCount = 0
+    }
+
+    private func makeCoordinator(
+        _ recorder: OmnibarActionRecorder
+    ) -> OmnibarTextFieldRepresentable.Coordinator {
+        let representable = OmnibarTextFieldRepresentable(
+            panelId: UUID(),
+            fontSize: 13,
+            text: .constant("https://example.com/app/projects/abc/prompts/19ccd6ff"),
+            isFocused: .constant(false),
+            selectAllRequestId: 0,
+            inlineCompletion: nil,
+            placeholder: "",
+            onTap: {},
+            onSubmit: { _ in recorder.submitCount += 1 },
+            onEscape: { recorder.escapeCount += 1 },
+            onFieldLostFocus: {},
+            onMoveSelection: { _ in recorder.moveSelectionCount += 1 },
+            onDeleteSelectedSuggestion: {},
+            onAcceptInlineCompletion: {},
+            onDeleteBackwardWithInlineSelection: {},
+            onClearTypedPrefixWithInlineSelection: {},
+            onDeleteWordBackwardWithInlineSelection: {},
+            onSelectionChanged: { _, _ in },
+            shouldSuppressWebViewFocus: { false }
+        )
+        return representable.makeCoordinator()
+    }
+
+    private func keyEvent(keyCode: UInt16, characters: String) throws -> NSEvent {
+        try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: characters,
+                isARepeat: false,
+                keyCode: keyCode
+            )
+        )
+    }
+
+    @Test func returnWithoutFieldEditorDoesNotSubmit() throws {
+        // editor == nil models web content (the WKWebView) owning first
+        // responder: the omnibar field has no field editor. A physical Return
+        // re-dispatched to the host must not be consumed or submitted here.
+        let recorder = OmnibarActionRecorder()
+        let coordinator = makeCoordinator(recorder)
+
+        let handled = coordinator.handleKeyEvent(
+            try keyEvent(keyCode: 36, characters: "\r"),
+            editor: nil
+        )
+
+        #expect(handled == false, "An unfocused omnibar must not consume a Return that belongs to web content.")
+        #expect(recorder.submitCount == 0, "An unfocused omnibar must never submit/navigate the pane (#6250).")
+    }
+
+    @Test func keypadEnterWithoutFieldEditorDoesNotSubmit() throws {
+        let recorder = OmnibarActionRecorder()
+        let coordinator = makeCoordinator(recorder)
+
+        let handled = coordinator.handleKeyEvent(
+            try keyEvent(keyCode: 76, characters: "\u{3}"),
+            editor: nil
+        )
+
+        #expect(handled == false)
+        #expect(recorder.submitCount == 0)
+    }
+
+    @Test func escapeAndArrowsWithoutFieldEditorAreIgnored() throws {
+        // The same unguarded switch also exposed Escape and Up/Down arrows to
+        // omnibar behavior while web content is focused. All must pass through.
+        let recorder = OmnibarActionRecorder()
+        let coordinator = makeCoordinator(recorder)
+
+        let escapeHandled = coordinator.handleKeyEvent(
+            try keyEvent(keyCode: 53, characters: "\u{1b}"),
+            editor: nil
+        )
+        let downHandled = coordinator.handleKeyEvent(
+            try keyEvent(keyCode: 125, characters: "\u{F701}"),
+            editor: nil
+        )
+        let upHandled = coordinator.handleKeyEvent(
+            try keyEvent(keyCode: 126, characters: "\u{F700}"),
+            editor: nil
+        )
+
+        #expect(escapeHandled == false)
+        #expect(downHandled == false)
+        #expect(upHandled == false)
+        #expect(recorder.escapeCount == 0)
+        #expect(recorder.moveSelectionCount == 0)
+    }
+
+    @Test func returnWhileFieldIsBeingEditedStillSubmits() throws {
+        // A non-nil field editor models a focused, actively-edited omnibar. The
+        // legitimate focused-submit path must be preserved.
+        let recorder = OmnibarActionRecorder()
+        let coordinator = makeCoordinator(recorder)
+        let fieldEditor = NSTextView()
+
+        let handled = coordinator.handleKeyEvent(
+            try keyEvent(keyCode: 36, characters: "\r"),
+            editor: fieldEditor
+        )
+
+        #expect(handled == true, "A focused, actively-edited omnibar must still submit on Return.")
+        #expect(recorder.submitCount == 1)
+    }
+}

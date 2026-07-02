@@ -194,4 +194,22 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         model.panelGitBranches.removeValue(forKey: id)
         #expect(model.panelGitBranches[id] == nil)
     }
+
+    @Test func panelDirectoryDisplayLabelsStoreAndPublish() {
+        let model = makeModel()
+        let id = UUID()
+        var emitted: [[UUID: String]] = []
+        var cancellables: Set<AnyCancellable> = []
+        model.panelDirectoryDisplayLabelsPublisher
+            .sink { emitted.append($0) }
+            .store(in: &cancellables)
+        #expect(emitted == [[:]])
+
+        model.panelDirectoryDisplayLabels[id] = "MyPackage  mainline"
+        #expect(model.panelDirectoryDisplayLabels[id] == "MyPackage  mainline")
+        model.panelDirectoryDisplayLabels.removeValue(forKey: id)
+        #expect(model.panelDirectoryDisplayLabels[id] == nil)
+        #expect(emitted.count == 3)
+        #expect(emitted.last == [:])
+    }
 }

@@ -91,7 +91,7 @@ struct PaneMemoryGuardrailTests {
     }
 
     @Test
-    func processTreeMemoryIncludesDetachedSurfaceDescendantWithoutTTY() {
+    func processTreeMemoryIncludesForegroundDescendantWithoutTTYOrCMUXScope() {
         let ws = UUID(), pane = UUID()
         func proc(
             _ pid: Int,
@@ -111,13 +111,14 @@ struct PaneMemoryGuardrailTests {
                 virtualBytes: 0, threadCount: 1
             )
         }
-        let shell = proc(100, ppid: 1, name: "zsh", mem: 10_000_000, pgid: 100, tty: 0x1600_0003, surface: pane)
+        let shell = proc(100, ppid: 1, name: "zsh", mem: 10_000_000, pgid: 100, tty: 0x1600_0003, surface: nil)
         let leak = proc(200, ppid: 100, name: "python", mem: 9_000_000_000, pgid: 200, tty: nil, surface: nil)
         let other = proc(300, ppid: 1, name: "other", mem: 1_000_000_000, pgid: 300, tty: nil, surface: nil)
         let snapshot = CmuxTopProcessSnapshot(
             processes: [shell, leak, other],
             sampledAt: Date(),
-            includesProcessDetails: false
+            includesProcessDetails: false,
+            includesCMUXScope: false
         )
         let descriptor = PaneMemoryDescriptor(
             workspaceId: ws,
@@ -137,6 +138,111 @@ struct PaneMemoryGuardrailTests {
         #expect(sample?.memoryBytes == 9_010_000_000)
         #expect(sample?.memoryPressureProcessGroupIDs == [200])
         #expect(sample?.foregroundCommand == "zsh")
+    }
+
+    @Test
+    func processTreeMemoryIncludesScopedDaemonWithoutTTYOrParentLink() {
+        let ws = UUID(), pane = UUID()
+        func proc(
+            _ pid: Int,
+            ppid: Int,
+            name: String,
+            mem: Int64,
+            pgid: Int,
+            tty: Int64?,
+            surface: UUID?
+        ) -> CmuxTopProcessInfo {
+            CmuxTopProcessInfo(
+                pid: pid, parentPID: ppid, name: name, path: nil, ttyDevice: tty,
+                cmuxWorkspaceID: surface == nil ? nil : ws, cmuxSurfaceID: surface, cmuxAttributionReason: nil,
+                processGroupID: pgid, terminalProcessGroupID: pgid, cpuPercent: 0,
+                memoryBytes: mem, memorySource: .physicalFootprint,
+                residentBytes: mem, residentMemorySource: .residentSize,
+                virtualBytes: 0, threadCount: 1
+            )
+        }
+        let shell = proc(100, ppid: 1, name: "zsh", mem: 10_000_000, pgid: 100, tty: 0x1600_0003, surface: nil)
+        let daemon = proc(200, ppid: 1, name: "python", mem: 9_000_000_000, pgid: 200, tty: nil, surface: pane)
+        let other = proc(300, ppid: 1, name: "other", mem: 1_000_000_000, pgid: 300, tty: nil, surface: nil)
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [shell, daemon, other],
+            sampledAt: Date(),
+            includesProcessDetails: false,
+            includesCMUXScope: true
+        )
+        let descriptor = PaneMemoryDescriptor(
+            workspaceId: ws,
+            panelId: pane,
+            workspaceTitle: "Workspace",
+            paneTitle: "Terminal",
+            ttyName: nil,
+            foregroundPID: 100
+        )
+
+        let sample = PaneMemoryGuardrail.computeSamples(
+            descriptors: [descriptor],
+            thresholdBytes: threshold,
+            snapshot: snapshot
+        ).first
+
+        #expect(sample?.memoryBytes == 9_010_000_000)
+        #expect(sample?.memoryPressureProcessGroupIDs == [200])
+        #expect(sample?.foregroundCommand == "zsh")
+    }
+
+    @Test
+    func unscopedTicksDoNotClearScopedOnlyPressure() {
+        let ws = UUID(), pane = UUID()
+        let clearBytes = Int64(Double(threshold) * PaneMemoryGuardrailEngine.clearFraction)
+        let scopedSample = sample(workspace: ws, pane: pane, memoryGB: 9, pgids: [200])
+        let cheapSample = sample(workspace: ws, pane: pane, memoryGB: 0.1, pgids: [])
+
+        let scoped = PaneMemoryGuardrail.reconcileScopedSamples(
+            samples: [scopedSample],
+            currentScopedOnlySamplesByKey: [scopedSample.key: scopedSample],
+            previousScopedOnlySamplesByKey: [:],
+            includesCMUXScope: true,
+            clearBytes: clearBytes
+        )
+        let unscoped = PaneMemoryGuardrail.reconcileScopedSamples(
+            samples: [cheapSample],
+            currentScopedOnlySamplesByKey: [:],
+            previousScopedOnlySamplesByKey: scoped.scopedOnlySamplesByKey,
+            includesCMUXScope: false,
+            clearBytes: clearBytes
+        )
+
+        #expect(unscoped.samples.first?.memoryBytes == cheapSample.memoryBytes + scopedSample.memoryBytes)
+        #expect(unscoped.samples.first?.memoryPressureProcessGroupIDs == [200])
+
+        let cleared = PaneMemoryGuardrail.reconcileScopedSamples(
+            samples: [cheapSample],
+            currentScopedOnlySamplesByKey: [:],
+            previousScopedOnlySamplesByKey: unscoped.scopedOnlySamplesByKey,
+            includesCMUXScope: true,
+            clearBytes: clearBytes
+        )
+        #expect(cleared.scopedOnlySamplesByKey.isEmpty)
+        #expect(cleared.samples.first?.memoryBytes == cheapSample.memoryBytes)
+    }
+
+    @Test
+    func unscopedTicksAddCheapAndScopedOnlyPressure() {
+        let ws = UUID(), pane = UUID()
+        let clearBytes = Int64(Double(threshold) * PaneMemoryGuardrailEngine.clearFraction)
+        let scopedOnlySample = sample(workspace: ws, pane: pane, memoryGB: 7, pgids: [200])
+        let cheapSample = sample(workspace: ws, pane: pane, memoryGB: 7, pgids: [300])
+
+        let reconciled = PaneMemoryGuardrail.reconcileScopedSamples(
+            samples: [cheapSample],
+            currentScopedOnlySamplesByKey: [:],
+            previousScopedOnlySamplesByKey: [scopedOnlySample.key: scopedOnlySample],
+            includesCMUXScope: false,
+            clearBytes: clearBytes
+        )
+
+        #expect(reconciled.samples.first?.memoryBytes == 14 * gb)
+        #expect(reconciled.samples.first?.memoryPressureProcessGroupIDs == [200, 300])
     }
 
     @Test
@@ -192,34 +298,23 @@ struct PaneMemoryGuardrailTests {
 
     @MainActor
     @Test
-    func appDelegateGuardrailCloseRoutesThroughOwningWindowManager() throws {
+    func appDelegateGuardrailDescriptorsKeepBackgroundWorkspacesLive() throws {
         let app = AppDelegate()
-        let bootstrapManager = TabManager()
-        let owningManager = TabManager()
-        app.tabManager = bootstrapManager
-
-        let windowId = app.registerMainWindowContextForTesting(tabManager: owningManager)
+        let manager = TabManager()
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
-        let workspace = try #require(owningManager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
+        let firstWorkspace = try #require(manager.selectedWorkspace)
+        let backgroundWorkspace = manager.addWorkspace(title: "Background", select: false)
 
-        #expect(app.closePaneForMemoryGuardrail(workspaceId: workspace.id, panelId: panelId))
-        #expect(workspace.panels[panelId] == nil)
-        #expect(bootstrapManager.selectedWorkspace?.panels[panelId] == nil)
-    }
+        let initialWorkspaceIds = Set(app.paneMemoryGuardrailDescriptors().map(\.workspaceId))
+        #expect(initialWorkspaceIds.contains(firstWorkspace.id))
+        #expect(initialWorkspaceIds.contains(backgroundWorkspace.id))
 
-    @MainActor
-    @Test
-    func guardrailBannerScopesWarningToOwningTabManager() throws {
-        let owningManager = TabManager()
-        let otherManager = TabManager()
-        let workspace = try #require(owningManager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let warning = sample(workspace: workspace.id, pane: panelId, memoryGB: 9).warning
+        manager.selectWorkspace(backgroundWorkspace)
 
-        #expect(owningManager.ownsPaneMemoryGuardrailWarning(warning))
-        #expect(!otherManager.ownsPaneMemoryGuardrailWarning(warning))
-        #expect(!owningManager.ownsPaneMemoryGuardrailWarning(nil))
+        let selectedWorkspaceIds = Set(app.paneMemoryGuardrailDescriptors().map(\.workspaceId))
+        #expect(selectedWorkspaceIds.contains(firstWorkspace.id))
+        #expect(selectedWorkspaceIds.contains(backgroundWorkspace.id))
     }
 }

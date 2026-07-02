@@ -1,4 +1,5 @@
 import CmuxNotifications
+import CmuxSettings
 import Foundation
 
 /// The window-side host for the CmuxNotifications dismissal model: snapshot
@@ -23,6 +24,21 @@ extension TabManager: NotificationDismissalHosting {
     // focusedPanelId(in:) is already witnessed by the SidebarGitHosting
     // conformance (TabManager+SidebarGitHosting.swift); one declaration
     // satisfies both seams.
+
+    func focusedSurfaceId(in workspaceId: UUID) -> UUID? {
+        focusedSurfaceId(for: workspaceId)
+    }
+
+    // Cache the catalog section so reading the flag does not re-init every
+    // `SettingCatalog` section on each call (the read is gated to the
+    // workspace-visibility dismiss path, never per-keystroke, but caching keeps
+    // it allocation-free anyway — same pattern as `NotificationSettingsFileMapping`).
+    private static let notificationsSettings = NotificationsCatalogSection()
+
+    var suppressOnlyFocusedSurface: Bool {
+        UserDefaultsSettingsClient(defaults: .standard)
+            .value(for: Self.notificationsSettings.suppressOnlyFocusedSurface)
+    }
 
     func panelId(forSurfaceOrPanelId surfaceId: UUID, in workspaceId: UUID) -> UUID? {
         panelIdResolver.panelId(forSurfaceOrPanelId: surfaceId, inWorkspaceId: workspaceId)

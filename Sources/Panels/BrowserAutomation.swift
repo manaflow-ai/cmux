@@ -506,13 +506,7 @@ enum BrowserImportAutomation {
     }
 
     private static func matchesBrowser(_ browser: InstalledBrowserCandidate, query: String) -> Bool {
-        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty else { return false }
-        if browser.id.lowercased() == normalized { return true }
-        if browser.displayName.lowercased() == normalized { return true }
-        return browser.descriptor.appNames.contains {
-            $0.replacingOccurrences(of: ".app", with: "").lowercased() == normalized
-        }
+        browser.matchesLookupQuery(query)
     }
 
     private static func matchesProfile(_ profile: InstalledBrowserProfile, query: String) -> Bool {

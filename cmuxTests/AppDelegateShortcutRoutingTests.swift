@@ -6023,6 +6023,41 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testBrowserFirstDocumentEditingRoutingIncludesItalics() {
+        // Cmd+I (italics) must reach focused web content first so writing apps
+        // (Notion, Google Docs, …) in a browser pane can italicize text, instead of
+        // the keystroke being swallowed by the Show Notifications shortcut or the
+        // View-menu "Show Notifications" key equivalent (issue #6776).
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "i",
+            charactersIgnoringModifiers: "i",
+            keyCode: 34 // kVK_ANSI_I
+        )
+
+        XCTAssertTrue(
+            shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event),
+            "Cmd+I must be routed through web content first while a browser pane is focused"
+        )
+    }
+
+    func testBrowserFirstDocumentEditingRoutingStillExcludesPlainShortcuts() {
+        // Guard against over-broadening the editing allowlist: a bare Cmd+I with no
+        // browser semantics is the only italics addition; an unrelated combo such as
+        // Cmd+J must not be treated as a browser-first editing command.
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "j",
+            charactersIgnoringModifiers: "j",
+            keyCode: 38 // kVK_ANSI_J
+        )
+
+        XCTAssertFalse(
+            shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event),
+            "Cmd+J is not a browser document-editing command"
+        )
+    }
+
     func testBrowserFirstFindShortcutRoutingDoesNotUseANSIPositionsForMismatchedASCIICharacters() {
         let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
             ("cmd-u-on-ansi-f", [.command], "u", 3),
@@ -12017,6 +12052,175 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(harness.webView.performKeyEquivalent(with: commandReturn))
         XCTAssertEqual(probe.callCount, 0, "Focus mode must consume unhandled Cmd+Return instead of falling through to the app menu")
         XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+    }
+
+    func testShowNotificationsShortcutYieldsToFocusedBrowserPane() {
+        // With a browser pane focused, app shortcut routing must yield Cmd+I (a
+        // browser document-editing command) so the keystroke reaches the focused
+        // web view and writing apps (Notion, Google Docs, …) can italicize. The
+        // action stays generally available — only the editing collision yields
+        // (issue #6776).
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        guard let event = makeKeyDownEvent(
+            key: "i",
+            modifiers: [.command],
+            keyCode: 34, // kVK_ANSI_I
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+I event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+I must not be captured by app shortcut routing while a browser pane is focused"
+        )
+#else
+        XCTFail("debug shortcut hooks are only available in DEBUG")
+#endif
+    }
+
+    func testCustomShowNotificationsBindingStillFiresInFocusedBrowserPane() {
+        // Regression guard: special-casing the Cmd+I collision must not disable the
+        // whole action in browser panes. A non-colliding custom binding (Cmd+Shift+I)
+        // still opens Show Notifications from a focused browser pane (issue #6776).
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        guard let event = makeKeyDownEvent(
+            key: "i",
+            modifiers: [.command, .shift],
+            keyCode: 34, // kVK_ANSI_I
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+I event")
+            return
+        }
+
+        withTemporaryShortcut(
+            action: .showNotifications,
+            shortcut: StoredShortcut(key: "i", command: true, shift: true, option: false, control: false)
+        ) {
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "A non-colliding custom Show Notifications binding must still fire in a browser pane"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testChordCompletionWithCmdISecondStrokeStillFiresOverBrowserPane() {
+        // The browser document-editing bypass is gated to the no-active-chord case.
+        // A configured chord whose second stroke is Cmd+I (Ctrl+K, Cmd+I here) must
+        // still complete over a focused browser pane instead of the second stroke
+        // being swallowed by the editing bypass (issue #6776).
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        guard let firstStroke = makeKeyDownEvent(
+            key: "k",
+            modifiers: [.control],
+            keyCode: 40, // kVK_ANSI_K
+            windowNumber: harness.window.windowNumber
+        ), let secondStroke = makeKeyDownEvent(
+            key: "i",
+            modifiers: [.command],
+            keyCode: 34, // kVK_ANSI_I
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct chord stroke events")
+            return
+        }
+
+        withTemporaryShortcut(
+            action: .showNotifications,
+            shortcut: StoredShortcut(
+                key: "k",
+                command: false,
+                shift: false,
+                option: false,
+                control: true,
+                chordKey: "i",
+                chordCommand: true,
+                chordShift: false,
+                chordOption: false,
+                chordControl: false
+            )
+        ) {
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: firstStroke),
+                "First chord stroke (Ctrl+K) should arm the chord"
+            )
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: secondStroke),
+                "Cmd+I as a chord second stroke must complete the chord, not be swallowed by the browser editing bypass"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testShowNotificationsFiresWhenBrowserSelectedButWebViewNotFocused() {
+        // The browser document-editing bypass keys on the web view actually owning
+        // first responder, not on the browser merely being the selected pane. When
+        // chrome (sidebar/address bar/etc.) holds focus while a browser pane stays
+        // selected, Cmd+I must still open Show Notifications (issue #6776).
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        // Move first responder off the web view while the browser pane stays the
+        // selected/focused panel (focusedBrowserPanel is unchanged).
+        XCTAssertTrue(
+            harness.window.makeFirstResponder(harness.window),
+            "Expected to move first responder off the web view"
+        )
+
+        guard let event = makeKeyDownEvent(
+            key: "i",
+            modifiers: [.command],
+            keyCode: 34, // kVK_ANSI_I
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+I event")
+            return
+        }
+
+        XCTAssertFalse(
+            appDelegate.shortcutEventFirstResponderOwnsBrowserWebView(event),
+            "Web view must not be reported as first responder when chrome holds focus"
+        )
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+I must still open Show Notifications when the web view is not focused"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
     }
 
     private func makeBrowserFocusModeHarness(

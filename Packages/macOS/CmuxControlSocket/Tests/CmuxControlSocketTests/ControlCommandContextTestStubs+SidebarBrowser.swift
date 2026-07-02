@@ -333,9 +333,9 @@ extension ControlSidebarContext {
         .tabNotFound
     }
 
-    func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String) {}
+    func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {}
 
-    func controlSidebarUpdateDirectory(tabArg: String?, panelArg: String?, directory: String) -> ControlSidebarPanelWriteResolution {
+    func controlSidebarUpdateDirectory(tabArg: String?, panelArg: String?, directory: String, displayLabel: String?) -> ControlSidebarPanelWriteResolution {
         .tabNotFound
     }
 

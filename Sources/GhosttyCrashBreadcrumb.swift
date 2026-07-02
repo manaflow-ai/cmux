@@ -11,14 +11,21 @@ nonisolated enum GhosttyCrashBreadcrumb {
     static let notificationTabId = UUID(uuidString: "00000000-0000-0000-0000-000000003873")!
 
     nonisolated static var defaultCrashDirectoryURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+        SessionPersistencePolicy.defaultCmuxCrashDirectoryURL()
     }
 
+    nonisolated static var defaultCrashDirectoryURLs: [URL] {
+        SessionPersistencePolicy.cmuxCrashDirectoryURLs()
+    }
+
+    #if compiler(>=6.2)
+    @concurrent
+    #else
     @Sendable
+    #endif
     nonisolated static func pendingCrashFromDefaultStorage() async -> PendingCrash? {
         await Task.detached(priority: .utility) {
-            pendingCrash()
+            pendingCrash(in: defaultCrashDirectoryURLs)
         }.value
     }
 
@@ -28,11 +35,29 @@ nonisolated enum GhosttyCrashBreadcrumb {
         fileManager: FileManager = .default,
         currentExecutableURL: URL? = Bundle.main.executableURL
     ) -> PendingCrash? {
-        guard let latest = latestCrashFile(
-            in: crashDirectoryURL,
+        pendingCrash(
+            in: [crashDirectoryURL],
+            defaults: defaults,
             fileManager: fileManager,
             currentExecutableURL: currentExecutableURL
-        ) else {
+        )
+    }
+
+    nonisolated static func pendingCrash(
+        in crashDirectoryURLs: [URL],
+        defaults: UserDefaults = .standard,
+        fileManager: FileManager = .default,
+        currentExecutableURL: URL? = Bundle.main.executableURL
+    ) -> PendingCrash? {
+        let latest = crashDirectoryURLs.compactMap {
+            latestCrashFile(
+                in: $0,
+                fileManager: fileManager,
+                currentExecutableURL: currentExecutableURL
+            )
+        }
+        .max { lhs, rhs in lhs.modifiedAt < rhs.modifiedAt }
+        guard let latest else {
             return nil
         }
 
@@ -42,14 +67,6 @@ nonisolated enum GhosttyCrashBreadcrumb {
             return nil
         }
         return latest
-    }
-
-    nonisolated static func markShown(_ pendingCrash: PendingCrash, defaults: UserDefaults = .standard) {
-        defaults.set(pendingCrash.modifiedAt, forKey: lastShownCrashDefaultsKey)
-    }
-
-    nonisolated static func markCleanExit(defaults: UserDefaults = .standard, date: Date = Date()) {
-        defaults.set(date, forKey: lastCleanExitDefaultsKey)
     }
 
     private static func latestCrashFile(
@@ -76,6 +93,14 @@ nonisolated enum GhosttyCrashBreadcrumb {
                 return PendingCrash(fileURL: url, modifiedAt: modifiedAt)
             }
             .max { lhs, rhs in lhs.modifiedAt < rhs.modifiedAt }
+    }
+
+    nonisolated static func markShown(_ pendingCrash: PendingCrash, defaults: UserDefaults = .standard) {
+        defaults.set(pendingCrash.modifiedAt, forKey: lastShownCrashDefaultsKey)
+    }
+
+    nonisolated static func markCleanExit(defaults: UserDefaults = .standard, date: Date = Date()) {
+        defaults.set(date, forKey: lastCleanExitDefaultsKey)
     }
 
     private static func crashReportMatchesCurrentExecutable(_ url: URL, currentExecutableURL: URL?) -> Bool {

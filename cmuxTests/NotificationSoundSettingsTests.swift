@@ -37,6 +37,11 @@ import Testing
         #expect(NotificationSoundSettings.stagedSystemSoundName(for: NotificationSoundSettings.customFileValue) == nil)
     }
 
+    @Test(arguments: ["m4r", "M4R"])
+    func m4rCustomSoundFilesStageAsCaf(sourceExtension: String) {
+        #expect(NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: sourceExtension) == "caf")
+    }
+
     @Test func activeFocusAssertionSuppressesFallbackSound() throws {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory

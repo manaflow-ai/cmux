@@ -12,6 +12,36 @@ import Foundation
 /// `PaneMemoryGuardrail.compute*` statics; it is exercised by
 /// `PaneMemoryGuardrailTests` against fixture snapshots.
 struct PaneMemorySampleProvider: PaneMemorySampleProviding {
+    func cachedSampleBatch(
+        descriptors: [PaneMemoryDescriptor],
+        thresholdBytes: Int64,
+        includeCMUXScope: Bool
+    ) -> CmuxPanes.PaneMemoryGuardrailSampleBatch {
+        let snapshot = includeCMUXScope
+            ? CmuxTopProcessSnapshot.capture(includeCMUXScope: true)
+            : CmuxTopProcessSnapshot.captureCached(includeCMUXScope: false, maximumAge: 2)
+        let samples = Self.computeSamples(
+            descriptors: descriptors,
+            thresholdBytes: thresholdBytes,
+            snapshot: snapshot
+        )
+        let scopedOnlySamples = snapshot.hasCMUXScope
+            ? Self.computeScopedOnlySamples(
+                descriptors: descriptors,
+                thresholdBytes: thresholdBytes,
+                snapshot: snapshot
+            )
+            : []
+        return CmuxPanes.PaneMemoryGuardrailSampleBatch(
+            samples: samples,
+            scopedOnlySamplesByKey: Dictionary(
+                scopedOnlySamples.map { ($0.key, $0) },
+                uniquingKeysWith: { _, last in last }
+            ),
+            includesCMUXScope: snapshot.hasCMUXScope
+        )
+    }
+
     func cachedSamples(
         descriptors: [PaneMemoryDescriptor],
         thresholdBytes: Int64
@@ -42,6 +72,9 @@ struct PaneMemorySampleProvider: PaneMemorySampleProviding {
         let clearBytes = Int64(Double(thresholdBytes) * PaneMemoryGuardrailEngine.clearFraction)
         return descriptors.map { descriptor in
             var rootPIDs = snapshot.pids(forCMUXSurfaceID: descriptor.panelId)
+            if let foregroundPID = descriptor.foregroundPID {
+                rootPIDs.insert(foregroundPID)
+            }
             if let ttyName = descriptor.ttyName {
                 rootPIDs.formUnion(snapshot.pids(forTTYName: ttyName))
             }
@@ -62,6 +95,48 @@ struct PaneMemorySampleProvider: PaneMemorySampleProviding {
                 foregroundCommand: foregroundCommand
             )
         }
+    }
+
+    static func computeScopedOnlySamples(
+        descriptors: [PaneMemoryDescriptor],
+        thresholdBytes: Int64,
+        snapshot: CmuxTopProcessSnapshot
+    ) -> [PaneMemorySample] {
+        let clearBytes = Int64(Double(thresholdBytes) * PaneMemoryGuardrailEngine.clearFraction)
+        return descriptors.map { descriptor in
+            let cheapPIDs = snapshot.expandedPIDs(rootPIDs: cheapRootPIDs(for: descriptor, in: snapshot))
+            let scopedPIDs = snapshot.expandedPIDs(rootPIDs: snapshot.pids(forCMUXSurfaceID: descriptor.panelId))
+            let scopedOnlyPIDs = scopedPIDs.subtracting(cheapPIDs)
+            let summary = snapshot.summary(for: scopedOnlyPIDs)
+            let pgids = memoryPressureProcessGroupIDs(
+                in: snapshot,
+                pids: scopedOnlyPIDs,
+                clearBytes: clearBytes
+            )
+            let foregroundCommand = descriptor.foregroundPID
+                .flatMap { snapshot.process(pid: $0)?.name }
+            return PaneMemorySample(
+                descriptor: descriptor,
+                memoryBytes: summary.memoryBytes,
+                residentBytes: summary.residentBytes,
+                memoryPressureProcessGroupIDs: pgids,
+                foregroundCommand: foregroundCommand
+            )
+        }
+    }
+
+    static func cheapRootPIDs(
+        for descriptor: PaneMemoryDescriptor,
+        in snapshot: CmuxTopProcessSnapshot
+    ) -> Set<Int> {
+        var rootPIDs: Set<Int> = []
+        if let foregroundPID = descriptor.foregroundPID {
+            rootPIDs.insert(foregroundPID)
+        }
+        if let ttyName = descriptor.ttyName {
+            rootPIDs.formUnion(snapshot.pids(forTTYName: ttyName))
+        }
+        return rootPIDs
     }
 
     static func memoryPressureProcessGroupIDs(
@@ -98,5 +173,19 @@ struct PaneMemorySampleProvider: PaneMemorySampleProviding {
             if totalBytes - selectedBytes < clearBytes { break }
         }
         return selectedProcessGroups.sorted()
+    }
+}
+
+extension PaneMemoryGuardrailService {
+    static func computeSamples(
+        descriptors: [PaneMemoryDescriptor],
+        thresholdBytes: Int64,
+        snapshot: CmuxTopProcessSnapshot
+    ) -> [PaneMemorySample] {
+        PaneMemorySampleProvider.computeSamples(
+            descriptors: descriptors,
+            thresholdBytes: thresholdBytes,
+            snapshot: snapshot
+        )
     }
 }

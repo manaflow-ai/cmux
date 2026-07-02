@@ -1,3 +1,4 @@
+import CmuxFoundation
 public import SwiftUI
 public import CmuxCommandPalette
 
@@ -59,7 +60,7 @@ struct CommandPaletteCommandListRowsView: View {
                 if state.rows.isEmpty {
                     if state.shouldShowEmptyState {
                         Text(state.emptyStateText)
-                            .font(.system(size: 13, weight: .regular))
+                            .cmuxFont(size: 13, weight: .regular)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 12)
@@ -134,7 +135,7 @@ struct CommandPaletteResultLabel: View {
     var body: some View {
         HStack(spacing: 8) {
             Self.highlightedTitleText(title, matchedIndices: matchedIndices)
-                .font(.system(size: 13, weight: .regular))
+                .cmuxFont(size: 13, weight: .regular)
                 .lineLimit(1)
             Spacer()
             trailingLabelView
@@ -175,7 +176,7 @@ struct CommandPaletteResultLabel: View {
             switch trailingLabel.style {
             case .shortcut:
                 Text(trailingLabel.text)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)
@@ -185,7 +186,7 @@ struct CommandPaletteResultLabel: View {
                     )
             case .kind:
                 Text(trailingLabel.text)
-                    .font(.system(size: 11, weight: .regular))
+                    .cmuxFont(size: 11, weight: .regular)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }

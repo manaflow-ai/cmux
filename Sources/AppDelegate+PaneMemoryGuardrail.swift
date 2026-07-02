@@ -10,6 +10,16 @@ extension AppDelegate {
         }
     }
 
+    func discardHiddenBrowserWebViewsForSystemMemoryPressure() {
+        let now = Date()
+        let discardedCount = paneMemoryGuardrailTabManagers().reduce(0) { count, manager in
+            count + manager.discardHiddenBrowserWebViewsForSystemMemoryPressure(now: now)
+        }
+#if DEBUG
+        cmuxDebugLog("browser.memoryPressure.discardHidden count=\(discardedCount)")
+#endif
+    }
+
     private func paneMemoryGuardrailTabManagers() -> [TabManager] {
         var managers: [TabManager] = []
         var seen: Set<ObjectIdentifier> = []
@@ -48,11 +58,5 @@ extension AppDelegate {
                 foregroundPID: hasLiveSurface ? surface.foregroundProcessID() : nil
             )
         }
-    }
-
-    @discardableResult
-    func closePaneForMemoryGuardrail(workspaceId: UUID, panelId: UUID) -> Bool {
-        guard let manager = tabManagerFor(tabId: workspaceId) ?? tabManager else { return false }
-        return manager.closeSurface(tabId: workspaceId, surfaceId: panelId)
     }
 }

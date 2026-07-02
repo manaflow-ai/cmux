@@ -50,12 +50,21 @@ enum SessionTranscriptRole: Equatable, Sendable {
         }
     }
 
-    var bodyFont: Font {
+    var bodyFontSize: CGFloat {
         switch self {
         case .tool, .system:
-            return .system(size: 11, design: .monospaced)
+            return 11
         case .user, .assistant, .event:
-            return .system(size: 12)
+            return 12
+        }
+    }
+
+    var bodyFontDesign: Font.Design {
+        switch self {
+        case .tool, .system:
+            return .monospaced
+        case .user, .assistant, .event:
+            return .default
         }
     }
 }

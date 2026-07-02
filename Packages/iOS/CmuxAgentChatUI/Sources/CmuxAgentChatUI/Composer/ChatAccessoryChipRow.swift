@@ -1,80 +1,146 @@
 import CmuxAgentChat
+import CmuxMobileSupport
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
-/// The horizontal chip row above the composer field: Stop (while working),
-/// Esc, Ctrl-C, and Terminal escape-hatch chips.
+/// The horizontal shortcut row above the composer field.
 public struct ChatAccessoryChipRow: View {
+    private static let scrollLeadingHardStopWidth: CGFloat = 14
+    private static let scrollTrailingFadeWidth: CGFloat = 34
+
     private let agentState: ChatAgentState
+    private let leadingShortcuts: [ChatAccessoryShortcut]
+    private let shortcuts: [ChatAccessoryShortcut]
     private let onInterrupt: (Bool) -> Void
     private let onOpenTerminal: () -> Void
+
+    @State private var scrollContentWidth: CGFloat = 0
+    @State private var scrollViewportWidth: CGFloat = 0
 
     /// Creates the chip row.
     ///
     /// - Parameters:
     ///   - agentState: Live agent presence; working adds the Stop chip.
+    ///   - leadingShortcuts: Host-provided fixed buttons shown before the
+    ///     horizontally scrollable shortcut region.
+    ///   - shortcuts: Host-provided scrollable shortcut buttons. When both
+    ///     host-provided arrays are empty, the row uses the legacy chat-only
+    ///     Esc/Ctrl-C/Terminal shortcuts.
     ///   - onInterrupt: Interrupts the agent (`false` = Esc, `true` =
     ///     Ctrl-C).
     ///   - onOpenTerminal: Opens the session's raw terminal.
     public init(
         agentState: ChatAgentState,
+        leadingShortcuts: [ChatAccessoryShortcut] = [],
+        shortcuts: [ChatAccessoryShortcut] = [],
         onInterrupt: @escaping (Bool) -> Void,
         onOpenTerminal: @escaping () -> Void
     ) {
         self.agentState = agentState
+        self.leadingShortcuts = leadingShortcuts
+        self.shortcuts = shortcuts
         self.onInterrupt = onInterrupt
         self.onOpenTerminal = onOpenTerminal
     }
 
     public var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                if isWorking {
-                    chip(
-                        label: String(
-                            localized: "chat.chip.stop", defaultValue: "Stop", bundle: .module
-                        ),
-                        tint: .red
-                    ) {
-                        onInterrupt(false)
-                    }
-                }
-                chip(
-                    label: String(localized: "chat.chip.esc", defaultValue: "Esc", bundle: .module)
-                ) {
-                    onInterrupt(false)
-                }
-                chip(
-                    label: String(
-                        localized: "chat.chip.ctrl_c", defaultValue: "Ctrl-C", bundle: .module
-                    )
-                ) {
-                    onInterrupt(true)
-                }
-                chip(
-                    label: String(
-                        localized: "chat.chip.terminal", defaultValue: "Terminal", bundle: .module
-                    ),
-                    action: onOpenTerminal
-                )
+        HStack(spacing: 10) {
+            if !displayedLeadingShortcuts.isEmpty {
+                leadingShortcutCluster
+                    .layoutPriority(2)
+                    .zIndex(1)
             }
-            // Inset the row content slightly so the fade reveals/clips chips
-            // rather than cropping the very first/last chip flush at the edge.
-            .padding(.horizontal, 2)
+            if !displayedScrollableShortcuts.isEmpty {
+                scrollableShortcutStrip
+            }
         }
         .frame(height: 32)
-        // Soft horizontal scroll-edge fade so chips dissolve at the margins
-        // instead of being hard-clipped by the scroll view's straight edge.
+    }
+
+    private var leadingShortcutCluster: some View {
+        HStack(spacing: 6) {
+            ForEach(displayedLeadingShortcuts) { shortcut in
+                chip(shortcut)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var scrollableShortcutStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(displayedScrollableShortcuts) { shortcut in
+                    chip(shortcut)
+                }
+            }
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                scrollContentWidth = width
+            }
+            .padding(.leading, usesLeadingHardStop ? Self.scrollLeadingHardStopWidth : 0)
+            .padding(.trailing, scrollNeedsTrailingFade ? Self.scrollTrailingFadeWidth : 2)
+        }
+        .frame(height: 32)
+        .layoutPriority(1)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+            scrollViewportWidth = width
+        }
+        .compositingGroup()
+        .clipShape(.rect)
         .mask {
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black, location: 0.035),
-                    .init(color: .black, location: 0.965),
-                    .init(color: .clear, location: 1),
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
+            scrollTrailingFadeMask
+        }
+        .overlay(alignment: .leading) {
+            if usesLeadingHardStop {
+                scrollLeadingHardStop
+            }
+        }
+    }
+
+    private var displayedLeadingShortcuts: [ChatAccessoryShortcut] {
+        guard usesHostShortcuts else { return [] }
+        var resolved = leadingShortcuts
+        if isWorking {
+            resolved.insert(stopShortcut, at: 0)
+        }
+        return resolved
+    }
+
+    private var displayedScrollableShortcuts: [ChatAccessoryShortcut] {
+        if usesHostShortcuts {
+            return shortcuts
+        }
+        var resolved = legacyShortcuts
+        if isWorking {
+            resolved.insert(stopShortcut, at: 0)
+        }
+        return resolved
+    }
+
+    private var usesHostShortcuts: Bool {
+        !leadingShortcuts.isEmpty || !shortcuts.isEmpty
+    }
+
+    private var scrollNeedsTrailingFade: Bool {
+        scrollContentWidth + scrollLeadingInset + 2 > scrollViewportWidth + 1
+    }
+
+    private var usesLeadingHardStop: Bool {
+        !displayedLeadingShortcuts.isEmpty
+    }
+
+    private var scrollLeadingInset: CGFloat {
+        usesLeadingHardStop ? Self.scrollLeadingHardStopWidth : 0
+    }
+
+    private var stopShortcut: ChatAccessoryShortcut {
+        ChatAccessoryShortcut(
+            id: "chat.chip.stop",
+            title: String(localized: "chat.chip.stop", defaultValue: "Stop", bundle: .module),
+            tint: .red
+        ) {
+            onInterrupt(false)
         }
     }
 
@@ -83,19 +149,99 @@ public struct ChatAccessoryChipRow: View {
         return false
     }
 
-    private func chip(label: String, tint: Color? = nil, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
+    private var legacyShortcuts: [ChatAccessoryShortcut] {
+        [
+            ChatAccessoryShortcut(
+                id: "chat.chip.esc",
+                title: String(localized: "chat.chip.esc", defaultValue: "Esc", bundle: .module)
+            ) {
+                onInterrupt(false)
+            },
+            ChatAccessoryShortcut(
+                id: "chat.chip.ctrl_c",
+                title: String(localized: "chat.chip.ctrl_c", defaultValue: "Ctrl-C", bundle: .module)
+            ) {
+                onInterrupt(true)
+            },
+            ChatAccessoryShortcut(
+                id: "chat.chip.terminal",
+                title: String(localized: "chat.chip.terminal", defaultValue: "Terminal", bundle: .module),
+                action: onOpenTerminal
+            ),
+        ]
+    }
+
+    private func chip(_ shortcut: ChatAccessoryShortcut) -> some View {
+        Button(action: shortcut.perform) {
+            chipContent(shortcut)
                 .font(.footnote)
-                .foregroundStyle(tint ?? .primary)
-                .padding(.horizontal, 12)
+                .foregroundStyle(shortcut.tint ?? .primary)
+                .padding(.horizontal, shortcut.systemImage == nil ? 12 : 8)
+                .frame(minWidth: 32)
                 .frame(height: 32)
+                #if os(iOS)
+                .mobileGlassPill()
+                #else
                 .background(
-                    (tint?.opacity(0.12) ?? Color.secondary.opacity(0.15)),
+                    (shortcut.tint?.opacity(0.12) ?? Color.secondary.opacity(0.15)),
                     in: .capsule
                 )
+                #endif
                 .contentShape(.capsule)
         }
         .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityIdentifier(shortcut.id)
+        .accessibilityLabel(shortcut.accessibilityLabel ?? shortcut.title)
+    }
+
+    @ViewBuilder
+    private func chipContent(_ shortcut: ChatAccessoryShortcut) -> some View {
+        if let systemImage = shortcut.systemImage {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .medium))
+        } else {
+            Text(shortcut.title)
+        }
+    }
+
+    private var scrollLeadingHardStop: some View {
+        Rectangle()
+            .fill(scrollHardStopFill)
+            .frame(width: Self.scrollLeadingHardStopWidth)
+            .overlay(alignment: .trailing) {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.16))
+                    .frame(width: 0.5)
+            }
+            .allowsHitTesting(false)
+    }
+
+    private var scrollHardStopFill: Color {
+        #if os(iOS)
+        Color(uiColor: .systemBackground)
+        #else
+        Color.black
+        #endif
+    }
+
+    @ViewBuilder
+    private var scrollTrailingFadeMask: some View {
+        if scrollNeedsTrailingFade {
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(.black)
+
+                LinearGradient(
+                    colors: [.black, .clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: Self.scrollTrailingFadeWidth)
+            }
+        } else {
+            Rectangle()
+                .fill(.black)
+        }
     }
 }

@@ -1,3 +1,4 @@
+import CmuxFoundation
 public import CmuxSidebarProviderKit
 public import Foundation
 public import SwiftUI
@@ -72,14 +73,14 @@ public struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         HStack(spacing: isSuperCompact ? 5 : 7) {
             VStack(alignment: .leading, spacing: isSuperCompact ? 0 : 2) {
                 Text(row.title)
-                    .font(.system(size: primarySize, weight: .regular))
+                    .cmuxFont(size: primarySize, weight: .regular)
                     .foregroundColor(isSelected ? .primary : .primary.opacity(0.86))
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 if !isSuperCompact, let subtitle = rendered(row.subtitle) {
                     Text(subtitle)
-                        .font(.system(size: secondarySize, weight: .regular))
+                        .cmuxFont(size: secondarySize, weight: .regular)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -89,7 +90,7 @@ public struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
 
             if !isSuperCompact, let trailing = rendered(row.trailingText) {
                 Text(trailing)
-                    .font(.system(size: 10.5, weight: .regular))
+                    .cmuxFont(size: 10.5, weight: .regular)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
@@ -105,7 +106,7 @@ public struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                     showsInspector = true
                 } label: {
                     Image(systemName: accessory.systemImageName)
-                        .font(.system(size: isSuperCompact ? 10 : 12, weight: .regular))
+                        .cmuxFont(size: isSuperCompact ? 10 : 12, weight: .regular)
                         .frame(width: isSuperCompact ? 14 : 18, height: isSuperCompact ? 14 : 18)
                 }
                 .buttonStyle(.plain)
@@ -244,7 +245,7 @@ struct CmuxExtensionWorkspaceInspectorView: View {
             switch draft.selectedTab {
             case .notes:
                 TextEditor(text: $draft.notes)
-                    .font(.system(size: 13))
+                    .cmuxFont(size: 13)
                     .scrollContentBackground(.hidden)
                     .padding(8)
                     .accessibilityIdentifier("ExtensionSidebarNotesEditor")
@@ -264,7 +265,7 @@ struct CmuxExtensionWorkspaceInspectorView: View {
                             draft.committedAddress = normalized
                         }
                     }
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 7)
                     .background(Color(nsColor: .controlBackgroundColor))

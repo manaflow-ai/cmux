@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import { DocsHeading } from "../../components/docs-heading";
@@ -53,6 +54,7 @@ export default function CustomCommandsPage() {
 
   return (
     <>
+      <DocsSchema namespace="docs.customCommands" path="/docs/custom-commands" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
@@ -100,7 +102,7 @@ export default function CustomCommandsPage() {
       "type": "command",
       "title": "Codex",
       "subtitle": "Open Codex in a new terminal tab",
-      "command": "codex --dangerously-bypass-approvals-and-sandbox",
+      "command": "codex --yolo",
       "target": "newTabInCurrentPane",
       "shortcut": "cmd+t",
       "icon": { "type": "image", "path": "./icons/codex.svg" }
@@ -281,7 +283,7 @@ export default function CustomCommandsPage() {
                       {
                         "type": "terminal",
                         "name": "Codex",
-                        "command": "state=\\"\${TMPDIR:-/tmp}/cmux-worktree-\${CMUX_WORKSPACE_ID:-manual}.dir\\"; echo \\"Waiting for worktree...\\"; while [ ! -s \\"$state\\" ]; do sleep 0.2; done; dir=$(cat \\"$state\\"); cd \\"$dir\\"; exec codex --dangerously-bypass-approvals-and-sandbox"
+                        "command": "state=\\"\${TMPDIR:-/tmp}/cmux-worktree-\${CMUX_WORKSPACE_ID:-manual}.dir\\"; echo \\"Waiting for worktree...\\"; while [ ! -s \\"$state\\" ]; do sleep 0.2; done; dir=$(cat \\"$state\\"); cd \\"$dir\\"; exec codex --yolo"
                       }
                     ]
                   }
@@ -441,7 +443,7 @@ export default function CustomCommandsPage() {
     "cmux.newTerminal": {
       "type": "command",
       "title": "Codex",
-      "command": "codex --dangerously-bypass-approvals-and-sandbox",
+      "command": "codex --yolo",
       "target": "newTabInCurrentPane",
       "shortcut": "cmd+t",
       "icon": { "type": "image", "path": "./icons/codex.svg" }

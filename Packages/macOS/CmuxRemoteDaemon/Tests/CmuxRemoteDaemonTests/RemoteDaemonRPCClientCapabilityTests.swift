@@ -31,6 +31,7 @@ struct RemoteDaemonRPCClientCapabilityTests {
         #expect(RemoteDaemonRPCClient.requiredPTYSessionTokenCapability == "pty.session.token")
         #expect(RemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability == "pty.session.persistent_daemon")
         #expect(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability == "pty.write.notification")
+        #expect(RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability == "pty.resize.notification")
     }
 
     @Test("a base configuration only requires proxy streaming")
@@ -51,6 +52,7 @@ struct RemoteDaemonRPCClientCapabilityTests {
                 "pty.session",
                 "pty.session.token",
                 "pty.write.notification",
+                "pty.resize.notification",
             ]
         )
     }
@@ -68,6 +70,7 @@ struct RemoteDaemonRPCClientCapabilityTests {
                 "pty.session",
                 "pty.session.token",
                 "pty.write.notification",
+                "pty.resize.notification",
                 "pty.session.persistent_daemon",
             ]
         )

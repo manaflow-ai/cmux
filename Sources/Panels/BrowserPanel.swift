@@ -479,7 +479,11 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
 
     var isShowingBlankBrowserPage: Bool {
         Self.isBlankBrowserPage(
-            liveURL: BrowserRemoteProxyURLRewriter.displayURL(for: webView.url) ?? webView.url,
+            liveURL: Self.restorableDisplayURL(
+                liveURL: webView.url,
+                currentURL: currentURL,
+                activeErrorPageDisplayURL: navigationDelegate?.activeErrorPageDisplayURL
+            ) ?? webView.url,
             currentURL: currentURL,
             pendingNavigationURL: BrowserRemoteProxyURLRewriter.displayURL(for: navigationDelegate?.lastAttemptedURL)
                 ?? navigationDelegate?.lastAttemptedURL,
@@ -930,7 +934,11 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         cancelHiddenWebViewDiscard()
 
         let oldWebView = webView
-        let restoreURL = BrowserRemoteProxyURLRewriter.displayURL(for: oldWebView.url) ?? currentURL
+        let restoreURL = Self.restorableDisplayURL(
+            liveURL: oldWebView.url,
+            currentURL: currentURL,
+            activeErrorPageDisplayURL: navigationDelegate?.activeErrorPageDisplayURL
+        )
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar() ?? restoreURL?.absoluteString
         let desiredZoom = zoomPolicy.clamp(oldWebView.pageZoom)
@@ -1369,9 +1377,11 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
                 self.isMainFrameProvisionalNavigationActive = false
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationFinish")
-                self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
-                boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
-                self.faviconCoordinator.refreshFavicon()
+                if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
+                    self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
+                    boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
+                    self.faviconCoordinator.refreshFavicon()
+                }
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
@@ -1404,8 +1414,16 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
     }
 
     private func publishCommittedURL(from webView: WKWebView) {
-        currentURL = BrowserRemoteProxyURLRewriter.displayURL(for: webView.url)
-        navigationDelegate?.lastAttemptedURL = nil
+        if let displayURL = Self.restorableDisplayURL(
+            liveURL: webView.url,
+            currentURL: currentURL,
+            activeErrorPageDisplayURL: navigationDelegate?.activeErrorPageDisplayURL
+        ) {
+            currentURL = displayURL
+        } else {
+            currentURL = BrowserRemoteProxyURLRewriter.displayURL(for: webView.url)
+        }
+        navigationDelegate?.clearAttemptedRequest()
         refreshBackgroundAppearance()
         GlobalSearchCoordinator.shared.captureBrowserPanel(self)
     }
@@ -1569,6 +1587,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] url in
             self?.navigationIntentCoordinator.shouldBlockInsecureHTTPNavigation(to: url) ?? false
         }
+        navDelegate.shouldBlockInsecureHTTPSubframeDownload = { browserShouldBlockInsecureHTTPURL($0) }
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
         }
@@ -2045,6 +2064,14 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
 
     /// Host primitive: the resolved live session-history URL (slice-1 resolver).
     func resolvedLiveSessionHistoryURL() -> URL? {
+        if let displayURL = Self.restorableDisplayURL(
+            liveURL: webView.url,
+            currentURL: currentURL,
+            activeErrorPageDisplayURL: navigationDelegate?.activeErrorPageDisplayURL
+        ),
+            Self.serializableSessionHistoryURLString(displayURL) != nil {
+            return displayURL
+        }
         Self.sessionHistoryURLResolver.resolvedLiveURL(
             webViewDisplayURL: BrowserRemoteProxyURLRewriter.displayURL(for: webView.url),
             currentURL: currentURL
@@ -2159,6 +2186,14 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
     }
 
     func preferredURLStringForSessionSnapshot() -> String? {
+        if let displayURL = Self.restorableDisplayURL(
+            liveURL: webView.url,
+            currentURL: currentURL,
+            activeErrorPageDisplayURL: navigationDelegate?.activeErrorPageDisplayURL
+        ),
+            let value = Self.serializableSessionHistoryURLString(displayURL) {
+            return value
+        }
         Self.sessionHistoryURLResolver.preferredURLString(
             webViewDisplayURL: BrowserRemoteProxyURLRewriter.displayURL(for: webView.url),
             currentURL: currentURL
@@ -2464,8 +2499,11 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         let wasRenderable = shouldRenderWebView
         let attemptedURL = BrowserRemoteProxyURLRewriter.displayURL(for: navigationDelegate?.lastAttemptedURL)
             ?? navigationDelegate?.lastAttemptedURL
-        let liveURL = BrowserRemoteProxyURLRewriter.displayURL(for: oldWebView.url)
-            ?? currentURL
+        let liveURL = Self.restorableDisplayURL(
+            liveURL: oldWebView.url,
+            currentURL: currentURL,
+            activeErrorPageDisplayURL: navigationDelegate?.activeErrorPageDisplayURL
+        )
         let restoreURL = (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
             ?? liveURL
             ?? attemptedURL

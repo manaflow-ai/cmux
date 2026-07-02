@@ -26,6 +26,10 @@ IGNORED_IDENTIFIERS = {
     "cmux.bootstrap",
     # Cursor-anchored textbox completion popup; it never becomes key/main.
     "cmux.textbox.mentionCompletionPanel",
+    # Full-screen Sleepy Mode screensaver overlay: it intentionally consumes
+    # every key (including Cmd+W, via performKeyEquivalent) to wake/dismiss the
+    # cover, so it must not own a standard Close-window shortcut.
+    "cmux.sleepyMode",
 }
 
 IDENTIFIER_ASSIGNMENT_RE = re.compile(

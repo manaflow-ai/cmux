@@ -614,15 +614,13 @@ final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
         )
     }
 
-    func testAllowsArrowAndDeleteEditingCommandsForPaletteTextEditing() {
-        XCTAssertFalse(
-            CommandPaletteKeystroke(keyCode: 123, modifierFlags: [.command], characters: "")
-                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
-        )
-        XCTAssertFalse(
-            CommandPaletteKeystroke(keyCode: 51, modifierFlags: [.command], characters: "")
-                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
-        )
+    func testAllowsSystemAndEditingKeyEquivalentsForPaletteTextEditing() {
+        for (chars, keyCode) in [(" ", UInt16(49)), ("", UInt16(123)), ("", UInt16(51))] {
+            XCTAssertFalse(
+                CommandPaletteKeystroke(keyCode: keyCode, modifierFlags: [.command], characters: chars)
+                    .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
+            )
+        }
     }
 
     func testConsumesEscapeWhenPaletteIsVisible() {

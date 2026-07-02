@@ -9,6 +9,14 @@ public import Foundation
 /// subsystem stays in the app target and is reached only through this seam, so
 /// the panes package never imports libproc.
 public protocol PaneMemorySampleProviding: Sendable {
+    /// Samples computed from a cached process snapshot, optionally including
+    /// CMUX process-scope attribution for the periodic expensive scan.
+    func cachedSampleBatch(
+        descriptors: [PaneMemoryDescriptor],
+        thresholdBytes: Int64,
+        includeCMUXScope: Bool
+    ) -> PaneMemoryGuardrailSampleBatch
+
     /// Samples computed from a short-lived cached process snapshot (the per-tick
     /// scan path; the cache amortizes repeated captures across subsystems).
     func cachedSamples(
@@ -22,4 +30,19 @@ public protocol PaneMemorySampleProviding: Sendable {
         descriptors: [PaneMemoryDescriptor],
         thresholdBytes: Int64
     ) -> [PaneMemorySample]
+}
+
+public extension PaneMemorySampleProviding {
+    /// Fallback for older conformers that only implement the unscoped sample API.
+    func cachedSampleBatch(
+        descriptors: [PaneMemoryDescriptor],
+        thresholdBytes: Int64,
+        includeCMUXScope: Bool
+    ) -> PaneMemoryGuardrailSampleBatch {
+        PaneMemoryGuardrailSampleBatch(
+            samples: cachedSamples(descriptors: descriptors, thresholdBytes: thresholdBytes),
+            scopedOnlySamplesByKey: [:],
+            includesCMUXScope: false
+        )
+    }
 }

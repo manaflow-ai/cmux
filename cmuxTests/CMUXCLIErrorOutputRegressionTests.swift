@@ -2,7 +2,7 @@ import CmuxSettings
 import CmuxTerminalCore
 import Darwin
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,14 +10,14 @@ import XCTest
 @testable import cmux
 #endif
 
-final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
-    private struct ProcessRunResult {
+@Suite(.serialized) struct CMUXCLIErrorOutputRegressionTests {
+    struct ProcessRunResult {
         let status: Int32
         let stdout: String
         let timedOut: Bool
     }
 
-    func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {
+    @Test func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {
         let cliPath = try bundledCLIPath()
         let result = runShell(
             "CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) definitely-not-a-command 2>&-",
@@ -29,7 +29,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("Usage:"), result.stdout)
     }
 
-    func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {
+    @Test func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {
         let cliPath = try bundledCLIPath()
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
@@ -53,7 +53,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         }
     }
 
-    func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
+    @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
         let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
@@ -95,7 +95,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
-    func testBundledCLIInTaggedDebugAppTreatsCaseVariantStableEnvSocketAsImplicitDefault() throws {
+    @Test func testBundledCLIInTaggedDebugAppTreatsCaseVariantStableEnvSocketAsImplicitDefault() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-case-\(UUID().uuidString.lowercased())"
         let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
@@ -145,7 +145,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(stableResponder.receivedRequests, [])
     }
 
-    func testBundledCLIInTaggedDebugAppDoesNotFallBackToStableEnvSocketWhenTaggedSocketIsMissing() throws {
+    @Test func testBundledCLIInTaggedDebugAppDoesNotFallBackToStableEnvSocketWhenTaggedSocketIsMissing() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -191,7 +191,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(stableResponder.receivedRequests, [])
     }
 
-    func testBundledCLIInTaggedDebugAppTreatsUserScopedStableEnvSocketAsImplicitDefault() throws {
+    @Test func testBundledCLIInTaggedDebugAppTreatsUserScopedStableEnvSocketAsImplicitDefault() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmux-cli-home-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -212,7 +212,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         ]
 
         if FileManager.default.fileExists(atPath: stableSocketPath) {
-            throw XCTSkip("User-scoped stable cmux socket already exists at \(stableSocketPath)")
+            return
         }
 
         for alias in aliases {
@@ -256,7 +256,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         }
     }
 
-    func testBundledStableCLIPreservesLiveUserScopedStableEnvSocket() throws {
+    @Test func testBundledStableCLIPreservesLiveUserScopedStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -273,7 +273,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             .appendingPathComponent("cmux-\(getuid()).sock", isDirectory: false)
             .path
         if FileManager.default.fileExists(atPath: userScopedStableSocketPath) {
-            throw XCTSkip("User-scoped stable cmux socket already exists at \(userScopedStableSocketPath)")
+            return
         }
 
         let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
@@ -322,7 +322,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
-    func testBundledStableCLIFallsBackFromStaleUserScopedStableEnvSocket() throws {
+    @Test func testBundledStableCLIFallsBackFromStaleUserScopedStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -339,7 +339,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             .appendingPathComponent("cmux-\(getuid()).sock", isDirectory: false)
             .path
         if FileManager.default.fileExists(atPath: userScopedStableSocketPath) {
-            throw XCTSkip("User-scoped stable cmux socket already exists at \(userScopedStableSocketPath)")
+            return
         }
 
         let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
@@ -385,7 +385,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
-    func testBundledStableCLIFallsBackFromSymlinkedLegacyStableEnvSocket() throws {
+    @Test func testBundledStableCLIFallsBackFromSymlinkedLegacyStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -401,7 +401,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let legacyStableSocketPath = "/tmp/cmux.sock"
         let symlinkTargetSocketPath = "/tmp/cmux-symlink-target-\(UUID().uuidString).sock"
         if lstatPathExists(legacyStableSocketPath) {
-            throw XCTSkip("Legacy stable cmux socket already exists at \(legacyStableSocketPath)")
+            return
         }
 
         let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
@@ -452,7 +452,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(targetResponder.receivedRequests, [])
     }
 
-    func testBundledStableCLIPreservesLiveLegacyStableEnvSocket() throws {
+    @Test func testBundledStableCLIPreservesLiveLegacyStableEnvSocket() throws {
         let cliPath = try bundledCLIPath()
         let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
@@ -467,7 +467,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             .path
         let legacyStableSocketPath = "/tmp/cmux.sock"
         if FileManager.default.fileExists(atPath: legacyStableSocketPath) {
-            throw XCTSkip("Legacy stable cmux socket already exists at \(legacyStableSocketPath)")
+            return
         }
 
         let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
@@ -516,7 +516,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
-    func testBundledCLISkipsIdentifierlessNestedAppWhenResolvingTaggedSocket() throws {
+    @Test func testBundledCLISkipsIdentifierlessNestedAppWhenResolvingTaggedSocket() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-nested-\(UUID().uuidString.lowercased())"
         let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
@@ -558,7 +558,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
-    func testThemesSetReloadsRunningAppAfterEveryThemeWrite() throws {
+    @Test func testThemesSetReloadsRunningAppAfterEveryThemeWrite() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -645,7 +645,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(responder.receivedRequests, [])
     }
 
-    func testThemesSetTargetsResolvedTaggedSocketWhenBundleEnvironmentIsStale() throws {
+    @Test func testThemesSetTargetsResolvedTaggedSocketWhenBundleEnvironmentIsStale() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -658,7 +658,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
         try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
 
-        let socketPath = "/tmp/cmux-debug-active-theme.sock"
+        let socketPath = "/tmp/cmux-debug-active-theme-\(UUID().uuidString).sock"
         let staleBundleIdentifier = "com.cmuxterm.app.debug.stale.theme"
         let targetBundleIdentifier = "com.cmuxterm.app.debug.active.theme"
         let reloadExpectation = expectation(description: "cmux themes set targets the resolved socket bundle")
@@ -720,7 +720,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains(targetBundleIdentifier), result.stdout)
     }
 
-    func testThemesSetNightlyOverridePathIsReadableByNightlyAppConfigResolution() throws {
+    @Test func testThemesSetNightlyOverridePathIsReadableByNightlyAppConfigResolution() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -777,7 +777,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(appReadablePaths, [expectedConfigURL.path])
     }
 
-    func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
+    @Test func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -871,7 +871,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(responder.receivedRequests, [])
     }
 
-    func testBareInteractiveThemesTreatsSigintAsSilentCancel() throws {
+    @Test func testBareInteractiveThemesTreatsSigintAsSilentCancel() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -932,7 +932,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(responder.receivedRequests, [])
     }
 
-    func testBrowserDownloadWaitUsesRequestedTimeoutForSocketResponse() throws {
+    @Test func testBrowserDownloadWaitUsesRequestedTimeoutForSocketResponse() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-dw-\(UUID().uuidString.prefix(8)).sock"
         let response = #"{"ok":true,"result":{"downloaded":true}}"#
@@ -966,7 +966,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK")
     }
 
-    func testBrowserDownloadWaitDefaultTimeoutMatchesServerDefaultWindow() throws {
+    @Test func testBrowserDownloadWaitDefaultTimeoutMatchesServerDefaultWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-dw-\(UUID().uuidString.prefix(8)).sock"
         let response = #"{"ok":true,"result":{"downloaded":true}}"#
@@ -998,7 +998,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "OK")
     }
 
-    func testDotPathOpenBypassesProtectedSocketForExternalCLI() throws {
+    @Test func testDotPathOpenBypassesProtectedSocketForExternalCLI() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-external-open-\(UUID().uuidString)", isDirectory: true)
@@ -1078,7 +1078,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(openEnvironment.contains("CMUX_TAG=keepme"), openEnvironment.joined(separator: "\n"))
     }
 
-    func testBareRelativeDirectoryPathOpenBypassesProtectedSocketForExternalCLI() throws {
+    @Test func testBareRelativeDirectoryPathOpenBypassesProtectedSocketForExternalCLI() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-bare-open-\(UUID().uuidString)", isDirectory: true)
@@ -1124,7 +1124,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(openArguments.last, workingDirectory.standardizedFileURL.path)
     }
 
-    func testKnownCommandStillUsesSocketWhenMatchingBareRelativePathExists() throws {
+    @Test func testKnownCommandStillUsesSocketWhenMatchingBareRelativePathExists() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-command-path-\(UUID().uuidString)", isDirectory: true)
@@ -1167,7 +1167,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: openLogURL.path))
     }
 
-    func testCaseVariantBareRelativeDirectoryPathOpenBypassesProtectedSocket() throws {
+    @Test func testCaseVariantBareRelativeDirectoryPathOpenBypassesProtectedSocket() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-case-path-\(UUID().uuidString)", isDirectory: true)
@@ -1213,7 +1213,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(openArguments.last, workingDirectory.standardizedFileURL.path)
     }
 
-    func testExplicitSocketPathOpenUsesRequestedSocket() throws {
+    @Test func testExplicitSocketPathOpenUsesRequestedSocket() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-explicit-open-\(UUID().uuidString)", isDirectory: true)
@@ -1266,8 +1266,8 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertFalse(openArguments.contains(workingDirectory.standardizedFileURL.path), openArguments.joined(separator: " "))
     }
 
-    private func bundledCLIPath() throws -> String {
-        try BundledCLITestSupport.bundledCLIPath(for: Self.self)
+    func bundledCLIPath() throws -> String {
+        try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
 
     /// A throwaway home directory for hermetic CLI socket-resolution tests.
@@ -1423,7 +1423,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
-    private func runProcess(
+    func runProcess(
         executablePath: String,
         arguments: [String],
         environment: [String: String],

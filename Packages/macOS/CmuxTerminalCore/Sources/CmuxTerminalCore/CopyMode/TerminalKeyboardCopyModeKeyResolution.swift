@@ -10,13 +10,35 @@ extension TerminalKeyboardCopyModeResolution {
         keyCode: UInt16,
         asciiCharacterProvider: (UInt16) -> String?
     ) -> String {
-        let raw = charactersIgnoringModifiers?.unicodeScalars.first.map { String($0).lowercased() } ?? ""
+        let raw = charactersIgnoringModifiers?.unicodeScalars.first.map { String($0) } ?? ""
         if raw.allSatisfy(\.isASCII) { return raw }
 
         if let asciiScalar = asciiCharacterProvider(keyCode)?.unicodeScalars.first {
-            return String(asciiScalar).lowercased()
+            return String(asciiScalar)
         }
         return raw
+    }
+
+    private static func lowercased(_ chars: String) -> String {
+        chars.lowercased()
+    }
+
+    private static func isUppercaseCommand(
+        _ chars: String,
+        modifiers: TerminalKeyboardCopyModeModifiers,
+        normalizedModifiers: TerminalKeyboardCopyModeModifiers
+    ) -> Bool {
+        if normalizedModifiers == [.shift] {
+            return true
+        }
+        guard !modifiers.contains(.capsLock) else {
+            return false
+        }
+
+        guard let scalar = chars.unicodeScalars.first, scalar.isASCII else {
+            return false
+        }
+        return scalar.value >= 65 && scalar.value <= 90
     }
 
     /// Returns whether copy mode should bypass an event so app-level shortcuts can handle it.
@@ -75,6 +97,12 @@ extension TerminalKeyboardCopyModeResolution {
             keyCode: keyCode,
             asciiCharacterProvider: asciiCharacterProvider
         )
+        let lowercasedChars = lowercased(chars)
+        let isUppercaseCommand = isUppercaseCommand(
+            chars,
+            modifiers: modifiers,
+            normalizedModifiers: normalized
+        )
 
         if keyCode == 53 {
             return .exit
@@ -102,22 +130,22 @@ extension TerminalKeyboardCopyModeResolution {
         }
 
         if normalized == [.control] {
-            if chars == "u" || chars == "\u{15}" {
+            if lowercasedChars == "u" || chars == "\u{15}" {
                 return hasSelection ? .adjustSelection(.pageUp) : .scrollHalfPage(-1)
             }
-            if chars == "d" || chars == "\u{04}" {
+            if lowercasedChars == "d" || chars == "\u{04}" {
                 return hasSelection ? .adjustSelection(.pageDown) : .scrollHalfPage(1)
             }
-            if chars == "b" || chars == "\u{02}" {
+            if lowercasedChars == "b" || chars == "\u{02}" {
                 return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
             }
-            if chars == "f" || chars == "\u{06}" {
+            if lowercasedChars == "f" || chars == "\u{06}" {
                 return hasSelection ? .adjustSelection(.pageDown) : .scrollPage(1)
             }
-            if chars == "y" || chars == "\u{19}" {
+            if lowercasedChars == "y" || chars == "\u{19}" {
                 return hasSelection ? .adjustSelection(.up) : .scrollLines(-1)
             }
-            if chars == "e" || chars == "\u{05}" {
+            if lowercasedChars == "e" || chars == "\u{05}" {
                 return hasSelection ? .adjustSelection(.down) : .scrollLines(1)
             }
             return nil
@@ -125,13 +153,16 @@ extension TerminalKeyboardCopyModeResolution {
 
         guard normalized.isEmpty || normalized == [.shift] else { return nil }
 
-        switch chars {
+        switch lowercasedChars {
         case "q":
             return .exit
         case "v":
+            if isUppercaseCommand {
+                return .startLineSelection
+            }
             return hasSelection ? .clearSelection : .startSelection
         case "y":
-            if normalized == [.shift], !hasSelection {
+            if isUppercaseCommand, !hasSelection {
                 return .copyLineAndExit
             }
             return hasSelection ? .copyAndExit : nil
@@ -144,7 +175,7 @@ extension TerminalKeyboardCopyModeResolution {
         case "l":
             return .adjustSelection(.right)
         case "g":
-            if normalized == [.shift] {
+            if isUppercaseCommand {
                 return hasSelection ? .adjustSelection(.end) : .scrollToBottom
             }
             return nil
@@ -162,7 +193,7 @@ extension TerminalKeyboardCopyModeResolution {
         case "/":
             return .startSearch
         case "n":
-            return normalized == [.shift] ? .searchPrevious : .searchNext
+            return isUppercaseCommand ? .searchPrevious : .searchNext
         default:
             return nil
         }
@@ -215,6 +246,12 @@ extension TerminalKeyboardCopyModeResolution {
             keyCode: keyCode,
             asciiCharacterProvider: asciiCharacterProvider
         )
+        let lowercasedChars = lowercased(chars)
+        let isUppercaseCommand = isUppercaseCommand(
+            chars,
+            modifiers: modifiers,
+            normalizedModifiers: normalized
+        )
 
         if keyCode == 53 {
             state.reset()
@@ -222,7 +259,7 @@ extension TerminalKeyboardCopyModeResolution {
         }
 
         if state.pendingYankLine {
-            if chars == "y", normalized.isEmpty || normalized == [.shift] {
+            if lowercasedChars == "y", normalized.isEmpty || normalized == [.shift] {
                 let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
                 state.reset()
                 return .perform(.copyLineAndExit, count: count)
@@ -231,7 +268,7 @@ extension TerminalKeyboardCopyModeResolution {
         }
 
         if state.pendingG {
-            if chars == "g", normalized.isEmpty {
+            if lowercasedChars == "g", normalized.isEmpty, !isUppercaseCommand {
                 let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
                 let action: TerminalKeyboardCopyModeAction = hasSelection ? .adjustSelection(.home) : .scrollToTop
                 state.reset()
@@ -241,7 +278,7 @@ extension TerminalKeyboardCopyModeResolution {
         }
 
         if normalized.isEmpty,
-           let scalar = chars.unicodeScalars.first,
+           let scalar = lowercasedChars.unicodeScalars.first,
            scalar.isASCII,
            scalar.value >= 48,
            scalar.value <= 57 {
@@ -258,12 +295,25 @@ extension TerminalKeyboardCopyModeResolution {
             }
         }
 
-        if !hasSelection, chars == "y", normalized.isEmpty {
+        if !hasSelection, lowercasedChars == "y", isUppercaseCommand {
+            let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
+            state.reset()
+            return .perform(.copyLineAndExit, count: count)
+        }
+
+        if lowercasedChars == "g", isUppercaseCommand {
+            let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
+            let action: TerminalKeyboardCopyModeAction = hasSelection ? .adjustSelection(.end) : .scrollToBottom
+            state.reset()
+            return .perform(action, count: count)
+        }
+
+        if !hasSelection, lowercasedChars == "y", normalized.isEmpty {
             state.pendingYankLine = true
             return .consume
         }
 
-        if chars == "g", normalized.isEmpty {
+        if lowercasedChars == "g", normalized.isEmpty {
             state.pendingG = true
             return .consume
         }
@@ -283,4 +333,50 @@ extension TerminalKeyboardCopyModeResolution {
         state.reset()
         return .perform(action, count: count)
     }
+}
+
+/// Legacy free-function forwarder for callers not yet migrated to
+/// ``TerminalKeyboardCopyModeResolution/shouldBypassForShortcut(modifiers:)``.
+public func terminalKeyboardCopyModeShouldBypassForShortcut(
+    modifiers: TerminalKeyboardCopyModeModifiers
+) -> Bool {
+    TerminalKeyboardCopyModeResolution.shouldBypassForShortcut(modifiers: modifiers)
+}
+
+/// Legacy free-function forwarder for callers not yet migrated to
+/// ``TerminalKeyboardCopyModeResolution/action(keyCode:charactersIgnoringModifiers:modifiers:hasSelection:asciiCharacterProvider:)``.
+public func terminalKeyboardCopyModeAction(
+    keyCode: UInt16,
+    charactersIgnoringModifiers: String?,
+    modifiers: TerminalKeyboardCopyModeModifiers,
+    hasSelection: Bool,
+    asciiCharacterProvider: (UInt16) -> String? = { _ in nil }
+) -> TerminalKeyboardCopyModeAction? {
+    TerminalKeyboardCopyModeResolution.action(
+        keyCode: keyCode,
+        charactersIgnoringModifiers: charactersIgnoringModifiers,
+        modifiers: modifiers,
+        hasSelection: hasSelection,
+        asciiCharacterProvider: asciiCharacterProvider
+    )
+}
+
+/// Legacy free-function forwarder for callers not yet migrated to
+/// ``TerminalKeyboardCopyModeResolution/resolve(keyCode:charactersIgnoringModifiers:modifiers:hasSelection:state:asciiCharacterProvider:)``.
+public func terminalKeyboardCopyModeResolve(
+    keyCode: UInt16,
+    charactersIgnoringModifiers: String?,
+    modifiers: TerminalKeyboardCopyModeModifiers,
+    hasSelection: Bool,
+    state: inout TerminalKeyboardCopyModeInputState,
+    asciiCharacterProvider: (UInt16) -> String? = { _ in nil }
+) -> TerminalKeyboardCopyModeResolution {
+    TerminalKeyboardCopyModeResolution.resolve(
+        keyCode: keyCode,
+        charactersIgnoringModifiers: charactersIgnoringModifiers,
+        modifiers: modifiers,
+        hasSelection: hasSelection,
+        state: &state,
+        asciiCharacterProvider: asciiCharacterProvider
+    )
 }

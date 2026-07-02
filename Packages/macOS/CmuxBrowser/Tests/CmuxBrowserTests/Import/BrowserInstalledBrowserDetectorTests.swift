@@ -40,6 +40,50 @@ struct BrowserInstalledBrowserDetectorTests {
         #expect(chrome.detectionScore > 0)
     }
 
+    @Test("detects Dia Chromium profiles under User Data")
+    func detectsDiaProfilesUnderUserData() throws {
+        let home = try makeTempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let diaUserDataRoot = home
+            .appendingPathComponent("Library/Application Support/Dia/User Data", isDirectory: true)
+        let defaultProfile = diaUserDataRoot.appendingPathComponent("Default", isDirectory: true)
+        let workProfile = diaUserDataRoot.appendingPathComponent("Profile 1", isDirectory: true)
+        try FileManager.default.createDirectory(at: defaultProfile, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workProfile, withIntermediateDirectories: true)
+        try Data().write(to: defaultProfile.appendingPathComponent("Cookies"))
+        try Data().write(to: workProfile.appendingPathComponent("Cookies"))
+        try Data(
+            """
+            {
+              "profile": {
+                "info_cache": {
+                  "Default": {
+                    "name": "Personal"
+                  },
+                  "Profile 1": {
+                    "name": "Work"
+                  }
+                }
+              }
+            }
+            """.utf8
+        ).write(to: diaUserDataRoot.appendingPathComponent("Local State"))
+
+        let detector = BrowserInstalledBrowserDetector(
+            homeDirectoryURL: home,
+            bundleLookup: { _ in nil },
+            applicationSearchDirectories: [],
+            fileManager: .default
+        )
+
+        let dia = try #require(detector.detectInstalledBrowsers().first { $0.id == "dia" })
+        #expect(dia.family == .chromium)
+        #expect(dia.dataRootURL == diaUserDataRoot)
+        #expect(dia.profiles.map(\.displayName) == ["Personal", "Work"])
+        #expect(dia.profiles.map(\.rootURL.lastPathComponent) == ["Default", "Profile 1"])
+    }
+
     @Test("detects a Firefox browser and reads its profiles.ini name")
     func detectsFirefoxFromINI() throws {
         let home = try makeTempHome()

@@ -233,6 +233,7 @@ extension AppDelegate {
             context.setInt(ShortcutContextKnownKey.workspaceCount.rawValue, tabManager.tabs.count)
             if let workspace = tabManager.selectedWorkspace {
                 context.setInt(ShortcutContextKnownKey.paneCount.rawValue, workspace.panels.count)
+                context.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, workspace.layoutMode == .canvas)
                 context.setBool(
                     ShortcutContextKnownKey.terminalFindVisible.rawValue,
                     workspace.focusedTerminalPanel?.searchState != nil
@@ -285,13 +286,13 @@ extension AppDelegate {
         }
 
         if let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event),
-           let panel = shortcutBrowserPanel(panelId: panelId) {
+           let panel = shortcutBrowserPanel(panelId: panelId, in: shortcutWindow) {
             return panel
         }
 
         if let responder,
            let panelId = BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: shortcutWindow),
-           let panel = shortcutBrowserPanel(panelId: panelId) {
+           let panel = shortcutBrowserPanel(panelId: panelId, in: shortcutWindow) {
             return panel
         }
 
@@ -306,10 +307,36 @@ extension AppDelegate {
         return nil
     }
 
+    /// Whether the keystroke's first responder is owned by a browser panel's web
+    /// view, as opposed to chrome such as the sidebar, address bar, or find bar
+    /// holding keyboard focus.
+    func shortcutEventFirstResponderOwnsBrowserWebView(_ event: NSEvent) -> Bool {
+        let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let responder = shortcutWindow?.firstResponder,
+              let webView = shortcutOwningWebView(for: responder) else {
+            return false
+        }
+        return shortcutBrowserPanel(webView: webView) != nil
+    }
+
     private func shortcutFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {
         if let window {
             guard let context = registeredMainWindow(forWindow: window) else {
                 return nil
+            }
+            if let windowDock = existingWindowDock(forWindowId: context.windowId) {
+                if let panel = windowDock.browserPanel(owning: window.firstResponder, in: window) {
+                    return panel
+                }
+                if context.keyboardFocusCoordinator.activeRightSidebarMode == .dock,
+                   let focusedPanelId = windowDock.focusedPanelId,
+                   let panel = windowDock.browserPanel(for: focusedPanelId) {
+                    return panel
+                }
+            }
+            if let panel = context.tabManager.selectedWorkspace?
+                .dockBrowserPanel(owning: window.firstResponder, in: window) {
+                return panel
             }
             return context.tabManager.focusedBrowserPanel
         }
@@ -330,17 +357,25 @@ extension AppDelegate {
     }
 
     private func shortcutResolvedEventWindow(_ event: NSEvent) -> NSWindow? {
-        if let window = event.window {
+        if event.windowNumber > 0,
+           let window = NSApp.window(withWindowNumber: event.windowNumber) {
             return window
         }
-        guard event.windowNumber > 0 else { return nil }
-        return NSApp.window(withWindowNumber: event.windowNumber)
+        return event.window
     }
 
-    private func shortcutBrowserPanel(panelId: UUID) -> BrowserPanel? {
+    private func shortcutBrowserPanel(panelId: UUID, in window: NSWindow?) -> BrowserPanel? {
+        if let window,
+           let context = registeredMainWindow(forWindow: window),
+           let panel = existingWindowDock(forWindowId: context.windowId)?.browserPanel(for: panelId) {
+            return panel
+        }
+        if let panel = windowDockContainingPanel(panelId)?.browserPanel(for: panelId) {
+            return panel
+        }
         for manager in shortcutCandidateTabManagers() {
             for workspace in manager.tabs {
-                if let panel = workspace.browserPanel(for: panelId) {
+                if let panel = workspace.browserPanelIncludingDock(for: panelId) {
                     return panel
                 }
             }
@@ -349,6 +384,27 @@ extension AppDelegate {
     }
 
     private func shortcutBrowserPanel(webView: WKWebView) -> BrowserPanel? {
+        if let context = BrowserWindowPortalRegistry.paneDropContext(for: webView) {
+            if let panel = windowDockContainingPanel(context.panelId)?.browserPanel(for: context.panelId) {
+                return panel
+            }
+            for manager in shortcutCandidateTabManagers() {
+                for workspace in manager.tabs {
+                    if let panel = workspace.browserPanelIncludingDock(for: context.panelId) {
+                        return panel
+                    }
+                }
+            }
+        }
+        for dock in existingWindowDocks {
+            for panel in dock.panels.values {
+                guard let browserPanel = panel as? BrowserPanel,
+                      browserPanel.webView === webView else {
+                    continue
+                }
+                return browserPanel
+            }
+        }
         for manager in shortcutCandidateTabManagers() {
             for workspace in manager.tabs {
                 for panel in workspace.panels.values {

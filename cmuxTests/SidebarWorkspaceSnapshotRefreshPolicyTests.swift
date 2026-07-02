@@ -32,7 +32,7 @@ import Testing
             finderDirectoryPath: nil
         )
 
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: current,
             next: next,
             force: false,
@@ -67,7 +67,7 @@ import Testing
             finderDirectoryPath: "/tmp/workspace"
         )
 
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: current,
             next: next,
             force: false,
@@ -79,11 +79,40 @@ import Testing
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
+    @Test func contextMenuMediaActivityChangeUpdatesDisplayedGlyphImmediately() {
+        let current = Self.snapshot(
+            remoteConnectionStatusText: "Connected",
+            latestConversationMessage: "old message",
+            listeningPorts: [3000],
+            mediaActivity: BrowserMediaActivity(isPlayingAudio: true)
+        )
+        let next = Self.snapshot(
+            remoteConnectionStatusText: "Disconnected",
+            latestConversationMessage: "new message",
+            listeningPorts: [3000, 4000],
+            mediaActivity: BrowserMediaActivity(isPlayingAudio: false)
+        )
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        #expect(decision.workspaceSnapshotStorage?.mediaActivity.isPlayingAudio == false)
+        #expect(decision.workspaceSnapshotStorage?.remoteConnectionStatusText == "Connected")
+        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
+        #expect(decision.workspaceSnapshotStorage?.listeningPorts == [3000])
+        #expect(decision.pendingWorkspaceSnapshot == next)
+        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
     @Test func closedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
 
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: current,
             next: next,
             force: false,
@@ -104,7 +133,8 @@ import Testing
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
         listeningPorts: [Int] = [],
-        finderDirectoryPath: String? = nil
+        finderDirectoryPath: String? = nil,
+        mediaActivity: BrowserMediaActivity = BrowserMediaActivity()
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -129,7 +159,8 @@ import Testing
             branchLinesContainBranch: false,
             pullRequestRows: [],
             listeningPorts: listeningPorts,
-            finderDirectoryPath: finderDirectoryPath
+            finderDirectoryPath: finderDirectoryPath,
+            mediaActivity: mediaActivity
         )
     }
 
@@ -244,11 +275,14 @@ import Testing
 }
 
 @Suite struct SidebarWorkspaceRowInteractionStateTests {
-    @Test func hoverRevealIsIndependentFromStaleContextMenuVisibility() {
+    @Test func appKitMenuTrackingEndClearsStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.contextMenuDidAppear()
-        state.contextMenuTrackingDidEnd()
+        #expect(state.contextMenuVisible)
+
+        let didEndTracking = state.contextMenuTrackingDidEnd(pointerInsideRow: true)
+        #expect(didEndTracking)
         state.setPointerHovering(true)
 
         #expect(
@@ -256,38 +290,41 @@ import Testing
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
-            "A stale SwiftUI context-menu lifecycle flag must not permanently suppress hover-only close affordances after AppKit menu tracking has ended."
-        )
-
-        state.setPointerHovering(false)
-
-        #expect(
-            !state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "The stale SwiftUI menu flag must not make the close affordance visible when the pointer is no longer hovering."
+            "AppKit menu tracking ending must clear stale SwiftUI context-menu visibility so later hover can reveal row affordances."
         )
     }
 
-    @Test func contextMenuTrackingBeginHidesExistingCloseButtonBeforeSwiftUIMenuAppears() {
+    @Test func appKitMenuTrackingEndUsesReconciledPointerExit() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.setPointerHovering(true)
-        #expect(state.shouldShowCloseButton(canCloseWorkspace: true, shortcutHintModeActive: false))
+        state.contextMenuDidAppear()
 
-        state.contextMenuTrackingDidBegin()
+        let didEndTracking = state.contextMenuTrackingDidEnd(pointerInsideRow: false)
+        #expect(didEndTracking)
 
         #expect(
             !state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
-            "Right-click menu tracking must hide an already-visible close affordance even before SwiftUI reports the context menu appearance."
+            "If the pointer leaves through the context menu, AppKit menu tracking reconciliation must keep the row affordance hidden."
         )
     }
 
-    @Test func hoverDuringContextMenuTrackingStaysHiddenUntilTrackingEnds() {
+    @Test @MainActor func menuTrackingReconcilerIgnoresSubmenuEndNotifications() {
+        let rootMenu = NSMenu()
+        let submenu = NSMenu()
+        let item = NSMenuItem(title: "submenu", action: nil, keyEquivalent: "")
+        rootMenu.addItem(item)
+        rootMenu.setSubmenu(submenu, for: item)
+
+        #expect(SidebarWorkspaceRowMenuTrackingReconcilerView.shouldReconcileMenuEnd(object: rootMenu))
+        #expect(!SidebarWorkspaceRowMenuTrackingReconcilerView.shouldReconcileMenuEnd(object: submenu))
+        #expect(!SidebarWorkspaceRowMenuTrackingReconcilerView.shouldReconcileMenuEnd(object: nil))
+    }
+
+    @Test func hoverDuringContextMenuStaysHiddenUntilDismissal() {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.contextMenuDidAppear()
@@ -298,17 +335,17 @@ import Testing
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
-            "Pointer hover updates observed during context-menu tracking must not reveal the close affordance under the menu."
+            "Pointer hover updates observed during the context-menu lifecycle must not reveal the close affordance under the menu."
         )
 
-        state.contextMenuTrackingDidEnd()
+        state.contextMenuDidDisappear()
 
         #expect(
             state.shouldShowCloseButton(
                 canCloseWorkspace: true,
                 shortcutHintModeActive: false
             ),
-            "Once AppKit menu tracking ends, the last reconciled pointer position may reveal the close affordance even if SwiftUI menu state is stale."
+            "Once the context menu dismisses, the last observed pointer position may reveal the close affordance."
         )
     }
 
@@ -318,10 +355,11 @@ import Testing
         // hover enter/exit are applied directly to the row's interaction state.
         var state = SidebarWorkspaceRowInteractionState()
 
-        state.contextMenuTrackingDidBegin()
+        state.contextMenuDidAppear()
+        state.contextMenuTrackingObserverDidInstall()
         state.setPointerHovering(true)
         state.setPointerHovering(false)
-        state.contextMenuTrackingDidEnd()
+        state.contextMenuDidDisappear()
 
         #expect(
             !state.shouldShowCloseButton(
@@ -329,6 +367,22 @@ import Testing
                 shortcutHintModeActive: false
             ),
             "A pointer exit observed during menu tracking must overwrite any earlier deferred hover enter before the menu dismisses."
+        )
+    }
+
+    @Test func contextMenuDismissalRestoresHoverWithoutPointerMovement() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.setPointerHovering(true)
+        state.contextMenuDidAppear()
+        state.contextMenuDidDisappear()
+
+        #expect(
+            state.shouldShowCloseButton(
+                canCloseWorkspace: true,
+                shortcutHintModeActive: false
+            ),
+            "Closing a context menu without moving the pointer must restore the row hover affordance."
         )
     }
 
@@ -366,6 +420,7 @@ import Testing
 
         state.setPointerHovering(true)
         state.contextMenuDidAppear()
+        state.contextMenuTrackingObserverDidInstall()
         state.setPointerHovering(false)
         state.contextMenuDidDisappear()
 
@@ -375,6 +430,23 @@ import Testing
                 shortcutHintModeActive: false
             ),
             "Pointer exit remains authoritative even when it is observed during the context-menu lifecycle."
+        )
+    }
+
+    @Test func swiftUIOnlyFastContextMenuDismissalKeepsInitialHoverFallback() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.setPointerHovering(true)
+        state.contextMenuDidAppear()
+        state.setPointerHovering(false)
+        state.contextMenuDidDisappear()
+
+        #expect(
+            state.shouldShowCloseButton(
+                canCloseWorkspace: true,
+                shortcutHintModeActive: false
+            ),
+            "A SwiftUI hover-exit caused by the menu taking focus must not erase the initial hover fallback before the AppKit reconciler mounts."
         )
     }
 

@@ -95,6 +95,53 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
     }
 
+    func testReportPwdPathOptionKeepsDisplayLabelSeparateFromFilesystemDirectory() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let filesystemDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-report-pwd-path-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: filesystemDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: filesystemDirectory) }
+
+        let displayLabel = "MyPackage  mainline"
+        let response = TerminalController.shared.handleSocketLine(
+            "report_pwd \"\(displayLabel)\" --path=\(filesystemDirectory.path) --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+        )
+        XCTAssertEqual(response, "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertEqual(workspace.currentDirectory, filesystemDirectory.path)
+        XCTAssertEqual(workspace.panelDirectories[panelId], filesystemDirectory.path)
+        XCTAssertEqual(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [panelId]), [displayLabel])
+        XCTAssertEqual(workspace.sidebarFinderDirectory(), filesystemDirectory.path)
+    }
+
     func testWorkspaceReorderManyRoutesByWorkspaceOwnerWhenWindowIsOmitted() throws {
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()

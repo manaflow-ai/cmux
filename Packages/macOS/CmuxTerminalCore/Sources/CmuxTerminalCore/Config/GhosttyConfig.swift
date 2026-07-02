@@ -27,11 +27,9 @@ public struct GhosttyConfig {
     public static let cmuxDefaultDarkThemeName = "Apple System Colors"
 
     private static let loadCacheLock = NSLock()
-    // Every read/write of this cache is serialized by `loadCacheLock` (see
-    // `cachedLoad`/`storeCachedLoad`/`invalidateLoadCache`), so the mutable
-    // static is data-race-safe despite being nonisolated. Faithful lift of the
-    // app-target lock-guarded cache; the lock contract is unchanged.
-    nonisolated(unsafe) private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
+    // Every read/write of this cache is serialized by `loadCacheLock`; the
+    // nonisolated static mirrors the app-target lock-guarded cache contract.
+    nonisolated(unsafe) private static var cachedConfigsByColorScheme: [String: GhosttyConfig] = [:]
     /// The default sidebar font size, in points.
     public static let defaultSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize)
     /// The minimum sidebar font size the parser will clamp to.
@@ -162,45 +160,43 @@ public struct GhosttyConfig {
     }
 
     /// Loads the resolved terminal config for `preferredColorScheme` (or the
-    /// current system/app preference when `nil`), caching per color scheme when
-    /// `useCache` is set. `loadFromDisk` is injectable for tests.
+    /// current system/app preference when `nil`), caching per color scheme plus
+    /// optional app-injected magnification percent. `loadFromDisk` is injectable
+    /// for tests; pass `nil` for deterministic base config values.
     public static func load(
         preferredColorScheme: ColorSchemePreference? = nil,
         useCache: Bool = true,
+        globalFontMagnificationPercent: Int? = nil,
         loadFromDisk: (_ preferredColorScheme: ColorSchemePreference) -> GhosttyConfig = Self.loadFromDisk
     ) -> GhosttyConfig {
         let resolvedColorScheme = preferredColorScheme ?? currentColorSchemePreference()
-        if useCache, let cached = cachedLoad(for: resolvedColorScheme) {
-            return cached
+        let magnificationPercent = globalFontMagnificationPercent.map(GlobalFontMagnification.clamp)
+        let cacheKey = "\(resolvedColorScheme)#\(magnificationPercent ?? -1)"
+        if useCache {
+            let cached: GhosttyConfig? = {
+                loadCacheLock.lock()
+                defer { loadCacheLock.unlock() }
+                return cachedConfigsByColorScheme[cacheKey]
+            }()
+            if let cached {
+                return cached
+            }
         }
 
-        let loaded = loadFromDisk(resolvedColorScheme)
+        var loaded = loadFromDisk(resolvedColorScheme)
+        if let magnificationPercent { loaded.applyGlobalMagnification(percent: magnificationPercent) }
         if useCache {
-            storeCachedLoad(loaded, for: resolvedColorScheme)
+            loadCacheLock.lock()
+            cachedConfigsByColorScheme[cacheKey] = loaded
+            loadCacheLock.unlock()
         }
         return loaded
     }
 
-    /// Drops every cached per-color-scheme config so the next ``load(preferredColorScheme:useCache:loadFromDisk:)``
-    /// re-reads from disk.
+    /// Drops every cached config so the next ``load(preferredColorScheme:useCache:globalFontMagnificationPercent:loadFromDisk:)`` re-reads from disk.
     public static func invalidateLoadCache() {
         loadCacheLock.lock()
         cachedConfigsByColorScheme.removeAll()
-        loadCacheLock.unlock()
-    }
-
-    private static func cachedLoad(for colorScheme: ColorSchemePreference) -> GhosttyConfig? {
-        loadCacheLock.lock()
-        defer { loadCacheLock.unlock() }
-        return cachedConfigsByColorScheme[colorScheme]
-    }
-
-    private static func storeCachedLoad(
-        _ config: GhosttyConfig,
-        for colorScheme: ColorSchemePreference
-    ) {
-        loadCacheLock.lock()
-        cachedConfigsByColorScheme[colorScheme] = config
         loadCacheLock.unlock()
     }
 
@@ -347,6 +343,13 @@ public struct GhosttyConfig {
         config.applySidebarAppearanceToUserDefaults()
 
         return config
+    }
+
+    mutating func applyGlobalMagnification(percent: Int) {
+        let scale = GlobalFontMagnification.scale(for: percent)
+        guard scale != 1 else { return }
+        fontSize = max(1, fontSize * scale)
+        surfaceTabBarFontSize = max(1, surfaceTabBarFontSize * scale)
     }
 
     /// Applies cmux's managed default theme for `preferredColorScheme` by parsing
@@ -943,10 +946,10 @@ public struct GhosttyConfig {
         bundleResourceURL: URL?,
         preferredColorScheme: ColorSchemePreference? = nil
     ) {
-        let resolvedThemeName = Self.resolveThemeName(
+        guard let resolvedThemeName = Self.appliedThemeName(
             from: name,
             preferredColorScheme: preferredColorScheme ?? Self.currentColorSchemePreference()
-        )
+        ) else { return }
         let expandedThemePath = NSString(string: resolvedThemeName).expandingTildeInPath
         if (expandedThemePath as NSString).isAbsolutePath,
            let contents = try? String(contentsOfFile: expandedThemePath, encoding: .utf8) {

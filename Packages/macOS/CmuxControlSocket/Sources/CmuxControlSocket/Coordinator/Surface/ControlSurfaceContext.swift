@@ -366,7 +366,7 @@ public protocol ControlSurfaceContext: AnyObject {
         expectedSource: String?
     ) -> ControlSurfaceResumeResolution
 
-    // MARK: - report_tty / report_shell_state / ports_kick
+    // MARK: - report_tty / report_pwd / report_shell_state / ports_kick
 
     /// Records a reported TTY name for `surface.report_tty`.
     ///
@@ -380,6 +380,19 @@ public protocol ControlSurfaceContext: AnyObject {
         requestedSurfaceID: UUID?,
         ttyName: String
     ) -> ControlSurfaceReportTTYResolution
+
+    /// Records a reported current working directory for `surface.report_pwd`.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The target workspace.
+    ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` to resolve.
+    ///   - path: The reported (trimmed, non-empty) current working directory.
+    /// - Returns: The report resolution.
+    func controlSurfaceReportPWD(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        path: String
+    ) -> ControlSurfaceReportPWDResolution
 
     /// Parses a raw shell-activity token via
     /// `PanelShellActivityState.parseReported`, returning the state's raw value

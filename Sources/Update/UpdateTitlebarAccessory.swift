@@ -129,6 +129,7 @@ private final class DetachedNotificationsPopoverDelegate: NSObject, NSPopoverDel
     }
 }
 
+
 enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
     case toggleSidebar
     case showNotifications
@@ -474,6 +475,7 @@ struct TitlebarControlsView: View {
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
     @State private var shortcutRefreshTick = 0
     @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false
@@ -524,6 +526,7 @@ struct TitlebarControlsView: View {
         // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
         let _ = shortcutRefreshTick
         let _ = appearanceRefreshTick
+        let _ = globalFontPercent
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
         let contentSize = config.contentSize(
@@ -598,6 +601,7 @@ struct TitlebarControlsView: View {
     private func controlsGroup(config: TitlebarControlsStyleConfig, foregroundColor: Color) -> some View {
         let hintLayoutItems = titlebarHintLayoutItems(config: config)
         let focusHistoryAvailability = focusHistoryNavigationAvailabilitySnapshot
+        let badgeBaseFontSize = titlebarNotificationBadgeFontSize(for: config) / max(1, GlobalFontMagnification.scale(for: globalFontPercent))
         let content = HStack(spacing: config.spacing) {
             TitlebarControlButton(
                 config: config,
@@ -637,12 +641,11 @@ struct TitlebarControlsView: View {
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
-                            .font(.system(size: config.notificationBadgeFontSize, weight: .semibold))
+                            // Fixed-size badge; cap effective glyph size.
+                            .cmuxFont(size: badgeBaseFontSize, weight: .semibold)
                             .foregroundColor(.white)
                             .frame(width: config.badgeSize, height: config.badgeSize)
-                            .background(
-                                Circle().fill(cmuxAccentColor())
-                            )
+                            .background(Circle().fill(cmuxAccentColor()))
                             .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
                     }
                 }
@@ -1776,10 +1779,10 @@ private struct NotificationsPopoverView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text(String(localized: "notifications.title", defaultValue: "Notifications"))
-                .font(.system(size: 14, weight: .semibold))
+                .cmuxFont(size: 14, weight: .semibold)
             if unreadCount > 0 {
                 Text("\(unreadCount)")
-                    .font(.system(size: 11, weight: .semibold))
+                    .cmuxFont(size: 11, weight: .semibold)
                     .foregroundColor(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
@@ -1788,13 +1791,13 @@ private struct NotificationsPopoverView: View {
             Spacer()
             Button(action: jumpToLatestUnread) {
                 HStack(spacing: 5) {
-                    Image(systemName: "arrow.down.to.line")
-                        .cmuxSymbolRasterSize(10, weight: .semibold)
+                    CmuxSystemSymbolImage(systemName: "arrow.down.to.line", pointSize: 10, weight: .semibold)
                     Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
-                        .font(.system(size: 11))
-                    if !ShortcutDisplayFormatter().displayString(jumpToUnreadShortcut).isEmpty {
-                        Text(ShortcutDisplayFormatter().displayString(jumpToUnreadShortcut))
-                            .font(.system(size: 10.5, weight: .medium))
+                        .cmuxFont(size: 11)
+                    let jumpToUnreadShortcutText = ShortcutDisplayFormatter().displayString(jumpToUnreadShortcut)
+                    if !jumpToUnreadShortcutText.isEmpty {
+                        Text(jumpToUnreadShortcutText)
+                            .cmuxFont(size: 10.5, weight: .medium)
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
@@ -1827,7 +1830,7 @@ private struct NotificationsPopoverView: View {
 
             Button(action: { notificationStore.clearAll() }) {
                 Text(String(localized: "notifications.clearAll", defaultValue: "Clear All"))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
             }
@@ -1866,12 +1869,14 @@ private struct NotificationsPopoverView: View {
             // sidebar/sessions panel (https://github.com/manaflow-ai/cmux/issues/2586).
             let snapshot = notificationStore.notifications
             let lastIndex = snapshot.count - 1
+            // One tabId -> title index per render, not an O(tabs) scan per row (#5794).
+            let tabTitles = AppDelegate.shared?.tabTitlesByTabId() ?? [:]
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
                         NotificationPopoverRow(
                             notification: notification,
-                            tabTitle: tabTitle(for: notification.tabId),
+                            tabTitle: tabTitles[notification.tabId],
                             onOpen: { open(notification) },
                             onClear: {
                                 withAnimation(.easeOut(duration: 0.18)) {
@@ -1899,6 +1904,7 @@ private struct NotificationsPopoverView: View {
                                 }
                             }
                         )
+                        .equatable()  // snapshot-boundary: skip unchanged rows (#5794)
                         if index < lastIndex {
                             Divider()
                                 .opacity(0.4)
@@ -1912,15 +1918,14 @@ private struct NotificationsPopoverView: View {
 
     private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .cmuxSymbolRasterSize(30, weight: .light)
+            CmuxSystemSymbolImage(systemName: systemImage, pointSize: 30, weight: .light)
                 .foregroundColor(.secondary.opacity(0.7))
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .cmuxFont(size: 14, weight: .medium)
                 .foregroundColor(.primary)
             if let subtitle {
                 Text(subtitle)
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -1929,9 +1934,6 @@ private struct NotificationsPopoverView: View {
         .padding(24)
     }
 
-    private func tabTitle(for tabId: UUID) -> String? {
-        AppDelegate.shared?.tabTitle(for: tabId)
-    }
 
     private var jumpToUnreadShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
@@ -1963,7 +1965,12 @@ private struct NotificationsPopoverView: View {
     }
 }
 
-private struct NotificationPopoverRow: View {
+struct NotificationPopoverRow: View, Equatable {
+    // Closures excluded from ==; equality is the rendered snapshot only (#2586).
+    nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
+        lhs.notification == rhs.notification && lhs.tabTitle == rhs.tabTitle
+    }
+
     let notification: TerminalNotification
     let tabTitle: String?
     let onOpen: () -> Void
@@ -2057,19 +2064,19 @@ private struct NotificationPopoverRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(notification.title)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .cmuxFont(size: 12.5, weight: .semibold)
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 10.5))
+                        .cmuxFont(size: 10.5)
                         .foregroundColor(.secondary)
                         .padding(.trailing, 34)
                 }
 
                 if !notification.body.isEmpty {
                     Text(notification.body)
-                        .font(.system(size: 11.5))
+                        .cmuxFont(size: 11.5)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2077,7 +2084,7 @@ private struct NotificationPopoverRow: View {
 
                 if let tabTitle, !tabTitle.isEmpty {
                     Text(tabTitle)
-                        .font(.system(size: 10))
+                        .cmuxFont(size: 10)
                         .foregroundColor(.secondary.opacity(0.85))
                         .lineLimit(1)
                 }
@@ -2096,8 +2103,7 @@ private struct NotificationPopoverRow: View {
             ZStack {
                 Circle()
                     .fill(Color.primary.opacity(0.1))
-                Image(systemName: "xmark")
-                    .cmuxSymbolRasterSize(9, weight: .bold)
+                CmuxSystemSymbolImage(systemName: "xmark", pointSize: 9, weight: .bold)
                     .foregroundColor(.primary.opacity(0.7))
             }
             .frame(width: 20, height: 20)

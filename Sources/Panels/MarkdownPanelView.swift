@@ -168,20 +168,20 @@ struct MarkdownPanelView: View {
     private var fileUnavailableView: some View {
         VStack(spacing: 12) {
             Image(systemName: "doc.questionmark")
-                .font(.system(size: 40))
+                .cmuxFont(size: 40)
                 .foregroundColor(.secondary)
             Text(String(localized: "markdown.fileUnavailable.title", defaultValue: "File unavailable"))
-                .font(.headline)
+                .cmuxFont(.headline)
                 .foregroundColor(.primary)
             Text(panel.filePath)
-                .font(.system(size: 12, design: .monospaced))
+                .cmuxFont(size: 12, design: .monospaced)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
             Text(String(localized: "markdown.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -270,7 +270,7 @@ private struct MarkdownPanelToolbar: View {
         HStack(spacing: 8) {
             if let confirmation {
                 Text(confirmation)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .transition(.opacity)

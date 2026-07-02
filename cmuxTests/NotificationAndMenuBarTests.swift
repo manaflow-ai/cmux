@@ -16,6 +16,27 @@ import CmuxAppKitSupportUI
 @testable import cmux
 #endif
 
+/// Thread-safe one-shot holder for a policy-evaluation result. Lets a test
+/// detect a stalled evaluation by reading the stored value after a timeout,
+/// instead of awaiting (and hanging on) the evaluation `Task` itself when the
+/// hook never completes.
+private final class NotificationHookEvaluationResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>?
+
+    func store(_ value: Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>) {
+        lock.lock()
+        defer { lock.unlock() }
+        stored = value
+    }
+
+    func take() -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>? {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+}
+
 final class TerminalNotificationPolicyEngineTests: XCTestCase {
     private func evaluate(
         request: TerminalNotificationPolicyRequest,
@@ -279,13 +300,23 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         // timing the call. The completion is raced against a generous deadline
         // so a genuine stall fails the test instead of hanging it forever.
         let completed = expectation(description: "policy hook completes without stalling on inherited stdout")
+        let resultBox = NotificationHookEvaluationResultBox()
         let evaluationTask = Task {
             let result = await evaluate(request: request, hooks: [hook])
+            resultBox.store(result)
             completed.fulfill()
             return result
         }
         await fulfillment(of: [completed], timeout: 10.0)
-        let envelope = try await evaluationTask.value.get()
+        guard let result = resultBox.take() else {
+            // The hook is still stalled on the inherited stdout pipe. Fail fast
+            // instead of awaiting evaluationTask.value, which would hang until the
+            // whole-suite timeout since the stalled call may ignore cancellation.
+            evaluationTask.cancel()
+            XCTFail("policy hook did not complete within 10s (stalled on inherited stdout)")
+            return
+        }
+        let envelope = try result.get()
         XCTAssertEqual(envelope.notification.body, "Body")
     }
 }

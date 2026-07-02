@@ -174,22 +174,46 @@ extension NavigationDirection {
 }
 
 extension Workspace {
-    /// Cycles the focused canvas pane's tabs by `offset` (wrapping). Returns
-    /// `false` when the focused pane has fewer than two tabs, so the caller
-    /// can fall back to bonsplit cycling semantics.
+    /// Cycles canvas surfaces by `offset` (wrapping). In canvas mode, surface
+    /// shortcuts address the whole floating workspace surface order, because
+    /// separate panes do not share one focused Bonsplit tab strip.
     func selectAdjacentCanvasTab(offset: Int) -> Bool {
-        guard let focusedPanelId,
-              let paneID = canvasModel.paneID(containing: focusedPanelId),
-              let tabs = canvasModel.layout.panelIds(in: paneID),
-              tabs.count > 1,
-              let selected = canvasModel.layout.selectedPanelId(in: paneID),
-              let index = tabs.firstIndex(of: selected) else {
+        let surfaceIds = selectableCanvasSurfaceIds()
+        guard surfaceIds.count > 1,
+              let focusedPanelId,
+              let index = surfaceIds.firstIndex(of: focusedPanelId) else {
             return false
         }
-        let next = tabs[(index + offset + tabs.count) % tabs.count]
-        focusPanel(next.rawValue)
+        let next = surfaceIds[(index + offset + surfaceIds.count) % surfaceIds.count]
+        focusPanel(next)
         canvasModel.viewport?.modelDidChangeExternally(animated: false)
+        canvasModel.viewport?.revealPane(next, animated: true)
         return true
+    }
+
+    /// Selects a canvas surface by zero-based workspace surface order.
+    func selectCanvasTab(at index: Int) -> Bool {
+        let surfaceIds = selectableCanvasSurfaceIds()
+        guard surfaceIds.indices.contains(index) else { return false }
+        let selected = surfaceIds[index]
+        focusPanel(selected)
+        canvasModel.viewport?.modelDidChangeExternally(animated: false)
+        canvasModel.viewport?.revealPane(selected, animated: true)
+        return true
+    }
+
+    /// Selects the last canvas surface in workspace surface order.
+    func selectLastCanvasTab() -> Bool {
+        guard let selected = selectableCanvasSurfaceIds().last else { return false }
+        focusPanel(selected)
+        canvasModel.viewport?.modelDidChangeExternally(animated: false)
+        canvasModel.viewport?.revealPane(selected, animated: true)
+        return true
+    }
+
+    private func selectableCanvasSurfaceIds() -> [UUID] {
+        let canvasPanelIds = Set(canvasModel.layout.allPanelIds.map(\.rawValue))
+        return orderedPanelIds.filter { canvasPanelIds.contains($0) && panels[$0] != nil }
     }
 }
 
@@ -206,9 +230,17 @@ extension Workspace {
     /// when creation fails (e.g. no focused bonsplit pane, or the browser is
     /// disabled). Must be called in canvas mode.
     @discardableResult
-    func openNewCanvasPane(type: CanvasNewPaneType, focus: Bool = true) -> UUID? {
+    func openNewCanvasPane(
+        type: CanvasNewPaneType,
+        focus: Bool = true,
+        direction: CanvasDirection? = nil
+    ) -> UUID? {
         guard layoutMode == .canvas else { return nil }
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
+        let anchorPanelId = focusedPanelId
+        let preferredSize: CanvasSize? = anchorPanelId
+            .flatMap { canvasModel.frame(of: $0) }
+            .map { CanvasSize(width: Double($0.width), height: Double($0.height)) }
         let newPanelId: UUID
         switch type {
         case .terminal:
@@ -224,7 +256,12 @@ extension Workspace {
         }
         // Give the new surface its own canvas pane (the placer positions it
         // near the focused pane) rather than joining it as a tab.
-        canvasModel.syncPanes(panelIds: orderedPanelIds, focusedPanelId: newPanelId)
+        canvasModel.syncPanes(
+            panelIds: orderedPanelIds,
+            focusedPanelId: anchorPanelId,
+            preferredDirection: direction,
+            preferredNewPaneSize: preferredSize
+        )
         focusPanel(newPanelId)
         canvasModel.viewport?.modelDidChangeExternally(animated: false)
         canvasModel.viewport?.revealPane(newPanelId, animated: true)

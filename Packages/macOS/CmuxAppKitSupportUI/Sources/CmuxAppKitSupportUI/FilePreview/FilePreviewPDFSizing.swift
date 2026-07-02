@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxFoundation
 public import PDFKit
 
 /// Pure sizing math for the file-preview PDF sidebar and thumbnails, derived from
@@ -38,7 +39,7 @@ public enum FilePreviewPDFSizing {
             return minimumSidebarWidth
         }
 
-        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         var sampledRows = 0
         var widestRow = CGFloat(0)
         measureOutlineChildren(

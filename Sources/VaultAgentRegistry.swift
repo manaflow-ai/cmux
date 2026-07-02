@@ -18,10 +18,8 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     var detect: CmuxVaultAgentDetectRule
     var sessionIdSource: CmuxVaultAgentSessionIDSource
     var resumeCommand: String
-    /// Optional template for forking (branching) a session into a new copy,
-    /// e.g. "{{executable}} --session {{sessionId}} --fork". Same placeholders as
-    /// `resumeCommand`. When nil, the agent has no fork capability and Fork
-    /// Conversation stays hidden for it (resume still works via `resumeCommand`).
+    /// Optional template for forking (branching) a session into a new copy.
+    /// Omit it for agents that do not have a fork verb.
     var forkCommand: String?
     var cwd: CmuxVaultAgentCWDPolicy
     var sessionDirectory: String?

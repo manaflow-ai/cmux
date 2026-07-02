@@ -81,11 +81,24 @@ extension AuthCoordinator {
 
         let cachedUser = loadCachedUser()
         // accessToken() may refresh over the network; a sign-out can land
-        // while these reads are parked, so re-check the generation after.
-        let hasAccessToken = await client.accessToken() != nil
-        let hasRefreshToken = await client.refreshToken() != nil
+        // while these reads are parked, so bound the probe and re-check the
+        // generation after. A timeout preserves the cached identity instead of
+        // leaving launch behind "Restoring session".
+        let hasStoredTokens: Bool
+        do {
+            let client = self.client
+            hasStoredTokens = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
+                let hasAccessToken = await client.accessToken() != nil
+                let hasRefreshToken = await client.refreshToken() != nil
+                return hasAccessToken || hasRefreshToken
+            }
+        } catch {
+            guard generation == sessionGeneration else { return }
+            authLog.error("Session token probe failed: \(error.localizedDescription, privacy: .private)")
+            preserveCachedSessionAfterValidationFailure()
+            return
+        }
         guard generation == sessionGeneration else { return }
-        let hasStoredTokens = hasAccessToken || hasRefreshToken
 
         #if DEBUG
         if launch.mockDataEnabled { return }
@@ -169,7 +182,7 @@ extension AuthCoordinator {
     func validateCachedSession(generation: UInt64, storeWriteHighWater: UInt64) async {
         do {
             let client = self.client
-            let user = try await runPhase(.validateSession, timeout: timeouts.network) {
+            let user = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
                 try await client.currentUser(throwOnMissing: true)
             }
             // A sign-out landed while the fetch was in flight: the user's
@@ -183,7 +196,9 @@ extension AuthCoordinator {
             authLog.info("Cached session validation returned no current user")
             // Snapshot the dead session's refresh token right before the
             // clear so the clear can be compare-and-clear at the token store.
-            let expectedRefreshToken = await client.refreshToken()
+            let expectedRefreshToken = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
+                await client.refreshToken()
+            }
             guard generation == sessionGeneration else { return }
             await clearStaleSessionState(
                 generation: generation,
@@ -194,6 +209,10 @@ extension AuthCoordinator {
             // Same staleness rule for the failure paths: a stale clear here
             // could wipe a session established after this flow began.
             guard generation == sessionGeneration else { return }
+            if error is CancellationError || (error as? AuthError) == .cancelled {
+                authLog.info("Cached session validation superseded by a newer session transition; leaving state untouched")
+                return
+            }
             // Drive the clear-vs-preserve decision from LIVE session validity, not
             // the error code alone. The SDK throws the same `UserNotSignedInError`
             // ("USER_NOT_SIGNED_IN") for two opposite situations: a genuine
@@ -206,7 +225,22 @@ extension AuthCoordinator {
             // time with a confusing host-side message. The live token store is the
             // ground truth: if no refresh token survives, the session is genuinely
             // gone and the user must see the sign-in page.
-            let survivingRefreshToken = await client.refreshToken()
+            if (error as? AuthError) == .timedOut {
+                authLog.error("Session validation timed out; preserving cached session")
+                preserveCachedSessionAfterValidationFailure()
+                return
+            }
+            let survivingRefreshToken: String?
+            do {
+                let client = self.client
+                survivingRefreshToken = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
+                    await client.refreshToken()
+                }
+            } catch {
+                authLog.error("Session refresh-token check failed: \(error.localizedDescription, privacy: .private)")
+                preserveCachedSessionAfterValidationFailure()
+                return
+            }
             guard generation == sessionGeneration else { return }
             if survivingRefreshToken == nil {
                 authLog.error(

@@ -41,9 +41,24 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             forName: .ghosttyDidSetTitle,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.scheduleFocusedCommandTextUpdate()
+        ) { [weak self] notification in
+            let changedWorkspaceId = GhosttyTitleChange(notification: notification)?.tabId
+            Task { @MainActor [weak self, changedWorkspaceId] in
+                guard let self,
+                      self.tabManager?.shouldScheduleRawTitleRefresh(forWorkspaceId: changedWorkspaceId) == true else { return }
+                self.scheduleFocusedCommandTextUpdate()
+            }
+        })
+
+        observers.append(center.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: tabManager,
+            queue: .main
+        ) { [weak self] notification in
+            let changedWorkspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
+            Task { @MainActor [weak self, changedWorkspaceId] in
+                guard let self, changedWorkspaceId == self.tabManager?.selectedTabId, self.tabManager?.shouldScheduleRawTitleRefresh(forWorkspaceId: changedWorkspaceId) == false else { return }
+                self.scheduleFocusedCommandTextUpdate()
             }
         })
 
@@ -100,6 +115,16 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.updateToolbarVisibilityIfNeeded()
+            }
+        })
+
+        observers.append(center.addObserver(
+            forName: GlobalFontMagnification.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.applyCommandLabelFont()
             }
         })
     }
@@ -182,6 +207,13 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         }
     }
 
+    private func applyCommandLabelFont() {
+        let font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .medium)
+        for label in commandLabels.values {
+            label.font = font
+        }
+    }
+
     // MARK: - NSToolbarDelegate
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -196,7 +228,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         if itemIdentifier == commandItemIdentifier {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             let label = NSTextField(labelWithString: "Cmd: —")
-            label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+            label.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .medium)
             label.textColor = .secondaryLabelColor
             label.lineBreakMode = .byTruncatingMiddle
             label.setContentHuggingPriority(.defaultHigh, for: .horizontal)

@@ -6,11 +6,11 @@ import Foundation
 import CmuxWorkspaces
 
 /// The surface-domain resume (`resume.set` / `.get` / `.clear`) and reporting
-/// (`report_tty` / `report_shell_state` / `ports_kick`) witnesses, plus the token
-/// parsers. Split out of `TerminalController+ControlSurfaceContext` to keep the
-/// conformance readable; see that file's doc comment for the overview. The blocking
-/// approval `NSAlert` and its `String(localized:)` calls resolve here, in the app
-/// bundle, so translations survive.
+/// (`report_tty` / `report_pwd` / `report_shell_state` / `ports_kick`) witnesses,
+/// plus the token parsers. Split out of `TerminalController+ControlSurfaceContext`
+/// to keep the conformance readable; see that file's doc comment for the overview.
+/// The blocking approval `NSAlert` and its `String(localized:)` calls resolve
+/// here, in the app bundle, so translations survive.
 extension TerminalController {
 
     // MARK: - resume target resolution (twin of v2ResolveSurfaceResumeTarget)
@@ -312,6 +312,42 @@ extension TerminalController {
             _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
         } else {
             PortScanner.shared.registerTTY(workspaceId: workspaceID, panelId: surfaceId, ttyName: ttyName)
+        }
+        return .recorded(surfaceID: surfaceId)
+    }
+
+    // MARK: - report_pwd
+
+    func controlSurfaceReportPWD(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        path: String
+    ) -> ControlSurfaceReportPWDResolution {
+        guard let tab = controlTabForSidebarMutation(id: workspaceID) else {
+            return .workspaceNotFound
+        }
+        let validSurfaceIds = Set(tab.panels.keys)
+        tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+        let surfaceId = controlResolveReportedSurfaceId(
+            in: tab,
+            requestedSurfaceId: requestedSurfaceID,
+            validSurfaceIds: validSurfaceIds
+        )
+        guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
+            if tab.isRemoteWorkspace, validSurfaceIds.isEmpty {
+                tab.rememberPendingRemoteSurfacePWD(path, requestedSurfaceId: requestedSurfaceID)
+                return .pending
+            }
+            return .surfaceNotFound
+        }
+
+        if tab.isRemoteWorkspace {
+            _ = tab.updatePanelDirectory(panelId: surfaceId, directory: path)
+        } else if let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) ?? tabManager {
+            tabManager.updateSurfaceDirectory(tabId: workspaceID, surfaceId: surfaceId, directory: path)
+        } else {
+            _ = tab.updatePanelDirectory(panelId: surfaceId, directory: path)
         }
         return .recorded(surfaceID: surfaceId)
     }

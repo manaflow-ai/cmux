@@ -14,6 +14,8 @@ let package = Package(
         ),
     ],
     dependencies: [
+        // Shared SwiftUI font-scaling helpers for command-list rows.
+        .package(path: "../CmuxFoundation"),
         // Pure-logic command-palette domain (overlay promotion policy etc.).
         .package(path: "../CmuxCommandPalette"),
         // Window-chrome overlay install targets + glass effect seam, and the
@@ -26,6 +28,7 @@ let package = Package(
         .target(
             name: "CmuxCommandPaletteUI",
             dependencies: [
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxCommandPalette", package: "CmuxCommandPalette"),
                 .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),

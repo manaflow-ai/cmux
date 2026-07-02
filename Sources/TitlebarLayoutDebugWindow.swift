@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CmuxWindowing
 import SwiftUI
@@ -103,7 +104,7 @@ private struct TitlebarLayoutDebugView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text(String(localized: "debug.titlebarLayoutDebug.title", defaultValue: "Titlebar Layout Debug"))
-                    .font(.headline)
+                    .cmuxFont(.headline)
 
                 GroupBox(String(localized: "debug.titlebarLayoutDebug.titlebarControls", defaultValue: "Titlebar Controls")) {
                     VStack(alignment: .leading, spacing: 10) {
@@ -194,7 +195,7 @@ private struct TitlebarLayoutDebugView: View {
                 .frame(width: 112, alignment: .leading)
             Slider(value: clamped, in: range, step: step)
             Text(String(format: "%.1f", clamped.wrappedValue))
-                .font(.system(.caption, design: .monospaced))
+                .cmuxFont(.caption, design: .monospaced)
                 .frame(width: 44, alignment: .trailing)
         }
     }
