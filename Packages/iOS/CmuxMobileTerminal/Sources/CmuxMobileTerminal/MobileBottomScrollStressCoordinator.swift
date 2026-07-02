@@ -7,7 +7,13 @@ import UIKit
 @MainActor
 final class MobileBottomScrollStressCoordinator: NSObject, GhosttySurfaceViewDelegate {
     weak var surfaceView: GhosttySurfaceView?
+    private let scenario: MobileBottomScrollStressScenario
     private var task: Task<Void, Never>?
+
+    init(scenario: MobileBottomScrollStressScenario = .composerShrink) {
+        self.scenario = scenario
+        super.init()
+    }
 
     deinit {
         task?.cancel()
@@ -16,8 +22,82 @@ final class MobileBottomScrollStressCoordinator: NSObject, GhosttySurfaceViewDel
     func start() {
         task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.runScenario()
+            switch self.scenario {
+            case .composerShrink:
+                await self.runScenario()
+            case .fullReplayOffset:
+                await self.runFullReplayOffsetScenario()
+            }
         }
+    }
+
+    /// Repro for the "authoritative rebuild snaps the viewport to bottom" bug:
+    /// seed scrollback, scroll the local mirror up into it, then apply a full
+    /// `ESC c` snapshot the way an authoritative render-grid replay does. The
+    /// phone-owned scroll position must survive the rebuild; ending phase is
+    /// `done` when the offset is preserved and `regressed` when the rebuild
+    /// moved the viewport.
+    private func runFullReplayOffsetScenario() async {
+        guard let view = surfaceView else { return }
+        view.setBottomScrollStressPhase("mount")
+        guard await waitForMountedSurface(view) else { return }
+
+        view.setBottomScrollStressPhase("seed")
+        _ = await view.processOutputAndWait(Data(Self.fullReplaySeedText(terminated: true).utf8))
+
+        view.setBottomScrollStressPhase("bottom")
+        view.scrollToBottomForBottomScrollStress()
+        guard await waitUntil(timeoutNanoseconds: 2_000_000_000, {
+            view.isBottomScrollStressAtBottom
+        }) else {
+            view.setBottomScrollStressPhase("timeout")
+            return
+        }
+
+        view.setBottomScrollStressPhase("scrollback")
+        view.applyLocalScrollbackScroll(lines: 60, col: 0, row: 0)
+        guard await waitUntil(timeoutNanoseconds: 2_000_000_000, {
+            view.scrollbackOffsetFromBottom >= 40
+        }) else {
+            view.setBottomScrollStressPhase("timeout")
+            return
+        }
+        let preOffset = view.scrollbackOffsetFromBottom
+        let scrollbarUpdatesBeforeReplay = view.scrollbarUpdateCount
+
+        view.setBottomScrollStressPhase("replay")
+        var replay = "\u{1B}c"
+        replay += Self.fullReplaySeedText(terminated: false)
+        _ = await view.processFullReplacementOutputAndWait(Data(replay.utf8))
+
+        // The cached scrollbar still reports the pre-replay geometry until the
+        // rebuilt terminal renders, so judging the offset immediately would
+        // trivially pass. Require at least one post-replay scrollbar callback
+        // before trusting the reading.
+        guard await waitUntil(timeoutNanoseconds: 4_000_000_000, {
+            view.scrollbarUpdateCount > scrollbarUpdatesBeforeReplay
+        }) else {
+            view.setBottomScrollStressPhase("timeout")
+            return
+        }
+        let preserved = await waitUntil(timeoutNanoseconds: 2_000_000_000) {
+            let offset = view.scrollbackOffsetFromBottom
+            return view.scrollbarUpdateCount > scrollbarUpdatesBeforeReplay
+                && offset > 0
+                && abs(offset - preOffset) <= 5
+        }
+        view.setBottomScrollStressPhase(preserved ? "done" : "regressed")
+    }
+
+    private static func fullReplaySeedText(terminated: Bool) -> String {
+        var text = ""
+        for i in 1...260 {
+            text += String(format: "full-replay-repro line %03d", i)
+            if i < 260 || terminated {
+                text += "\r\n"
+            }
+        }
+        return text
     }
 
     func stop() {

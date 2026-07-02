@@ -8,9 +8,12 @@ extension TerminalController {
     /// the Mac remains authoritative.
     nonisolated static let mobileReplayScrollbackLineBudget = 240
 
-    /// Larger history window returned only on explicit mobile scroll prefetch
-    /// requests, keeping ordinary scroll RPCs small.
-    nonisolated static let mobileScrollPrefetchScrollbackLineBudget = 600
+    /// Cap on the history window returned for explicit mobile scroll prefetch
+    /// requests. The phone starts at a small window and pages deeper as the
+    /// user keeps scrolling into history (`TerminalScrollbackPrefetchState`),
+    /// so ordinary scrolls stay small and only sustained deep scrolls approach
+    /// this cap.
+    nonisolated static let mobileScrollPrefetchScrollbackLineBudget = 4800
 
     func mobileTerminalRenderGridFrame(
         terminalPanel: TerminalPanel,

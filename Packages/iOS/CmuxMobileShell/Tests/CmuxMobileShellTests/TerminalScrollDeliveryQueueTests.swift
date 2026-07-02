@@ -74,7 +74,67 @@ import Testing
     #expect(state.rowsToPrefetch(forScrollLines: 1) == 600)
     #expect(state.rowsToPrefetch(forScrollLines: 4) == nil)
     #expect(state.rowsToPrefetch(forScrollLines: -5.5) == nil)
-    #expect(state.rowsToPrefetch(forScrollLines: 0.5) == 600)
+    // Downward refresh keeps the current depth instead of paging deeper.
+    #expect(state.rowsToPrefetch(forScrollLines: -0.5) == 600)
+}
+
+@Test func terminalScrollbackPrefetchStatePagesDeeperOnSustainedUpwardScroll() {
+    var state = TerminalScrollbackPrefetchState(
+        windowRows: 600,
+        refreshDistanceRows: 10,
+        maxWindowRows: 1800
+    )
+
+    #expect(state.rowsToPrefetch(forScrollLines: 1) == 600)
+    #expect(state.rowsToPrefetch(forScrollLines: 10) == 1200)
+    #expect(state.rowsToPrefetch(forScrollLines: 10) == 1800)
+    // Capped at maxWindowRows.
+    #expect(state.rowsToPrefetch(forScrollLines: 10) == 1800)
+}
+
+@Test func terminalScrollGestureRoutingForwardsAlternateScreenDeltasUnchanged() {
+    var prefetchState = TerminalScrollbackPrefetchState(windowRows: 600, refreshDistanceRows: 10)
+
+    let delivery = TerminalScrollDelivery.forScrollGesture(
+        surfaceID: "surface",
+        activeScreen: .alternate,
+        lines: -3.5,
+        col: 7,
+        row: 9,
+        prefetchState: &prefetchState
+    )
+
+    #expect(delivery == TerminalScrollDelivery(surfaceID: "surface", lines: -3.5, col: 7, row: 9))
+    // Alternate screen never touches the primary-screen prefetch pacing.
+    #expect(prefetchState.rowsToPrefetch(forScrollLines: 1) == 600)
+}
+
+@Test func terminalScrollGestureRoutingKeepsPrimaryScreenDeltasLocal() {
+    var prefetchState = TerminalScrollbackPrefetchState(windowRows: 600, refreshDistanceRows: 10)
+
+    let primed = TerminalScrollDelivery.forScrollGesture(
+        surfaceID: "surface",
+        activeScreen: .primary,
+        lines: 2,
+        col: 1,
+        row: 1,
+        prefetchState: &prefetchState
+    )
+    // The first scroll primes the local scrollback window but sends no delta:
+    // the Mac's viewport must not move for a phone-local scroll.
+    #expect(primed?.lines == 0)
+    #expect(primed?.maxScrollbackRows == 600)
+
+    let followUp = TerminalScrollDelivery.forScrollGesture(
+        surfaceID: "surface",
+        activeScreen: .primary,
+        lines: 3,
+        col: 1,
+        row: 1,
+        prefetchState: &prefetchState
+    )
+    // Below the refresh distance there is nothing to send at all.
+    #expect(followUp == nil)
 }
 
 @Test func terminalScrollQueueResetDropsPendingWork() {

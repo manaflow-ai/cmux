@@ -53,6 +53,18 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             frame.vtPatchBytes()
         }
     }
+
+    /// True when the payload replays a full render-grid snapshot, whose bytes
+    /// begin with an `ESC c` terminal reset. The apply side preserves the local
+    /// viewport scroll position across these.
+    var isFullReplacement: Bool {
+        switch payload {
+        case .bytes:
+            false
+        case .renderGrid(let frame):
+            frame.full
+        }
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.

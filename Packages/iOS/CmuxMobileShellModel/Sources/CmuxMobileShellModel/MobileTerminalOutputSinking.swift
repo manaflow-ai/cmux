@@ -24,15 +24,22 @@ public struct MobileTerminalOutputChunk: Sendable {
     public let data: Data
     public let streamToken: UUID
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?
+    /// True when `data` replays a full render-grid snapshot (`ESC c` reset +
+    /// scrollback + viewport repaint). The consuming surface must preserve its
+    /// local scrollback scroll position across the apply so an authoritative
+    /// rebuild never moves the viewport the user is holding.
+    public let isFullReplacement: Bool
 
     public init(
         data: Data,
         streamToken: UUID,
-        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        isFullReplacement: Bool = false
     ) {
         self.data = data
         self.streamToken = streamToken
         self.viewportPolicy = viewportPolicy
+        self.isFullReplacement = isFullReplacement
     }
 }
 

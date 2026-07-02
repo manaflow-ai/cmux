@@ -54,7 +54,8 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 - Sign-out is local-first and works offline; revocation is best-effort and bounded (#5776).
 - Workspace list: groups, unread dots, last-activity previews, shared Unread filter (#5726).
 - Watchdog fix: render-grid liveness probes before teardown, fixing a false-fire replay loop (#5869).
-- Dogfood focus: hit the composer (send + drafts), View as Text, pair a Mac via the new QR, lock the phone and confirm a forwarded notification taps through to the right workspace, sign out with airplane mode on.
+- Terminal scroll rework: the phone now owns the primary-screen viewport. Scrolling no longer moves the Mac's viewport, scrollback prefetch rebuilds keep your scroll position instead of snapping to the bottom, and sustained scrolling pages deeper history (up to 4800 rows). Alt-screen TUIs (vim/less/htop) still forward the wheel to the Mac.
+- Dogfood focus: hit the composer (send + drafts), View as Text, pair a Mac via the new QR, lock the phone and confirm a forwarded notification taps through to the right workspace, sign out with airplane mode on. For scrolling: flick up hard mid-output and confirm no snap-to-bottom jumps, no duplicated rows, and the Mac's own terminal view does not scroll while you scroll on the phone.
 
 ### External
 

@@ -747,7 +747,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// compose-button tap.
     fileprivate var lastComposerDockIntent: ComposerDockIntent?
 
-    var debugLastScrollbar: (total: Int, offset: Int, len: Int)?
     var debugBottomScrollStressPhase = "idle"
     var debugBottomViewportMismatchObserved = false
 
@@ -794,18 +793,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // full height; the test compares the gap, not equality.
             "renderHeight=\(Int(lastRenderRect.height))",
             "boundsHeight=\(Int(bounds.height))",
-            "scrollTotal=\(debugLastScrollbar?.total ?? -1)", "scrollOffset=\(debugLastScrollbar?.offset ?? -1)",
-            "scrollLen=\(debugLastScrollbar?.len ?? -1)", "scrollAtBottom=\(debugScrollbarAtBottomForTesting ? 1 : 0)",
+            "scrollTotal=\(lastScrollbarSnapshot?.total ?? -1)", "scrollOffset=\(lastScrollbarSnapshot?.offset ?? -1)",
+            "scrollLen=\(lastScrollbarSnapshot?.len ?? -1)", "scrollAtBottom=\(debugScrollbarAtBottomForTesting ? 1 : 0)",
             "staleViewportObserved=\(debugBottomViewportMismatchObserved ? 1 : 0)",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
     }
 
     private var debugScrollbarAtBottomForTesting: Bool {
-        guard let snapshot = debugLastScrollbar else { return false }
+        guard let snapshot = lastScrollbarSnapshot else { return false }
         return snapshot.total > snapshot.len && snapshot.offset >= max(0, snapshot.total - snapshot.len - 1)
     }
     #endif
+
+    /// Latest Ghostty scrollbar geometry for the local mirror: `total` rows of
+    /// scrollback + screen, the viewport's `offset` from the top, and the
+    /// viewport `len`. Fed by the runtime's `GHOSTTY_ACTION_SCROLLBAR` callback;
+    /// nil until the mirror first reports one (which only happens once there is
+    /// scrollback to scroll, so nil means "at bottom").
+    private(set) var lastScrollbarSnapshot: (total: Int, offset: Int, len: Int)?
+
+    /// Monotonic count of scrollbar callbacks, so a caller that just mutated
+    /// the terminal can distinguish a fresh ``lastScrollbarSnapshot`` from the
+    /// stale pre-mutation one.
+    private(set) var scrollbarUpdateCount = 0
+
+    @MainActor
+    func recordScrollbarSnapshot(total: Int, offset: Int, len: Int) {
+        lastScrollbarSnapshot = (total: total, offset: offset, len: len)
+        scrollbarUpdateCount += 1
+    }
+
+    /// How many rows the local mirror's viewport currently sits above the
+    /// scrollback bottom. 0 when pinned to the live bottom.
+    var scrollbackOffsetFromBottom: Int {
+        guard let snapshot = lastScrollbarSnapshot else { return 0 }
+        return max(0, snapshot.total - snapshot.len - snapshot.offset)
+    }
     private let snapshotFallbackView: UITextView = {
         let view = UITextView()
         view.backgroundColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
@@ -2283,6 +2307,31 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 self?.completePendingOutputApply(id: operationID, returning: applied)
             }
         }
+    }
+
+    /// Apply a full render-grid replacement (bytes begin with an `ESC c`
+    /// terminal reset) while preserving the local viewport scroll position.
+    ///
+    /// Invariant: authoritative content rebuilds never move the phone-owned
+    /// viewport. The reset leaves the rebuilt mirror pinned to the bottom, so
+    /// when the viewport was scrolled into scrollback the same offset-from-
+    /// bottom is re-applied after the rebuild. At the bottom (offset 0, the
+    /// cold-attach case) this is a no-op and the surface stays pinned to live
+    /// output. The rebuilt scrollback carries the same trailing history, so
+    /// offset-from-bottom maps to the same content modulo output that arrived
+    /// since the snapshot was taken.
+    /// - Parameter data: Full-snapshot VT bytes to feed into the surface.
+    /// - Returns: `true` when the bytes reached the current surface generation,
+    ///   or `false` when the caller should reset its delivery queue and replay.
+    @discardableResult
+    public func processFullReplacementOutputAndWait(_ data: Data) async -> Bool {
+        let offsetFromBottom = scrollbackOffsetFromBottom
+        let applied = await processOutputAndWait(data)
+        guard applied else { return false }
+        if offsetFromBottom > 0 {
+            scrollLocalViewportRows(-offsetFromBottom)
+        }
+        return true
     }
 
     private func makeSurfaceOperationID() -> UInt64 {

@@ -113,7 +113,8 @@ extension MobileShellComposite {
                 MobileTerminalOutputChunk(
                     data: immediate.bytes,
                     streamToken: streamToken,
-                    viewportPolicy: immediate.viewportPolicy
+                    viewportPolicy: immediate.viewportPolicy,
+                    isFullReplacement: immediate.isFullReplacement
                 )
             )
         }
@@ -159,7 +160,8 @@ extension MobileShellComposite {
         continuation.yield(MobileTerminalOutputChunk(
             data: next.bytes,
             streamToken: streamToken,
-            viewportPolicy: next.viewportPolicy
+            viewportPolicy: next.viewportPolicy,
+            isFullReplacement: next.isFullReplacement
         ))
     }
 
