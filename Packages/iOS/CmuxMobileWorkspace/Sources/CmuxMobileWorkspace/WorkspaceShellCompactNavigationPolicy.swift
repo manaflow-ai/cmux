@@ -7,7 +7,7 @@ import Foundation
 /// or store. Generic over the workspace identifier so it can be tested with any
 /// `Hashable` ID type.
 public struct WorkspaceShellCompactNavigationPolicy {
-    private init() {}
+    public init() {}
 
     /// Computes the navigation path after the selected workspace changes.
     /// - Parameters:
@@ -17,7 +17,7 @@ public struct WorkspaceShellCompactNavigationPolicy {
     ///   clears when the authoritative selection clears, and retargets when the
     ///   store selects a different workspace. Transient workspace-list omissions
     ///   are handled by ``pathForVisibleWorkspaceIDsChange``.
-    public static func pathForSelectionChange<ID: Hashable>(
+    public func pathForSelectionChange<ID: Hashable>(
         currentPath: [ID],
         selectedWorkspaceID: ID?,
         visibleWorkspaceIDs: Set<ID> = []
@@ -41,7 +41,7 @@ public struct WorkspaceShellCompactNavigationPolicy {
     ///   - selectedWorkspaceID: The selected workspace, expected to be the created one.
     ///   - existingWorkspaceIDs: The workspaces that existed before creation, or `nil` when no create is pending.
     /// - Returns: The path to push for a newly created workspace, or `nil` when there is nothing to push.
-    public static func pathForCreatedWorkspaceSelection<ID: Hashable>(
+    public func pathForCreatedWorkspaceSelection<ID: Hashable>(
         currentPath: [ID],
         selectedWorkspaceID: ID?,
         existingWorkspaceIDs: Set<ID>?
@@ -63,7 +63,7 @@ public struct WorkspaceShellCompactNavigationPolicy {
     /// terminal arrives. If the authoritative selection has moved away, pop or
     /// remap to the selected visible workspace so deleted workspaces do not stay
     /// mounted from a stale route snapshot.
-    public static func pathForVisibleWorkspaceIDsChange<ID: Hashable>(
+    public func pathForVisibleWorkspaceIDsChange<ID: Hashable>(
         currentPath: [ID],
         visibleWorkspaceIDs: Set<ID>,
         selectedWorkspaceID: ID?
