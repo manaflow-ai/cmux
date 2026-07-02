@@ -60,13 +60,23 @@ public final class ChatConversationStore {
 
     @ObservationIgnored private var messages: [ChatMessage] = []
     @ObservationIgnored private var pending: [ChatPendingOutbound] = []
+    /// Live, not-yet-committed preview of the agent's in-progress prose for the
+    /// current turn, scraped from the rendered terminal screen. Held outside
+    /// ``messages`` (so it never collides with window dedup/paging/seq) and
+    /// rendered as a trailing agent bubble. Cleared the instant the authoritative
+    /// agent prose lands via ``ChatSessionEvent/appended`` or an explicit
+    /// ``ChatSessionEvent/streamingProse`` `nil`, so it never duplicates a real
+    /// message.
+    @ObservationIgnored private var streamingMessage: ChatMessage?
     @ObservationIgnored private var firstUnreadSeq: Int?
     /// Terminal command-blocks for a `.terminal`-kind session, upserted by
     /// id; `terminalBlockOrder` preserves arrival order. Unused (and the
     /// reproject below ignores them) for agent sessions.
     @ObservationIgnored private var terminalBlocks: [Int: TerminalCommandBlock] = [:]
     @ObservationIgnored private var terminalBlockOrder: [Int] = []
-    @ObservationIgnored private let source: any ChatEventSource
+    @ObservationIgnored private var source: any ChatEventSource
+    @ObservationIgnored private var sourceIdentity: String?
+    @ObservationIgnored private var sourceGeneration = 0
     @ObservationIgnored private let projector: ChatTranscriptProjector
     @ObservationIgnored private let pageSize: Int
     @ObservationIgnored private let maxWindowCount: Int
@@ -85,6 +95,8 @@ public final class ChatConversationStore {
     /// - Parameters:
     ///   - descriptor: The session to show.
     ///   - source: The conversation data seam.
+    ///   - sourceIdentity: Optional producer identity used to accept version
+    ///     resets only when the underlying source changes.
     ///   - lastReadSeq: Highest seq the user has already seen, used to place
     ///     the unread separator on first load; `nil` shows no separator.
     ///   - projector: Row projection policy (grouping interval, calendar).
@@ -95,16 +107,18 @@ public final class ChatConversationStore {
     public init(
         descriptor: ChatSessionDescriptor,
         source: any ChatEventSource,
+        sourceIdentity: String? = nil,
         lastReadSeq: Int? = nil,
         projector: ChatTranscriptProjector = ChatTranscriptProjector(),
         pageSize: Int = 100,
         maxWindowCount: Int = 600,
         now: @escaping @Sendable () -> Date = { Date() },
-        idleSleep: @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+        idleSleep: @escaping @Sendable (Duration) async -> Void = { try? await ContinuousClock().sleep(for: $0) }
     ) {
         self.descriptor = descriptor
         self.agentState = descriptor.state
         self.source = source
+        self.sourceIdentity = sourceIdentity
         self.projector = projector
         self.pageSize = pageSize
         self.maxWindowCount = maxWindowCount
@@ -116,7 +130,8 @@ public final class ChatConversationStore {
     @ObservationIgnored private let lastReadSeqAtActivation: Int?
     /// Cancellable reconnect-backoff sleep; injectable for deterministic
     /// tests.
-    @ObservationIgnored private let idleSleep: (Duration) async -> Void
+    @ObservationIgnored private let idleSleep: @Sendable (Duration) async -> Void
+    @ObservationIgnored private var backoffWakeContinuation: AsyncStream<Void>.Continuation?
 
     /// Follows the live event stream until cancelled, loading history
     /// inside each subscription so no event falls into a fetch/subscribe
@@ -128,19 +143,24 @@ public final class ChatConversationStore {
     public func run() async {
         var backoff: Duration = .zero
         while !Task.isCancelled {
+            let runGeneration = sourceGeneration
             // Subscribe FIRST: events emitted while the history fetch is in
             // flight buffer in the stream and replay after the merge (the
             // window dedups by message id), instead of being dropped.
             let stream = await source.events(sessionID: descriptor.id)
+            guard runGeneration == sourceGeneration else { continue }
             isConnected = true
             let hadHistory = hasLoadedInitialHistory
-            await loadInitialHistoryIfNeeded()
+            await loadInitialHistoryIfNeeded(expectedGeneration: runGeneration)
+            guard runGeneration == sourceGeneration else { continue }
             if hadHistory {
                 // Reconnect: merge whatever the window missed while down.
-                await resyncTail()
+                await resyncTail(expectedGeneration: runGeneration)
+                guard runGeneration == sourceGeneration else { continue }
             }
             let streamStartedAt = now()
             for await event in stream {
+                guard runGeneration == sourceGeneration else { break }
                 apply(event)
                 // If the initial history fetch failed (e.g. the Mac couldn't
                 // read the transcript yet — a title-detected agent adopted
@@ -149,7 +169,8 @@ public final class ChatConversationStore {
                 // context loads instead of parking on the failure. No-ops once
                 // loaded; only re-runs while the fetch still throws.
                 if !hasLoadedInitialHistory {
-                    await loadInitialHistoryIfNeeded()
+                    await loadInitialHistoryIfNeeded(expectedGeneration: runGeneration)
+                    guard runGeneration == sourceGeneration else { break }
                 }
                 // Flush queued sends inline once the agent goes idle —
                 // structured here in the async run loop rather than a
@@ -158,6 +179,7 @@ public final class ChatConversationStore {
                     await flushQueuedSends()
                 }
             }
+            guard runGeneration == sourceGeneration else { continue }
             isConnected = false
             guard !Task.isCancelled else { return }
             // Back off before resubscribing unless the stream was healthy
@@ -170,9 +192,34 @@ public final class ChatConversationStore {
                 backoff = .zero
             } else {
                 backoff = min(max(backoff * 2, .milliseconds(500)), .seconds(16))
-                await idleSleep(backoff)
+                await waitForBackoffOrSourceReplacement(backoff)
             }
         }
+    }
+
+    private func waitForBackoffOrSourceReplacement(_ backoff: Duration) async {
+        let idleSleep = idleSleep
+        let wakeStream = AsyncStream<Void> { continuation in
+            wakeBackoff()
+            backoffWakeContinuation = continuation
+        }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await idleSleep(backoff)
+            }
+            group.addTask {
+                for await _ in wakeStream { break }
+            }
+            await group.next()
+            wakeBackoff()
+            group.cancelAll()
+        }
+    }
+
+    private func wakeBackoff() {
+        backoffWakeContinuation?.yield(())
+        backoffWakeContinuation?.finish()
+        backoffWakeContinuation = nil
     }
 
     /// Fetches one older page and prepends it to the window.
@@ -188,12 +235,14 @@ public final class ChatConversationStore {
         }
         isLoadingOlder = true
         defer { isLoadingOlder = false }
+        let generation = sourceGeneration
         do {
             let page = try await source.history(
                 sessionID: descriptor.id,
                 beforeSeq: oldestSeq,
                 limit: pageSize
             )
+            guard generation == sourceGeneration else { return }
             // Re-check the anchor: an append may have raced the fetch.
             guard messages.first?.seq == oldestSeq else { return }
             if page.messages.isEmpty {
@@ -209,6 +258,7 @@ public final class ChatConversationStore {
             lastErrorDescription = nil
             reproject()
         } catch {
+            guard generation == sourceGeneration else { return }
             lastErrorDescription = error.localizedDescription
         }
     }
@@ -323,8 +373,9 @@ public final class ChatConversationStore {
 
     // MARK: - Event application
 
-    private func loadInitialHistoryIfNeeded() async {
+    private func loadInitialHistoryIfNeeded(expectedGeneration: Int? = nil) async {
         guard !hasLoadedInitialHistory else { return }
+        let generation = expectedGeneration ?? sourceGeneration
         // A fresh newest-page load re-anchors paging; truncated-at-head is only
         // re-discovered if a later loadOlder hits the Mac cache head.
         historyTruncatedAtHead = false
@@ -334,6 +385,7 @@ public final class ChatConversationStore {
                 beforeSeq: nil,
                 limit: pageSize
             )
+            guard generation == sourceGeneration else { return }
             if descriptor.kind == .terminal {
                 seedTerminalBlocks(page.terminalBlocks ?? [])
                 // Block paging isn't implemented yet, so never advertise more
@@ -353,6 +405,7 @@ public final class ChatConversationStore {
             lastErrorDescription = nil
             reproject()
         } catch {
+            guard generation == sourceGeneration else { return }
             // Only flag failure while the initial load is still pending: a
             // racing duplicate fetch (retry button vs reconnect) that fails
             // AFTER another succeeded must not strand a dead error UI.
@@ -376,9 +429,62 @@ public final class ChatConversationStore {
         await loadInitialHistoryIfNeeded()
     }
 
+    /// Reconciles a fresh session-list descriptor into this conversation cache.
+    public func applyDescriptorSnapshot(
+        _ descriptor: ChatSessionDescriptor,
+        allowsVersionReset: Bool = false
+    ) {
+        guard descriptor.id == self.descriptor.id else { return }
+        let isUnversioned = descriptor.version == 0 && self.descriptor.version == 0
+        let isNewer = descriptor.version > self.descriptor.version
+        let isProducerReset = allowsVersionReset
+        guard isUnversioned || isNewer || isProducerReset else { return }
+        self.descriptor = descriptor
+        agentState = descriptor.state
+        if case .idle = descriptor.state {
+            Task { await flushQueuedSends() }
+        } else {
+            didFlushThisIdleWindow = false
+        }
+    }
+
+    /// Rebinds this conversation to the current Mac transport after reconnect.
+    public func replaceSource(
+        _ source: any ChatEventSource,
+        descriptor: ChatSessionDescriptor,
+        sourceIdentity: String? = nil
+    ) {
+        let didChangeSource = sourceIdentity == nil || sourceIdentity != self.sourceIdentity
+        self.source = source
+        self.sourceIdentity = sourceIdentity
+        if didChangeSource {
+            sourceGeneration += 1
+            resetTranscriptAnchorForSourceReplacement()
+        }
+        wakeBackoff()
+        applyDescriptorSnapshot(descriptor, allowsVersionReset: didChangeSource)
+    }
+
+    /// Clears transcript state that is anchored to the prior event producer.
+    private func resetTranscriptAnchorForSourceReplacement() {
+        messages = []
+        streamingMessage = nil
+        firstUnreadSeq = nil
+        terminalBlocks = [:]
+        terminalBlockOrder = []
+        pending.removeAll { $0.delivery == .delivered }
+        hasMoreHistory = false
+        historyTruncatedAtHead = false
+        initialLoadFailed = false
+        hasLoadedInitialHistory = false
+        isLoadingOlder = false
+        reproject()
+    }
+
     /// After a stream drop, fetches the newest page and merges anything the
     /// window missed while disconnected.
-    private func resyncTail() async {
+    private func resyncTail(expectedGeneration: Int? = nil) async {
+        let generation = expectedGeneration ?? sourceGeneration
         // Re-deriving the window from the newest page resets paging; a later
         // loadOlder re-discovers truncated-at-head if it still applies.
         historyTruncatedAtHead = false
@@ -388,6 +494,7 @@ public final class ChatConversationStore {
                 beforeSeq: nil,
                 limit: pageSize
             )
+            guard generation == sourceGeneration else { return }
             if descriptor.kind == .terminal {
                 // Blocks are whole-value and keyed by id, so re-seeding from
                 // the authoritative page is idempotent.
@@ -450,6 +557,7 @@ public final class ChatConversationStore {
             if didUpdate { reproject() }
             lastErrorDescription = nil
         } catch {
+            guard generation == sourceGeneration else { return }
             lastErrorDescription = error.localizedDescription
         }
     }
@@ -458,6 +566,13 @@ public final class ChatConversationStore {
         switch event {
         case .appended(let newMessages):
             reconcilePending(against: newMessages)
+            // The authoritative agent prose for the in-flight turn just landed:
+            // drop the live preview so the committed message takes over with no
+            // duplicate, even if the host's explicit clear is delayed or lost.
+            if streamingMessage != nil,
+               newMessages.contains(where: { $0.role == .agent && Self.isProse($0) }) {
+                streamingMessage = nil
+            }
             // A live append whose seq regresses below the window tail means
             // the transcript was truncated/replaced and the tailer reset;
             // appending would corrupt window ordering. Re-anchor instead.
@@ -499,6 +614,14 @@ public final class ChatConversationStore {
             // optimistic pending row it came from so it doesn't linger or leak.
             reconcileTerminalPending(against: blocks)
             reproject()
+        case .streamingProse(let message):
+            // The preview is a whole-value replace; an agent session only. A
+            // terminal session has no agent prose, so ignore it there.
+            guard descriptor.kind != .terminal else { break }
+            let next = message.flatMap { Self.isProse($0) ? $0 : nil }
+            guard next != streamingMessage else { break }
+            streamingMessage = next
+            reproject()
         case .reset:
             // The transcript was truncated/replaced on the Mac (tailer
             // re-read from scratch). The window's seq space is void; clear
@@ -507,6 +630,8 @@ public final class ChatConversationStore {
             // their retry and in-flight sends may still land in the new
             // transcript and reconcile normally.
             messages = []
+            // The preview belongs to the old seq space; drop it on re-anchor.
+            streamingMessage = nil
             // Terminal blocks must clear here too: the terminal reproject()
             // does not consult `messages`, so without this the synchronous
             // reproject below would re-render stale blocks (and they'd persist
@@ -713,10 +838,27 @@ public final class ChatConversationStore {
                 + pending.map(ChatTranscriptRow.pendingOutbound)
             return
         }
+        // The live preview renders as a trailing agent bubble after the
+        // committed window. Appending it to the projector input lets it group
+        // with adjacent agent prose exactly like a real message; it carries no
+        // window identity (never paged, deduped, or reconciled by id).
+        let projected: [ChatMessage]
+        if let streamingMessage, !messages.contains(where: { $0.id == streamingMessage.id }) {
+            projected = messages + [streamingMessage]
+        } else {
+            projected = messages
+        }
         rows = projector.rows(
-            messages: messages,
+            messages: projected,
             pending: pending,
             firstUnreadSeq: firstUnreadSeq
         )
+    }
+
+    /// Whether a message is renderable agent/user prose (used to settle the
+    /// live preview against the authoritative transcript line).
+    private static func isProse(_ message: ChatMessage) -> Bool {
+        if case .prose = message.kind { return true }
+        return false
     }
 }
