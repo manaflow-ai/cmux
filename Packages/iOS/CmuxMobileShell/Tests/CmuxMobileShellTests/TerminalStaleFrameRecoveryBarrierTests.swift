@@ -87,19 +87,15 @@ import Testing
 @Test func replayAfterHostSequenceResetRebasesStaleFloor() async throws {
     let router = LivenessHostRouter()
     await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    await router.holdNextReplayResponses()
     let box = TransportBox()
     let clock = TestClock()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     let surfaceID = "live-terminal"
 
-    let collector = OutputCollector()
-    collector.mount(store: store, surfaceID: surfaceID)
+    var lines: [String] = []
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
-    let coldReplaySettledEmpty = try await pollUntil {
-        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
-            && store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
-    }
-    #expect(coldReplaySettledEmpty)
 
     let transport = try #require(box.get())
     await transport.deliver(try renderGridEventFrame(
@@ -108,25 +104,32 @@ import Testing
         text: "old-epoch-baseline",
         full: true
     ))
-    let baselineDelivered = try await pollUntil {
-        store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 900
-    }
-    #expect(baselineDelivered)
+    let baselineChunk = try #require(await iterator.next())
+    lines.append(String(decoding: baselineChunk.data, as: UTF8.self))
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 900)
 
-    // The host recreated the surface: its authoritative replay answers from a
-    // sequence epoch far below the stashed floor and must still win.
+    // A delta before the ack arms the follow-up barrier, stashing the
+    // old-epoch floor (900). The host meanwhile recreated the surface, so the
+    // follow-up replay answers from a sequence epoch far below that floor —
+    // and must still win.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 905,
+        text: "delta-before-ack",
+        full: false
+    ))
     await router.enqueueReplayRenderGrid(try renderGridFrame(
         surfaceID: surfaceID,
         seq: 3,
         text: "new-epoch-replay",
         full: true
     ))
-    store.terminalOutputNeedsReplay(surfaceID: surfaceID)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: baselineChunk.streamToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
-    let replayRebasedFloor = try await pollUntil {
-        collector.lines.contains { $0.contains("new-epoch-replay") }
-    }
-    #expect(replayRebasedFloor, "an accepted authoritative replay must win over the stale floor")
+    let replayChunk = try #require(await iterator.next())
+    lines.append(String(decoding: replayChunk.data, as: UTF8.self))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    #expect(lines.last?.contains("new-epoch-replay") == true)
 
     // With the floor re-based to the replay's epoch, live frames flow again.
     await transport.deliver(try renderGridEventFrame(
@@ -135,14 +138,13 @@ import Testing
         text: "new-epoch-live",
         full: true
     ))
-    let newEpochDelivered = try await pollUntil {
-        collector.lines.contains { $0.contains("new-epoch-live") }
-    }
-    #expect(newEpochDelivered, "a re-based floor must let the new sequence epoch flow")
+    let liveChunk = try #require(await iterator.next())
+    lines.append(String(decoding: liveChunk.data, as: UTF8.self))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: liveChunk.streamToken)
+    #expect(lines.last?.contains("new-epoch-live") == true)
     #expect(store.terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] == nil)
     #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 4)
 
-    collector.unmount()
     await router.releaseAllHeld()
 }
 
@@ -215,27 +217,23 @@ import Testing
     await router.releaseAllHeld()
 }
 
-/// The alternate-screen twin of the baseline restore: a self-heal replay
+/// The alternate-screen twin of the baseline restore: a follow-up replay
 /// barrier only pauses delivery while the surface keeps showing the alternate
 /// content, so the alternate baseline flag must survive a barrier that
 /// releases empty — otherwise the next alternate delta is treated as
 /// missing-baseline and a hybrid TUI stalls right after recovery.
 @MainActor
-@Test func emptySelfHealReplayPreservesAlternateBaseline() async throws {
+@Test func emptyFollowUpReplayPreservesAlternateBaseline() async throws {
     let router = LivenessHostRouter()
+    await router.holdNextReplayResponses()
     let box = TransportBox()
     let clock = TestClock()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     let surfaceID = "live-terminal"
 
-    let collector = OutputCollector()
-    collector.mount(store: store, surfaceID: surfaceID)
+    var lines: [String] = []
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
-    let coldReplaySettledEmpty = try await pollUntil {
-        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
-            && store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
-    }
-    #expect(coldReplaySettledEmpty)
 
     let transport = try #require(box.get())
     await transport.deliver(try renderGridEventFrame(
@@ -245,40 +243,47 @@ import Testing
         activeScreen: .alternate,
         full: true
     ))
-    let altBaselineEstablished = try await pollUntil {
-        store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 50
-            && store.terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
-    }
-    #expect(altBaselineEstablished)
+    let baselineChunk = try #require(await iterator.next())
+    lines.append(String(decoding: baselineChunk.data, as: UTF8.self))
+    #expect(store.terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID))
 
-    // Self-heal replay over an intact surface answers empty: both the
-    // sequence baseline and the alternate flag must come back.
-    store.terminalOutputNeedsReplay(surfaceID: surfaceID)
+    // An alternate delta lands before the ack, forcing a follow-up replay
+    // that answers empty over the intact surface: both the sequence baseline
+    // and the alternate flag must survive its release.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 55,
+        text: "alt-delta-before-ack",
+        activeScreen: .alternate,
+        full: false
+    ))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: baselineChunk.streamToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
     let alternateBaselinePreserved = try await pollUntil {
         store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
             && store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 50
             && store.terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
     }
     #expect(
         alternateBaselinePreserved,
-        "an empty self-heal replay must not erase the alternate-screen baseline"
+        "an empty follow-up replay must not erase the alternate-screen baseline"
     )
 
     // Alternate deltas keep flowing instead of being gated as baseline-less.
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,
-        seq: 55,
+        seq: 60,
         text: "alt-delta-after-heal",
         activeScreen: .alternate,
         full: false
     ))
-    let altDeltaDelivered = try await pollUntil {
-        collector.lines.contains { $0.contains("alt-delta-after-heal") }
-    }
-    #expect(altDeltaDelivered, "alternate deltas must keep flowing after an empty self-heal replay")
+    let deltaChunk = try #require(await iterator.next())
+    lines.append(String(decoding: deltaChunk.data, as: UTF8.self))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: deltaChunk.streamToken)
+    #expect(lines.last?.contains("alt-delta-after-heal") == true)
 
-    collector.unmount()
+    await router.releaseAllHeld()
 }
 
 /// Render-grid-only alternate gating is keyed to the DELIVERED alternate

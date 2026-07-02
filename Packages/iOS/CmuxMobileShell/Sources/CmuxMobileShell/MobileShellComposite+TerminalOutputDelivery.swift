@@ -128,9 +128,8 @@ extension MobileShellComposite {
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
     }
 
-    /// Move the delivered high-water mark into the pre-barrier stale floor
-    /// before a barrier clears it, so buffered pre-barrier frames stay
-    /// rejected while the fresh authoritative replay is in flight.
+    /// Move the delivered high-water mark into the pre-barrier stale floor so
+    /// buffered pre-barrier frames stay rejected while the replay is pending.
     func stashTerminalPreBarrierDeliveredEndSeq(surfaceID: String) {
         guard let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] else { return }
         let stashedSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] ?? 0
@@ -498,9 +497,7 @@ extension MobileShellComposite {
             return
         }
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
-        // The local surface was rebuilt: its content is gone, so neither the
-        // pre-barrier floor nor the alternate baseline describes anything the
-        // user still sees.
+        // Rebuilt surface: nothing pre-barrier is visible anymore.
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         MobileDebugLog.anchormux("terminal.output.reset surface=\(surfaceID)")
@@ -516,8 +513,7 @@ extension MobileShellComposite {
         }
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
-        // Post-reset retry: the rebuilt surface no longer shows any
-        // pre-barrier content, so drop the floor instead of stashing it.
+        // Post-reset retry: rebuilt surface, so drop the floor, don't stash.
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
@@ -546,9 +542,13 @@ extension MobileShellComposite {
     }
 
     /// Ask the Mac to replay the authoritative terminal state for a surface.
+    /// Reached from the render-pipeline reset: the surface was rebuilt blank,
+    /// so (like ``terminalOutputDidReset``) no pre-barrier baseline survives.
     public func terminalOutputNeedsReplay(surfaceID: String) {
         guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else { return }
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+        rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
+        terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_requested surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
