@@ -549,6 +549,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var cmuxConfigStore: CmuxConfigStore?
         var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
+        /// Per-window Dock owned by this context and torn down with it.
+        var windowDock: DockSplitStore?
 
         init(
             windowId: UUID,
@@ -4595,7 +4597,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    private func notifyMainWindowContextsDidChange() {
+    // Internal (not private): the test target's main-window testing seams
+    // (cmuxTests/AppDelegateMainWindowTestingSupport.swift, via @testable
+    // import) drive the same registration paths.
+    func notifyMainWindowContextsDidChange() {
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
@@ -4724,32 +4729,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
-    @discardableResult
-    func registerMainWindowContextForTesting(
-        windowId: UUID = UUID(),
-        tabManager: TabManager,
-        cmuxConfigStore: CmuxConfigStore? = nil,
-        fileExplorerState: FileExplorerState? = nil
-    ) -> UUID {
-        tabManager.windowId = windowId
-        mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
-            windowId: windowId,
-            tabManager: tabManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: fileExplorerState,
-            cmuxConfigStore: cmuxConfigStore,
-            window: nil
-        )
-        ensureMobileWorkspaceListObserver(for: tabManager)
-        notifyMainWindowContextsDidChange()
-        return windowId
-    }
-
     func sessionSnapshotForTesting(includeScrollback: Bool = false) -> AppSessionSnapshot? {
         buildSessionSnapshot(includeScrollback: includeScrollback)
     }
-
 #endif
 
     /// Lifted to ``CmuxWindowing/MainWindowSummary``; aliased so existing
@@ -6014,6 +5996,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
         guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
+        removed.teardownWindowDock()
         let removedKeys = mainWindowContexts.compactMap { key, value in
             value === removed ? key : nil
         }
@@ -6026,7 +6009,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return removed
     }
 
-    private func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+    // Internal (not private): see notifyMainWindowContextsDidChange.
+    func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+        context.teardownWindowDock()
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
         }
@@ -6044,6 +6029,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if let store = notificationStore {
+            store.clearNotifications(forTabId: context.windowId)
             for tab in context.tabManager.tabs {
                 store.clearNotifications(forTabId: tab.id)
             }
@@ -6056,11 +6042,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-#if DEBUG
-    func unregisterMainWindowContextForTesting(windowId: UUID) {
-        mainWindowContexts.values.filter { $0.windowId == windowId }.forEach { discardOrphanedMainWindowContext($0, allowWindowlessFallback: true) }
-    }
-#endif
 
     private func mainWindowId(for window: NSWindow) -> UUID? {
         if let context = mainWindowContexts[ObjectIdentifier(window)] {
@@ -16074,6 +16055,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
+            store.clearNotifications(forTabId: removed.windowId)
             for tab in removed.tabManager.tabs {
                 store.clearNotifications(forTabId: tab.id)
             }
