@@ -40,14 +40,22 @@ struct CompactAttachTicket: Codable {
         guard v == Self.legacyEmailGrammarVersion || v == Self.currentGrammarVersion else {
             throw CmxAttachTicketError.unsupportedVersion(v)
         }
+        // A first-revision compact payload (`v == 1`) reused `u` for either the
+        // Mac account email or the opaque Stack user id, and the original
+        // decoder told them apart with an `@` probe. Preserve that heuristic for
+        // the legacy grammar so a phone scanning an older Mac's still-valid QR
+        // keeps reading an opaque `u` as a user id (not an email, which would
+        // fail the account preflight before dialing). The current grammar
+        // (`v == 2`) always carries the user id in `u`.
+        let legacyEmail = v == Self.legacyEmailGrammarVersion && u?.contains("@") == true
         return try CmxAttachTicket(
             version: CmxAttachTicket.currentVersion,
             workspaceID: w ?? "",
             terminalID: t,
             macDeviceID: d,
             macDisplayName: nil,
-            macUserEmail: v == Self.legacyEmailGrammarVersion ? u : nil,
-            macUserID: v == Self.currentGrammarVersion ? u : nil,
+            macUserEmail: legacyEmail ? u : nil,
+            macUserID: legacyEmail ? nil : u,
             macPairingCompatibilityVersion: pc ?? 0,
             macAppVersion: av,
             macAppBuild: ab,

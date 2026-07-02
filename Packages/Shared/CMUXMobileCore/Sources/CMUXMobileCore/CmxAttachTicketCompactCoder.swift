@@ -20,9 +20,11 @@ import Foundation
 /// - New decoders accept both grammars: ``CmxAttachTicketInput`` routes a
 ///   payload whose top-level object carries `"v"` here and everything else
 ///   (legacy `"version"` payloads) through the original `Codable` path.
-/// - Payloads from the first compact revision still decode: `u` is interpreted
-///   as the Mac account email, extra `e` (expiry) and `n` (display name) keys
-///   are ignored, and explicit route `i` ids and endpoint `t` types are honored.
+/// - Payloads from the first compact revision (`v == 1`) still decode: `u` is
+///   read as the Mac account email when it looks like one (an `@` probe) and as
+///   the opaque Stack user id otherwise, extra `e` (expiry) and `n` (display
+///   name) keys are ignored, and explicit route `i` ids and endpoint `t` types
+///   are honored. The current grammar (`v == 2`) always carries the user id.
 /// - Old decoders reject the compact grammar loudly (a `DecodingError` from
 ///   the missing `"version"` key), so an outdated phone scanning a new QR
 ///   shows a pairing error instead of silently misreading the ticket.
