@@ -10,37 +10,6 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
-// lint:allow namespace-enum — file-local DEBUG input-trace logger on the off-limits typing-latency render path; type reshape deferred to the GhosttySurfaceView UI-god-object split wave.
-enum TerminalInputDebugLog {
-    private static let isEnabled = ProcessInfo.processInfo.environment["CMUX_INPUT_DEBUG"] == "1"
-    private static let logger = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.input")
-
-    static func log(_ message: String) {
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            return
-        }
-        #endif
-        guard isEnabled else { return }
-        logger.debug("input: \(message, privacy: .public)")
-    }
-
-    static func textSummary(_ text: String) -> String {
-        let summary = String(reflecting: text)
-        guard summary.count > 96 else { return summary }
-        return "\(summary.prefix(96))..."
-    }
-
-    static func dataSummary(_ data: Data) -> String {
-        let prefix = data.prefix(32)
-        let prefixData = Data(prefix)
-        let hex = prefix.map { String(format: "%02X", $0) }.joined(separator: " ")
-        let utf8 = String(data: prefixData, encoding: .utf8) ?? "<non-utf8>"
-        let suffix = data.count > prefix.count ? " ..." : ""
-        return "len=\(data.count) hex=\(hex)\(suffix) utf8=\(textSummary(utf8))"
-    }
-}
-
 @MainActor
 public protocol GhosttySurfaceViewDelegate: AnyObject {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data)
@@ -915,6 +884,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutBottomDock()
         syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
+
+    /// Test hook: geometry/spacing tests run in a scene-less xctest host where
+    /// a Metal present can never complete, so a real render dispatch stalls,
+    /// trips the render-pipeline stall recovery, and pauses geometry (and with
+    /// it the viewport reports under test). True skips the render dispatch
+    /// entirely; geometry (`set_size` + measure) never needs a present.
+    var debugSkipRenderDispatchForTesting = false
     #endif
 
     var currentGridSize: TerminalGridSize {
@@ -3178,6 +3154,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               !renderingSuspended,
               let surface,
               !isDismantled else { return }
+        #if DEBUG
+        if debugSkipRenderDispatchForTesting { return }
+        #endif
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
         if renderInFlight {
