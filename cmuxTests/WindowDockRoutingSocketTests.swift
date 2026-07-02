@@ -15,8 +15,6 @@ import Testing
 /// See https://github.com/manaflow-ai/cmux/issues/7142.
 @Suite("Window Dock socket routing", .serialized)
 struct WindowDockRoutingSocketTests {
-    private static let socketWorkerQueue = DispatchQueue(label: "WindowDockRoutingSocketTests.socketWorker")
-
     @MainActor
     private func v2Envelope(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let request: [String: Any] = [
@@ -32,36 +30,8 @@ struct WindowDockRoutingSocketTests {
     }
 
     @MainActor
-    private func v2EnvelopeOnSocketWorker(method: String, params: [String: Any] = [:]) async throws -> [String: Any] {
-        let request: [String: Any] = [
-            "id": method,
-            "method": method,
-            "params": params,
-        ]
-        let requestData = try JSONSerialization.data(withJSONObject: request)
-        let requestLine = try #require(String(data: requestData, encoding: .utf8))
-        let controller = TerminalController.shared
-        let raw = await withCheckedContinuation { continuation in
-            Self.socketWorkerQueue.async {
-                continuation.resume(returning: controller.handleSocketLine(requestLine))
-            }
-        }
-        let responseData = try #require(raw.data(using: .utf8))
-        return try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
-    }
-
-    @MainActor
     private func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let envelope = try v2Envelope(method: method, params: params)
-        if envelope["ok"] as? Bool != true {
-            Issue.record("Expected \(method) to succeed: \(envelope)")
-        }
-        return try #require(envelope["result"] as? [String: Any])
-    }
-
-    @MainActor
-    private func v2ResultOnSocketWorker(method: String, params: [String: Any] = [:]) async throws -> [String: Any] {
-        let envelope = try await v2EnvelopeOnSocketWorker(method: method, params: params)
         if envelope["ok"] as? Bool != true {
             Issue.record("Expected \(method) to succeed: \(envelope)")
         }
@@ -95,23 +65,6 @@ struct WindowDockRoutingSocketTests {
                 defaults.set(previous, forKey: key)
             } else {
                 defaults.removeObject(forKey: key)
-            }
-        }
-        try await body()
-    }
-
-    @MainActor
-    private func withBrowserEnabled(_ body: () async throws -> Void) async rethrows {
-        let defaults = UserDefaults.standard
-        let previous = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey) as? Bool
-        let hadPrevious = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey) != nil
-        BrowserAvailabilitySettings.setDisabled(false)
-        defer {
-            if hadPrevious, let previous {
-                BrowserAvailabilitySettings.setDisabled(previous)
-            } else {
-                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
-                NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
             }
         }
         try await body()
@@ -198,10 +151,8 @@ struct WindowDockRoutingSocketTests {
     func dockPaneRoutingAndFocusedCloseStayInDock() async throws {
 #if DEBUG
         try await withDockEnabled {
-            try await withBrowserEnabled {
-            // Async body (socket-worker round-trips below): gate against the
-            // other suites' async app-context tests so the swapped-in globals
-            // stay ours across awaits.
+            // Async app-context gate: keep the swapped-in globals ours across
+            // the body even when other serialized suites use async helpers.
             try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
@@ -292,39 +243,6 @@ struct WindowDockRoutingSocketTests {
             #expect(otherWindowDock !== activeWindowDock)
             let otherPane = try #require(otherWindowDock.resolvePane(requestedPaneID: nil))
             let otherDockSurfaceId = try #require(otherWindowDock.newSurface(kind: .terminal, inPane: otherPane, focus: true))
-
-            let otherBrowserCreate = try v2Result(method: "surface.create", params: [
-                "placement": "dock",
-                "type": "browser",
-                "pane_id": otherPane.id.uuidString,
-                "url": "about:blank",
-                "focus": false,
-            ])
-            let otherBrowserSurfaceIdRaw = try #require(otherBrowserCreate["dock_surface_id"] as? String)
-            let otherBrowserSurfaceId = try #require(UUID(uuidString: otherBrowserSurfaceIdRaw))
-            #expect(otherBrowserCreate["workspace_id"] as? String == dockWindowId.uuidString)
-            #expect(otherBrowserCreate["window_id"] as? String == dockWindowId.uuidString)
-            #expect(otherWindowDock.containsPanel(otherBrowserSurfaceId))
-
-            // The request runs from the first window context and targets a browser
-            // only by surface id. It must report the resolved Dock owner, not the
-            // caller window.
-            let crossWindowNavigate = try await v2ResultOnSocketWorker(method: "browser.navigate", params: [
-                "surface_id": otherBrowserSurfaceId.uuidString,
-                "url": "about:blank",
-            ])
-            #expect(crossWindowNavigate["workspace_id"] as? String == dockWindowId.uuidString)
-            #expect(crossWindowNavigate["window_id"] as? String == dockWindowId.uuidString)
-            #expect(crossWindowNavigate["surface_id"] as? String == otherBrowserSurfaceId.uuidString)
-
-            // Everything below asserts caller-relative routing (the legacy
-            // alias resolves against "the caller's window"). The worker
-            // round-trip above suspended the main actor, where concurrently
-            // running suites can churn the shared controller's active manager
-            // through real window teardown, so restate this test's premise:
-            // the caller is the first window. The remainder of the test is
-            // synchronous, so the premise holds through those assertions.
-            TerminalController.shared.setActiveTabManager(activeManager)
 
             // The CLI injects the caller's main workspace_id even when the
             // user explicitly targets a Dock pane. A non-Dock workspace_id
@@ -500,7 +418,6 @@ struct WindowDockRoutingSocketTests {
             #expect(activeWindowDock.containsPanel(dockSurfaceId))
             #expect(dockWorkspace.panels.count == mainPanelCount)
             #expect(dockWorkspace.focusedPanelId == focusedMainPanel)
-            }
             }
         }
 #else

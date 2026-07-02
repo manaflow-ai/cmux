@@ -492,6 +492,31 @@ struct DockSocketLifecycleTests {
                     #expect(navigateResult["workspace_id"] as? String == windowId.uuidString)
                     #expect(navigateResult["surface_id"] as? String == dockSurfaceId.uuidString)
 
+                    let appDelegate = try #require(AppDelegate.shared)
+                    let secondManager = TabManager(autoWelcomeIfNeeded: false)
+                    let secondWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: secondManager)
+                    defer {
+                        appDelegate.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+                        secondManager.tabs.forEach { $0.teardownAllPanels() }
+                    }
+                    let secondWindowDock = appDelegate.windowDock(forWindowId: secondWindowId)
+                    let secondDockPane = try #require(secondWindowDock.resolvePane(requestedPaneID: nil))
+                    let secondDockBrowserId = try #require(secondWindowDock.newSurface(kind: .browser, inPane: secondDockPane, focus: true))
+
+                    // This request runs from the first window context and targets
+                    // a browser only by surface id. The response must report the
+                    // resolved Dock owner, not the caller window.
+                    let crossWindowNavigate = try await v2ResultOnSocketWorker(
+                        method: "browser.navigate",
+                        params: [
+                            "surface_id": secondDockBrowserId.uuidString,
+                            "url": "about:blank",
+                        ]
+                    )
+                    #expect(crossWindowNavigate["workspace_id"] as? String == secondWindowId.uuidString)
+                    #expect(crossWindowNavigate["window_id"] as? String == secondWindowId.uuidString)
+                    #expect(crossWindowNavigate["surface_id"] as? String == secondDockBrowserId.uuidString)
+
                     let tabListResult = try v2Result(
                         method: "browser.tab.list",
                         params: ["workspace_id": windowId.uuidString]
