@@ -341,10 +341,15 @@ import Testing
         rowSpans: [.init(row: 0, column: 0, text: "TUI")],
         activeScreen: .alternate,
         modes: [
+            .init(code: MobileTerminalRenderGridFrame.ModeSetting.decOriginModeCode, ansi: false, on: true),
             .init(code: 1000, ansi: false, on: true), // mouse tracking (DEC private)
             .init(code: 2004, ansi: false, on: true), // bracketed paste (DEC private)
             .init(code: 4, ansi: true, on: true),     // insert mode (ANSI, no `?`)
-            .init(code: 1049, ansi: false, on: true), // alt-screen: handled separately
+            .init(
+                code: MobileTerminalRenderGridFrame.ModeSetting.decAlternateScreenSaveRestoreCursorCode,
+                ansi: false,
+                on: true
+            ), // alt-screen: handled separately
         ]
     )
 
@@ -352,6 +357,7 @@ import Testing
     #expect(vt.hasPrefix("\u{1B}c\u{1B}[?2026h"))
     #expect(vt.hasSuffix("\u{1B}[?2026l"))
     #expect(vt.contains("\u{1B}[?1049h")) // entered the alternate screen
+    #expect(vt.contains("\u{1B}[?6h"))    // origin mode restored
     #expect(vt.contains("\u{1B}[?1000h")) // mouse mode restored
     #expect(vt.contains("\u{1B}[?2004h")) // bracketed paste restored
     #expect(vt.contains("\u{1B}[4h"))     // ANSI insert mode restored without `?`

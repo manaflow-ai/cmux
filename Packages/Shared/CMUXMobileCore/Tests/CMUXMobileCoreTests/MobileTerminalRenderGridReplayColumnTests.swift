@@ -118,15 +118,13 @@ private func replayedCells(
     from data: Data,
     rows: Int,
     columns: Int,
-    initialRows: [String]? = nil,
+    initialRows: [String] = [],
     widthOf: (Character) -> Int = { _ in 1 }
 ) throws -> [[Character?]] {
     let text = try #require(String(data: data, encoding: .utf8))
-    var cells = initialRows.map { cellRows(from: $0, rows: rows, columns: columns) } ??
-        Array(
-            repeating: Array<Character?>(repeating: nil, count: columns),
-            count: rows
-        )
+    var cells = initialRows.isEmpty
+        ? Array(repeating: Array<Character?>(repeating: nil, count: columns), count: rows)
+        : cellRows(from: initialRows, rows: rows, columns: columns)
     var row = 0
     var column = 0
     var originMode = false

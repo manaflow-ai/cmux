@@ -147,9 +147,9 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             )
         }
 
-        // Reapply modes last so autowrap returns to its captured value
-        // (undoing the temporary `?7l`) and mouse/paste/app-key modes are live.
-        for mode in frame.modes where !isReplayNormalizedPrivateMode(mode) {
+        // Reapply modes last so mouse/paste/app-key modes are live. Screen
+        // switches are handled by the replay wrapper to avoid duplicated toggles.
+        for mode in frame.modes where !isScreenSwitchPrivateMode(mode) {
             bytes.append(modeBytes(mode))
         }
 
@@ -162,13 +162,20 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         // Disable origin mode so CUP row indexes target absolute viewport rows,
         // and disable autowrap while painting so full-width spans cannot scroll
         // a preserved scroll region.
-        Data("\u{1B}[?6l\u{1B}[?7l".utf8)
+        Data((
+            "\u{1B}[?\(MobileTerminalRenderGridFrame.ModeSetting.decOriginModeCode)l" +
+            "\u{1B}[?\(MobileTerminalRenderGridFrame.ModeSetting.decAutowrapModeCode)l"
+        ).utf8)
     }
 
     private func deltaReplayModeRestoreBytes() -> Data {
         let autowrapMode = frame.modes.first { mode in
-            !mode.ansi && mode.code == 7
-        } ?? .init(code: 7, ansi: false, on: true)
+            mode.isDECAutowrapMode
+        } ?? .init(
+            code: MobileTerminalRenderGridFrame.ModeSetting.decAutowrapModeCode,
+            ansi: false,
+            on: true
+        )
         return modeBytes(autowrapMode)
     }
 
@@ -389,12 +396,15 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         return Data("\(prefix)\(mode.code)\(mode.on ? "h" : "l")".utf8)
     }
 
-    private func isReplayNormalizedPrivateMode(_ mode: MobileTerminalRenderGridFrame.ModeSetting) -> Bool {
+    private func isScreenSwitchPrivateMode(_ mode: MobileTerminalRenderGridFrame.ModeSetting) -> Bool {
         guard !mode.ansi else { return false }
-        // Origin mode must remain off: render-grid row indexes are absolute
-        // viewport rows, not scroll-region-relative coordinates.
+        // Screen switches are represented by `activeScreen`; replay emits the
+        // owning switch once so mode-state restore cannot duplicate it.
         switch mode.code {
-        case 6, 47, 1047, 1048, 1049:
+        case MobileTerminalRenderGridFrame.ModeSetting.decAlternateScreenCode,
+             MobileTerminalRenderGridFrame.ModeSetting.decAlternateScreenSaveCursorCode,
+             MobileTerminalRenderGridFrame.ModeSetting.decSaveRestoreCursorCode,
+             MobileTerminalRenderGridFrame.ModeSetting.decAlternateScreenSaveRestoreCursorCode:
             return true
         default:
             return false

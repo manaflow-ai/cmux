@@ -292,9 +292,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             // Full-state restore data only applies to a full snapshot; a delta
             // frame just clears and repaints the changed viewport rows.
             activeScreen: activeScreen,
-            modes: full ? modes : modes.filter { mode in
-                !mode.ansi && mode.code == 7
-            },
+            modes: full ? modes : modes.filter(\.isDECAutowrapMode),
             terminalForeground: full ? terminalForeground : nil,
             terminalBackground: full ? terminalBackground : nil,
             terminalCursorColor: full ? terminalCursorColor : nil,
@@ -418,6 +416,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
 
     /// One DEC private or ANSI mode to restore on a full snapshot.
     public struct ModeSetting: Codable, Equatable, Sendable {
+        static let decOriginModeCode = 6
+        static let decAutowrapModeCode = 7
+        static let decAlternateScreenCode = 47
+        static let decAlternateScreenSaveCursorCode = 1047
+        static let decSaveRestoreCursorCode = 1048
+        static let decAlternateScreenSaveRestoreCursorCode = 1049
+
         /// The numeric mode code (e.g. `2004` for bracketed paste, `1` for
         /// application cursor keys).
         public var code: Int
@@ -431,6 +436,10 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             self.code = code
             self.ansi = ansi
             self.on = on
+        }
+
+        var isDECAutowrapMode: Bool {
+            !ansi && code == Self.decAutowrapModeCode
         }
 
         enum CodingKeys: String, CodingKey {

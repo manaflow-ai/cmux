@@ -13711,15 +13711,18 @@ class TerminalController {
         }
 
         let reportedGrid: (columns: Int, rows: Int)?
+        let allowLiveSurfaceFallback: Bool
         if v2Bool(params, "clear") == true {
             if let clientID = v2String(params, "client_id") {
-                clearMobileViewportReport(
+                reportedGrid = clearMobileViewportReport(
                     surfaceID: terminalPanel.id,
                     clientID: clientID,
                     reason: "mobile.terminal.viewport.clear"
                 )
+            } else {
+                reportedGrid = nil
             }
-            reportedGrid = nil
+            allowLiveSurfaceFallback = false
         } else {
             reportedGrid = applyMobileViewportReport(
                 params: params,
@@ -13727,6 +13730,7 @@ class TerminalController {
                 sticky: true,
                 reason: "mobile.terminal.viewport"
             )
+            allowLiveSurfaceFallback = true
         }
 
         var payload: [String: Any] = [
@@ -13736,7 +13740,8 @@ class TerminalController {
         if let reportedGrid {
             payload["columns"] = reportedGrid.columns
             payload["rows"] = reportedGrid.rows
-        } else if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalViewport") {
+        } else if allowLiveSurfaceFallback,
+                  let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalViewport") {
             let size = ghostty_surface_size(surface)
             payload["columns"] = max(Int(size.columns), 1)
             payload["rows"] = max(Int(size.rows), 1)
@@ -14073,17 +14078,21 @@ class TerminalController {
     /// `mobile.terminal.viewport` clear, or a disconnect), then recompute the
     /// remaining min and re-apply or clear the surface's viewport limit so the
     /// macOS border reflects only the devices still attached.
-    private func clearMobileViewportReport(surfaceID: UUID, clientID: String, reason: String) {
+    private func clearMobileViewportReport(
+        surfaceID: UUID,
+        clientID: String,
+        reason: String
+    ) -> (columns: Int, rows: Int)? {
         guard var reports = mobileViewportReportsBySurfaceID[surfaceID],
               reports.removeValue(forKey: clientID) != nil else {
-            return
+            return nil
         }
         if reports.isEmpty {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
             terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
-            return
+            return nil
         }
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
@@ -14094,7 +14103,9 @@ class TerminalController {
                 rows: minRows,
                 reason: reason
             )
+            return (minColumns, minRows)
         }
+        return nil
     }
 
     /// Drop every viewport report owned by the given client IDs across all
