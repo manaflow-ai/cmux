@@ -357,7 +357,8 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// Compact-stack back button rendered as its own leading toolbar island.
+    /// Leading back-button island. No explicit `.buttonStyle(.glass)`: iOS 26 backs
+    /// toolbar items in glass; a 2nd layer renders as an oversized square (see chat pane).
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
@@ -366,7 +367,6 @@ struct WorkspaceDetailView: View {
                 badgeContrast: backButtonConfiguration.badgeContrast,
                 action: backButtonConfiguration.action
             )
-            .mobileGlassCompactToolbarControl()
         }
     }
 
