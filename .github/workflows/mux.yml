@@ -1,0 +1,56 @@
+name: mux
+
+on:
+  pull_request:
+    paths:
+      - "mux/**"
+      - "ghostty"
+      - ".github/workflows/mux.yml"
+  push:
+    branches: [main]
+    paths:
+      - "mux/**"
+      - "ghostty"
+      - ".github/workflows/mux.yml"
+
+concurrency:
+  group: mux-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Rust version
+        run: |
+          rustc --version || true
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: cargo test
+        working-directory: mux
+        run: cargo test --workspace --locked
+
+      - name: TUI smoke test (scripted pty)
+        working-directory: mux
+        run: |
+          cargo build -p mux-tui
+          python3 scripts/smoke-tui.py
+
+      - name: Detach/reattach smoke test
+        working-directory: mux
+        run: python3 scripts/smoke-attach.py
