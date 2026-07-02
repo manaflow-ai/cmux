@@ -30,6 +30,7 @@ extension View {
 private struct SidebarImmediateObservationState: Equatable {
     let title: String
     let customDescription: String?
+    let customTags: [String]
     let isPinned: Bool
     let customColor: String?
     let latestConversationMessage: String?
@@ -77,9 +78,10 @@ extension Workspace {
         let workspaceFields = Publishers.CombineLatest4(
             $title,
             $customDescription,
-            $isPinned,
-            $customColor
+            $customTags,
+            $isPinned
         )
+        .combineLatest($customColor)
         let conversationFields = Publishers.CombineLatest3(
             $latestConversationMessage,
             $latestSubmittedMessage,
@@ -90,10 +92,11 @@ extension Workspace {
             .combineLatest(conversationFields)
             .map { workspaceFields, conversationFields in
                 SidebarImmediateObservationState(
-                    title: workspaceFields.0,
-                    customDescription: workspaceFields.1,
-                    isPinned: workspaceFields.2,
-                    customColor: workspaceFields.3,
+                    title: workspaceFields.0.0,
+                    customDescription: workspaceFields.0.1,
+                    customTags: workspaceFields.0.2,
+                    isPinned: workspaceFields.0.3,
+                    customColor: workspaceFields.1,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2

@@ -10034,6 +10034,7 @@ struct VerticalTabsSidebar: View {
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
     @State var dragState = SidebarDragState()
     // Bonsplit tab drags arrive through AppKit pasteboard callbacks, not
     // `SidebarDragState`, so they need a separate transient collection flag.
@@ -10051,6 +10052,12 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    @State private var selectedWorkspaceTagFilter: String?
+    @State private var workspaceTagProjection = WorkspaceTagProjection.empty
+    @State private var workspaceTagsObservationWorkspaceIds: [UUID] = []
+    @State private var workspaceTagsObservationPublishersBuilt = false
+    @State private var workspaceTagsObservationPublisher: AnyPublisher<Void, Never> =
+        Empty<Void, Never>().eraseToAnyPublisher()
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
     // re-subscribed `.onReceive` to a fresh publisher every render, replaying
@@ -10441,9 +10448,61 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
+        let allWorkspaceIds: [UUID]
         let visibleWorkspaceRowIds: [UUID]
+        let availableWorkspaceTags: [String]
+        let activeWorkspaceTagFilter: String?
 
         var workspaceIds: [UUID] { tabIds }
+    }
+
+    private struct WorkspaceTagProjection: Equatable {
+        static let empty = WorkspaceTagProjection(availableTags: [], workspaceIdsByTagKey: [:])
+
+        let availableTags: [String]
+        let workspaceIdsByTagKey: [String: Set<UUID>]
+
+        func workspaceIds(matching tag: String) -> Set<UUID> {
+            workspaceIdsByTagKey[Self.key(for: tag)] ?? []
+        }
+
+        static func key(for tag: String) -> String {
+            Workspace.customTagFoldingKey(tag)
+        }
+    }
+
+    private static func workspaceTagProjection(in workspaces: [Workspace]) -> WorkspaceTagProjection {
+        var seenKeys = Set<String>()
+        var availableTags: [String] = []
+        var workspaceIdsByTagKey: [String: Set<UUID>] = [:]
+
+        for workspace in workspaces {
+            for tag in Workspace.normalizedCustomTags(workspace.customTags) {
+                let key = WorkspaceTagProjection.key(for: tag)
+                if seenKeys.insert(key).inserted {
+                    availableTags.append(tag)
+                }
+                workspaceIdsByTagKey[key, default: []].insert(workspace.id)
+            }
+        }
+
+        return WorkspaceTagProjection(
+            availableTags: availableTags.sorted {
+                $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+            },
+            workspaceIdsByTagKey: workspaceIdsByTagKey
+        )
+    }
+
+    private static func visibleWorkspaces(
+        in workspaces: [Workspace],
+        matching tag: String?,
+        projection: WorkspaceTagProjection
+    ) -> [Workspace] {
+        guard let tag else { return workspaces }
+        let visibleWorkspaceIds = projection.workspaceIds(matching: tag)
+        guard !visibleWorkspaceIds.isEmpty else { return [] }
+        return workspaces.filter { visibleWorkspaceIds.contains($0.id) }
     }
 
     var body: some View {
@@ -10452,10 +10511,32 @@ struct VerticalTabsSidebar: View {
 #endif
         let tabs = tabManager.tabs
         let workspaceCount = tabs.count
+        let allWorkspaceIds = tabs.map(\.id)
+        let usesDefaultWorkspaceSidebar = CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+            effectiveProviderId: effectiveExtensionSidebarProviderId
+        )
+        let activeWorkspaceTagFilter = usesDefaultWorkspaceSidebar ? selectedWorkspaceTagFilter : nil
+        let tagProjection = workspaceTagProjection
+        let visibleTabs = Self.visibleWorkspaces(
+            in: tabs,
+            matching: activeWorkspaceTagFilter,
+            projection: tagProjection
+        )
+        let usesTagFilteredRows = activeWorkspaceTagFilter != nil
+        let visibleWorkspaceIds = Set(visibleTabs.map(\.id))
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
-        let tabIds = tabs.map(\.id)
+        let tabIds = visibleTabs.map(\.id)
+        // `tabIndexById` is intentionally keyed off the full `tabs` order, not the
+        // filtered `visibleTabs` above. `TabItemView.index` feeds Shift-click range
+        // selection (`updateSelection`) and the cmd-1..9 shortcut digit, all of which
+        // work in full-list coordinates (`anchorIndex`/`clickedIndex`/`liveWorkspaceIds`
+        // are the full order). A tag filter hides rows without renumbering workspaces,
+        // so a Shift-click range is walked over the full order and then clamped to the
+        // visible ids via `tagFilterMatchingIds`. Rebuilding this map from `visibleTabs`
+        // would silently break Shift-click whenever a hidden workspace precedes or sits
+        // between visible rows.
         let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
             ($0.element.id, $0.offset)
         })
@@ -10465,7 +10546,9 @@ struct VerticalTabsSidebar: View {
             liveWorkspaceIds: Set(tabIds)
         )
         let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
-        let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
+        let orderedSelectedTabs = tabs.filter {
+            selectedTabIds.contains($0.id) && (!usesTagFilteredRows || visibleWorkspaceIds.contains($0.id))
+        }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
         let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
         let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
@@ -10481,10 +10564,11 @@ struct VerticalTabsSidebar: View {
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
         let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
-            tabs: tabs,
-            groupsById: workspaceGroupById
+            tabs: visibleTabs,
+            groupsById: usesTagFilteredRows ? [:] : workspaceGroupById
         )
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        let availableWorkspaceTags = tagProjection.availableTags
         let draggedSidebarTabId = dragState.draggedTabId
         let dropIndicatorScope = dragState.dropIndicatorScope
         let sidebarReorderIds = draggedSidebarTabId.map {
@@ -10497,7 +10581,7 @@ struct VerticalTabsSidebar: View {
             )
         } ?? []
         let renderContext = WorkspaceListRenderContext(
-            tabs: tabs,
+            tabs: visibleTabs,
             tabIds: tabIds,
             sidebarReorderIds: sidebarReorderIds,
             workspaceCount: workspaceCount,
@@ -10516,7 +10600,10 @@ struct VerticalTabsSidebar: View {
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            allWorkspaceIds: allWorkspaceIds,
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            availableWorkspaceTags: availableWorkspaceTags,
+            activeWorkspaceTagFilter: activeWorkspaceTagFilter
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -10631,6 +10718,26 @@ struct VerticalTabsSidebar: View {
             guard let frozenTabId = frozenShortcutHintsTabId,
                   !tabIds.contains(frozenTabId) else { return }
             frozenShortcutHintsTabId = nil
+        }
+        .onChange(of: tabManager.selectedTabId) { _, newSelectedId in
+            // Selecting a workspace that does not carry the active tag would
+            // leave the user focused on a row the filter immediately hides.
+            // This fires for every path that changes the selection to a
+            // non-matching workspace — creating a new (untagged) workspace via
+            // the empty-area double-click, cmd-T, the + button, or the command
+            // palette, as well as a CLI/socket select — so the filter is
+            // cleared once and the newly selected workspace stays visible.
+            // Merely applying a filter that hides the current selection does
+            // not change `selectedTabId`, so intentional filtering is left
+            // untouched. `activeWorkspaceTagFilter` is already nil unless the
+            // default workspace sidebar is showing, so this never disturbs a
+            // filter while an extension sidebar is active.
+            guard let filter = activeWorkspaceTagFilter,
+                  let newSelectedId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == newSelectedId }),
+                  !Workspace.customTags(workspace.customTags, containMatchFor: filter)
+            else { return }
+            selectedWorkspaceTagFilter = nil
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -10755,6 +10862,20 @@ struct VerticalTabsSidebar: View {
                         lastSidebarSelectionIndex = index
                     }
                 }
+                .onAppear {
+                    refreshWorkspaceTagsObservationPublisher(tabs: tabManager.tabs)
+                    refreshWorkspaceTagsList(tabs: tabManager.tabs)
+                }
+                .onChange(of: renderContext.allWorkspaceIds) { _, _ in
+                    refreshWorkspaceTagsObservationPublisher(tabs: tabManager.tabs)
+                    refreshWorkspaceTagsList(tabs: tabManager.tabs)
+                }
+                .onReceive(workspaceTagsObservationPublisher) { _ in
+                    refreshWorkspaceTagsList(tabs: tabManager.tabs)
+                }
+                .onDisappear {
+                    clearWorkspaceTagsObservationPublisher()
+                }
             }
         }
     }
@@ -10767,6 +10888,45 @@ struct VerticalTabsSidebar: View {
     private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
         guard let scrollView else { return }
         scrollView.applySidebarOverlayScrollerConfiguration()
+    }
+
+    private func refreshWorkspaceTagsList(tabs: [Workspace]) {
+        let nextProjection = Self.workspaceTagProjection(in: tabs)
+        guard workspaceTagProjection != nextProjection else { return }
+        workspaceTagProjection = nextProjection
+    }
+
+    private func clearWorkspaceTagsObservationPublisher() {
+        workspaceTagsObservationWorkspaceIds = []
+        workspaceTagsObservationPublishersBuilt = false
+        workspaceTagProjection = .empty
+        workspaceTagsObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
+    }
+
+    private func refreshWorkspaceTagsObservationPublisher(tabs: [Workspace]) {
+        let workspaceIds = tabs.map(\.id)
+        guard !workspaceTagsObservationPublishersBuilt ||
+              workspaceIds != workspaceTagsObservationWorkspaceIds
+        else { return }
+
+        workspaceTagsObservationPublishersBuilt = true
+        workspaceTagsObservationWorkspaceIds = workspaceIds
+
+        guard !tabs.isEmpty else {
+            workspaceTagsObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
+            return
+        }
+
+        workspaceTagsObservationPublisher = Publishers.MergeMany(
+            tabs.map {
+                $0.$customTags
+                    .dropFirst()
+                    .map { _ in () }
+                    .eraseToAnyPublisher()
+            }
+        )
+        .receive(on: RunLoop.main)
+        .eraseToAnyPublisher()
     }
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
@@ -11866,10 +12026,35 @@ struct VerticalTabsSidebar: View {
         // SidebarRowsFillLayout measured it (`sizeThatFits(height: nil)`) every
         // pass, realizing all rows and re-livelocking at scale (#2586 / #5764 /
         // #5845; regressed by #6033). Drop/tap = background; indicator on rows.
-        let content = workspaceRows(
-            renderContext: renderContext,
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
-        )
+        let content = VStack(alignment: .leading, spacing: 0) {
+            if !renderContext.availableWorkspaceTags.isEmpty || renderContext.activeWorkspaceTagFilter != nil {
+                workspaceTagControls(renderContext: renderContext)
+            }
+
+            if renderContext.workspaceRenderItems.isEmpty, let activeTag = renderContext.activeWorkspaceTagFilter {
+                Text(
+                    String(
+                        format: String(
+                            localized: "sidebar.workspaceTags.emptyFilter",
+                            defaultValue: "No workspaces tagged %@"
+                        ),
+                        locale: .current,
+                        activeTag
+                    )
+                )
+                .font(magnifiedSidebarFont(size: 11, weight: .regular))
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            workspaceRows(
+                renderContext: renderContext,
+                shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+            )
+        }
             .overlay(alignment: .bottom) {
                 if emptyAreaTopDropIndicatorVisible() {
                     Rectangle()
@@ -11924,6 +12109,131 @@ struct VerticalTabsSidebar: View {
             bonsplitWorkspaceDropOverlay()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private func workspaceTagControls(renderContext: WorkspaceListRenderContext) -> some View {
+        HStack(spacing: 6) {
+            Menu {
+                Button(String(localized: "sidebar.workspaceTags.allTags", defaultValue: "All Tags")) {
+                    selectedWorkspaceTagFilter = nil
+                }
+
+                if !renderContext.availableWorkspaceTags.isEmpty {
+                    Divider()
+                }
+
+                ForEach(renderContext.availableWorkspaceTags, id: \.self) { tag in
+                    Button(tag) {
+                        selectedWorkspaceTagFilter = tag
+                    }
+                }
+            } label: {
+                Label {
+                    Text(renderContext.activeWorkspaceTagFilter ?? String(
+                        localized: "sidebar.workspaceTags.filter",
+                        defaultValue: "Tags"
+                    ))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                } icon: {
+                    CmuxSystemSymbolImage(magnified: "tag", pointSize: 11, weight: .medium)
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize(horizontal: false, vertical: true)
+            .safeHelp(String(localized: "sidebar.workspaceTags.filter.help", defaultValue: "Filter workspaces by tag"))
+            .accessibilityIdentifier("SidebarWorkspaceTagFilterMenu")
+
+            if renderContext.activeWorkspaceTagFilter != nil {
+                Button {
+                    selectedWorkspaceTagFilter = nil
+                } label: {
+                    CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 11, weight: .medium)
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+                .safeHelp(String(localized: "sidebar.workspaceTags.clearFilter.help", defaultValue: "Clear tag filter"))
+                .accessibilityLabel(String(localized: "sidebar.workspaceTags.clearFilter", defaultValue: "Clear Tag Filter"))
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                sortWorkspacesByTags()
+            } label: {
+                CmuxSystemSymbolImage(magnified: "arrow.up.arrow.down", pointSize: 11, weight: .medium)
+                    .frame(width: 20, height: 18)
+            }
+            .buttonStyle(.plain)
+            .disabled(renderContext.availableWorkspaceTags.isEmpty)
+            .safeHelp(String(localized: "sidebar.workspaceTags.sort.help", defaultValue: "Sort workspaces by tag"))
+            .accessibilityLabel(String(localized: "sidebar.workspaceTags.sort", defaultValue: "Sort by Tags"))
+        }
+        .font(magnifiedSidebarFont(size: 11, weight: .medium))
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.top, 4)
+        .padding(.bottom, 6)
+    }
+
+    private func magnifiedSidebarFont(size: CGFloat, weight: Font.Weight) -> Font {
+        Font.system(
+            size: GlobalFontMagnification.scaledSize(size, percent: globalFontMagnificationPercent),
+            weight: weight
+        )
+    }
+
+    private func sortWorkspacesByTags() {
+        let originalIndexes = Dictionary(uniqueKeysWithValues: tabManager.tabs.enumerated().map {
+            ($0.element.id, $0.offset)
+        })
+        let sortedIds = tabManager.tabs.sorted { lhs, rhs in
+            workspaceTagSortPrecedes(lhs, rhs, originalIndexes: originalIndexes)
+        }.map(\.id)
+        // Sorting reorders the full workspace list, so the Shift-click anchor
+        // index (`lastSidebarSelectionIndex`) must be reconciled against the new
+        // order — otherwise the next Shift-click anchors from whichever
+        // workspace now occupies the stale index. Route through the same shared
+        // reorder-sync path as drag reordering.
+        let selectionBeforeReorder = selectedTabIds
+        let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
+            existingAnchorIndex: lastSidebarSelectionIndex,
+            liveWorkspaceIds: tabManager.tabs.map(\.id)
+        )
+        _ = tabManager.reorderWorkspaces(orderedWorkspaceIds: sortedIds)
+        syncSidebarSelectionAfterWorkspaceReorder(
+            preserving: selectionBeforeReorder,
+            preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder
+        )
+    }
+
+    private func workspaceTagSortPrecedes(
+        _ lhs: Workspace,
+        _ rhs: Workspace,
+        originalIndexes: [UUID: Int]
+    ) -> Bool {
+        let lhsTag = lhs.customTags.first
+        let rhsTag = rhs.customTags.first
+        switch (lhsTag, rhsTag) {
+        case (.some(let lhsTag), .some(let rhsTag)):
+            let tagCompare = lhsTag.localizedCaseInsensitiveCompare(rhsTag)
+            if tagCompare != .orderedSame {
+                return tagCompare == .orderedAscending
+            }
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        case (.none, .none):
+            break
+        }
+
+        let titleCompare = lhs.title.localizedCaseInsensitiveCompare(rhs.title)
+        if titleCompare != .orderedSame {
+            return titleCompare == .orderedAscending
+        }
+
+        return (originalIndexes[lhs.id] ?? 0) < (originalIndexes[rhs.id] ?? 0)
     }
 
     @ViewBuilder
@@ -12147,6 +12457,17 @@ struct VerticalTabsSidebar: View {
         targets: [SidebarWorkspaceReorderDropOverlay.Target],
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceReorderDropPlan? {
+        // A tag filter renders only the matching workspaces, so the drag
+        // overlay plans an insertion index in that filtered row order while
+        // `reorderSidebarWorkspace` commits against the full `tabs` order.
+        // Hidden rows make those spaces diverge, so a filtered drop would land
+        // the workspace at the wrong slot (and feed wrong neighbors to group
+        // inference). Refuse to reorder while filtered — no indicator is drawn
+        // and the row stays put; clear the filter to reorder. Keyboard and
+        // socket/CLI reorders use full-list ids and are unaffected.
+        guard SidebarWorkspacePositionRelativeActionGate().allows(
+            activeWorkspaceTagFilter: renderContext.activeWorkspaceTagFilter
+        ) else { return nil }
         guard let draggedTabId = dragState.draggedTabId else { return nil }
         return SidebarWorkspaceReorderDropResolver().plan(
             for: SidebarWorkspaceReorderDropRequest(
@@ -12427,6 +12748,7 @@ struct VerticalTabsSidebar: View {
             notificationStore: notificationStore,
             tab: tab,
             index: index,
+            activeWorkspaceTagFilter: renderContext.activeWorkspaceTagFilter,
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
                 workspaceCount: renderContext.workspaceCount
@@ -12466,7 +12788,7 @@ struct VerticalTabsSidebar: View {
 
         row
             .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
-            .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+            .padding(.leading, tab.groupId != nil && renderContext.activeWorkspaceTagFilter == nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
     }
@@ -13235,6 +13557,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let presentationKey: PresentationKey
         let title: String
         let customDescription: String?
+        let customTags: [String]
         let isPinned: Bool
         let customColorHex: String?
         let remoteWorkspaceSidebarText: String?
@@ -13273,6 +13596,7 @@ struct TabItemView: View, Equatable {
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
+        lhs.activeWorkspaceTagFilter == rhs.activeWorkspaceTagFilter &&
         lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
         lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
@@ -13311,6 +13635,11 @@ struct TabItemView: View, Equatable {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
     let tab: Tab
     let index: Int
+    /// Active sidebar tag filter (nil when unfiltered). Used only by the
+    /// Shift-click range handler to drop hidden, non-matching workspaces from
+    /// the selection; it is compared in `==` so a filter change re-renders the
+    /// row (and refreshes its click closures) rather than acting on a stale value.
+    let activeWorkspaceTagFilter: String?
     let workspaceShortcutDigit: Int?
     let workspaceShortcutModifierSymbol: String
     let canCloseWorkspace: Bool
@@ -13816,6 +14145,50 @@ struct TabItemView: View, Equatable {
                 )
             }
 
+            if !workspaceSnapshot.customTags.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(Array(workspaceSnapshot.customTags.prefix(3).enumerated()), id: \.offset) { _, tag in
+                        Text(tag)
+                            .font(magnifiedFont(scaledFontSize(9), weight: .medium))
+                            .foregroundColor(activeSecondaryColor(0.86))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: 120, alignment: .leading)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(activeSecondaryColor(0.11))
+                            )
+                    }
+
+                    let hiddenTagCount = workspaceSnapshot.customTags.count - 3
+                    if hiddenTagCount > 0 {
+                        Text("+\(hiddenTagCount)")
+                            .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
+                            .foregroundColor(activeSecondaryColor(0.76))
+                            .lineLimit(1)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(activeSecondaryColor(0.09))
+                            )
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(String(
+                    format: String(
+                        localized: "sidebar.workspaceTags.accessibilityLabel",
+                        defaultValue: "Tags: %@"
+                    ),
+                    locale: .current,
+                    workspaceSnapshot.customTags.joined(separator: ", ")
+                ))
+            }
+
             if let subtitle = effectiveSubtitle {
                 Text(subtitle)
                     .font(magnifiedFont(scaledFontSize(10)))
@@ -14297,6 +14670,14 @@ struct TabItemView: View, Equatable {
             multi: String(localized: "contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
             single: String(localized: "contextMenu.clearLatestNotification", defaultValue: "Clear Latest Notification"),
             isMulti: isMulti)
+        let editWorkspaceTagsLabel = contextMenuLabel(
+            multi: String(localized: "contextMenu.editWorkspaceTags.multi", defaultValue: "Edit Workspace Tags…"),
+            single: String(localized: "contextMenu.editWorkspaceTags.single", defaultValue: "Edit Workspace Tags…"),
+            isMulti: isMulti)
+        let clearWorkspaceTagsLabel = contextMenuLabel(
+            multi: String(localized: "contextMenu.clearWorkspaceTags.multi", defaultValue: "Clear Workspace Tags"),
+            single: String(localized: "contextMenu.clearWorkspaceTags.single", defaultValue: "Clear Workspace Tags"),
+            isMulti: isMulti)
         let copyWorkspaceIDLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.copyWorkspaceIDs", defaultValue: "Copy Workspace IDs"),
             single: String(localized: "contextMenu.copyWorkspaceID", defaultValue: "Copy Workspace ID"),
@@ -14367,6 +14748,18 @@ struct TabItemView: View, Equatable {
             }
         }
 
+        Button(editWorkspaceTagsLabel) {
+            promptWorkspaceTags(targetIds: targetIds)
+        }
+        .disabled(targetIds.isEmpty)
+
+        Button(clearWorkspaceTagsLabel) {
+            tabManager.clearWorkspaceTags(forWorkspaceIds: targetIds)
+        }
+        .disabled(!targetIds.contains { workspaceId in
+            tabManager.tabs.first(where: { $0.id == workspaceId })?.hasCustomTags == true
+        })
+
         if !remoteContextMenuWorkspaceIds.isEmpty {
             Divider()
 
@@ -14432,12 +14825,12 @@ struct TabItemView: View, Equatable {
         Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
             moveBy(-1)
         }
-        .disabled(index == 0)
+        .disabled(index == 0 || activeWorkspaceTagFilter != nil)
 
         Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
             moveBy(1)
         }
-        .disabled(index >= tabManager.tabs.count - 1)
+        .disabled(index >= tabManager.tabs.count - 1 || activeWorkspaceTagFilter != nil)
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
             tabManager.moveTabsToTop(Set(targetIds))
@@ -14487,12 +14880,12 @@ struct TabItemView: View, Equatable {
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
             closeTabsBelow(tabId: tab.id)
         }
-        .disabled(index >= tabManager.tabs.count - 1)
+        .disabled(index >= tabManager.tabs.count - 1 || activeWorkspaceTagFilter != nil)
 
         Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
             closeTabsAbove(tabId: tab.id)
         }
-        .disabled(index == 0)
+        .disabled(index == 0 || activeWorkspaceTagFilter != nil)
 
         Divider()
 
@@ -14574,6 +14967,16 @@ struct TabItemView: View, Equatable {
     }
 
     private func moveBy(_ delta: Int) {
+        // Relative reorders run in full `tabManager.tabs` coordinates (`index` is the
+        // full-list index). Under a tag filter the sidebar shows only matching rows,
+        // so a ±1 step can cross a hidden workspace and leave the visible order
+        // unchanged — the same divergence that disables drag reordering while
+        // filtered (`workspaceReorderPlan`). Refuse here too so the context-menu and
+        // accessibility Move Up/Down actions stay consistent with drag; clear the
+        // filter to reorder.
+        guard SidebarWorkspacePositionRelativeActionGate().allows(
+            activeWorkspaceTagFilter: activeWorkspaceTagFilter
+        ) else { return }
         let targetIndex = index + delta
         guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
         guard tabManager.reorderWorkspace(tabId: tab.id, toIndex: targetIndex) else { return }
@@ -14608,13 +15011,29 @@ struct TabItemView: View, Equatable {
             : nil
 
         if isShift, let anchorIndex = shiftAnchorIndex {
-            let lower = min(anchorIndex, index)
-            let upper = max(anchorIndex, index)
-            // Filter out workspaces hidden inside collapsed groups so a
-            // Shift-click range never silently includes rows the user
-            // can't see (e.g. clicking a collapsed group's anchor and
-            // then Shift-clicking a row below would otherwise sweep
-            // every collapsed child between them).
+            // A Shift-click range walks the full workspace order between the
+            // anchor and the click, but the sidebar hides rows in one of two
+            // mutually exclusive ways. Both raw sets are computed here and the
+            // policy decides which applies (a tag filter flattens groups, so
+            // collapse-hiding is disregarded under it):
+            //
+            //  - A tag filter flattens groups (`groupsById: [:]`) and renders
+            //    *only* matching workspaces as flat rows. Collapse state is
+            //    ignored, so a collapsed-group member that matches the filter is
+            //    visible and must stay selectable.
+            //  - With no filter, groups render normally and non-anchor members of
+            //    collapsed groups are hidden, so those ids are dropped from the
+            //    range (e.g. clicking a collapsed group's anchor then
+            //    Shift-clicking below must not sweep the hidden children between).
+            //
+            // The filter match uses the same folding key as the sidebar
+            // projection (`WorkspaceTagProjection.key(for:)`), so the matching
+            // set is exactly the rows the filter renders.
+            let tagFilterMatchingIds: Set<UUID>? = activeWorkspaceTagFilter.map { filterTag in
+                Set(tabManager.tabs.lazy
+                    .filter { Workspace.customTags($0.customTags, containMatchFor: filterTag) }
+                    .map(\.id))
+            }
             let collapsedGroupIds: Set<UUID> = Set(
                 tabManager.workspaceGroups
                     .filter { $0.isCollapsed }
@@ -14623,14 +15042,21 @@ struct TabItemView: View, Equatable {
             let anchorIdsByGroup: [UUID: UUID] = Dictionary(
                 uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
             )
-            let rangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
-                if let gid = tab.groupId,
-                   collapsedGroupIds.contains(gid),
-                   anchorIdsByGroup[gid] != tab.id {
-                    return nil
+            let collapsedGroupHiddenIds: Set<UUID> = Set(
+                tabManager.tabs.compactMap { tab -> UUID? in
+                    guard let gid = tab.groupId,
+                          collapsedGroupIds.contains(gid),
+                          anchorIdsByGroup[gid] != tab.id else { return nil }
+                    return tab.id
                 }
-                return tab.id
-            }
+            )
+            let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
+                anchorIndex: anchorIndex,
+                clickedIndex: index,
+                liveWorkspaceIds: workspaceIds,
+                tagFilterMatchingIds: tagFilterMatchingIds,
+                collapsedGroupHiddenIds: collapsedGroupHiddenIds
+            )
             if isCommand {
                 selectedTabIds.formUnion(rangeIds)
             } else {
@@ -14673,12 +15099,25 @@ struct TabItemView: View, Equatable {
     }
 
     private func closeTabsBelow(tabId: UUID) {
+        // Close-below resolves against the full `tabManager.tabs` order, so under a
+        // tag filter it would close hidden workspaces sitting below the row in full
+        // order even though they are not visible. Refuse while filtered, matching the
+        // Move Up/Down and drag-reorder gates (the context-menu button is likewise
+        // disabled); clear the filter to close by position.
+        guard SidebarWorkspacePositionRelativeActionGate().allows(
+            activeWorkspaceTagFilter: activeWorkspaceTagFilter
+        ) else { return }
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
         closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsAbove(tabId: UUID) {
+        // See closeTabsBelow: refuse while a tag filter hides rows so we never close
+        // workspaces the user cannot see above the row in full order.
+        guard SidebarWorkspacePositionRelativeActionGate().allows(
+            activeWorkspaceTagFilter: activeWorkspaceTagFilter
+        ) else { return }
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
         closeTabs(idsToClose, allowPinned: true)
@@ -14836,6 +15275,7 @@ struct TabItemView: View, Equatable {
             presentationKey: workspaceSnapshotPresentationKey,
             title: tab.title,
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
+            customTags: tab.customTags,
             isPinned: tab.isPinned,
             customColorHex: tab.customColor,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
@@ -15294,6 +15734,54 @@ struct TabItemView: View, Equatable {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+    }
+
+    private func promptWorkspaceTags(targetIds: [UUID]) {
+        guard !targetIds.isEmpty else { return }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "alert.workspaceTags.title", defaultValue: "Workspace Tags")
+        alert.informativeText = String(
+            localized: "alert.workspaceTags.message",
+            defaultValue: "Enter tags separated by commas."
+        )
+        // `nil` seed means the targets have differing tags (mixed selection);
+        // the field starts blank so the user isn't shown one workspace's tags as
+        // if they applied to all.
+        let seed = workspaceTagsPromptSeed(targetIds: targetIds)
+        let input = NSTextField(string: seed ?? "")
+        input.placeholderString = String(
+            localized: "alert.workspaceTags.placeholder",
+            defaultValue: "In CI, Waiting for review"
+        )
+        input.frame = NSRect(x: 0, y: 0, width: 280, height: 22)
+        alert.accessoryView = input
+        alert.addButton(withTitle: String(localized: "alert.workspaceTags.apply", defaultValue: "Apply"))
+        alert.addButton(withTitle: String(localized: "alert.workspaceTags.cancel", defaultValue: "Cancel"))
+        alert.window.initialFirstResponder = input
+
+        let response = runCmuxModalAlert(alert)
+        guard response == .alertFirstButtonReturn else { return }
+        // A mixed selection seeds a blank field. Applying it unchanged would
+        // clear tags on every target — data loss the user did not request — so
+        // treat "blank field for a mixed selection, left untouched" as a no-op.
+        // A uniform selection has a concrete seed (possibly ""), so clearing its
+        // field still applies as an intentional "remove all tags".
+        let editingText = input.stringValue
+        if seed == nil, editingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return
+        }
+        tabManager.applyWorkspaceTags(editingText: editingText, toWorkspaceIds: targetIds)
+    }
+
+    private func workspaceTagsPromptSeed(targetIds: [UUID]) -> String? {
+        let targetTags = targetIds.compactMap { workspaceId in
+            tabManager.tabs.first(where: { $0.id == workspaceId })?.customTags
+        }
+        guard let first = targetTags.first,
+              targetTags.allSatisfy({ $0 == first }) else {
+            return nil
+        }
+        return first.joined(separator: ", ")
     }
 
     private func beginWorkspaceDescriptionEditFromContextMenu() {

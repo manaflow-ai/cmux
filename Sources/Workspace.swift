@@ -122,6 +122,7 @@ extension Workspace {
             customTitle: customTitle,
             customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
+            customTags: customTags.isEmpty ? nil : customTags,
             customColor: customColor,
             isPinned: isPinned,
             groupId: groupId,
@@ -211,6 +212,7 @@ extension Workspace {
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setCustomDescription(snapshot.customDescription)
+        setCustomTags(snapshot.customTags ?? [])
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
@@ -2212,6 +2214,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// cannot prove it owns.
     @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
+    @Published var customTags: [String] = []
     @Published var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
@@ -3084,6 +3087,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.customTitle = nil
         self.customTitleSource = nil
         self.customDescription = nil
+        self.customTags = []
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
@@ -4431,6 +4435,10 @@ final class Workspace: Identifiable, ObservableObject {
         Self.normalizedCustomDescription(customDescription) != nil
     }
 
+    var hasCustomTags: Bool {
+        !customTags.isEmpty
+    }
+
     func applyProcessTitle(_ title: String) {
         if processTitle != title {
             processTitle = title
@@ -4471,6 +4479,160 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmed = normalizedLineEndings?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !trimmed.isEmpty else { return nil }
         return normalizedLineEndings
+    }
+
+    /// Upper bound on the number of custom tags stored per workspace.
+    static let maxCustomTagCount = 64
+    /// Upper bound on each stored tag's character length.
+    static let maxCustomTagLength = 64
+    /// Upper bound on the raw scalars scanned into a single tag token from
+    /// editing text before `normalizedCustomTags` collapses whitespace and
+    /// truncates to `maxCustomTagLength`. Generous relative to the final cap so
+    /// realistic tags (which never carry hundreds of leading spaces) are
+    /// untouched, while a pathological single field — e.g. a multi-megabyte
+    /// paste with no delimiter — can't allocate or whitespace-split proportional
+    /// to its full length.
+    static let maxEditingTagTokenScanLength = maxCustomTagLength * 16
+    /// Upper bound on the *total* scalars the editing tokenizer scans across all
+    /// tokens before it stops yielding, independent of how many tags are
+    /// accepted. Neither the per-token cap nor the `maxCustomTagCount`
+    /// accepted-tag cap bounds input that is almost entirely empty or duplicate
+    /// tokens — bare-comma floods, whitespace-only fields, or a repeated `a,` —
+    /// because those hit the normalizer's `continue` paths without advancing the
+    /// accepted count, so without this budget the tokenizer would still walk the
+    /// entire paste on the main actor. Sized to comfortably cover the largest
+    /// well-formed input (`maxCustomTagCount` tokens each scanned to
+    /// `maxEditingTagTokenScanLength` plus its delimiter) so realistic pastes are
+    /// never truncated; a paste that exceeds it is pathological and its tail is
+    /// intentionally dropped in favor of bounding main-thread work.
+    static let maxEditingTagTotalScanLength = maxCustomTagCount * (maxEditingTagTokenScanLength + 1)
+
+    /// Normalizes an arbitrary sequence of raw tag strings into the stored form:
+    /// whitespace-collapsed, length- and count-bounded, deduplicated by folding
+    /// key. Accepts any `Sequence` so a lazy tokenizer can feed tokens on demand
+    /// and stop being pulled once `maxCustomTagCount` tags are collected.
+    static func normalizedCustomTags(_ tags: some Sequence<String>) -> [String] {
+        var seenKeys = Set<String>()
+        var normalizedTags: [String] = []
+        normalizedTags.reserveCapacity(maxCustomTagCount)
+
+        for tag in tags {
+            // Bound count and per-tag length at the single normalization
+            // choke point (storage, snapshot restore, and the sidebar tag
+            // projection all route through here). Tags feed the sidebar
+            // projection, filter menu, and autosave fingerprint, so an
+            // unbounded paste (e.g. a CSV/log) must not create thousands of
+            // long-lived tags or multi-kilobyte tag strings that scale that
+            // repeated work.
+            if normalizedTags.count >= maxCustomTagCount { break }
+            var normalized = tag
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            guard !normalized.isEmpty else { continue }
+            if normalized.count > maxCustomTagLength {
+                // Truncating mid-string can cut on the space that joins two
+                // collapsed words, leaving a trailing separator; trim it so the
+                // stored tag never ends in whitespace. The prefix always starts
+                // with a non-whitespace scalar (whitespace was the join
+                // separator), so trimming can never empty it.
+                normalized = String(normalized.prefix(maxCustomTagLength))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            let key = Self.customTagFoldingKey(normalized)
+            guard seenKeys.insert(key).inserted else { continue }
+            normalizedTags.append(normalized)
+        }
+
+        return normalizedTags
+    }
+
+    /// Case- and diacritic-insensitive folding key for comparing custom tags.
+    /// The dedup in `normalizedCustomTags`, the sidebar tag projection, and the
+    /// Shift-click range clamp all fold through this one function so a tag
+    /// filter and the selection it drives agree on what "matches".
+    ///
+    /// `nonisolated` because the sidebar's `WorkspaceTagProjection.key(for:)`
+    /// runs in a nonisolated context; the body is pure (`String.folding` plus
+    /// `Locale.current`) so it needs no main-actor state.
+    nonisolated static func customTagFoldingKey(_ tag: String) -> String {
+        tag.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    /// Whether `tags` (after normalization) contain a tag matching `filterTag`
+    /// under the shared folding key.
+    static func customTags(_ tags: [String], containMatchFor filterTag: String) -> Bool {
+        let filterKey = customTagFoldingKey(filterTag)
+        return normalizedCustomTags(tags).contains { customTagFoldingKey($0) == filterKey }
+    }
+
+    static func customTags(fromEditingText text: String) -> [String] {
+        // Tokenize lazily on `,`/`\n` and normalize through the shared choke
+        // point. Splitting eagerly with `components(separatedBy:)` would
+        // allocate an array proportional to the whole (untrusted) paste before
+        // any limit applies; the lazy tokenizer instead lets
+        // `normalizedCustomTags` stop pulling once it has `maxCustomTagCount`
+        // tags, and bounds each token's length so a single giant field can't
+        // blow up the per-token whitespace split either.
+        normalizedCustomTags(
+            EditingTagTokenSequence(
+                text: text,
+                maxTokenScanLength: maxEditingTagTokenScanLength,
+                maxTotalScanLength: maxEditingTagTotalScanLength
+            )
+        )
+    }
+
+    /// Lazily splits editing text into raw tag tokens on `,`/`\n`, matching the
+    /// unicode-scalar semantics of `components(separatedBy: CharacterSet(...))`
+    /// while (a) yielding tokens on demand so a consumer can stop early and
+    /// (b) capping each token at `maxTokenScanLength` scalars. A token longer
+    /// than the cap is still scanned to its delimiter (single pass, O(1) extra
+    /// memory) but only its bounded prefix is materialized, so an unbounded
+    /// field can't allocate proportional to its full length. Empty tokens
+    /// between consecutive delimiters are preserved (the normalizer drops them).
+    ///
+    /// A `maxTotalScanLength` budget caps the scalars scanned across *all*
+    /// tokens: the per-token cap and the consumer's accepted-tag cap don't bound
+    /// input dominated by empty or duplicate tokens (they reach neither cap), so
+    /// this budget is what stops a bare-comma / repeated-token flood from walking
+    /// the whole paste. Once the budget is spent the iterator ends, dropping any
+    /// remaining tail — acceptable because it only triggers on pastes far larger
+    /// than any well-formed tag list.
+    private struct EditingTagTokenSequence: Sequence {
+        let text: String
+        let maxTokenScanLength: Int
+        let maxTotalScanLength: Int
+
+        func makeIterator() -> AnyIterator<String> {
+            let scalars = text.unicodeScalars
+            var index = scalars.startIndex
+            let end = scalars.endIndex
+            var scanned = 0
+            return AnyIterator {
+                // Exhausted once every scalar is consumed OR the total-scan
+                // budget is spent. A token returned at a delimiter that is the
+                // final scalar leaves `index == end`, so the trailing empty
+                // segment is intentionally not emitted (the normalizer would
+                // drop it anyway).
+                guard index < end, scanned < maxTotalScanLength else { return nil }
+                var token = String.UnicodeScalarView()
+                var appended = 0
+                while index < end, scanned < maxTotalScanLength {
+                    let scalar = scalars[index]
+                    index = scalars.index(after: index)
+                    scanned += 1
+                    if scalar == "," || scalar == "\n" {
+                        return String(token)
+                    }
+                    if appended < maxTokenScanLength {
+                        token.append(scalar)
+                        appended += 1
+                    }
+                }
+                return String(token)
+            }
+        }
     }
 
     /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
@@ -4516,6 +4678,14 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         customDescription = normalizedDescription
+    }
+
+    func setCustomTags(_ tags: [String]) {
+        customTags = Self.normalizedCustomTags(tags)
+    }
+
+    func setCustomTags(fromEditingText text: String) {
+        setCustomTags(Self.customTags(fromEditingText: text))
     }
 
     // MARK: - Directory Updates
