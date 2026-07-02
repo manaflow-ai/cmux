@@ -407,6 +407,37 @@ struct TerminalViewportSpacingTests {
             """)
     }
 
+    /// On a cold direct attach, the phone can queue its first natural-grid
+    /// viewport report before the Mac's render-grid replay chunk arrives. That
+    /// initial pending report is not stale viewport-growth state, so it must not
+    /// block an authoritative non-empty remote grid from top-anchoring.
+    @Test("initial pending viewport report does not block direct remote-grid top anchoring")
+    func initialPendingReportAllowsRemoteGridTopAnchoring() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let initial = try #require(await harness.waitForReport(after: 0))
+
+        let rows = 8
+        await harness.view.applyViewSizeAndWait(
+            cols: initial.columns,
+            rows: rows,
+            allowsTopGapCorrection: true
+        )
+        let topAnchored = await harness.pump(timeout: 8) {
+            let snap = harness.snapshot
+            return snap.effectiveGrid?.rows == rows
+                && renderMatchesPin(harness)
+                && harness.topGap <= 1
+                && harness.bottomGap > harness.cellHeightPoints * 2
+        }
+        #expect(topAnchored, """
+            initial pending viewport report blocked top anchoring: \
+            top gap \(harness.topGap)pt, bottom gap \(harness.bottomGap)pt, \
+            eff \(harness.snapshot.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")
+            """)
+    }
+
     /// THE STRETCH FEATURE: when the Mac window (or any other attached device)
     /// constrains the shared PTY to fewer rows than the phone can show at its
     /// base font, the phone must not park a dead band above the content — it
