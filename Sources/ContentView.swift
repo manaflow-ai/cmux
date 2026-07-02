@@ -10710,6 +10710,26 @@ struct VerticalTabsSidebar: View {
                   !tabIds.contains(frozenTabId) else { return }
             frozenShortcutHintsTabId = nil
         }
+        .onChange(of: tabManager.selectedTabId) { _, newSelectedId in
+            // Selecting a workspace that does not carry the active tag would
+            // leave the user focused on a row the filter immediately hides.
+            // This fires for every path that changes the selection to a
+            // non-matching workspace — creating a new (untagged) workspace via
+            // the empty-area double-click, cmd-T, the + button, or the command
+            // palette, as well as a CLI/socket select — so the filter is
+            // cleared once and the newly selected workspace stays visible.
+            // Merely applying a filter that hides the current selection does
+            // not change `selectedTabId`, so intentional filtering is left
+            // untouched. `activeWorkspaceTagFilter` is already nil unless the
+            // default workspace sidebar is showing, so this never disturbs a
+            // filter while an extension sidebar is active.
+            guard let filter = activeWorkspaceTagFilter,
+                  let newSelectedId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == newSelectedId }),
+                  !Workspace.customTags(workspace.customTags, containMatchFor: filter)
+            else { return }
+            selectedWorkspaceTagFilter = nil
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
