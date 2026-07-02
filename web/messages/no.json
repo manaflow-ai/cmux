@@ -844,7 +844,9 @@
         },
         "fileExplorer": {
           "description": "Innstillinger for filutforskeren (filtreet) i høyre sidepanel.",
-          "doubleClickAction": "Bestemmer hva som skjer når du dobbeltklikker (eller trykker Return på et søkeresultat for) en fil i filutforskeren. `preview` åpner den innebygde cmux-filforhåndsvisningen (standard og historisk oppførsel). `defaultEditor` åpner med macOS-standardappen for filtypen. `preferredEditor` åpner med kommandoen `app.preferredEditor`, med fallback til standardappen når ingen er satt. Gjelder bare filer; mapper utvides/skjules alltid, og ikke-lokale (eksterne) filutforskere åpner alltid cmux-forhåndsvisningen."
+          "doubleClickAction": "Bestemmer hva som skjer når du dobbeltklikker (eller trykker Return på et søkeresultat for) en fil i filutforskeren. `preview` åpner den innebygde cmux-filforhåndsvisningen (standard og historisk oppførsel). `defaultEditor` åpner med macOS-standardappen for filtypen. `preferredEditor` åpner med kommandoen `app.preferredEditor`, med fallback til standardappen når ingen er satt. Gjelder bare filer; mapper utvides/skjules alltid, og ikke-lokale (eksterne) filutforskere åpner alltid cmux-forhåndsvisningen.",
+          "sortBy": "Hvordan filutforskeren sorterer oppføringer. `name` beholder den historiske alfabetiske rekkefølgen med mapper først; datosortering bruker opprettelses- eller endringstidspunktet for hver oppføring, og oppføringer uten dette tidspunktet plasseres sist.",
+          "sortOrder": "Sorteringsretning for filutforskeren. Ved datosortering plasserer `descending` nyere oppføringer først."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

@@ -126,3 +126,49 @@ import Testing
         )
     }
 }
+
+@Suite struct FileExplorerSortSettingsTests {
+    private func makeDefaults() -> UserDefaults {
+        let suiteName = "cmux-file-explorer-sort-tests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+
+    @Test func defaultSortIsNameAscending() {
+        #expect(FileExplorerSortOptions.defaultValue == FileExplorerSortOptions(key: .name, order: .ascending))
+    }
+
+    @Test func parsesEachKnownSortKeyRawValue() {
+        #expect(FileExplorerSortKey(resolvingRawValue: "name") == .name)
+        #expect(FileExplorerSortKey(resolvingRawValue: "dateCreated") == .dateCreated)
+        #expect(FileExplorerSortKey(resolvingRawValue: "dateModified") == .dateModified)
+    }
+
+    @Test func parsesEachKnownSortOrderRawValue() {
+        #expect(FileExplorerSortOrder(resolvingRawValue: "ascending") == .ascending)
+        #expect(FileExplorerSortOrder(resolvingRawValue: "descending") == .descending)
+    }
+
+    @Test func unknownSortValuesFallBackToDefaults() {
+        for raw in [nil, "", "modified", "date-created", "DESC", "newest"] {
+            #expect(FileExplorerSortKey(resolvingRawValue: raw) == .name)
+            #expect(FileExplorerSortOrder(resolvingRawValue: raw) == .ascending)
+        }
+    }
+
+    @Test func rawValuesMatchConfigSchema() {
+        #expect(FileExplorerSortKey.allCases.map(\.rawValue) == ["name", "dateCreated", "dateModified"])
+        #expect(FileExplorerSortOrder.allCases.map(\.rawValue) == ["ascending", "descending"])
+    }
+
+    @Test func resolvedOptionsRoundTripThroughUserDefaults() {
+        let defaults = makeDefaults()
+        let settings = FileExplorerSortSettings(defaults: defaults, notificationCenter: NotificationCenter())
+        let options = FileExplorerSortOptions(key: .dateModified, order: .descending)
+
+        settings.setOptions(options)
+
+        #expect(settings.resolvedOptions() == options)
+    }
+}

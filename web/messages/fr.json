@@ -844,7 +844,9 @@
         },
         "fileExplorer": {
           "description": "Paramètres de l’explorateur de fichiers (arborescence) dans la barre latérale droite.",
-          "doubleClickAction": "Ce que fait un double-clic (ou l’appui sur Return dans un résultat de recherche) sur un fichier dans l’explorateur de fichiers. `preview` ouvre l’aperçu de fichier intégré à cmux (comportement par défaut et historique). `defaultEditor` ouvre le fichier avec l’app macOS par défaut pour ce type de fichier. `preferredEditor` ouvre avec la commande `app.preferredEditor`, avec repli vers l’app par défaut lorsqu’aucune commande n’est définie. S’applique uniquement aux fichiers ; les dossiers se développent/se replient toujours, et les explorateurs de fichiers non locaux (distants) ouvrent toujours l’aperçu cmux."
+          "doubleClickAction": "Ce que fait un double-clic (ou l’appui sur Return dans un résultat de recherche) sur un fichier dans l’explorateur de fichiers. `preview` ouvre l’aperçu de fichier intégré à cmux (comportement par défaut et historique). `defaultEditor` ouvre le fichier avec l’app macOS par défaut pour ce type de fichier. `preferredEditor` ouvre avec la commande `app.preferredEditor`, avec repli vers l’app par défaut lorsqu’aucune commande n’est définie. S’applique uniquement aux fichiers ; les dossiers se développent/se replient toujours, et les explorateurs de fichiers non locaux (distants) ouvrent toujours l’aperçu cmux.",
+          "sortBy": "Définit la façon dont l’explorateur de fichiers trie les éléments. `name` conserve l’ordre alphabétique historique avec les dossiers en premier ; les tris par date utilisent l’horodatage de création ou de modification de chaque élément, et les éléments sans horodatage sont placés à la fin.",
+          "sortOrder": "Sens de tri de l’explorateur de fichiers. Pour un tri par date, `descending` place les éléments les plus récents en premier."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

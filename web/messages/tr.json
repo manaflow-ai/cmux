@@ -844,7 +844,9 @@
         },
         "fileExplorer": {
           "description": "Sağ kenar çubuğundaki dosya gezgini (dosya ağacı) ayarları.",
-          "doubleClickAction": "Dosya gezgininde bir dosyaya çift tıklamanın (veya bir arama sonucunda Return tuşuna basmanın) ne yapacağını belirler. `preview`, yerleşik cmux dosya önizlemesini açar (varsayılan ve geçmiş davranış). `defaultEditor`, dosya türü için macOS varsayılan uygulamasıyla açar. `preferredEditor`, `app.preferredEditor` komutuyla açar; ayarlı değilse varsayılan uygulamaya geri döner. Yalnızca dosyalar için geçerlidir; dizinler her zaman genişletilir/daraltılır ve yerel olmayan (uzak) dosya gezginleri her zaman cmux önizlemesini açar."
+          "doubleClickAction": "Dosya gezgininde bir dosyaya çift tıklamanın (veya bir arama sonucunda Return tuşuna basmanın) ne yapacağını belirler. `preview`, yerleşik cmux dosya önizlemesini açar (varsayılan ve geçmiş davranış). `defaultEditor`, dosya türü için macOS varsayılan uygulamasıyla açar. `preferredEditor`, `app.preferredEditor` komutuyla açar; ayarlı değilse varsayılan uygulamaya geri döner. Yalnızca dosyalar için geçerlidir; dizinler her zaman genişletilir/daraltılır ve yerel olmayan (uzak) dosya gezginleri her zaman cmux önizlemesini açar.",
+          "sortBy": "Dosya gezgininin öğeleri nasıl sıralayacağını belirler. `name`, klasörlerin önce geldiği eski alfabetik sıralamayı korur; tarih sıralamaları her öğenin oluşturulma veya değiştirilme zaman damgasını kullanır ve bu zaman damgası olmayan öğeleri sona koyar.",
+          "sortOrder": "Dosya gezgini için sıralama yönü. Tarih sıralamasında `descending`, daha yeni öğeleri önce gösterir."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
