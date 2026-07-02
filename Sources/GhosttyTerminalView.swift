@@ -2873,12 +2873,21 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_SET_TITLE:
-            let title = action.action.set_title.title
+            let rawTitle = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
-            if let tabId = surfaceView.tabId,
-               let sourceSurface = surfaceView.terminalSurface {
-                let change = GhosttyTitleChange(tabId: tabId, surfaceId: sourceSurface.id, title: title)
-                DispatchQueue.main.async {
+            // Capture the emitting surface now (the view may be reused before the
+            // deferred post runs). `DispatchQueue.main.async` — not an unstructured
+            // `Task` — preserves arrival order of rapid title updates; the post is
+            // deferred so it can't re-enter layout, and `assumeIsolated` runs the
+            // main-actor dedup filter on the main thread (#6507, #4735).
+            guard let tabId = surfaceView.tabId,
+                  let sourceSurface = surfaceView.terminalSurface else { return true }
+            DispatchQueue.main.async { [weak surfaceView] in
+                MainActor.assumeIsolated {
+                    guard let surfaceView,
+                          let stableTitle = surfaceView.titleChurnFilter.titleToDispatch(for: rawTitle, surfaceID: sourceSurface.id)
+                    else { return }
+                    let change = GhosttyTitleChange(tabId: tabId, surfaceId: sourceSurface.id, title: stableTitle)
                     NotificationCenter.default.post(
                         name: .ghosttyDidSetTitle,
                         object: sourceSurface,
@@ -3346,6 +3355,10 @@ extension TerminalSurface {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
+    /// Per-surface spinner-frame title dedup (``TerminalTitleChurnFilter``;
+    /// #6507 / #4735). Main-actor only, used in the deferred title post below.
+    var titleChurnFilter = TerminalTitleChurnFilter()
+
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
             return true
