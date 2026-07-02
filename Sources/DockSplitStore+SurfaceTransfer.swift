@@ -54,13 +54,23 @@ extension DockSplitStore {
         // Agent resume metadata can likewise go stale while docked (the Dock
         // receives no shell-activity or agent lifecycle updates), so re-emit
         // it only while the agent is not proven dead: recorded agent pids
-        // exist and none is still running. The workspace lifecycle clears the
-        // same metadata when an agent exits at a prompt, so this mirrors it.
-        // An empty pid set stays preserved — a restored-but-unscanned agent
-        // has no pids yet, and dropping it would reintroduce the Dock
-        // round-trip metadata loss #7155 fixes.
-        let cachedAgentPIDs = (preservedTransfer?.agentRuntime?.agentPIDs ?? [:]).values.filter { $0 > 0 }
-        let agentProvenExited = !cachedAgentPIDs.isEmpty && cachedAgentPIDs.allSatisfy(Self.dockAgentPIDHasExited)
+        // exist and none is still running. Where the transfer recorded a
+        // process start-time identity, compare it so a reused pid does not
+        // masquerade as the exited agent (same contract as
+        // `isRecordedAgentPIDLive`); without one, fall back to the ESRCH
+        // probe. The workspace lifecycle clears the same metadata when an
+        // agent exits at a prompt, so this mirrors it. An empty pid set stays
+        // preserved — a restored-but-unscanned agent has no pids yet, and
+        // dropping it would reintroduce the Dock round-trip metadata loss
+        // #7155 fixes.
+        let cachedRuntime = preservedTransfer?.agentRuntime
+        let cachedAgentPIDs = (cachedRuntime?.agentPIDs ?? [:]).filter { $0.value > 0 }
+        let agentProvenExited = !cachedAgentPIDs.isEmpty && cachedAgentPIDs.allSatisfy { key, pid in
+            if let recordedIdentity = cachedRuntime?.agentPIDProcessIdentities[key] {
+                return Workspace.agentPIDProcessIdentity(pid: pid) != recordedIdentity
+            }
+            return Self.dockAgentPIDHasExited(pid)
+        }
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).

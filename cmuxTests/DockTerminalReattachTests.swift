@@ -322,6 +322,7 @@ extension DockSocketLifecycleTests {
                 panelId: panel.id,
                 statusEntries: [:],
                 agentPIDs: ["claude": deadPid],
+                agentPIDProcessIdentities: [:],
                 agentPIDKeys: ["claude"]
             )
         )
@@ -336,6 +337,105 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.resumeBinding == nil)
         #expect(roundTripped.agentRuntime == nil)
+    }
+
+    @Test("Dock detach drops agent metadata when a live pid is a reused identity")
+    @MainActor
+    func dockDetachDropsAgentMetadataWhenLivePidIsReusedIdentity() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = DockTransferTestPanel()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let sessionId = "claude-dock-reused-pid-\(UUID().uuidString)"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: "/tmp/cmux-dock-reused-pid-session",
+            launchCommand: nil
+        )
+
+        // The test host's own pid is alive (`kill` succeeds), but its recorded
+        // start-time identity deliberately mismatches — the shape of a pid
+        // that was reused by an unrelated process after the agent exited.
+        let livePid = getpid()
+        try #require(kill(livePid, 0) == 0)
+        let currentIdentity = try #require(Workspace.agentPIDProcessIdentity(pid: livePid))
+        let mismatchedIdentity = AgentPIDProcessIdentity(
+            pid: livePid,
+            startSeconds: currentIdentity.startSeconds &- 1,
+            startMicroseconds: currentIdentity.startMicroseconds
+        )
+
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: agent,
+            restorableAgentResumeState: .autoResumeCommandRunning,
+            agentRuntime: Workspace.DetachedAgentRuntimeState(
+                panelId: panel.id,
+                statusEntries: [:],
+                agentPIDs: ["claude": livePid],
+                agentPIDProcessIdentities: ["claude": mismatchedIdentity],
+                agentPIDKeys: ["claude"]
+            )
+        )
+
+        let attachedPanelId = store.attachDetachedSurface(detached, inPane: rootPane, focus: false)
+        #expect(attachedPanelId == panel.id)
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.restorableAgent == nil)
+        #expect(roundTripped.restorableAgentResumeState == nil)
+        #expect(roundTripped.agentRuntime == nil)
+    }
+
+    @Test("Dock detach keeps agent metadata while the recorded identity still runs")
+    @MainActor
+    func dockDetachKeepsAgentMetadataWhileRecordedIdentityStillRuns() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = DockTransferTestPanel()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let sessionId = "claude-dock-live-agent-\(UUID().uuidString)"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: "/tmp/cmux-dock-live-agent-session",
+            launchCommand: nil
+        )
+
+        let livePid = getpid()
+        let currentIdentity = try #require(Workspace.agentPIDProcessIdentity(pid: livePid))
+
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            restorableAgent: agent,
+            restorableAgentResumeState: .autoResumeCommandRunning,
+            agentRuntime: Workspace.DetachedAgentRuntimeState(
+                panelId: panel.id,
+                statusEntries: [:],
+                agentPIDs: ["claude": livePid],
+                agentPIDProcessIdentities: ["claude": currentIdentity],
+                agentPIDKeys: ["claude"]
+            )
+        )
+
+        let attachedPanelId = store.attachDetachedSurface(detached, inPane: rootPane, focus: false)
+        #expect(attachedPanelId == panel.id)
+
+        let roundTripped = try #require(store.detachSurface(panelId: panel.id))
+        #expect(roundTripped.restorableAgent?.sessionId == sessionId)
+        #expect(roundTripped.restorableAgentResumeState == .autoResumeCommandRunning)
+        #expect(roundTripped.agentRuntime != nil)
     }
 
     @Test("Dock process probe treats only ESRCH as exited")
