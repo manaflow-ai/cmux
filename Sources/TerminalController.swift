@@ -14078,7 +14078,8 @@ class TerminalController {
         clientID: String, generation: UInt64? = nil, requireGeneration: Bool = false,
         reason: String
     ) -> (columns: Int, rows: Int)? {
-        if requireGeneration { guard let generation else { return nil }; if let existingGeneration = mobileViewportReportsBySurfaceID[surfaceID]?[clientID]?.generation ?? mobileViewportGenerationsBySurfaceID[surfaceID]?[clientID], existingGeneration > generation { return nil }; mobileViewportGenerationsBySurfaceID[surfaceID, default: [:]][clientID] = generation }
+        if requireGeneration, let generation { if let existingGeneration = mobileViewportReportsBySurfaceID[surfaceID]?[clientID]?.generation ?? mobileViewportGenerationsBySurfaceID[surfaceID]?[clientID], existingGeneration > generation { return nil }; mobileViewportGenerationsBySurfaceID[surfaceID, default: [:]][clientID] = generation }
+        else if requireGeneration, (mobileViewportReportsBySurfaceID[surfaceID]?[clientID]?.generation ?? mobileViewportGenerationsBySurfaceID[surfaceID]?[clientID]) != nil { return nil }
         else if var generations = mobileViewportGenerationsBySurfaceID[surfaceID] { generations.removeValue(forKey: clientID); mobileViewportGenerationsBySurfaceID[surfaceID] = generations.isEmpty ? nil : generations }
         guard var reports = mobileViewportReportsBySurfaceID[surfaceID], reports[clientID] != nil else { return nil }
         reports.removeValue(forKey: clientID)
