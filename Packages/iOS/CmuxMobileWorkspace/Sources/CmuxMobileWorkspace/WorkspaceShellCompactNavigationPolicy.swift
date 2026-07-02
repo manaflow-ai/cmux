@@ -13,15 +13,22 @@ public struct WorkspaceShellCompactNavigationPolicy {
     /// - Parameters:
     ///   - currentPath: The current navigation path.
     ///   - selectedWorkspaceID: The newly selected workspace, or `nil` to clear.
-    /// - Returns: The path to apply. Stays empty when the user is at the root, clears when selection is removed, and otherwise pushes the selected workspace.
+    /// - Returns: The path to apply. Stays empty when the user is at the root,
+    ///   keeps an existing visible detail route through transient selection
+    ///   clears, and otherwise pushes the selected workspace.
     public static func pathForSelectionChange<ID: Hashable>(
         currentPath: [ID],
-        selectedWorkspaceID: ID?
+        selectedWorkspaceID: ID?,
+        visibleWorkspaceIDs: Set<ID> = []
     ) -> [ID] {
         guard !currentPath.isEmpty else {
             return currentPath
         }
         guard let selectedWorkspaceID else {
+            if let currentDetailID = currentPath.last,
+               visibleWorkspaceIDs.contains(currentDetailID) {
+                return currentPath
+            }
             return []
         }
         guard currentPath.last != selectedWorkspaceID else {

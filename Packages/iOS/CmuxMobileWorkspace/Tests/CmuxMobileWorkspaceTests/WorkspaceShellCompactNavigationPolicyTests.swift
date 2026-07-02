@@ -61,10 +61,22 @@ import Testing
     @Test func clearsWhenSelectedWorkspaceDisappears() {
         let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
             currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
-            selectedWorkspaceID: nil
+            selectedWorkspaceID: nil,
+            visibleWorkspaceIDs: [MobileWorkspacePreview.ID(rawValue: "workspace-b")]
         )
 
         #expect(path.isEmpty)
+    }
+
+    @Test func keepsVisibleDetailRouteWhenSelectionClearsTransiently() {
+        let selectedID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
+            currentPath: [selectedID],
+            selectedWorkspaceID: nil,
+            visibleWorkspaceIDs: [selectedID, MobileWorkspacePreview.ID(rawValue: "workspace-b")]
+        )
+
+        #expect(path == [selectedID])
     }
 
     @Test func keepsSelectedDetailRouteWhenVisibleWorkspaceIDsTemporarilyOmitIt() {
