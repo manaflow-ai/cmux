@@ -48,7 +48,8 @@ extension AppDelegate {
     /// app-wide Global Dock. A `workspace_id` equal to this constant means "the
     /// Dock" generically and resolves to the Dock of whichever window the rest
     /// of the routing selects (explicit `window_id`, else the caller's window).
-    static let windowDockAliasWorkspaceId = UUID(uuidString: "D0CCD0CC-0000-4000-8000-000000000001")!
+    /// Nonisolated so socket routing can compare ids off the main actor.
+    nonisolated static let windowDockAliasWorkspaceId = UUID(uuidString: "D0CCD0CC-0000-4000-8000-000000000001")!
 
     /// Whether `id` routes to a per-window Dock: either the legacy alias or the
     /// owner id (== window id) of a registered main window, even if that window's
