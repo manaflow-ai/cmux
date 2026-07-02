@@ -5,12 +5,6 @@ import Darwin
 import Foundation
 import CmuxSidebar
 
-struct AgentPIDProcessIdentity: Equatable, Sendable {
-    let pid: pid_t
-    let startSeconds: Int64
-    let startMicroseconds: Int64
-}
-
 extension Workspace {
     private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
