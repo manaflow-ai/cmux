@@ -63,6 +63,25 @@ import Testing
         #expect(policy.shouldRebindListener(health: Self.healthy, pingResponse: "ERROR"))
     }
 
+    /// In password mode a healthy listener answers an *unauthenticated* `ping`
+    /// with the auth-required challenge instead of `PONG`. Receiving it proves
+    /// the accept loop is alive and dispatching, so the listener is serving and
+    /// must not be rebound — otherwise every activation would tear down a healthy
+    /// password-protected listener and drop its connected clients.
+    @Test func healthyPasswordListenerAnsweringAuthChallengeIsServing() {
+        let policy = SocketListenerActivationRecoveryPolicy()
+        // The exact v1 wire string produced by
+        // `TerminalController.passwordAuthRequiredResponse` for a plain `ping`.
+        let v1Challenge = "ERROR: Authentication required — send auth <password> first"
+        #expect(policy.listenerIsServing(health: Self.healthy, pingResponse: v1Challenge))
+        #expect(!policy.shouldRebindListener(health: Self.healthy, pingResponse: v1Challenge))
+
+        // The v2 challenge embeds the same marker inside a JSON error payload.
+        let v2Challenge = #"{"id":1,"error":{"code":"auth_required","message":"Authentication required. Send auth <password> first."}}"#
+        #expect(policy.listenerIsServing(health: Self.healthy, pingResponse: v2Challenge))
+        #expect(!policy.shouldRebindListener(health: Self.healthy, pingResponse: v2Challenge))
+    }
+
     @Test func downListenerForcesRebindRegardlessOfPing() {
         let policy = SocketListenerActivationRecoveryPolicy()
         #expect(!policy.listenerIsServing(health: Self.down, pingResponse: nil))
