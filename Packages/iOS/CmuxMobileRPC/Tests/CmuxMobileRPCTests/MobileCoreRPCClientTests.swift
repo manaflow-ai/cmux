@@ -495,6 +495,112 @@ import Testing
         #expect(followupStackAccessTokens == ["stack-token", "stack-token"])
     }
 
+    /// A shared ticket-reference redemption must be bounded by the gate — each waiter's own
+    /// timeout plus cancellation once the last waiter leaves — not by whichever request
+    /// happened to start it. A short-deadline request that times out while the redemption is
+    /// still in flight must not poison a concurrent longer-deadline waiter. Before the fix the
+    /// redemption provider passed the triggering request's deadline into `session.send`, so the
+    /// short waiter's deadline timed out the shared redeem and the longer waiter failed too.
+    @Test func shorterWaiterTimeoutDoesNotPoisonSharedTicketRedemption() async throws {
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58467, priority: 10)
+        let scannedTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: nil,
+            ticketRef: "ticket-ref-123",
+            authToken: nil
+        )
+        let redeemedTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-1",
+            macDisplayName: "Studio",
+            routes: [route],
+            expiresAt: Date(timeIntervalSince1970: 4_000_000_000),
+            ticketRef: "ticket-ref-123",
+            authToken: "ticket-secret"
+        )
+        let redeemRelease = AsyncReleaseGate()
+        let transport = ScriptedRPCTransport { payload in
+            let request = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+            let id = request["id"] ?? NSNull()
+            switch request["method"] as? String {
+            case "mobile.attach_ticket.redeem":
+                await redeemRelease.wait()
+                return [
+                    "id": id,
+                    "ok": true,
+                    "result": ["ticket": try Self.ticketJSONObject(redeemedTicket)],
+                ]
+            case "workspace.list":
+                return [
+                    "id": id,
+                    "ok": true,
+                    "result": ["workspaces": []],
+                ]
+            default:
+                return [
+                    "id": id,
+                    "ok": false,
+                    "error": [
+                        "code": "method_not_found",
+                        "message": "unexpected method",
+                    ],
+                ]
+            }
+        }
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: ScriptedRPCTransportFactory(transport: transport),
+            stackAccessToken: "stack-token"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: scannedTicket,
+            allowsStackAuthFallback: true
+        )
+        let shortRequest = try MobileCoreRPCClient.requestData(method: "workspace.list", id: "short")
+        let longRequest = try MobileCoreRPCClient.requestData(method: "workspace.list", id: "long")
+
+        // Short-deadline request triggers redemption and becomes the first waiter.
+        let shortTask = Task {
+            try await client.sendRequest(shortRequest, timeoutNanoseconds: 100_000_000)
+        }
+        let firstSent = try await transport.waitForSentRequestCount(1)
+        #expect(firstSent.map(\.method) == ["mobile.attach_ticket.redeem"])
+
+        // Long-deadline request joins the same in-flight redemption before the short one lapses.
+        let longTask = Task {
+            try await client.sendRequest(longRequest, timeoutNanoseconds: 60 * 1_000_000_000)
+        }
+        #expect(await client.waitUntilTicketRedemptionWaiters(count: 2))
+
+        // The short waiter times out while the redemption is still held.
+        do {
+            _ = try await shortTask.value
+            Issue.record("Expected short redemption waiter to time out")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+
+        // Redemption completes after the short waiter is gone; the long waiter must still
+        // succeed because the shared redeem was never bound to the short waiter's deadline.
+        await redeemRelease.release()
+        _ = try await longTask.value
+
+        let sent = try await transport.sentRequests()
+        let redeemCount = sent
+            .map(\.method)
+            .filter { $0 == "mobile.attach_ticket.redeem" }
+            .count
+        #expect(redeemCount == 1)
+        #expect(sent.contains { $0.method == "workspace.list" })
+    }
+
     /// A QR-style unscoped ticket (empty ids, no token, no expiry) over the
     /// given route, mirroring what `CmxPairingQRCode.decode` produces.
     private func qrPairingTicket(route: CmxAttachRoute) throws -> CmxAttachTicket {
