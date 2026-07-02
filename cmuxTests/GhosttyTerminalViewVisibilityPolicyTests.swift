@@ -89,8 +89,16 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         mount.setRendering(false)
         #expect(!panel.surface.isRendererPortalVisible)
 
+        // A canvas tab that is unmounted — deselected via
+        // `CanvasRootView.reconcileMount`, or handed back to the split when
+        // leaving canvas — is no longer on screen, so it must report
+        // portal-hidden. Otherwise `RendererRealizationController` skips
+        // `releaseRenderer()` for every backgrounded canvas tab and leaks its
+        // GPU renderer. Release stays controller-driven (idle/warm policy), so
+        // the renderer is still realized here; the next `setVisibleInUI(true)`
+        // re-realizes it after a reclaim.
         mount.unmount()
-        #expect(panel.surface.isRendererPortalVisible)
+        #expect(!panel.surface.isRendererPortalVisible)
         #expect(panel.surface.isRendererRealized)
     }
 }
