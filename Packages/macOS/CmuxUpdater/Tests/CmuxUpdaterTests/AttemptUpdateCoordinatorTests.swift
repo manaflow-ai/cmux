@@ -57,6 +57,29 @@ import Testing
         #expect(!coordinator.isMonitoring)
     }
 
+    /// Regression: installing while an update prompt is already showing runs through the model's
+    /// dismiss-then-recheck sequence, which emits `.idle` TWICE before the fresh check starts —
+    /// once when the controller cancels the active prompt (`cancelActiveStateForNewCheck`) and
+    /// again when Sparkle's `dismissUpdateInstallation` callback replies to the dismissed prompt.
+    /// The second idle used to abort the coordinated install, so the "Update Available" pill kept
+    /// reappearing and NIGHTLY never downloaded. The coordinator must survive any number of pre-
+    /// check idles and only key off `.checking` as the restart signal, then confirm the resolved
+    /// update.
+    @Test func doubleIdleFromDismissDoesNotAbortInstall() {
+        var coordinator = AttemptUpdateCoordinator()
+        _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
+
+        // cancelActiveStateForNewCheck() → idle, then Sparkle's dismissUpdateInstallation → idle.
+        #expect(coordinator.handleStateChange(.idle) == .none)
+        #expect(coordinator.handleStateChange(.idle) == .none)
+        #expect(coordinator.isMonitoring)
+
+        // The fresh check starts and resolves the latest version — install THAT one.
+        #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
+        #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .confirmInstall)
+        #expect(!coordinator.isMonitoring)
+    }
+
     /// A lingering repeat of the pre-request prompt (before the fresh check actually restarts) must
     /// be ignored, so we never confirm the stale version even if Sparkle re-emits it.
     @Test func ignoresStalePromptUntilCheckRestarts() {
