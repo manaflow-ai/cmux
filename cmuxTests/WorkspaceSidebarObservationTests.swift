@@ -91,6 +91,54 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         )
     }
 
+    func testSidebarObservationPublisherIgnoresLifecycleChurnWithUnchangedRunningCount() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+        publishCount = 0
+
+        // Non-running churn on another key leaves the visible running count at
+        // 1, so the row must not repaint (the observation state reduces to the
+        // count before removeDuplicates()).
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .needsInput)
+
+        XCTAssertEqual(
+            publishCount,
+            0,
+            "Lifecycle churn that leaves the running-agent count unchanged must not invalidate sidebar rows."
+        )
+    }
+
+    func testClearAgentLifecycleWithNilPanelClearsKeySetOnSpecificPanel() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.setAgentLifecycle(key: "manual", panelId: panelId, lifecycle: .running)
+        XCTAssertEqual(
+            SidebarAgentActivitySummary.activeCodingAgentCount(
+                statesByPanelId: workspace.agentLifecycleStatesByPanelId
+            ),
+            1
+        )
+
+        // The workspace-scoped `cmux workspace loading off` path clears with a
+        // nil panel id; it must remove the key even though `on` targeted a
+        // specific panel (the cross-surface off bug).
+        XCTAssertTrue(workspace.clearAgentLifecycle(key: "manual", panelId: nil))
+        XCTAssertEqual(
+            SidebarAgentActivitySummary.activeCodingAgentCount(
+                statesByPanelId: workspace.agentLifecycleStatesByPanelId
+            ),
+            0
+        )
+    }
+
     func testActiveCodingAgentCountOnlyCountsRunningAgents() {
         let firstPanelId = UUID()
         let secondPanelId = UUID()

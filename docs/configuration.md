@@ -69,17 +69,23 @@ Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from
 
 ## `sidebar.showAgentActivity`
 
-Shows a compact spinner and count on sidebar workspace rows that currently have running coding agents.
+Shows a loading spinner on sidebar workspace rows that currently have running coding agents or active manual loaders (`cmux workspace loading on`).
 
 ```json
 {
   "sidebar": {
-    "showAgentActivity": true
+    "showAgentActivity": true,
+    "loadingSpinnerPosition": "leading",
+    "notificationBadgePosition": "leading"
   }
 }
 ```
 
-Default: `true`. The spinner is compositor-driven, so the row does not need a SwiftUI timer to animate. Toggle it from **Settings > Sidebar > Show Active Agents in Sidebar**.
+- `showAgentActivity`: show the spinner at all. Default: `true`. It is a live status signal, so it stays visible even when `sidebar.hideAllDetails` is on. Toggle it from **Settings > Sidebar > Show Loading Spinner**.
+- `loadingSpinnerPosition`: `leading` (left, sharing the unread-badge slot) or `trailing` (right, in the close-button corner). Default: `leading`.
+- `notificationBadgePosition`: which side the unread notification badge sits on, `leading` or `trailing`. Default: `leading`.
+
+The spinner is compositor-driven (a Core Animation transform run by the render server), so it costs no per-frame CPU and pauses automatically while the window is occluded or Reduce Motion is on. Toggle it manually per workspace with `cmux workspace loading <on|off> [--id <name>]`; each `--id` is a separate loader and the command prints the workspace state as `before=ON;after=OFF`.
 
 ## `automation.workspaceAutoNaming`
 

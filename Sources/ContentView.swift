@@ -13476,8 +13476,10 @@ struct TabItemView: View, Equatable {
         .safeHelp(activeCodingAgentTooltip)
         .accessibilityLabel(Text(activeCodingAgentTooltip))
 
+        let titleRowSpacing: CGFloat = 8
+
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .top, spacing: titleRowSpacing) {
                 // Leading status slot. The unread badge and the left-positioned
                 // spinner share this one fixed-height slot (the spinner takes
                 // over while loading). The slot is always present so its WIDTH
@@ -13501,7 +13503,7 @@ struct TabItemView: View, Equatable {
                     height: scaledUnreadBadgeSize
                 )
                 .opacity(leadingSlotActive ? 1 : 0)
-                .padding(.trailing, leadingSlotActive ? 0 : -8)
+                .padding(.trailing, leadingSlotActive ? 0 : -titleRowSpacing)
                 .clipped()
 
                 if workspaceSnapshot.isPinned {

@@ -172,7 +172,12 @@ final class GPUSpinnerNSView: NSView {
     }
 
     private func applyColor() {
-        let cg = Self.resolvedCGColor(color)
+        // Resolve in this view's effective appearance so semantic colors pick
+        // up the right light/dark variant regardless of the ambient context.
+        var cg = CGColor(gray: 0.6, alpha: 1)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            cg = Self.resolvedCGColor(color)
+        }
         switch style {
         case .macOSSpokes:
             for spoke in spokeLayers {
@@ -216,6 +221,13 @@ final class GPUSpinnerNSView: NSView {
         // rebuild the static appearance before re-evaluating the animation.
         layoutContent()
         updateAnimationState()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        // Semantic colors (secondaryLabelColor, …) are snapshotted into CGColors
+        // at apply time, so re-resolve on light/dark switches.
+        applyColor()
     }
 
     private var shouldAnimate: Bool {

@@ -296,6 +296,11 @@ extension ControlCommandCoordinator {
     /// loading toggle. `off` clears the loader from every panel so it turns off
     /// regardless of which surface ran it. Reports the workspace loading-spinner
     /// state before and after, e.g. `before=ON;after=OFF`.
+    ///
+    /// Keys are restricted to the manual loader namespace (the wire twin of the
+    /// app's `AgentHibernationLifecycleStatusKeys.manualKey`): the bare `manual`
+    /// key or a `manual:<id>` named loader. Agent status keys must go through
+    /// `set_agent_lifecycle`, which validates them per target.
     func sidebarWorkspaceLoading(_ args: String) -> String {
         let parsed = sidebarParseOptions(args)
         let usage = "workspace_loading <key> <on|off> [--tab=<id>]"
@@ -303,6 +308,9 @@ extension ControlCommandCoordinator {
             return "ERROR: Usage: \(usage)"
         }
         let key = parsed.positional[0]
+        guard key == "manual" || key.hasPrefix("manual:") else {
+            return "ERROR: workspace_loading only accepts manual loader keys (manual or manual:<id>); use set_agent_lifecycle for agent keys"
+        }
         let on: Bool
         switch parsed.positional[1].lowercased() {
         case "on", "running", "start", "show":
@@ -317,7 +325,7 @@ extension ControlCommandCoordinator {
             key: key,
             on: on
         ) else {
-            return "ERROR: No tab selected"
+            return "ERROR: Workspace not found"
         }
         func label(_ value: Bool) -> String { value ? "ON" : "OFF" }
         return "before=\(label(result.before));after=\(label(result.after))"
