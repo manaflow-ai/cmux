@@ -8,19 +8,15 @@ extension TerminalController {
         tabManager: TabManager,
         panelType: PanelType
     ) -> ControlSurfaceCreateResolution? {
-        guard panelType == .terminal || panelType == .browser else {
-            return .dockUnsupportedType(typeRawValue: panelType.rawValue, message: dockUnsupportedSurfaceTypeMessage())
-        }
-        guard RightSidebarMode.dock.isAvailable() else {
-            return .dockUnavailable(message: dockUnavailableMessage())
-        }
-        guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
-            return .workspaceNotFound
-        }
-        guard !windowDockCreateRoutingConflicts(routing, dockOwnerId: dockOwnerId, aliasTabManager: tabManager) else {
-            return .dockConflictingRoutingSelectors(message: dockConflictingRoutingSelectorsMessage())
-        }
-        return nil
+        validateDockCreateRouting(
+            routing: routing,
+            tabManager: tabManager,
+            panelType: panelType,
+            unsupportedType: { .dockUnsupportedType(typeRawValue: $0, message: $1) },
+            dockUnavailable: { .dockUnavailable(message: $0) },
+            workspaceNotFound: .workspaceNotFound,
+            conflictingSelectors: { .dockConflictingRoutingSelectors(message: $0) }
+        )
     }
 
     func validateDockPaneCreateRouting(
@@ -28,17 +24,37 @@ extension TerminalController {
         tabManager: TabManager,
         panelType: PanelType
     ) -> ControlPaneCreateResolution? {
+        validateDockCreateRouting(
+            routing: routing,
+            tabManager: tabManager,
+            panelType: panelType,
+            unsupportedType: { .dockUnsupportedType(typeRawValue: $0, message: $1) },
+            dockUnavailable: { .dockUnavailable(message: $0) },
+            workspaceNotFound: .workspaceNotFound,
+            conflictingSelectors: { .dockConflictingRoutingSelectors(message: $0) }
+        )
+    }
+
+    func validateDockCreateRouting<Resolution>(
+        routing: ControlRoutingSelectors,
+        tabManager: TabManager,
+        panelType: PanelType,
+        unsupportedType: (String, String) -> Resolution,
+        dockUnavailable: (String) -> Resolution,
+        workspaceNotFound: Resolution,
+        conflictingSelectors: (String) -> Resolution
+    ) -> Resolution? {
         guard panelType == .terminal || panelType == .browser else {
-            return .dockUnsupportedType(typeRawValue: panelType.rawValue, message: dockUnsupportedSurfaceTypeMessage())
+            return unsupportedType(panelType.rawValue, dockUnsupportedSurfaceTypeMessage())
         }
         guard RightSidebarMode.dock.isAvailable() else {
-            return .dockUnavailable(message: dockUnavailableMessage())
+            return dockUnavailable(dockUnavailableMessage())
         }
         guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
-            return .workspaceNotFound
+            return workspaceNotFound
         }
         guard !windowDockCreateRoutingConflicts(routing, dockOwnerId: dockOwnerId, aliasTabManager: tabManager) else {
-            return .dockConflictingRoutingSelectors(message: dockConflictingRoutingSelectorsMessage())
+            return conflictingSelectors(dockConflictingRoutingSelectorsMessage())
         }
         return nil
     }
@@ -133,38 +149,24 @@ extension TerminalController {
         AppDelegate.shared?.windowDockContainingPane(paneId)
     }
 
-    /// The window Dock a command routes to, if any: an explicit dock-owner
-    /// `workspace_id` (or the legacy alias, resolved against `tabManager`'s
-    /// window), else the Dock containing the routed surface or pane.
-    ///
-    /// An explicit `window_id` must agree with the Dock's owning window —
-    /// disagreement returns `nil` so the caller fails closed rather than acting
-    /// on a Dock the caller did not name. (The alias agrees by construction:
-    /// an explicit `window_id` already selected `tabManager`.) An explicit
-    /// owner id likewise wins over surface/pane containment, but only when any
-    /// explicit Dock surface/pane selector does not name a different window
-    /// Dock. Contradictory Dock selectors fail closed here because read-style
-    /// callers do not all perform later `containsPanel`/`containsPane` guards.
-    ///
-    /// A NON-Dock `workspace_id` deliberately does NOT conflict with Dock
-    /// surface/pane containment here (unlike the browser resolvers'
-    /// `windowDockSelectorsConflict`): the CLI injects the caller's
-    /// `CMUX_WORKSPACE_ID` unconditionally on this command family even with an
-    /// explicit surface UUID (see `close-surface` in cli/cmux.swift), so
-    /// rejecting that combination would break Dock surface targeting from
-    /// every main-area terminal. The globally-unique surface id stays the most
-    /// specific selector, matching the retired Global Dock's semantics.
+    /// Routes commands to a window Dock by alias, owner id, surface id, or pane id.
+    /// Explicit window/owner/surface/pane selectors must agree. A registered
+    /// owner whose Dock has not been created fails closed instead of falling
+    /// through to another Dock's surface/pane; non-Dock workspace ids remain
+    /// compatible with CLI-injected caller context.
     func windowDockForRouting(_ routing: ControlRoutingSelectors, tabManager: TabManager) -> DockSplitStore? {
+        guard let app = AppDelegate.shared else { return nil }
         func matches(_ dock: DockSplitStore) -> Bool {
             !windowDockMismatchesExplicitWindow(routing, dock: dock) &&
                 !windowDockMismatchesExplicitDockSurfaceOrPane(routing, dock: dock)
         }
         if let workspaceID = routing.workspaceID {
             if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
-                guard let dock = AppDelegate.shared?.windowDock(for: tabManager) else { return nil }
+                guard let dock = app.windowDock(for: tabManager) else { return nil }
                 return matches(dock) ? dock : nil
             }
-            if let dock = AppDelegate.shared?.windowDockForRegisteredOwner(workspaceID) {
+            if app.tabManagerForWindowDockOwner(workspaceID) != nil {
+                guard let dock = app.existingWindowDock(forWindowId: workspaceID) else { return nil }
                 return matches(dock) ? dock : nil
             }
         }

@@ -237,6 +237,16 @@ struct WindowDockRoutingSocketTests {
             #expect(activeWindowDock.panels.count == activeDockPanelCountBeforeLazyConflict)
             #expect(appDelegate.existingWindowDock(forWindowId: dockWindowId) == nil)
 
+            // Read-style commands must fail closed too: an explicit owner id
+            // for an uninitialized Dock must not fall through to a surface in
+            // another window's Dock or lazily materialize the named Dock.
+            let lazyOwnerReadConflict = try v2Envelope(method: "surface.list", params: [
+                "workspace_id": dockWindowId.uuidString,
+                "surface_id": dockSurfaceId.uuidString,
+            ])
+            #expect(lazyOwnerReadConflict["ok"] as? Bool == false)
+            #expect(appDelegate.existingWindowDock(forWindowId: dockWindowId) == nil)
+
             // Seed the second window's own Dock so the focused close below has a
             // panel to act on in ITS window.
             let otherWindowDock = appDelegate.windowDock(forWindowId: dockWindowId)

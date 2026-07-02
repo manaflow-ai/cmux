@@ -84,9 +84,15 @@ extension AppDelegate {
         // context or nil). A test delegate is not the live app delegate, so a
         // finished test would otherwise leave the controller's active manager
         // nil/foreign and pollute concurrently running suites' caller-context
-        // resolution. Preserve it across the teardown.
+        // resolution. Preserve it across the teardown unless it is the manager
+        // being unregistered; in that case the production fallback is correct.
         let previousActive = TerminalController.shared.activeTabManagerForCallerNotification()
+        let previousActiveBelongsToRemovedWindow = previousActive.map { active in
+            mainWindowContexts.values.contains { $0.windowId == windowId && $0.tabManager === active }
+        } ?? false
         mainWindowContexts.values.filter { $0.windowId == windowId }.forEach { discardOrphanedMainWindowContext($0, allowWindowlessFallback: true) }
-        TerminalController.shared.setActiveTabManager(previousActive)
+        if !previousActiveBelongsToRemovedWindow {
+            TerminalController.shared.setActiveTabManager(previousActive)
+        }
     }
 }
