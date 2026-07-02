@@ -4677,71 +4677,44 @@ final class Workspace: Identifiable, ObservableObject {
     /// (typically the surface default, home) and — left unguarded — would clobber
     /// `panelDirectories`/`currentDirectory` for the rest of the run, so every
     /// consumer (splits, new tabs, ``resolvedWorkingDirectory()``, the sidebar
-    /// project root, the tab bar) would inherit home.
+    /// project root, the tab bar) would inherit home. Anchoring divergent reports
+    /// back to the recorded session directory keeps them all on the resumed
+    /// session's directory.
     ///
-    /// Rather than drop the report (which could lose a genuine cwd delivered just
-    /// before the prompt-idle signal clears the resumed state at agent exit), it
-    /// is *corrected* to ground truth: the live foreground process's actual cwd
-    /// via ``processCurrentWorkingDirectory(pid:)``. This makes the correction
-    /// race-free at exit — the returning shell's real cwd is read directly and,
-    /// when the report already matches it, the report is accepted unchanged — and
-    /// during the run it maps a spurious home report back to the agent's real
-    /// directory. The recorded session directory is the fallback when the live
-    /// cwd can't be read. Local panes only — a remote pane's paths can't be
-    /// validated locally. When neither ground-truth source yields an existing
-    /// directory the report is accepted (e.g. the session directory was deleted),
-    /// mirroring the #6617 deleted-directory semantics.
+    /// A report equal to the session directory is honored (the child shell's own
+    /// `cd` re-affirming it). Local panes only — a remote pane's paths can't be
+    /// validated locally. Once the session directory no longer exists on disk the
+    /// report is accepted as the real fallback, mirroring the #6617
+    /// deleted-directory semantics.
+    ///
+    /// Deliberately keyed on the resumed-run state alone, not on a live-process
+    /// probe: a spurious home report during the startup window and a genuine home
+    /// report delivered in the tiny gap before the prompt-idle signal clears the
+    /// resumed state at agent exit are indistinguishable at report time (both are
+    /// home while the state still reads running). Anchoring to the session
+    /// directory is correct for the first (the real bug) and benign for the
+    /// second: the session directory is exactly where the pane should sit during
+    /// and right after the resumed run — the outcome the companion post-exit fix
+    /// (#7031/#7033) also produces by `cd`-ing the returning shell back there. In
+    /// normal delivery order the shell emits prompt-idle before the cwd, so the
+    /// state clears first and a genuine later report is honored anyway.
     private func repairedResumedAgentPaneDirectory(
         panelId: UUID,
         reportedDirectory: String
     ) -> String? {
         guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return nil }
         guard !isRemoteWorkspace, !isRemoteTerminalSurface(panelId) else { return nil }
-        let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
+        guard let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
             restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
-        )
-        if let liveDirectory = liveForegroundProcessWorkingDirectory(panelId: panelId) {
-            // Ground truth. A report that already matches it is genuine — accept
-            // it unchanged (this is the agent-exit case, order-independent).
-            if liveDirectory == reportedDirectory { return nil }
-            if Self.directoryExistsOnDisk(liveDirectory) { return liveDirectory }
-        }
-        if let sessionDirectory,
-           sessionDirectory != reportedDirectory,
-           Self.directoryExistsOnDisk(sessionDirectory) {
-            return sessionDirectory
-        }
-        return nil
-    }
-
-    /// The live working directory of the pane's foreground process (the resumed
-    /// agent, or the shell once it returns), or nil when unavailable.
-    private func liveForegroundProcessWorkingDirectory(panelId: UUID) -> String? {
-        guard let pid = terminalPanel(for: panelId)?.surface.foregroundProcessID() else { return nil }
-        return Workspace.processCurrentWorkingDirectory(pid: pid_t(clamping: pid))
+        ) else { return nil }
+        if reportedDirectory == sessionDirectory { return nil }
+        guard Self.directoryExistsOnDisk(sessionDirectory) else { return nil }
+        return sessionDirectory
     }
 
     nonisolated private static func directoryExistsOnDisk(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
-    }
-
-    /// The current working directory of `pid` via
-    /// `proc_pidinfo(PROC_PIDVNODEPATHINFO)`, or nil when the process is gone or
-    /// unreadable. `nonisolated static` — a pure libproc read with no actor
-    /// state — so it is directly unit-testable and callable off the main actor.
-    nonisolated static func processCurrentWorkingDirectory(pid: pid_t) -> String? {
-        guard pid > 0 else { return nil }
-        var info = proc_vnodepathinfo()
-        let expectedSize = Int32(MemoryLayout<proc_vnodepathinfo>.size)
-        let written = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, expectedSize)
-        guard written == expectedSize else { return nil }
-        let path = withUnsafeBytes(of: &info.pvi_cdir.vip_path) { raw -> String in
-            guard let base = raw.baseAddress else { return "" }
-            return String(cString: base.assumingMemoryBound(to: CChar.self))
-        }
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
