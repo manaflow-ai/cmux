@@ -7,6 +7,73 @@ internal import CmuxFoundation
 // forward, websocket). Faithful lift; argument composition lives on
 // WorkspaceRemoteConfiguration in CmuxCore.
 extension RemoteDaemonRPCClient {
+    func startViaLocalExec() throws {
+        let process = Process()
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+
+        stateQueue.sync {
+            self.stdinPipe = stdinPipe
+            self.stdoutPipe = stdoutPipe
+            self.stderrPipe = stderrPipe
+        }
+
+        process.executableURL = URL(fileURLWithPath: remotePath)
+        process.arguments = configuration.localDaemonTransportArguments()
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            switch handle.readAvailableDataOrEndOfFile() {
+            case .data(let data):
+                self?.stateQueue.async { [weak self] in
+                    self?.consumeStdoutData(data)
+                }
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
+                self?.stateQueue.async { [weak self] in
+                    self?.consumeStdoutData(Data())
+                }
+            }
+        }
+        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            switch handle.readAvailableDataOrEndOfFile() {
+            case .data(let data):
+                self?.stateQueue.async { [weak self] in
+                    self?.consumeStderrData(data)
+                }
+            case .wouldBlock:
+                return
+            case .endOfFile:
+                handle.readabilityHandler = nil
+            }
+        }
+        process.terminationHandler = { [weak self] terminated in
+            self?.stateQueue.async { [weak self] in
+                self?.handleProcessTermination(terminated)
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 27, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to launch local daemon transport: \(error.localizedDescription)",
+            ])
+        }
+
+        stateQueue.sync {
+            self.process = process
+            self.stdinHandle = stdinPipe.fileHandleForWriting
+            self.stdoutHandle = stdoutPipe.fileHandleForReading
+            self.stderrHandle = stderrPipe.fileHandleForReading
+        }
+    }
+
     func startViaSSHExec() throws {
         let process = Process()
         let stdinPipe = Pipe()

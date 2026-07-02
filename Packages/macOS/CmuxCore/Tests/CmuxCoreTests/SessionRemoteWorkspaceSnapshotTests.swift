@@ -47,6 +47,7 @@ struct SessionRemoteWorkspaceSnapshotTests {
 
     @Test("transport raw values are the persisted wire strings")
     func transportRawValues() {
+        #expect(WorkspaceRemoteTransport.local.rawValue == "local")
         #expect(WorkspaceRemoteTransport.ssh.rawValue == "ssh")
         #expect(WorkspaceRemoteTransport.websocket.rawValue == "websocket")
     }

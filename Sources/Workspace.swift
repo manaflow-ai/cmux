@@ -148,6 +148,7 @@ extension Workspace {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
+        restoredLocalPersistentPTYWorkspaceId = snapshot.workspaceId
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
@@ -175,6 +176,7 @@ extension Workspace {
             )
         } else {
             disconnectRemoteConnection(clearConfiguration: true)
+            configureLocalPersistentPTYServerIfNeeded(autoConnect: true)
         }
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2591,6 +2593,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
     private var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
     private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
+    var restoredLocalPersistentPTYWorkspaceId: UUID?
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
@@ -3163,6 +3166,7 @@ final class Workspace: Identifiable, ObservableObject {
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
+        configureLocalPersistentPTYServerIfNeeded(autoConnect: true)
 
         // Remove the default "Welcome" tab that bonsplit creates
         let welcomeTabIds = bonsplitController.allTabIds
@@ -5536,7 +5540,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     var isRemoteWorkspace: Bool {
-        remoteConfiguration != nil
+        guard let remoteConfiguration else { return false }
+        return remoteConfiguration.transport != .local
     }
 
     /// Ephemeral remote tmux mirror; excluded from cmux session restore.
@@ -5562,6 +5567,7 @@ final class Workspace: Identifiable, ObservableObject {
     var isRestorableInSessionSnapshot: Bool {
         if isRemoteTmuxMirror { return false }
         guard let remoteConfiguration else { return true }
+        if remoteConfiguration.transport == .local { return true }
         return remoteConfiguration.sessionSnapshot() != nil
     }
 
@@ -6019,7 +6025,10 @@ final class Workspace: Identifiable, ObservableObject {
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         if remoteConfiguration?.preserveAfterTerminalExit == true,
            normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId]) == nil {
-            remotePTYSessionIDsByPanelId[panelId] = Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+            remotePTYSessionIDsByPanelId[panelId] = Self.defaultSSHPTYSessionID(
+                workspaceId: remotePTYSessionWorkspaceId(),
+                panelId: panelId
+            )
         }
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
@@ -6358,7 +6367,11 @@ final class Workspace: Identifiable, ObservableObject {
         guard activeRemoteTerminalSurfaceIds.contains(panelId) else {
             return nil
         }
-        return Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+        return Self.defaultSSHPTYSessionID(workspaceId: remotePTYSessionWorkspaceId(), panelId: panelId)
+    }
+
+    private func remotePTYSessionWorkspaceId() -> UUID {
+        remoteConfiguration?.transport == .local ? localPersistentPTYWorkspaceIdentity : id
     }
 
     nonisolated static func defaultSSHPTYSessionID(workspaceId: UUID, panelId: UUID) -> String {
@@ -6417,7 +6430,7 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
         let expectedSessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId])
-            ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+            ?? Self.defaultSSHPTYSessionID(workspaceId: remotePTYSessionWorkspaceId(), panelId: panelId)
         return normalizedSessionID == expectedSessionID
     }
 
@@ -6425,7 +6438,7 @@ final class Workspace: Identifiable, ObservableObject {
     func markRemotePTYAttachEnded(surfaceId: UUID, sessionID: String) -> (clearedRemotePTYSession: Bool, untrackedRemoteTerminal: Bool) {
         let normalizedSessionID = normalizedRemotePTYSessionID(sessionID)
         let expectedSessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[surfaceId])
-            ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: surfaceId)
+            ?? Self.defaultSSHPTYSessionID(workspaceId: remotePTYSessionWorkspaceId(), panelId: surfaceId)
         guard let normalizedSessionID, normalizedSessionID == expectedSessionID else {
             return (false, false)
         }
@@ -7377,8 +7390,19 @@ final class Workspace: Identifiable, ObservableObject {
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
-        let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
-        let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
+        let newPanelId = UUID()
+        let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
+            requestedWorkingDirectory: workingDirectory,
+            sourcePanelId: panelId
+        )
+        let localPTYStartupCommand = localPersistentPTYStartupCommand(
+            panelId: newPanelId,
+            workingDirectory: splitWorkingDirectory,
+            explicitCommand: explicitInitialCommand,
+            startupEnvironment: startupEnvironmentMergingWorkspaceEnvironment(startupEnvironment)
+        )
+        let remoteTerminalStartupCommand = localPTYStartupCommand == nil ? remoteTerminalStartupCommand() : nil
+        let startupCommand = localPTYStartupCommand ?? explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironmentMergingWorkspaceEnvironment(startupEnvironment),
@@ -7404,10 +7428,6 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Resolve cwd as explicit request, source reported cwd, source requested
         // startup cwd, then workspace currentDirectory.
-        let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
-            requestedWorkingDirectory: workingDirectory,
-            sourcePanelId: panelId
-        )
 #if DEBUG
         cmuxDebugLog(
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
@@ -7416,10 +7436,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Create the new terminal panel.
         let newPanel = TerminalPanel(
+            id: newPanelId,
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: splitWorkingDirectory,
+            workingDirectory: localPTYStartupCommand == nil ? splitWorkingDirectory : nil,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
@@ -7432,7 +7453,7 @@ final class Workspace: Identifiable, ObservableObject {
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        let tracksRemoteTerminalSurface = localPTYStartupCommand != nil || remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
@@ -7664,8 +7685,22 @@ final class Workspace: Identifiable, ObservableObject {
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
-        let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
-        let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
+        let newPanelId = restoredSurfaceId ?? UUID()
+        let requestedWorkingDirectoryCandidate = inheritWorkingDirectoryFallback && explicitInitialCommand == nil
+            ? resolvedTerminalStartupWorkingDirectory(
+                requestedWorkingDirectory: workingDirectory,
+                sourcePanelId: workingDirectoryFallbackSourcePanelId
+                    ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
+            )
+            : workingDirectory
+        let localPTYStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : localPersistentPTYStartupCommand(
+            panelId: newPanelId,
+            workingDirectory: requestedWorkingDirectoryCandidate,
+            explicitCommand: explicitInitialCommand,
+            startupEnvironment: startupEnvironmentMergingWorkspaceEnvironment(startupEnvironment)
+        )
+        let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand || localPTYStartupCommand != nil ? nil : remoteTerminalStartupCommand()
+        let startupCommand = localPTYStartupCommand ?? explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironmentMergingWorkspaceEnvironment(startupEnvironment),
@@ -7679,21 +7714,14 @@ final class Workspace: Identifiable, ObservableObject {
             template.waitAfterCommand = true
             inheritedConfig = template
         }
-        let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
-            ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
-        let requestedWorkingDirectory = inheritWorkingDirectoryFallback && startupCommand == nil
-            ? resolvedTerminalStartupWorkingDirectory(
-                requestedWorkingDirectory: workingDirectory,
-                sourcePanelId: fallbackSourcePanelId
-            )
-            : workingDirectory
+        let requestedWorkingDirectory = localPTYStartupCommand == nil ? requestedWorkingDirectoryCandidate : nil
 
         // Create new terminal panel. A restored panel reuses its persisted
         // surface id (the panel/surface id IS the ghostty surface id, a
         // Swift-side UUID), so a session's terminal binding survives relaunch
         // and restore. The caller only passes an id it has verified is free.
         let newPanel = TerminalPanel(
-            id: restoredSurfaceId ?? UUID(),
+            id: newPanelId,
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
@@ -7712,7 +7740,7 @@ final class Workspace: Identifiable, ObservableObject {
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        let tracksRemoteTerminalSurface = localPTYStartupCommand != nil || remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)

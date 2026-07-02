@@ -32,6 +32,16 @@ extension WorkspaceRemoteConfiguration {
             + ["-o", "RequestTTY=no", destination, command]
     }
 
+    /// Local `cmuxd-remote` argv for the stdio daemon transport.
+    public func localDaemonTransportArguments() -> [String] {
+        var serveArguments = ["serve", "--stdio"]
+        if let slot = persistentDaemonSlot?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !slot.isEmpty {
+            serveArguments += ["--persistent", "--slot", slot]
+        }
+        return serveArguments
+    }
+
     /// `ssh` argv that forwards `127.0.0.1:<localPort>` to the baked VM
     /// daemon's Unix socket (`-N`, no remote command). Argument text is
     /// wire/process behavior; do not alter.

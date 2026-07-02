@@ -133,7 +133,10 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     public func start() throws {
         pendingCalls.reset()
 
-        if configuration.transport == .websocket {
+        if configuration.transport == .local {
+            try startViaLocalExec()
+            markTransportOpen()
+        } else if configuration.transport == .websocket {
             try startViaWebSocket()
         } else if Self.usesSocketForwardTransport(configuration: configuration) {
             try startViaBakedVMSocketForward()
