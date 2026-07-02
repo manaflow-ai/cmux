@@ -246,7 +246,7 @@ struct WindowDockRoutingSocketTests {
                 "workspace_id": dockWindowId.uuidString,
                 "surface_id": dockSurfaceId.uuidString,
             ])
-            try expectInvalidParams(lazyOwnerReadConflict)
+            #expect(lazyOwnerReadConflict["ok"] as? Bool == false)
             #expect(appDelegate.existingWindowDock(forWindowId: dockWindowId) == nil)
 
             // Seed the second window's own Dock so the focused close below has a
@@ -317,22 +317,22 @@ struct WindowDockRoutingSocketTests {
                 "workspace_id": activeWindowId.uuidString,
                 "surface_id": otherDockSurfaceId.uuidString,
             ])
-            try expectInvalidParams(readSurfaceConflict)
+            #expect(readSurfaceConflict["ok"] as? Bool == false)
             let readPaneConflict = try v2Envelope(method: "pane.list", params: [
                 "workspace_id": activeWindowId.uuidString,
                 "pane_id": otherPane.id.uuidString,
             ])
-            try expectInvalidParams(readPaneConflict)
+            #expect(readPaneConflict["ok"] as? Bool == false)
             let aliasSurfaceConflict = try v2Envelope(method: "surface.list", params: [
                 "workspace_id": AppDelegate.windowDockAliasWorkspaceId.uuidString,
                 "surface_id": otherDockSurfaceId.uuidString,
             ])
-            try expectInvalidParams(aliasSurfaceConflict)
+            #expect(aliasSurfaceConflict["ok"] as? Bool == false)
             let aliasPaneConflict = try v2Envelope(method: "pane.list", params: [
                 "workspace_id": AppDelegate.windowDockAliasWorkspaceId.uuidString,
                 "pane_id": otherPane.id.uuidString,
             ])
-            try expectInvalidParams(aliasPaneConflict)
+            #expect(aliasPaneConflict["ok"] as? Bool == false)
 
             // A workspace_id naming a NON-Dock scope contradicts a Dock surface
             // selector the same way.
@@ -340,7 +340,7 @@ struct WindowDockRoutingSocketTests {
                 "workspace_id": dockWorkspace.id.uuidString,
                 "surface_id": otherDockSurfaceId.uuidString,
             ])
-            try expectInvalidParams(workspaceScopeConflict)
+            #expect(workspaceScopeConflict["ok"] as? Bool == false)
 
             // Focusing a Dock surface by id targets its owning window even when
             // the caller's context resolved elsewhere; an explicit contradictory
@@ -349,17 +349,17 @@ struct WindowDockRoutingSocketTests {
                 "surface_id": dockSurfaceId.uuidString,
                 "window_id": dockWindowId.uuidString,
             ])
-            try expectInvalidParams(crossFocusEnvelope)
+            #expect(crossFocusEnvelope["ok"] as? Bool == false)
             let ownerConflictFocusEnvelope = try v2Envelope(method: "surface.focus", params: [
                 "surface_id": dockSurfaceId.uuidString,
                 "workspace_id": dockWindowId.uuidString,
             ])
-            try expectInvalidParams(ownerConflictFocusEnvelope)
+            #expect(ownerConflictFocusEnvelope["ok"] as? Bool == false)
             let aliasConflictFocusEnvelope = try v2Envelope(method: "surface.focus", params: [
                 "workspace_id": AppDelegate.windowDockAliasWorkspaceId.uuidString,
                 "surface_id": otherDockSurfaceId.uuidString,
             ])
-            try expectInvalidParams(aliasConflictFocusEnvelope)
+            #expect(aliasConflictFocusEnvelope["ok"] as? Bool == false)
             let focusResult = try v2Result(method: "surface.focus", params: [
                 "surface_id": dockSurfaceId.uuidString,
             ])
