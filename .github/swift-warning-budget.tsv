@@ -89,6 +89,7 @@
 2	Sources/TerminalNotificationStore.swift	call to main actor-isolated instance method 'logAuthorization' in a synchronous nonisolated context
 1	Sources/TerminalNotificationStore.swift	call to main actor-isolated instance method 'refreshDockBadge()' in a synchronous nonisolated context
 2	Sources/TerminalNotificationStore.swift	capture of 'content' with non-sendable type 'UNMutableNotificationContent' in a '@Sendable' closure
+1	Sources/Update/TitlebarCloudVMButton.swift	'selectedMenuItemColor' was deprecated in macOS 11.0: Use NSVisualEffectMaterialSelection
 1	Sources/Update/UpdateDriver.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'Sparkle'
 1	Sources/Update/UpdateDriver.swift	sendability of function types in instance method 'show(_:reply:)' does not match requirement in protocol 'SPUUserDriver'
 1	Sources/Update/UpdateDriver.swift	sendability of function types in instance method 'showReady(toInstallAndRelaunch:)' does not match requirement in protocol 'SPUUserDriver'

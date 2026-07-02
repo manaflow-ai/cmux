@@ -238,12 +238,13 @@ extension TerminalController {
             "createdAt": vm.createdAt,
         ]
         if let base = vm.base {
-            payload["base"] = [
+            let basePayload: [String: Any] = [
                 "id": base.id,
                 "name": base.name,
                 "generation": base.generation,
                 "retainedProviderVmId": base.retainedProviderVmId ?? NSNull(),
             ]
+            payload["base"] = basePayload
         }
         return payload
     }
