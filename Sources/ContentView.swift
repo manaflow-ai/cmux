@@ -10076,6 +10076,9 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    // Per-host origin colors (beta). Read here so toggling the flag re-evaluates
+    // the sidebar and rebuilds each row's snapshot with the resolved color.
+    @LiveSetting(\.betaFeatures.remoteTmuxOriginColors) private var remoteTmuxOriginColorsEnabled
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
@@ -12425,11 +12428,24 @@ struct VerticalTabsSidebar: View {
                 lastSidebarSelectionIndex = nil
             }
         }
+        // Per-host origin color, resolved here (above the row boundary) to a plain
+        // value. Mirror workspaces carry their host only through the session mirror,
+        // so fall back to the controller lookup when there's no remoteConfiguration.
+        let originColorHex: String? = {
+            guard remoteTmuxOriginColorsEnabled else { return nil }
+            let destination = tab.remoteConfiguration?.destination
+                ?? (tab.isRemoteTmuxMirror
+                    ? AppDelegate.shared?.remoteTmuxController.hostDestination(forWorkspaceId: tab.id)
+                    : nil)
+            guard let destination, !destination.isEmpty else { return nil }
+            return RemoteHostColorRegistry.shared.colorHex(for: destination)
+        }()
         let row = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
             tab: tab,
             index: index,
+            originColorHex: originColorHex,
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
                 workspaceCount: renderContext.workspaceCount
@@ -13214,6 +13230,12 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsGitBranch: Bool
         let usesViewportAwarePath: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+        // Effective row color (manual color, else resolved origin color). Part of
+        // the key so the cached snapshot is rebuilt when the color changes — e.g.
+        // toggling the origin-colors flag or a mirror host resolving after appear,
+        // neither of which is a Workspace @Published change that would otherwise
+        // refresh the snapshot.
+        let customColorHex: String?
     }
 
     struct VerticalBranchDirectoryLine: Equatable {
@@ -13276,6 +13298,7 @@ struct TabItemView: View, Equatable {
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
+        lhs.originColorHex == rhs.originColorHex &&
         lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
         lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
@@ -13314,6 +13337,10 @@ struct TabItemView: View, Equatable {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
     let tab: Tab
     let index: Int
+    /// Resolved per-host origin color (hex), or nil when the beta flag is off or
+    /// the workspace has no host. Resolved by the parent above the row boundary
+    /// and passed in as a plain value; a manual `tab.customColor` still wins.
+    let originColorHex: String?
     let workspaceShortcutDigit: Int?
     let workspaceShortcutModifierSymbol: String
     let canCloseWorkspace: Bool
@@ -13683,7 +13710,8 @@ struct TabItemView: View, Equatable {
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             showsGitBranch: sidebarShowGitBranch,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
-            visibleAuxiliaryDetails: visibleAuxiliaryDetails
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails,
+            customColorHex: tab.customColor ?? originColorHex
         )
     }
 
@@ -14840,7 +14868,9 @@ struct TabItemView: View, Equatable {
             title: tab.title,
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
-            customColorHex: tab.customColor,
+            // A manual workspace color always wins; the per-host origin color
+            // (resolved by the parent, nil when the flag is off) is the fallback.
+            customColorHex: tab.customColor ?? originColorHex,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
