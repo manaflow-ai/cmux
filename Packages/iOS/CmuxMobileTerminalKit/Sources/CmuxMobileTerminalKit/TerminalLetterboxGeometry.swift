@@ -118,6 +118,35 @@ public struct TerminalLetterboxGeometry {
         viewInset > 0 ? viewInset : max(0, windowInset)
     }
 
+    /// The bottom occupancy implied by a SAMPLED keyboard-layout-guide top edge,
+    /// in the host view's coordinate space.
+    ///
+    /// This is the live counterpart of ``keyboardOccupancy(keyboardHeight:bottomSafeAreaInset:)``:
+    /// `UIKeyboardLayoutGuide`'s top edge rests on the bottom safe-area edge while
+    /// the keyboard is down and rides the keyboard's real animated top while it
+    /// moves, so `bounds.height - guideTop` IS the current bottom occupancy at any
+    /// instant of the system keyboard animation (including interactive dismiss).
+    /// Sampling the guide-pinned anchor's presentation layer and feeding this
+    /// value into the dock/viewport math is what keeps the terminal edge glued to
+    /// the keyboard, instead of replaying the notification's duration/curve and
+    /// hoping it matches UIKit's private spring.
+    ///
+    /// Clamped to `[0, boundsHeight]` so a transient out-of-bounds sample (mid
+    /// rotation, detached guide) cannot produce a negative or over-full
+    /// reservation.
+    ///
+    /// - Parameters:
+    ///   - keyboardGuideTopY: The sampled guide top edge (min-Y) in view points.
+    ///   - boundsHeight: The host view bounds height in points.
+    /// - Returns: The live bottom occupancy in points.
+    public static func sampledBottomOccupancy(
+        keyboardGuideTopY: CGFloat,
+        boundsHeight: CGFloat
+    ) -> CGFloat {
+        guard boundsHeight > 0 else { return 0 }
+        return min(max(0, boundsHeight - keyboardGuideTopY), boundsHeight)
+    }
+
     /// The container size in device pixels for libghostty's `set_size`.
     ///
     /// Floors `container * scale` and clamps each axis to at least 1 pixel,

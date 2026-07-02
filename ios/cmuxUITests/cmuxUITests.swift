@@ -301,6 +301,81 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRenderBottomAttachedToViewport(dock, context: "synthetic keyboard preview")
     }
 
+    /// The terminal's bottom dock must ride the REAL keyboard's animated edge —
+    /// the keyboard-layout-guide sample — not a replay of the notification's
+    /// duration/curve. Cycles the real simulator keyboard up and down and polls
+    /// the dock probe: every mid-animation sample (`kbTracking=1`) must have the
+    /// dock bottom on the sampled guide edge, and each settle must land exactly
+    /// on it. Also serves as the interaction driver for the keyboard-animation
+    /// evidence video (record-ios-video-cloud.sh --test-filter this test).
+    @MainActor
+    func testTerminalDockRidesRealKeyboardAnimation() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_PREVIEW": "1",
+        ])
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+        _ = waitForDock(in: app, timeout: 8, describe: "preview settled with keyboard down") {
+            $0["toolbarVisible"] == "1" && $0["kbTracking"] == "0"
+        }
+
+        surface.tap()
+        guard app.keyboards.firstMatch.waitForExistence(timeout: 4) else {
+            throw XCTSkip("Simulator presented no software keyboard (hardware keyboard connected); real-guide tracking needs one.")
+        }
+
+        let probe = app.descendants(matching: .any)[Composer.surfaceProbe]
+        let hideKeyboard = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        var trackedSamples = 0
+
+        func pollTransition(until settled: @escaping ([String: String]) -> Bool, context: String) {
+            let deadline = Date().addingTimeInterval(4)
+            var last: [String: String] = [:]
+            while Date() < deadline {
+                let dock = parseProbe(probe.value as? String ?? "")
+                last = dock
+                if dock["kbTracking"] == "1",
+                   let guideTop = Int(dock["kbGuideTop"] ?? ""), guideTop > 0,
+                   let toolbarMaxY = Int(dock["toolbarMaxY"] ?? ""), toolbarMaxY > 0 {
+                    trackedSamples += 1
+                    XCTAssertLessThanOrEqual(
+                        abs(toolbarMaxY - guideTop), 2,
+                        "\(context): mid-animation dock bottom diverged from the live keyboard edge. dock=\(dock)"
+                    )
+                }
+                if dock["kbTracking"] == "0", settled(dock) { break }
+            }
+            XCTAssertTrue(settled(last), "\(context): did not settle. last=\(last)")
+            // Settled: the dock bottom rests exactly on the guide's resting edge.
+            if let guideTop = Int(last["kbGuideTop"] ?? ""), guideTop > 0,
+               let toolbarMaxY = Int(last["toolbarMaxY"] ?? "") {
+                XCTAssertLessThanOrEqual(
+                    abs(toolbarMaxY - guideTop), 2,
+                    "\(context): settled dock bottom must rest on the keyboard/safe-area edge. dock=\(last)"
+                )
+            }
+            assertTerminalRenderBottomAttachedToViewport(last, context: context)
+        }
+
+        pollTransition(until: { $0["keyboardUp"] == "1" }, context: "keyboard show cycle 1")
+
+        for cycle in 1...2 {
+            XCTAssertTrue(hideKeyboard.waitForExistence(timeout: 4), "hide-keyboard accessory missing")
+            hideKeyboard.tap()
+            pollTransition(until: { $0["keyboardUp"] == "0" }, context: "keyboard hide cycle \(cycle)")
+
+            surface.tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
+            pollTransition(until: { $0["keyboardUp"] == "1" }, context: "keyboard show cycle \(cycle + 1)")
+        }
+
+        // The accessibility poll is coarse relative to a ~0.4s animation, but
+        // across five transitions it must land inside at least one of them —
+        // otherwise the tracker never engaged and the per-frame contract went
+        // completely unexercised.
+        XCTAssertGreaterThan(trackedSamples, 0, "no mid-animation tracking sample was ever observed")
+    }
+
     @MainActor
     func testBottomScrollStaysPinnedAcrossComposerViewportShrink() throws {
         let app = launchApp(mockData: false, environment: [
