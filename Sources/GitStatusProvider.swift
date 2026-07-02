@@ -57,7 +57,7 @@ enum GitStatusProvider {
             guard let status = parseStatusChars(index: indexStatus, workTree: workTreeStatus) else { continue }
 
             let absolutePath = repoRoot.hasSuffix("/") ? repoRoot + path : repoRoot + "/" + path
-            guard absolutePath.hasPrefix(explorerRoot) else { continue }
+            guard isPath(absolutePath, within: explorerRoot) else { continue }
 
             statusMap[absolutePath] = status
             markParentDirectories(absolutePath: absolutePath, explorerRoot: explorerRoot, status: status, in: &statusMap)
@@ -80,12 +80,20 @@ enum GitStatusProvider {
     ) {
         let dirStatus: GitFileStatus = (status == .untracked) ? .untracked : .modified
         var current = (absolutePath as NSString).deletingLastPathComponent
-        while current.hasPrefix(explorerRoot) && current != explorerRoot {
+        while isPath(current, within: explorerRoot) && current != explorerRoot {
             if map[current] == nil {
                 map[current] = dirStatus
             }
             current = (current as NSString).deletingLastPathComponent
         }
+    }
+
+    /// Prefix match at a path-component boundary, so an explorer root of
+    /// "/repo/src" does not claim statuses under "/repo/srcOLD".
+    private static func isPath(_ path: String, within root: String) -> Bool {
+        if path == root { return true }
+        let rootWithSlash = root.hasSuffix("/") ? root : root + "/"
+        return path.hasPrefix(rootWithSlash)
     }
 
     private static func gitRepoRoot(for directory: String) -> String? {

@@ -29,19 +29,7 @@ extension CMUXCLI {
         in directory: String,
         timeout: TimeInterval = 60
     ) throws -> String {
-        let result = CLIProcessRunner.runProcess(
-            executablePath: "/usr/bin/env",
-            arguments: gitEnvArguments(in: directory, arguments),
-            timeout: timeout
-        )
-        if result.timedOut {
-            throw CLIError(message: "git \(arguments.joined(separator: " ")) timed out")
-        }
-        guard result.status == 0 else {
-            let command = (["git"] + arguments).joined(separator: " ")
-            throw CLIError(message: "\(command) failed with status \(result.status)")
-        }
-        return result.stdout
+        try gitStdout(arguments, in: directory, timeout: timeout, allowedExitStatuses: [0])
     }
 
     func gitDiffPatchArguments(_ tail: [String]) -> [String] {
