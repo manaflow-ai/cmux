@@ -110,6 +110,12 @@ private struct ReplayPresentationProbe {
             case "\n":
                 row = min(row + 1, max(rows - 1, 0))
                 index = text.index(after: index)
+            case "\r\n":
+                // Swift clusters CRLF into one Character; treat it as CR + LF
+                // so the flow separator is not painted into a cell.
+                column = 0
+                row = min(row + 1, max(rows - 1, 0))
+                index = text.index(after: index)
             default:
                 if cells.indices.contains(row), cells[row].indices.contains(column) {
                     cells[row][column] = text[index]
