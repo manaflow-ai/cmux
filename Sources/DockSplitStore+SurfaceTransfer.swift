@@ -64,6 +64,7 @@ extension DockSplitStore {
             restorableAgent: nil,
             restorableAgentResumeState: nil,
             resumeBinding: nil,
+            noteAnchorId: nil,
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,

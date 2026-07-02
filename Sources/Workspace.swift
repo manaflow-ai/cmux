@@ -9848,6 +9848,11 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
         }
+        if let noteAnchorId = detached.noteAnchorId {
+            noteAnchorIdsByPanelId[detached.panelId] = noteAnchorId
+        } else {
+            noteAnchorIdsByPanelId.removeValue(forKey: detached.panelId)
+        }
         let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted ?? false
         let detachedBrowserPlayingAudio = (detached.panel as? BrowserPanel)?.isPlayingAudio ?? false
 
@@ -9878,6 +9883,7 @@ final class Workspace: Identifiable, ObservableObject {
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
+            noteAnchorIdsByPanelId.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
             discardBrowserPanelSubscription(panelId: detached.panelId, panel: detached.panel)
             if let agentPanel = detached.panel as? AgentSessionPanel {
@@ -12751,6 +12757,7 @@ extension Workspace: BonsplitDelegate {
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 resumeBinding: resumeBinding,
+                noteAnchorId: noteAnchorIdsByPanelId[panelId],
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)

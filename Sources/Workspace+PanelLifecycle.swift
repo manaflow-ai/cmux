@@ -381,6 +381,7 @@ extension Workspace {
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        noteAnchorIdsByPanelId.removeValue(forKey: panelId)
         surfaceListeningPorts.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
 #if DEBUG
