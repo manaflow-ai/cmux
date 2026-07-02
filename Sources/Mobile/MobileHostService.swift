@@ -8,7 +8,7 @@ import OSLog
 import StackAuth
 import os
 
-private let mobileHostLog = Logger(subsystem: "dev.cmux", category: "mobile-host")
+nonisolated private let mobileHostLog = Logger(subsystem: "dev.cmux", category: "mobile-host")
 
 extension Notification.Name {
     static let mobileHostEventSubscriptionsDidChange = Notification.Name(
@@ -1086,6 +1086,10 @@ final class MobileHostService {
         return try ticketStore.payload(for: ticket)
     }
 
+    func redeemAttachTicket(ticketRef: String) throws -> [String: Any] {
+        try ticketStore.payload(forTicketRef: ticketRef)
+    }
+
     private static func filteredRoutes(
         _ routes: [CmxAttachRoute],
         routeID: String?,
@@ -1280,12 +1284,11 @@ final class MobileHostService {
             return nil
         }
         // Stack auth is the SOLE authorization gate for the mobile data plane.
-        // The attach ticket is route-discovery and workspace-selection only; it
-        // never authorizes on its own. Every operation must present the Mac
-        // owner's same-account Stack access token. Consequences: a leaked or
-        // photographed QR is useless without the owner's signed-in account, and
-        // pairing is bound to "who is signed in on this Mac" rather than a stored
-        // ticket, so it survives Mac restarts and ticket expiry.
+        // The attach ticket reference/context never authorizes on its own.
+        // Every operation must present the Mac owner's same-account Stack access
+        // token. Consequence: a leaked or photographed QR is useless without the
+        // owner's signed-in account; the host-side ticket record supplies scoped
+        // context and TTL, not bearer authority.
         if devStackTokenAuthorized(request) {
             return nil
         }
@@ -1502,11 +1505,12 @@ final class MobileHostService {
     nonisolated private static func requiresAuthorization(method: String) -> Bool {
         switch method {
         // Only the unauthenticated host probe is exempt. `mobile.attach_ticket.create`
-        // mints a bearer credential, so it MUST be authorized: a network caller has no
-        // attach token yet, so it is routed through the same-account Stack Auth token
-        // (the iOS client always sends it for this method). Leaving it exempt would let
-        // any process that can speak the wire protocol self-issue a working ticket and
-        // take over the terminal. The on-Mac QR pairing mints tickets through the local
+        // mints a bearer credential and `mobile.attach_ticket.redeem` resolves a QR
+        // reference into one, so both MUST be authorized: a network caller has no attach
+        // token yet, so it is routed through the same-account Stack Auth token (the iOS
+        // client always sends it for these methods). Leaving either exempt would let any
+        // process that can speak the wire protocol self-issue a working ticket and take
+        // over the terminal. The on-Mac QR pairing mints tickets through the local
         // automation socket (`TerminalController`), not this network path, so it is
         // unaffected.
         case "mobile.host.status":

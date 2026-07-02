@@ -5,8 +5,9 @@ import Foundation
 ///
 /// `JSONDecoder` ignores unknown keys, so payloads from the first compact
 /// grammar revision that still carry `e` (expiry) and `n` (display name)
-/// decode here with both intentionally dropped: a pairing QR never expires,
-/// and the Mac's name is read post-handshake from `mobile.host.status`.
+/// decode here with both intentionally dropped: expiry is owned by the
+/// host-side ticket record, and the Mac's name is read post-handshake from
+/// `mobile.host.status`.
 struct CompactAttachTicket: Codable {
     let v: Int
     let w: String?
@@ -16,10 +17,14 @@ struct CompactAttachTicket: Codable {
     let pc: Int?
     let av: String?
     let ab: String?
+    let q: String?
     let r: [CompactAttachRoute]
 
+    private static let legacyEmailGrammarVersion = 1
+    private static let currentGrammarVersion = 2
+
     init(_ ticket: CmxAttachTicket) {
-        v = ticket.version
+        v = Self.currentGrammarVersion
         w = Self.normalizedNonEmpty(ticket.workspaceID)
         t = Self.normalizedNonEmpty(ticket.terminalID)
         d = ticket.macDeviceID
@@ -27,23 +32,36 @@ struct CompactAttachTicket: Codable {
         pc = ticket.macPairingCompatibilityVersion
         av = Self.normalizedNonEmpty(ticket.macAppVersion)
         ab = Self.normalizedNonEmpty(ticket.macAppBuild)
+        q = Self.normalizedNonEmpty(ticket.ticketRef)
         r = Self.compactedRoutes(ticket.routes)
     }
 
     func ticket() throws -> CmxAttachTicket {
-        try CmxAttachTicket(
-            version: v,
+        guard v == Self.legacyEmailGrammarVersion || v == Self.currentGrammarVersion else {
+            throw CmxAttachTicketError.unsupportedVersion(v)
+        }
+        // A first-revision compact payload (`v == 1`) reused `u` for either the
+        // Mac account email or the opaque Stack user id, and the original
+        // decoder told them apart with an `@` probe. Preserve that heuristic for
+        // the legacy grammar so a phone scanning an older Mac's still-valid QR
+        // keeps reading an opaque `u` as a user id (not an email, which would
+        // fail the account preflight before dialing). The current grammar
+        // (`v == 2`) always carries the user id in `u`.
+        let legacyEmail = v == Self.legacyEmailGrammarVersion && u?.contains("@") == true
+        return try CmxAttachTicket(
+            version: CmxAttachTicket.currentVersion,
             workspaceID: w ?? "",
             terminalID: t,
             macDeviceID: d,
             macDisplayName: nil,
-            macUserEmail: u?.contains("@") == true ? u : nil,
-            macUserID: u?.contains("@") == false ? u : nil,
+            macUserEmail: legacyEmail ? u : nil,
+            macUserID: legacyEmail ? nil : u,
             macPairingCompatibilityVersion: pc ?? 0,
             macAppVersion: av,
             macAppBuild: ab,
             routes: Self.expandedRoutes(r),
-            expiresAt: nil
+            expiresAt: nil,
+            ticketRef: q
         )
     }
 

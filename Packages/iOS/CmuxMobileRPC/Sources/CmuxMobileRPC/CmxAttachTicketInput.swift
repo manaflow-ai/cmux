@@ -8,16 +8,16 @@ public struct CmxAttachTicketInput {
 
     /// Decode and validate a `cmux-ios://pair` or `cmux-ios://attach` URL.
     ///
-    /// Attach tickets are validated structurally only; a scanned QR keeps
-    /// working however long it sat on the Mac's screen (the host authorizes
-    /// by Stack account, not ticket age). Only the ancient `cmux-ios://pair`
-    /// grammar still enforces its own expiry.
+    /// Attach tickets are validated structurally only; scanned QR URLs carry
+    /// no inline expiry, and the host-side ticket record owns reference/token
+    /// age checks. Only the ancient `cmux-ios://pair` grammar still enforces
+    /// its own expiry.
     /// - Parameter rawValue: The scanned/pasted URL string.
     /// - Returns: A validated attach ticket.
     /// - Throws: `MobileSyncPairingPayloadError.invalidURL` or any ticket
     ///   validation error if the input is malformed, or
-    ///   `MobileSyncPairingPayloadError.loopbackRouteRejected` for a v2
-    ///   pairing code whose routes point at the phone itself.
+    ///   `MobileSyncPairingPayloadError.loopbackRouteRejected` for a
+    ///   bare-route pairing code whose routes point at the phone itself.
     public static func decode(_ rawValue: String) throws -> CmxAttachTicket {
         guard let url = URL(string: rawValue) else {
             throw MobileSyncPairingPayloadError.invalidURL
@@ -37,12 +37,12 @@ public struct CmxAttachTicketInput {
         // A QR minted by a newer cmux whose grammar version this build does not
         // understand. Distinguished from a malformed code so the user is told
         // to update the app instead of seeing the generic "not valid" copy (the
-        // real field report: beta 1.0.2 predated the v2 QR a newer Mac emitted).
+        // real field report: beta 1.0.2 predated the v3 QR a newer Mac emitted).
         if let version = CmxPairingQRCode.attachURLVersion(components),
            version > CmxPairingQRCode.version {
             throw MobileSyncPairingPayloadError.unrecognizedURLVersion(version)
         }
-        // The minimal v2 pairing-code grammar (bare Tailscale routes, loopback
+        // The minimal v3 pairing-code grammar (bare Tailscale routes, loopback
         // rejected). v1 URLs carry a base64 JSON `payload` item instead.
         if CmxPairingQRCode().isPairingCodeURL(components) {
             return try CmxPairingQRCode().decode(components)
@@ -118,6 +118,7 @@ private extension CmxAttachTicket {
             macAppBuild: macAppBuild,
             routes: routes,
             expiresAt: expiresAt,
+            ticketRef: ticketRef,
             authToken: authToken
         )
     }

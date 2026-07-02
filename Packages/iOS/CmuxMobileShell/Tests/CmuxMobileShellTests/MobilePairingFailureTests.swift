@@ -217,7 +217,7 @@ import Testing
     }
 
     @Test func invalidCodeNoLongerMentionsAPairingCode() {
-        // There is no pairing-code secret anymore (the v2 QR carries bare routes
+        // There is no pairing-code secret anymore (the v3 QR carries bare routes
         // and the host authorizes by Stack account). The copy must not imply a
         // wrong "code" was entered.
         let message = MobilePairingFailureCategory.invalidCode.message

@@ -5,10 +5,11 @@ import Foundation
 import Security
 #endif
 
-enum MobileAttachTicketStoreError: Error {
+enum MobileAttachTicketStoreError: Error, Equatable {
     case noRoutes
     case routeUnavailable
     case invalidAttachURL
+    case ticketUnavailable
 }
 
 final class MobileAttachTicketStore {
@@ -19,8 +20,11 @@ final class MobileAttachTicketStore {
         var createdTerminalIDs: Set<String> = []
     }
 
+    // Synchronous socket authorization calls this store from non-async paths;
+    // keep the locked section tiny until the host service moves to actor isolation.
     private let lock = NSLock()
     private var recordsByAuthToken: [String: Record] = [:]
+    private var authTokensByTicketRef: [String: String] = [:]
 
     func createTicket(
         workspaceID: String,
@@ -42,6 +46,7 @@ final class MobileAttachTicketStore {
             throw MobileAttachTicketStoreError.noRoutes
         }
 
+        let ticketRef = uniqueReferenceID()
         let ticket = try CmxAttachTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
@@ -54,10 +59,12 @@ final class MobileAttachTicketStore {
             macAppBuild: macAppBuild,
             routes: routes,
             expiresAt: now.addingTimeInterval(max(30, ttl)),
+            ticketRef: ticketRef,
             authToken: Self.randomBearerToken()
         )
         if let authToken = ticket.authToken {
             recordsByAuthToken[authToken] = Record(ticket: ticket, issuedAt: now)
+            authTokensByTicketRef[ticketRef] = authToken
         }
         return ticket
     }
@@ -68,9 +75,12 @@ final class MobileAttachTicketStore {
             "attach_url": try attachURL(for: ticket).absoluteString,
             "routes": ticket.routes.map(\.mobileHostJSONObject)
         ]
+        if let ticketRef = ticket.ticketRef {
+            payload["ticket_ref"] = ticketRef
+        }
         // `expires_at` describes the minted attach token's lifetime (tickets
         // from `createTicket` always carry one). The QR payload itself encodes
-        // no expiry; a displayed pairing code never goes stale.
+        // no inline expiry; the host-side ticket reference record owns TTL.
         if let expiresAt = ticket.expiresAt {
             payload["expires_at"] = ISO8601DateFormatter().string(from: expiresAt)
         }
@@ -101,6 +111,32 @@ final class MobileAttachTicketStore {
         )
     }
 
+    func validAuthorization(ticketRef: String?, now: Date = Date()) -> MobileAttachTicketAuthorization? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        pruneExpired(now: now)
+        guard let ticketRef = ticketRef?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !ticketRef.isEmpty,
+              let authToken = authTokensByTicketRef[ticketRef],
+              let record = recordsByAuthToken[authToken],
+              !record.ticket.isExpired(at: now) else {
+            return nil
+        }
+        return MobileAttachTicketAuthorization(
+            ticket: record.ticket,
+            createdWorkspaceIDs: record.createdWorkspaceIDs,
+            createdTerminalIDs: record.createdTerminalIDs
+        )
+    }
+
+    func payload(forTicketRef ticketRef: String?, now: Date = Date()) throws -> [String: Any] {
+        guard let authorization = validAuthorization(ticketRef: ticketRef, now: now) else {
+            throw MobileAttachTicketStoreError.ticketUnavailable
+        }
+        return try payload(for: authorization.ticket)
+    }
+
     func recordCreatedResources(
         authToken: String?,
         workspaceID: String?,
@@ -129,16 +165,16 @@ final class MobileAttachTicketStore {
     }
 
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
-        // Preferred form: the minimal v2 pairing-code grammar — bare Tailscale
-        // `host:port` routes in the URL query, nothing else. Everything the
-        // older grammars carried has a better channel: the auth token never
-        // authorized anything (the owner's Stack access token is the host's
-        // sole gate, `MobileHostService.authorizationError(for:)`), the
+        // Preferred form: the compact v3 pairing-code grammar — a non-secret
+        // ticket reference plus bare Tailscale `host:port` routes in the URL
+        // query. Everything the older grammars carried has a better channel:
+        // the auth token is resolved from the reference only after Stack auth,
         // display name and device id arrive post-handshake from
-        // `mobile.host.status`, and a pairing QR never expires. A DEBUG Mac's
-        // dev loopback route is dropped outright (a scanned code must never
-        // point a phone at itself). The much shorter plain-text URL also
-        // drops the QR several versions, so the code scans faster.
+        // `mobile.host.status`, and expiry stays on the host-side ticket
+        // record. A DEBUG Mac's dev loopback route is dropped outright (a
+        // scanned code must never point a phone at itself). The much shorter
+        // plain-text URL also drops the QR several versions, so the code scans
+        // faster.
         if let pairingURL = CmxPairingQRCode().encode(ticket), let url = URL(string: pairingURL) {
             return url
         }
@@ -160,6 +196,16 @@ final class MobileAttachTicketStore {
 
     private func pruneExpired(now: Date) {
         recordsByAuthToken = recordsByAuthToken.filter { !$0.value.ticket.isExpired(at: now) }
+        let validAuthTokens = Set(recordsByAuthToken.keys)
+        authTokensByTicketRef = authTokensByTicketRef.filter { validAuthTokens.contains($0.value) }
+    }
+
+    private func uniqueReferenceID() -> String {
+        var ref = Self.randomReferenceID()
+        while authTokensByTicketRef[ref] != nil {
+            ref = Self.randomReferenceID()
+        }
+        return ref
     }
 
     private static func jsonObject<T: Encodable>(_ value: T) throws -> Any {
@@ -187,6 +233,19 @@ final class MobileAttachTicketStore {
         }
         #endif
         return UUID().uuidString + UUID().uuidString
+    }
+
+    private static func randomReferenceID(byteCount: Int = 12) -> String {
+        #if canImport(Security)
+        var bytes = [UInt8](repeating: 0, count: byteCount)
+        let status = bytes.withUnsafeMutableBytes { buffer in
+            SecRandomCopyBytes(kSecRandomDefault, byteCount, buffer.baseAddress!)
+        }
+        if status == errSecSuccess {
+            return base64URLEncode(Data(bytes))
+        }
+        #endif
+        return UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20).description
     }
 }
 

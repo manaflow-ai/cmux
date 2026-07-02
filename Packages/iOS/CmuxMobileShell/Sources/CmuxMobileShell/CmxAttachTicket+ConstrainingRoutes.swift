@@ -17,6 +17,7 @@ extension CmxAttachTicket {
             macAppBuild: macAppBuild,
             routes: routes,
             expiresAt: expiresAt,
+            ticketRef: ticketRef,
             authToken: authToken
         )
     }

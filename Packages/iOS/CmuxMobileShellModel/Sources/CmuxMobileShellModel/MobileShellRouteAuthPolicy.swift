@@ -99,7 +99,7 @@ public struct MobileShellRouteAuthPolicy {
     /// dialing it reaches whatever process is listening on the phone's own
     /// localhost, and since loopback is in the Stack-auth-trusted set
     /// (``routeAllowsStackAuth(_:)``) the account bearer token would be
-    /// handed to that process. The v2 pairing-QR grammar rejects loopback in
+    /// handed to that process. The v3 pairing-QR grammar rejects loopback in
     /// the decoder; this policy closes the same hole for the legacy payload
     /// grammars, which must keep decoding loopback for the simulator flow
     /// (where 127.0.0.1 IS the host Mac and dev auto-pair depends on it).

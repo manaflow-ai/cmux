@@ -1,19 +1,18 @@
 import Foundation
 
-/// The minimal pairing-QR grammar: expected Mac account/build metadata plus
-/// plain `host:port` routes in the URL query.
+/// The compact pairing-QR grammar: a non-secret ticket reference, expected Mac
+/// account/build metadata, plus plain `host:port` routes in the URL query.
 ///
-/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
+/// `cmux-ios://attach?v=3&tr=<ticket-ref>&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
 ///
 /// A pairing QR needs to tell the phone where to dial and which non-secret
-/// account/build context to check before dialing. The account value is the
-/// opaque Stack user id, never the email itself. Everything else the earlier
-/// grammars carried has a better channel or no reason to exist:
-/// - **No auth token.** The owner's Stack access token is the host's sole
-///   authorization gate; a token in the QR authorized nothing and made the
-///   code look like a leaked credential.
-/// - **No expiry.** Ticket age authorizes nothing, so a code that sat on
-///   screen for an hour still pairs.
+/// ticket/account/build context to check before dialing. The account value is
+/// the opaque Stack user id, never the email itself. Everything else the
+/// earlier grammars carried has a better channel or no reason to exist:
+/// - **No auth token.** The phone redeems `tr` only after sending the owner's
+///   Stack access token to the Mac. The reference alone is not a bearer
+///   credential.
+/// - **No inline expiry.** The host-side ticket record owns TTL/revocation.
 /// - **No display name, no device id.** Both arrive post-handshake from
 ///   `mobile.host.status`; the decoder leaves `macDeviceID` empty and the
 ///   shell adopts the host-reported identity once connected.
@@ -29,9 +28,9 @@ import Foundation
 ///   timeout before the Tailscale route was ever tried.
 ///
 /// The payload is deliberately *not* wrapped in base64 JSON: anyone can read
-/// the URL off the QR and see for themselves that it carries only an address.
-/// Plain text is also smaller, which lowers the QR version (fewer, larger
-/// modules) and makes the code scan faster from a Mac screen.
+/// the URL off the QR and see for themselves that it carries only a reference
+/// and addresses. Plain text is also smaller, which lowers the QR version
+/// (fewer, larger modules) and makes the code scan faster from a Mac screen.
 ///
 /// Compatibility: this grammar only ever appears in the Mac's pairing QR.
 /// Workspace-scoped tickets, dev loopback tickets, and every RPC consumer
@@ -40,8 +39,11 @@ import Foundation
 public struct CmxPairingQRCode: Sendable {
     /// The grammar version carried in the URL's `v` query item. Distinct from
     /// ``CmxAttachTicket/currentVersion`` (the ticket *structure* version):
-    /// `v=1` URLs carry a base64 JSON `payload`, `v=2` URLs carry bare routes.
-    public static let version = 2
+    /// `v=1` URLs carry a base64 JSON `payload`, `v=2` URLs carry legacy bare
+    /// routes, and `v=3` URLs carry bare routes plus a ticket reference.
+    public static let version = 3
+
+    private static let legacyBareRouteVersion = 2
 
     /// Defensive cap on routes accepted from a scanned code. The Mac's route
     /// resolver emits at most a couple (MagicDNS name + Tailscale IP); a QR
@@ -53,7 +55,7 @@ public struct CmxPairingQRCode: Sendable {
     /// site; every instance speaks the same grammar version.
     public init() {}
 
-    /// Encode `ticket` as a v2 pairing URL, or `nil` when the ticket does not
+    /// Encode `ticket` as a v3 pairing URL, or `nil` when the ticket does not
     /// qualify (see ``canEncode(_:)``); callers fall back to the compact v1
     /// payload so every ticket still has an attach URL.
     ///
@@ -63,7 +65,10 @@ public struct CmxPairingQRCode: Sendable {
         guard let routes = encodableRoutes(of: ticket) else {
             return nil
         }
-        var items: [String] = ["v=\(Self.version)"]
+        guard let ticketRef = normalizedNonEmpty(ticket.ticketRef) else {
+            return nil
+        }
+        var items: [String] = ["v=\(Self.version)", "tr=\(percentEncodeQueryValue(ticketRef))"]
         if let userID = normalizedNonEmpty(ticket.macUserID) {
             items.append("ub=\(percentEncodeQueryValue(userID))")
         }
@@ -94,16 +99,17 @@ public struct CmxPairingQRCode: Sendable {
     /// Whether `ticket` is expressible in the minimal grammar; see
     /// ``encodableRoutes(of:)`` for the rules.
     public func canEncode(_ ticket: CmxAttachTicket) -> Bool {
-        encodableRoutes(of: ticket) != nil
+        normalizedNonEmpty(ticket.ticketRef) != nil && encodableRoutes(of: ticket) != nil
     }
 
-    /// The route subsequence a v2 pairing URL would carry for `ticket`, or
+    /// The route subsequence a v3 pairing URL would carry for `ticket`, or
     /// `nil` when the ticket is not expressible in the minimal grammar.
     ///
-    /// Expressible means: an unscoped pairing ticket whose Tailscale routes
-    /// are exactly the canonical `host:port` sequence the decoder
-    /// resynthesizes (ids `tailscale`, `tailscale_2`, ... and priorities 10,
-    /// 20, ...), with no loopback host and no host that needs escaping.
+    /// Expressible means: an unscoped pairing ticket with a ticket reference,
+    /// whose Tailscale routes are exactly the canonical `host:port` sequence
+    /// the decoder resynthesizes (ids `tailscale`, `tailscale_2`, ... and
+    /// priorities 10, 20, ...), with no loopback host and no host that needs
+    /// escaping.
     /// The only routes this grammar may silently drop are loopback ones (a
     /// DEBUG Mac's dev loopback route), which no phone may ever dial anyway.
     /// Anything else (workspace-scoped tickets, custom route ids, no
@@ -136,9 +142,23 @@ public struct CmxPairingQRCode: Sendable {
     }
 
     /// Whether `components` (an already-parsed `cmux-ios://attach` URL) speaks
-    /// this grammar. v1 URLs carry the base64 `payload` item instead.
+    /// the bare-route pairing grammar. v1 URLs carry the base64 `payload` item
+    /// instead; v2 is accepted only for backwards-compatible route-only codes.
     public func isPairingCodeURL(_ components: URLComponents) -> Bool {
-        components.queryItems?.first(where: { $0.name == "v" })?.value == "\(Self.version)"
+        guard let version = Self.attachURLVersion(components) else {
+            return false
+        }
+        switch version {
+        case Self.legacyBareRouteVersion:
+            return queryValue(named: "payload", in: components) == nil
+                && !queryValues(named: "r", in: components).isEmpty
+        case Self.version:
+            return queryValue(named: "payload", in: components) == nil
+                && queryValue(named: "tr", in: components) != nil
+                && !queryValues(named: "r", in: components).isEmpty
+        default:
+            return false
+        }
     }
 
     /// The integer grammar version declared by an attach URL's `v` query item,
@@ -152,7 +172,7 @@ public struct CmxPairingQRCode: Sendable {
         return Int(raw)
     }
 
-    /// Whether `rawValue` is a v2 pairing URL. String-level convenience for
+    /// Whether `rawValue` is a bare-route pairing URL. String-level convenience for
     /// callers that hold the encoded URL (the Mac's pairing window asserting
     /// the code it is about to display speaks the minimal grammar).
     public func isPairingCodeURLString(_ rawValue: String) -> Bool {
@@ -165,17 +185,24 @@ public struct CmxPairingQRCode: Sendable {
         return isPairingCodeURL(components)
     }
 
-    /// Decode a v2 pairing URL into a validated ``CmxAttachTicket``.
+    /// Decode a bare-route pairing URL into a validated ``CmxAttachTicket``.
     ///
     /// The ticket comes back unscoped with an empty `macDeviceID`; the shell
     /// recovers the Mac's identity post-handshake from `mobile.host.status`.
-    /// - Parameter components: The parsed `cmux-ios://attach?v=2&...` URL.
+    /// The `tr` ticket reference is mandatory for the current v3 grammar;
+    /// legacy v2 route-only URLs still decode without one for compatibility.
+    /// - Parameter components: The parsed `cmux-ios://attach?v=3&...` URL.
     /// - Throws: ``MobileSyncPairingPayloadError/invalidURL`` for malformed
     ///   input and ``MobileSyncPairingPayloadError/loopbackRouteRejected``
     ///   when any route names a loopback host (a scanned code must never
     ///   point the phone at itself).
     public func decode(_ components: URLComponents) throws -> CmxAttachTicket {
+        let grammarVersion = Self.attachURLVersion(components)
         guard isPairingCodeURL(components) else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        let ticketRef = queryValue(named: "tr", in: components)
+        if grammarVersion == Self.version, ticketRef == nil {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         let rawRoutes = (components.queryItems ?? [])
@@ -208,6 +235,7 @@ public struct CmxPairingQRCode: Sendable {
             macAppBuild: queryValue(named: "ab", in: components),
             routes: routes,
             expiresAt: nil,
+            ticketRef: ticketRef,
             authToken: nil
         )
         try ticket.validate()
@@ -281,6 +309,12 @@ private extension CmxPairingQRCode {
 
     func queryValue(named name: String, in components: URLComponents) -> String? {
         normalizedNonEmpty(components.queryItems?.first(where: { $0.name == name })?.value)
+    }
+
+    func queryValues(named name: String, in components: URLComponents) -> [String] {
+        (components.queryItems ?? [])
+            .filter { $0.name == name }
+            .compactMap { normalizedNonEmpty($0.value) }
     }
 
     func queryInt(named name: String, in components: URLComponents) -> Int? {

@@ -11,6 +11,15 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostAuthorizationTests {
+    #if DEBUG
+    private func withDebugStackAuthToken<T>(_ token: String, _ body: (MobileHostService) async -> T) async -> T {
+        let service = MobileHostService.shared
+        service.debugConfigureAcceptedStackAuthTokenForTesting(token)
+        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
+        return await body(service)
+    }
+    #endif
+
     @Test func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {
         let store = MobileAttachTicketStore()
         let route = try CmxAttachRoute(
@@ -36,8 +45,37 @@ struct MobileHostAuthorizationTests {
         )
 
         #expect(first.authToken != second.authToken)
+        #expect(first.ticketRef != second.ticketRef)
         #expect(store.validTicket(authToken: first.authToken, now: now.addingTimeInterval(2))?.authToken == first.authToken)
         #expect(store.validTicket(authToken: second.authToken, now: now.addingTimeInterval(2))?.authToken == second.authToken)
+        #expect(store.validAuthorization(ticketRef: first.ticketRef, now: now.addingTimeInterval(2))?.ticket.authToken == first.authToken)
+        #expect(store.validAuthorization(ticketRef: second.ticketRef, now: now.addingTimeInterval(2))?.ticket.authToken == second.authToken)
+    }
+    @Test func testAttachTicketStoreResolvesTicketReferenceUntilExpiry() throws {
+        let store = MobileAttachTicketStore()
+        let route = try CmxAttachRoute(
+            id: "debug",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 58465)
+        )
+        let now = Date()
+        let ticket = try store.createTicket(
+            workspaceID: "workspace",
+            terminalID: "terminal",
+            routes: [route],
+            ttl: 30,
+            now: now
+        )
+
+        let payload = try store.payload(forTicketRef: ticket.ticketRef, now: now.addingTimeInterval(1))
+        let payloadTicket = try #require(payload["ticket"] as? [String: Any])
+        #expect(payload["ticket_ref"] as? String == ticket.ticketRef)
+        #expect(payloadTicket["auth_token"] as? String == ticket.authToken)
+
+        #expect(throws: MobileAttachTicketStoreError.ticketUnavailable) {
+            _ = try store.payload(forTicketRef: ticket.ticketRef, now: now.addingTimeInterval(31))
+        }
+        #expect(store.validAuthorization(ticketRef: ticket.ticketRef, now: now.addingTimeInterval(31)) == nil)
     }
     @Test func testAttachTicketStoreRecordsCreatedResourceScopes() throws {
         let store = MobileAttachTicketStore()
@@ -108,12 +146,6 @@ struct MobileHostAuthorizationTests {
         ))
     }
     @Test func testDebugConfiguredStackAuthTokenAuthorizesBroadWorkspaceList() async {
-        let service = MobileHostService.shared
-        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
-        defer {
-            service.debugConfigureAcceptedStackAuthTokenForTesting(nil)
-        }
-
         let request = MobileHostRPCRequest(
             id: "workspace-list",
             method: "workspace.list",
@@ -124,7 +156,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let result = await service.debugAuthorizationError(for: request)
+        let result = await withDebugStackAuthToken("cmux-dev-token") { await $0.debugAuthorizationError(for: request) }
 
         #expect(result == nil)
     }
@@ -353,6 +385,38 @@ struct MobileHostAuthorizationTests {
         }
         #expect(error.code == "unauthorized")
     }
+    @Test func testMobileAttachTicketRedeemRequiresAuthorization() async {
+        let request = MobileHostRPCRequest(
+            id: "attach-ticket-redeem",
+            method: "mobile.attach_ticket.redeem",
+            params: ["ticket_ref": "ticket-ref-123"],
+            auth: nil
+        )
+
+        let result = await MobileHostService.shared.debugAuthorizationError(for: request)
+
+        guard case let .failure(error) = result else {
+            return #expect(Bool(false), "mobile.attach_ticket.redeem should require mobile authorization")
+        }
+        #expect(error.code == "unauthorized")
+    }
+    #if DEBUG
+    @Test func testDebugConfiguredStackAuthTokenAuthorizesAttachTicketRedeem() async {
+        let request = MobileHostRPCRequest(
+            id: "attach-ticket-redeem",
+            method: "mobile.attach_ticket.redeem",
+            params: ["ticket_ref": "ticket-ref-123"],
+            auth: MobileHostRPCAuth(
+                attachToken: nil,
+                stackAccessToken: "cmux-dev-token"
+            )
+        )
+
+        let result = await withDebugStackAuthToken("cmux-dev-token") { await $0.debugAuthorizationError(for: request) }
+
+        #expect(result == nil)
+    }
+    #endif
     @Test func testScopedAttachTicketRejectsWorkspaceAliasIgnoredByHandlers() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(

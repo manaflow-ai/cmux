@@ -10,7 +10,7 @@ public import Foundation
 import Observation
 internal import OSLog
 
-private let mobileShellLog = Logger(
+nonisolated private let mobileShellLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "mobile-shell"
 )
@@ -635,7 +635,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
-    /// without one (the minimal v2 pairing QR). Owned separately from the
+    /// without one (the minimal v3 pairing QR). Owned separately from the
     /// short capability probe; see ``scheduleHostIdentityAdoptionIfNeeded(client:)``.
     /// Cancelled on disconnect via ``cancelRemoteOperationTasks()``.
     private var hostIdentityAdoptionTask: Task<Void, Never>?
@@ -2908,7 +2908,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Recovers the Mac's identity for a connection whose ticket arrived
-    /// without a device id (the minimal v2 pairing QR), as its own
+    /// without a device id (the minimal v3 pairing QR), as its own
     /// `mobile.host.status` request with the default RPC timeout.
     ///
     /// Identity recovery must not depend on the terminal-output capability
@@ -2982,6 +2982,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                macAppBuild: ticket.macAppBuild,
                routes: ticket.routes,
                expiresAt: ticket.expiresAt,
+               ticketRef: ticket.ticketRef,
                authToken: ticket.authToken
            ) {
             activeTicket = adopted
@@ -3167,10 +3168,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Offline preflight: fail fast instead of stacking per-route connect
         // timeouts into the opaque ~60s wait. Skipped only when no route is
         // dialable so `connect()` classifies that as `no_supported_route`.
-        // Ticket expiry deliberately does NOT gate this: a stale QR is a valid
-        // pairing input now (expiry is enforced solely where the RPC attach
-        // token is used), so an expired legacy code scanned offline must say
-        // "offline", not crawl the route loop's stacked timeouts.
+        // Inline ticket expiry deliberately does NOT gate this preflight:
+        // decoded QR URLs carry no inline expiry, and host-side reference
+        // expiry is enforced after the route is reached. An expired legacy code
+        // scanned offline should still say "offline", not crawl the route loop's
+        // stacked timeouts.
         let candidateRoutes = Self.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
         if !candidateRoutes.isEmpty {
             switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: candidateRoutes) {
@@ -4910,10 +4912,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearRemoteConnectionContext()
             return .noSupportedRoute
         }
-        // No connect-time expiry gate: a pairing QR never expires (new QRs
-        // carry no expiry at all), and the host authorizes by Stack account,
-        // not ticket age. Expiry still gates the RPC-minted attach token at
-        // its point of use (`MobileCoreRPCClient.requestDataWithAuth`).
+        // No local connect-time expiry gate: compact QR URLs carry no inline
+        // expiry. Host-side reference expiry is enforced by the redeem RPC, and
+        // token expiry still gates the RPC-minted attach token at its point of
+        // use (`MobileCoreRPCClient.requestDataWithAuth`).
         activeTicket = ticket
         activeRoute = firstRoute
         connectedHostName = placeholderHostName(for: ticket, firstRoute: firstRoute)
@@ -4967,13 +4969,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         timeoutNanoseconds: requestTimeoutNanoseconds
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+                    let connectionTicket = await client.currentTicket()
                     guard isConnectCurrent() else { return nil }
-                    await persistPairedMacFromTicket(ticket, ifStillCurrent: isConnectCurrent)
+                    activeTicket = connectionTicket
+                    connectedHostName = placeholderHostName(for: connectionTicket, firstRoute: route)
+                    // Persist the *redeemed* ticket (`connectionTicket`), not the
+                    // original QR `ticket`: a compact v3 QR is anonymous, so only the
+                    // redeemed ticket carries the real `macDeviceID` that
+                    // `persistPairedMacFromTicket` requires (it early-returns on an
+                    // empty id). Gated by `isConnectCurrent` and re-checked after the
+                    // await so a superseded Mac switch bails before swapping the live
+                    // client.
+                    await persistPairedMacFromTicket(connectionTicket, ifStillCurrent: isConnectCurrent)
                     guard isConnectCurrent() else { return nil }
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
                     // The connect seam guarantees identity recovery for an
-                    // anonymous (v2 QR) ticket on every supported runtime, not
+                    // anonymous (v3 QR) ticket on every supported runtime, not
                     // just push-event ones: when the event-listener task starts,
                     // its status probe performs the recovery (one shared status
                     // request); when the runtime has no server-push events that
@@ -4993,7 +5005,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // snapshot. Anonymous (empty-id) tickets keep the anonymous key. A
                     // manual fallback ticket carries a synthetic `manual-…` id, so
                     // prefer the caller's real paired-Mac id when it is known.
-                    let resolvedForegroundMacID = ticket.foregroundMacID(hint: pairedMacDeviceID)
+                    let resolvedForegroundMacID = connectionTicket.foregroundMacID(hint: pairedMacDeviceID)
                     let previousForegroundKey = foregroundMacKey
                     if !resolvedForegroundMacID.isEmpty {
                         foregroundMacDeviceID = resolvedForegroundMacID
@@ -5020,8 +5032,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     if !resolvedForegroundMacID.isEmpty {
                         connections[resolvedForegroundMacID] = MacConnection(
                             macDeviceID: resolvedForegroundMacID,
-                            ticket: ticket,
-                            route: firstRoute,
+                            ticket: connectionTicket,
+                            route: route,
                             client: client,
                             generation: generation
                         )
@@ -6189,7 +6201,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             // A decoded status can still be identity-free: the probe's token
             // attach is best-effort, and the host withholds identity from an
-            // unverified caller. If the v2 QR ticket is still anonymous after
+            // unverified caller. If the v3 QR ticket is still anonymous after
             // applying, run the dedicated recovery (it re-asks the token
             // provider and no-ops once an identity is adopted).
             scheduleHostIdentityAdoptionIfNeeded(client: client)
@@ -7591,7 +7603,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case let .rpcError(code, message):
             let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if let normalizedCode,
-               ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required"].contains(normalizedCode) {
+               ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "ticket_expired", "auth_required"].contains(normalizedCode) {
                 return true
             }
             let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -7643,7 +7655,7 @@ private extension MobileWorkspacePreview {
 private extension MobileShellComposite {
     /// The name shown for the Mac until `mobile.host.status` reports the real
     /// one: the ticket's display name, then its device id, then the dialed
-    /// route's host (a minimal v2 pairing code carries neither name nor id,
+    /// route's host (a minimal v3 pairing code carries neither name nor id,
     /// so the Tailscale hostname is the best available placeholder).
     func placeholderHostName(
         for ticket: CmxAttachTicket,
