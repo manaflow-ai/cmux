@@ -333,6 +333,18 @@ extension TerminalSurface {
         default:
             break
         }
+        // Shift+Tab (back-tab) arrives as CSI Z (`ESC[Z`). Like the arrows above
+        // it is an interactive key, not a terminal report, so re-issue it as
+        // Shift+Tab and let libghostty encode `ESC[Z` for the PTY — matching a
+        // hardware back-tab. Without this it falls through to
+        // `terminalControlSequenceLength` and the parser consumes it as
+        // cursor-backward-tab (a display-only move) instead of reaching the
+        // foreground TUI (e.g. Claude Code's reverse-focus). The iOS client emits
+        // this for a hardware Shift+Tab and the on-screen ⇧+Tab accessory; it is
+        // the socket sibling of the `backtab` named key in `pendingKeyEvent(for:)`.
+        if next == 0x5B, final == 0x5A { // Z
+            return (UInt32(kVK_Tab), GHOSTTY_MODS_SHIFT, "backTab", 3)
+        }
         // CSI tilde sequences: ESC [ N ~
         if next == 0x5B, start + 3 < scalars.count, scalars[start + 3].value == 0x7E {
             switch final {
