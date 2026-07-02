@@ -1119,6 +1119,69 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertTrue(detectedSnapshots.isEmpty, "A recoverable miss must beat cross-binding another cwd's session")
     }
 
+    func testTwoHermesPanesInSameCwdRecordNoBinding() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-ambig-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        try Self.writeHermesStateDB(at: stateDB, rows: [
+            (id: "session-x", source: "tui", startedAt: 40, cwd: repo.path),
+        ])
+
+        let workspaceId = UUID()
+        let panels = [UUID(), UUID()]
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path, fileManager: fm)
+        let processes = panels.enumerated().map { index, panelId in
+            CmuxTopProcessInfo(
+                pid: 8_001 + index,
+                parentPID: 1,
+                name: "hermes",
+                path: "/usr/local/bin/hermes",
+                ttyDevice: nil,
+                cmuxWorkspaceID: workspaceId,
+                cmuxSurfaceID: panelId,
+                cmuxAttributionReason: "cmux-test",
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processes.contains(where: { $0.pid == processId }) else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["hermes"],
+                    environment: [
+                        "HERMES_HOME": hermesHome.path,
+                        "CMUX_AGENT_LAUNCH_CWD": repo.path,
+                    ]
+                )
+            }
+        )
+
+        // Two live hermes panes share one (state.db, cwd), so neither may be bound: picking the
+        // single newest session for both would resume one pane onto the other pane's session.
+        XCTAssertTrue(detectedSnapshots.isEmpty, "Ambiguous same-cwd hermes panes must record no binding")
+    }
+
     func testBuiltInHermesRegistrationIsRegisteredWithStateDBSource() throws {
         let hermes = CmuxVaultAgentRegistration.builtInHermes
         XCTAssertEqual(hermes.id, "hermes-agent")

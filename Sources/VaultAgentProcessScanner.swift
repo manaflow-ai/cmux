@@ -90,23 +90,70 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
+        // Fetch each process's argv/env at most once per scan; the Hermes ambiguity pre-count and
+        // the resolution loop below both read through this cache.
+        var argumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
+        func cachedProcessArguments(for pid: Int) -> CmuxTopProcessArguments? {
+            if let cached = argumentsByPID[pid] { return cached }
+            let fetched = processArgumentsProvider(pid)
+            argumentsByPID.updateValue(fetched, forKey: pid)
+            return fetched
+        }
+
+        func hermesAmbiguityKey(stateDBPath: String, cwd: String) -> String {
+            stateDBPath + "\u{1f}" + cwd
+        }
+
+        // Count live Hermes (.stateDB) processes per (state.db, cwd). When two panes share one key we
+        // cannot tell which pane owns which session, so no binding is recorded for it below — a
+        // recoverable miss beats binding both panes to the same newest session. Making this exact
+        // needs a per-process key from hermes (see https://github.com/manaflow-ai/cmux/issues/7042).
+        var hermesProcessCountByKey: [String: Int] = [:]
+        for process in processSnapshot.cmuxScopedProcesses() {
+            guard process.cmuxWorkspaceID != nil,
+                  process.cmuxSurfaceID != nil,
+                  let processArguments = cachedProcessArguments(for: process.pid) else {
+                continue
+            }
+            let observed = VaultObservedAgentProcess(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment
+            )
+            guard let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]),
+                  let registration = registryForWorkingDirectory(cwd).registrations.first(where: { $0.detect.matches(observed) }),
+                  registration.sessionIdSource == .stateDB else {
+                continue
+            }
+            let key = hermesAmbiguityKey(
+                stateDBPath: HermesAgentIndex.defaultStateDBPath(env: observed.environment),
+                cwd: cwd
+            )
+            hermesProcessCountByKey[key, default: 0] += 1
+        }
+
         // Memoize Hermes state.db lookups within a single scan so N same-(db, cwd) panes read once.
-        // The nested optional distinguishes "not looked up" (outer nil) from a cached miss
-        // (`.some(nil)`), so a genuine no-match is not re-queried per process.
+        // The inner dictionary stores `.some(nil)` for a cached miss (via updateValue, which keeps
+        // the key) so a genuine no-match is not re-queried per process.
         var hermesSessionIDCache: [String: [String: String?]] = [:]
         func hermesLatestSessionID(stateDBPath: String, cwd: String) -> String? {
+            // Multiple live hermes panes share this (state.db, cwd): no reliable pane->session map.
+            if hermesProcessCountByKey[hermesAmbiguityKey(stateDBPath: stateDBPath, cwd: cwd), default: 0] > 1 {
+                return nil
+            }
             if let cached = hermesSessionIDCache[stateDBPath]?[cwd] {
                 return cached
             }
             let resolvedSessionID = HermesAgentIndex.latestSessionID(cwd: cwd, stateDBPath: stateDBPath)
-            hermesSessionIDCache[stateDBPath, default: [:]][cwd] = resolvedSessionID
+            hermesSessionIDCache[stateDBPath, default: [:]].updateValue(resolvedSessionID, forKey: cwd)
             return resolvedSessionID
         }
 
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
-                  let processArguments = processArgumentsProvider(process.pid) else {
+                  let processArguments = cachedProcessArguments(for: process.pid) else {
                 continue
             }
             let observed = VaultObservedAgentProcess(
