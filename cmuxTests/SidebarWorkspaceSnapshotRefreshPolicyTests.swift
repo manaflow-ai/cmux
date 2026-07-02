@@ -127,6 +127,7 @@ import Testing
         #expect(decision.workspaceSnapshotStorage?.activeCodingAgentCount == 1)
         #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
         #expect(decision.pendingWorkspaceSnapshot == next)
+        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
     @Test func closedContextMenuStoresNextAndClearsPending() {
