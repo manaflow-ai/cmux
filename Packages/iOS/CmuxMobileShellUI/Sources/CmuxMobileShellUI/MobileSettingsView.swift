@@ -220,6 +220,11 @@ struct MobileSettingsView: View {
                 #endif
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                    Toggle(isOn: $displaySettings.compactWorkspaceList) {
+                        Text(L10n.string("mobile.settings.compactList", defaultValue: "Compact Workspace List"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsCompactList")
+
                     Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }
@@ -234,6 +239,9 @@ struct MobileSettingsView: View {
                         Text(L10n.string("mobile.settings.previewLines", defaultValue: "Preview Lines"))
                     }
                     .accessibilityIdentifier("MobileSettingsPreviewLines")
+                    // Compact rows have no preview line, so the picker would
+                    // silently do nothing while compact mode is on.
+                    .disabled(displaySettings.compactWorkspaceList)
                 }
 
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {

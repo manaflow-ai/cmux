@@ -8,6 +8,9 @@ struct WorkspaceNavigationRow: View {
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
     let wrapWorkspaceTitles: Bool
+    /// Compact (name-only) presentation, forwarded to the shared
+    /// ``WorkspaceRow``. Swipe and context-menu actions are unaffected.
+    var isCompact: Bool = false
     /// How many lines the activity preview shows (1 or 2), forwarded to the
     /// shared ``WorkspaceRow``.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
@@ -117,6 +120,7 @@ struct WorkspaceNavigationRow: View {
             connectionStatus: connectionStatus,
             isSelected: navigationStyle == .sidebar && isSelected,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
+            isCompact: isCompact,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
             profilePictureLeftShift: profilePictureLeftShift,

@@ -12,6 +12,10 @@ struct WorkspaceRow: View {
     /// When `true`, the workspace title wraps onto multiple lines instead of
     /// truncating to one (driven by the "Wrap Workspace Titles" setting).
     let wrapWorkspaceTitles: Bool
+    /// When `true`, the row is just the unread dot and the workspace name
+    /// (driven by the "Compact Workspace List" setting). The avatar, activity
+    /// preview, and timestamp are omitted so rows stay one text line tall.
+    var isCompact: Bool = false
     /// How many lines the activity preview shows (1 or 2, driven by the
     /// "Preview Lines" setting; 2 is the default). Space is reserved so rows
     /// with short previews keep the same height as their neighbors.
@@ -21,6 +25,53 @@ struct WorkspaceRow: View {
     var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
 
     var body: some View {
+        if isCompact {
+            compactBody
+        } else {
+            fullBody
+        }
+    }
+
+    /// Compact presentation: unread dot + name on one line. The dot keeps the
+    /// same gutter geometry as the full row so toggling the setting does not
+    /// shift the dot column, and the swipe/hold actions live on the wrapper so
+    /// they are unaffected.
+    private var compactBody: some View {
+        HStack(alignment: .center, spacing: 0) {
+            WorkspaceUnreadDot(isUnread: workspace.hasUnread, leftShift: unreadIndicatorLeftShift)
+
+            Spacer()
+                .frame(width: Self.unreadDotAvatarVisualGap)
+
+            if workspace.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Spacer()
+                    .frame(width: 6)
+            }
+
+            Text(workspace.name)
+                .font(.body)
+                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+                .lineLimit(wrapWorkspaceTitles ? nil : 1)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+        .padding(.horizontal, isSelected ? 10 : 0)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.14))
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var fullBody: some View {
         HStack(alignment: .top, spacing: 0) {
             // Unread is JUST this dot, left of the icon like iMessage. The
             // gutter is always present (hidden dot when read) so read and
