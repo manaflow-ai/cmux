@@ -56,6 +56,8 @@ actor RoutingHostRouter {
     private var firstPasteImageContinuation: CheckedContinuation<Void, Never>?
     private var firstPasteImageReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var rejectTerminalClose = false
+    private var rejectTerminalCloseCode: String?
+    private var rejectTerminalCloseMessage = "terminal.close rejected"
     private var failWorkspaceList = false
 
     static let workspaceID = "ws-route"
@@ -105,6 +107,17 @@ actor RoutingHostRouter {
     /// refuses the close. The authoritative list keeps the terminal.
     func setRejectTerminalClose(_ reject: Bool) {
         rejectTerminalClose = reject
+        rejectTerminalCloseCode = nil
+        rejectTerminalCloseMessage = "terminal.close rejected"
+    }
+
+    /// Reject terminal.close as an authorization failure. The shell-level
+    /// reconnect/reauth UI owns this case, so the terminal picker should not
+    /// show a separate close-failed alert.
+    func setRejectTerminalCloseAuthorizationFailure(_ reject: Bool) {
+        rejectTerminalClose = reject
+        rejectTerminalCloseCode = reject ? "unauthorized" : nil
+        rejectTerminalCloseMessage = reject ? "Unauthorized terminal close" : "terminal.close rejected"
     }
 
     /// Fail workspace-list refreshes while leaving other RPCs available.
@@ -223,7 +236,11 @@ actor RoutingHostRouter {
                 }
             }
             if rejectTerminalClose {
-                return try? Self.errorFrame(id: id, message: "terminal.close rejected")
+                return try? Self.errorFrame(
+                    id: id,
+                    code: rejectTerminalCloseCode,
+                    message: rejectTerminalCloseMessage
+                )
             }
             closedTerminalIDs.insert(surfaceID)
             return try? Self.resultFrame(id: id, result: [
@@ -253,11 +270,15 @@ actor RoutingHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, message: String) throws -> Data {
+    private static func errorFrame(id: String?, code: String? = nil, message: String) throws -> Data {
+        var error: [String: Any] = ["message": message]
+        if let code {
+            error["code"] = code
+        }
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": false,
-            "error": ["message": message],
+            "error": error,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }

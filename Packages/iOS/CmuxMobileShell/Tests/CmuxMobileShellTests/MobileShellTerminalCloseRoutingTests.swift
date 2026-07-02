@@ -219,6 +219,22 @@ import Testing
         #expect(store.shouldAutoFocusTerminalSurface(terminalB.rawValue) == true)
     }
 
+    @Test func closeTerminalReturnsNilWhenAuthorizationFailureOwnsUI() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: router)
+        seedTerminalCloseWorkspace(on: store, supportsTerminalClose: true)
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: RoutingHostRouter.workspaceID)
+        let terminalA = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA)
+        await router.setRejectTerminalCloseAuthorizationFailure(true)
+
+        let failureMessage = await store.closeTerminal(workspaceID: workspaceID, terminalID: terminalA)
+
+        #expect(await router.recordedTerminalCloses().count == 1)
+        #expect(failureMessage == nil)
+        #expect(store.connectionRequiresReauth)
+        #expect(store.connectionState == .disconnected)
+    }
+
     /// iOS does not know the workspace's full panel count, so the host remains
     /// authoritative for the last-surface rule. A one-terminal workspace may
     /// still have another non-terminal surface; when it does not, the Mac

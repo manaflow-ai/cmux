@@ -160,7 +160,7 @@ extension MobileShellComposite {
             _ = try await client.sendRequest(request)
         } catch {
             failureMessage = error.localizedDescription
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return failureMessage }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return nil }
             // Only the foreground connection's health drives the foreground
             // unavailable/reconnect UI; a failed write to a secondary Mac must not
             // tear the foreground session down.
