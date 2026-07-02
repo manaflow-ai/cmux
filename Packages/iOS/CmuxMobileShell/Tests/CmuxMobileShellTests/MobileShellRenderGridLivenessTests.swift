@@ -221,6 +221,58 @@ import Testing
 }
 
 @MainActor
+@Test func hybridPrimaryNewerFullGridSuppressesOlderStaleReplay() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.holdNextReplayResponses()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(coldReplayRequested, "mounting a sink must request the cold replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 6,
+        text: "newer-grid",
+        columns: 16
+    ))
+    let advisoryProcessed = try await pollUntil {
+        collector.viewportPolicies.last == .natural
+    }
+    #expect(advisoryProcessed, "the newer primary full grid is advisory in default hybrid mode")
+
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 5,
+            columns: 16,
+            rows: 4,
+            full: true,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "older-replay"),
+            ]
+        ),
+    ])
+    await router.releaseAllHeld()
+
+    let staleDelivered = try await pollUntil(attempts: 60) {
+        collector.lines.contains { $0.contains("older-replay") }
+    }
+    #expect(
+        staleDelivered == false,
+        "a hybrid primary full-grid observation at a newer seq must stale an older held replay"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func hybridPrimaryFullGridDuringReplayBarrierDoesNotSuppressBarrierReplay() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
