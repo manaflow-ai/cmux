@@ -23291,12 +23291,13 @@ struct CMUXCLI {
                 if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
                     // still live, so the pane is not idle — show it as still
-                    // running rather than the misleading "Idle".
+                    // running rather than the misleading "Idle". Reuse the shared
+                    // generic-agent status strings so the pill stays localized.
                     try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        value: "Running",
+                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
                         icon: "bolt.fill",
                         color: "#4C8DFF"
                     )
@@ -23305,7 +23306,7 @@ struct CMUXCLI {
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        value: "Idle",
+                        value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
                         icon: "pause.circle.fill",
                         color: "#8E8E93"
                     )
