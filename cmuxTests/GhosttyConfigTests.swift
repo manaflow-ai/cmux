@@ -4309,11 +4309,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTerminalColorDirective() throws {
-        try withTempConfig("background = #101010\n") { path in
-            XCTAssertFalse(
-                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
-            )
+    func testShouldApplyManagedDefaultAppearanceAppliesWithExplicitTerminalColorDirective() throws {
+        // A lone color key must not suppress the managed default theme (#7161).
+        try withTempConfig("background = black\n") { path in
+            XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path]))
         }
     }
 
