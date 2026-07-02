@@ -225,9 +225,16 @@ public final class UpdateController {
             // (the coordinator being already monitoring) auto-confirms the update it finds.
             checkForUpdatesWhenReady(preservingInstallIntent: true)
         case .rearmConfirmedInstall:
-            // Arm the attempt coordinator on the retried check via the shared attempt path so the
-            // update it finds is auto-confirmed, matching the pre-failure install intent.
-            performAttemptAction(attemptCoordinator.requestInstallLatest(currentState: model.state))
+            // Arm the attempt coordinator to auto-confirm the retried check's update, matching the
+            // pre-failure install intent — entering the coordinator's result-awaiting phase directly
+            // (see `armForConfirmedRetryCheck`) rather than via `requestInstallLatest`. The model
+            // here is the retry's own synthetic `.checking` pill, not a stale prompt, so a user
+            // cancel during the readiness wait disarms the coordinator instead of stranding it armed
+            // to silently auto-confirm a later, unrelated update. Route the check through the
+            // preserving path so the synthetic pill is not torn down and the bounded-retry count is
+            // preserved.
+            attemptCoordinator.armForConfirmedRetryCheck()
+            checkForUpdatesWhenReady(preservingInstallIntent: true)
         case .plainCheck:
             checkForUpdatesWhenReady(preservingInstallIntent: false)
         }

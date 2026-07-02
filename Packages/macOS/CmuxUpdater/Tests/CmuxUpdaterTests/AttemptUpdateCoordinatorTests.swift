@@ -156,4 +156,40 @@ import Testing
         #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .none)
         #expect(coordinator.handleStateChange(.notFound(.init(acknowledgement: {}))) == .none)
     }
+
+    /// Regression (autoreview P1, follow-up to issue #5632): the download-phase transient-retry
+    /// re-arm must not strand the coordinator armed when the user cancels the retry before the check
+    /// restarts.
+    ///
+    /// Unlike the user-initiated install flow (`requestInstallLatest`, which enters
+    /// `awaitingCheckRestart` to ignore a stale on-screen prompt until a real check restarts), the
+    /// retry re-arm happens while the model is the retry's own `.checking` pill — there is no stale
+    /// prompt to gate against. If the user cancels that pill during the controller's readiness wait,
+    /// the model idles directly (no intervening `.checking`); the coordinator must treat that as
+    /// "check ended" and disarm, so a later, unrelated `.updateAvailable` is not silently
+    /// auto-confirmed.
+    @Test func retryRearmDisarmsWhenUserCancelsBeforeCheckRestarts() {
+        var coordinator = AttemptUpdateCoordinator()
+        coordinator.armForConfirmedRetryCheck()
+        #expect(coordinator.isMonitoring)
+
+        // User cancels the retry pill during the readiness wait → the model idles directly, with no
+        // intervening `.checking` (the fresh check never started).
+        #expect(coordinator.handleStateChange(.idle) == .none)
+        #expect(!coordinator.isMonitoring)
+
+        // A later, unrelated update must NOT be auto-confirmed — the user cancelled.
+        #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .none)
+    }
+
+    /// The re-arm's success path: once the retried check restarts (`.checking`) and resolves an
+    /// update, the coordinator auto-confirms it so the interrupted install continues silently.
+    @Test func retryRearmConfirmsUpdateResolvedByRestartedCheck() {
+        var coordinator = AttemptUpdateCoordinator()
+        coordinator.armForConfirmedRetryCheck()
+
+        #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
+        #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .confirmInstall)
+        #expect(!coordinator.isMonitoring)
+    }
 }

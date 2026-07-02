@@ -62,6 +62,13 @@ struct AttemptUpdateCoordinator {
         }
     }
 
+    /// Arm the coordinator to auto-confirm the update a freshly *restarted* retry check resolves,
+    /// used by the download-phase transient-retry re-arm (issue #5632) instead of routing through
+    /// ``requestInstallLatest(currentState:)``.
+    mutating func armForConfirmedRetryCheck() {
+        phase = .awaitingCheckRestart
+    }
+
     /// Feed each ``UpdateState`` change observed after a request. Returns the action the controller
     /// should perform.
     mutating func handleStateChange(_ state: UpdateState) -> Action {
