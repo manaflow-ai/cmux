@@ -719,6 +719,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var secondaryAggregationScopeGeneration = 0
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
+    var terminalFullReplacementSeqBySurfaceID: [String: UInt64]
     var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
     var terminalReplaySurfaceIDsInFlight: Set<String>
@@ -920,6 +921,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.chatEventSourceGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
+        self.terminalFullReplacementSeqBySurfaceID = [:]
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.terminalActiveScreenBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
@@ -1084,6 +1086,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         rawTerminalInputBuffer.clear()
         reportedViewportSizesByTerminalKey = [:]
+        terminalFullReplacementSeqBySurfaceID = [:]
         // Reset foreground identity to anonymous BEFORE seeding the anonymous
         // preview entry below: otherwise `foregroundMacKey` stays the old real Mac
         // id, the seeded entry lands under the anonymous key, and the next
@@ -5259,6 +5262,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierFollowUpCountsBySurfaceID = [:]
         terminalOutputQueuesBySurfaceID = [:]
         terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
+        terminalFullReplacementSeqBySurfaceID = [:]
         terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
@@ -6666,9 +6670,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
-    private func markTerminalBytesDelivered(surfaceID: String, endSeq: UInt64) {
-        let current = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
-        deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = max(current, endSeq)
+    private func markTerminalBytesDelivered(
+        surfaceID: String,
+        endSeq: UInt64,
+        fullReplacement: Bool = false
+    ) {
+        let current = deliveredTerminalByteEndSeqBySurfaceID[surfaceID]
+        let currentSeq = current ?? 0
+        if current == nil || endSeq > currentSeq {
+            deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = endSeq
+            if fullReplacement {
+                terminalFullReplacementSeqBySurfaceID[surfaceID] = endSeq
+            } else {
+                terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
+            }
+        } else if endSeq == currentSeq, fullReplacement {
+            terminalFullReplacementSeqBySurfaceID[surfaceID] = endSeq
+        }
         if let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID],
            endSeq >= pendingSeq {
             pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -6684,6 +6702,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         let token = UUID()
         terminalReplayBarrierTokensBySurfaceID[surfaceID] = token
@@ -6904,7 +6923,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         guard deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID) else { return }
         terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
-        markTerminalBytesDelivered(surfaceID: renderGrid.surfaceID, endSeq: renderGrid.stateSeq)
+        markTerminalBytesDelivered(
+            surfaceID: renderGrid.surfaceID,
+            endSeq: renderGrid.stateSeq,
+            fullReplacement: renderGrid.full
+        )
     }
 
     private static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
@@ -6926,6 +6949,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
@@ -6949,6 +6973,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
@@ -7197,7 +7222,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 #endif
                 if let replaySeq,
                    let deliveredSeq = self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID],
-                   deliveredSeq >= replaySeq {
+                   deliveredSeq > replaySeq
+                    || (
+                        deliveredSeq == replaySeq
+                            && self.terminalFullReplacementSeqBySurfaceID[surfaceID] == replaySeq
+                    ) {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)")
                     self.clearTerminalReplayBarrierIfCurrent(
                         surfaceID: surfaceID,
@@ -7242,7 +7271,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     self.terminalActiveScreenBySurfaceID[surfaceID] = renderGrid.activeScreen
                     if let replaySeq {
-                        self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
+                        self.markTerminalBytesDelivered(
+                            surfaceID: surfaceID,
+                            endSeq: replaySeq,
+                            fullReplacement: renderGrid.full
+                        )
                     }
                     return
                 }
@@ -7287,7 +7320,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 }
                 if accepted, let replaySeq {
-                    self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
+                    self.markTerminalBytesDelivered(
+                        surfaceID: surfaceID,
+                        endSeq: replaySeq,
+                        fullReplacement: snapshotBytes?.isEmpty == false
+                    )
                 } else if !accepted {
                     self.clearTerminalReplayBarrierIfCurrent(
                         surfaceID: surfaceID,

@@ -165,6 +165,60 @@ import Testing
 }
 
 @MainActor
+@Test func renderGridReplayAtSameSeqStillAppliesAfterPartialLiveDelta() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    await router.holdNextReplayResponses()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(coldReplayRequested, "mounting a sink must request the cold replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 5,
+        text: "partial-live-delta",
+        columns: 24,
+        full: false
+    ))
+    let partialDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("partial-live-delta") }
+    }
+    #expect(partialDelivered, "a live partial render-grid delta may arrive before the held replay")
+
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 5,
+            columns: 24,
+            rows: 4,
+            full: true,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "authoritative-snapshot"),
+            ]
+        ),
+    ])
+    await router.releaseAllHeld()
+
+    let replayDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("authoritative-snapshot") }
+    }
+    #expect(
+        replayDelivered,
+        "a same-sequence replay is still required when the only delivered live output was a partial delta"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func primaryRenderGridEventDoesNotPreemptRawBytes() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
