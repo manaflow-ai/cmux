@@ -32,10 +32,16 @@ import { maxActiveVmsForPlan } from "./entitlements";
 import { isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
+  agentRoutingEnsureCommand,
+  maskTenantKey,
+  type AgentRoutingConfig,
+} from "./agentRouting";
+import {
   VmRepository,
   VmRepositoryLive,
   type BeginCreateResult,
   type BeginBaseCreateResult,
+  type CloudVmAgentRoutingRow,
   type CloudVmBaseGenerationRow,
   type CloudVmBaseRow,
   type CloudVmSessionRow,
@@ -883,6 +889,107 @@ export function listVmSessions(input: {
   });
 }
 
+export type AgentRoutingState = {
+  readonly configured: boolean;
+  readonly subrouterUrl: string | null;
+  readonly subrouterTenantKeyMasked: string | null;
+  readonly updatedAt: number | null;
+};
+
+function agentRoutingStateFromRow(row: CloudVmAgentRoutingRow | null): AgentRoutingState {
+  if (!row || !row.subrouterUrl || !row.subrouterTenantKey) {
+    return {
+      configured: false,
+      subrouterUrl: null,
+      subrouterTenantKeyMasked: null,
+      updatedAt: row ? row.updatedAt.getTime() : null,
+    };
+  }
+  return {
+    configured: true,
+    subrouterUrl: row.subrouterUrl,
+    // The full tenant key is a secret and never leaves the backend once set.
+    subrouterTenantKeyMasked: maskTenantKey(row.subrouterTenantKey),
+    updatedAt: row.updatedAt.getTime(),
+  };
+}
+
+export function getAgentRoutingState(userId: string) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const row = yield* repo.getAgentRouting(userId);
+    return agentRoutingStateFromRow(row);
+  });
+}
+
+export function setAgentRoutingConfig(input: {
+  readonly userId: string;
+  readonly subrouterUrl: string;
+  readonly subrouterTenantKey: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const row = yield* repo.upsertAgentRouting(input);
+    return agentRoutingStateFromRow(row);
+  });
+}
+
+export function clearAgentRoutingConfig(userId: string) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const existing = yield* repo.getAgentRouting(userId);
+    // No row means routing was never configured, so there is nothing to clear
+    // and attaches keep skipping the injection exec entirely. Keeping the row
+    // (with nulls) after a real clear is what makes the next attach remove the
+    // in-VM wiring.
+    if (!existing) return agentRoutingStateFromRow(null);
+    const row = yield* repo.upsertAgentRouting({
+      userId,
+      subrouterUrl: null,
+      subrouterTenantKey: null,
+    });
+    return agentRoutingStateFromRow(row);
+  });
+}
+
+/**
+ * Attach-time injection: converge the VM's agent-routing wiring onto the
+ * attaching user's config. Runs one idempotent exec in the VM; the in-VM
+ * script early-exits on an unchanged state token so healthy attaches stay
+ * fast. Users without any config row skip the exec entirely.
+ */
+function ensureAgentRoutingApplied(
+  userId: string,
+  vm: CloudVmRow,
+): Effect.Effect<void, VmWorkflowError, VmRepository | VmProviderGateway> {
+  return Effect.gen(function* () {
+    if (vm.provider !== "freestyle" || !vm.providerVmId) return;
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const row = yield* repo.getAgentRouting(userId);
+    if (!row) return;
+    const config: AgentRoutingConfig | null = row.subrouterUrl && row.subrouterTenantKey
+      ? { subrouterUrl: row.subrouterUrl, subrouterTenantKey: row.subrouterTenantKey }
+      : null;
+    const result = yield* providers.exec(
+      vm.provider,
+      vm.providerVmId,
+      agentRoutingEnsureCommand(config),
+      { timeoutMs: 60_000 },
+    );
+    if (result.exitCode !== 0) {
+      // Never include the command (it embeds the tenant key) in the error.
+      return yield* Effect.fail(new VmProviderOperationError({
+        provider: vm.provider,
+        operation: config ? "agentRoutingApply" : "agentRoutingRemove",
+        cause: new Error(
+          `Cloud VM agent routing ${config ? "apply" : "removal"} exited ${result.exitCode}: ${result.stderr.trim().slice(0, 400)}`,
+        ),
+      }));
+    }
+  });
+}
+
 function openAttachEndpointResult(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -893,6 +1000,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
       providers,
       "attach",
     );
+    yield* ensureAgentRoutingApplied(input.userId, vm);
     const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, {
       ...(input.options ?? {}),
       providerMetadata: vm.providerMetadata,
@@ -955,6 +1063,7 @@ export function openSshEndpoint(input: {
       providers,
       "ssh",
     );
+    yield* ensureAgentRoutingApplied(input.userId, vm);
     yield* revokeActiveIdentities(vm);
     const endpoint = yield* providers.openSSH(vm.provider, input.providerVmId);
     yield* storeEndpointLeases(vm, endpoint).pipe(

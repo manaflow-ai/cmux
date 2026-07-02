@@ -4118,9 +4118,80 @@ struct CMUXCLI {
                 let snapshotId = (response["snapshot_id"] as? String) ?? (response["id"] as? String) ?? "?"
                 print("OK template=\(snapshotId)")
 
+            case "subrouter":
+                let subrouterUsage = """
+                    Usage:
+                      cmux cloud subrouter set --url <server-url> --key <tenant-key>
+                      cmux cloud subrouter show
+                      cmux cloud subrouter clear
+
+                    Routes coding agents (Claude Code, Codex) inside your Cloud VMs
+                    through a subrouter server. The config is stored per user and
+                    applied to every Cloud VM at attach time; `clear` removes the
+                    in-VM wiring on the next attach.
+                    """
+                func printSubrouterState(_ response: [String: Any]) {
+                    let configured = (response["configured"] as? Bool) ?? false
+                    if !configured {
+                        print("Subrouter routing is not configured.")
+                        print("Set it with: cmux cloud subrouter set --url <server-url> --key <tenant-key>")
+                        return
+                    }
+                    let url = (response["subrouter_url"] as? String) ?? "?"
+                    let masked = (response["subrouter_tenant_key_masked"] as? String) ?? "?"
+                    print("Subrouter routing is configured.")
+                    print("  url: \(url)")
+                    print("  key: \(masked)")
+                    print("Applied to every Cloud VM at attach time.")
+                }
+                let action = rest.first?.lowercased() ?? "show"
+                let actionArgs = Array(rest.dropFirst())
+                switch action {
+                case "set":
+                    let (urlOpt, rem0) = parseOption(actionArgs, name: "--url")
+                    let (keyOpt, rem1) = parseOption(rem0, name: "--key")
+                    guard let urlOpt, !urlOpt.isEmpty, let keyOpt, !keyOpt.isEmpty, rem1.isEmpty else {
+                        throw CLIError(message: subrouterUsage)
+                    }
+                    let response = try client.sendV2(
+                        method: "vm.subrouter_set",
+                        params: ["url": urlOpt, "key": keyOpt],
+                        responseTimeout: 60
+                    )
+                    if jsonOutput {
+                        print(jsonString(response))
+                        break
+                    }
+                    print("OK subrouter routing saved")
+                    printSubrouterState(response)
+                case "show", "status":
+                    guard actionArgs.isEmpty else {
+                        throw CLIError(message: subrouterUsage)
+                    }
+                    let response = try client.sendV2(method: "vm.subrouter_show", responseTimeout: 60)
+                    if jsonOutput {
+                        print(jsonString(response))
+                        break
+                    }
+                    printSubrouterState(response)
+                case "clear", "unset":
+                    guard actionArgs.isEmpty else {
+                        throw CLIError(message: subrouterUsage)
+                    }
+                    let response = try client.sendV2(method: "vm.subrouter_clear", responseTimeout: 60)
+                    if jsonOutput {
+                        print(jsonString(response))
+                        break
+                    }
+                    print("OK subrouter routing cleared")
+                    print("The next attach to each Cloud VM removes the in-VM agent routing.")
+                default:
+                    throw CLIError(message: subrouterUsage)
+                }
+
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <ls|new|status|snapshot|fork|restore|shell|rm|exec|ssh> [args...]
+                    Usage: cmux \(command) <ls|new|status|snapshot|fork|restore|shell|rm|exec|ssh|subrouter> [args...]
 
                     Common commands:
                       cmux vm ls
@@ -4130,6 +4201,7 @@ struct CMUXCLI {
                       cmux vm fork <id>
                       cmux vm ssh <id>
                       cmux vm rm <id>
+                      cmux cloud subrouter show
                     """)
             }
 
