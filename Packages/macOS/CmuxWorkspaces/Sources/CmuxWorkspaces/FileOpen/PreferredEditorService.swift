@@ -114,6 +114,10 @@ extension PreferredEditorService {
     /// is the bare file path. For a goto-capable editor with a line fragment,
     /// the argument becomes `path:line[:column]` and ` -g` is prepended unless
     /// the configured command already carries `-g`/`--goto`.
+    ///
+    /// Every shell word is scanned for a recognized editor name, not just the
+    /// first, so a wrapper prefix (`arch -arm64 code`, `env VAR=1 code`) still
+    /// resolves the goto flag.
     static func editorInvocation(
         forURL url: URL,
         command: String
@@ -124,8 +128,10 @@ extension PreferredEditorService {
         }
 
         let tokens = commandTokens(command)
-        guard let commandName = tokens.first.map({ ($0 as NSString).lastPathComponent.lowercased() }),
-              gotoEditorCommandNames.contains(commandName) else {
+        let isGotoEditor = tokens.contains { token in
+            gotoEditorCommandNames.contains((token as NSString).lastPathComponent.lowercased())
+        }
+        guard isGotoEditor else {
             return (gotoFlag: "", argument: path)
         }
 
