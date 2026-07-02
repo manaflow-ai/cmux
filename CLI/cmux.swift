@@ -23553,6 +23553,12 @@ struct CMUXCLI {
                 notifyPending = false
             case "idle_prompt":
                 notifyCategory = .idleReminder
+                // The cached Stop-time flag is not stale in practice: a completed
+                // background task re-invokes claude (new turn -> fresh Stop with
+                // empty background_tasks refreshes the cache before any later
+                // idle_prompt), and no fresh Stop means the work is still running,
+                // so pending=true is correct. Deliberately no freshness heuristic;
+                // permission_prompt is never gated by this flag.
                 notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
             default:
                 // No (or unknown) notification_type: fall back to the summarizer's
