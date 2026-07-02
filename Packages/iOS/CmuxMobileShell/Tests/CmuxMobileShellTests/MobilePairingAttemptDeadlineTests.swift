@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -19,6 +20,26 @@ import Testing
         #expect(store.pairingChecklist.network.message?.contains("100.64.0.5") == true)
         #expect(store.pairingChecklist.authentication.status == .pending)
         #expect(store.pairingChecklist.trust.status == .succeeded)
+    }
+
+    // The v2 QR carries a bare tailscale route, but this build advertises only
+    // `.iroh` support, so route selection finds nothing it can dial and fails at
+    // `.routeSelection`: no route is ever dialed, so the network gate is never
+    // proven. `connect()` records the failure with `.routeSelection` (network stays
+    // pending); the generic connect-failure recorder must not reclassify it as a
+    // `.connect`-phase failure and paint the network row succeeded for a route
+    // that was never dialed.
+    @Test func noSupportedRoutePairingDoesNotClaimNetworkSucceeded() async throws {
+        let runtime = PairingDeadlineRuntime(supportedRouteKinds: [.iroh])
+        let store = makeStore(runtime: runtime)
+
+        let result = await store.connectPairingURLResult(Self.qrURL)
+
+        #expect(result == .failed)
+        #expect(store.connectionState == .disconnected)
+        #expect(store.pairingChecklist.network.status == .pending)
+        #expect(store.pairingChecklist.authentication.status == .pending)
+        #expect(store.pairingChecklist.trust.status == .failed)
     }
 
     @Test func scannedOrPastedPairingInputUsesSameDeadline() async throws {
