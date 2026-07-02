@@ -757,7 +757,10 @@ final class CmuxSettingsFileStore {
         if section.keys.contains("stateColors") {
             if let rawStateColors = section["stateColors"] as? [String: Any] {
                 var normalizedStateColors = WorkspaceColorsCatalogSection.defaultStateColors
-                for (rawState, rawValue) in rawStateColors {
+                // Sort by raw key so collisions resolve deterministically: several spellings
+                // map to one state (e.g. "waiting"/"needs-input"/"needsInput" all → needsInput)
+                // and Dictionary order is per-process random, so the last spelling must win stably.
+                for (rawState, rawValue) in rawStateColors.sorted(by: { $0.key < $1.key }) {
                     guard let stateKey = workspaceStateColorKey(rawState) else {
                         cmuxSettingsFileStoreLogger.warning("ignoring unknown workspace state color key '\(rawState, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                         continue
