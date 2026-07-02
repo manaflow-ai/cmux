@@ -14056,6 +14056,16 @@ class TerminalController {
                 ?? mobileViewportGenerationsBySurfaceID[terminalPanel.id]?[clientID],
                existingGeneration > generation { return nil }
             mobileViewportGenerationsBySurfaceID[terminalPanel.id, default: [:]][clientID] = generation
+        } else if reports[clientID] == nil,
+                  mobileViewportGenerationsBySurfaceID[terminalPanel.id]?[clientID] != nil {
+            // A generation-carrying clear tombstoned this client (fence entry
+            // recorded, report removed) and no newer dedicated report has
+            // re-pinned it, so a generationless report arriving now was sent
+            // before the detach. Reject it: a detached device must not
+            // resurrect its viewport pin. Attached clients keep a sticky
+            // dedicated report, so their piggyback recovery path is
+            // unaffected.
+            return nil
         }
         let reportIsSticky = sticky || (reports[clientID]?.sticky ?? false)
         reports[clientID] = MobileViewportReport(
