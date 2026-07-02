@@ -1179,10 +1179,19 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         }
     }
 
-    private func applyResolvedPreviewMode(_ mode: FilePreviewMode) {
+    // Internal (not private) so regression coverage can drive the text -> non-text transition
+    // directly; the only production caller remains the async `resolvePreviewModeIfNeeded`.
+    func applyResolvedPreviewMode(_ mode: FilePreviewMode) {
         guard previewMode != mode else { return }
         if mode != .text {
             textLoadGeneration += 1
+            // Leaving text mode tears down the NSTextView and its find bar. The optimistic
+            // `isFindVisible` shadow state (and any queued action) must not linger: once
+            // `previewMode != .text`, `performTextFinderAction` early-returns without clearing
+            // it, so a stale `true` would keep "Hide Find Bar" enabled over a preview where the
+            // command is a no-op. Reset it here, mirroring `close()`.
+            isFindVisible = false
+            pendingTextFinderAction = nil
         }
         previewMode = mode
         displayIcon = FilePreviewKindResolver.iconName(for: mode)

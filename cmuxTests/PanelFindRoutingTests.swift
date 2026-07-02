@@ -225,6 +225,80 @@ struct PanelFindRoutingTests {
         _ = window
     }
 
+    /// Leaving text mode tears down the File Preview text editor and its find bar. The
+    /// optimistic `isFindVisible` shadow state must reset on the transition: once
+    /// `previewMode != .text`, `performTextFinderAction` early-returns without clearing it, so a
+    /// stale `true` would leave "Hide Find Bar" enabled over a preview where the command is a
+    /// no-op.
+    @Test
+    func filePreviewLeavingTextModeClearsFindVisibility() throws {
+        let fixture = try makeTemporaryFile(named: "config.toml", contents: "theme = \"dark\"\n")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let panel = try #require(workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: fixture.file.path,
+            focus: true
+        ))
+        defer { panel.close() }
+
+        let textView = RecordingTextFinderTextView()
+        let window = hostInWindow(textView)
+        panel.attachTextView(textView)
+
+        #expect(panel.previewMode == .text)
+        #expect(manager.startSearch())
+        #expect(panel.isFindVisible)
+        #expect(manager.isFindVisible)
+
+        // Re-resolving the file to a non-text kind (e.g. the deep resolver reclassifies it as an
+        // image) drops the text editor; the find-visibility state must not survive.
+        panel.applyResolvedPreviewMode(.image)
+        #expect(panel.previewMode == .image)
+        #expect(!panel.isFindVisible)
+        #expect(!manager.isFindVisible)
+        _ = window
+    }
+
+    /// Toggling a Markdown pane from the text editor back to rendered preview drops the find
+    /// bar, so `isFindVisible` must reset — otherwise "Hide Find Bar" stays enabled over the
+    /// preview where `performTextFinderAction` early-returns.
+    @Test
+    func markdownLeavingTextModeClearsFindVisibility() throws {
+        let fixture = try makeTemporaryFile(named: "README.md", contents: "# Title\n\nFind target.\n")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let panel = try #require(workspace.newMarkdownSurface(
+            inPane: paneId,
+            filePath: fixture.file.path,
+            focus: true
+        ))
+        defer { panel.close() }
+
+        #expect(manager.startSearch())
+        #expect(panel.displayMode == .text)
+        #expect(manager.isFindVisible)
+
+        let textView = RecordingTextFinderTextView()
+        let window = hostInWindow(textView)
+        panel.attachTextView(textView)
+        panel.retryPendingFocus()
+        #expect(textView.actionTags == [NSTextFinder.Action.showFindInterface.rawValue])
+        #expect(panel.isFindVisible)
+
+        panel.setDisplayMode(.preview)
+        #expect(panel.displayMode == .preview)
+        #expect(!panel.isFindVisible)
+        #expect(!manager.isFindVisible)
+        _ = window
+    }
+
     /// Hosts `view` in an off-screen window so `view.window` becomes non-nil, mirroring the
     /// moment AppKit calls `viewDidMoveToWindow` on the real editor. The returned window must
     /// be retained for the remainder of the test.
