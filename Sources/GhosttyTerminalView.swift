@@ -308,6 +308,16 @@ extension TerminalSurface {
         }
         return hosted
     }
+
+    var paneBackgroundOverrideColor: NSColor? {
+        get { hostedView.paneBackgroundOverrideColor }
+        set { hostedView.paneBackgroundOverrideColor = newValue }
+    }
+
+    var autoAssignedSplitTintHex: String? {
+        get { hostedView.autoAssignedSplitTintHex }
+        set { hostedView.autoAssignedSplitTintHex = newValue }
+    }
 }
 
 // The engine's Metal layer reports vended drawables through this seam
@@ -7951,6 +7961,24 @@ final class GhosttySurfaceScrollView: NSView {
         }
         return window
     }
+
+    var paneBackgroundOverrideColor: NSColor? {
+        get { surfaceView.backgroundColor }
+        set {
+            surfaceView.backgroundColor = newValue
+            surfaceView.applySurfaceBackground()
+            surfaceView.applyWindowBackgroundIfActive()
+        }
+    }
+
+    /// Hex of the split-pane tint cmux most recently assigned to this surface,
+    /// or nil when cmux never auto-tinted it. This is provenance for session
+    /// persistence only: `paneBackgroundOverrideColor` is a shared slot that
+    /// terminal OSC background changes (`GHOSTTY_ACTION_COLOR_CHANGE`) and
+    /// Ghostty config reloads (`GHOSTTY_ACTION_CONFIG_CHANGE`) also write, so a
+    /// live override is a cmux-owned tint worth persisting only while it still
+    /// equals this value. See `TerminalSplitPaneTintPlanner.persistableTintHex`.
+    var autoAssignedSplitTintHex: String?
 
     func forwardKeyDownToSurface(_ event: NSEvent) {
         surfaceView.keyDown(with: event)

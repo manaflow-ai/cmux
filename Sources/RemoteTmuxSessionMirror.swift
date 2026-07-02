@@ -330,6 +330,7 @@ final class RemoteTmuxSessionMirror {
             panelId: panelId,
             connection: connection,
             layout: window.layout,
+            paneTintDefaults: workspace.terminalSplitPaneTintDefaults,
             makePanel: { [weak workspace, weak connection] tmuxPaneId in
                 workspace?.makeRemoteTmuxPanePanel(onInput: { data in
                     Task { @MainActor in connection?.sendKeys(paneId: tmuxPaneId, data: data) }

@@ -1395,6 +1395,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
     var isRemoteTerminal: Bool?
     var remotePTYSessionID: String?
+    var backgroundColorHex: String?
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
@@ -1409,6 +1410,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
+        backgroundColorHex: String? = nil,
         wasAgentRunning: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
@@ -1420,6 +1422,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.textBoxDraft = textBoxDraft
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
+        self.backgroundColorHex = backgroundColorHex
         self.wasAgentRunning = wasAgentRunning
     }
 }

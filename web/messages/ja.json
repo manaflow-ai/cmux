@@ -961,6 +961,7 @@
         "terminal": {
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
+          "autoTintSplitPanes": "新しいターミナル分割ペインに、控えめで区別しやすい背景の色合いを自動的に付けます。",
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
           "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",
           "textBoxDefaultSubmitAction": "新しいターミナルセッションで使う既定の TextBox 送信アクション ID です。通常の入力には text-entry、または設定済みアクション ID のいずれかを使います。",

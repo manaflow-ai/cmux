@@ -27,6 +27,14 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.autoResumeAgentSessions"
     )
 
+    /// Whether new terminal split panes automatically receive subtle, distinct
+    /// background tints so adjacent panes stay visually distinguishable. On by default.
+    public let autoTintSplitPanes = DefaultsKey<Bool>(
+        id: "terminal.autoTintSplitPanes",
+        defaultValue: true,
+        userDefaultsKey: "terminal.autoTintSplitPanes"
+    )
+
     public let agentHibernationEnabled = DefaultsKey<Bool>(
         id: "terminal.agentHibernation.enabled",
         defaultValue: false,
