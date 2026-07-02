@@ -268,6 +268,89 @@ import Testing
 }
 
 @MainActor
+@Test func coldAttachReplayMountedBeforeConnectionUpgradesToBarrierWhenCapabilitiesResolve() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    await router.holdNextReplayResponses()
+    let box = TransportBox()
+    let runtime = LivenessTestRuntime(
+        transportFactory: LivenessTransportFactory(router: router, box: box),
+        now: { clock.now }
+    )
+    let store = MobileShellComposite.preview(runtime: runtime)
+    store.signIn()
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let replayBeforeConnection = try await pollUntil(attempts: 60) {
+        await router.count(of: "mobile.terminal.replay") > 0
+    }
+    #expect(
+        replayBeforeConnection == false,
+        "mounting before a remote client exists must not send an inert replay request"
+    )
+
+    let connected = await store.connectPairingURL(try attachURL(for: makeTicket(clock: clock)))
+    #expect(connected, "scripted connect must succeed")
+    let capabilitiesResolved = try await pollUntil {
+        store.supportedHostCapabilities.contains("terminal.replay.v1")
+    }
+    #expect(capabilitiesResolved, "host capabilities must resolve after connecting")
+    let coldReplayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 1
+    }
+    #expect(
+        coldReplayRequested,
+        "a sink mounted before connection must be upgraded to a barriered replay once replay capability is known"
+    )
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 6,
+        text: "early-delta",
+        columns: 16,
+        full: false
+    ))
+    let preBaseRendered = try await pollUntil(attempts: 60) {
+        collector.lines.contains { $0.contains("early-delta") }
+    }
+    #expect(
+        preBaseRendered == false,
+        "the deferred cold replay upgrade must hold racing deltas until the base replay applies"
+    )
+
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 5,
+            columns: 24,
+            rows: 4,
+            full: true,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "deferred-base"),
+            ]
+        ),
+    ])
+    await router.releaseAllHeld()
+
+    let baseDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("deferred-base") }
+    }
+    #expect(
+        baseDelivered,
+        "the deferred cold replay base must apply after capabilities resolve"
+    )
+    let followUpSettled = try await pollUntil { await router.replayResponsesServed() >= 2 }
+    #expect(followUpSettled, "dropped pre-base output should still trigger and settle one catch-up replay")
+    collector.unmount()
+}
+
+@MainActor
 @Test func renderGridReplayAtSameSeqDoesNotOverwriteNewerLiveGrid() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

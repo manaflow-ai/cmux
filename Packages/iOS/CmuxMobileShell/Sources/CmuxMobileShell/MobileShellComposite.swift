@@ -5269,7 +5269,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
         terminalReplayFailureRetryCountsBySurfaceID = [:]
         terminalReplayBarrierFollowUpCountsBySurfaceID = [:]
-        terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = []
+        terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = Set(terminalByteContinuationsBySurfaceID.keys)
         terminalOutputQueuesBySurfaceID = [:]
         terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
         terminalFullReplacementSeqBySurfaceID = [:]
@@ -6750,8 +6750,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func requestColdAttachTerminalReplay(surfaceID: String) {
         guard remoteClient != nil else {
-            terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
-            requestTerminalReplay(surfaceID: surfaceID)
+            terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.insert(surfaceID)
             return
         }
         if supportedHostCapabilities.contains(Self.terminalReplayCapability) {
