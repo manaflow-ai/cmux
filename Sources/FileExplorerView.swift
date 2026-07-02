@@ -1465,7 +1465,7 @@ final class FileExplorerContainerView: NSView {
         // Editor/preferred-editor actions operate on local file paths via
         // NSWorkspace; for non-local providers fall back to the cmux preview.
         guard coordinator.store.provider is LocalFileExplorerProvider else {
-            coordinator.onOpenFilePreview(result.path, result.lineNumber, result.columnNumber)
+            coordinator.onOpenFilePreview((path: result.path, lineNumber: result.lineNumber, columnNumber: result.columnNumber))
             return
         }
         performFileExplorerFileOpen(
@@ -1482,7 +1482,7 @@ final class FileExplorerContainerView: NSView {
 
     @objc private func contextMenuOpenSearchResultInCmux(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        coordinator.onOpenFilePreview(result.path, result.lineNumber, result.columnNumber)
+        coordinator.onOpenFilePreview((path: result.path, lineNumber: result.lineNumber, columnNumber: result.columnNumber))
     }
 
     @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {

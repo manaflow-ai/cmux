@@ -1920,8 +1920,8 @@ struct ContentView: View {
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             },
-            onOpenFilePreview: { filePath, lineNumber, columnNumber in
-                openFilePreviewFromSidebar(filePath: filePath, lineNumber: lineNumber, columnNumber: columnNumber)
+            onOpenFilePreview: { request in
+                openFilePreviewFromSidebar(filePath: request.path, lineNumber: request.lineNumber, columnNumber: request.columnNumber)
             },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)

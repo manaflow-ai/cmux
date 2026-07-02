@@ -919,7 +919,7 @@ struct FileSearchControllerTests {
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
             state: state,
-            onOpenFilePreview: { _, _, _ in }
+            onOpenFilePreview: { _ in }
         )
         let container = FileExplorerContainerView(
             coordinator: coordinator,
@@ -962,8 +962,8 @@ struct FileSearchControllerTests {
             let coordinator = FileExplorerPanelView.Coordinator(
                 store: store,
                 state: state,
-                onOpenFilePreview: { path, lineNumber, columnNumber in
-                    openedRequests.append((path, lineNumber, columnNumber))
+                onOpenFilePreview: { request in
+                    openedRequests.append(request)
                 }
             )
             let container = FileExplorerContainerView(
@@ -1011,7 +1011,7 @@ struct FileSearchControllerTests {
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
             state: state,
-            onOpenFilePreview: { _, _, _ in }
+            onOpenFilePreview: { _ in }
         )
         let container = FileExplorerContainerView(
             coordinator: coordinator,
@@ -1068,7 +1068,7 @@ struct FileSearchControllerTests {
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
             state: state,
-            onOpenFilePreview: { _, _, _ in }
+            onOpenFilePreview: { _ in }
         )
         let container = FileExplorerContainerView(
             coordinator: coordinator,

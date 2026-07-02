@@ -196,7 +196,7 @@ struct FileSearchWorkspaceScopeTests {
         let store = FileExplorerStore()
         let state = FileExplorerState()
         let searchController = SpyFileSearchController()
-        let coordinator = FileExplorerPanelView.Coordinator(store: store, state: state, onOpenFilePreview: { _, _, _ in })
+        let coordinator = FileExplorerPanelView.Coordinator(store: store, state: state, onOpenFilePreview: { _ in })
         let container = FileExplorerContainerView(coordinator: coordinator, presentation: .find, searchController: searchController)
         let rootPath = "/tmp/cmux-find-same-directory-test"
 

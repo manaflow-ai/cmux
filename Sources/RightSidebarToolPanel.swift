@@ -86,7 +86,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         }
     }
 
-    func openFilePreview(_ filePath: String, lineNumber: Int?, columnNumber: Int?) {
+    func openFilePreview(_ request: (path: String, lineNumber: Int?, columnNumber: Int?)) {
+        let filePath = request.path
+        let lineNumber = request.lineNumber
+        let columnNumber = request.columnNumber
         guard let workspace,
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return

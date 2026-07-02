@@ -2,7 +2,7 @@ import AppKit
 import CmuxSettings
 import CmuxWorkspaces
 
-typealias FileExplorerPreviewOpenHandler = (_ path: String, _ lineNumber: Int?, _ columnNumber: Int?) -> Void
+typealias FileExplorerPreviewOpenHandler = ((path: String, lineNumber: Int?, columnNumber: Int?)) -> Void
 
 /// Perform the configured action for opening a local file from the file explorer.
 @MainActor
@@ -19,7 +19,7 @@ func performFileExplorerFileOpen(
         hasPreferredEditorCommand: hasPreferredEditor
     ) {
     case .preview:
-        onOpenFilePreview(path, lineNumber, columnNumber)
+        onOpenFilePreview((path: path, lineNumber: lineNumber, columnNumber: columnNumber))
     case .defaultEditor:
         FileExternalOpenAction.openDefault(fileURL: URL(fileURLWithPath: path))
     case .preferredEditor:
@@ -48,7 +48,7 @@ extension FileExplorerPanelView.Coordinator {
         }
 
         guard store.provider is LocalFileExplorerProvider else {
-            onOpenFilePreview(node.path, nil, nil)
+            onOpenFilePreview((path: node.path, lineNumber: nil, columnNumber: nil))
             return
         }
         performFileExplorerFileOpen(path: node.path, onOpenFilePreview: onOpenFilePreview)
