@@ -91,8 +91,10 @@ on-screen window", "launch or focus <app>") before touching
 - `CMUX_CU_TIMEOUT_MS` — per-command timeout (default `180000`).
 - `CMUX_CU_MAX_TREE` — max AX-tree characters returned by `computer_state`
   (default `60000`).
-- `CMUX_CU_AUTO_APPROVE=1` — pre-approve the engine's per-app control
-  elicitations (headless automation only; see "Per-app approvals").
+- `CMUX_CU_AUTO_APPROVE=1` — pre-approve every computer-use approval: the
+  engine's per-app control elicitations and the local desktop-capture /
+  window-list / app-launch gates (headless automation only; see "Per-app
+  approvals").
 
 ## Tools (12)
 

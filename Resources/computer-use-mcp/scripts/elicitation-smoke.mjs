@@ -20,11 +20,16 @@ const here = dirname(fileURLToPath(import.meta.url));
 const serverPath = join(here, "..", "cmux-computer-use-mcp.mjs");
 const fakeCodex = join(here, "fake-codex-app-server.mjs");
 
-async function run({ withElicitation, tool = "computer_apps", args = {} }) {
+async function run({ withElicitation, tool = "computer_apps", args = {}, expectMessage = null }) {
+  // Hermetic env: pin the fake codex and strip any ambient auto-approve so a
+  // developer shell with CMUX_CU_AUTO_APPROVE=1 cannot bypass the very
+  // approval paths under test.
+  const env = { ...process.env, CMUX_CU_CODEX: fakeCodex };
+  delete env.CMUX_CU_AUTO_APPROVE;
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [serverPath],
-    env: { ...process.env, CMUX_CU_CODEX: fakeCodex },
+    env,
     stderr: "pipe",
   });
   const client = new Client(
@@ -33,7 +38,7 @@ async function run({ withElicitation, tool = "computer_apps", args = {} }) {
   );
   if (withElicitation) {
     client.setRequestHandler(ElicitRequestSchema, async (request) => {
-      if (!request.params.message.includes("Allow Codex to use TestApp?")) {
+      if (expectMessage && !request.params.message.includes(expectMessage)) {
         throw new Error(`unexpected elicitation message: ${request.params.message}`);
       }
       return { action: "accept", content: {} };
@@ -49,7 +54,7 @@ async function run({ withElicitation, tool = "computer_apps", args = {} }) {
   return { isError: !!res.isError, text };
 }
 
-const accepted = await run({ withElicitation: true });
+const accepted = await run({ withElicitation: true, expectMessage: "Allow Codex to use TestApp?" });
 console.log(`with elicitation support -> isError=${accepted.isError} text=${accepted.text}`);
 if (accepted.isError || !accepted.text.includes("elicitation:accept")) {
   console.error("FAIL: elicitation was not forwarded to the client and accepted");
@@ -83,6 +88,21 @@ const openDeclined = await run({ withElicitation: false, tool: "computer_open", 
 console.log(`computer_open without elicitation support -> isError=${openDeclined.isError}`);
 if (!openDeclined.isError || !openDeclined.text.includes("not approved")) {
   console.error("FAIL: expected fail-closed decline for app launch");
+  process.exit(1);
+}
+
+// Happy path through a local gate, hermetically: an accepted elicitation must
+// clear the approval boundary and reach the underlying action. A nonexistent
+// app makes `open -a` fail AFTER the gate, proving the gate passed without
+// actually launching anything.
+const openAccepted = await run({
+  withElicitation: true,
+  tool: "computer_open",
+  args: { app: "cmux-cu-nonexistent-test-app" },
+});
+console.log(`computer_open with accepted elicitation -> isError=${openAccepted.isError}`);
+if (!openAccepted.isError || openAccepted.text.includes("not approved")) {
+  console.error("FAIL: accepted elicitation should clear the gate and reach `open -a`");
   process.exit(1);
 }
 
