@@ -731,6 +731,66 @@ import Testing
 }
 
 @MainActor
+@Test func terminalEffectiveGridResizeRetriesEmptyReplacementReplay() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "post-empty-retry-replay",
+    ])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
+
+    // A recovery replay is in flight when the effective grid changes without
+    // a prearm; the fresh resize barrier replaces it.
+    await router.holdNextReplayResponses(count: 1)
+    store.terminalOutputNeedsReplay(surfaceID: surfaceID)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterBaseline + 1)
+
+    // The resize's own replay comes back empty. The replaced recovery work
+    // was owed, so the empty response must retry instead of clearing the
+    // barrier with the recovery lost.
+    await router.enqueueEmptyReplayResponses(count: 1)
+    await router.setViewportEffectiveGrid(columns: 80, rows: 30)
+    let resizedGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    #expect(resizedGrid?.rows == 30)
+    let retryRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 3
+    )
+    #expect(
+        retryRequested,
+        "an empty replacement replay must retry when the resize barrier replaced owed recovery work"
+    )
+    guard retryRequested else {
+        await router.releaseAllHeld()
+        return
+    }
+
+    let retryChunk = try #require(await iterator.next())
+    #expect(String(data: retryChunk.data, encoding: .utf8) == "post-empty-retry-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retryChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+
+    await router.releaseAllHeld()
+    store.deliverTerminalBytes(Data("live-after-empty-retry".utf8), surfaceID: surfaceID)
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-empty-retry")
+}
+
+@MainActor
 @Test func terminalReplayRequestRejectsStaleBarrierToken() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()

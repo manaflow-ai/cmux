@@ -96,8 +96,9 @@ extension MobileShellComposite {
                     // before the Mac applied the new grid; reusing its token
                     // would dedupe the post-resize replay against that stale
                     // request. Begin a fresh barrier so the resize always gets
-                    // its own authoritative replay.
-                    replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+                    // its own authoritative replay, carrying any replaced
+                    // work as owed so an empty replacement cannot clear it.
+                    replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: surfaceID)
                 }
                 terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
                 MobileDebugLog.anchormux(
@@ -183,12 +184,6 @@ extension MobileShellComposite {
             terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         }
         guard previousReportedGrid != reportedGrid else { return nil }
-        // beginTerminalReplayBarrier discards this surface's undelivered
-        // output queue, rotates its stream token, and cancels any in-flight
-        // replay (including the cold-attach replay). Record that loss before
-        // arming so a report that later resolves without a resize still
-        // replays authoritative state instead of clearing the barrier with
-        // the discarded bytes missing or the cancelled replay unreplaced.
         // If the replacement replay exhausts its retries, the barrier is
         // preserved — the same behavior every barrier trigger has — and the
         // next geometry report, pipeline reset, or reconnect re-arms a fresh
@@ -196,6 +191,19 @@ extension MobileShellComposite {
         // mobile.terminal.viewport still service mobile.terminal.replay
         // (cold attach depends on it), so the replacement replay clears the
         // barrier under version skew.
+        let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: surfaceID)
+        terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] = replayBarrierToken
+        return replayBarrierToken
+    }
+
+    /// Begins a replay barrier while recording whether it replaces
+    /// undelivered queued output, an in-flight replay (including the
+    /// cold-attach replay), or an existing barrier. `beginTerminalReplayBarrier`
+    /// discards all three, so the replacement is marked as dropped output:
+    /// every resolution path (resize replay, without-resize replay, empty
+    /// response retry) then replays authoritative state instead of clearing
+    /// the barrier with the replaced work lost.
+    private func beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: String) -> UUID {
         let owesReplacementReplay = !(terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle ?? true)
             || terminalReplaySurfaceIDsInFlight.contains(surfaceID)
             || terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil
@@ -203,7 +211,6 @@ extension MobileShellComposite {
         if owesReplacementReplay {
             terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
         }
-        terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] = replayBarrierToken
         return replayBarrierToken
     }
 
