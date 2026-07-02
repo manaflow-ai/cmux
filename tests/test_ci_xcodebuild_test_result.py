@@ -223,17 +223,40 @@ Test Suite 'Selected tests' failed at 2026-06-29 00:00:00.000
     )
 
 
-def test_accepts_failed_aggregate_explained_by_expected_failures() -> None:
-    # The real app-host case #5641 must keep green: a shard whose only failures
-    # are expected XCTFail assertions (0 unexpected) exits non-zero and prints a
-    # *failed* top-level aggregate but never "** TEST SUCCEEDED **". The failing
-    # summary explains the failed aggregate, so the run is accepted.
+def test_rejects_failed_aggregate_when_only_earlier_suite_has_expected_failure() -> None:
+    # Cubic/codex P1: a shard can print one early expected failure (0 unexpected),
+    # then the runner aborts in a later suite, and xcodebuild still emits
+    # "Test Suite 'Selected tests' failed at ..." with NO paired aggregate
+    # summary. The earlier expected failure must not excuse the failed aggregate
+    # -- the later suite never ran, so its failures would be masked (#5641). Only
+    # the aggregate's OWN paired execution summary proves completion; here it is
+    # absent, so the run is rejected.
+    expect_fail(
+        65,
+        """
+Test Suite 'EarlySuite' failed at 2026-06-29 00:00:00.000.
+    Executed 3 tests, with 1 failure (0 unexpected) in 1.000 seconds
+xcodebuild: error: Test runner exited before all tests completed.
+Test Suite 'Selected tests' failed at 2026-06-29 00:00:00.000
+""",
+    )
+
+
+def test_accepts_failed_aggregate_when_its_paired_summary_records_expected_failures() -> None:
+    # The real app-host case #5641 must keep green (mirrors the live shard 1/4
+    # log): app-host restarts churn the run, xcodebuild finishes the whole plan
+    # and prints the *failed* top-level aggregate together with its OWN paired
+    # execution summary -- 9 failures, 0 unexpected -- and never
+    # "** TEST SUCCEEDED **". The aggregate's paired summary proves every selected
+    # suite was attempted, so the non-zero exit is accepted.
     expect_pass(
         65,
         """
-Test Suite 'BrowserSessionHistoryRestoreTests' failed
-    Executed 7 tests, with 5 failures (0 unexpected) in 3.000 seconds
-Test Suite 'Selected tests' failed at 2026-06-29 00:00:00.000
+Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches.
+Test Suite 'cmuxTests.xctest' failed at 2026-07-02 04:54:52.238.
+    Executed 225 tests, with 9 failures (0 unexpected) in 19.892 seconds
+Test Suite 'Selected tests' failed at 2026-07-02 04:54:52.238.
+    Executed 225 tests, with 9 failures (0 unexpected) in 19.892 seconds
 """,
     )
 
@@ -251,7 +274,8 @@ def main() -> int:
     test_rejects_zero_test_summaries_without_any_executed_tests()
     test_rejects_logs_without_xctest_execution_summaries()
     test_rejects_failed_aggregate_when_no_summary_explains_the_failure()
-    test_accepts_failed_aggregate_explained_by_expected_failures()
+    test_rejects_failed_aggregate_when_only_earlier_suite_has_expected_failure()
+    test_accepts_failed_aggregate_when_its_paired_summary_records_expected_failures()
     print("PASS: xcodebuild test result policy rejects masked failures")
     return 0
 

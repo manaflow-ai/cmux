@@ -19,12 +19,20 @@ fail (c) unless terminal completion was already reached.
 
 Completion evidence comes in two strengths. ``** TEST SUCCEEDED **`` or a
 *passed* top-level aggregate is unconditional proof: the whole selected set ran
-and passed. A *failed* top-level aggregate is weaker -- a crashed or aborted
-suite that never printed a summary can still leave xcodebuild emitting
-``Test Suite 'Selected tests' failed at ...``. So a failed aggregate satisfies
-(c) only when a visible XCTest summary explains the failure with an expected
-(0-unexpected) ``failures > 0`` count; a failed aggregate over only clean
-summaries means the failure came from outside the parsed suites and is rejected.
+and passed. A *failed* top-level aggregate is weaker. xcodebuild prints it as a
+pair -- ``Test Suite 'Selected tests' failed at ...`` immediately followed by
+that aggregate's own ``Executed N tests, with M failures (K unexpected)``
+summary -- and emits that pair only after the entire selected plan ran to
+completion (app-host restarts included). So a failed aggregate satisfies (c)
+only when its OWN paired execution summary is present with an expected
+(0-unexpected) ``failures > 0`` count. An earlier per-suite summary's failure
+does not qualify: a run that aborts (watchdog kill, "Test runner exited before
+all tests completed") dies before the aggregate summary prints, so requiring the
+aggregate's paired summary -- not merely some earlier failure -- is what keeps a
+crashed or skipped remainder from masking. Real app-host shards reach this
+branch: a non-zero exit with ``Test Suite 'Selected tests' failed at ...`` +
+``Executed 225 tests, with 9 failures (0 unexpected)`` and no
+``** TEST SUCCEEDED **``.
 """
 
 from __future__ import annotations
@@ -63,11 +71,9 @@ COMPLETION_MARKERS = ("** TEST SUCCEEDED **",)
 # is absent. This mirrors xcodebuild_noninteractive.py's SELECTED_TESTS_DONE_RE.
 #
 # The ``passed`` and ``failed`` variants are tracked separately: a *passed*
-# aggregate is unconditional proof that every selected suite ran and passed, but
-# a *failed* aggregate is weaker -- a crashed or aborted suite that printed no
-# summary can still leave xcodebuild emitting ``Test Suite 'Selected tests'
-# failed at ...``. main() therefore accepts a bare failed aggregate only when a
-# visible summary explains it with an expected (0-unexpected) failure.
+# aggregate is unconditional proof that every selected suite ran and passed,
+# while a *failed* aggregate proves completion only together with its own paired
+# execution summary (see _aggregate_failure_summary and main()).
 PASSED_COMPLETION_RE = re.compile(
     r"Test Suite '(?:Selected tests|All tests)' passed at "
 )
@@ -76,13 +82,50 @@ FAILED_COMPLETION_RE = re.compile(
 )
 
 
-def reached_terminal_completion(output: str) -> bool:
+def reached_passing_completion(output: str) -> bool:
+    """True only when xcodebuild certified the whole selected set ran and passed.
+
+    ``** TEST SUCCEEDED **`` and a *passed* top-level aggregate are the only
+    unconditional proofs. A *failed* aggregate is handled separately in main()
+    via its paired execution summary; it is intentionally NOT treated as passing
+    completion here.
+    """
     if any(marker in output for marker in COMPLETION_MARKERS):
         return True
-    return (
-        PASSED_COMPLETION_RE.search(output) is not None
-        or FAILED_COMPLETION_RE.search(output) is not None
-    )
+    return PASSED_COMPLETION_RE.search(output) is not None
+
+
+def _aggregate_failure_summary(output: str) -> tuple[int, int, int] | None:
+    """Totals for the *failed* top-level aggregate, or None if it never printed
+    its own execution summary.
+
+    xcodebuild prints the aggregate as a pair::
+
+        Test Suite 'Selected tests' failed at <ts>.
+             Executed N tests, with M failures (K unexpected) in ...
+
+    The ``Executed`` line is emitted only after the entire selected plan ran to
+    completion (app-host restarts included), so its presence -- not merely some
+    earlier per-suite summary -- proves every selected suite was attempted. A run
+    killed mid-flight (watchdog, "Test runner exited before all tests completed")
+    dies before the pair prints, so None is returned. Returns the totals from the
+    ``Executed`` line paired with the last ``... failed at`` aggregate line.
+    """
+    lines = output.splitlines()
+    result: tuple[int, int, int] | None = None
+    for index, line in enumerate(lines):
+        if FAILED_COMPLETION_RE.search(line) is None:
+            continue
+        for follow in lines[index + 1 : index + 4]:
+            summary_match = SUMMARY_RE.search(follow)
+            if summary_match:
+                result = (
+                    int(summary_match.group(1)),
+                    int(summary_match.group(2)),
+                    int(summary_match.group(3)),
+                )
+                break
+    return result
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -124,41 +167,42 @@ def main(argv: list[str]) -> int:
         return 1
 
     # The clean summaries above only prove the suites we can see passed. A
-    # non-zero exit is cleanup noise (safe to accept) only if xcodebuild also
-    # reached its terminal completion marker; otherwise the run was aborted or
-    # killed before finishing, the visible summaries may be just an early prefix,
-    # and the un-run remainder would be silently skipped -- the #5641 masking.
-    if not reached_terminal_completion(output):
-        timed_out = args.exit_code == TIMEOUT_EXIT_CODE or any(
-            marker in output for marker in TIMEOUT_MARKERS
-        )
-        cause = "was killed by a timeout watchdog" if timed_out else "exited non-zero"
-        print(
-            f"Unexpected test failures detected: xcodebuild {cause} before reaching a "
-            "terminal test summary; cannot confirm every selected suite ran"
-        )
-        return 1
-
-    # ``** TEST SUCCEEDED **`` or a *passed* top-level aggregate proves the whole
-    # selected set ran and passed. A *failed* top-level aggregate proves the run
-    # reached its end, but not that the failure was benign: a crashed or aborted
-    # suite that printed no summary can still leave xcodebuild emitting
-    # ``Test Suite 'Selected tests' failed at ...``. Accept a failed aggregate
-    # only when a visible XCTest summary explains it -- an expected failure
-    # (failures > 0, already known to be 0 unexpected above). If every summary is
-    # clean (0 failures) yet the aggregate failed, the failure came from outside
-    # the parsed suites (crash/abort/skipped remainder) -- the #5641 masking.
-    strong_completion = (
-        any(marker in output for marker in COMPLETION_MARKERS)
-        or PASSED_COMPLETION_RE.search(output) is not None
-    )
-    if not strong_completion and FAILED_COMPLETION_RE.search(output) is not None:
-        if not any(failures > 0 for _tests, failures, _unexpected, _line in summaries):
+    # non-zero exit is safe to accept only if xcodebuild also certified that the
+    # whole selected plan ran: either a *passing* completion (``** TEST SUCCEEDED
+    # **`` / a *passed* aggregate) or a *failed* aggregate whose OWN paired
+    # execution summary printed with an expected (0-unexpected) ``failures > 0``
+    # count. Otherwise the run was aborted or killed before finishing, the
+    # visible summaries may be just an early prefix, and the un-run remainder
+    # would be silently skipped -- the #5641 masking.
+    if not reached_passing_completion(output):
+        aggregate = _aggregate_failure_summary(output)
+        # ``aggregate`` holds the failed top-level aggregate's own totals. It
+        # proves completion only when xcodebuild printed that paired summary AND
+        # it records a failure (failures > 0, already known to be 0 unexpected).
+        # An earlier per-suite failure does NOT qualify: a run can print one
+        # ``(0 unexpected)`` failure, abort in a later suite, and still emit
+        # ``Test Suite 'Selected tests' failed at ...`` with no paired summary --
+        # tying acceptance to the aggregate's own summary closes that hole.
+        if aggregate is None or aggregate[1] == 0:
+            timed_out = args.exit_code == TIMEOUT_EXIT_CODE or any(
+                marker in output for marker in TIMEOUT_MARKERS
+            )
+            if FAILED_COMPLETION_RE.search(output) is not None:
+                cause = (
+                    "printed a failed top-level aggregate without its own execution "
+                    "summary recording an expected failure, so the failed action came "
+                    "from a crashed/aborted suite outside the completed tally"
+                )
+            elif timed_out:
+                cause = (
+                    "was killed by a timeout watchdog before reaching a terminal test "
+                    "summary"
+                )
+            else:
+                cause = "exited non-zero before reaching a terminal test summary"
             print(
-                "Unexpected test failures detected: xcodebuild reported a failed "
-                "top-level aggregate but no XCTest summary recorded a failure, so the "
-                "failed action came from a crashed/aborted suite outside the parsed "
-                "summaries; cannot confirm every selected suite ran"
+                f"Unexpected test failures detected: xcodebuild {cause}; cannot "
+                "confirm every selected suite ran"
             )
             return 1
 
