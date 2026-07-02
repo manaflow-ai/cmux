@@ -1,5 +1,6 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
+import CmuxAuthRuntime
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -33,10 +34,14 @@ struct WorkspaceDetailView: View {
     let signOut: (() -> Void)?
     /// Phone-local browser surfaces, injected from the app root.
     @Environment(BrowserSurfaceStore.self) private var browserStore
-    /// Drives the destructive close-workspace confirmation dialog.
+    @Environment(AuthCoordinator.self) private var authManager
+    /// Drives the destructive close-workspace confirmation dialog launched from
+    /// the top-bar menu. Owned here (not in the menu builder) so the dialog stays
+    /// attached to the detail view across menu open/close cycles.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
+    @State private var isDiagnosticsSheetPresented = false
     @State private var feedbackText = ""
     @State private var feedbackEmail = ""
     @State private var isSubmittingFeedback = false
@@ -121,6 +126,11 @@ struct WorkspaceDetailView: View {
                 onSave: commitRenameFromDialog
             )
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+            .sheet(isPresented: $isDiagnosticsSheetPresented) {
+                WorkspaceDiagnosticsSheet(store: store, authManager: authManager) {
+                    isDiagnosticsSheetPresented = false
+                }
+            }
         #else
         content
             .closeWorkspaceConfirmation(
@@ -461,6 +471,14 @@ struct WorkspaceDetailView: View {
             .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
             #endif
 
+            Button(action: openDiagnosticsSheetFromMenu) {
+                Label(
+                    L10n.string("mobile.diagnostics.share", defaultValue: "Share Diagnostics"),
+                    systemImage: "doc.text.magnifyingglass"
+                )
+            }
+            .accessibilityIdentifier("MobileShareDiagnosticsMenuItem")
+
             Button(action: openFeedbackComposerFromMenu) {
                 Label(
                     L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"),
@@ -479,6 +497,11 @@ struct WorkspaceDetailView: View {
     }
 
     #if canImport(UIKit)
+    @MainActor
+    private func openDiagnosticsSheetFromMenu() {
+        isDiagnosticsSheetPresented = true
+    }
+
     #if DEBUG
     private func copyDebugLogsFromMenu() {
         // Include "what the user sees" (the visible terminal text) above the
@@ -576,9 +599,6 @@ struct WorkspaceDetailView: View {
 
     private var feedbackComposerExplanation: String {
         if feedbackRoutesToAgent {
-            // Intentionally does not promise the structured event log: that log
-            // is only captured in DEBUG builds, so a Release agent bundle carries
-            // the debug log + visible terminal + your note, not the event trace.
             return L10n.string(
                 "mobile.feedback.explanation.agent",
                 defaultValue: "Sends diagnostics (debug log + visible terminal) and your note straight to the paired Mac."

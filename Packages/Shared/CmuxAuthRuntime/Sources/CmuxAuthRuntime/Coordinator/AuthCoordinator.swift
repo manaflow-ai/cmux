@@ -3,7 +3,7 @@ import Foundation
 public import Observation
 import OSLog
 
-private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
+nonisolated private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 
 /// The shared, injected auth orchestrator for cmux.
 ///
@@ -39,6 +39,13 @@ public final class AuthCoordinator {
     public private(set) var isLoading = false
     /// Whether a cached session is being restored/validated at launch.
     public private(set) var isRestoringSession = false
+    /// Most recent display-safe auth failure category for diagnostics reports.
+    ///
+    /// Raw backend errors can contain opaque identifiers or token-adjacent
+    /// payloads, so diagnostics retain only ``AuthError`` case names or the
+    /// fallback category `AuthError.authFailure` when no display-safe mapping
+    /// exists.
+    public private(set) var lastAuthError: String?
     /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
     public private(set) var availableTeams: [CMUXAuthTeam] = []
     /// The user's selected team id. Writes persist through the injected
@@ -214,7 +221,7 @@ public final class AuthCoordinator {
 
     /// Send a sign-in code to `email`, or run the debug `42` shortcut.
     public func sendCode(to email: String) async throws {
-        try await requireOnline()
+        try await requireOnlineForAuth()
         isLoading = true
         defer { isLoading = false }
 
@@ -234,7 +241,7 @@ public final class AuthCoordinator {
             }
             pendingNonce = nonce
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
     }
 
@@ -246,7 +253,7 @@ public final class AuthCoordinator {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, exchange, user fetch) wins.
         let flow = try await beginSignInFlow()
-        try await requireOnline()
+        try await requireOnlineForAuth()
         isLoading = true
         defer { isLoading = false }
 
@@ -258,7 +265,7 @@ public final class AuthCoordinator {
             }
             try await completeSignIn(flow: flow)
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
         pendingNonce = nil
     }
@@ -268,7 +275,7 @@ public final class AuthCoordinator {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, exchange, user fetch) wins.
         let flow = try await beginSignInFlow()
-        try await requireOnline()
+        try await requireOnlineForAuth()
         if setLoading { isLoading = true }
         defer { if setLoading { isLoading = false } }
 
@@ -279,7 +286,7 @@ public final class AuthCoordinator {
             }
             try await completeSignIn(flow: flow)
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
     }
 
@@ -297,7 +304,7 @@ public final class AuthCoordinator {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, OAuth exchange, user fetch) wins.
         let flow = try await beginSignInFlow()
-        try await requireOnline()
+        try await requireOnlineForAuth()
         isLoading = true
         defer { isLoading = false }
         do {
@@ -313,7 +320,7 @@ public final class AuthCoordinator {
             try await completeSignIn(flow: flow)
         } catch {
             log.log("auth.oauth provider=\(provider) failed: \(error)")
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
     }
 
@@ -402,7 +409,7 @@ public final class AuthCoordinator {
         do {
             try await completeSignIn(flow: flow)
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
     }
 
@@ -527,11 +534,10 @@ public final class AuthCoordinator {
                 } catch {
                     // Best-effort by design; see the security tradeoff above.
                     // The full error goes to the unified log privately; the
-                    // public redacted sink gets only the error TYPE, because
-                    // a Stack error body can carry opaque identifiers the
-                    // redaction regexes don't recognize.
+                    // public redacted sink gets only a generic failure marker,
+                    // because even error type names can expose provider details.
                     authLog.error("Sign-out session revocation failed: \(error.localizedDescription, privacy: .private)")
-                    log.log("auth.signOut revocation failed: \(String(describing: type(of: error)))")
+                    log.log("auth.signOut revocation failed")
                 }
             }
             group.addTask {
@@ -556,6 +562,7 @@ public final class AuthCoordinator {
         currentUser = user
         isAuthenticated = true
         isRestoringSession = false
+        lastAuthError = nil
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
         await refreshTeams(generation: generation)
@@ -621,6 +628,21 @@ public final class AuthCoordinator {
         isRestoringSession = false
     }
 
+    @discardableResult
+    func recordAuthError(_ error: any Error) -> any Error {
+        let displaySafe = AuthError(displaySafe: error)
+        let reportable = displaySafe ?? error
+        lastAuthError = Self.diagnosticDescription(for: reportable)
+        return reportable
+    }
+
+    private static func diagnosticDescription(for error: any Error) -> String {
+        if let authError = error as? AuthError {
+            return "AuthError.\(authError.diagnosticName)"
+        }
+        return "AuthError.authFailure"
+    }
+
     func clearPersistedAuthForUITest() async {
         if launch.includesDevAuth { debugCredentials = nil }
         await clearPersistedStackSession()
@@ -643,6 +665,14 @@ public final class AuthCoordinator {
     func requireOnline() async throws {
         guard await isOnline() else {
             throw AuthError.offline
+        }
+    }
+
+    func requireOnlineForAuth() async throws {
+        do {
+            try await requireOnline()
+        } catch {
+            throw recordAuthError(error)
         }
     }
 
