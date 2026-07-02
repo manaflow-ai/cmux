@@ -188,7 +188,7 @@ extension UpdateStateModel {
     /// (offline, timeout, dropped connection, or a download/feed fetch that failed mid-flight —
     /// GitHub's release CDN intermittently 504s individual objects, #5632). Signature,
     /// configuration, and installer failures are not transient and must surface instead.
-    public static func isTransientNetworkError(_ error: any Swift.Error) -> Bool {
+    public nonisolated static func isTransientNetworkError(_ error: any Swift.Error) -> Bool {
         let nsError = error as NSError
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
@@ -257,7 +257,7 @@ extension UpdateStateModel {
         return text.contains("agent connection") || text.contains("remote port")
     }
 
-    private static func networkError(from error: NSError) -> NSError? {
+    private nonisolated static func networkError(from error: NSError) -> NSError? {
         if error.domain == NSURLErrorDomain {
             return error
         }

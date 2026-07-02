@@ -104,6 +104,7 @@ public enum UpdateState: Equatable {
             return lExt.progress == rExt.progress
         case (.installing(let lInstall), .installing(let rInstall)):
             return lInstall.isAutoUpdate == rInstall.isAutoUpdate
+                && lInstall.stagedVersion == rInstall.stagedVersion
         default:
             return false
         }

@@ -50,15 +50,27 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         return true
     }
 
-    /// Called when an update session aborts. Background sessions surface no UI, so forward the
-    /// error for retry scheduling; the user driver's `showUpdaterError` handles user-facing
-    /// sessions separately.
+    /// Called when an update session aborts. Background auto-download failures surface here
+    /// (not necessarily through the user driver's `showUpdaterError`), so this is where the
+    /// silent-retry hook fires for sessions the user never initiated (#5632).
     func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) {
         let nsError = error as NSError
         // SUNoUpdateError (1001) flows through here for every no-update session end; only log
         // genuinely unexpected aborts to keep the update log readable.
         guard nsError.domain != SUSparkleErrorDomain || nsError.code != 1001 else { return }
         log.append("update session aborted: \(formatErrorForLog(error))")
+        if !hasUserInitiatedSession {
+            onBackgroundSessionError?(error)
+        }
+    }
+
+    /// Sparkle's session-teardown signal: fires when an update cycle finishes, whether it
+    /// succeeded, found nothing, or aborted. Ends any user-initiated session (so a later
+    /// background failure is correctly suppressed) and lets the controller run work that must
+    /// wait for the session to be over (the silent-download kick).
+    func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {
+        hasUserInitiatedSession = false
+        onUpdateSessionFinished?()
     }
 
     func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {

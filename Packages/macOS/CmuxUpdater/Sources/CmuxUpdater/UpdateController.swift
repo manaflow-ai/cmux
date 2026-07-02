@@ -43,6 +43,14 @@ public final class UpdateController {
     private var backgroundProbeTask: Task<Void, Never>?
     private var recheckTask: Task<Void, Never>?
     private var silentDownloadKickTask: Task<Void, Never>?
+    /// Set when a background probe finds an update mid-session; consumed when Sparkle reports
+    /// the session finished (`onUpdateSessionFinished`), which is when the silent download can
+    /// actually start.
+    private var pendingSilentDownloadKick = false
+    /// The version the silent-download kick already ran for. The kicked session's own
+    /// `didFindValidUpdate` re-reports the same version; without this the kick would re-arm on
+    /// every failed download and hammer the feed in a loop.
+    private var silentDownloadKickedVersion: String?
     private var backgroundRetryTask: Task<Void, Never>?
     private var restartWhenIdleTask: Task<Void, Never>?
     /// How many silent-download retries were scheduled after transient background failures;
@@ -117,7 +125,13 @@ public final class UpdateController {
             delegate: driver
         )
         driver.onBackgroundUpdateDetected = { [weak self] in
-            self?.scheduleSilentDownloadOfDetectedUpdate()
+            guard let self else { return }
+            guard let version = self.model.detectedUpdateVersion,
+                  version != self.silentDownloadKickedVersion else { return }
+            self.pendingSilentDownloadKick = true
+        }
+        driver.onUpdateSessionFinished = { [weak self] in
+            self?.startSilentDownloadIfKickPending()
         }
         driver.onBackgroundSessionError = { [weak self] error in
             self?.scheduleBackgroundRetryIfTransient(error)
@@ -200,23 +214,28 @@ public final class UpdateController {
     // MARK: - Silent background download
 
     /// Starts Sparkle's background session (which downloads and stages the update silently when
-    /// automatic downloads are enabled) shortly after a background probe detects an update.
+    /// automatic downloads are enabled) once the session that detected the update has finished.
     ///
     /// Without this, the payload isn't fetched until Sparkle's next scheduled check, so the
     /// user who clicks "install" pays the download (and any transient CDN failure, #5632) at
-    /// click time. The short delay lets the probe session tear down first; the `canCheckForUpdates`
-    /// and idle guards keep it from interrupting a user-initiated flow.
-    private func scheduleSilentDownloadOfDetectedUpdate() {
+    /// click time. Keyed on Sparkle's `didFinishUpdateCycle` signal (not a timer); the same
+    /// 100ms teardown beat as the re-check path lets Sparkle finish tearing the session down
+    /// before a new one starts, and the `canCheckForUpdates`/idle guards keep it from
+    /// interrupting a user-initiated flow.
+    private func startSilentDownloadIfKickPending() {
+        guard pendingSilentDownloadKick else { return }
+        pendingSilentDownloadKick = false
         guard !isDevLikeBundle else { return }
         guard updater.automaticallyDownloadsUpdates else { return }
-        guard silentDownloadKickTask == nil else { return }
+        silentDownloadKickTask?.cancel()
         silentDownloadKickTask = Task { @MainActor [weak self] in
             defer { self?.silentDownloadKickTask = nil }
             guard let self else { return }
-            try? await self.clock.sleep(for: .seconds(2))
+            try? await self.clock.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
             guard self.model.state.isIdle, self.model.overrideState == nil else { return }
             guard self.updater.canCheckForUpdates else { return }
+            self.silentDownloadKickedVersion = self.model.detectedUpdateVersion
             self.log.append("starting silent background download of detected update")
             self.updater.checkForUpdatesInBackground()
         }

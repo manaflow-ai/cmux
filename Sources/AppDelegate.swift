@@ -17901,7 +17901,15 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     /// A locked screen, sleeping display, or running screensaver is immediately safe. Any
     /// foreground command running in any workspace pane (agents included) blocks the restart.
     func updaterIsSafeToRestartNow() -> Bool {
-        if let tabManager, tabManager.tabs.contains(where: { $0.hasRunningForegroundCommand }) {
+        // Check every window's tab manager, not just the primary one: a foreground command
+        // running in any window blocks the restart.
+        var tabManagers = mainWindowContexts.values.map(\.tabManager)
+        if let tabManager, !tabManagers.contains(where: { $0 === tabManager }) {
+            tabManagers.append(tabManager)
+        }
+        if tabManagers.contains(where: { manager in
+            manager.tabs.contains(where: { $0.hasRunningForegroundCommand })
+        }) {
             return false
         }
         switch MacPresenceMonitor.live().evaluate().verdict {

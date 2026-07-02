@@ -524,8 +524,12 @@ final class UpdateReadyToastUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "installingAuto"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = version
-        app.launch()
-        _ = pollUntil(timeout: 2.0) {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+        _ = pollUntil(timeout: 4.0) {
             guard app.state != .runningForeground else { return true }
             app.activate()
             return app.state == .runningForeground
