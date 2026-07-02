@@ -25997,7 +25997,8 @@ struct CMUXCLI {
                 subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
                 body: String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed"),
                 status: .idle,
-                isFallback: false
+                isFallback: false,
+                notifyCategory: .turnComplete
             )
         }
         return classifyAgentHookNotification(
@@ -26029,7 +26030,8 @@ struct CMUXCLI {
             subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
             body: truncate(normalizedSingleLine(body), maxLength: 180),
             status: .idle,
-            isFallback: false
+            isFallback: false,
+            notifyCategory: .turnComplete
         )
     }
 
@@ -30667,11 +30669,16 @@ export default CMUXSessionRestore;
                 sessionId: input.sessionId ?? sessionId
             )
             if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
+                // Rebuilt from the stored session record: a stale .idle status is
+                // still a completion re-notification, so keep it under the
+                // "Agent Finished" gate. A stale .needsInput cannot distinguish
+                // permission from waiting, so it stays untagged (always deliver).
                 summary = AgentHookNotificationSummary(
                     subtitle: mapped?.lastSubtitle ?? summary.subtitle,
                     body: savedBody,
                     status: mapped?.lastNotificationStatus,
-                    isFallback: false
+                    isFallback: false,
+                    notifyCategory: mapped?.lastNotificationStatus == .idle ? .turnComplete : nil
                 )
             }
             let antigravitySuppressDuplicateIdleWhileBackgroundWork = def.name == "antigravity"
