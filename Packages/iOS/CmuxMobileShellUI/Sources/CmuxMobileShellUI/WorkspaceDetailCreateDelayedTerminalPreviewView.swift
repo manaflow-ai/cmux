@@ -60,7 +60,7 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
             return
         }
         delayedTerminalTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await ContinuousClock().sleep(for: .milliseconds(1_500))
             guard !Task.isCancelled else { return }
             let terminalID = MobileTerminalPreview.ID(rawValue: "\(workspaceID.rawValue)-terminal-1")
             let updatedWorkspace = MobileWorkspacePreview(
@@ -82,7 +82,7 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
             let workspaces = store.workspaces.map { existing in
                 existing.id == workspaceID ? updatedWorkspace : existing
             }
-            store.setWorkspacesForTesting(workspaces)
+            store.replaceForegroundWorkspaceState(workspaces)
             store.selectedWorkspaceID = workspaceID
             store.selectedTerminalID = terminalID
         }

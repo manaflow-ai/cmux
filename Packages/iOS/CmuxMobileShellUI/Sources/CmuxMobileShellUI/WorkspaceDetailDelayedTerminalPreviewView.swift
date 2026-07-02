@@ -37,7 +37,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             guard !didInjectTerminal else { return }
             didInjectTerminal = true
             store.selectedWorkspaceID = Self.workspaceID
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await ContinuousClock().sleep(for: .milliseconds(1_500))
             guard !Task.isCancelled else { return }
             let workspace = MobileWorkspacePreview(
                 id: Self.workspaceID,
@@ -46,7 +46,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
                     MobileTerminalPreview(id: Self.terminalID, name: Self.terminalTitle),
                 ]
             )
-            store.setWorkspacesForTesting([workspace])
+            store.replaceForegroundWorkspaceState([workspace])
             store.selectedWorkspaceID = Self.workspaceID
             store.selectedTerminalID = Self.terminalID
             if Self.showsChatToggle {
