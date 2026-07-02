@@ -3,10 +3,8 @@ public import Foundation
 /// Service-resolution members: which presence service (the `workers/presence`
 /// Cloudflare Worker) this app talks to. Mirrors the Mac's `PresenceSettings`
 /// resolution: an env override wins (dev/tagged builds), then the defaults
-/// key, then — on Debug builds only — the dev/staging instance, whose Stack
-/// project matches the dev Stack identity Debug builds sign in with. Release
-/// resolves to `nil` until the production worker URL ships with its settings
-/// surface, which keeps presence entirely off for stable users.
+/// key, then the worker matching the resolved auth channel (development or
+/// production).
 extension PresenceClient {
     /// Env override, mirroring the Mac's `CMUX_PRESENCE_BASE_URL`.
     public static let serviceURLEnvKey = "CMUX_PRESENCE_BASE_URL"

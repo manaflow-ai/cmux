@@ -184,7 +184,7 @@ public struct CMUXMobileRootScene: View {
     /// Wrap the local paired-Mac store with selected-team scoping, and then add
     /// the DO-backup decorator when `mobilePairedMacBackup` is on and a presence
     /// service URL resolves. Team scoping is unconditional: selected-team
-    /// boundaries must hold even in Release builds where backup is off.
+    /// boundaries must hold even when backup is off.
     @MainActor
     private func makeBackedUpPairedMacStore(
         restoreBoundary: PairedMacRestoreBoundary

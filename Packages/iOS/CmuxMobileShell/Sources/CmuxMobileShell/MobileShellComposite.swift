@@ -3129,13 +3129,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .failed
         }
 
-        if let emailFailure = Self.emailFailure(
-            for: ticket,
+        let accountPreflight = MobilePairingAccountPreflight(
             scannedScheme: URLComponents(string: rawURL)?.scheme,
             actualUserID: identityProvider?.currentUserID,
             actualEmail: identityProvider?.currentUserEmail,
             isDevelopmentAuthEnvironment: identityProvider?.isDevelopmentAuthEnvironment ?? false
-        ) {
+        )
+        if let emailFailure = accountPreflight.failure(for: ticket) {
             applyPairingValidationFailure(emailFailure)
             if connectionState != .connected {
                 connectionState = .disconnected
