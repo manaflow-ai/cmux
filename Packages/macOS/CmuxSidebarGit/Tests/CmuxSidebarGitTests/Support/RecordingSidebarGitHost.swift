@@ -116,7 +116,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     // MARK: Writes
 
     @discardableResult
-    func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String) -> Bool {
+    func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool {
         guard state(workspaceId)?.panels[panelId] != nil else { return false }
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
