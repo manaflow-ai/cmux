@@ -196,7 +196,7 @@ struct WorkspaceListView: View {
             machineSnapshots: displayedMachineSnapshots,
             visibleSelection: currentVisibleMacSelection
         )
-        List {
+        let list = List {
             if let store, showsConnectionRecoveryRow {
                 Section {
                     MobileConnectionRecoveryBanner(
@@ -266,32 +266,12 @@ struct WorkspaceListView: View {
         .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
         .mobileInlineNavigationTitle()
         .searchable(text: $searchText)
-        .toolbar {
-            #if os(iOS)
-            if showsNavigationToolbar {
-                ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
-                    settingsMenu
-                }
-                ToolbarItem(id: "workspace-list-title", placement: .principal) { macTitlePicker(machineSnapshots: displayedMachineSnapshots) }
-                if showsDevicesButton {
-                    ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) { devicesButton }
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    WorkspaceListFilterMenu(filter: $filter, machines: displayedFilterMachines)
-                    if canCreateWorkspace {
-                        newWorkspaceButton
-                    }
-                }
-            }
-            #else
-            ToolbarItemGroup {
-                WorkspaceListFilterMenu(filter: $filter, machines: displayedFilterMachines)
-                if canCreateWorkspace {
-                    newWorkspaceButton
-                }
-            }
-            #endif
-        }
+
+        workspaceListWithToolbar(
+            list,
+            machineSnapshots: displayedMachineSnapshots,
+            filterMachines: displayedFilterMachines
+        )
         .accessibilityIdentifier("MobileWorkspaceList")
         .onDisappear {
             invalidateDeferredWorkspaceSelection()
@@ -468,7 +448,7 @@ struct WorkspaceListView: View {
     }
 
     #if os(iOS)
-    private var devicesButton: some View {
+    var devicesButton: some View {
         Button {
             showingDeviceTree = true
         } label: {
@@ -540,7 +520,7 @@ struct WorkspaceListView: View {
         .listRowSeparator(.hidden)
     }
 
-    private var newWorkspaceButton: some View {
+    var newWorkspaceButton: some View {
         Button {
             guard canCreateWorkspaceForMacSelection else { return }
             createWorkspace()
@@ -582,7 +562,7 @@ struct WorkspaceListView: View {
         deferredWorkspaceSelectionGeneration &+= 1
     }
 
-    private var settingsMenu: some View {
+    var settingsMenu: some View {
         #if os(iOS)
         // Open the full Settings page (account, terminal shortcuts,
         // notifications, paired Mac) rather than a transient menu.

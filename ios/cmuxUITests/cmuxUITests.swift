@@ -384,6 +384,37 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceDetailToolbarSurvivesDelayedTerminalLifecycle() throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp()
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "fresh no-agent workspace before delayed terminal"
+        )
+        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "fresh no-agent workspace after delayed terminal appears"
+        )
+        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
+
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemExists("terminal-delayed", in: app)
+    }
+
+    @MainActor
     func testTerminalDropdownScrollsLongTerminalList() async throws {
         let server = try MobileSyncMockHostServer(additionalMainTerminalCount: 24)
         let port = try await server.start()
@@ -1697,6 +1728,16 @@ final class cmuxUITests: XCTestCase {
             settleChatPreviewKeyboardDown(in: app, table: table),
             "Chat preview must start keyboard-down before keyboard evidence is collected. metrics=\(String(describing: transcriptMetrics(from: table)))"
         )
+        return app
+    }
+
+    @MainActor
+    private func launchWorkspaceDetailDelayedTerminalPreviewApp() -> XCUIApplication {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ])
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 8))
         return app
     }
 

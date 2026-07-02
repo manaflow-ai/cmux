@@ -3936,7 +3936,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Test seam: seed the foreground Mac's workspaces/groups (the per-Mac source
     /// of truth) so the derived ``workspaces``/``workspaceGroups`` reflect them,
     /// for tests downstream of the list that do not run a live connection.
-    func setWorkspacesForTesting(
+    public func setWorkspacesForTesting(
         _ workspaces: [MobileWorkspacePreview],
         groups: [MobileWorkspaceGroupPreview] = []
     ) {
