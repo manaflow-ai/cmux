@@ -1,11 +1,11 @@
 public import Foundation
 
-/// Value-level operations over a workspace's checklist array. All mutation
-/// entry points (socket verbs, CLI, sidebar UI) funnel through these so the
-/// caps and text normalization apply identically everywhere.
-public enum WorkspaceChecklist {
+/// Limits and text normalization for checklist items. These live on the item
+/// type so every mutation entry point (socket verbs, CLI, sidebar UI) applies
+/// them identically.
+extension WorkspaceChecklistItem {
     /// The maximum number of items a checklist holds.
-    public static let maxItems = 50
+    public static let maxChecklistItems = 50
     /// The maximum length of one item's text; longer text is truncated.
     public static let maxTextLength = 500
 
@@ -13,7 +13,7 @@ public enum WorkspaceChecklist {
     public enum AddError: Error, Equatable, Sendable {
         /// The text was empty after trimming.
         case emptyText
-        /// The checklist already holds ``maxItems`` items.
+        /// The checklist already holds ``maxChecklistItems`` items.
         case checklistFull
     }
 
@@ -26,32 +26,33 @@ public enum WorkspaceChecklist {
         guard !trimmed.isEmpty else { return nil }
         return String(trimmed.prefix(maxTextLength))
     }
+}
 
+/// Value-level operations over a workspace's checklist array.
+extension Array where Element == WorkspaceChecklistItem {
     /// Appends a new item after normalizing the text and checking the cap.
     ///
     /// - Parameters:
     ///   - text: The raw item text (trimmed; empty is rejected; capped at
-    ///     ``maxTextLength`` characters).
+    ///     ``WorkspaceChecklistItem/maxTextLength`` characters).
     ///   - state: The initial state.
     ///   - origin: Who created the item.
     ///   - id: The identity to assign (a fresh UUID by default).
-    ///   - items: The checklist to mutate.
     /// - Returns: The appended item, or the rejection reason.
-    public static func add(
+    public mutating func addChecklistItem(
         _ text: String,
         state: WorkspaceChecklistItem.State = .pending,
         origin: WorkspaceChecklistItem.Origin = .user,
-        id: UUID = UUID(),
-        to items: inout [WorkspaceChecklistItem]
-    ) -> Result<WorkspaceChecklistItem, AddError> {
-        guard let normalized = normalizedText(text) else {
+        id: UUID = UUID()
+    ) -> Result<WorkspaceChecklistItem, WorkspaceChecklistItem.AddError> {
+        guard let normalized = WorkspaceChecklistItem.normalizedText(text) else {
             return .failure(.emptyText)
         }
-        guard items.count < maxItems else {
+        guard count < WorkspaceChecklistItem.maxChecklistItems else {
             return .failure(.checklistFull)
         }
         let item = WorkspaceChecklistItem(id: id, text: normalized, state: state, origin: origin)
-        items.append(item)
+        append(item)
         return .success(item)
     }
 
@@ -60,72 +61,44 @@ public enum WorkspaceChecklist {
     /// - Parameters:
     ///   - id: The item to update.
     ///   - state: The new state.
-    ///   - items: The checklist to mutate.
     /// - Returns: `true` if the item existed.
     @discardableResult
-    public static func setState(
+    public mutating func setChecklistItemState(
         id: UUID,
-        state: WorkspaceChecklistItem.State,
-        in items: inout [WorkspaceChecklistItem]
+        state: WorkspaceChecklistItem.State
     ) -> Bool {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
-        items[index].state = state
+        guard let index = firstIndex(where: { $0.id == id }) else { return false }
+        self[index].state = state
         return true
     }
 
     /// Removes one item by id.
     ///
-    /// - Parameters:
-    ///   - id: The item to remove.
-    ///   - items: The checklist to mutate.
+    /// - Parameter id: The item to remove.
     /// - Returns: `true` if the item existed.
     @discardableResult
-    public static func remove(
-        id: UUID,
-        from items: inout [WorkspaceChecklistItem]
-    ) -> Bool {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
-        items.remove(at: index)
+    public mutating func removeChecklistItem(id: UUID) -> Bool {
+        guard let index = firstIndex(where: { $0.id == id }) else { return false }
+        remove(at: index)
         return true
     }
 
     /// Removes every item.
     ///
-    /// - Parameter items: The checklist to mutate.
     /// - Returns: The number of items removed.
     @discardableResult
-    public static func clear(_ items: inout [WorkspaceChecklistItem]) -> Int {
-        let removed = items.count
-        items.removeAll()
+    public mutating func clearChecklist() -> Int {
+        let removed = count
+        removeAll()
         return removed
     }
 
-    /// A compact progress readout for sidebar rows and CLI output.
-    public struct ProgressSummary: Equatable, Sendable {
-        /// How many items are completed.
-        public let completedCount: Int
-        /// How many items exist.
-        public let totalCount: Int
-        /// The text of the first item that is not completed, if any.
-        public let firstUncheckedText: String?
-
-        /// Creates a summary.
-        public init(completedCount: Int, totalCount: Int, firstUncheckedText: String?) {
-            self.completedCount = completedCount
-            self.totalCount = totalCount
-            self.firstUncheckedText = firstUncheckedText
-        }
-    }
-
-    /// The progress readout of a checklist.
-    ///
-    /// - Parameter items: The checklist to summarize.
-    /// - Returns: Completed/total counts and the first unchecked item's text.
-    public static func progressSummary(of items: [WorkspaceChecklistItem]) -> ProgressSummary {
-        ProgressSummary(
-            completedCount: items.count(where: { $0.state == .completed }),
-            totalCount: items.count,
-            firstUncheckedText: items.first(where: { $0.state != .completed })?.text
+    /// The progress readout of the checklist.
+    public var checklistProgressSummary: WorkspaceChecklistProgressSummary {
+        WorkspaceChecklistProgressSummary(
+            completedCount: count(where: { $0.state == .completed }),
+            totalCount: count,
+            firstUncheckedText: first(where: { $0.state != .completed })?.text
         )
     }
 }

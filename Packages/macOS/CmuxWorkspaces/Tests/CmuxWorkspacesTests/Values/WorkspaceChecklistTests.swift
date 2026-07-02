@@ -14,7 +14,7 @@ import Testing
 
     @Test func addTrimsTextAndAppends() throws {
         var items: [WorkspaceChecklistItem] = []
-        let added = try WorkspaceChecklist.add("  fix the bug  \n", origin: .agent, to: &items).get()
+        let added = try items.addChecklistItem("  fix the bug  \n", origin: .agent).get()
         #expect(added.text == "fix the bug")
         #expect(added.state == .pending)
         #expect(added.origin == .agent)
@@ -23,24 +23,24 @@ import Testing
 
     @Test func addRejectsEmptyAndWhitespaceOnlyText() {
         var items: [WorkspaceChecklistItem] = []
-        #expect(WorkspaceChecklist.add("", to: &items) == .failure(.emptyText))
-        #expect(WorkspaceChecklist.add("   \n\t", to: &items) == .failure(.emptyText))
+        #expect(items.addChecklistItem("") == .failure(.emptyText))
+        #expect(items.addChecklistItem("   \n\t") == .failure(.emptyText))
         #expect(items.isEmpty)
     }
 
     @Test func addCapsTextLength() throws {
         var items: [WorkspaceChecklistItem] = []
-        let long = String(repeating: "x", count: WorkspaceChecklist.maxTextLength + 100)
-        let added = try WorkspaceChecklist.add(long, to: &items).get()
-        #expect(added.text.count == WorkspaceChecklist.maxTextLength)
+        let long = String(repeating: "x", count: WorkspaceChecklistItem.maxTextLength + 100)
+        let added = try items.addChecklistItem(long).get()
+        #expect(added.text.count == WorkspaceChecklistItem.maxTextLength)
     }
 
     @Test func addRejectsWhenFull() {
-        var items = (0..<WorkspaceChecklist.maxItems).map {
+        var items = (0..<WorkspaceChecklistItem.maxChecklistItems).map {
             WorkspaceChecklistItem(text: "item \($0)")
         }
-        #expect(WorkspaceChecklist.add("one too many", to: &items) == .failure(.checklistFull))
-        #expect(items.count == WorkspaceChecklist.maxItems)
+        #expect(items.addChecklistItem("one too many") == .failure(.checklistFull))
+        #expect(items.count == WorkspaceChecklistItem.maxChecklistItems)
     }
 
     @Test func setStateByIdUpdatesOnlyThatItem() {
@@ -48,10 +48,12 @@ import Testing
             WorkspaceChecklistItem(text: "a"),
             WorkspaceChecklistItem(text: "b"),
         ]
-        #expect(WorkspaceChecklist.setState(id: items[1].id, state: .inProgress, in: &items))
+        let updatedKnown = items.setChecklistItemState(id: items[1].id, state: .inProgress)
+        #expect(updatedKnown)
         #expect(items[0].state == .pending)
         #expect(items[1].state == .inProgress)
-        #expect(!WorkspaceChecklist.setState(id: UUID(), state: .completed, in: &items))
+        let updatedUnknown = items.setChecklistItemState(id: UUID(), state: .completed)
+        #expect(!updatedUnknown)
     }
 
     @Test func removeByIdAndClear() {
@@ -59,12 +61,16 @@ import Testing
             WorkspaceChecklistItem(text: "a"),
             WorkspaceChecklistItem(text: "b"),
         ]
-        #expect(WorkspaceChecklist.remove(id: items[0].id, from: &items))
+        let removedKnown = items.removeChecklistItem(id: items[0].id)
+        #expect(removedKnown)
         #expect(items.map(\.text) == ["b"])
-        #expect(!WorkspaceChecklist.remove(id: UUID(), from: &items))
-        #expect(WorkspaceChecklist.clear(&items) == 1)
+        let removedUnknown = items.removeChecklistItem(id: UUID())
+        #expect(!removedUnknown)
+        let clearedCount = items.clearChecklist()
+        #expect(clearedCount == 1)
         #expect(items.isEmpty)
-        #expect(WorkspaceChecklist.clear(&items) == 0)
+        let clearedAgain = items.clearChecklist()
+        #expect(clearedAgain == 0)
     }
 
     @Test func progressSummaryCountsAndFirstUnchecked() {
@@ -73,19 +79,19 @@ import Testing
             WorkspaceChecklistItem(text: "doing", state: .inProgress),
             WorkspaceChecklistItem(text: "later", state: .pending),
         ]
-        let summary = WorkspaceChecklist.progressSummary(of: items)
+        let summary = items.checklistProgressSummary
         #expect(summary.completedCount == 1)
         #expect(summary.totalCount == 3)
         #expect(summary.firstUncheckedText == "doing")
 
         for item in items {
-            WorkspaceChecklist.setState(id: item.id, state: .completed, in: &items)
+            items.setChecklistItemState(id: item.id, state: .completed)
         }
-        let allDone = WorkspaceChecklist.progressSummary(of: items)
+        let allDone = items.checklistProgressSummary
         #expect(allDone.completedCount == 3)
         #expect(allDone.firstUncheckedText == nil)
 
-        let empty = WorkspaceChecklist.progressSummary(of: [])
+        let empty = [WorkspaceChecklistItem]().checklistProgressSummary
         #expect(empty.completedCount == 0)
         #expect(empty.totalCount == 0)
         #expect(empty.firstUncheckedText == nil)

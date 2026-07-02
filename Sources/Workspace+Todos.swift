@@ -81,13 +81,13 @@ extension Workspace {
     // MARK: - Checklist entry points (shared by socket, CLI, UI)
 
     /// Appends a checklist item (trims text, rejects empty, caps count and
-    /// length via `WorkspaceChecklist`).
+    /// length per `WorkspaceChecklistItem` limits).
     func addChecklistItem(
         text: String,
         state: WorkspaceChecklistItem.State = .pending,
         origin: WorkspaceChecklistItem.Origin = .user
-    ) -> Result<WorkspaceChecklistItem, WorkspaceChecklist.AddError> {
-        WorkspaceChecklist.add(text, state: state, origin: origin, to: &todoState.checklist)
+    ) -> Result<WorkspaceChecklistItem, WorkspaceChecklistItem.AddError> {
+        todoState.checklist.addChecklistItem(text, state: state, origin: origin)
     }
 
     /// Sets one checklist item's state.
@@ -95,7 +95,7 @@ extension Workspace {
     /// - Returns: `true` if the item existed.
     @discardableResult
     func setChecklistItemState(id: UUID, state: WorkspaceChecklistItem.State) -> Bool {
-        WorkspaceChecklist.setState(id: id, state: state, in: &todoState.checklist)
+        todoState.checklist.setChecklistItemState(id: id, state: state)
     }
 
     /// Removes one checklist item.
@@ -103,7 +103,7 @@ extension Workspace {
     /// - Returns: `true` if the item existed.
     @discardableResult
     func removeChecklistItem(id: UUID) -> Bool {
-        WorkspaceChecklist.remove(id: id, from: &todoState.checklist)
+        todoState.checklist.removeChecklistItem(id: id)
     }
 
     /// Removes every checklist item.
@@ -111,7 +111,7 @@ extension Workspace {
     /// - Returns: The number of items removed.
     @discardableResult
     func clearChecklist() -> Int {
-        WorkspaceChecklist.clear(&todoState.checklist)
+        todoState.checklist.clearChecklist()
     }
 
     /// The checklist item at a 0-based display index, if in bounds.
@@ -121,8 +121,8 @@ extension Workspace {
     }
 
     /// The checklist progress readout (completed/total, first unchecked).
-    var checklistProgressSummary: WorkspaceChecklist.ProgressSummary {
-        WorkspaceChecklist.progressSummary(of: todoState.checklist)
+    var checklistProgressSummary: WorkspaceChecklistProgressSummary {
+        todoState.checklist.checklistProgressSummary
     }
 
     // MARK: - Session persistence

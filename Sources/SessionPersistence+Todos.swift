@@ -26,7 +26,7 @@ extension SessionChecklistItemSnapshot {
     /// text is empty after normalization. Unknown state/origin raw values
     /// degrade to `.pending` / `.user` instead of dropping the item.
     var checklistItem: WorkspaceChecklistItem? {
-        guard let normalizedText = WorkspaceChecklist.normalizedText(text) else { return nil }
+        guard let normalizedText = WorkspaceChecklistItem.normalizedText(text) else { return nil }
         return WorkspaceChecklistItem(
             id: id,
             text: normalizedText,
@@ -66,7 +66,7 @@ extension SessionWorkspaceSnapshot {
     var restoredChecklist: [WorkspaceChecklistItem] {
         (checklist ?? [])
             .compactMap { $0.checklistItem }
-            .prefix(WorkspaceChecklist.maxItems)
+            .prefix(WorkspaceChecklistItem.maxChecklistItems)
             .map { $0 }
     }
 }
