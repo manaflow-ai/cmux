@@ -423,6 +423,54 @@ import Testing
 }
 
 @MainActor
+@Test func terminalViewportPrearmCancelledColdReplayIsReplacedWhenReportResolvesWithoutGrid() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    // Keep the cold-attach replay in flight while the first viewport report
+    // races it, and answer that report without an effective grid.
+    await router.holdNextReplayResponses(count: 1)
+    await router.enqueueReplayTexts(["recovery-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+
+    await router.emptyNextViewportResponses()
+    let reportedGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    #expect(reportedGrid == nil)
+
+    // Pre-arming the barrier cancelled the cold replay; resolving without a
+    // grid must request a replacement replay instead of leaving the mounted
+    // surface blank until some later event.
+    let replacementRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: 2
+    )
+    #expect(
+        replacementRequested,
+        "a prearm that cancelled the cold replay must replay when the report resolves without a grid"
+    )
+    guard replacementRequested else {
+        await router.releaseAllHeld()
+        return
+    }
+
+    let recoveryChunk = try #require(await iterator.next())
+    #expect(String(data: recoveryChunk.data, encoding: .utf8) == "recovery-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: recoveryChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+
+    // Releasing the stale cold response after the fact must not disturb the
+    // recovered stream.
+    await router.releaseAllHeld()
+    store.deliverTerminalBytes(Data("live-after-recovery".utf8), surfaceID: surfaceID)
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-recovery")
+}
+
+@MainActor
 @Test func terminalReplayRequestRejectsStaleBarrierToken() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
