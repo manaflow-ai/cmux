@@ -38,6 +38,11 @@ import Testing
         #expect(cap(260, hasChatToggle: false) > cap(260, hasChatToggle: true))
     }
 
+    @Test func iPhoneWidthCapsTitleBeforeTrailingControlsOverflow() {
+        #expect(cap(393, hasChatToggle: true) <= 140)
+        #expect(cap(393, hasChatToggle: false) <= MobileLeadingToolbarTitleWidth.maximumMeasuredCap)
+    }
+
     @Test func titleGainsRoomWithoutBackButton() {
         #expect(cap(260, hasBackButton: false) > cap(260, hasBackButton: true))
     }

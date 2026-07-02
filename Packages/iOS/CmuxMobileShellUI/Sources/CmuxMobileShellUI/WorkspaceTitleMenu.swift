@@ -35,6 +35,5 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
                 maxWidth: cap,
                 alignment: .leading
             )
-            .layoutPriority(1)
     }
 }

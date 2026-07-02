@@ -325,7 +325,7 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
-        let server = try MobileSyncMockHostServer()
+        let server = try MobileSyncMockHostServer(createdWorkspaceTerminalDelay: 1.5)
         let port = try await server.start()
         defer { server.stop() }
 
@@ -342,11 +342,6 @@ final class cmuxUITests: XCTestCase {
         dismissOpenMenu(in: app)
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
-        await assertHostSelection(
-            workspaceID: "workspace-3",
-            terminalID: "workspace-3-terminal-1",
-            server: server
-        )
         let freshBackButton = app.buttons["MobileWorkspaceBackButton"]
         let freshTitleMenu = app.buttons["MobileWorkspaceTitleMenu"]
         let freshTerminalDropdown = app.buttons["MobileTerminalDropdown"]
@@ -357,7 +352,14 @@ final class cmuxUITests: XCTestCase {
             in: app,
             context: "fresh no-agent workspace immediately after create"
         )
+        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
         RunLoop.current.run(until: Date().addingTimeInterval(5))
+        await assertHostSelection(
+            workspaceID: "workspace-3",
+            terminalID: "workspace-3-terminal-1",
+            server: server
+        )
         assertWorkspaceToolbarVisible(
             backButton: freshBackButton,
             titleMenu: freshTitleMenu,
@@ -365,6 +367,8 @@ final class cmuxUITests: XCTestCase {
             in: app,
             context: "fresh no-agent workspace after 5s"
         )
+        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
         assertBackButtonFrameStaysCompactAroundPress(freshBackButton, in: app)
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
@@ -412,6 +416,55 @@ final class cmuxUITests: XCTestCase {
         assertToolbarOverflowButtonDoesNotExist(in: app)
         assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
 
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemExists("terminal-delayed", in: app)
+    }
+
+    @MainActor
+    func testWorkspaceDetailToolbarKeepsTerminalPickerVisibleWithLongTitle() throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
+        ])
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "long workspace title without chat toggle"
+        )
+        XCTAssertFalse(app.buttons["MobileWorkspaceAgentChatButton"].exists)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemExists("terminal-delayed", in: app)
+    }
+
+    @MainActor
+    func testWorkspaceDetailToolbarKeepsTerminalPickerVisibleWithLongTitleAndChatToggle() throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
+            "CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE": "1",
+        ])
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let chatButton = app.buttons["MobileWorkspaceAgentChatButton"]
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "long workspace title with chat toggle"
+        )
+        XCTAssertTrue(chatButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(chatButton.isHittable)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("terminal-delayed", in: app)
     }
@@ -1771,11 +1824,15 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchWorkspaceDetailDelayedTerminalPreviewApp() -> XCUIApplication {
-        let app = launchApp(mockData: false, environment: [
+    private func launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
             "CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL": "1",
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
-        ])
+        ]
+        for (key, value) in environment {
+            launchEnvironment[key] = value
+        }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 8))
         return app
     }
@@ -3720,6 +3777,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
     private let listener: NWListener
     private let queue = DispatchQueue(label: "dev.cmux.ios-ui-tests.mobile-sync-server")
+    private let createdWorkspaceTerminalDelay: TimeInterval?
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
@@ -3775,8 +3833,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ),
     ]
 
-    init(defaultTerminalLines: [String]? = nil, additionalMainTerminalCount: Int = 0) throws {
+    init(
+        defaultTerminalLines: [String]? = nil,
+        additionalMainTerminalCount: Int = 0,
+        createdWorkspaceTerminalDelay: TimeInterval? = nil
+    ) throws {
         listener = try NWListener(using: .tcp, on: .any)
+        self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -3988,7 +4051,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         let result: [String: Any]
 
         switch method {
-        case "workspace.list":
+        case "mobile.workspace.list", "workspace.list":
             result = workspaceListResult()
         case "workspace.create":
             result = createWorkspaceResult()
@@ -4044,30 +4107,48 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         let nextIndex = workspaces.count + 1
         let workspaceID = "workspace-\(nextIndex)"
         let terminalID = "\(workspaceID)-terminal-1"
+        let terminal = Terminal(
+            id: terminalID,
+            title: "Terminal 1",
+            currentDirectory: "~/workspace-\(nextIndex)",
+            lines: [
+                "$ cmux ios",
+                "workspace: Workspace \(nextIndex)",
+                "terminal: Terminal 1",
+            ]
+        )
         let workspace = Workspace(
             id: workspaceID,
             title: "Workspace \(nextIndex)",
             currentDirectory: "~/workspace-\(nextIndex)",
-            terminals: [
-                Terminal(
-                    id: terminalID,
-                    title: "Terminal 1",
-                    currentDirectory: "~/workspace-\(nextIndex)",
-                    lines: [
-                        "$ cmux ios",
-                        "workspace: Workspace \(nextIndex)",
-                        "terminal: Terminal 1",
-                    ]
-                ),
-            ]
+            terminals: createdWorkspaceTerminalDelay == nil ? [terminal] : []
         )
         workspaces.append(workspace)
         selectedWorkspaceID = workspaceID
-        selectedTerminalID = terminalID
+        if createdWorkspaceTerminalDelay == nil {
+            selectedTerminalID = terminalID
+        } else {
+            scheduleCreatedWorkspaceTerminal(terminal, workspaceID: workspaceID)
+        }
 
         var result = workspaceListResult()
         result["created_workspace_id"] = workspaceID
         return result
+    }
+
+    private func scheduleCreatedWorkspaceTerminal(_ terminal: Terminal, workspaceID: String) {
+        let delay = createdWorkspaceTerminalDelay ?? 0
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self,
+                  let workspaceIndex = self.workspaces.firstIndex(where: { $0.id == workspaceID }),
+                  self.workspaces[workspaceIndex].terminals.isEmpty else {
+                return
+            }
+            self.workspaces[workspaceIndex].terminals.append(terminal)
+            self.selectedWorkspaceID = workspaceID
+            self.selectedTerminalID = terminal.id
+            self.sendWorkspaceUpdatedEvent()
+        }
     }
 
     private func createTerminalResult(params: [String: Any]) -> [String: Any] {
@@ -4131,6 +4212,26 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         text += terminal.lines.joined(separator: "\r\n")
         text += "\r\n"
         return Data(text.utf8)
+    }
+
+    private func sendWorkspaceUpdatedEvent() {
+        let envelope: [String: Any] = [
+            "kind": "event",
+            "topic": "workspace.updated",
+            "payload": [:],
+        ]
+        guard let payload = try? JSONSerialization.data(withJSONObject: envelope) else {
+            return
+        }
+        let frame = Self.frame(payload)
+        for connection in connections {
+            connection.send(
+                content: frame,
+                contentContext: .defaultMessage,
+                isComplete: false,
+                completion: .idempotent
+            )
+        }
     }
 
     private func workspaceListResult() -> [String: Any] {

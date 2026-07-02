@@ -12,10 +12,10 @@ struct MobileLeadingToolbarTitleWidth {
     let hasChatToggle: Bool
 
     static let backButtonReserve: CGFloat = 44
-    static let trailingReserveBase: CGFloat = 60
-    static let chatToggleReserve: CGFloat = 56
-    static let barMarginsAndSpacing: CGFloat = 44
-    static let unmeasuredFallback: CGFloat = 180
+    static let trailingReserveBase: CGFloat = 64
+    static let chatToggleReserve: CGFloat = 60
+    static let barMarginsAndSpacing: CGFloat = 84
+    static let unmeasuredFallback: CGFloat = 140
     static let maximumMeasuredCap: CGFloat = unmeasuredFallback
     static let floor: CGFloat = 96
 

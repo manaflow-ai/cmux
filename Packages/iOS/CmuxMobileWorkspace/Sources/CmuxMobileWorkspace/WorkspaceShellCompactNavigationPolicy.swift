@@ -13,9 +13,10 @@ public struct WorkspaceShellCompactNavigationPolicy {
     /// - Parameters:
     ///   - currentPath: The current navigation path.
     ///   - selectedWorkspaceID: The newly selected workspace, or `nil` to clear.
-    /// - Returns: The path to apply. Stays empty when the user is at the root,
-    ///   keeps an existing visible detail route through transient selection
-    ///   clears, and otherwise pushes the selected workspace.
+    /// - Returns: The path to apply. Stays empty when the user is at the root and
+    ///   keeps an existing detail route mounted through store-driven selection
+    ///   refreshes. Compact navigation is owned by explicit pushes and pops; a
+    ///   workspace-list refresh must not hand toolbar ownership back to the list.
     public static func pathForSelectionChange<ID: Hashable>(
         currentPath: [ID],
         selectedWorkspaceID: ID?,
@@ -24,17 +25,7 @@ public struct WorkspaceShellCompactNavigationPolicy {
         guard !currentPath.isEmpty else {
             return currentPath
         }
-        guard let selectedWorkspaceID else {
-            if let currentDetailID = currentPath.last,
-               visibleWorkspaceIDs.contains(currentDetailID) {
-                return currentPath
-            }
-            return []
-        }
-        guard currentPath.last != selectedWorkspaceID else {
-            return currentPath
-        }
-        return [selectedWorkspaceID]
+        return currentPath
     }
 
     /// Computes the navigation path when a workspace was just created, pushing it
@@ -61,23 +52,15 @@ public struct WorkspaceShellCompactNavigationPolicy {
     }
 
     /// Computes the navigation path after the workspace list's visible IDs
-    /// change. Keep the current detail route mounted while it is still the
-    /// selected workspace, even if a transient list refresh omits it; the store's
-    /// selection change is the authoritative signal to pop or retarget.
+    /// change. The compact route is not derived from list visibility: a fresh
+    /// no-agent workspace can temporarily disappear from a list response while the
+    /// terminal arrives, and clearing the path there makes the list toolbar replace
+    /// the detail toolbar. Explicit pushes and pops own route changes instead.
     public static func pathForVisibleWorkspaceIDsChange<ID: Hashable>(
         currentPath: [ID],
         visibleWorkspaceIDs: Set<ID>,
         selectedWorkspaceID: ID?
     ) -> [ID] {
-        guard let currentDetailID = currentPath.last else {
-            return currentPath
-        }
-        guard !visibleWorkspaceIDs.contains(currentDetailID) else {
-            return currentPath
-        }
-        guard selectedWorkspaceID != currentDetailID else {
-            return currentPath
-        }
-        return currentPath.filter { visibleWorkspaceIDs.contains($0) }
+        return currentPath
     }
 }

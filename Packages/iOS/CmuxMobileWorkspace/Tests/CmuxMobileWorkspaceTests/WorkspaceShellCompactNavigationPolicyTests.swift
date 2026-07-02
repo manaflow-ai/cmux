@@ -49,23 +49,23 @@ import Testing
         #expect(path == nil)
     }
 
-    @Test func tracksSelectionAfterUserOpenedWorkspace() {
+    @Test func keepsExplicitRouteWhenStoreSelectionRetargets() {
         let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
             currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
             selectedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-b")
         )
 
-        #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-b")])
+        #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-a")])
     }
 
-    @Test func clearsWhenSelectedWorkspaceDisappears() {
+    @Test func keepsExplicitRouteWhenSelectionClears() {
         let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
             currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
             selectedWorkspaceID: nil,
             visibleWorkspaceIDs: [MobileWorkspacePreview.ID(rawValue: "workspace-b")]
         )
 
-        #expect(path.isEmpty)
+        #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-a")])
     }
 
     @Test func keepsVisibleDetailRouteWhenSelectionClearsTransiently() {
@@ -90,7 +90,7 @@ import Testing
         #expect(path == [selectedID])
     }
 
-    @Test func removesMissingDetailRouteWhenItIsNoLongerSelected() {
+    @Test func keepsDetailRouteWhenListRefreshTemporarilyOmitsItAfterSelectionRetargets() {
         let selectedID = MobileWorkspacePreview.ID(rawValue: "workspace-b")
         let path = WorkspaceShellCompactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
             currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
@@ -98,6 +98,6 @@ import Testing
             selectedWorkspaceID: selectedID
         )
 
-        #expect(path.isEmpty)
+        #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-a")])
     }
 }
