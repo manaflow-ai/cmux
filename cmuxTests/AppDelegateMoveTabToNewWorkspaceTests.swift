@@ -445,6 +445,70 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         #expect(!store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
     }
 
+    @Test
+    func clearNotificationsFromMovedSurfaceUsesCurrentWorkspace() throws {
+        let app = AppDelegate()
+        let previousShared = AppDelegate.shared
+        let previousControllerManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let windowId = UUID()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = app.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        AppDelegate.shared = app
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        app.notificationStore = store
+        TerminalController.shared.setActiveTabManager(manager)
+        AppFocusState.overrideIsFocused = false
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            app.notificationStore = originalNotificationStore
+            AppDelegate.shared = previousShared
+            TerminalController.shared.setActiveTabManager(previousControllerManager)
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let staleWorkspaceId = sourceWorkspace.id
+        let movedPanelId = try #require(sourceWorkspace.focusedPanelId)
+        let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
+
+        #expect(app.moveSurface(
+            panelId: movedPanelId,
+            toWorkspace: destinationWorkspace.id,
+            focus: false,
+            focusWindow: false
+        ))
+        #expect(!manager.tabs.contains { $0.id == staleWorkspaceId })
+        #expect(destinationWorkspace.panels[movedPanelId] != nil)
+
+        // Deliver a notification carrying the stale workspace id; delivery
+        // re-resolves it to the panel's current workspace and stores it there.
+        let response = TerminalController.shared.notifyTarget(
+            "\(staleWorkspaceId.uuidString) \(movedPanelId.uuidString) Sync|Moved|Body"
+        )
+        #expect(response == "OK")
+        #expect(store.hasUnreadNotification(forTabId: destinationWorkspace.id, surfaceId: movedPanelId))
+
+        // Clearing with the same stale workspace id (the terminal's env never
+        // learned about the move) must still resolve to the panel's current
+        // workspace and drop the stored notification. Without the symmetric
+        // re-resolution the clear misses it and the notification is stranded as
+        // permanent unread state that its own terminal can never dismiss.
+        store.clearNotifications(forTabId: staleWorkspaceId, surfaceId: movedPanelId)
+
+        #expect(store.notifications.first { $0.surfaceId == movedPanelId } == nil)
+        #expect(!store.hasUnreadNotification(forTabId: destinationWorkspace.id, surfaceId: movedPanelId))
+        #expect(!store.hasUnreadNotification(forTabId: staleWorkspaceId, surfaceId: movedPanelId))
+    }
+
     private func drainMainQueue() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.main.async {
