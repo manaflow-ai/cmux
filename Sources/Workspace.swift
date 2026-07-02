@@ -5534,7 +5534,18 @@ final class Workspace: Identifiable, ObservableObject {
               !pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId) else {
             return false
         }
-        return terminalPanel(for: surfaceId)?.surface.waitAfterCommand == true
+        guard let surface = terminalPanel(for: surfaceId)?.surface else { return false }
+        // Gate on the surface's OWN explicit startup command, not the inheritable
+        // wait-after-command config bit alone. Ghostty's `wait_after_command` is copied
+        // into a split's inherited config (`cmuxInheritedSurfaceConfig` ->
+        // `CmuxSurfaceConfigTemplate(cConfig:)`), and the split/surface creation paths only
+        // force it on when the new surface has its own startup command — they never clear an
+        // inherited `true`. So a plain shell split off a wait-after pane can carry
+        // `waitAfterCommand == true` while having no command of its own, and such a pane must
+        // still close on a normal Ctrl-D/child exit. Requiring `initialCommand` keeps keep-open
+        // scoped to genuine subagent / initial-command panes (#6244) and never strands an
+        // ordinary shell open.
+        return surface.initialCommand != nil && surface.waitAfterCommand
     }
 
     var remoteDisplayTarget: String? {

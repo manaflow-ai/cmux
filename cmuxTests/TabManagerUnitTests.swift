@@ -716,14 +716,56 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             return
         }
 
-        // A split with an initial command requests wait-after-command, and the local
-        // split must not be treated as a remote surface.
+        // A split with an initial command requests wait-after-command, owns that command,
+        // and the local split must not be treated as a remote surface.
         XCTAssertTrue(
             splitPanel.surface.waitAfterCommand,
             "A split with an initial command should wait after its command exits"
         )
+        XCTAssertNotNil(
+            splitPanel.surface.initialCommand,
+            "A split created with an initial command owns that command"
+        )
         XCTAssertFalse(workspace.isRemoteTerminalSurface(splitPanel.id))
+        XCTAssertTrue(
+            workspace.shouldKeepSurfaceOpenAfterCommandExit(surfaceId: splitPanel.id),
+            "A local split with its own wait-after command must be kept open on child exit"
+        )
 
+        // Contrast: a plain split with no command of its own must NOT be kept open, even
+        // though a split can inherit Ghostty's wait-after-command config bit from its source
+        // pane. Keep-open is gated on the surface's own initial command, so an ordinary
+        // Ctrl-D shell still collapses on child exit (#6244 review: inherited-flag regression).
+        guard let plainSplit = workspace.newTerminalSplit(
+            from: initialPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected plain split terminal panel to be created")
+            return
+        }
+        XCTAssertNil(
+            plainSplit.surface.initialCommand,
+            "A plain split has no startup command of its own"
+        )
+        XCTAssertFalse(
+            workspace.shouldKeepSurfaceOpenAfterCommandExit(surfaceId: plainSplit.id),
+            "A split with no command of its own must not be kept open after child exit"
+        )
+
+        let panelsBeforePlainClose = workspace.panels.count
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: plainSplit.id)
+        XCTAssertNil(
+            workspace.panels[plainSplit.id],
+            "A command-less split must collapse when its child process exits"
+        )
+        XCTAssertEqual(
+            workspace.panels.count,
+            panelsBeforePlainClose - 1,
+            "Only the command-less split should be removed"
+        )
+
+        // The wait-after-command split still survives its own child exit.
         let panelCountBefore = workspace.panels.count
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: splitPanel.id)
 
