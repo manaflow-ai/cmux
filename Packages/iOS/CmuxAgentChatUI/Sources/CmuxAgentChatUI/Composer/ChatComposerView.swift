@@ -97,10 +97,8 @@ public struct ChatComposerView: View {
     }
 
     #if os(iOS)
-    @MainActor
     @ViewBuilder
     private var composerSurface: some View {
-        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer {
                 composerStack
@@ -108,13 +106,9 @@ public struct ChatComposerView: View {
         } else {
             composerStack
         }
-        #else
-        composerStack
-        #endif
     }
     #endif
 
-    @MainActor
     private var composerStack: some View {
         VStack(spacing: 8) {
             if isEnded {
@@ -172,7 +166,6 @@ public struct ChatComposerView: View {
 
     // MARK: - Field row
 
-    @MainActor
     private var fieldRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             #if os(iOS)
@@ -232,7 +225,6 @@ public struct ChatComposerView: View {
         agentState == .ended
     }
 
-    @MainActor
     private var endedRow: some View {
         HStack(spacing: 12) {
             Text(
@@ -253,7 +245,7 @@ public struct ChatComposerView: View {
                         bundle: .module
                     )
                 )
-                    .font(.subheadline.weight(.medium))
+                .font(.subheadline.weight(.medium))
             }
             .buttonStyle(.bordered)
         }
@@ -262,7 +254,6 @@ public struct ChatComposerView: View {
 
     // MARK: - Send / stop button
 
-    @MainActor
     @ViewBuilder
     private var sendButton: some View {
         if hasContent {
@@ -384,16 +375,13 @@ public struct ChatComposerView: View {
         isDraftFocused = true
     }
 
-    @MainActor
     private var attachButton: some View {
         PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
-            MainActor.assumeIsolated {
-                MobileComposerIconLabel(
-                    systemImage: "paperclip",
-                    foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
-                    size: controlHeight
-                )
-            }
+            MobileComposerIconLabel(
+                systemImage: "paperclip",
+                foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
+                size: controlHeight
+            )
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("ChatComposerAttach")
@@ -410,7 +398,6 @@ public struct ChatComposerView: View {
         }
     }
 
-    @MainActor
     private var micButton: some View {
         let listening = dictation.state.isListening
         return MobileComposerIconButton(
@@ -436,7 +423,6 @@ public struct ChatComposerView: View {
         }
     }
 
-    @MainActor
     private var attachmentStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -463,7 +449,6 @@ public struct ChatComposerView: View {
         }
     }
 
-    @MainActor
     private func removeButton(id: String, index: Int) -> some View {
         Button {
             removeAttachment(id: id)

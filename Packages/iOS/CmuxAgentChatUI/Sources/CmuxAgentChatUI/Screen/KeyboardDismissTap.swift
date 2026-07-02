@@ -72,16 +72,13 @@ struct KeyboardDismissTap: UIViewRepresentable {
                 installedWindow?.removeGestureRecognizer(recognizer)
                 installedWindow = nil
             }
-            guard let window, window !== installedWindow else { return }
+            guard let window else { return }
             window.addGestureRecognizer(recognizer)
             installedWindow = window
         }
 
-        override func willMove(toWindow newWindow: UIWindow?) {
-            super.willMove(toWindow: newWindow)
-            guard newWindow !== installedWindow else { return }
+        deinit {
             installedWindow?.removeGestureRecognizer(recognizer)
-            installedWindow = nil
         }
 
         @objc private func handleTap() {

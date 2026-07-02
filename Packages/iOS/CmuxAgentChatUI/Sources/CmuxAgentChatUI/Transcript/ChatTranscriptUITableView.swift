@@ -3,13 +3,14 @@ import CmuxMobileSupport
 import Foundation
 import UIKit
 
-@MainActor
 final class ChatTranscriptUITableView: UITableView {
-    var afterLayout: (@MainActor (
+    var afterLayout: ((
         _ oldBoundsSize: CGSize,
         _ oldContentSize: CGSize,
-        _ oldViewport: MobileScrollViewportSnapshot?
+        _ oldViewport: MobileScrollViewportSnapshot?,
+        _ oldAnchor: ChatTranscriptTableAnchor?
     ) -> Void)?
+    var anchorBeforeLayout: (() -> ChatTranscriptTableAnchor?)?
     #if DEBUG
     var keyboardDebugEventCount = 0
     var keyboardDebugOverlap: CGFloat = 0
@@ -36,6 +37,9 @@ final class ChatTranscriptUITableView: UITableView {
     private var recordedKeyboardAnimationID = 0
     private var keyboardDebugMaxAnimationPresentationGap: CGFloat = 0
     private var keyboardDebugAnimationSampleCount = 0
+    private var debugTopEdgeEffectSoft = false
+    private var debugBottomEdgeEffectSoft = false
+    private var debugTopContentScrollViewRegistered = false
     #endif
 
     #if DEBUG
@@ -45,10 +49,15 @@ final class ChatTranscriptUITableView: UITableView {
     }
     #endif
 
+    override var contentOffset: CGPoint {
+        didSet { recordViewport() }
+    }
+
     override func layoutSubviews() {
         let oldBoundsSize = lastBoundsSize
         let oldContentSize = lastContentSize
         let oldViewport = lastViewport
+        let oldAnchor = anchorBeforeLayout?()
         super.layoutSubviews()
         lastBoundsSize = bounds.size
         lastContentSize = contentSize
@@ -56,8 +65,31 @@ final class ChatTranscriptUITableView: UITableView {
         #if DEBUG
         updateDebugAccessibilityValue()
         #endif
-        afterLayout?(oldBoundsSize, oldContentSize, oldViewport)
+        afterLayout?(oldBoundsSize, oldContentSize, oldViewport, oldAnchor)
     }
+
+    func applyScrollEdgeEffects(topSoft: Bool, bottomSoft: Bool) {
+        #if DEBUG
+        debugTopEdgeEffectSoft = false
+        debugBottomEdgeEffectSoft = false
+        #endif
+        if #available(iOS 26.0, *) {
+            topEdgeEffect.style = topSoft ? .soft : .automatic
+            bottomEdgeEffect.style = bottomSoft ? .soft : .automatic
+            #if DEBUG
+            debugTopEdgeEffectSoft = topSoft
+            debugBottomEdgeEffectSoft = bottomSoft
+            updateDebugAccessibilityValue()
+            #endif
+        }
+    }
+
+    #if DEBUG
+    func recordTopContentScrollViewRegistration(_ isRegistered: Bool) {
+        debugTopContentScrollViewRegistered = isRegistered
+        updateDebugAccessibilityValue()
+    }
+    #endif
 
     func keyboardViewportSnapshot() -> MobileScrollViewportSnapshot {
         MobileScrollViewportSnapshot(
@@ -73,6 +105,13 @@ final class ChatTranscriptUITableView: UITableView {
         restoreKeyboardViewport(snapshot, boundsHeight: bounds.height)
     }
 
+    func recordCurrentViewport() {
+        recordViewport()
+        #if DEBUG
+        updateDebugAccessibilityValue()
+        #endif
+    }
+
     func restoreKeyboardViewport(
         _ snapshot: MobileScrollViewportSnapshot,
         boundsHeight: CGFloat
@@ -84,10 +123,11 @@ final class ChatTranscriptUITableView: UITableView {
             adjustedBottomInset: adjustedContentInset.bottom
         )
         setContentOffset(CGPoint(x: contentOffset.x, y: targetY), animated: false)
-        recordViewport()
-        #if DEBUG
-        updateDebugAccessibilityValue()
-        #endif
+        recordCurrentViewport()
+    }
+
+    var isUserScrollMomentumActive: Bool {
+        return isTracking || isDragging || isDecelerating
     }
 
     func applyTranscriptViewportInsets(
@@ -126,6 +166,12 @@ final class ChatTranscriptUITableView: UITableView {
         indicatorInsets.top = resolvedTopInset
         indicatorInsets.bottom = resolvedOverlayBottomInset
         verticalScrollIndicatorInsets = indicatorInsets
+        if isUserScrollMomentumActive {
+            // Preserve UIKit's live inset compensation while drag/deceleration owns the offset.
+            recordCurrentViewport()
+            isViewportInsetsExternallyDriven = false
+            return
+        }
         if wasPinnedToTop {
             // Keep the transcript pinned to the top chrome reservation — the
             // symmetric counterpart to `wasAtBottom`. Without this, a
@@ -200,7 +246,7 @@ final class ChatTranscriptUITableView: UITableView {
         let presentationGap = composerPresentationMinY - presentationFrameMaxY
         recordKeyboardAnimationGap(presentationGap)
         return String(
-            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;presentationFrameMaxY=%.2f;boundsHeight=%.2f;offsetY=%.2f;adjustedTopInset=%.2f;adjustedBottomInset=%.2f;visibleTopY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardTargetOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f;composerMinY=%.2f;composerPresentationMinY=%.2f;presentationGap=%.2f;topChromeOverlayInset=%.2f;composerOverlayBottomInset=%.2f;keyboardAnimationActive=%d;keyboardAnimationProgress=%.2f;keyboardTransitionDuration=%.3f;maxAnimationPresentationGap=%.2f;keyboardAnimationSamples=%d",
+            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;presentationFrameMaxY=%.2f;boundsHeight=%.2f;offsetY=%.2f;adjustedTopInset=%.2f;adjustedBottomInset=%.2f;visibleTopY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardTargetOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f;composerMinY=%.2f;composerPresentationMinY=%.2f;presentationGap=%.2f;topChromeOverlayInset=%.2f;composerOverlayBottomInset=%.2f;keyboardAnimationActive=%d;keyboardAnimationProgress=%.2f;keyboardTransitionDuration=%.3f;maxAnimationPresentationGap=%.2f;keyboardAnimationSamples=%d;topEdgeEffectSoft=%d;bottomEdgeEffectSoft=%d;topContentScrollViewRegistered=%d;scrollTracking=%d;scrollDragging=%d;scrollDecelerating=%d",
             locale: Locale(identifier: "en_US_POSIX"),
             frameInWindow.minY,
             frameInWindow.maxY,
@@ -228,7 +274,13 @@ final class ChatTranscriptUITableView: UITableView {
             keyboardDebugAnimationProgress,
             keyboardDebugTransitionDuration,
             keyboardDebugMaxAnimationPresentationGap,
-            keyboardDebugAnimationSampleCount
+            keyboardDebugAnimationSampleCount,
+            debugTopEdgeEffectSoft ? 1 : 0,
+            debugBottomEdgeEffectSoft ? 1 : 0,
+            debugTopContentScrollViewRegistered ? 1 : 0,
+            isTracking ? 1 : 0,
+            isDragging ? 1 : 0,
+            isDecelerating ? 1 : 0
         )
     }
 
@@ -255,4 +307,10 @@ final class ChatTranscriptUITableView: UITableView {
     }
     #endif
 }
+
+struct ChatTranscriptTableAnchor {
+    let id: String
+    let offsetFromRowTop: CGFloat
+}
+
 #endif

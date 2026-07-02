@@ -33,7 +33,6 @@ struct TerminalHardwareKeyResolver {
         return navigation + controlInputs + shiftedControlInputs
     }()
 
-    @MainActor
     static func makeKeyCommands(target: Any, action: Selector) -> [UIKeyCommand] {
         keyCommands.map { command in
             UIKeyCommand(

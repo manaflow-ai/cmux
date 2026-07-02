@@ -1012,7 +1012,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private static func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
-        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
             config.baseForegroundColor = .white
@@ -1021,7 +1020,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             }
             return config
         }
-        #endif
         var config = UIButton.Configuration.plain()
         var background = UIBackgroundConfiguration.clear()
         if sticky {
