@@ -668,6 +668,69 @@ import Testing
 }
 
 @MainActor
+@Test func terminalViewportSupersededSendPreservesPrearmedBarrier() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "superseding-resize-replay",
+    ])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
+
+    // The report scheduler cancels an in-flight send when a newer geometry
+    // report supersedes it. The cancelled send must not resolve the pre-ACK
+    // barrier it prearmed; the superseding report owns it.
+    await router.holdViewportRequest(number: 2)
+    let supersededReport = Task {
+        await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
+    }
+    await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 2)
+    let prearmedBarrier = try #require(store.terminalReplayBarrierTokensBySurfaceID[surfaceID])
+
+    supersededReport.cancel()
+    let cancelledGrid = await supersededReport.value
+    #expect(cancelledGrid == nil)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == prearmedBarrier)
+    #expect(store.terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] == prearmedBarrier)
+
+    // The superseding report carries the surviving barrier and resolves it
+    // with the acknowledged resize's authoritative replay.
+    let supersedingGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
+    #expect(supersedingGrid?.rows == 30)
+    let resizeReplayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1
+    )
+    #expect(resizeReplayRequested, "the superseding report must resolve the carried barrier with a replay")
+    guard resizeReplayRequested else {
+        await router.releaseAllHeld()
+        return
+    }
+    let replayChunk = try #require(await iterator.next())
+    #expect(String(data: replayChunk.data, encoding: .utf8) == "superseding-resize-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+
+    await router.releaseAllHeld()
+    store.deliverTerminalBytes(Data("live-after-supersede".utf8), surfaceID: surfaceID)
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-supersede")
+}
+
+@MainActor
 @Test func terminalReplayRequestRejectsStaleBarrierToken() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()

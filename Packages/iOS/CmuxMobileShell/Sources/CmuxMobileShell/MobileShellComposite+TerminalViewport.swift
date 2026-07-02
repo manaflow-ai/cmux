@@ -117,6 +117,15 @@ extension MobileShellComposite {
                 // A newer viewport request now owns any pending pre-ACK barrier.
                 return nil
             }
+            if error is CancellationError || Task.isCancelled {
+                // The report scheduler cancelled this send because a newer
+                // geometry report superseded it, but that report has not
+                // bumped the generation yet. The pre-ACK barrier must survive
+                // for the superseding report to carry; finishing here would
+                // clear it (or replay early) before the newest report owns
+                // recovery.
+                return nil
+            }
             finishPrearmedTerminalViewportBarrierWithoutResize(
                 surfaceID: surfaceID,
                 token: prearmedReplayBarrierToken,
