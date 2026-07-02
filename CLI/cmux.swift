@@ -23590,11 +23590,15 @@ struct CMUXCLI {
             // status; the app still gates the (tagged) notification itself.
             let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
 
+            // `.other` means "ungated, always deliver" — identical to an untagged
+            // payload, so don't put it on the wire: the app parser accepts only
+            // the three known category literals, keeping the reserved suffix
+            // grammar as narrow as possible.
             let payload = notificationPayload(
                 title: title,
                 subtitle: summary.subtitle,
                 body: summary.body,
-                meta: notifyMeta(notifyCategory, pending: notifyPending)
+                meta: notifyCategory == .other ? nil : notifyMeta(notifyCategory, pending: notifyPending)
             )
 
             if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
@@ -30856,9 +30860,13 @@ export default CMUXSessionRestore;
                 // antigravity route them through this hook) under "Agent
                 // Finished". Errors and unclassified alerts stay untagged.
                 let notificationMeta: String? = summary.notifyCategory.map { category in
+                    // Completions AND waiting nags are both "pending" while
+                    // background work is live, so a fullyIdle=false Antigravity
+                    // waiting cue doesn't deliver a false "waiting for input".
                     notifyMeta(
                         category,
-                        pending: category == .turnComplete && hasActiveAntigravityBackgroundWork()
+                        pending: (category == .turnComplete || category == .idleReminder)
+                            && hasActiveAntigravityBackgroundWork()
                     )
                 }
                 let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body, meta: notificationMeta)

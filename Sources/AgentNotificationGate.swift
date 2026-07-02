@@ -17,9 +17,11 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
-/// Parsed `c=<category>;p=<0|1>` meta segment. Returns `nil` unless BOTH a `c=`
-/// category and a valid `p=0|1` pending flag are present, so a legacy body tail
-/// that merely starts with `c=` is not mistaken for a gating directive.
+/// Parsed `c=<category>;p=<0|1>` meta segment. Returns `nil` unless BOTH a
+/// KNOWN category literal and a valid `p=0|1` pending flag are present, so the
+/// reserved suffix grammar is exactly the three known categories — any other
+/// `c=...` tail stays part of the legacy notification body. (`.other` never
+/// rides the wire: senders omit the meta entirely for ungated alerts.)
 struct AgentNotificationMeta {
     let category: AgentNotifyCategory
     let pending: Bool
@@ -31,7 +33,9 @@ struct AgentNotificationMeta {
             let kv = field.split(separator: "=", maxSplits: 1).map(String.init)
             guard kv.count == 2 else { continue }
             switch kv[0] {
-            case "c": parsedCategory = AgentNotifyCategory(rawValue: kv[1]) ?? .other
+            case "c":
+                guard let known = AgentNotifyCategory(rawValue: kv[1]), known != .other else { return nil }
+                parsedCategory = known
             case "p":
                 switch kv[1] {
                 case "1": parsedPending = true

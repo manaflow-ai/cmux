@@ -74,10 +74,12 @@ import Testing
         #expect(c?.pending == true)
     }
 
-    @Test func metaUnknownCategoryFallsBackToOther() {
-        let m = AgentNotificationMeta(meta: "c=bogus;p=1")
-        #expect(m?.category == .other)
-        #expect(m?.pending == true)
+    @Test func metaUnknownCategoryIsRejected() {
+        // Only the three known category literals are wire-valid; anything else
+        // (including "c=other") stays part of the legacy notification body.
+        #expect(AgentNotificationMeta(meta: "c=bogus;p=1") == nil)
+        #expect(AgentNotificationMeta(meta: "c=other;p=1") == nil)
+        #expect(AgentNotificationMeta(meta: "c=note;p=1") == nil)
     }
 
     @Test func metaWithoutCategoryIsNil() {
