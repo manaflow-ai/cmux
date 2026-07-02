@@ -286,6 +286,18 @@ extension Workspace {
         }
     }
 
+    /// Folds this workspace's live split layout into the autosave fingerprint.
+    /// The persisted snapshot records the full layout (pane/surface order,
+    /// selected surface, divider positions), but `sessionAutosaveFingerprint`
+    /// otherwise hashes panel ids in UUID-sorted order and would miss a pure
+    /// reorder/resplit — letting the 8s autosave skip the write and a
+    /// non-graceful exit restore a stale pane layout (#6184). Reads the live
+    /// bonsplit tree directly (no panel-id remapping) since the fingerprint is
+    /// only compared within a single process run.
+    func combineSessionLayoutAutosaveFingerprint(into hasher: inout Hasher) {
+        bonsplitController.treeSnapshot().combineLayoutFingerprint(into: &hasher)
+    }
+
     private func prunedSessionLayoutSnapshot(
         _ node: SessionWorkspaceLayoutSnapshot,
         keeping panelIdsToKeep: Set<UUID>
