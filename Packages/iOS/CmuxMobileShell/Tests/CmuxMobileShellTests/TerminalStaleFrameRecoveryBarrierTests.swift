@@ -369,3 +369,118 @@ import Testing
 
     collector.unmount()
 }
+
+/// Render-grid-only alternate gating is keyed to the DELIVERED alternate
+/// baseline, not the speculatively tracked screen: after a primary baseline,
+/// alternate deltas stay gated through failed/empty baseline replays (a delta
+/// VT patch cannot switch screens), the replay budget survives the restored
+/// sequence baseline, and only a delivered full alternate frame opens the
+/// alternate screen for deltas.
+@MainActor
+@Test func alternateDeltasStayGatedUntilFullAlternateFrameDelivers() async throws {
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplaySettledEmpty = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+            && store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+    }
+    #expect(coldReplaySettledEmpty)
+
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 50,
+        text: "primary-baseline",
+        full: true
+    ))
+    let primaryBaselineDelivered = try await pollUntil {
+        store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 50
+    }
+    #expect(primaryBaselineDelivered)
+
+    // The session enters the alternate screen host-side. Each alternate delta
+    // is gated (no delivered alternate baseline) and arbitrated by an
+    // empty-answering baseline replay whose release restores the sequence
+    // baseline — which must NOT reopen the gate or reset the replay budget.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 55,
+        text: "alt-delta-one",
+        activeScreen: .alternate,
+        full: false
+    ))
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
+    let firstArbitrationSettled = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+            && store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 50
+    }
+    #expect(firstArbitrationSettled)
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 60,
+        text: "alt-delta-two",
+        activeScreen: .alternate,
+        full: false
+    ))
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 3)
+    let secondArbitrationSettled = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(secondArbitrationSettled)
+
+    // Budget exhausted: a third gated delta must not request another replay.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 65,
+        text: "alt-delta-three",
+        activeScreen: .alternate,
+        full: false
+    ))
+    // A delivered full alternate frame is the causal recovery signal; once it
+    // lands, the earlier deltas' fate is sealed.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 70,
+        text: "alt-full-restore",
+        activeScreen: .alternate,
+        full: true
+    ))
+    let altFullDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("alt-full-restore") }
+    }
+    #expect(altFullDelivered)
+    #expect(
+        await router.count(of: "mobile.terminal.replay") == 3,
+        "gated alternate deltas must respect the baseline replay budget"
+    )
+    #expect(
+        !collector.lines.contains { $0.contains("alt-delta-one") || $0.contains("alt-delta-two") || $0.contains("alt-delta-three") },
+        "alternate deltas must never paint before a full alternate frame delivers"
+    )
+
+    // With the alternate baseline delivered, alternate deltas flow.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 75,
+        text: "alt-delta-after-full",
+        activeScreen: .alternate,
+        full: false
+    ))
+    let altDeltaDeliveredAfterFull = try await pollUntil {
+        collector.lines.contains { $0.contains("alt-delta-after-full") }
+    }
+    #expect(altDeltaDeliveredAfterFull)
+
+    collector.unmount()
+}
