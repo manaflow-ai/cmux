@@ -14,9 +14,15 @@ extension MobileTerminalRenderGridReplay {
                 + "\u{1B}[?1000l\u{1B}[?1002l\u{1B}[?1003l\u{1B}[?1004l"
                 + "\u{1B}[?1005l\u{1B}[?1006l\u{1B}[?1007h\u{1B}[?1015l\u{1B}[?1016l"
                 + "\u{1B}[?1035h\u{1B}[?1036h\u{1B}[?1039l\u{1B}[?1045l\u{1B}[?2004l"
-                + "\u{1B}[?2031l\u{1B}[?2048l"
+                + "\u{1B}[?2027l\u{1B}[?2031l\u{1B}[?2048l"
             ).utf8
         ))
+    }
+
+    func appendPrePaintModeRestores(to bytes: inout Data) {
+        for mode in frame.modes where !mode.ansi && mode.code == 2027 {
+            bytes.append(Data("\u{1B}[?2027\(mode.on ? "h" : "l")".utf8))
+        }
     }
 
     func isReplayExcludedMode(_ mode: MobileTerminalRenderGridFrame.ModeSetting) -> Bool {

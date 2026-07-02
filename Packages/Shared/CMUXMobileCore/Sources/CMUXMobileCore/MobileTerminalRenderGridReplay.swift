@@ -97,6 +97,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         bytes.append(Data(hyperlinkStateReset.utf8))
         bytes.append(Data(screenStateReset.utf8))
         appendDefaultModeBaseline(to: &bytes)
+        appendPrePaintModeRestores(to: &bytes)
 
         // Dynamic default colors (OSC 10/11/12). Nil frame values reset the
         // previous override so a full snapshot behaves like the old RIS path.

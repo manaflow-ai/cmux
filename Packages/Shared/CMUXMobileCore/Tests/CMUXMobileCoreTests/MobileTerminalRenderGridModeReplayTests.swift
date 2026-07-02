@@ -55,6 +55,7 @@ import Testing
     #expect(vt.range(of: "\u{1B}[?1000l", range: postPaintRange) != nil)
     #expect(vt.range(of: "\u{1B}[?1006l", range: postPaintRange) != nil)
     #expect(vt.range(of: "\u{1B}[?2004l", range: postPaintRange) != nil)
+    #expect(vt.range(of: "\u{1B}[?2027l", range: postPaintRange) != nil)
     #expect(vt.range(of: "\u{1B}[?2031l", range: postPaintRange) != nil)
     #expect(vt.range(of: "\u{1B}[?2048l", range: postPaintRange) != nil)
     #expect(vt.range(of: "\u{1B}>", range: postPaintRange) != nil)
@@ -73,11 +74,13 @@ import Testing
             .init(code: 4, ansi: true, on: true),
             .init(code: 1000, ansi: false, on: true),
             .init(code: 2004, ansi: false, on: true),
+            .init(code: 2027, ansi: false, on: true),
         ]
     )
 
     let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
     let content = try #require(vt.range(of: "mode"))
+    let graphemeRestore = try #require(vt.range(of: "\u{1B}[?2027h"))
     let appCursorReset = try #require(vt.range(of: "\u{1B}[?1l", range: content.upperBound..<vt.endIndex))
     let appCursorRestore = try #require(vt.range(of: "\u{1B}[?1h", range: appCursorReset.upperBound..<vt.endIndex))
     let insertReset = try #require(vt.range(of: "\u{1B}[4l", range: content.upperBound..<vt.endIndex))
@@ -87,6 +90,7 @@ import Testing
     let pasteReset = try #require(vt.range(of: "\u{1B}[?2004l", range: content.upperBound..<vt.endIndex))
     let pasteRestore = try #require(vt.range(of: "\u{1B}[?2004h", range: pasteReset.upperBound..<vt.endIndex))
 
+    #expect(graphemeRestore.lowerBound < content.lowerBound)
     #expect(appCursorReset.lowerBound < appCursorRestore.lowerBound)
     #expect(insertReset.lowerBound < insertRestore.lowerBound)
     #expect(mouseReset.lowerBound < mouseRestore.lowerBound)
