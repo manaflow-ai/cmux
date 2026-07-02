@@ -140,6 +140,62 @@ import Testing
         #expect(store.shouldAutoFocusTerminalSurface(terminalB.rawValue) == false)
     }
 
+    @Test func closeTerminalOnSecondaryMacMarksMacUnavailableWhenRefreshFails() async throws {
+        let foregroundRouter = RoutingHostRouter()
+        let secondaryRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: foregroundRouter)
+        try installSecondaryClient(on: store, macDeviceID: "mac-secondary", router: secondaryRouter)
+        let terminalA = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA)
+        let terminalB = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalB)
+        let secondaryWorkspace = MobileWorkspacePreview(
+            id: MobileWorkspacePreview.ID(rawValue: RoutingHostRouter.workspaceID),
+            macDeviceID: "mac-secondary",
+            name: "Secondary Routing Workspace",
+            terminals: [
+                MobileTerminalPreview(id: terminalA, name: "A"),
+                MobileTerminalPreview(id: terminalB, name: "B"),
+            ]
+        )
+        let foregroundWorkspace = MobileWorkspacePreview(
+            id: "foreground-workspace",
+            macDeviceID: "test-mac",
+            name: "Foreground Workspace",
+            terminals: [MobileTerminalPreview(id: "foreground-terminal", name: "Foreground")]
+        )
+        store.setWorkspaceStatesForTesting([
+            "test-mac": MacWorkspaceState(
+                macDeviceID: "test-mac",
+                workspaces: [foregroundWorkspace],
+                status: .connected
+            ),
+            "mac-secondary": MacWorkspaceState(
+                macDeviceID: "mac-secondary",
+                workspaces: [secondaryWorkspace],
+                status: .connected,
+                actionCapabilities: MobileWorkspaceActionCapabilities(
+                    supportsTerminalCloseActions: true
+                )
+            ),
+        ], foregroundMacDeviceID: "test-mac")
+        let secondaryRow = try #require(store.workspaces.first {
+            $0.macDeviceID == "mac-secondary"
+                && $0.rpcWorkspaceID.rawValue == RoutingHostRouter.workspaceID
+        })
+        store.selectedWorkspaceID = secondaryRow.id
+        store.selectedTerminalID = terminalA
+        await secondaryRouter.setFailWorkspaceList(true)
+
+        await store.closeTerminal(workspaceID: secondaryRow.id, terminalID: terminalA)
+
+        #expect(await secondaryRouter.recordedTerminalCloses().count == 1)
+        let downgradedRow = try #require(store.workspaces.first {
+            $0.macDeviceID == "mac-secondary"
+                && $0.rpcWorkspaceID.rawValue == RoutingHostRouter.workspaceID
+        })
+        #expect(downgradedRow.macConnectionStatus == .unavailable)
+        #expect(downgradedRow.terminals.map(\.id) == [terminalA, terminalB])
+    }
+
     /// A rejected close must not desync the list: the post-mutation refresh keeps
     /// iOS on the Mac's authoritative state.
     @Test func closeTerminalRestoresRowWhenMacRejectsClose() async throws {

@@ -3738,6 +3738,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 status: .connected,
                 actionCapabilities: current.actionCapabilities
             )
+        } else {
+            markSecondaryMacUnavailable(macID)
         }
         return true
     }

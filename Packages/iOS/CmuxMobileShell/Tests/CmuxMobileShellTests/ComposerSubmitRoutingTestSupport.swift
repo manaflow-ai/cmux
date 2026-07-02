@@ -56,6 +56,7 @@ actor RoutingHostRouter {
     private var firstPasteImageContinuation: CheckedContinuation<Void, Never>?
     private var firstPasteImageReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var rejectTerminalClose = false
+    private var failWorkspaceList = false
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
@@ -106,6 +107,11 @@ actor RoutingHostRouter {
         rejectTerminalClose = reject
     }
 
+    /// Fail workspace-list refreshes while leaving other RPCs available.
+    func setFailWorkspaceList(_ fail: Bool) {
+        failWorkspaceList = fail
+    }
+
     /// Hold the Nth terminal.close response (1-based) until explicitly released.
     func holdTerminalCloseRequest(number: Int) {
         heldTerminalCloseRequestNumbers.insert(number)
@@ -148,6 +154,9 @@ actor RoutingHostRouter {
         let id = info.id
         switch method {
         case "workspace.list", "mobile.workspace.list":
+            if failWorkspaceList {
+                return try? Self.errorFrame(id: id, message: "workspace.list failed")
+            }
             let focusedTerminalID = terminalIDs.first { !closedTerminalIDs.contains($0) }
             let terminals: [[String: Any]] = terminalIDs.enumerated().compactMap { index, terminalID in
                 guard !closedTerminalIDs.contains(terminalID) else { return nil }
