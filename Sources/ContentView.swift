@@ -5166,14 +5166,15 @@ struct ContentView: View {
     private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
         let windowContexts = commandPaletteSwitcherWindowContexts()
         let fingerprintContexts = windowContexts.map { context in
-            CommandPaletteSwitcherFingerprintContext(
+            let groupNamesByAnchor = Self.commandPaletteGroupNamesByAnchor(context.tabManager.workspaceGroups)
+            return CommandPaletteSwitcherFingerprintContext(
                 windowId: context.windowId,
                 windowLabel: context.windowLabel,
                 selectedWorkspaceId: context.selectedWorkspaceId,
                 workspaces: commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace in
                     CommandPaletteSwitcherFingerprintWorkspace(
                         id: workspace.id,
-                        displayName: workspaceDisplayName(workspace),
+                        displayName: Self.commandPaletteWorkspaceDisplayName(workspace, groupNamesByAnchor: groupNamesByAnchor),
                         metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                         surfaces: includeSurfaces
                             ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
@@ -5290,9 +5291,10 @@ struct ContentView: View {
 
             let windowId = context.windowId
             let windowTabManager = context.tabManager
+            let groupNamesByAnchor = Self.commandPaletteGroupNamesByAnchor(windowTabManager.workspaceGroups)
             let windowKeywords = commandPaletteWindowKeywords(windowLabel: context.windowLabel)
             for workspace in workspaces {
-                let workspaceName = workspaceDisplayName(workspace)
+                let workspaceName = Self.commandPaletteWorkspaceDisplayName(workspace, groupNamesByAnchor: groupNamesByAnchor)
                 let workspaceCommandId = "switcher.workspace.\(workspace.id.uuidString.lowercased())"
                 let workspaceKeywords = CommandPaletteSwitcherSearchIndexer(
                     baseKeywords: [
@@ -6177,7 +6179,7 @@ struct ContentView: View {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
             let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
-            snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
+            snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace, in: tabManager))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)
             snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, pinState?.pinned ?? !workspace.isPinned)
@@ -8205,8 +8207,52 @@ struct ContentView: View {
         return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
     }
 
-    private func workspaceDisplayName(_ workspace: Workspace) -> String {
-        Self.commandPaletteWorkspaceDisplayName(workspace)
+    /// Anchor-workspace-id → group name, built once per palette rebuild so the
+    /// switcher's fingerprint/index loops resolve group-anchor names with a dict
+    /// lookup instead of rescanning `workspaceGroups` per workspace — O(n + g)
+    /// rather than O(n × g) (#5893). Unnamed groups are omitted so their anchor
+    /// falls back to the workspace's own title.
+    static func commandPaletteGroupNamesByAnchor(_ groups: [WorkspaceGroup]) -> [UUID: String] {
+        var namesByAnchor: [UUID: String] = [:]
+        namesByAnchor.reserveCapacity(groups.count)
+        for group in groups {
+            let groupName = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !groupName.isEmpty {
+                namesByAnchor[group.anchorWorkspaceId] = groupName
+            }
+        }
+        return namesByAnchor
+    }
+
+    /// Command-palette display name for a workspace (switcher list and command
+    /// subtitles), accounting for group anchors: a group's anchor is rendered as
+    /// the group header, so it shows the group's `name`, not the anchor's own
+    /// title which is only seeded at creation and goes stale on rename (#5893).
+    /// Mirrors `TabManager.resolvedWorkspaceDisplayTitle(for:)`.
+    static func commandPaletteWorkspaceDisplayName(
+        _ workspace: Workspace,
+        groupNamesByAnchor: [UUID: String]
+    ) -> String {
+        if let groupName = groupNamesByAnchor[workspace.id] {
+            return groupName
+        }
+        return commandPaletteWorkspaceDisplayName(workspace)
+    }
+
+    /// Single-lookup convenience (tests, one-off callers). Batch callers should
+    /// build `commandPaletteGroupNamesByAnchor` once and reuse the overload above.
+    static func commandPaletteWorkspaceDisplayName(
+        _ workspace: Workspace,
+        groups: [WorkspaceGroup]
+    ) -> String {
+        commandPaletteWorkspaceDisplayName(
+            workspace,
+            groupNamesByAnchor: commandPaletteGroupNamesByAnchor(groups)
+        )
+    }
+
+    private func workspaceDisplayName(_ workspace: Workspace, in tabManager: TabManager) -> String {
+        Self.commandPaletteWorkspaceDisplayName(workspace, groups: tabManager.workspaceGroups)
     }
 
     private func panelDisplayName(workspace: Workspace, panelId: UUID, fallback: String) -> String {
@@ -9297,7 +9343,9 @@ struct ContentView: View {
         }
         let target = CommandPaletteRenameTarget(
             kind: .workspace(workspaceId: workspace.id),
-            currentName: workspaceDisplayName(workspace)
+            // Rename edits the workspace's own title (a group anchor is renamed
+            // via the sidebar header), so seed from the workspace title.
+            currentName: Self.commandPaletteWorkspaceDisplayName(workspace)
         )
         startRenameFlow(target)
     }
