@@ -380,7 +380,8 @@ extension TerminalController: ControlPaneContext {
                 initialCommand: inputs.initialCommand,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
-                initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
+                allowTextBoxFocusDefault: false
             ) {
             case .created(let panel):
                 newPanelId = panel.id
@@ -576,13 +577,21 @@ extension TerminalController: ControlPaneContext {
         var sourcePlaceholder: UUID?
         var targetPlaceholder: UUID?
         if workspace.bonsplitController.tabs(inPane: sourcePane).count <= 1 {
-            sourcePlaceholder = workspace.newTerminalSurface(inPane: sourcePane, focus: false)?.id
+            sourcePlaceholder = workspace.newTerminalSurface(
+                inPane: sourcePane,
+                focus: false,
+                allowTextBoxFocusDefault: false
+            )?.id
             if sourcePlaceholder == nil {
                 return .sourcePlaceholderFailed
             }
         }
         if workspace.bonsplitController.tabs(inPane: targetPane).count <= 1 {
-            targetPlaceholder = workspace.newTerminalSurface(inPane: targetPane, focus: false)?.id
+            targetPlaceholder = workspace.newTerminalSurface(
+                inPane: targetPane,
+                focus: false,
+                allowTextBoxFocusDefault: false
+            )?.id
             if targetPlaceholder == nil {
                 return .targetPlaceholderFailed
             }

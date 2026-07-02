@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -227,6 +228,21 @@ extension CMUXCLI {
             return Array(base[0..<2]) + nudge + Array(base[2...])
         }
         return nudge + base
+    }
+
+    func clearInheritedClaudeSessionEnvironment() {
+        for key in [
+            "CLAUDECODE",
+            "CLAUDE_CODE",
+            "CLAUDE_CODE_CHILD_SESSION",
+            "CLAUDE_CODE_PARENT_SESSION_ID",
+            "CLAUDE_CODE_SESSION_ID",
+            "CLAUDE_CODE_ENTRYPOINT",
+            "CLAUDE_CODE_EXECPATH",
+            "CLAUDE_CODE_SSE_PORT",
+        ] {
+            unsetenv(key)
+        }
     }
 
     private func providerExecutableSearchDirectories(searchPath: String?) -> [String] {
