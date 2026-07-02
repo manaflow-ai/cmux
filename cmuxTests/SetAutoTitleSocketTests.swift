@@ -320,8 +320,13 @@ import Testing
             try withManager { _, workspace in
                 workspace.applyProcessTitle("project-directory")
                 // A *different* agent (e.g. Codex) is still live in this workspace;
-                // model it with the test process's own pid so it is genuinely alive.
-                workspace.agentPIDs = ["codex": ProcessInfo.processInfo.processIdentifier]
+                // register it with the test process's own pid (recordAgentPID also
+                // records the process identity the liveness check verifies).
+                workspace.recordAgentPID(
+                    key: "codex",
+                    pid: ProcessInfo.processInfo.processIdentifier,
+                    panelId: nil
+                )
 
                 // The exiting Claude session (excluding_pid) must not stamp its
                 // title over the shared workspace while that sibling agent is alive.
@@ -340,7 +345,12 @@ import Testing
 
                 // With only the exiting agent itself live (its own pid excluded),
                 // the persist proceeds — the guard is specific to *other* agents.
-                workspace.agentPIDs = ["claude": ProcessInfo.processInfo.processIdentifier]
+                workspace.clearAllAgentPIDs()
+                workspace.recordAgentPID(
+                    key: "claude",
+                    pid: ProcessInfo.processInfo.processIdentifier,
+                    panelId: nil
+                )
                 let applied = try call(method: "workspace.set_auto_title", params: [
                     "workspace_id": workspace.id.uuidString,
                     "title": "Exiting Claude title",

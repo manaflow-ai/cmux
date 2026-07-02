@@ -3252,8 +3252,10 @@ class TerminalController {
     /// derived from the agent transcript rather than one cmux already applied),
     /// which still honors the opt-in. A `persist_after_exit` write may pass
     /// `excluding_pid` (the exiting agent's pid); it is rejected when a
-    /// *different* live agent still owns the workspace. `panel_id` accepts
-    /// either a panel UUID or a surface UUID.
+    /// *different* live agent still owns the workspace, and `clear_auto` is
+    /// likewise skipped while a live agent owns the workspace so it only drops a
+    /// title a fully-exited session left persisted. `panel_id` accepts either a
+    /// panel UUID or a surface UUID.
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
         let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
         if v2Bool(params, "probe") == true {
@@ -3298,9 +3300,19 @@ class TerminalController {
             }
             var found = false
             var workspaceCleared = false
+            var skippedForLiveAgent = false
             v2MainSync {
                 guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
                 found = true
+                // Only clear a title a session left persisted after exit. If a live
+                // agent still owns the workspace (a live sibling's active auto
+                // title), leave it — SessionStart registers the starting session's
+                // own pid *after* this clear, so any live agent seen here is a
+                // different session that still owns the title.
+                if workspace.hasLiveRegisteredAgent() {
+                    skippedForLiveAgent = true
+                    return
+                }
                 if workspace.effectiveCustomTitleSource == .auto {
                     workspaceCleared = tabManager.setCustomTitle(tabId: workspaceId, title: nil)
                 }
@@ -3315,6 +3327,7 @@ class TerminalController {
                 "workspace_id": workspaceId.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
                 "workspace_cleared": workspaceCleared,
+                "workspace_owned_by_live_agent": skippedForLiveAgent,
                 "enabled": enabled
             ])
         }
@@ -3359,11 +3372,7 @@ class TerminalController {
             // SessionEnd hook runs); same-agent siblings are already guarded
             // CLI-side. Only applies to persist-after-exit writes.
             if persistAfterExit, let persistExcludingPid,
-               workspace.agentPIDs.contains(where: { entry in
-                   entry.value > 0
-                       && Int(entry.value) != persistExcludingPid
-                       && (kill(entry.value, 0) == 0 || errno == EPERM)
-               }) {
+               workspace.hasLiveRegisteredAgent(excludingPid: persistExcludingPid) {
                 skippedForLiveAgent = true
                 return
             }
