@@ -884,9 +884,10 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
+        let target = resolveNotificationTarget(tabId: tabId, surfaceId: surfaceId)
 #if DEBUG
         cmuxDebugLog(
-            "notification.store.add workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
+            "notification.store.add workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
         )
 #endif
         let now = Date()
@@ -902,7 +903,7 @@ final class TerminalNotificationStore: ObservableObject {
            now.timeIntervalSince(lastNotificationDate) < resolvedCooldownInterval {
 #if DEBUG
             cmuxDebugLog(
-                "notification.store.add.skip workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") reason=cooldown"
+                "notification.store.add.skip workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") reason=cooldown"
             )
 #endif
             return
@@ -916,8 +917,8 @@ final class TerminalNotificationStore: ObservableObject {
         }
 
         let policyContext = makeNotificationPolicyContext(
-            tabId: tabId,
-            surfaceId: surfaceId,
+            tabId: target.tabId,
+            surfaceId: target.surfaceId,
             title: title,
             subtitle: subtitle,
             body: body
@@ -974,6 +975,17 @@ final class TerminalNotificationStore: ObservableObject {
                 self.reportNotificationHookFailure(failure)
             }
         }
+    }
+
+    private func resolveNotificationTarget(tabId: UUID, surfaceId: UUID?) -> (tabId: UUID, surfaceId: UUID?) {
+        guard let surfaceId,
+              let resolved = AppDelegate.shared?.workspaceContainingPanel(
+                panelId: surfaceId,
+                preferredWorkspaceId: tabId
+              ) else {
+            return (tabId, surfaceId)
+        }
+        return (resolved.workspace.id, surfaceId)
     }
 
     private struct NotificationCooldownReservation: Sendable {
@@ -1619,10 +1631,23 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func clearNotifications(
-        forTabId tabId: UUID,
-        surfaceId: UUID?,
+        forTabId requestedTabId: UUID,
+        surfaceId requestedSurfaceId: UUID?,
         discardQueuedNotifications: Bool = true
     ) {
+        // Resolve the clear target to the panel's current workspace, mirroring
+        // addNotification's delivery-time resolution. A terminal whose
+        // CMUX_WORKSPACE_ID went stale after its panel moved issues
+        // clear_notifications --tab=<old-workspace> --panel=<panel>; delivery
+        // already re-resolved the stored notification to the panel's current
+        // workspace, so without the same re-resolution here matches (which
+        // requires an exact tabId match) never hits it and the moved-panel
+        // notification is uncleareable from its own terminal. For a nil surface
+        // or an unresolvable panel this returns the requested workspace
+        // unchanged, so workspace-wide clears keep their existing behavior.
+        let target = resolveNotificationTarget(tabId: requestedTabId, surfaceId: requestedSurfaceId)
+        let tabId = target.tabId
+        let surfaceId = target.surfaceId
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId) }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false
         let hadRestoredWorkspaceUnread = surfaceId == nil && restoredUnreadWorkspaceIds.contains(tabId)
