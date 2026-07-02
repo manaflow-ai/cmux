@@ -3,6 +3,7 @@ import CmuxAppKitSupportUI
 import CmuxAuthRuntime
 import CmuxBrowser
 import CmuxCommandPalette
+import CmuxDesignSystem
 import CmuxPanes
 import CmuxControlSocket
 import CmuxWindowing

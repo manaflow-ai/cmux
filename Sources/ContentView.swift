@@ -2,6 +2,7 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxCommandPalette
 import CmuxCore
+import CmuxDesignSystem
 import CmuxFeedback
 import CmuxFoundation
 import CmuxPanes

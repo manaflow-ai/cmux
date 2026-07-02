@@ -2,6 +2,7 @@ import CmuxSettingsUI
 import AppKit
 import CmuxRemoteSession
 import CmuxCore
+import CmuxDesignSystem
 import CmuxAuthRuntime
 import CmuxFeedback
 import CmuxBrowser
