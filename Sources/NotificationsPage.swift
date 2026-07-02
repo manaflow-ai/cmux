@@ -94,6 +94,8 @@ struct NotificationsPage: View {
                 .cmuxFont(.title2)
                 .fontWeight(.semibold)
 
+            NotificationAgentCountsView()
+
             Spacer()
 
             if notificationStore.notificationMenuSnapshot.hasNotifications {
@@ -223,6 +225,73 @@ struct NotificationsPage: View {
 
     private var hasUnreadNotifications: Bool {
         notificationStore.notificationMenuSnapshot.hasUnreadNotifications
+    }
+}
+
+/// Live "running coding agents" summary shown to the right of the
+/// Notifications title: one badge per agent provider (Claude, Codex, opencode,
+/// pi, other). Backed by the same self-reported agent PID registry as the
+/// Sleepy Mode pet census; re-sampled every couple of seconds while the page
+/// is visible, and each pass is O(open tabs). Read-only: the body computes a
+/// value snapshot and never writes store state.
+struct NotificationAgentCountsView: View {
+    struct Segment: Equatable, Identifiable {
+        let name: String
+        let count: Int
+        var id: String { name }
+    }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 2)) { _ in
+            let counts = SleepyAgentCensus.liveCounts()
+            if counts.total > 0 {
+                HStack(spacing: 6) {
+                    ForEach(Self.segments(for: counts)) { segment in
+                        Text(String(format: Self.segmentFormat, segment.name, Int64(segment.count)))
+                            .cmuxFont(size: 11, weight: .medium, design: .rounded)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                            )
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Self.summary(total: counts.total))
+                .safeHelp(Self.summary(total: counts.total))
+            }
+        }
+    }
+
+    /// Nonzero providers in a fixed order. Provider names are brand names and
+    /// stay unlocalized; only the catch-all bucket is translated.
+    static func segments(for counts: SleepyAgentCounts) -> [Segment] {
+        var segments: [Segment] = []
+        if counts.claude > 0 { segments.append(Segment(name: "Claude", count: counts.claude)) }
+        if counts.codex > 0 { segments.append(Segment(name: "Codex", count: counts.codex)) }
+        if counts.opencode > 0 { segments.append(Segment(name: "opencode", count: counts.opencode)) }
+        if counts.pi > 0 { segments.append(Segment(name: "pi", count: counts.pi)) }
+        if counts.other > 0 {
+            segments.append(Segment(
+                name: String(localized: "notifications.agentCounts.other", defaultValue: "Other"),
+                count: counts.other
+            ))
+        }
+        return segments
+    }
+
+    private static var segmentFormat: String {
+        String(localized: "notifications.agentCounts.segment", defaultValue: "%1$@ %2$lld")
+    }
+
+    private static func summary(total: Int) -> String {
+        let format = String(
+            localized: "notifications.agentCounts.summary",
+            defaultValue: "%lld coding agents running"
+        )
+        return String(format: format, Int64(total))
     }
 }
 

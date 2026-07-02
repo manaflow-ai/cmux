@@ -18,12 +18,15 @@ final class SleepyAgentCensus: SleepyAgentCensusing {
         if let debugOverride { return debugOverride }
         if time - lastSample >= interval {
             lastSample = time
-            cached = Self.compute()
+            cached = Self.liveCounts()
         }
         return cached
     }
 
-    private static func compute() -> SleepyAgentCounts {
+    /// One uncached census pass over the open workspaces. Also consumed by the
+    /// notifications page header (`NotificationAgentCountsView`), which does
+    /// its own periodic sampling while visible; a pass is O(open tabs).
+    static func liveCounts() -> SleepyAgentCounts {
         guard let app = AppDelegate.shared else { return SleepyAgentCounts() }
         var counts = SleepyAgentCounts()
         for workspace in app.openWorkspacesForPetCensus() {
