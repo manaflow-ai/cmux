@@ -78,6 +78,66 @@ struct RemoteSessionProcessRunnerTests {
         #expect(result.stdout == "hello-stdin")
     }
 
+    @Test("Streams a file as stdin when standardInputFile is set")
+    func streamsFileBackedStdin() throws {
+        remoteSubprocessTestLock.lock()
+        defer { remoteSubprocessTestLock.unlock() }
+        let payload = "file-backed-stdin-\(UUID().uuidString)"
+        let inputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-stdin-\(UUID().uuidString)", isDirectory: false)
+        try Data(payload.utf8).write(to: inputURL)
+        defer { try? FileManager.default.removeItem(at: inputURL) }
+
+        let runner = RemoteSessionProcessRunner()
+        let result = try runner.run(
+            RemoteProcessRequest(
+                executable: "/bin/cat",
+                arguments: [],
+                standardInputFile: inputURL,
+                timeout: 5
+            ),
+            operation: nil
+        )
+        #expect(result.status == 0)
+        #expect(result.stdout == payload)
+    }
+
+    @Test("File-backed stdin streams binary data byte-for-byte")
+    func fileBackedStdinIsBinarySafe() throws {
+        remoteSubprocessTestLock.lock()
+        defer { remoteSubprocessTestLock.unlock() }
+        // Every byte value, repeated past the pipe buffer, mirrors the daemon
+        // binary this path uploads: it must survive without newline/pty
+        // translation or truncation.
+        var payload = Data()
+        for _ in 0..<128 {
+            payload.append(contentsOf: (0...255).map { UInt8($0) })
+        }
+        let inputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-stdin-bin-\(UUID().uuidString)", isDirectory: false)
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-stdout-bin-\(UUID().uuidString)", isDirectory: false)
+        try payload.write(to: inputURL)
+        defer {
+            try? FileManager.default.removeItem(at: inputURL)
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+
+        let runner = RemoteSessionProcessRunner()
+        let escapedOut = outputURL.path.replacingOccurrences(of: "'", with: "'\\''")
+        let result = try runner.run(
+            RemoteProcessRequest(
+                executable: "/bin/sh",
+                arguments: ["-c", "cat > '\(escapedOut)'"],
+                standardInputFile: inputURL,
+                timeout: 5
+            ),
+            operation: nil
+        )
+        #expect(result.status == 0)
+        #expect(try Data(contentsOf: outputURL) == payload)
+    }
+
     @Test("Launch failure throws the pinned cmux.remote.process code 1")
     func launchFailurePinsErrorCode() {
         remoteSubprocessTestLock.lock()

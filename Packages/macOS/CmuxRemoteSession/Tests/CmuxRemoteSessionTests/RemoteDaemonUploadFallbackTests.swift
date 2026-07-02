@@ -54,6 +54,44 @@ struct RemoteDaemonUploadFallbackTests {
         coordinator.stop()
     }
 
+    @Test("Exec-channel fallback streams the local binary over a no-pty channel")
+    func execChannelUploadStreamsTheLocalBinary() throws {
+        let runner = ScriptedUploadRunner(
+            scpResult: RemoteCommandResult(
+                status: 255,
+                stdout: "",
+                stderr: "subsystem request failed on channel 0"
+            )
+        )
+        let coordinator = Self.makeCoordinator(runner: runner)
+
+        let localBinary = try Self.makeTemporaryBinary()
+        defer { try? FileManager.default.removeItem(at: localBinary) }
+        let location = RemoteDaemonInstallLocation(
+            relativePath: ".cmux/bin/cmuxd-remote/dev/linux-arm64/cmuxd-remote",
+            absolutePath: "/home/seepine/.cmux/bin/cmuxd-remote/dev/linux-arm64/cmuxd-remote"
+        )
+
+        try coordinator.queue.sync {
+            try coordinator.uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: location)
+        }
+
+        guard let upload = runner.execChannelUpload else {
+            Issue.record("expected an exec-channel upload request")
+            coordinator.stop()
+            return
+        }
+        // The binary must stream straight from disk (not be buffered as inline
+        // stdin bytes), and the pty must be disabled so it transfers verbatim.
+        #expect(upload.standardInputFile == localBinary)
+        #expect(upload.stdin == nil)
+        #expect(upload.arguments.contains("-T"))
+        #expect(upload.arguments.contains("RequestTTY=no"))
+        // It targets the same temp path the finalize step (chmod+mv) renames.
+        #expect(upload.remoteCommand.contains("cat >"))
+        coordinator.stop()
+    }
+
     // MARK: - Harness
 
     private static func makeTemporaryBinary() throws -> URL {
@@ -104,18 +142,26 @@ struct RemoteDaemonUploadFallbackTests {
 // MARK: - Stubs
 
 /// Fails every `scp` invocation the way OrbStack's SFTP-less server does, lets
-/// every `ssh` exec succeed, and records whether the binary was streamed to the
-/// remote over an exec-channel `cat` upload.
+/// every `ssh` exec succeed, and captures the exec-channel `cat` upload the
+/// coordinator falls back to.
 private final class ScriptedUploadRunner: RemoteSessionProcessRunning, @unchecked Sendable {
+    struct ExecChannelUpload {
+        let arguments: [String]
+        let remoteCommand: String
+        let standardInputFile: URL?
+        let stdin: Data?
+    }
+
     private let lock = NSLock()
     private let scpResult: RemoteCommandResult
-    private var _sawExecChannelCatUpload = false
+    private var _execChannelUpload: ExecChannelUpload?
 
     init(scpResult: RemoteCommandResult) {
         self.scpResult = scpResult
     }
 
-    var sawExecChannelCatUpload: Bool { lock.withLock { _sawExecChannelCatUpload } }
+    var execChannelUpload: ExecChannelUpload? { lock.withLock { _execChannelUpload } }
+    var sawExecChannelCatUpload: Bool { execChannelUpload != nil }
 
     func run(
         _ request: RemoteProcessRequest,
@@ -127,7 +173,14 @@ private final class ScriptedUploadRunner: RemoteSessionProcessRunning, @unchecke
         // ssh: the remote command is always the trailing argument.
         let remoteCommand = request.arguments.last ?? ""
         if remoteCommand.contains("cat >") {
-            lock.withLock { _sawExecChannelCatUpload = true }
+            lock.withLock {
+                _execChannelUpload = ExecChannelUpload(
+                    arguments: request.arguments,
+                    remoteCommand: remoteCommand,
+                    standardInputFile: request.standardInputFile,
+                    stdin: request.stdin
+                )
+            }
         }
         return RemoteCommandResult(status: 0, stdout: "", stderr: "")
     }

@@ -80,7 +80,24 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        if stdin != nil {
+        // A file-backed stdin streams straight from disk into the child (ssh
+        // reads it and pushes it over the channel), so a multi-MB upload never
+        // blocks the caller on a synchronous pipe write and can never SIGPIPE
+        // if the peer dies mid-transfer; the run timeout still bounds a stall.
+        // Closing the parent handle after the run releases the descriptor
+        // (posix_spawn already duped it into the child).
+        var standardInputFileHandle: FileHandle?
+        defer { try? standardInputFileHandle?.close() }
+        if let standardInputFile = request.standardInputFile {
+            do {
+                standardInputFileHandle = try FileHandle(forReadingFrom: standardInputFile)
+            } catch {
+                throw NSError(domain: "cmux.remote.process", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "Failed to open stdin file \(standardInputFile.lastPathComponent): \(error.localizedDescription)",
+                ])
+            }
+            process.standardInput = standardInputFileHandle
+        } else if stdin != nil {
             process.standardInput = Pipe()
         } else {
             process.standardInput = FileHandle.nullDevice
