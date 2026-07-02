@@ -204,6 +204,18 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             sessionDirectory: nil
         )
     }
+
+    /// Ids of the built-in Vault registrations seeded by ``CmuxVaultAgentRegistry/load``. Process
+    /// detection prefers a user/project-config registration over a built-in when both detectors match
+    /// the same process, so a user's own agent is never shadowed by a built-in — including the
+    /// reserved-id ``builtInHermes``, which config cannot override by id.
+    static let builtInRegistrationIDs: Set<String> = [
+        builtInPi.id,
+        builtInOmp.id,
+        builtInAntigravity.id,
+        builtInGrok.id,
+        builtInHermes.id,
+    ]
 }
 
 struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {

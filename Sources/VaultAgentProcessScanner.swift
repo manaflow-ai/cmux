@@ -90,6 +90,19 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
+        // Pick the registration that owns a process. When both a user/project-config agent and a
+        // built-in detector match, prefer the configured one so a user's own agent is never shadowed
+        // by a built-in — including the reserved-id `hermes-agent` built-in, which config cannot
+        // override by id. Falls back to the first match (a built-in) when no config agent matches.
+        func matchingRegistration(
+            in registry: CmuxVaultAgentRegistry,
+            for observed: VaultObservedAgentProcess
+        ) -> CmuxVaultAgentRegistration? {
+            let matches = registry.registrations.filter { $0.detect.matches(observed) }
+            return matches.first { !CmuxVaultAgentRegistration.builtInRegistrationIDs.contains($0.id) }
+                ?? matches.first
+        }
+
         // Fetch each process's argv/env at most once per scan; the Hermes ambiguity pre-count and
         // the resolution loop below both read through this cache.
         var argumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
@@ -125,7 +138,7 @@ extension RestorableAgentSessionIndex {
                 environment: processArguments.environment
             )
             guard let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]),
-                  let registration = registryForWorkingDirectory(cwd).registrations.first(where: { $0.detect.matches(observed) }),
+                  let registration = matchingRegistration(in: registryForWorkingDirectory(cwd), for: observed),
                   registration.sessionIdSource == .stateDB,
                   // Only fresh launches compete for the cwd's newest session. A pane with an explicit
                   // `--resume <id>` binds to that id directly (below) and does not consult the cwd
@@ -183,7 +196,7 @@ extension RestorableAgentSessionIndex {
             )
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
             let processRegistry = registryForWorkingDirectory(cwd)
-            guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
+            guard let registration = matchingRegistration(in: processRegistry, for: observed),
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,

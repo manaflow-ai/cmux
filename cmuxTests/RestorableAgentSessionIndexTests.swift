@@ -1388,6 +1388,69 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertEqual(byPanel[freshPanel], "fresh-new")
     }
 
+    func testUserConfiguredHermesAgentIsNotShadowedByBuiltIn() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-override-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+
+        // A user/project-config agent (custom id) that also detects `hermes`. It must win over the
+        // built-in `hermes-agent` detector during process scanning, so the built-in never shadows an
+        // explicit user registration (the built-in is listed first, mirroring load() order).
+        let userAgent = CmuxVaultAgentRegistration(
+            id: "my-hermes",
+            name: "My Hermes",
+            detect: CmuxVaultAgentDetectRule(processNames: ["hermes"]),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}"
+        )
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInHermes, userAgent])
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let process = CmuxTopProcessInfo(
+            pid: 8_400,
+            parentPID: 1,
+            name: "hermes",
+            path: "/usr/local/bin/hermes",
+            ttyDevice: nil,
+            cmuxWorkspaceID: workspaceId,
+            cmuxSurfaceID: panelId,
+            cmuxAttributionReason: "cmux-test",
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processId == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["hermes", "--session", "user-sess-123"],
+                    environment: ["CMUX_AGENT_LAUNCH_CWD": repo.path]
+                )
+            }
+        )
+
+        let detected = try XCTUnwrap(detectedSnapshots.values.first)
+        // The user agent won (custom kind, argvOption resolution), not the built-in .hermesAgent.
+        XCTAssertEqual(detected.snapshot.kind, .custom("my-hermes"))
+        XCTAssertEqual(detected.snapshot.sessionId, "user-sess-123")
+    }
+
     func testBuiltInHermesRegistrationIsRegisteredWithStateDBSource() throws {
         let hermes = CmuxVaultAgentRegistration.builtInHermes
         XCTAssertEqual(hermes.id, "hermes-agent")

@@ -50,8 +50,8 @@
 1944	Sources/RestorableAgentSession.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
+1818	cmuxTests/RestorableAgentSessionIndexTests.swift
 1810	Sources/SessionIndexStore.swift
-1755	cmuxTests/RestorableAgentSessionIndexTests.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
@@ -73,8 +73,8 @@
 1295	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift
 1290	cmuxTests/TextBoxSubmitActionTests.swift
+1286	Sources/VaultAgentProcessScanner.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
-1273	Sources/VaultAgentProcessScanner.swift
 1258	Sources/Feed/FeedCoordinator.swift
 1240	cmuxTests/SidebarOrderingTests.swift
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
@@ -235,6 +235,7 @@
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
 519	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-two-column-cockpit-sidebar.swift
 519	Sources/CmuxConfigExecutor.swift
+519	Sources/VaultAgentRegistry.swift
 518	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/CMUXMobileRootView.swift
 518	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
 516	Sources/TerminalImageTransfer.swift
@@ -243,7 +244,6 @@
 513	Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Transcript/ChatTranscriptTableView.swift
 509	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
-507	Sources/VaultAgentRegistry.swift
 506	Sources/App/MainWindowVisibilityController.swift
 504	Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/UserDefaultsSettingsStoreTests.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
