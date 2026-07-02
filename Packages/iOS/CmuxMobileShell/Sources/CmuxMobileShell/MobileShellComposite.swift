@@ -6690,8 +6690,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if fullReplacement {
                 markTerminalFullReplacementObserved(surfaceID: surfaceID, seq: endSeq)
             } else {
-                terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
-                terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
+                clearTerminalFullReplacementObservationIfCovered(surfaceID: surfaceID, endSeq: endSeq)
             }
         } else if endSeq == currentSeq, fullReplacement {
             markTerminalFullReplacementObserved(surfaceID: surfaceID, seq: endSeq)
@@ -6707,6 +6706,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalFullReplacementSeqBySurfaceID[surfaceID] = seq
         terminalFullReplacementGeneration &+= 1
         terminalFullReplacementGenerationBySurfaceID[surfaceID] = terminalFullReplacementGeneration
+    }
+
+    private func clearTerminalFullReplacementObservationIfCovered(surfaceID: String, endSeq: UInt64) {
+        guard let fullReplacementSeq = terminalFullReplacementSeqBySurfaceID[surfaceID],
+              endSeq > fullReplacementSeq else {
+            return
+        }
+        terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
     }
 
     func beginTerminalReplayBarrier(

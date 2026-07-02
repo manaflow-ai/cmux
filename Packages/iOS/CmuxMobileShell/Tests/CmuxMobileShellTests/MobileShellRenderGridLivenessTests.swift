@@ -221,6 +221,62 @@ import Testing
 }
 
 @MainActor
+@Test func hybridPrimaryFullGridStillSuppressesSameSeqReplayAfterRawBytesCatchUp() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.holdNextReplayResponses()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(coldReplayRequested, "mounting a sink must request the cold replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 5,
+        text: "fresh-wide-grid",
+        columns: 16
+    ))
+    let advisoryProcessed = try await pollUntil {
+        collector.viewportPolicies.last == .natural
+    }
+    #expect(advisoryProcessed, "primary render-grid events are advisory in default hybrid mode")
+
+    await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 0, text: "raw5!"))
+    let rawDelivered = try await pollUntil { collector.lines.contains { $0.contains("raw5!") } }
+    #expect(rawDelivered, "same-sequence raw bytes must still paint in hybrid primary mode")
+
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 5,
+            columns: 4,
+            rows: 4,
+            full: true,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "old!"),
+            ]
+        ),
+    ])
+    await router.releaseAllHeld()
+
+    let staleDelivered = try await pollUntil(attempts: 60) {
+        collector.lines.contains { $0.contains("old!") }
+    }
+    #expect(
+        staleDelivered == false,
+        "same-sequence raw bytes must not clear the advisory full-grid freshness marker before a held replay resolves"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func hybridPrimaryNewerFullGridSuppressesOlderStaleReplay() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
