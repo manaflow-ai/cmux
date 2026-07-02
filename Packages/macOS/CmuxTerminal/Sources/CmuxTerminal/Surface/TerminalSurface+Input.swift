@@ -29,29 +29,28 @@ extension TerminalSurface {
         )
     }
 
-    /// Sends paste-style text to the surface, queueing on a cold surface.
-    ///
-    /// - Returns: Whether the text was delivered or queued.
+    /// Sends paste-style text to the surface, returning whether it was delivered or queued.
     @MainActor
     @discardableResult
-    public func sendText(_ text: String) -> Bool {
-        guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
+    public func sendText(_ text: String) -> Bool { sendTextResult(text).accepted }
+
+    /// ``sendText(_:)`` with a structured result.
+    @MainActor
+    @discardableResult
+    public func sendTextResult(_ text: String) -> InputSendResult {
+        guard let data = text.data(using: .utf8), !data.isEmpty else { return .sent }
         guard surface != nil else {
-            guard allowsRuntimeSurfaceCreation() else { return false }
-            let queued = enqueuePendingSocketInput(.pasteText(data))
-            if queued {
-                hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
-                requestInputDemandSurfaceStartIfNeeded()
-            }
-            return queued
+            guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
+            guard enqueuePendingSocketInput(.pasteText(data)) else { return .inputQueueFull }
+            hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+            requestInputDemandSurfaceStartIfNeeded()
+            return .queued
         }
-        guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendText") else {
-            return false
-        }
-        guard !ghostty_surface_process_exited(liveSurface) else { return false }
+        guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendText") else { return .surfaceUnavailable }
+        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
         writeTextData(data, to: liveSurface)
-        return true
+        return .sent
     }
 
     /// Sends raw key text as a single key event.
