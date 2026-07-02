@@ -22290,6 +22290,39 @@ struct CMUXCLI {
         case "set-option", "set", "set-window-option", "setw", "source-file", "refresh-client", "attach-session", "detach-client":
             return
 
+        case "show-options", "show", "show-window-options", "showw":
+            // tmux's show-options is read-only: omx/codex/agents probe it for
+            // capability defaults (e.g. `tmux show-options -sv extended-keys`).
+            // Returning real tmux 3.x defaults keeps clients on the safe path
+            // (extended-keys=off → use legacy key encoding) without requiring
+            // a real tmux server. Unknown options print nothing and exit 0.
+            let parsed = try parseTmuxArguments(
+                rawArgs,
+                valueFlags: ["-t"],
+                boolFlags: ["-A", "-H", "-Z", "-g", "-p", "-q", "-s", "-v", "-w"]
+            )
+            let valueOnly = parsed.hasFlag("-v")
+            let knownDefaults: [String: String] = [
+                "extended-keys": "off",
+                "focus-events": "off",
+                "mouse": "off",
+                "default-terminal": "tmux-256color",
+                "default-shell": ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh",
+                "status": "on",
+                "history-limit": "2000"
+            ]
+            for name in parsed.positional {
+                guard let value = knownDefaults[name] else {
+                    continue
+                }
+                if valueOnly {
+                    print(value)
+                } else {
+                    print("\(name) \(value)")
+                }
+            }
+            return
+
         case "-V", "-v":
             print("tmux 3.4")
             return
