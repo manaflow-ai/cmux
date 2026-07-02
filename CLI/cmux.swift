@@ -2763,7 +2763,6 @@ struct CMUXCLI {
         var keys = Set(agentDefs.map(\.statusKey))
         keys.formUnion(AgentHibernationLifecycleStatusKeys.allowedStatusKeys)
         keys.insert(claudeCodeStatusKey)
-        keys.insert(AgentHibernationLifecycleStatusKeys.manualKey)
         return keys
     }
 
