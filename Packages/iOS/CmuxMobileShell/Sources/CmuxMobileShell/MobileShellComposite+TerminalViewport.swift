@@ -162,6 +162,13 @@ extension MobileShellComposite {
         // arming so a report that later resolves without a resize still
         // replays authoritative state instead of clearing the barrier with
         // the discarded bytes missing or the cancelled replay unreplaced.
+        // If the replacement replay exhausts its retries, the barrier is
+        // preserved — the same behavior every barrier trigger has — and the
+        // next geometry report, pipeline reset, or reconnect re-arms a fresh
+        // barrier with a fresh retry budget. Hosts old enough to lack
+        // mobile.terminal.viewport still service mobile.terminal.replay
+        // (cold attach depends on it), so the replacement replay clears the
+        // barrier under version skew.
         let owesReplacementReplay = !(terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle ?? true)
             || terminalReplaySurfaceIDsInFlight.contains(surfaceID)
             || terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil
