@@ -3,8 +3,6 @@ import Foundation
 
 final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     private var dataPath = ""
-    private var socketPath = ""
-    private var diagnosticsPath = ""
     private var browserHistorySeedJSON: String?
 
     override func setUp() {
@@ -12,16 +10,10 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         continueAfterFailure = false
         let token = UUID().uuidString
         dataPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(token).json"
-        socketPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(token).sock"
-        diagnosticsPath = "/tmp/cmux-ui-test-omnibar-suggestions-diagnostics-\(token).json"
         browserHistorySeedJSON = nil
         try? FileManager.default.removeItem(atPath: dataPath)
-        try? FileManager.default.removeItem(atPath: socketPath)
-        try? FileManager.default.removeItem(atPath: diagnosticsPath)
-        addTeardownBlock { [dataPath, socketPath, diagnosticsPath] in
+        addTeardownBlock { [dataPath] in
             try? FileManager.default.removeItem(atPath: dataPath)
-            try? FileManager.default.removeItem(atPath: socketPath)
-            try? FileManager.default.removeItem(atPath: diagnosticsPath)
         }
 
         // Terminate any lingering app from a prior test so its debounced
@@ -559,15 +551,10 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
-        configureSocketLaunch(app)
         launchAndEnsureForeground(app)
         XCTAssertTrue(
             waitForGotoSplitSetup(timeout: 10.0),
             "Expected goto_split setup data before typing. data=\(String(describing: loadGotoSplitData()))"
-        )
-        XCTAssertTrue(
-            waitForSocketPong(timeout: 10.0),
-            "Expected control socket readiness at \(socketPath). diagnostics=\(String(describing: loadDiagnosticsData()))"
         )
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
@@ -592,23 +579,16 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected inline completion display to avoid injecting an https:// prefix unless typed."
         )
 
-        // `simulate_shortcut` dispatches synchronously on the main thread
-        // (v2MainSync -> AppKit sendEvent -> the omnibar's deleteBackward), and
-        // the handler only writes its "OK" ack after that hop returns. Right
-        // after the omnibar renders inline suggestions the main thread can be
-        // busy long enough that the default 2s netcat read window closes before
-        // the ack arrives, yielding a nil transport response even though the
-        // dispatch itself is healthy (the diagnostics probe below still
-        // answers). Give this one call a generous single-shot budget instead of
-        // retrying: Ctrl+H mutates the buffer (deletes a character), so a retry
-        // after a lost ack would delete a second character and corrupt the
-        // assertion below.
-        let shortcutResponse = socketCommand("simulate_shortcut ctrl+h", responseTimeout: 10.0)
-        XCTAssertEqual(
-            shortcutResponse,
-            "OK",
-            "Expected control socket to dispatch Ctrl+H through AppKit. response=\(String(describing: shortcutResponse)) diagnostics=\(String(describing: loadDiagnosticsData()))"
-        )
+        // Drive Backspace as a real HID key event through XCUITest so it reaches
+        // the focused omnibar and invokes `deleteBackward(_:)` — the exact command
+        // BrowserPanelView intercepts for inline-completion boundary deletion.
+        // We intentionally avoid routing this through the control socket's
+        // `simulate_shortcut`: that path hops to the main thread via
+        // `DispatchQueue.main.sync`, which can be starved by concurrent XCUITest
+        // main-thread traffic right after the suggestions render and hang without
+        // ever writing its ack (whereas HID key delivery uses the always-serviced
+        // event path, as the sibling Cmd+A test relies on).
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
 
         var valueAfterDelete = ""
@@ -779,36 +759,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             return nil
         }
         return object
-    }
-
-    private func loadDiagnosticsData() -> [String: String]? {
-        guard !diagnosticsPath.isEmpty,
-              let data = try? Data(contentsOf: URL(fileURLWithPath: diagnosticsPath)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return nil
-        }
-        return object
-    }
-
-    private func configureSocketLaunch(_ app: XCUIApplication) {
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
-        app.launchEnvironment["CMUX_TAG"] = "omnibar-suggestions-ui"
-    }
-
-    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
-            self.socketCommand("ping") == "PONG" ||
-                self.controlSocketDiagnosticsReportReady(self.loadDiagnosticsData() ?? [:])
-        }
-    }
-
-    private func socketCommand(_ command: String, responseTimeout: TimeInterval = 2.0) -> String? {
-        controlSocketCommandViaNetcat(command, socketPath: socketPath, responseTimeout: responseTimeout)
     }
 
     private func typeQueryAndWaitForSuggestions(
