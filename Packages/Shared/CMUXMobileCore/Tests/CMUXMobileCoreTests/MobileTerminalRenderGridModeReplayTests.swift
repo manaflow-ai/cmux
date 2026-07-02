@@ -55,6 +55,8 @@ import Testing
     #expect(vt.range(of: "\u{1B}[?1000l", range: postPaintRange) != nil)
     #expect(vt.range(of: "\u{1B}[?1006l", range: postPaintRange) != nil)
     #expect(vt.range(of: "\u{1B}[?2004l", range: postPaintRange) != nil)
+    #expect(vt.range(of: "\u{1B}[?2031l", range: postPaintRange) != nil)
+    #expect(vt.range(of: "\u{1B}[?2048l", range: postPaintRange) != nil)
     #expect(vt.range(of: "\u{1B}>", range: postPaintRange) != nil)
 }
 
