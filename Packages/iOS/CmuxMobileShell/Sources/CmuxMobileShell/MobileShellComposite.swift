@@ -641,7 +641,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``DiagnosticLog/export()`` it.
     public let diagnosticLog: DiagnosticLog?
     /// Human-readable auth/connection event log for in-app diagnostics reports.
-    public let diagnosticsEventLog: MobileDiagnosticsEventLog?
+    ///
+    /// `private(set) var` (not `let`) because `signOut()` resets it by swapping in a
+    /// fresh instance at the account boundary; see the swap in `signOut()` for why an
+    /// ordered swap is used instead of a fire-and-forget `clear()`.
+    public private(set) var diagnosticsEventLog: MobileDiagnosticsEventLog?
     var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -1052,16 +1056,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         pairingCode = ""
         clearPairingVersionWarning()
-        // Clear the diagnostics report inputs at the account boundary so a shared
+        // Reset the diagnostics report inputs at the account boundary so a shared
         // device never lets the next user's Share Diagnostics surface the previous
         // account's connection failure or event history. `lastConnectionError` is
         // deliberately retained when the visible `connectionError` clears (see its
-        // didSet), so sign-out must null it explicitly; the event-log actor is wiped
-        // via clear(). The transition events recorded above carry no host (see the
-        // connectedHostName reset), so their ordering against this clear cannot leak.
+        // didSet), so sign-out must null it explicitly.
+        //
+        // The event log is reset by swapping in a fresh instance rather than calling
+        // an async `clear()`. The swap is synchronous on this `@MainActor` sign-out,
+        // so it is ordered ahead of anything the next signed-in user can do — the
+        // next `snapshot()` reads this new, empty instance. A fire-and-forget
+        // `Task { await log.clear() }` was racy on two counts: it could run *after*
+        // the next user's `snapshot()` (leaking prior events), and a still-in-flight
+        // `recordDiagnosticsEvent` task could land *after* the clear and reinsert a
+        // prior-account event. Both are closed here: `recordDiagnosticsEvent` binds
+        // the current instance locally (see its `guard let`), so any in-flight record
+        // writes to the previous, now-discarded instance — never to this new one.
         lastConnectionError = nil
-        if let diagnosticsEventLog {
-            Task { await diagnosticsEventLog.clear() }
+        if diagnosticsEventLog != nil {
+            diagnosticsEventLog = MobileDiagnosticsEventLog()
         }
         // Wipe every saved draft so the next account never sees the previous
         // user's unsent text. Guard the in-memory clear (and the selection resets
