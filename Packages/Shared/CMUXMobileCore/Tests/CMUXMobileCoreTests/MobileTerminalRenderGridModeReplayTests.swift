@@ -173,3 +173,28 @@ import Testing
     let capturedShape = try #require(vt.range(of: "\u{1B}[6 q"))
     #expect(alternateEntry.upperBound <= capturedShape.lowerBound)
 }
+
+@Test func renderGridFullSnapshotLeavesSavedCursorAtResetBaseline() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 10,
+        columns: 8,
+        rows: 2,
+        cursor: .init(row: 1, column: 5),
+        rowSpans: [.init(row: 0, column: 0, text: "shell")]
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    let content = try #require(vt.range(of: "shell"))
+    // DECSC runs at home with the default pen for each screen so a stale
+    // saved cursor from the reused surface cannot survive; the snapshot
+    // cursor itself is never saved, so a later bare DECRC lands on the RIS
+    // baseline instead of the replayed cursor position.
+    let firstSave = try #require(vt.range(of: "\u{1B}[H\u{1B}7"))
+    #expect(firstSave.upperBound <= content.lowerBound)
+    let lastSave = try #require(vt.range(of: "\u{1B}7", options: .backwards))
+    #expect(
+        lastSave.upperBound <= content.lowerBound,
+        "the replayed cursor must not be recorded as the saved cursor after paint"
+    )
+}

@@ -120,13 +120,18 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         bytes.append(oscColorOrResetBytes(11, reset: 111, frame.terminalBackground))
         bytes.append(oscColorOrResetBytes(12, reset: 112, frame.terminalCursorColor))
         bytes.append(sgrBytes(for: defaultStyle))
-        bytes.append(Data("\u{1B}[H\u{1B}[2J\u{1B}[3J\u{1B}[?1049h".utf8))
+        // DECSC at home with the default pen resets each screen's saved
+        // cursor to the RIS baseline; a stale DECSC from the reused surface
+        // must not survive the replay, and the snapshot cursor is never
+        // saved (a later bare DECRC/?1048l restore should land on the
+        // default, matching what RIS left behind).
+        bytes.append(Data("\u{1B}[H\u{1B}7\u{1B}[2J\u{1B}[3J\u{1B}[?1049h".utf8))
 
         bytes.append(Data(hyperlinkStateReset.utf8))
         bytes.append(Data(semanticPromptReset.utf8))
         bytes.append(Data(screenStateReset.utf8))
         bytes.append(sgrBytes(for: defaultStyle))
-        bytes.append(Data("\u{1B}[H\u{1B}[2J\u{1B}[?1049l\u{1B}[H".utf8))
+        bytes.append(Data("\u{1B}[H\u{1B}7\u{1B}[2J\u{1B}[?1049l\u{1B}[H".utf8))
 
         // Paint with autowrap and the cursor off so a full-width row plus an
         // explicit newline cannot wrap into a phantom blank line, and so the
@@ -189,7 +194,6 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         }
 
         appendCursorRestore(&bytes)
-        bytes.append(Data("\u{1B}7".utf8))
         bytes.append(Data("\u{1B}[?2026l".utf8))
         return bytes
     }
