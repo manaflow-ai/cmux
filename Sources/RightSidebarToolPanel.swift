@@ -91,7 +91,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
-        if workspace.isRemoteWorkspace {
+        if workspace.shouldUseRemoteWorkspaceRootForSidebars {
             let store = fileExplorerStore
             Task { [weak workspace, weak store] in
                 guard let workspace, let store else { return }
@@ -167,25 +167,19 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
-        workspaceObservationCancellable = Publishers.MergeMany(
-            workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher()
-        )
-        .sink { [weak self, weak workspace] _ in
-            Task { @MainActor in
-                guard let self, let workspace else { return }
-                self.syncWorkspaceRoot(from: workspace)
+        workspaceObservationCancellable = workspace.makeSidebarRootObservationPublisher()
+            .sink { [weak self, weak workspace] _ in
+                Task { @MainActor in
+                    guard let self, let workspace else { return }
+                    self.syncWorkspaceRoot(from: workspace)
+                }
             }
-        }
     }
 
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
         store.showHiddenFiles = true
 
-        if workspace.isRemoteWorkspace {
+        if workspace.shouldUseRemoteWorkspaceRootForSidebars {
             guard let configuration = workspace.remoteConfiguration,
                   configuration.transport == .ssh else {
                 store.applyWorkspaceRoot(.none)
@@ -220,7 +214,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {
-        guard !workspace.isRemoteWorkspace else {
+        guard !workspace.shouldUseRemoteWorkspaceRootForSidebars else {
             store.setCurrentDirectoryIfChanged(nil)
             return
         }
