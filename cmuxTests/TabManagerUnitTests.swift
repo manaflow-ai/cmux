@@ -732,12 +732,19 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             "A local split with its own wait-after command must be kept open on child exit"
         )
 
-        // Contrast: a plain split with no command of its own must NOT be kept open, even
-        // though a split can inherit Ghostty's wait-after-command config bit from its source
-        // pane. Keep-open is gated on the surface's own initial command, so an ordinary
-        // Ctrl-D shell still collapses on child exit (#6244 review: inherited-flag regression).
+        // Contrast (the inherited-flag regression from the #6244 review): a plain shell
+        // split created *off the wait-after pane* has no command of its own, yet Ghostty's
+        // config inheritance can copy `wait-after-command` from the source pane, leaving it
+        // with `waitAfterCommand == true`. Keep-open must still be gated on the surface's own
+        // initial command, so such a pane collapses on an ordinary Ctrl-D/child exit.
+        //
+        // Config inheritance runs through a live runtime surface, which headless test panels
+        // do not have, so we split off `splitPanel` (the wait-after source, per the review's
+        // guidance) and then force the inherited bit via the surface's test seam to reproduce
+        // the exact `initialCommand == nil && waitAfterCommand == true` state. Gating only on
+        // `waitAfterCommand` (the pre-fix behavior) would wrongly keep this pane open.
         guard let plainSplit = workspace.newTerminalSplit(
-            from: initialPanelId,
+            from: splitPanel.id,
             orientation: .horizontal,
             focus: false
         ) else {
@@ -748,16 +755,23 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             plainSplit.surface.initialCommand,
             "A plain split has no startup command of its own"
         )
+        plainSplit.surface.setWaitAfterCommandOverrideForTesting(true)
+        XCTAssertTrue(
+            plainSplit.surface.waitAfterCommand,
+            "The command-less split now carries the inherited wait-after-command bit"
+        )
         XCTAssertFalse(
             workspace.shouldKeepSurfaceOpenAfterCommandExit(surfaceId: plainSplit.id),
-            "A split with no command of its own must not be kept open after child exit"
+            "A split with no command of its own must not be kept open after child exit, "
+                + "even when it inherited wait-after-command from its source pane"
         )
 
         let panelsBeforePlainClose = workspace.panels.count
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: plainSplit.id)
         XCTAssertNil(
             workspace.panels[plainSplit.id],
-            "A command-less split must collapse when its child process exits"
+            "A command-less split must collapse when its child process exits, "
+                + "even with an inherited wait-after-command bit"
         )
         XCTAssertEqual(
             workspace.panels.count,
