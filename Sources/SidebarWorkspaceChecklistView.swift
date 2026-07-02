@@ -39,6 +39,8 @@ struct SidebarWorkspaceChecklistActions {
     let setItemState: @MainActor (UUID, WorkspaceChecklistItem.State) -> Void
     let removeItem: @MainActor (UUID) -> Void
     let addItem: @MainActor (String) -> Void
+    /// Opens the workspace's todo pane (checklist popover footer).
+    let openPane: @MainActor () -> Void
 }
 
 // MARK: - Section (summary line + optional expansion)
@@ -53,16 +55,25 @@ struct SidebarWorkspaceChecklistSection: View {
     let completedCount: Int
     let totalCount: Int
     let firstUncheckedText: String?
+    /// The workspace title, shown in the checklist popover's header.
+    let workspaceTitle: String
     let isExpanded: Bool
     /// Incremented by the sidebar container when a context-menu/palette
     /// "Add Checklist Item…" asks this row to arm and focus its add field.
     let addFieldActivationToken: Int
+    /// Whether the `sidebar.beta.workspaceTodos.checklistStyle` setting is
+    /// `popover`: the summary line opens an anchored checklist popover
+    /// instead of the inline expansion. Empty checklists keep the inline
+    /// ghost add row either way (no summary line to anchor to).
+    let usesPopoverPresentation: Bool
+    let isPopoverPresented: Bool
     let primaryColor: Color
     let secondaryColor: Color
     let summaryFont: Font
     let itemFont: Font
     let fontScale: CGFloat
     let onToggleExpansion: () -> Void
+    let onPopoverPresentedChange: @MainActor (Bool) -> Void
     let onConsumeAddFieldActivation: () -> Void
     let actions: SidebarWorkspaceChecklistActions
 
@@ -71,17 +82,25 @@ struct SidebarWorkspaceChecklistSection: View {
     @State private var pendingItemText = ""
     @FocusState private var addFieldFocused: Bool
 
+    /// Popover presentation only applies once a summary line exists.
+    private var presentsPopover: Bool {
+        usesPopoverPresentation && totalCount > 0
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             if totalCount > 0 {
                 summaryLine
             }
-            if isExpanded || totalCount == 0 {
+            if (isExpanded && !presentsPopover) || totalCount == 0 {
                 expandedList
             }
         }
         .task(id: addFieldActivationToken) {
-            guard addFieldActivationToken > 0 else { return }
+            // In popover presentation the container routes the token into the
+            // checklist popover instead; arming the (hidden) inline field
+            // here would fight the popover's own add field for focus.
+            guard addFieldActivationToken > 0, !presentsPopover else { return }
             isAddingItem = true
             addFieldFocused = true
         }
@@ -90,7 +109,13 @@ struct SidebarWorkspaceChecklistSection: View {
     // MARK: Summary line
 
     private var summaryLine: some View {
-        Button(action: onToggleExpansion) {
+        Button(action: {
+            if presentsPopover {
+                onPopoverPresentedChange(!isPopoverPresented)
+            } else {
+                onToggleExpansion()
+            }
+        }) {
             HStack(spacing: 4) {
                 CmuxSystemSymbolImage(
                     magnified: completedCount == totalCount ? "checkmark.circle.fill" : "checklist",
@@ -116,11 +141,44 @@ struct SidebarWorkspaceChecklistSection: View {
         }
         .buttonStyle(.plain)
         .safeHelp(
-            isExpanded
-                ? String(localized: "sidebar.checklist.collapseTooltip", defaultValue: "Hide checklist items")
-                : String(localized: "sidebar.checklist.expandTooltip", defaultValue: "Show checklist items")
+            presentsPopover
+                ? String(localized: "sidebar.checklist.popoverTooltip", defaultValue: "Show checklist")
+                : (isExpanded
+                    ? String(localized: "sidebar.checklist.collapseTooltip", defaultValue: "Hide checklist items")
+                    : String(localized: "sidebar.checklist.expandTooltip", defaultValue: "Show checklist items"))
         )
+        .background(checklistPopoverAnchor)
         .accessibilityIdentifier("SidebarChecklistSummaryLine")
+    }
+
+    /// The NSPopover host anchoring the checklist popover to the summary
+    /// line (popover presentation only).
+    @ViewBuilder
+    private var checklistPopoverAnchor: some View {
+        if presentsPopover {
+            SidebarWorkspaceTodoPopoverHost(
+                isPresented: Binding(
+                    get: { isPopoverPresented },
+                    set: { onPopoverPresentedChange($0) }
+                ),
+                model: SidebarWorkspaceChecklistPopoverModel(
+                    workspaceTitle: workspaceTitle,
+                    items: items,
+                    completedCount: completedCount,
+                    totalCount: totalCount,
+                    addFieldActivationToken: addFieldActivationToken
+                ),
+                minWidth: 320,
+                maxHeight: 480
+            ) { model, close in
+                SidebarWorkspaceChecklistPopover(
+                    model: model,
+                    actions: actions,
+                    onConsumeAddFieldActivation: onConsumeAddFieldActivation,
+                    onClose: close
+                )
+            }
+        }
     }
 
     // MARK: Expanded list

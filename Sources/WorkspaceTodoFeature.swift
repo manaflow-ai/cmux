@@ -2,21 +2,31 @@ import CmuxSettings
 import CmuxWorkspaces
 import Foundation
 
-/// The `sidebar.workspaceTodos` feature gate and the shared UI entry points
-/// for mutating a workspace's todo state. Every UI surface (sidebar row,
-/// context menu, command palette, keyboard shortcut) funnels through
-/// ``WorkspaceTodoActions`` so the progressive-disclosure auto-enable and the
-/// backend caps/anti-rot apply identically everywhere; the socket handler in
-/// `TerminalController+ControlWorkspaceTodoContext.swift` calls
+/// The `sidebar.beta.workspaceTodos.enabled` feature gate and the shared UI
+/// entry points for mutating a workspace's todo state. Every UI surface
+/// (sidebar row, context menu, command palette, keyboard shortcut) funnels
+/// through ``WorkspaceTodoActions`` so the progressive-disclosure auto-enable
+/// and the backend caps/anti-rot apply identically everywhere; the socket
+/// handler in `TerminalController+ControlWorkspaceTodoContext.swift` calls
 /// ``WorkspaceTodoFeature/markUsed()`` on its own successful mutations.
 enum WorkspaceTodoFeature {
     /// Synchronous read of the feature flag for on-demand paths. Reads only
-    /// the sidebar catalog section, not the whole `SettingCatalog`, so a
+    /// the beta catalog section, not the whole `SettingCatalog`, so a
     /// body-path access stays cheap (see issue #5970); reactive row reads go
     /// through `SidebarTabItemSettingsSnapshot`.
     static var isEnabled: Bool {
-        let key = SidebarCatalogSection().workspaceTodos
+        let key = BetaFeaturesCatalogSection().workspaceTodos
         return Bool.decodeFromUserDefaults(
+            UserDefaults.standard.object(forKey: key.userDefaultsKey)
+        ) ?? key.defaultValue
+    }
+
+    /// Synchronous read of the checklist presentation style for on-demand
+    /// paths (context-menu/palette "Add Checklist Item…" routing); reactive
+    /// row reads go through `SidebarTabItemSettingsSnapshot`.
+    static var checklistStyle: WorkspaceTodoChecklistStyle {
+        let key = BetaFeaturesCatalogSection().workspaceTodosChecklistStyle
+        return WorkspaceTodoChecklistStyle.decodeFromUserDefaults(
             UserDefaults.standard.object(forKey: key.userDefaultsKey)
         ) ?? key.defaultValue
     }
@@ -28,7 +38,7 @@ enum WorkspaceTodoFeature {
     static func markUsed() {
         guard !isEnabled else { return }
         UserDefaultsSettingsClient(defaults: .standard)
-            .set(true, for: SidebarCatalogSection().workspaceTodos)
+            .set(true, for: BetaFeaturesCatalogSection().workspaceTodos)
     }
 }
 
@@ -50,6 +60,16 @@ enum WorkspaceTodoActions {
             }
         }
         WorkspaceTodoFeature.markUsed()
+    }
+
+    /// The glyph's option-click one-step toggle: pin `.done` unless the
+    /// workspace already reads done, in which case return it to automatic.
+    static func toggleDone(for workspace: Workspace) {
+        if workspace.effectiveTaskStatus == .done {
+            applyStatusOverride(nil, to: [workspace])
+        } else {
+            applyStatusOverride(.done, to: [workspace])
+        }
     }
 
     /// Adds a user checklist item; returns whether the add succeeded.
@@ -78,6 +98,22 @@ enum WorkspaceTodoActions {
     static func removeChecklistItem(id: UUID, from workspace: Workspace) {
         guard workspace.removeChecklistItem(id: id) else { return }
         WorkspaceTodoFeature.markUsed()
+    }
+
+    /// Opens (or focuses) the workspace's todo pane in the workspace's
+    /// focused pane. One shared path for the checklist popover footer, the
+    /// command palette, `cmux todo open`, and the `workspace.todo.open`
+    /// socket verb. Also enables the feature (opening the pane is using it).
+    @discardableResult
+    static func openTodoPane(for workspace: Workspace, focus: Bool = true) -> WorkspaceTodoPanel? {
+        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+            return nil
+        }
+        guard let panel = workspace.openOrFocusWorkspaceTodoSurface(inPane: paneId, focus: focus) else {
+            return nil
+        }
+        WorkspaceTodoFeature.markUsed()
+        return panel
     }
 
     /// Asks the sidebar to expand a workspace row's checklist and focus its

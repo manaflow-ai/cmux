@@ -9,11 +9,15 @@ private final class FakeWorkspaceTodoControlCommandContext: ControlCommandContex
     var statusResolution: ControlWorkspaceTodoStatusResolution = .tabManagerUnavailable
     var checklistResolution: ControlWorkspaceTodoChecklistResolution = .tabManagerUnavailable
     var mutationResolution: ControlWorkspaceTodoMutationResolution = .tabManagerUnavailable
+    var setResolution: ControlWorkspaceTodoSetResolution = .tabManagerUnavailable
+    var openResolution: ControlWorkspaceTodoOpenResolution = .tabManagerUnavailable
 
     var lastStatusSetRaw: String??
     var lastAdd: (text: String, stateRaw: String?, originRaw: String?)?
     var lastSetState: (itemID: UUID?, itemIndex: Int?, stateRaw: String)?
     var lastRemove: (itemID: UUID?, itemIndex: Int?)?
+    var lastSetItems: [ControlWorkspaceTodoSetItemParam]?
+    var lastOpenRequestedFocus: Bool?
     var lastWorkspaceID: UUID??
 
     func controlWorkspaceTaskStatus(
@@ -80,6 +84,26 @@ private final class FakeWorkspaceTodoControlCommandContext: ControlCommandContex
     ) -> ControlWorkspaceTodoMutationResolution {
         lastWorkspaceID = workspaceID
         return mutationResolution
+    }
+
+    func controlWorkspaceTodoSet(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution {
+        lastWorkspaceID = workspaceID
+        lastSetItems = items
+        return setResolution
+    }
+
+    func controlWorkspaceTodoOpen(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        requestedFocus: Bool
+    ) -> ControlWorkspaceTodoOpenResolution {
+        lastWorkspaceID = workspaceID
+        lastOpenRequestedFocus = requestedFocus
+        return openResolution
     }
 }
 
@@ -348,6 +372,159 @@ struct ControlCommandCoordinatorWorkspaceTodoTests {
             return
         }
         #expect(code == "invalid_state")
+    }
+
+    @Test func todoSetParsesItemsAndRepliesWithListPayload() throws {
+        let (coordinator, context) = makeCoordinator()
+        let workspaceID = UUID()
+        let keptID = UUID()
+        let kept = ControlWorkspaceTodoChecklistSnapshot.Item(
+            id: keptID, text: "kept", state: "completed", origin: "agent"
+        )
+        context.setResolution = .resolved(
+            windowID: nil,
+            checklist: ControlWorkspaceTodoChecklistSnapshot(
+                workspaceID: workspaceID,
+                items: [kept],
+                completedCount: 1,
+                firstUncheckedText: nil
+            )
+        )
+        let result = try #require(coordinator.handle(request("workspace.todo.set", [
+            "items": .array([
+                .object([
+                    "id": .string(keptID.uuidString),
+                    "text": .string("kept"),
+                    "state": .string("completed"),
+                ]),
+            ]),
+        ])))
+        #expect(context.lastSetItems == [
+            ControlWorkspaceTodoSetItemParam(
+                id: keptID, text: "kept", stateRaw: "completed", originRaw: nil
+            ),
+        ])
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected ok payload, got \(result)")
+            return
+        }
+        #expect(payload["items"] == .array([
+            .object([
+                "id": .string(keptID.uuidString),
+                "index": .int(0),
+                "text": .string("kept"),
+                "state": .string("completed"),
+                "origin": .string("agent"),
+            ]),
+        ]))
+        #expect(payload["progress"] == .object([
+            "completed": .int(1),
+            "total": .int(1),
+            "first_unchecked_text": .null,
+        ]))
+    }
+
+    @Test func todoSetMissingItemsIsInvalidParams() throws {
+        let (coordinator, _) = makeCoordinator()
+        let result = try #require(coordinator.handle(request("workspace.todo.set")))
+        guard case .err(let code, _, _) = result else {
+            Issue.record("expected err, got \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
+    }
+
+    @Test func todoSetMalformedItemIdIsInvalidParams() throws {
+        let (coordinator, context) = makeCoordinator()
+        let result = try #require(coordinator.handle(request("workspace.todo.set", [
+            "items": .array([
+                .object(["text": .string("fine")]),
+                .object(["text": .string("bad id"), "id": .string("not-a-uuid")]),
+            ]),
+        ])))
+        guard case .err(let code, _, _) = result else {
+            Issue.record("expected err, got \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
+        // Atomicity: nothing crossed the seam.
+        #expect(context.lastSetItems == nil)
+    }
+
+    @Test func todoSetItemMissingTextIsInvalidParams() throws {
+        let (coordinator, context) = makeCoordinator()
+        let result = try #require(coordinator.handle(request("workspace.todo.set", [
+            "items": .array([.object(["state": .string("pending")])]),
+        ])))
+        guard case .err(let code, _, _) = result else {
+            Issue.record("expected err, got \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastSetItems == nil)
+    }
+
+    @Test func todoSetEchoesAtomicRejections() throws {
+        let (coordinator, context) = makeCoordinator()
+        context.setResolution = .emptyText(index: 2)
+        var result = try #require(coordinator.handle(request("workspace.todo.set", [
+            "items": .array([.object(["text": .string("  ")])]),
+        ])))
+        guard case .err(let code, _, let data) = result else {
+            Issue.record("expected err, got \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(data == .object(["index": .int(2)]))
+
+        context.setResolution = .tooManyItems(count: 51)
+        result = try #require(coordinator.handle(request("workspace.todo.set", [
+            "items": .array([.object(["text": .string("x")])]),
+        ])))
+        guard case .err(let overCapCode, _, let overCapData) = result else {
+            Issue.record("expected err, got \(result)")
+            return
+        }
+        #expect(overCapCode == "invalid_params")
+        #expect(overCapData == .object(["count": .int(51)]))
+    }
+
+    @Test func todoOpenDefaultsFocusTrueAndShapesRefs() throws {
+        let (coordinator, context) = makeCoordinator()
+        let workspaceID = UUID()
+        let paneID = UUID()
+        let surfaceID = UUID()
+        context.openResolution = .opened(
+            windowID: nil,
+            workspaceID: workspaceID,
+            paneID: paneID,
+            surfaceID: surfaceID
+        )
+        let result = try #require(coordinator.handle(request("workspace.todo.open")))
+        #expect(context.lastOpenRequestedFocus == true)
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected ok payload, got \(result)")
+            return
+        }
+        #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(payload["pane_id"] == .string(paneID.uuidString))
+        #expect(payload["surface_id"] == .string(surfaceID.uuidString))
+
+        _ = try #require(coordinator.handle(request("workspace.todo.open", [
+            "focus": .bool(false),
+        ])))
+        #expect(context.lastOpenRequestedFocus == false)
+    }
+
+    @Test func todoOpenFailureMapsToInternalError() throws {
+        let (coordinator, context) = makeCoordinator()
+        context.openResolution = .openFailed
+        let result = try #require(coordinator.handle(request("workspace.todo.open")))
+        guard case .err(let code, _, _) = result else {
+            Issue.record("expected err, got \(result)")
+            return
+        }
+        #expect(code == "internal_error")
     }
 
     @Test func unknownMethodsFallThrough() {

@@ -115,7 +115,7 @@ extension CMUXCLI {
             return
         }
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "todo requires a subcommand. Try: add, list, check, uncheck, start, rm, clear")
+            throw CLIError(message: "todo requires a subcommand. Try: add, list, check, uncheck, start, rm, clear, set, open")
         }
         let (params, rest) = try workspaceTodoTarget(
             Array(commandArgs.dropFirst()), client: client, windowOverride: windowOverride
@@ -161,9 +161,52 @@ extension CMUXCLI {
         case "clear":
             let payload = try client.sendV2(method: "workspace.todo.clear", params: params)
             printTodoMutationPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "set":
+            var setParams = params
+            setParams["items"] = try workspaceTodoSetItemsArgument(rest: rest)
+            let payload = try client.sendV2(method: "workspace.todo.set", params: setParams)
+            printTodoListPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "open":
+            let payload = try client.sendV2(method: "workspace.todo.open", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
         default:
-            throw CLIError(message: "Unknown todo subcommand: \(sub). Try: add, list, check, uncheck, start, rm, clear")
+            throw CLIError(message: "Unknown todo subcommand: \(sub). Try: add, list, check, uncheck, start, rm, clear, set, open")
         }
+    }
+
+    /// Parses `cmux todo set`'s items JSON: an inline positional argument, or
+    /// stdin when no argument is given (`--json` is the CLI's global
+    /// JSON-output flag, so the payload cannot ride on it). Accepts a
+    /// top-level array of item objects, or an object with an `items` array.
+    /// Ids are optional; items are addressed by identity only, never index.
+    private func workspaceTodoSetItemsArgument(rest: [String]) throws -> [[String: Any]] {
+        let raw: String
+        if let inline = rest.first(where: { !$0.hasPrefix("--") }) {
+            raw = inline
+        } else {
+            var data = Data()
+            while let line = readLine(strippingNewline: false) {
+                data.append(Data(line.utf8))
+            }
+            raw = String(data: data, encoding: .utf8) ?? ""
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw CLIError(message: "Usage: cmux todo set '[{\"text\":\"...\",\"state\":\"pending\"}]' (or pipe the JSON on stdin)")
+        }
+        let parsed: Any
+        do {
+            parsed = try JSONSerialization.jsonObject(with: Data(trimmed.utf8))
+        } catch {
+            throw CLIError(message: "Invalid JSON for todo set: \(error.localizedDescription)")
+        }
+        if let items = parsed as? [[String: Any]] {
+            return items
+        }
+        if let object = parsed as? [String: Any], let items = object["items"] as? [[String: Any]] {
+            return items
+        }
+        throw CLIError(message: "todo set expects a JSON array of {text, state?, id?, origin?} objects (or {\"items\": [...]})")
     }
 
     // MARK: - todo output
@@ -245,6 +288,13 @@ extension CMUXCLI {
       start <index|id>        Mark an item in-progress
       rm <index|id>           Remove an item
       clear                   Remove every item
+      set ['<json>']          Atomically replace the whole checklist from a
+                              JSON array of {text, state?, id?, origin?}
+                              objects (inline argument, or piped on stdin).
+                              Items whose id matches an existing item keep
+                              their identity and origin; the rest are created
+                              and unnamed existing items are removed.
+      open                    Open (or focus) the workspace's todo pane
 
     <index> is the 1-based number printed by `cmux todo list`; <id> is the
     item UUID from `cmux todo list --json`.
@@ -254,6 +304,8 @@ extension CMUXCLI {
       cmux todo list
       cmux todo check 1
       cmux todo start 2 --workspace workspace:3
+      my-plan-tool --json | cmux todo set
+      cmux todo open
 
     See also: cmux workspace status
     """

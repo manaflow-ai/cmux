@@ -302,4 +302,84 @@ extension TerminalController: ControlWorkspaceTodoContext {
             )
         }
     }
+
+    func controlWorkspaceTodoSet(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution {
+        switch resolveTodoWorkspace(routing: routing, workspaceID: workspaceID) {
+        case .tabManagerUnavailable:
+            return .tabManagerUnavailable
+        case .notFound:
+            return .notFound
+        case .found(let tabManager, let workspace):
+            // Validate every raw state/origin up front so the replace stays
+            // atomic (nothing mutated on any invalid element).
+            var replacements: [WorkspaceChecklistReplacementItem] = []
+            replacements.reserveCapacity(items.count)
+            for item in items {
+                var state: WorkspaceChecklistItem.State?
+                if let stateRaw = item.stateRaw {
+                    guard let parsed = WorkspaceChecklistItem.State(rawValue: stateRaw) else {
+                        return .invalidState(stateRaw)
+                    }
+                    state = parsed
+                }
+                var origin: WorkspaceChecklistItem.Origin?
+                if let originRaw = item.originRaw {
+                    guard let parsed = WorkspaceChecklistItem.Origin(rawValue: originRaw) else {
+                        return .invalidOrigin(originRaw)
+                    }
+                    origin = parsed
+                }
+                replacements.append(WorkspaceChecklistReplacementItem(
+                    id: item.id,
+                    text: item.text,
+                    state: state,
+                    origin: origin
+                ))
+            }
+            switch workspace.replaceChecklist(with: replacements) {
+            case .failure(.emptyText(let index)):
+                return .emptyText(index: index)
+            case .failure(.tooManyItems(let count)):
+                return .tooManyItems(count: count)
+            case .success:
+                WorkspaceTodoFeature.markUsed()
+                return .resolved(
+                    windowID: AppDelegate.shared?.windowId(for: tabManager),
+                    checklist: todoChecklistSnapshot(for: workspace)
+                )
+            }
+        }
+    }
+
+    func controlWorkspaceTodoOpen(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        requestedFocus: Bool
+    ) -> ControlWorkspaceTodoOpenResolution {
+        switch resolveTodoWorkspace(routing: routing, workspaceID: workspaceID) {
+        case .tabManagerUnavailable:
+            return .tabManagerUnavailable
+        case .notFound:
+            return .notFound
+        case .found(let tabManager, let workspace):
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+            guard let panel = WorkspaceTodoActions.openTodoPane(
+                for: workspace,
+                focus: v2FocusAllowed(requested: requestedFocus)
+            ) else {
+                return .openFailed
+            }
+            return .opened(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: workspace.id,
+                paneID: workspace.paneId(forPanelId: panel.id)?.id,
+                surfaceID: panel.id
+            )
+        }
+    }
 }

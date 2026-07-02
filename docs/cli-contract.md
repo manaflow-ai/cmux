@@ -100,7 +100,7 @@ Environment:
 | `reorder-workspaces` | Atomically reorder workspaces inside pinned and unpinned groups. |
 | `workspace-action` | Run workspace context-menu actions from the CLI. |
 | `workspace` | Namespace for workspace verbs: `list`, `create`, `env`, `close`, `rename`, `select`, `status`, `reconnect`, `disconnect`, `group`. `workspace status` prints the workspace's todo lifecycle status (effective, inferred, override); `workspace status set <todo\|working\|needs-attention\|review\|done\|auto>` pins a manual lane (`auto` clears it; a pinned lane auto-clears once the inferred lane changes). `workspace env` prints a workspace's configured environment variables (see [Workspace environment variables](#workspace-environment-variables)); pass `--mask` to redact the values. `workspace reconnect` manually reconnects a remote (SSH) workspace — including one whose automatic reconnect suspended because the host was unreachable — and `workspace disconnect` stops its remote connection. `env`, `reconnect`, and `disconnect` accept a positional workspace handle or `--workspace <id\|ref\|index>`, defaulting to the caller's workspace, then the selected one. |
-| `todo` | Per-workspace checklist namespace: `add "text" [--state <pending\|in-progress\|completed>] [--origin <user\|agent>]`, `list`, `check <index\|id>`, `uncheck <index\|id>`, `start <index\|id>` (in-progress), `rm <index\|id>`, `clear`. Targets the caller's workspace by default with `--workspace <id\|ref\|index>` override; `<index>` is the 1-based number printed by `todo list`. Items cap at 50 per workspace. |
+| `todo` | Per-workspace checklist namespace: `add "text" [--state <pending\|in-progress\|completed>] [--origin <user\|agent>]`, `list`, `check <index\|id>`, `uncheck <index\|id>`, `start <index\|id>` (in-progress), `rm <index\|id>`, `clear`, `set ['<json>']` (atomic replace from a JSON item array, inline or piped on stdin), `open` (open or focus the workspace's todo pane). Targets the caller's workspace by default with `--workspace <id\|ref\|index>` override; `<index>` is the 1-based number printed by `todo list`. Items cap at 50 per workspace. See [Workspace todos](#workspace-todos). |
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
 | `new-workspace` | Create a workspace, optionally with cwd, command, description, layout, and per-workspace environment variables (`--env KEY=VALUE` repeatable, `--env-file <path>`). See [Workspace environment variables](#workspace-environment-variables). |
@@ -440,6 +440,49 @@ surface selection, focus, creation, or closure. The stream is bounded: cmux keep
 4,096 replay events in memory, caps each encoded event frame at 16 KiB, closes
 slow subscribers after 1,024 pending events, and rotates `events.jsonl` with one
 16 MiB archive at `events.jsonl.1`.
+
+## Workspace todos
+
+Each workspace carries a persisted checklist plus a todo lifecycle status,
+shared by the sidebar row, the checklist popover, the todo pane, `cmux todo`
+/ `cmux workspace status`, and the `workspace.todo.*` / `workspace.status.*`
+socket verbs (all funnel through the same mutation entry points).
+
+Item schema (wire and `todo list --json` shape):
+
+| Field | Contract |
+| --- | --- |
+| `id` | Stable item UUID, assigned at creation and preserved across edits. |
+| `text` | Trimmed, non-empty, capped at 500 characters. |
+| `state` | `pending`, `in-progress`, or `completed`. |
+| `origin` | `user` or `agent`; who created the item. |
+
+Caps and ordering: at most 50 items per workspace. Storage order is the
+creation/`set` order and is what `todo list` prints and the wire returns;
+the sidebar/popover/pane rendering that floats unchecked items above
+completed ones is display-only and never reorders storage.
+
+`cmux todo set` atomically replaces the whole checklist from a JSON array of
+`{text, state?, id?, origin?}` objects (inline argument, or piped on stdin;
+also accepts `{"items": [...]}`). Items whose `id` matches an existing item
+keep that identity and its origin (state updates when given, else stays);
+other items are created (`origin` defaults to `user`, `state` to `pending`);
+existing items not named are removed. The whole replace is rejected — nothing
+mutated — if any text is empty after trimming or the array exceeds 50 items.
+The reply is the full resulting list payload. `cmux todo open` (socket:
+`workspace.todo.open`) opens or focuses the workspace's todo pane, so a
+script can drive the pane as a generic list surface:
+
+```bash
+# Mirror a build script's step list into the workspace todo pane.
+./plan-steps.sh --json |            # emits [{"text":"lint","state":"completed"}, ...]
+  cmux todo set
+cmux todo open
+```
+
+Re-running `cmux todo set` with the same `id`s updates text/state in place
+(checkbox identity is stable), so a watcher loop can re-emit the full list on
+every tick without churning item identities.
 
 ## No-Socket Help Probes
 

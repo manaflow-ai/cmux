@@ -51,4 +51,16 @@ extension ControlWorkspaceTodoContext {
         routing: ControlRoutingSelectors,
         workspaceID: UUID?
     ) -> ControlWorkspaceTodoMutationResolution { .tabManagerUnavailable }
+
+    func controlWorkspaceTodoSet(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution { .tabManagerUnavailable }
+
+    func controlWorkspaceTodoOpen(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        requestedFocus: Bool
+    ) -> ControlWorkspaceTodoOpenResolution { .tabManagerUnavailable }
 }

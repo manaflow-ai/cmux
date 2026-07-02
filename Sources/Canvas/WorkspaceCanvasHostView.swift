@@ -89,6 +89,7 @@ struct WorkspaceCanvasHostView: View {
         case .agentSession: return "sparkles"
         case .project: return "folder"
         case .extensionBrowser: return "puzzlepiece.extension"
+        case .workspaceTodo: return "checklist"
         }
     }
 

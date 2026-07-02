@@ -814,10 +814,30 @@
           "default": true,
           "description": "Show custom workspace descriptions in the sidebar."
         },
-        "workspaceTodos": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show the workspace task-status glyph and checklist on sidebar rows. Turns on automatically after the first status or checklist mutation."
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Experimental sidebar features.",
+          "properties": {
+            "workspaceTodos": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Workspace todos beta: per-row task-status glyph, checklist, and todo pane.",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Show the workspace task-status glyph and checklist on sidebar rows. Turns on automatically after the first status or checklist mutation."
+                },
+                "checklistStyle": {
+                  "type": "string",
+                  "enum": ["popover", "inline"],
+                  "default": "popover",
+                  "description": "How a row's checklist opens from its summary line: an anchored popover or inline expansion."
+                }
+              }
+            }
+          }
         },
         "branchLayout": {
           "type": "string",

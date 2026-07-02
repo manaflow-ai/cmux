@@ -117,4 +117,33 @@ public protocol ControlWorkspaceTodoContext: AnyObject {
         routing: ControlRoutingSelectors,
         workspaceID: UUID?
     ) -> ControlWorkspaceTodoMutationResolution
+
+    /// Atomically replaces the checklist for `workspace.todo.set`.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - workspaceID: The explicit target workspace, or `nil` for the
+    ///     resolved window's selected workspace.
+    ///   - items: The full desired checklist, in order.
+    /// - Returns: The set resolution.
+    func controlWorkspaceTodoSet(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution
+
+    /// Opens (or focuses) the workspace's todo pane for
+    /// `workspace.todo.open`.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - workspaceID: The explicit target workspace, or `nil` for the
+    ///     resolved window's selected workspace.
+    ///   - requestedFocus: Whether the caller asked the pane to take focus.
+    /// - Returns: The open resolution.
+    func controlWorkspaceTodoOpen(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        requestedFocus: Bool
+    ) -> ControlWorkspaceTodoOpenResolution
 }

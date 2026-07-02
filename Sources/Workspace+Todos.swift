@@ -114,6 +114,20 @@ extension Workspace {
         todoState.checklist.clearChecklist()
     }
 
+    /// Atomically replaces the checklist, preserving identity (and origin)
+    /// for incoming items whose id matches an existing item. See
+    /// `Array.replaceChecklist(with:)` in CmuxWorkspaces for the merge rules.
+    ///
+    /// - Parameter items: The full desired checklist.
+    /// - Returns: The resulting checklist, or the rejection reason (nothing
+    ///   is mutated on rejection).
+    @discardableResult
+    func replaceChecklist(
+        with items: [WorkspaceChecklistReplacementItem]
+    ) -> Result<[WorkspaceChecklistItem], WorkspaceChecklistReplaceError> {
+        todoState.checklist.replaceChecklist(with: items)
+    }
+
     /// The checklist item at a 0-based display index, if in bounds.
     func checklistItem(atIndex index: Int) -> WorkspaceChecklistItem? {
         guard todoState.checklist.indices.contains(index) else { return nil }

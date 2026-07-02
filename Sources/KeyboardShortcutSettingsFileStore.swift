@@ -697,6 +697,32 @@ final class CmuxSettingsFileStore {
             }
         }
 
+        if let rawBeta = section["beta"], let beta = rawBeta as? [String: Any] {
+            if let rawTodos = beta["workspaceTodos"], let todos = rawTodos as? [String: Any] {
+                let betaKeys = BetaFeaturesCatalogSection()
+                if let value = jsonBool(todos["enabled"]) {
+                    snapshot.managedUserDefaults[betaKeys.workspaceTodos.userDefaultsKey] = .bool(value)
+                } else if todos.keys.contains("enabled") {
+                    logInvalid("sidebar.beta.workspaceTodos.enabled", sourcePath: sourcePath)
+                }
+                if let raw = jsonString(todos["checklistStyle"]) {
+                    if let style = WorkspaceTodoChecklistStyle.decodeFromJSON(raw) {
+                        snapshot.managedUserDefaults[
+                            betaKeys.workspaceTodosChecklistStyle.userDefaultsKey
+                        ] = .string(style.rawValue)
+                    } else {
+                        logInvalid("sidebar.beta.workspaceTodos.checklistStyle", sourcePath: sourcePath)
+                    }
+                } else if todos.keys.contains("checklistStyle") {
+                    logInvalid("sidebar.beta.workspaceTodos.checklistStyle", sourcePath: sourcePath)
+                }
+            } else if beta.keys.contains("workspaceTodos") {
+                logInvalid("sidebar.beta.workspaceTodos", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("beta") {
+            logInvalid("sidebar.beta", sourcePath: sourcePath)
+        }
+
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
                 RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)

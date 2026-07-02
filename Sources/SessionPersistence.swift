@@ -1618,6 +1618,10 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     }
 }
 struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
+/// Marker for a workspace todo pane; the pane has no content of its own (the
+/// checklist persists on the workspace), so the panel `type` plus this empty
+/// marker is enough to restore it.
+struct SessionWorkspaceTodoPanelSnapshot: Codable, Sendable {}
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
@@ -1726,6 +1730,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var customSidebar: SessionCustomSidebarPanelSnapshot? = nil
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
+    var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
 }
 
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}

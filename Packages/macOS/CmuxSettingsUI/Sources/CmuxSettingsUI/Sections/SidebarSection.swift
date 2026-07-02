@@ -20,7 +20,6 @@ public struct SidebarSection: View {
     @State private var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
-    @State private var workspaceTodos: DefaultsValueModel<Bool>
     @State private var branchVerticalLayout: DefaultsValueModel<Bool>
     @State private var stackBranchDir: DefaultsValueModel<Bool>
     @State private var pathLastOnly: DefaultsValueModel<Bool>
@@ -47,7 +46,6 @@ public struct SidebarSection: View {
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
         _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))
         _showDesc = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription))
-        _workspaceTodos = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.workspaceTodos))
         _branchVerticalLayout = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchVerticalLayout))
         _stackBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory))
         _pathLastOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly))
@@ -81,7 +79,6 @@ public struct SidebarSection: View {
             hideAll,
             wrapTitles,
             showDesc,
-            workspaceTodos,
             branchVerticalLayout,
             stackBranchDir,
             pathLastOnly,
@@ -289,17 +286,6 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
-            SettingsCardDivider()
-
-            SettingsCardRow(
-                configurationReview: .json("sidebar.workspaceTodos"),
-                String(localized: "settings.sidebar.workspaceTodos", defaultValue: "Workspace Todo Status"),
-                subtitle: String(localized: "settings.sidebar.workspaceTodos.subtitle", defaultValue: "Show a task-status glyph and checklist on each workspace row. Turns on automatically the first time you set a status or add a checklist item.")
-            ) {
-                Toggle("", isOn: Binding(get: { workspaceTodos.current }, set: { workspaceTodos.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-            }
             SettingsCardDivider()
 
             SettingsCardRow(

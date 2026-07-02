@@ -210,10 +210,6 @@ enum SidebarSettingsFileMapping {
             defaultsKey: sidebar.showWorkspaceDescription.userDefaultsKey
         ),
         .init(
-            jsonKey: "workspaceTodos",
-            defaultsKey: sidebar.workspaceTodos.userDefaultsKey
-        ),
-        .init(
             jsonKey: "stackBranchDirectory",
             defaultsKey: sidebar.stackBranchDirectory.userDefaultsKey
         ),
@@ -399,7 +395,8 @@ extension CmuxSettingsFileStore {
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
-        "sidebar.workspaceTodos",
+        "sidebar.beta.workspaceTodos.enabled",
+        "sidebar.beta.workspaceTodos.checklistStyle",
         "sidebar.branchLayout",
         "sidebar.stackBranchDirectory",
         "sidebar.pathLastSegmentOnly",

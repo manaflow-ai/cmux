@@ -223,6 +223,8 @@ extension Workspace {
             return "project"
         case .extensionBrowser:
             return "extension_browser"
+        case .workspaceTodo:
+            return "workspace_todo"
         }
     }
 }

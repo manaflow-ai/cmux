@@ -28,29 +28,22 @@ extension TabItemView {
             : String(localized: "contextMenu.markWorkspaceDone", defaultValue: "Mark Workspace as Done")
         let markWorkspaceDoneShortcut = KeyboardShortcutSettings.shortcut(for: .markWorkspaceDone)
 
+        // The lane list is shared with the glyph's status popover (one model,
+        // one apply path) so both surfaces stay in lockstep.
+        let statusLanes = WorkspaceTodoStatusLane.lanes(
+            inferred: inferred,
+            activeOverride: activeOverride
+        )
         Menu(String(localized: "contextMenu.workspaceStatus", defaultValue: "Status")) {
-            workspaceTodoStatusMenuButton(
-                title: String(
-                    format: String(
-                        localized: "contextMenu.workspaceStatus.auto",
-                        defaultValue: "Auto — %@"
-                    ),
-                    locale: .current,
-                    inferred.displayName
-                ),
-                isSelected: activeOverride == nil
-            ) {
-                WorkspaceTodoActions.applyStatusOverride(nil, to: workspaceTodoTargetWorkspaces())
-            }
-
-            Divider()
-
-            ForEach(WorkspaceTaskStatus.allCases, id: \.self) { status in
+            ForEach(statusLanes) { lane in
                 workspaceTodoStatusMenuButton(
-                    title: status.displayName,
-                    isSelected: activeOverride == status
+                    title: lane.title,
+                    isSelected: lane.isSelected
                 ) {
-                    WorkspaceTodoActions.applyStatusOverride(status, to: workspaceTodoTargetWorkspaces())
+                    WorkspaceTodoActions.applyStatusOverride(lane.status, to: workspaceTodoTargetWorkspaces())
+                }
+                if lane.status == nil {
+                    Divider()
                 }
             }
         }
@@ -106,6 +99,9 @@ extension TabItemView {
             },
             addItem: { [tab] text in
                 WorkspaceTodoActions.addChecklistItem(text: text, to: tab)
+            },
+            openPane: { [tab] in
+                WorkspaceTodoActions.openTodoPane(for: tab)
             }
         )
     }
@@ -121,6 +117,7 @@ enum WorkspaceTodoPaletteCommands {
     static let markWorkspaceDoneCommandId = "palette.markWorkspaceDone"
     private static let statusAutoCommandId = "palette.workspaceStatusAuto"
     private static let addChecklistItemCommandId = "palette.addWorkspaceChecklistItem"
+    private static let openTodoPaneCommandId = "palette.openWorkspaceTodoPane"
 
     private static func statusCommandId(_ status: WorkspaceTaskStatus) -> String {
         "palette.workspaceStatus.\(status.rawValue)"
@@ -197,6 +194,20 @@ enum WorkspaceTodoPaletteCommands {
                 when: hasWorkspace
             )
         )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: openTodoPaneCommandId,
+                title: { _ in
+                    String(
+                        localized: "command.openWorkspaceTodoPane.title",
+                        defaultValue: "Open Todo Pane"
+                    )
+                },
+                subtitle: workspaceSubtitle,
+                keywords: ["workspace", "todo", "todos", "checklist", "pane", "open"],
+                when: hasWorkspace
+            )
+        )
         return contributions
     }
 
@@ -237,6 +248,14 @@ enum WorkspaceTodoPaletteCommands {
             commandId: addChecklistItemCommandId,
             handler: withSelectedWorkspace { workspace in
                 WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspace.id)
+            }
+        )
+        registry.register(
+            commandId: openTodoPaneCommandId,
+            handler: withSelectedWorkspace { workspace in
+                if WorkspaceTodoActions.openTodoPane(for: workspace) == nil {
+                    NSSound.beep()
+                }
             }
         )
     }

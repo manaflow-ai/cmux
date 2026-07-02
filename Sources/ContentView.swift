@@ -5547,6 +5547,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        case .workspaceTodo:
+            return String(localized: "commandPalette.kind.workspaceTodo", defaultValue: "Todos")
         }
     }
     private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
@@ -5569,6 +5571,8 @@ struct ContentView: View {
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
+        case .workspaceTodo:
+            return ["todo", "todos", "checklist", "task", "status"]
         }
     }
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
@@ -9586,6 +9590,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
     let workspaceTodosEnabled: Bool
+    let workspaceTodoChecklistStyle: WorkspaceTodoChecklistStyle
 
     init(
         defaults: UserDefaults = .standard,
@@ -9641,7 +9646,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
-        workspaceTodosEnabled = settings.value(for: catalog.sidebar.workspaceTodos)
+        workspaceTodosEnabled = settings.value(for: catalog.betaFeatures.workspaceTodos)
+        workspaceTodoChecklistStyle = settings.value(for: catalog.betaFeatures.workspaceTodosChecklistStyle)
     }
 
     private static func bool(
@@ -10061,6 +10067,11 @@ struct VerticalTabsSidebar: View {
     // behind the snapshot boundary (they receive a Bool/Int + closures).
     @State private var expandedChecklistWorkspaceIds: Set<UUID> = []
     @State private var checklistAddFieldActivationTokens: [UUID: Int] = [:]
+    // Which workspace row's status popover / checklist popover is open (at
+    // most one of each across the sidebar; opening one closes the other).
+    // Held at the container so rows stay behind the snapshot boundary.
+    @State private var statusPopoverWorkspaceId: UUID?
+    @State private var checklistPopoverWorkspaceId: UUID?
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
@@ -10607,8 +10618,17 @@ struct VerticalTabsSidebar: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .workspaceChecklistAddItemRequested)) { notification in
             guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
-                  tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
-            expandedChecklistWorkspaceIds.insert(workspaceId)
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            // Popover style routes the add request into the checklist popover
+            // (armed add field); empty checklists keep the inline ghost row
+            // because there is no summary line to anchor a popover to.
+            if WorkspaceTodoFeature.checklistStyle == .popover,
+               !workspace.todoState.checklist.isEmpty {
+                statusPopoverWorkspaceId = nil
+                checklistPopoverWorkspaceId = workspaceId
+            } else {
+                expandedChecklistWorkspaceIds.insert(workspaceId)
+            }
             checklistAddFieldActivationTokens[workspaceId, default: 0] += 1
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
@@ -11097,6 +11117,8 @@ struct VerticalTabsSidebar: View {
         case .project:
             return .project
         case .extensionBrowser:
+            return .unknown
+        case .workspaceTodo:
             return .unknown
         }
     }
@@ -12449,6 +12471,22 @@ struct VerticalTabsSidebar: View {
         let onConsumeChecklistAddFieldActivation: () -> Void = { [tabId = tab.id] in
             checklistAddFieldActivationTokens[tabId] = nil
         }
+        let onStatusPopoverPresentedChange: @MainActor (Bool) -> Void = { [tabId = tab.id] presented in
+            if presented {
+                checklistPopoverWorkspaceId = nil
+                statusPopoverWorkspaceId = tabId
+            } else if statusPopoverWorkspaceId == tabId {
+                statusPopoverWorkspaceId = nil
+            }
+        }
+        let onChecklistPopoverPresentedChange: @MainActor (Bool) -> Void = { [tabId = tab.id] presented in
+            if presented {
+                statusPopoverWorkspaceId = nil
+                checklistPopoverWorkspaceId = tabId
+            } else if checklistPopoverWorkspaceId == tabId {
+                checklistPopoverWorkspaceId = nil
+            }
+        }
         let row = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -12488,6 +12526,10 @@ struct VerticalTabsSidebar: View {
             checklistAddFieldActivationToken: checklistAddFieldActivationTokens[tab.id] ?? 0,
             onToggleChecklistExpansion: onToggleChecklistExpansion,
             onConsumeChecklistAddFieldActivation: onConsumeChecklistAddFieldActivation,
+            isStatusPopoverPresented: statusPopoverWorkspaceId == tab.id,
+            isChecklistPopoverPresented: checklistPopoverWorkspaceId == tab.id,
+            onStatusPopoverPresentedChange: onStatusPopoverPresentedChange,
+            onChecklistPopoverPresentedChange: onChecklistPopoverPresentedChange,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
         )
@@ -13288,9 +13330,12 @@ struct SidebarWorkspaceSnapshotBuilder {
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         // Workspace todo status/checklist; taskStatus is nil while the
-        // sidebar.workspaceTodos feature is disabled (no glyph slot reserved).
+        // workspace-todos beta is disabled (no glyph slot reserved).
         let taskStatus: WorkspaceTaskStatus?
         let taskStatusHasOverride: Bool
+        /// The lane the live signals currently infer; feeds the status
+        /// popover's Auto row.
+        let taskStatusInferred: WorkspaceTaskStatus?
         let checklistItems: [WorkspaceChecklistItem]
         let checklistCompletedCount: Int
         let checklistTotalCount: Int
@@ -13332,6 +13377,8 @@ struct TabItemView: View, Equatable {
         lhs.isBonsplitWorkspaceDropActive == rhs.isBonsplitWorkspaceDropActive &&
         lhs.isChecklistExpanded == rhs.isChecklistExpanded &&
         lhs.checklistAddFieldActivationToken == rhs.checklistAddFieldActivationToken &&
+        lhs.isStatusPopoverPresented == rhs.isStatusPopoverPresented &&
+        lhs.isChecklistPopoverPresented == rhs.isChecklistPopoverPresented &&
         lhs.settings == rhs.settings
     }
 
@@ -13393,6 +13440,13 @@ struct TabItemView: View, Equatable {
     let checklistAddFieldActivationToken: Int
     let onToggleChecklistExpansion: () -> Void
     let onConsumeChecklistAddFieldActivation: () -> Void
+    // The status and checklist popovers are per-workspace transient UI state
+    // owned by the sidebar container (UUID? there, at most one of each open),
+    // passed in as Bools + change closures like the checklist expansion.
+    let isStatusPopoverPresented: Bool
+    let isChecklistPopoverPresented: Bool
+    let onStatusPopoverPresentedChange: @MainActor (Bool) -> Void
+    let onChecklistPopoverPresentedChange: @MainActor (Bool) -> Void
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
     /// modifier-key transitions from flipping the badges on the row sitting
@@ -13769,13 +13823,22 @@ struct TabItemView: View, Equatable {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
                 if let taskStatus = workspaceSnapshot.taskStatus {
-                    SidebarWorkspaceTaskStatusGlyph(
+                    SidebarWorkspaceTaskStatusGlyphControl(
                         status: taskStatus,
+                        inferred: workspaceSnapshot.taskStatusInferred ?? taskStatus,
                         hasOverride: workspaceSnapshot.taskStatusHasOverride,
                         usesMonochrome: usesInvertedActiveForeground,
                         monochromeColor: activeSecondaryColor(0.85),
                         neutralColor: activeSecondaryColor(0.6),
-                        fontScale: fontScale
+                        fontScale: fontScale,
+                        isPopoverPresented: isStatusPopoverPresented,
+                        onPopoverPresentedChange: onStatusPopoverPresentedChange,
+                        onSelectLane: { [tab] status in
+                            WorkspaceTodoActions.applyStatusOverride(status, to: [tab])
+                        },
+                        onOptionToggleDone: { [tab] in
+                            WorkspaceTodoActions.toggleDone(for: tab)
+                        }
                     )
                     .padding(.top, 2)
                 }
@@ -14109,14 +14172,18 @@ struct TabItemView: View, Equatable {
                     completedCount: workspaceSnapshot.checklistCompletedCount,
                     totalCount: workspaceSnapshot.checklistTotalCount,
                     firstUncheckedText: workspaceSnapshot.checklistFirstUncheckedText,
+                    workspaceTitle: workspaceSnapshot.title,
                     isExpanded: isChecklistExpanded,
                     addFieldActivationToken: checklistAddFieldActivationToken,
+                    usesPopoverPresentation: settings.workspaceTodoChecklistStyle == .popover,
+                    isPopoverPresented: isChecklistPopoverPresented,
                     primaryColor: activeSecondaryColor(0.9),
                     secondaryColor: activeSecondaryColor(0.65),
                     summaryFont: magnifiedFont(scaledFontSize(10), weight: .semibold, monospacedDigit: true),
                     itemFont: magnifiedFont(scaledFontSize(10)),
                     fontScale: fontScale,
                     onToggleExpansion: onToggleChecklistExpansion,
+                    onPopoverPresentedChange: onChecklistPopoverPresentedChange,
                     onConsumeAddFieldActivation: onConsumeChecklistAddFieldActivation,
                     actions: workspaceTodoChecklistActions
                 )
@@ -14926,12 +14993,13 @@ struct TabItemView: View, Equatable {
         // Pure reads only: effective-status resolution never mutates; the
         // expired-override cleanup happens at explicit mutation entry points.
         let workspaceTodosEnabled = settings.workspaceTodosEnabled
-        let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = workspaceTodosEnabled
-            ? WorkspaceTaskStatusOverride.effectiveStatus(
+        let inferredTaskStatus = workspaceTodosEnabled ? tab.inferredTaskStatus : nil
+        let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
+            WorkspaceTaskStatusOverride.effectiveStatus(
                 override: tab.todoState.statusOverride,
-                inferred: tab.inferredTaskStatus
+                inferred: inferred
             )
-            : nil
+        }
         let checklistProgress = workspaceTodosEnabled ? tab.checklistProgressSummary : nil
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
@@ -14964,6 +15032,7 @@ struct TabItemView: View, Equatable {
             taskStatusHasOverride: taskStatusResolution.map { resolution in
                 tab.todoState.statusOverride != nil && !resolution.shouldClearOverride
             } ?? false,
+            taskStatusInferred: inferredTaskStatus,
             checklistItems: workspaceTodosEnabled ? tab.todoState.checklist : [],
             checklistCompletedCount: checklistProgress?.completedCount ?? 0,
             checklistTotalCount: checklistProgress?.totalCount ?? 0,
