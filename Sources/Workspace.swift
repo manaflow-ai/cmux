@@ -4449,7 +4449,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func setCustomColor(_ hex: String?) {
         if let hex {
-            customColor = WorkspaceTabColorSettings.normalizedHex(hex)
+            customColor = WorkspaceTabColorPaletteStore.normalizedHex(hex)
         } else {
             customColor = nil
         }

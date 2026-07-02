@@ -1718,7 +1718,7 @@ class TabManager: ObservableObject {
     }
 
     func applyWorkspacePaletteColor(named name: String, toWorkspaceIds workspaceIds: [UUID]) {
-        guard let color = WorkspaceTabColorSettings.currentColorHex(named: name) else { return }
+        guard let color = WorkspaceTabColorPaletteStore().currentColorHex(named: name) else { return }
         applyWorkspaceColor(color, toWorkspaceIds: workspaceIds)
     }
 

@@ -1,4 +1,5 @@
 import Combine
+import CmuxDesignSystem
 import CmuxFoundation
 import CmuxSettings
 import Foundation
@@ -711,6 +712,7 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let colorStore = WorkspaceTabColorPaletteStore()
         if let raw = jsonString(section["indicatorStyle"]) {
             let indicatorKey = SettingCatalog().workspaceColors.indicatorStyle
             let normalized = (WorkspaceIndicatorStyle.decodeFromJSON(raw) ?? indicatorKey.defaultValue).rawValue
@@ -753,21 +755,21 @@ final class CmuxSettingsFileStore {
                     continue
                 }
                 guard let hex = jsonString(rawValue),
-                      let normalizedHex = WorkspaceTabColorSettings.normalizedHex(hex) else {
+                      let normalizedHex = colorStore.normalizedHex(hex) else {
                     cmuxSettingsFileStoreLogger.warning("ignoring invalid workspace color '\(name, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                     continue
                 }
                 normalizedPalette[name] = normalizedHex
             }
-            snapshot.managedUserDefaults[WorkspaceTabColorSettings.paletteKey] = .stringDictionary(normalizedPalette)
+            snapshot.managedUserDefaults[colorStore.paletteKey] = .stringDictionary(normalizedPalette)
             return
         }
 
-        let validNames = Set(WorkspaceTabColorSettings.defaultPalette.map(\.name))
+        let validNames = Set(colorStore.defaultPalette.map(\.name))
         var normalizedLegacyPalette: [String: String]? = nil
         if let rawOverrides = section["paletteOverrides"] as? [String: Any] {
             var palette = Dictionary(
-                uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
+                uniqueKeysWithValues: colorStore.defaultPalette.map { ($0.name, $0.hex) }
             )
             for (name, rawValue) in rawOverrides {
                 guard validNames.contains(name) else {
@@ -775,7 +777,7 @@ final class CmuxSettingsFileStore {
                     continue
                 }
                 guard let hex = jsonString(rawValue),
-                      let normalizedHex = WorkspaceTabColorSettings.normalizedHex(hex) else {
+                      let normalizedHex = colorStore.normalizedHex(hex) else {
                     cmuxSettingsFileStoreLogger.warning("ignoring invalid workspace color override '\(name, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                     continue
                 }
@@ -785,12 +787,12 @@ final class CmuxSettingsFileStore {
         }
         if let rawCustomColors = jsonStringArray(section["customColors"]) {
             var palette = normalizedLegacyPalette ?? Dictionary(
-                uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
+                uniqueKeysWithValues: colorStore.defaultPalette.map { ($0.name, $0.hex) }
             )
             var existingNames = Set(palette.keys)
             var seenCustomHexes: Set<String> = []
             for rawHex in rawCustomColors {
-                guard let normalizedHex = WorkspaceTabColorSettings.normalizedHex(rawHex),
+                guard let normalizedHex = colorStore.normalizedHex(rawHex),
                       seenCustomHexes.insert(normalizedHex).inserted else { continue }
                 var index = 1
                 while existingNames.contains("Custom \(index)") {
@@ -803,7 +805,7 @@ final class CmuxSettingsFileStore {
             normalizedLegacyPalette = palette
         }
         if let normalizedLegacyPalette {
-            snapshot.managedUserDefaults[WorkspaceTabColorSettings.paletteKey] = .stringDictionary(normalizedLegacyPalette)
+            snapshot.managedUserDefaults[colorStore.paletteKey] = .stringDictionary(normalizedLegacyPalette)
         }
     }
 
@@ -816,7 +818,7 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(value)
         }
         if let raw = jsonString(section["tintColor"]) {
-            guard let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
+            guard let normalized = WorkspaceTabColorPaletteStore.normalizedHex(raw) else {
                 logInvalid("sidebarAppearance.tintColor", sourcePath: sourcePath)
                 return
             }
@@ -1130,7 +1132,7 @@ final class CmuxSettingsFileStore {
             return .some(nil)
         }
         guard let raw = jsonString(rawValue),
-              let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
+              let normalized = WorkspaceTabColorPaletteStore.normalizedHex(raw) else {
             logInvalid(path, sourcePath: sourcePath)
             return nil
         }
@@ -1307,8 +1309,9 @@ final class CmuxSettingsFileStore {
             guard let value = defaults.array(forKey: defaultsKey) as? [String] else { return .absent }
             return .stringArray(value)
         case .stringDictionary:
-            if defaultsKey == WorkspaceTabColorSettings.paletteKey {
-                guard let value = WorkspaceTabColorSettings.backupPaletteMap(defaults: defaults) else {
+            let colorStore = WorkspaceTabColorPaletteStore(defaults: defaults)
+            if defaultsKey == colorStore.paletteKey {
+                guard let value = colorStore.backupPaletteMap() else {
                     return .absent
                 }
                 return .stringDictionary(value)
@@ -1333,12 +1336,13 @@ final class CmuxSettingsFileStore {
         synchronizeManagedAppearanceTerminalTheme: Bool
     ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
-        if defaultsKey == WorkspaceTabColorSettings.paletteKey {
+        let colorStore = WorkspaceTabColorPaletteStore(defaults: defaults)
+        if defaultsKey == colorStore.paletteKey {
             switch backup {
             case .absent:
-                WorkspaceTabColorSettings.reset(defaults: defaults)
+                colorStore.reset()
             case .stringDictionary(let value):
-                WorkspaceTabColorSettings.persistPaletteMap(value, defaults: defaults)
+                colorStore.persistPaletteMap(value)
             default:
                 break
             }
@@ -1416,11 +1420,12 @@ final class CmuxSettingsFileStore {
             return ManagedDefaultBatchSideEffects()
         }
 
-        if defaultsKey == WorkspaceTabColorSettings.paletteKey,
+        let colorStore = WorkspaceTabColorPaletteStore(defaults: defaults)
+        if defaultsKey == colorStore.paletteKey,
            case .stringDictionary(let next) = value {
-            let current = WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults)
+            let current = colorStore.resolvedPaletteMap()
             if current != next {
-                WorkspaceTabColorSettings.persistPaletteMap(next, defaults: defaults)
+                colorStore.persistPaletteMap(next)
             }
             return ManagedDefaultBatchSideEffects()
         }
@@ -1564,8 +1569,9 @@ final class CmuxSettingsFileStore {
             guard let current = defaults.array(forKey: defaultsKey) as? [String] else { return nil }
             return .stringArray(current)
         case .stringDictionary:
-            if defaultsKey == WorkspaceTabColorSettings.paletteKey {
-                return .stringDictionary(WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults))
+            let colorStore = WorkspaceTabColorPaletteStore(defaults: defaults)
+            if defaultsKey == colorStore.paletteKey {
+                return .stringDictionary(colorStore.resolvedPaletteMap())
             }
             guard let current = defaults.dictionary(forKey: defaultsKey) as? [String: String] else {
                 return nil

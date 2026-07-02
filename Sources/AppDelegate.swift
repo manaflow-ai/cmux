@@ -3,6 +3,7 @@ import CmuxAppKitSupportUI
 import CmuxAuthRuntime
 import CmuxBrowser
 import CmuxCommandPalette
+import CmuxDesignSystem
 import CmuxPanes
 import CmuxControlSocket
 import CmuxWindowing
@@ -9630,7 +9631,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func openDebugColorComparisonWorkspaces(_ sender: Any?) {
         guard let tabManager else { return }
 
-        let palette = WorkspaceTabColorSettings.palette()
+        let palette = WorkspaceTabColorPaletteStore().palette()
         guard !palette.isEmpty else { return }
 
         var existingByTitle: [String: Workspace] = [:]

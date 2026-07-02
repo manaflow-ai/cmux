@@ -2,6 +2,7 @@ import CmuxSettingsUI
 import AppKit
 import CmuxRemoteSession
 import CmuxCore
+import CmuxDesignSystem
 import CmuxAuthRuntime
 import CmuxFeedback
 import CmuxBrowser
@@ -4158,14 +4159,14 @@ class TerminalController {
                     return
                 }
                 let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Resolve named colors from the effective palette, including file-defined additions.
-                let effectivePalette = WorkspaceTabColorSettings.palette()
+                let colorStore = WorkspaceTabColorPaletteStore()
+                let effectivePalette = colorStore.palette()
                 let hex: String
                 if let entry = effectivePalette.first(where: {
                     $0.name.caseInsensitiveCompare(colorInput) == .orderedSame
                 }) {
                     hex = entry.hex
-                } else if let normalized = WorkspaceTabColorSettings.normalizedHex(colorInput) {
+                } else if let normalized = colorStore.normalizedHex(colorInput) {
                     hex = normalized
                 } else {
                     let colorNames = effectivePalette.map(\.name)
