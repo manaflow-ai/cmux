@@ -164,11 +164,29 @@ extension MobileShellComposite {
     private func reassertReportedViewport(surfaceID: String) {
         guard let reported = reportedTerminalViewportGridsBySurfaceID[surfaceID] else { return }
         Task { @MainActor [weak self] in
-            _ = await self?.updateTerminalViewport(
+            guard let self else { return }
+            // Re-check at send time: the surface can unmount between the
+            // capture and this task running. `unregisterTerminalOutput` clears
+            // the Mac-side sticky viewport pin; re-sending the stale report
+            // here would re-cap the desktop surface for a phone that already
+            // navigated away.
+            guard self.terminalByteContinuationsBySurfaceID[surfaceID] != nil,
+                  let current = self.reportedTerminalViewportGridsBySurfaceID[surfaceID],
+                  current == reported else {
+                return
+            }
+            _ = await self.updateTerminalViewport(
                 surfaceID: surfaceID,
                 columns: reported.columns,
                 rows: reported.rows
             )
+            // The surface can also unmount while the report round-trip is in
+            // flight, landing our sticky pin after the unregister path's
+            // clear. Compensate so a detached phone never keeps the Mac grid
+            // capped.
+            if self.terminalByteContinuationsBySurfaceID[surfaceID] == nil {
+                self.clearTerminalViewport(surfaceID: surfaceID)
+            }
         }
     }
 
