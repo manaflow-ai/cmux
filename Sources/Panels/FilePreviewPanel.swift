@@ -1056,6 +1056,27 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
     }
 
+    @discardableResult
+    func zoomTextPreviewIn() -> Bool {
+        guard previewMode == .text,
+              let textView = textView as? SavingTextView else { return false }
+        return textView.zoomPreviewFontIn()
+    }
+
+    @discardableResult
+    func zoomTextPreviewOut() -> Bool {
+        guard previewMode == .text,
+              let textView = textView as? SavingTextView else { return false }
+        return textView.zoomPreviewFontOut()
+    }
+
+    @discardableResult
+    func resetTextPreviewZoom() -> Bool {
+        guard previewMode == .text,
+              let textView = textView as? SavingTextView else { return false }
+        return textView.resetPreviewFontSize()
+    }
+
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
         guard previewMode == .text, let textView else { return false }
         let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)

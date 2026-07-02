@@ -2916,6 +2916,35 @@ class TabManager: ObservableObject {
         return panel
     }
 
+    var focusedTextFilePreviewPanel: FilePreviewPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId,
+              let panel = tab.panels[panelId] as? FilePreviewPanel,
+              panel.previewMode == .text else { return nil }
+        return panel
+    }
+
+    @discardableResult
+    func zoomInFocusedTextFilePreview() -> Bool {
+        guard let panel = focusedTextFilePreviewPanel else { return false }
+        _ = panel.zoomTextPreviewIn()
+        return true
+    }
+
+    @discardableResult
+    func zoomOutFocusedTextFilePreview() -> Bool {
+        guard let panel = focusedTextFilePreviewPanel else { return false }
+        _ = panel.zoomTextPreviewOut()
+        return true
+    }
+
+    @discardableResult
+    func resetZoomFocusedTextFilePreview() -> Bool {
+        guard let panel = focusedTextFilePreviewPanel else { return false }
+        _ = panel.resetTextPreviewZoom()
+        return true
+    }
+
     @discardableResult
     func zoomInFocusedBrowser() -> Bool {
         focusedBrowserPanel?.zoomIn() ?? false
