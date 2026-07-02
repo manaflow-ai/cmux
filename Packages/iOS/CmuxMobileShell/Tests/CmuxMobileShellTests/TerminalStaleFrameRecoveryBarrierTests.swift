@@ -176,3 +176,70 @@ import Testing
     collector.unmount()
     await router.releaseAllHeld()
 }
+
+/// The stale floor guards the byte channel too: a buffered pre-barrier
+/// `terminal.bytes` chunk (hybrid transport) must neither repaint stale
+/// output nor release the floor — only catching up to the floor releases it.
+@MainActor
+@Test func staleBufferedByteChunkCannotReleaseStaleFloor() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplaySettledEmpty = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+            && store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+    }
+    #expect(coldReplaySettledEmpty)
+
+    let transport = try #require(box.get())
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: surfaceID,
+        seq: 900,
+        text: "live-bytes-baseline"
+    ))
+    let baselineDelivered = try await pollUntil {
+        (store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0) > 900
+    }
+    #expect(baselineDelivered)
+
+    store.terminalOutputNeedsReplay(surfaceID: surfaceID)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
+    let recoveryReplaySettledEmpty = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+            && store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil
+    }
+    #expect(recoveryReplaySettledEmpty)
+
+    // Wholly below the floor: covered by the barrier-era replay, must vanish.
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: surfaceID,
+        seq: 100,
+        text: "stale-buffered-bytes"
+    ))
+
+    // Genuinely new output releases the floor by catching up past it.
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: surfaceID,
+        seq: 2000,
+        text: "fresh-live-bytes"
+    ))
+    let freshDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("fresh-live-bytes") }
+    }
+    #expect(freshDelivered)
+    #expect(
+        !collector.lines.contains { $0.contains("stale-buffered-bytes") },
+        "a pre-barrier byte chunk must not repaint stale output after recovery"
+    )
+    #expect(store.terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] == nil)
+
+    collector.unmount()
+    await router.releaseAllHeld()
+}

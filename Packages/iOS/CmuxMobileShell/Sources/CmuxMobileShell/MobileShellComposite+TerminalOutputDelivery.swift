@@ -48,15 +48,27 @@ extension MobileShellComposite {
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
 
+    /// An authoritative replay was accepted: its state supersedes the
+    /// pre-barrier floor even when the host's sequence counter restarted lower
+    /// (surface recreate), so live frames from the new epoch flow afterwards.
+    /// Only replay acceptance may re-base BELOW the floor; live deliveries
+    /// release the floor solely by catching up to it (see
+    /// ``markTerminalBytesDelivered(surfaceID:endSeq:)``).
+    func rebaseTerminalReplayStaleFloor(surfaceID: String) {
+        terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+    }
+
     func markTerminalBytesDelivered(surfaceID: String, endSeq: UInt64) {
         let current = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = max(current, endSeq)
-        // An accepted delivery re-bases the stale floor: the live delivered
-        // sequence takes over from the pre-barrier stash. Dropping the stash
-        // unconditionally (not only when endSeq caught up) keeps a Mac-side
-        // sequence reset (surface recreate) recoverable through the replay
-        // path instead of wedging every event behind the old floor.
-        terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        // A live delivery releases the pre-barrier floor only once the
+        // delivered sequence catches up to it; a stale buffered chunk below
+        // the floor must not wipe the one guard that keeps other pre-barrier
+        // frames from establishing an outdated baseline.
+        if let floorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID],
+           (deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0) >= floorSeq {
+            terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        }
         let clearBaselineReplayCount = terminalOutputTransport != .hybrid
             || terminalActiveScreenBySurfaceID[surfaceID] != .alternate
             || terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)

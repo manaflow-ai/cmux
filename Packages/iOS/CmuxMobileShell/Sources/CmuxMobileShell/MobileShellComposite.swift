@@ -7224,6 +7224,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         }
                     }
                     self.recordTerminalRenderGridDelivery(renderGrid)
+                    self.rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
                     if let replaySeq {
                         self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
                     }
@@ -7268,6 +7269,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     } else {
                         self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                     }
+                }
+                if accepted {
+                    self.rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
                 }
                 if accepted, let replaySeq {
                     self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
@@ -7454,6 +7458,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID) else { return }
             markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
             return
+        }
+        // No live baseline (a replay barrier reset it): the pre-barrier floor
+        // is the effective delivered mark, so a buffered chunk from before the
+        // barrier cannot repaint stale output or release the stale floor.
+        if let floorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] {
+            if endSeq <= floorSeq {
+                MobileDebugLog.anchormux("sync.bytes_below_floor surface=\(surfaceID) floor=\(floorSeq) end=\(endSeq)")
+                return
+            }
+            if seq < floorSeq {
+                let overlap = floorSeq - seq
+                let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
+                guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID) else { return }
+                markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
+                return
+            }
         }
         guard deliverTerminalBytes(bytes, surfaceID: surfaceID) else { return }
         markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
