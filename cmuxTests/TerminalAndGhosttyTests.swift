@@ -1591,6 +1591,13 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             return
         }
         XCTAssertEqual(error.code, "confirmation_required")
+        XCTAssertEqual(
+            error.message,
+            String(
+                localized: "mobile.terminal.closeConfirmationRequired.message",
+                defaultValue: "This terminal is running a command. Close it from the Mac to confirm."
+            )
+        )
         let data = try XCTUnwrap(error.data as? [String: Any])
         XCTAssertEqual(data["workspace_id"] as? String, workspace.id.uuidString)
         XCTAssertEqual(data["surface_id"] as? String, runningPanel.id.uuidString)
@@ -1629,6 +1636,13 @@ final class TerminalOffscreenStartupTests: XCTestCase {
                 return
             }
             XCTAssertEqual(error.code, "confirmation_required")
+            XCTAssertEqual(
+                error.message,
+                String(
+                    localized: "mobile.terminal.closeUserConfirmationRequired.message",
+                    defaultValue: "Close this terminal from the Mac to confirm."
+                )
+            )
             let data = try XCTUnwrap(error.data as? [String: Any])
             XCTAssertEqual(data["workspace_id"] as? String, workspace.id.uuidString)
             XCTAssertEqual(data["surface_id"] as? String, cleanPanel.id.uuidString)

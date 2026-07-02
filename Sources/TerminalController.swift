@@ -13634,6 +13634,13 @@ class TerminalController {
         )
     }
 
+    private func mobileTerminalCloseUserConfirmationRequiredMessage() -> String {
+        String(
+            localized: "mobile.terminal.closeUserConfirmationRequired.message",
+            defaultValue: "Close this terminal from the Mac to confirm."
+        )
+    }
+
     private func mobileTerminalCloseLastSurfaceMessage() -> String {
         String(
             localized: "mobile.terminal.closeLastSurface.message",
@@ -13704,13 +13711,16 @@ class TerminalController {
                 ]
             )
         }
+        let terminalNeedsCloseConfirmation = resolved.workspace.panelNeedsConfirmClose(panelId: surfaceId)
         if CloseTabWarningStore(defaults: resolved.workspace.closeTabWarningDefaults).shouldConfirmClose(
-            requiresConfirmation: resolved.workspace.panelNeedsConfirmClose(panelId: surfaceId),
+            requiresConfirmation: terminalNeedsCloseConfirmation,
             source: .tabCloseButton
         ) {
             return .err(
                 code: "confirmation_required",
-                message: mobileTerminalCloseConfirmationRequiredMessage(),
+                message: terminalNeedsCloseConfirmation
+                    ? mobileTerminalCloseConfirmationRequiredMessage()
+                    : mobileTerminalCloseUserConfirmationRequiredMessage(),
                 data: [
                     "workspace_id": resolved.workspace.id.uuidString,
                     "surface_id": surfaceId.uuidString,
