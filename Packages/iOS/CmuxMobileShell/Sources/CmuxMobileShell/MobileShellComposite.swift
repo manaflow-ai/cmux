@@ -5925,6 +5925,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if let viewportSize = reportedViewportSizesByTerminalKey[key] {
                 params["viewport_columns"] = viewportSize.columns
                 params["viewport_rows"] = viewportSize.rows
+                // Carry the dedicated-report generation so the Mac's fence can
+                // reject this piggyback if it arrives after a newer report or
+                // a clear (request tasks can reorder in transit).
+                if let generation = viewportReportGenerationsBySurfaceID[terminalID.rawValue] {
+                    params["viewport_generation"] = Int(clamping: generation)
+                }
             }
             let responseData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
@@ -5996,6 +6002,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if let viewportSize = reportedViewportSizesByTerminalKey[key] {
                 params["viewport_columns"] = viewportSize.columns
                 params["viewport_rows"] = viewportSize.rows
+                // Carry the dedicated-report generation so the Mac's fence can
+                // reject this piggyback if it arrives after a newer report or
+                // a clear (request tasks can reorder in transit).
+                if let generation = viewportReportGenerationsBySurfaceID[terminalID.rawValue] {
+                    params["viewport_generation"] = Int(clamping: generation)
+                }
             }
             let responseData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
@@ -6898,7 +6910,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
         )
         let reportedViewport = reportedViewportSizesByTerminalKey[viewportKey]
-            .map { (clientID: clientID, columns: $0.columns, rows: $0.rows) }
+            .map { (clientID: clientID, columns: $0.columns, rows: $0.rows,
+                    generation: viewportReportGenerationsBySurfaceID[surfaceID]) }
         let replayTask = Task { @MainActor [weak self] in
             let replayResult: Result<Data, any Error>
             do {
@@ -6910,6 +6923,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     params["client_id"] = reportedViewport.clientID
                     params["viewport_columns"] = reportedViewport.columns
                     params["viewport_rows"] = reportedViewport.rows
+                    if let generation = reportedViewport.generation {
+                        params["viewport_generation"] = Int(clamping: generation)
+                    }
                 }
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
