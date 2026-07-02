@@ -3247,8 +3247,11 @@ class TerminalController {
     /// true}` reads the live setting state without writing, which lets hook
     /// processes honor mid-session toggles. Agent lifecycle writes use
     /// `persist_after_exit` / `clear_auto` to preserve or remove only
-    /// auto-owned titles independently of that setting. `panel_id` accepts
-    /// either a panel UUID or a surface UUID.
+    /// auto-owned titles independently of that setting — except a
+    /// `persist_after_exit` write also tagged `auto_derived` (a title newly
+    /// derived from the agent transcript rather than one cmux already applied),
+    /// which still honors the opt-in. `panel_id` accepts either a panel UUID or
+    /// a surface UUID.
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
         let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
         if v2Bool(params, "probe") == true {
@@ -3273,6 +3276,11 @@ class TerminalController {
         }
         let clearAuto = v2Bool(params, "clear_auto") == true
         let persistAfterExit = v2Bool(params, "persist_after_exit") == true
+        // A `persist_after_exit` write derived from the agent transcript (rather
+        // than a title cmux already applied) is a new auto-naming action, so it
+        // must still honor the opt-in even though the persist path otherwise
+        // bypasses the setting to preserve already-applied titles.
+        let autoDerived = v2Bool(params, "auto_derived") == true
         if clearAuto {
             guard let tabManager = v2ResolveTabManager(params: params) else {
                 return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -3302,7 +3310,7 @@ class TerminalController {
                 "enabled": enabled
             ])
         }
-        guard enabled || persistAfterExit else {
+        guard enabled || (persistAfterExit && !autoDerived) else {
             return .err(code: "disabled", message: "Workspace auto-naming is disabled in Settings", data: ["enabled": false])
         }
         // A naming pass reporting a problem (rate limit / out of tokens / signed

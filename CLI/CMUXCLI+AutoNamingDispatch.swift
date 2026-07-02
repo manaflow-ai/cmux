@@ -131,8 +131,15 @@ extension CMUXCLI {
     /// guard treats any sibling with a live process as owning the workspace,
     /// not only actively-running ones — an idle / needs-input split is the
     /// common case and still owns the title.
+    ///
+    /// The guard fails closed: if the session store can't be read we cannot rule
+    /// out a live sibling, so the persist is skipped rather than risk clobbering
+    /// its title. A transcript-derived title is a *new* auto-naming action, so it
+    /// is tagged `auto_derived` and the app rejects it when auto-naming is
+    /// disabled; a title cmux already applied is only preserved and persists
+    /// regardless of the setting.
     func persistAgentSessionTitleAfterExit(
-        _ normalizedTitle: String?,
+        _ exitTitle: AgentSessionExitTitle?,
         workspaceId: String,
         excludingSessionId: String,
         sessionStore: ClaudeHookSessionStore,
@@ -140,20 +147,24 @@ extension CMUXCLI {
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
     ) {
-        guard let title = normalizedTitle else { return }
+        guard let exitTitle else { return }
         let workspaceStillOwned = (try? sessionStore.hasOtherLiveSession(
             workspaceId: workspaceId,
             excludingSessionId: excludingSessionId
-        )) == true
+        )) != false
         guard !workspaceStillOwned else {
             telemetry.breadcrumb("\(telemetryKey).persist-title.other-session-live")
             return
         }
-        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
+        var params: [String: Any] = [
             "workspace_id": workspaceId,
-            "title": title,
+            "title": exitTitle.title,
             "persist_after_exit": true
-        ]) else {
+        ]
+        if exitTitle.derivedFromTranscript {
+            params["auto_derived"] = true
+        }
+        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: params) else {
             telemetry.breadcrumb("\(telemetryKey).persist-title.socket-failed")
             return
         }
@@ -164,12 +175,27 @@ extension CMUXCLI {
         }
     }
 
+    /// A title to re-apply to a workspace when an agent session exits, plus
+    /// whether it was derived from the agent transcript (a *new* auto-naming
+    /// action that must honor the opt-in) versus a title cmux already applied
+    /// during the session (which is only being preserved).
+    struct AgentSessionExitTitle {
+        let title: String
+        let derivedFromTranscript: Bool
+    }
+
     func agentSessionExitTitle(
         agent: String,
         record: ClaudeHookSessionRecord
-    ) -> String? {
-        normalizedAgentSessionExitTitle(record.autoNameLastTitle)
-            ?? (agent == "claude" ? latestClaudeTranscriptTitle(path: record.transcriptPath) : nil)
+    ) -> AgentSessionExitTitle? {
+        if let applied = normalizedAgentSessionExitTitle(record.autoNameLastTitle) {
+            return AgentSessionExitTitle(title: applied, derivedFromTranscript: false)
+        }
+        guard agent == "claude",
+              let derived = latestClaudeTranscriptTitle(path: record.transcriptPath) else {
+            return nil
+        }
+        return AgentSessionExitTitle(title: derived, derivedFromTranscript: true)
     }
 
     private func latestClaudeTranscriptTitle(path: String?) -> String? {
