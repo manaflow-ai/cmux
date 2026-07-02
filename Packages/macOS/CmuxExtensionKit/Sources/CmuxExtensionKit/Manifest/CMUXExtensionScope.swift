@@ -24,5 +24,9 @@ public enum CmuxExtensionActionScope: String, Codable, CaseIterable, Equatable, 
     case openURL
     case createWorkspaceWithPath
     /// Run workspace commands already defined by the user in cmux.json.
+    ///
+    /// Introduced in API ``CmuxExtensionAPIVersion/sidebarV2_1``. Manifests requesting
+    /// this scope must declare `minimumAPIVersion` 2.1 or newer; `validateSidebarManifest`
+    /// rejects a lower declaration.
     case runWorkspaceCommand
 }

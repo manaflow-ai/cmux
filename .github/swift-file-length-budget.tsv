@@ -159,6 +159,7 @@
 667	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceListView.swift
 664	Sources/CmuxTopSnapshot.swift
 663	Sources/PortScanner.swift
+655	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 655	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator.swift
 655	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 653	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Import/Detection/BrowserInstalledBrowserDetector.swift
@@ -184,7 +185,6 @@
 598	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift
 596	cmuxTests/CmuxEventBusTests.swift
 594	cmuxTests/PortalTabDragRoutingTests.swift
-592	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 592	Sources/TextBoxSubmitActions.swift
 591	Packages/macOS/CmuxSettingsUI/Tests/CmuxSettingsUITests/DefaultsValueModelLifecycleTests.swift
 590	Sources/Panels/BrowserNavigationDelegate.swift

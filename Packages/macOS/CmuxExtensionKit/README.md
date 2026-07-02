@@ -142,4 +142,8 @@ snapshot and rejects actions that have not been granted:
 - `runWorkspaceCommand`: run workspace commands the user defined in `cmux.json`
   or invoke the configured `ui.newWorkspace.action`
 
+`runWorkspaceCommand` was added in extension API 2.1. A manifest that requests it must set
+`"minimumAPIVersion": { "major": 2, "minor": 1 }`; CMUX rejects the manifest otherwise, and
+hosts that predate 2.1 decline the extension by version instead of running it without the scope.
+
 If your extension does not appear, confirm the containing app has been launched, the embedded appex is signed by your team, the extension point identifier is unchanged, and CMUX's Sidebar Extensions browser shows the extension as enabled.

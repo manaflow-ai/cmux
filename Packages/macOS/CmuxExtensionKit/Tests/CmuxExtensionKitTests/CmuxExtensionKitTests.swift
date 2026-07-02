@@ -501,7 +501,7 @@ struct CMUXExtensionKitTests {
         {
           "id": "dev.example.sidebar",
           "displayName": "Example Sidebar",
-          "minimumAPIVersion": { "major": 2, "minor": 1 },
+          "minimumAPIVersion": { "major": 2, "minor": 2 },
           "readScopes": []
         }
         """.utf8)
@@ -513,8 +513,8 @@ struct CMUXExtensionKitTests {
         } catch {
             #expect(
                 error as? CmuxExtensionValidationError == .unsupportedAPIVersion(
-                    requested: CmuxExtensionAPIVersion(major: 2, minor: 1),
-                    supported: .sidebarV2
+                    requested: CmuxExtensionAPIVersion(major: 2, minor: 2),
+                    supported: .sidebarV2_1
                 )
             )
         }
@@ -539,10 +539,73 @@ struct CMUXExtensionKitTests {
             #expect(
                 error as? CmuxExtensionValidationError == .unsupportedAPIVersion(
                     requested: CmuxExtensionAPIVersion(major: 1, minor: 0),
-                    supported: .sidebarV2
+                    supported: .sidebarV2_1
                 )
             )
         }
+    }
+
+    @Test
+    func testManifestValidationAcceptsRunWorkspaceCommandAtV2_1() throws {
+        let payload = Data("""
+        {
+          "id": "dev.example.sidebar",
+          "displayName": "Example Sidebar",
+          "minimumAPIVersion": { "major": 2, "minor": 1 },
+          "readScopes": [],
+          "actionScopes": ["runWorkspaceCommand"]
+        }
+        """.utf8)
+        let manifest = try JSONDecoder().decode(CmuxExtensionManifest.self, from: payload)
+
+        #expect(manifest.actionScopes == [.runWorkspaceCommand])
+        try validateSidebarManifest(manifest)
+    }
+
+    @Test
+    func testManifestValidationRejectsRunWorkspaceCommandBelowRequiredVersion() throws {
+        let payload = Data("""
+        {
+          "id": "dev.example.sidebar",
+          "displayName": "Example Sidebar",
+          "minimumAPIVersion": { "major": 2, "minor": 0 },
+          "readScopes": [],
+          "actionScopes": ["runWorkspaceCommand"]
+        }
+        """.utf8)
+        let manifest = try JSONDecoder().decode(CmuxExtensionManifest.self, from: payload)
+
+        do {
+            try validateSidebarManifest(manifest)
+            Issue.record("Expected action scope version error")
+        } catch {
+            #expect(
+                error as? CmuxExtensionValidationError == .actionScopeRequiresNewerAPIVersion(
+                    scope: .runWorkspaceCommand,
+                    required: .sidebarV2_1,
+                    declared: .sidebarV2
+                )
+            )
+        }
+    }
+
+    @Test
+    func testManifestDecodingDropsUnknownScopes() throws {
+        let payload = Data("""
+        {
+          "id": "dev.example.sidebar",
+          "displayName": "Example Sidebar",
+          "minimumAPIVersion": { "major": 2, "minor": 1 },
+          "readScopes": ["workspaceMetadata", "futureReadScope"],
+          "actionScopes": ["selectWorkspace", "futureActionScope"]
+        }
+        """.utf8)
+
+        let manifest = try JSONDecoder().decode(CmuxExtensionManifest.self, from: payload)
+
+        #expect(manifest.readScopes == [.workspaceMetadata])
+        #expect(manifest.actionScopes == [.selectWorkspace])
+        try validateSidebarManifest(manifest)
     }
 }
 

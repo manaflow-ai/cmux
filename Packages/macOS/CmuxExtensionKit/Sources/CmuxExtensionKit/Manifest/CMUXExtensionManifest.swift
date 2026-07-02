@@ -44,10 +44,34 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
         id = try container.decode(String.self, forKey: .id)
         displayName = try container.decode(String.self, forKey: .displayName)
         minimumAPIVersion = try container.decodeIfPresent(CmuxExtensionAPIVersion.self, forKey: .minimumAPIVersion) ?? .sidebarV2
-        readScopes = try container.decode([CmuxExtensionScope].self, forKey: .readScopes)
-        actionScopes = try container.decodeIfPresent(
-            [CmuxExtensionActionScope].self,
-            forKey: .actionScopes
-        ) ?? []
+        // Decode scopes tolerantly: an unknown scope from a newer manifest is dropped
+        // rather than failing the whole decode, so an older host still recovers
+        // `minimumAPIVersion` and rejects the extension by version. Dropping a
+        // requested permission is fail-safe — the extension ends up with fewer
+        // capabilities, never more.
+        readScopes = try container.decodeLossyArray(CmuxExtensionScope.self, forKey: .readScopes)
+        actionScopes = try container.decodeLossyArrayIfPresent(CmuxExtensionActionScope.self, forKey: .actionScopes)
+    }
+}
+
+private extension KeyedDecodingContainer {
+    /// Decodes a required array of raw-value-backed scopes, discarding entries whose
+    /// raw value is not recognized by this build.
+    func decodeLossyArray<Value>(
+        _ type: Value.Type,
+        forKey key: Key
+    ) throws -> [Value] where Value: RawRepresentable, Value.RawValue == String {
+        let rawValues = try decode([String].self, forKey: key)
+        return rawValues.compactMap(type.init(rawValue:))
+    }
+
+    /// Decodes an optional array of raw-value-backed scopes, discarding unknown entries
+    /// and treating a missing key as an empty list.
+    func decodeLossyArrayIfPresent<Value>(
+        _ type: Value.Type,
+        forKey key: Key
+    ) throws -> [Value] where Value: RawRepresentable, Value.RawValue == String {
+        guard let rawValues = try decodeIfPresent([String].self, forKey: key) else { return [] }
+        return rawValues.compactMap(type.init(rawValue:))
     }
 }
