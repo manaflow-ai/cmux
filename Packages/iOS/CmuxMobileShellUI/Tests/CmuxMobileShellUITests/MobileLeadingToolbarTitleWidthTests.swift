@@ -40,7 +40,7 @@ import Testing
 
     @Test func iPhoneWidthCapsTitleBeforeTrailingControlsOverflow() {
         #expect(cap(393, hasChatToggle: true) <= 140)
-        #expect(cap(393, hasChatToggle: false) <= MobileLeadingToolbarTitleWidth.maximumMeasuredCap)
+        #expect(cap(393, hasChatToggle: false) == 140)
     }
 
     @Test func titleGainsRoomWithoutBackButton() {
@@ -48,10 +48,11 @@ import Testing
     }
 
     @Test func noTrailingClusterDoesNotReserveChatToggle() {
-        let withoutTrailing = cap(393, hasTrailingCluster: false)
+        let contentWidth: CGFloat = 220
+        let withoutTrailing = cap(contentWidth, hasTrailingCluster: false)
         let expected = min(
             MobileLeadingToolbarTitleWidth.maximumMeasuredCap,
-            393
+            contentWidth
             - MobileLeadingToolbarTitleWidth.backButtonReserve
             - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
         )

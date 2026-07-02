@@ -18,6 +18,7 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
             fittedLabel
         }
         .allowsHitTesting(isEnabled)
+        .disabled(!isEnabled)
         .accessibilityIdentifier("MobileWorkspaceTitleMenu")
     }
 
