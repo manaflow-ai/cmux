@@ -172,7 +172,11 @@ struct WorkspaceShellView: View {
             store.selectedWorkspaceID = selectedWorkspaceID
         }
         .onChange(of: store.workspaces.map(\.id)) { _, workspaceIDs in
-            compactNavigationPath.removeAll { !workspaceIDs.contains($0) }
+            compactNavigationPath = WorkspaceShellCompactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
+                currentPath: compactNavigationPath,
+                visibleWorkspaceIDs: Set(workspaceIDs),
+                selectedWorkspaceID: store.selectedWorkspaceID
+            )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onAppear {

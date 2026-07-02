@@ -52,4 +52,25 @@ public struct WorkspaceShellCompactNavigationPolicy {
         }
         return [selectedWorkspaceID]
     }
+
+    /// Computes the navigation path after the workspace list's visible IDs
+    /// change. Keep the current detail route mounted while it is still the
+    /// selected workspace, even if a transient list refresh omits it; the store's
+    /// selection change is the authoritative signal to pop or retarget.
+    public static func pathForVisibleWorkspaceIDsChange<ID: Hashable>(
+        currentPath: [ID],
+        visibleWorkspaceIDs: Set<ID>,
+        selectedWorkspaceID: ID?
+    ) -> [ID] {
+        guard let currentDetailID = currentPath.last else {
+            return currentPath
+        }
+        guard !visibleWorkspaceIDs.contains(currentDetailID) else {
+            return currentPath
+        }
+        guard selectedWorkspaceID != currentDetailID else {
+            return currentPath
+        }
+        return currentPath.filter { visibleWorkspaceIDs.contains($0) }
+    }
 }

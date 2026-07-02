@@ -66,4 +66,26 @@ import Testing
 
         #expect(path.isEmpty)
     }
+
+    @Test func keepsSelectedDetailRouteWhenVisibleWorkspaceIDsTemporarilyOmitIt() {
+        let selectedID = MobileWorkspacePreview.ID(rawValue: "workspace-created")
+        let path = WorkspaceShellCompactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
+            currentPath: [selectedID],
+            visibleWorkspaceIDs: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
+            selectedWorkspaceID: selectedID
+        )
+
+        #expect(path == [selectedID])
+    }
+
+    @Test func removesMissingDetailRouteWhenItIsNoLongerSelected() {
+        let selectedID = MobileWorkspacePreview.ID(rawValue: "workspace-b")
+        let path = WorkspaceShellCompactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
+            currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
+            visibleWorkspaceIDs: [selectedID],
+            selectedWorkspaceID: selectedID
+        )
+
+        #expect(path.isEmpty)
+    }
 }
