@@ -46,6 +46,7 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 
 ### Internal
 
+- Disconnected "Your Computers" screen rebuilt: coalesced one-row-per-Mac list (no more duplicate dev-build pills), online/last-seen status, tap to reconnect with spinner and failure alert, swipe to remove.
 - Composer: iMessage-style terminal composer, open by default, inline send, drafts saved per terminal (#5876).
 - View as Text sheet for copy-pasting raw terminal output (#5875).
 - Pairing QR is now minimal and full-width (routes-only payload, Copy IP/Port, no expiry); scans faster (#5872, #5727).
@@ -57,6 +58,7 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 
 ### External
 
+- The reconnect screen now shows each of your computers once, with online status and last-seen time. Tap to reconnect, swipe to remove.
 - New terminal composer: type and send like a message, with drafts saved per terminal.
 - View as Text: copy raw terminal output from a clean sheet.
 - Faster, simpler Mac pairing QR, with Copy IP/Port if scanning is awkward.
