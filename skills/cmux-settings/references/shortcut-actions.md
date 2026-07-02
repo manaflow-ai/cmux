@@ -29,6 +29,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.closeOtherTabsInPane`
 - `shortcuts.bindings.closeTab`
 - `shortcuts.bindings.newBrowserWorkspace`
+- `shortcuts.bindings.newLocalWorkspace`
 - `shortcuts.bindings.newTab`
 - `shortcuts.bindings.renameTab`
 - `shortcuts.bindings.reopenPreviousSession`
