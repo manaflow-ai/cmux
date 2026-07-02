@@ -91,6 +91,37 @@ struct WindowDockLifecycleTests {
         #expect(appDelegate.existingWindowDocks.isEmpty)
     }
 
+    @Test("Runtime close routes window Dock terminals through the Dock store")
+    @MainActor
+    func runtimeCloseRoutesWindowDockTerminals() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let dock = appDelegate.windowDock(forWindowId: windowId)
+        let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
+        let panelId = try #require(dock.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+
+        // Ghostty runtime closes (Ctrl-D / child exit) route by the surface's
+        // owner id, which for a window Dock is a window id no TabManager tab
+        // matches — the Dock-aware path must close the panel instead.
+        #expect(appDelegate.closeWindowDockRuntimeSurface(surfaceId: panelId, force: true))
+        #expect(!dock.containsPanel(panelId))
+
+        // Non-Dock surfaces fall through to the workspace close path untouched.
+        let workspace = try #require(manager.tabs.first)
+        let mainPanelId = try #require(workspace.panels.keys.first)
+        #expect(!appDelegate.closeWindowDockRuntimeSurface(surfaceId: mainPanelId, force: true))
+        #expect(workspace.panels[mainPanelId] != nil)
+    }
+
     @Test("Moving a window's last main panel into its own Dock is rejected")
     @MainActor
     func lastPanelMoveIntoOwnWindowDockIsRejected() throws {

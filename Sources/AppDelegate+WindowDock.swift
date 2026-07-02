@@ -129,6 +129,20 @@ extension AppDelegate {
         windowDockRegistry.dockContainingPane(paneId)
     }
 
+    /// Routes a Ghostty runtime close (close binding, Ctrl-D child exit) for a
+    /// window-Dock surface to its owning store. Returns `false` when the
+    /// surface is not a window-Dock panel, so the caller falls through to the
+    /// workspace path. Window-Dock owner ids are window ids, not workspace tab
+    /// ids, so `TabManager.closeRuntimeSurface`-style routing cannot find them.
+    @discardableResult
+    func closeWindowDockRuntimeSurface(surfaceId: UUID, force: Bool) -> Bool {
+        guard let dock = windowDockContainingPanel(surfaceId) else { return false }
+        if dock.closePanel(surfaceId, force: force) {
+            notificationStore?.clearNotifications(forTabId: dock.workspaceId, surfaceId: surfaceId)
+        }
+        return true
+    }
+
     /// Tears down the window's Dock. Called when the owning window unregisters.
     ///
     /// Deliberately unconditional: window close is the containing lifecycle,
