@@ -380,6 +380,78 @@ impl Mux {
     pub fn pane_count(&self) -> usize {
         self.state.lock().unwrap().panes.len()
     }
+
+    /// Make `pane` the active pane of whichever tab contains it (and make
+    /// that tab/workspace active).
+    pub fn focus_pane(&self, pane: PaneId) -> bool {
+        let mut found = false;
+        {
+            let mut state = self.state.lock().unwrap();
+            let mut target: Option<(usize, usize)> = None;
+            for (wi, ws) in state.workspaces.iter().enumerate() {
+                for (ti, tab) in ws.tabs.iter().enumerate() {
+                    let mut ids = Vec::new();
+                    tab.root.pane_ids(&mut ids);
+                    if ids.contains(&pane) {
+                        target = Some((wi, ti));
+                    }
+                }
+            }
+            if let Some((wi, ti)) = target {
+                state.active_workspace = wi;
+                state.workspaces[wi].active_tab = ti;
+                state.workspaces[wi].tabs[ti].active_pane = pane;
+                found = true;
+            }
+        }
+        if found {
+            self.emit(MuxEvent::TreeChanged);
+        }
+        found
+    }
+
+    /// Select a tab in the active workspace by index or relative delta.
+    pub fn select_tab(&self, index: Option<usize>, delta: Option<isize>) {
+        {
+            let mut state = self.state.lock().unwrap();
+            let active_ws = state.active_workspace;
+            if let Some(ws) = state.workspaces.get_mut(active_ws) {
+                let len = ws.tabs.len();
+                if len == 0 {
+                    return;
+                }
+                if let Some(index) = index {
+                    if index < len {
+                        ws.active_tab = index;
+                    }
+                } else if let Some(delta) = delta {
+                    ws.active_tab =
+                        ((ws.active_tab as isize + delta).rem_euclid(len as isize)) as usize;
+                }
+            }
+        }
+        self.emit(MuxEvent::TreeChanged);
+    }
+
+    /// Select a workspace by index or relative delta.
+    pub fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) {
+        {
+            let mut state = self.state.lock().unwrap();
+            let len = state.workspaces.len();
+            if len == 0 {
+                return;
+            }
+            if let Some(index) = index {
+                if index < len {
+                    state.active_workspace = index;
+                }
+            } else if let Some(delta) = delta {
+                state.active_workspace =
+                    ((state.active_workspace as isize + delta).rem_euclid(len as isize)) as usize;
+            }
+        }
+        self.emit(MuxEvent::TreeChanged);
+    }
 }
 
 #[cfg(test)]

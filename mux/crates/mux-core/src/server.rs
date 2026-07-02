@@ -1,8 +1,17 @@
 //! Control socket: a JSON-lines protocol over a unix domain socket.
 //!
 //! This is the attach surface for external frontends (the cmux app, the
-//! bundled CLI, scripts). One request per line, one JSON response per
-//! line. Example:
+//! bundled `cmux-mux attach` client, scripts). One JSON request per line;
+//! every request gets one JSON response line. Two commands additionally
+//! turn the connection full-duplex:
+//!
+//! - `subscribe` — the server pushes `{"event":...}` lines (tree-changed,
+//!   pane-output, pane-exited, title-changed, bell) interleaved with
+//!   responses.
+//! - `attach-pane` — the server sends `{"event":"vt-state"}` with a
+//!   base64 VT replay of the pane's current state, then a live
+//!   `{"event":"output"}` stream of every subsequent pty byte. Replaying
+//!   state then stream into a fresh terminal reproduces the pane exactly.
 //!
 //! ```text
 //! {"id":1,"cmd":"identify"}
@@ -13,15 +22,15 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::{Mux, PaneId, SplitDir, WorkspaceId};
+use crate::{Mux, MuxEvent, Node, PaneId, SplitDir, WorkspaceId};
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Default socket path for a session: `$TMPDIR/cmux-mux-<uid>/<session>.sock`.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -53,6 +62,10 @@ enum Command {
     ReadScreen {
         pane: PaneId,
     },
+    /// One-shot VT replay of the pane's current state (base64).
+    VtState {
+        pane: PaneId,
+    },
     NewTab {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -76,6 +89,32 @@ enum Command {
         cols: u16,
         rows: u16,
     },
+    FocusPane {
+        pane: PaneId,
+    },
+    SelectTab {
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        delta: Option<isize>,
+    },
+    SelectWorkspace {
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        delta: Option<isize>,
+    },
+    /// Stream mux events on this connection.
+    Subscribe,
+    /// Stream a pane: vt-state event followed by live output events.
+    AttachPane {
+        pane: PaneId,
+    },
+    /// Scroll a pane's viewport by a row delta (negative is up).
+    ScrollPane {
+        pane: PaneId,
+        delta: isize,
+    },
 }
 
 #[derive(Serialize)]
@@ -89,11 +128,21 @@ struct Response {
     error: Option<String>,
 }
 
+/// Line-oriented shared writer: responses and event streams interleave
+/// whole lines.
+#[derive(Clone)]
+struct LineWriter(Arc<Mutex<UnixStream>>);
+
+impl LineWriter {
+    fn send(&self, value: &Value) -> std::io::Result<()> {
+        let mut bytes = serde_json::to_vec(value)?;
+        bytes.push(b'\n');
+        let mut stream = self.0.lock().unwrap();
+        stream.write_all(&bytes)
+    }
+}
+
 /// Bind the socket and serve connections on background threads.
-///
-/// Returns the bound path. The listener thread holds only a `Weak`-like
-/// `Arc` clone; dropping the returned guard does not stop it (the process
-/// exits with the mux).
 pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
     if let Some(dir) = path.parent() {
@@ -127,7 +176,7 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
 
 fn handle_connection(mux: Arc<Mux>, stream: UnixStream) {
     let Ok(write_half) = stream.try_clone() else { return };
-    let mut writer = std::io::BufWriter::new(write_half);
+    let writer = LineWriter(Arc::new(Mutex::new(write_half)));
     let reader = BufReader::new(stream);
     for line in reader.lines() {
         let Ok(line) = line else { break };
@@ -137,7 +186,7 @@ fn handle_connection(mux: Arc<Mux>, stream: UnixStream) {
         let response = match serde_json::from_str::<Request>(&line) {
             Ok(req) => {
                 let id = req.id.clone();
-                match handle_command(&mux, req.cmd) {
+                match handle_command(&mux, req.cmd, &writer) {
                     Ok(data) => Response { id, ok: true, data: Some(data), error: None },
                     Err(e) => Response { id, ok: false, data: None, error: Some(e.to_string()) },
                 }
@@ -149,15 +198,27 @@ fn handle_connection(mux: Arc<Mux>, stream: UnixStream) {
                 error: Some(format!("bad request: {e}")),
             },
         };
-        let Ok(mut bytes) = serde_json::to_vec(&response) else { break };
-        bytes.push(b'\n');
-        if writer.write_all(&bytes).is_err() || writer.flush().is_err() {
+        let Ok(value) = serde_json::to_value(&response) else { break };
+        if writer.send(&value).is_err() {
             break;
         }
     }
 }
 
-fn handle_command(mux: &Arc<Mux>, cmd: Command) -> anyhow::Result<Value> {
+fn node_json(node: &Node) -> Value {
+    match node {
+        Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
+        Node::Split { dir, ratio, a, b } => json!({
+            "type": "split",
+            "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
+            "ratio": ratio,
+            "a": node_json(a),
+            "b": node_json(b),
+        }),
+    }
+}
+
+fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => Ok(json!({
             "app": "cmux-mux",
@@ -180,6 +241,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command) -> anyhow::Result<Value> {
                                 "id": tab.id,
                                 "active": t == ws.active_tab,
                                 "active_pane": tab.active_pane,
+                                "layout": node_json(&tab.root),
                                 "panes": ids.iter().map(|id| {
                                     let pane = panes.get(id).cloned();
                                     json!({
@@ -214,6 +276,17 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command) -> anyhow::Result<Value> {
             let text = pane.with_terminal(|t| t.plain_text())?;
             Ok(json!({ "text": text }))
         }
+        Command::VtState { pane } => {
+            let pane = mux.pane(pane).ok_or_else(|| anyhow::anyhow!("unknown pane {pane}"))?;
+            let (cols, rows, replay) = pane.with_terminal(|t| {
+                t.vt_replay().map(|replay| (t.cols(), t.rows(), replay))
+            })?;
+            Ok(json!({
+                "cols": cols,
+                "rows": rows,
+                "data": base64::engine::general_purpose::STANDARD.encode(replay),
+            }))
+        }
         Command::NewTab { workspace, cwd } => {
             let pane = mux.new_tab(workspace, cwd)?;
             Ok(json!({ "pane": pane.id }))
@@ -241,6 +314,74 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command) -> anyhow::Result<Value> {
         Command::ResizePane { pane, cols, rows } => {
             let pane = mux.pane(pane).ok_or_else(|| anyhow::anyhow!("unknown pane {pane}"))?;
             pane.resize(cols, rows);
+            Ok(json!({}))
+        }
+        Command::FocusPane { pane } => {
+            if !mux.focus_pane(pane) {
+                anyhow::bail!("unknown pane {pane}");
+            }
+            Ok(json!({}))
+        }
+        Command::SelectTab { index, delta } => {
+            mux.select_tab(index, delta);
+            Ok(json!({}))
+        }
+        Command::SelectWorkspace { index, delta } => {
+            mux.select_workspace(index, delta);
+            Ok(json!({}))
+        }
+        Command::ScrollPane { pane, delta } => {
+            let pane = mux.pane(pane).ok_or_else(|| anyhow::anyhow!("unknown pane {pane}"))?;
+            pane.with_terminal(|t| t.scroll_delta(delta));
+            Ok(json!({}))
+        }
+        Command::Subscribe => {
+            let events = mux.subscribe();
+            let writer = writer.clone();
+            std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
+                while let Ok(event) = events.recv() {
+                    let value = match &event {
+                        MuxEvent::PaneOutput(id) => json!({"event": "pane-output", "pane": id}),
+                        MuxEvent::PaneExited(id) => json!({"event": "pane-exited", "pane": id}),
+                        MuxEvent::TitleChanged(id) => json!({"event": "title-changed", "pane": id}),
+                        MuxEvent::Bell(id) => json!({"event": "bell", "pane": id}),
+                        MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
+                        MuxEvent::Empty => json!({"event": "empty"}),
+                    };
+                    if writer.send(&value).is_err() {
+                        break;
+                    }
+                }
+            })?;
+            Ok(json!({}))
+        }
+        Command::AttachPane { pane: pane_id } => {
+            let pane = mux
+                .pane(pane_id)
+                .ok_or_else(|| anyhow::anyhow!("unknown pane {pane_id}"))?;
+            let (cols, rows, replay, stream) = pane.attach_stream()?;
+            writer.send(&json!({
+                "event": "vt-state",
+                "pane": pane_id,
+                "cols": cols,
+                "rows": rows,
+                "data": base64::engine::general_purpose::STANDARD.encode(replay),
+            }))?;
+            let writer = writer.clone();
+            std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
+                while let Ok(chunk) = stream.recv() {
+                    let value = json!({
+                        "event": "output",
+                        "pane": pane_id,
+                        "data": base64::engine::general_purpose::STANDARD.encode(chunk),
+                    });
+                    if writer.send(&value).is_err() {
+                        break;
+                    }
+                }
+                // Pane gone (or reader stopped): signal end of stream.
+                let _ = writer.send(&json!({"event": "detached", "pane": pane_id}));
+            })?;
             Ok(json!({}))
         }
     }

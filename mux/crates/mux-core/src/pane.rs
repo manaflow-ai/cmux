@@ -55,6 +55,12 @@ pub struct Pane {
     title: Mutex<String>,
     pwd: Mutex<Option<String>>,
     size: Mutex<(u16, u16)>,
+    /// Live output subscribers (attach streams). Guarded by the terminal
+    /// lock ordering: the reader thread broadcasts while holding the
+    /// terminal lock, and [`Pane::attach_stream`] registers taps under
+    /// the same lock, so a subscriber sees exactly the bytes applied
+    /// after its replay snapshot — no gap, no duplication.
+    taps: Mutex<Vec<std::sync::mpsc::Sender<Vec<u8>>>>,
 }
 
 impl std::fmt::Debug for Pane {
@@ -137,6 +143,7 @@ impl Pane {
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             size: Mutex::new((opts.cols, opts.rows)),
+            taps: Mutex::new(Vec::new()),
         });
 
         // PTY reader: pty bytes → terminal state → PaneOutput events.
@@ -155,6 +162,12 @@ impl Pane {
                         {
                             let mut term = pane.term.lock().unwrap();
                             term.vt_write(&buf[..n]);
+                            {
+                                let mut taps = pane.taps.lock().unwrap();
+                                if !taps.is_empty() {
+                                    taps.retain(|tap| tap.send(buf[..n].to_vec()).is_ok());
+                                }
+                            }
                             if title_changed.swap(false, Ordering::Relaxed) {
                                 let title = term.title().unwrap_or_default();
                                 *pane.title.lock().unwrap() = title;
@@ -250,6 +263,25 @@ impl Pane {
     /// Clear the coalesced output flag; returns whether output was pending.
     pub fn take_dirty(&self) -> bool {
         self.dirty.swap(false, Ordering::AcqRel)
+    }
+
+    /// Attach to this pane: returns a VT replay of the current terminal
+    /// state plus a live stream of every pty byte applied after the
+    /// snapshot. Replaying the first into a fresh terminal of the same
+    /// size and then feeding the stream reproduces the pane exactly —
+    /// this is how an external frontend (e.g. a real Ghostty surface)
+    /// adopts a pane.
+    pub fn attach_stream(
+        &self,
+    ) -> ghostty_vt::Result<(u16, u16, Vec<u8>, std::sync::mpsc::Receiver<Vec<u8>>)> {
+        let mut term = self.term.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        // Snapshot and tap registration under the same terminal lock:
+        // the reader thread cannot apply bytes between the two.
+        let replay = term.vt_replay()?;
+        let (cols, rows) = (term.cols(), term.rows());
+        self.taps.lock().unwrap().push(tx);
+        Ok((cols, rows, replay, rx))
     }
 
     pub fn kill(&self) {

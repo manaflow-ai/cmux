@@ -2,21 +2,27 @@
 //!
 //! Runs the mux core (workspaces → tabs → panes on real PTYs, terminal
 //! state from libghostty-vt) with a Ratatui frontend, and always exposes
-//! the JSON control socket so external frontends can attach.
+//! the JSON control socket so external frontends can attach. `cmux-mux
+//! attach` connects the same TUI to an existing (usually headless)
+//! session over that socket, which is how detach/reattach works.
 
 mod app;
 mod keys;
+mod session;
 mod ui;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use mux_core::{Mux, PaneOptions};
+use session::{RemoteSession, Session};
 
 const USAGE: &str = "\
 cmux-mux - terminal multiplexer backed by libghostty-vt
 
 USAGE:
-  cmux-mux [OPTIONS]
+  cmux-mux [OPTIONS]           Start a session (TUI + control socket)
+  cmux-mux attach [OPTIONS]    Attach to an existing session's socket
 
 OPTIONS:
   --session <name>   Session name (default: main). Determines the socket path.
@@ -28,64 +34,100 @@ OPTIONS:
 KEYS (prefix: Ctrl-b)
   c  new tab           n/p  next/prev tab      1-9  select tab
   %  split right       \"  split down          x    kill pane
-  h/j/k/l or arrows    move focus              d    quit
+  h/j/k/l or arrows    move focus              d    quit (attach: detach)
   w  next workspace    W    new workspace
   Ctrl-b  send a literal Ctrl-b
 ";
 
-fn main() {
-    let mut session = "main".to_string();
-    let mut socket: Option<std::path::PathBuf> = None;
-    let mut headless = false;
-    let mut term: Option<String> = None;
+struct Args {
+    attach: bool,
+    session: String,
+    socket: Option<PathBuf>,
+    headless: bool,
+    term: Option<String>,
+}
 
-    let mut args = std::env::args().skip(1);
+fn parse_args() -> Args {
+    let mut out = Args {
+        attach: false,
+        session: "main".to_string(),
+        socket: None,
+        headless: false,
+        term: None,
+    };
+    let mut args = std::env::args().skip(1).peekable();
+    if args.peek().map(|s| s.as_str()) == Some("attach") {
+        out.attach = true;
+        args.next();
+    }
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--session" => {
-                session = args.next().unwrap_or_else(|| usage_exit("--session needs a value"))
+                out.session = args.next().unwrap_or_else(|| usage_exit("--session needs a value"))
             }
             "--socket" => {
-                socket = Some(
+                out.socket = Some(
                     args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into(),
                 )
             }
-            "--headless" => headless = true,
-            "--term" => term = Some(args.next().unwrap_or_else(|| usage_exit("--term needs a value"))),
+            "--headless" => out.headless = true,
+            "--term" => {
+                out.term = Some(args.next().unwrap_or_else(|| usage_exit("--term needs a value")))
+            }
             "-h" | "--help" => {
                 print!("{USAGE}");
-                return;
+                std::process::exit(0);
             }
             other => usage_exit(&format!("unknown argument {other:?}")),
         }
     }
+    out
+}
 
-    let mut pane_options = PaneOptions::default();
-    if let Some(term) = term {
-        pane_options.term = term;
-    }
-    // Compute the socket path up front so pane children inherit it.
-    let socket_path = socket.unwrap_or_else(|| mux_core::server::default_socket_path(&session));
-    pane_options
-        .extra_env
-        .push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
-
-    let mux = Mux::new(session, pane_options);
-    if let Err(e) = mux_core::server::serve(mux.clone(), Some(socket_path.clone())) {
-        eprintln!("cmux-mux: {e}");
-        std::process::exit(1);
-    }
-
-    let result = if headless {
-        run_headless(&mux, &socket_path)
+fn main() {
+    let args = parse_args();
+    let result = if args.attach {
+        run_attach(args)
     } else {
-        app::run(mux.clone(), &socket_path)
+        run_server(args)
     };
-    mux_core::server::cleanup(&socket_path);
     if let Err(e) = result {
         eprintln!("cmux-mux: {e}");
         std::process::exit(1);
     }
+}
+
+fn run_attach(args: Args) -> anyhow::Result<()> {
+    let socket_path = args
+        .socket
+        .unwrap_or_else(|| mux_core::server::default_socket_path(&args.session));
+    let remote = RemoteSession::connect(&socket_path)?;
+    app::run(Session::Remote(remote), args.session)
+}
+
+fn run_server(args: Args) -> anyhow::Result<()> {
+    let mut pane_options = PaneOptions::default();
+    if let Some(term) = args.term {
+        pane_options.term = term;
+    }
+    // Compute the socket path up front so pane children inherit it.
+    let socket_path = args
+        .socket
+        .unwrap_or_else(|| mux_core::server::default_socket_path(&args.session));
+    pane_options
+        .extra_env
+        .push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
+
+    let mux = Mux::new(args.session.clone(), pane_options);
+    mux_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
+
+    let result = if args.headless {
+        run_headless(&mux, &socket_path)
+    } else {
+        app::run(Session::Local(mux.clone()), args.session)
+    };
+    mux_core::server::cleanup(&socket_path);
+    result
 }
 
 fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result<()> {

@@ -400,10 +400,12 @@ name = "mux-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "crossterm",
  "ghostty-vt",
  "mux-core",
  "ratatui",
+ "serde_json",
  "unicode-width 0.2.0",
 ]
 

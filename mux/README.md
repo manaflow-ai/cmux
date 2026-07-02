@@ -17,8 +17,11 @@ Requires zig 0.15.2 (same pin as CI, see `scripts/install-zig-ci.sh`) and a Rust
 cd mux
 cargo run -p mux-tui            # TUI, session "main"
 cargo run -p mux-tui -- --headless --session agents   # backend only
+cargo run -p mux-tui -- attach --session agents       # attach/reattach a TUI to it
 cargo test                      # unit + integration tests
 ```
+
+Detach with prefix-d while attached; the headless session keeps running and `attach` reconnects with full screen state (VT replay + live stream). A local (non-attach) `cmux-mux` ends its session on quit.
 
 Keys (prefix Ctrl-b, tmux-style): `c` new tab, `n`/`p`/`1`-`9` switch tab, `%` split right, `"` split down, `h j k l`/arrows move focus, `x` kill pane, `w` next workspace, `W` new workspace, PageUp/PageDown scrollback, `d` quit, `Ctrl-b` twice sends a literal Ctrl-b. Mouse: click focuses, wheel scrolls (arrow keys on the alternate screen).
 
@@ -34,7 +37,9 @@ printf '%s\n' '{"id":3,"cmd":"send","pane":1,"text":"ls\r"}' | nc -U "$SOCK"
 printf '%s\n' '{"id":4,"cmd":"read-screen","pane":1}' | nc -U "$SOCK"
 ```
 
-Commands: `identify`, `list-workspaces`, `send` (text or base64 `bytes`), `read-screen`, `new-tab`, `new-workspace`, `split` (`dir`: `right`/`down`), `kill-pane`, `resize-pane`. This is the attach surface for the cmux app: the app can drive a headless session and render panes on real Ghostty surfaces because both sides speak the same VT state.
+Commands: `identify`, `list-workspaces` (includes each tab's split-tree `layout`), `send` (text or base64 `bytes`), `read-screen`, `vt-state`, `new-tab`, `new-workspace`, `split` (`dir`: `right`/`down`), `kill-pane`, `resize-pane`, `focus-pane`, `select-tab`, `select-workspace`, `scroll-pane`, `subscribe`, `attach-pane`.
+
+`subscribe` turns the connection full-duplex: the server pushes `{"event":...}` lines (tree-changed, pane-output, pane-exited, title-changed, bell). `attach-pane` sends a `vt-state` event carrying a base64 VT replay of the pane's complete state (screen, styles, cursor, modes, palette, kitty keyboard state, charsets — produced by ghostty's formatter), then streams every subsequent pty byte as `output` events. Replaying state then stream into a fresh terminal reproduces the pane exactly; the snapshot and stream tap are taken under the same terminal lock, so there is no gap and no duplication. This is the attach surface for the cmux app: a real Ghostty surface can adopt a pane by replaying `vt-state` and following the stream, because both sides speak the same VT engine.
 
 ## Design notes
 
@@ -45,7 +50,7 @@ Commands: `identify`, `list-workspaces`, `send` (text or base64 `bytes`), `read-
 
 ## Current limitations
 
-- One frontend process per session (no detach/reattach daemon yet; the socket already provides headless control).
+- Scrollback from before an attach is not replayed (the VT replay covers the screen and state, not history); the mirror accumulates its own scrollback from the live stream.
 - No mouse-event forwarding to applications (viewport scroll and alternate-screen arrow fallback only).
 - Kitty graphics state is tracked by the engine but not rendered by the TUI.
 - Split ratios are fixed at 50% (no interactive divider drag yet).

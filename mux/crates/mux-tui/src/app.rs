@@ -1,9 +1,12 @@
 //! TUI event loop and tmux-like command handling.
+//!
+//! Runs against a [`Session`], which is either the in-process mux or a
+//! remote session attached over the control socket. All state mutations
+//! go through the session; the app only owns presentation state (render
+//! snapshots, prefix arming, the current layout).
 
 use std::collections::HashMap;
-use std::path::Path;
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
-use std::sync::Arc;
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::time::Duration;
 
 use crossterm::event::{
@@ -15,11 +18,12 @@ use crossterm::terminal::{
 };
 use crossterm::ExecutableCommand;
 use ghostty_vt::{KeyEncoder, RenderState, Screen};
-use mux_core::{layout_tab, LayoutResult, Mux, MuxEvent, PaneId, Rect, SplitDir};
+use mux_core::{layout_tab, LayoutResult, MuxEvent, PaneId, Rect, SplitDir};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal as RatatuiTerminal;
 
 use crate::keys;
+use crate::session::{Session, TreeView};
 
 pub enum AppEvent {
     Mux(MuxEvent),
@@ -27,7 +31,8 @@ pub enum AppEvent {
 }
 
 pub struct App {
-    pub mux: Arc<Mux>,
+    pub session: Session,
+    pub tree: TreeView,
     pub render_states: HashMap<PaneId, RenderState>,
     pub layout: LayoutResult,
     pub prefix_armed: bool,
@@ -37,19 +42,20 @@ pub struct App {
     quit: bool,
 }
 
-pub fn run(mux: Arc<Mux>, socket_path: &Path) -> anyhow::Result<()> {
+pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     // First workspace/tab/pane before the terminal switches modes, so a
     // spawn failure prints a normal error.
-    mux.new_workspace(None)?;
+    session.ensure_initial()?;
+    let encoder = KeyEncoder::new()?;
 
     let (tx, rx) = channel::<AppEvent>();
 
-    // Mux events → app channel.
-    let mux_events = mux.subscribe();
+    // Session events → app channel.
+    let session_events = session.events();
     std::thread::Builder::new().name("mux-events".into()).spawn({
         let tx = tx.clone();
         move || {
-            while let Ok(event) = mux_events.recv() {
+            while let Ok(event) = session_events.recv() {
                 if tx.send(AppEvent::Mux(event)).is_err() {
                     break;
                 }
@@ -71,8 +77,6 @@ pub fn run(mux: Arc<Mux>, socket_path: &Path) -> anyhow::Result<()> {
             }
         }
     })?;
-
-    let encoder = KeyEncoder::new()?;
 
     enable_raw_mode()?;
     if let Err(e) = (|| -> anyhow::Result<()> {
@@ -102,20 +106,18 @@ pub fn run(mux: Arc<Mux>, socket_path: &Path) -> anyhow::Result<()> {
     };
 
     let mut app = App {
-        mux,
+        session,
+        tree: TreeView::default(),
         render_states: HashMap::new(),
         layout: LayoutResult::default(),
         prefix_armed: false,
-        session_label: socket_path
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "main".into()),
+        session_label,
         encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
     };
 
-    let result = app.event_loop(&mut terminal, rx, tx);
+    let result = app.event_loop(&mut terminal, rx);
     let _ = std::panic::take_hook();
     restore_terminal()?;
     result
@@ -135,7 +137,6 @@ impl App {
         &mut self,
         terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
         rx: Receiver<AppEvent>,
-        _tx: Sender<AppEvent>,
     ) -> anyhow::Result<()> {
         // Initial layout + draw.
         let size = terminal.size()?;
@@ -150,7 +151,7 @@ impl App {
                 Err(RecvTimeoutError::Timeout) => None,
                 Err(RecvTimeoutError::Disconnected) => break,
             };
-            let mut needs_draw = first.is_none(); // timeout → cursor blink etc: skip
+            let mut needs_draw = false;
             if let Some(event) = first {
                 needs_draw |= self.handle(event)?;
             }
@@ -172,7 +173,8 @@ impl App {
         Ok(())
     }
 
-    /// Recompute the active tab's layout and push sizes to its panes.
+    /// Refresh the tree snapshot, recompute the active tab's layout, and
+    /// push sizes to its panes.
     fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
         let area = Rect {
@@ -181,14 +183,17 @@ impl App {
             width,
             height: height.saturating_sub(1), // status bar
         };
-        let layout = self.mux.with_tree(|workspaces, active_ws| {
-            workspaces.get(active_ws).and_then(|ws| {
-                ws.tabs.get(ws.active_tab).map(|tab| layout_tab(&tab.root, area))
-            })
-        });
-        self.layout = layout.unwrap_or_default();
+        self.tree = self.session.tree();
+        self.layout = self
+            .tree
+            .active_tab()
+            .map(|tab| layout_tab(&tab.layout, area))
+            .unwrap_or_default();
         for (pane_id, rect) in self.layout.panes.clone() {
-            if let Some(pane) = self.mux.pane(pane_id) {
+            if rect.width == 0 || rect.height == 0 {
+                continue;
+            }
+            if let Some(pane) = self.session.pane(pane_id) {
                 pane.resize(rect.width, rect.height);
             }
         }
@@ -202,7 +207,7 @@ impl App {
             }
             AppEvent::Mux(MuxEvent::PaneExited(id)) => {
                 self.render_states.remove(&id);
-                self.mux.close_pane(id);
+                self.session.reap_pane(id);
                 Ok(true)
             }
             AppEvent::Mux(_) => Ok(true),
@@ -218,26 +223,7 @@ impl App {
     }
 
     fn active_pane(&self) -> Option<PaneId> {
-        self.mux.with_tree(|workspaces, active_ws| {
-            workspaces
-                .get(active_ws)
-                .and_then(|ws| ws.tabs.get(ws.active_tab))
-                .map(|tab| tab.active_pane)
-        })
-    }
-
-    fn set_active_pane(&self, pane: PaneId) {
-        self.mux.with_tree_mut(|workspaces, active_ws| {
-            if let Some(ws) = workspaces.get_mut(*active_ws) {
-                if let Some(tab) = ws.tabs.get_mut(ws.active_tab) {
-                    let mut ids = Vec::new();
-                    tab.root.pane_ids(&mut ids);
-                    if ids.contains(&pane) {
-                        tab.active_pane = pane;
-                    }
-                }
-            }
-        });
+        self.tree.active_tab().map(|tab| tab.active_pane)
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
@@ -265,49 +251,51 @@ impl App {
                 Ok(true)
             }
             (KeyCode::Char('c'), _) => {
-                self.mux.new_tab(None, None)?;
+                self.session.new_tab()?;
                 Ok(true)
             }
             (KeyCode::Char('%'), _) => {
                 if let Some(active) = active {
-                    self.mux.split(active, SplitDir::Right)?;
+                    self.session.split(active, SplitDir::Right)?;
                 }
                 Ok(true)
             }
             (KeyCode::Char('"'), _) => {
                 if let Some(active) = active {
-                    self.mux.split(active, SplitDir::Down)?;
+                    self.session.split(active, SplitDir::Down)?;
                 }
                 Ok(true)
             }
             (KeyCode::Char('x'), _) => {
                 if let Some(active) = active {
                     self.render_states.remove(&active);
-                    self.mux.close_pane(active);
+                    self.session.close_pane(active);
                 }
                 Ok(true)
             }
             (KeyCode::Char('n'), _) => {
-                self.cycle_tab(1);
+                self.session.select_tab(None, Some(1));
                 Ok(true)
             }
             (KeyCode::Char('p'), _) => {
-                self.cycle_tab(-1);
+                self.session.select_tab(None, Some(-1));
                 Ok(true)
             }
             (KeyCode::Char(c @ '1'..='9'), _) => {
-                self.select_tab(c as usize - '1' as usize);
+                self.session.select_tab(Some(c as usize - '1' as usize), None);
                 Ok(true)
             }
             (KeyCode::Char('w'), m) if !m.contains(KeyModifiers::SHIFT) => {
-                self.cycle_workspace(1);
+                self.session.select_workspace(1);
                 Ok(true)
             }
             (KeyCode::Char('W'), _) => {
-                self.mux.new_workspace(None)?;
+                self.session.new_workspace()?;
                 Ok(true)
             }
             (KeyCode::Char('d'), _) => {
+                // Local sessions end with the TUI; remote sessions keep
+                // running server-side (detach).
                 self.quit = true;
                 Ok(false)
             }
@@ -339,56 +327,23 @@ impl App {
         }
     }
 
-    fn cycle_tab(&self, delta: isize) {
-        self.mux.with_tree_mut(|workspaces, active_ws| {
-            if let Some(ws) = workspaces.get_mut(*active_ws) {
-                let len = ws.tabs.len() as isize;
-                if len > 0 {
-                    ws.active_tab = ((ws.active_tab as isize + delta).rem_euclid(len)) as usize;
-                }
-            }
-        });
-        self.mux.emit(MuxEvent::TreeChanged);
-    }
-
-    fn select_tab(&self, index: usize) {
-        self.mux.with_tree_mut(|workspaces, active_ws| {
-            if let Some(ws) = workspaces.get_mut(*active_ws) {
-                if index < ws.tabs.len() {
-                    ws.active_tab = index;
-                }
-            }
-        });
-        self.mux.emit(MuxEvent::TreeChanged);
-    }
-
-    fn cycle_workspace(&self, delta: isize) {
-        self.mux.with_tree_mut(|workspaces, active_ws| {
-            let len = workspaces.len() as isize;
-            if len > 0 {
-                *active_ws = ((*active_ws as isize + delta).rem_euclid(len)) as usize;
-            }
-        });
-        self.mux.emit(MuxEvent::TreeChanged);
-    }
-
     fn move_focus(&self, dx: i32, dy: i32) {
         if let Some(active) = self.active_pane() {
             if let Some(next) = self.layout.neighbor(active, dx, dy) {
-                self.set_active_pane(next);
+                self.session.focus_pane(next);
             }
         }
     }
 
     fn scroll_active(&self, delta: isize) {
-        if let Some(pane) = self.active_pane().and_then(|id| self.mux.pane(id)) {
+        if let Some(pane) = self.active_pane().and_then(|id| self.session.pane(id)) {
             pane.with_terminal(|t| t.scroll_delta(delta));
         }
     }
 
     fn forward_key(&mut self, key: &KeyEvent) {
         let Some(input) = keys::key_input_from(key) else { return };
-        let Some(pane) = self.active_pane().and_then(|id| self.mux.pane(id)) else {
+        let Some(pane) = self.active_pane().and_then(|id| self.session.pane(id)) else {
             return;
         };
         self.encode_buf.clear();
@@ -399,12 +354,12 @@ impl App {
             self.encoder.encode(&input, &mut self.encode_buf)
         });
         if encoded.is_ok() && !self.encode_buf.is_empty() {
-            let _ = pane.write_bytes(&self.encode_buf);
+            pane.write_bytes(&self.encode_buf);
         }
     }
 
     fn paste(&mut self, text: &str) {
-        let Some(pane) = self.active_pane().and_then(|id| self.mux.pane(id)) else {
+        let Some(pane) = self.active_pane().and_then(|id| self.session.pane(id)) else {
             return;
         };
         let bracketed = pane.with_terminal(|t| t.mode(2004, false));
@@ -413,9 +368,9 @@ impl App {
             bytes.extend_from_slice(b"\x1b[200~");
             bytes.extend_from_slice(text.as_bytes());
             bytes.extend_from_slice(b"\x1b[201~");
-            let _ = pane.write_bytes(&bytes);
+            pane.write_bytes(&bytes);
         } else {
-            let _ = pane.write_bytes(text.as_bytes());
+            pane.write_bytes(text.as_bytes());
         }
     }
 
@@ -423,7 +378,7 @@ impl App {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 if let Some(pane) = self.layout.pane_at(mouse.column, mouse.row) {
-                    self.set_active_pane(pane);
+                    self.session.focus_pane(pane);
                     return Ok(true);
                 }
                 Ok(false)
@@ -433,18 +388,22 @@ impl App {
                 let Some(pane_id) = self.layout.pane_at(mouse.column, mouse.row) else {
                     return Ok(false);
                 };
-                let Some(pane) = self.mux.pane(pane_id) else { return Ok(false) };
-                pane.with_terminal(|term| {
+                let Some(pane) = self.session.pane(pane_id) else { return Ok(false) };
+                let sent_arrows = pane.with_terminal(|term| {
                     if term.active_screen() == Screen::Alternate && !term.mouse_tracking() {
-                        // Alt-screen apps without mouse support get arrow
-                        // keys (the usual alternate-scroll behavior).
-                        let seq: &[u8] = if down { b"\x1b[B\x1b[B\x1b[B" } else { b"\x1b[A\x1b[A\x1b[A" };
                         term.scroll_to_bottom();
-                        let _ = pane.write_bytes(seq);
+                        true
                     } else {
                         term.scroll_delta(if down { 3 } else { -3 });
+                        false
                     }
                 });
+                if sent_arrows {
+                    // Alt-screen apps without mouse support get arrow keys
+                    // (the usual alternate-scroll behavior).
+                    let seq: &[u8] = if down { b"\x1b[B\x1b[B\x1b[B" } else { b"\x1b[A\x1b[A\x1b[A" };
+                    pane.write_bytes(seq);
+                }
                 Ok(true)
             }
             _ => Ok(false),

@@ -50,3 +50,7 @@ jobs:
         run: |
           cargo build -p mux-tui
           python3 scripts/smoke-tui.py
+
+      - name: Detach/reattach smoke test
+        working-directory: mux
+        run: python3 scripts/smoke-attach.py

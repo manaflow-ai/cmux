@@ -241,6 +241,45 @@ impl Terminal {
             },
             selection: ptr::null(),
         };
+        Ok(String::from_utf8_lossy(&self.format(opts)?).into_owned())
+    }
+
+    /// VT-sequence replay of the terminal's current state: feeding the
+    /// returned bytes into a fresh terminal of the same size reproduces
+    /// the screen contents, styles, cursor, modes, palette, keyboard
+    /// state, charsets, and tabstops. This is the attach primitive: a new
+    /// frontend replays this, then follows the live pty stream.
+    pub fn vt_replay(&mut self) -> Result<Vec<u8>> {
+        let opts = sys::GhosttyFormatterTerminalOptions {
+            size: std::mem::size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
+            unwrap: false,
+            trim: false,
+            extra: sys::GhosttyFormatterTerminalExtra {
+                size: std::mem::size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                palette: true,
+                modes: true,
+                scrolling_region: true,
+                tabstops: true,
+                pwd: true,
+                keyboard: true,
+                screen: sys::GhosttyFormatterScreenExtra {
+                    size: std::mem::size_of::<sys::GhosttyFormatterScreenExtra>(),
+                    cursor: true,
+                    style: true,
+                    hyperlink: true,
+                    protection: true,
+                    kitty_keyboard: true,
+                    charsets: true,
+                    ..Default::default()
+                },
+            },
+            selection: ptr::null(),
+        };
+        self.format(opts)
+    }
+
+    fn format(&mut self, opts: sys::GhosttyFormatterTerminalOptions) -> Result<Vec<u8>> {
         let mut formatter: sys::GhosttyFormatter = ptr::null_mut();
         check(unsafe {
             sys::ghostty_formatter_terminal_new(ptr::null(), &mut formatter, self.raw, opts)
@@ -259,7 +298,7 @@ impl Terminal {
                 sys::ghostty_formatter_format_buf(formatter, buf.as_mut_ptr(), buf.len(), &mut written)
             })?;
             buf.truncate(written);
-            Ok(String::from_utf8_lossy(&buf).into_owned())
+            Ok(buf)
         })();
         unsafe { sys::ghostty_formatter_free(formatter) };
         result

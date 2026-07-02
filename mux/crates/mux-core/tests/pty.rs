@@ -125,6 +125,59 @@ fn control_socket_round_trip() {
 }
 
 #[test]
+fn attach_stream_replays_then_streams_without_duplication() {
+    let mut opts = PaneOptions::default();
+    opts.command = Some(vec![
+        "/bin/sh".to_string(),
+        "-c".to_string(),
+        "printf 'before-attach\\n'; read line; printf 'after-%s\\n' \"$line\"; sleep 30".to_string(),
+    ]);
+    let mux = Mux::new("test-attach", opts);
+    let pane = mux.new_workspace(None).unwrap();
+
+    // Wait until the pre-attach output landed in the terminal.
+    let ok = wait_for(
+        || {
+            pane.with_terminal(|t| t.plain_text())
+                .unwrap()
+                .contains("before-attach")
+                .then_some(())
+        },
+        Duration::from_secs(10),
+    );
+    assert!(ok.is_some());
+
+    let (cols, rows, replay, stream) = pane.attach_stream().unwrap();
+    assert!(cols > 0 && rows > 0);
+
+    // The replay reproduces pre-attach content in a fresh terminal.
+    let mut mirror =
+        ghostty_vt::Terminal::new(cols, rows, 1000, ghostty_vt::Callbacks::default()).unwrap();
+    mirror.vt_write(&replay);
+    assert!(mirror.plain_text().unwrap().contains("before-attach"));
+
+    // Post-attach output arrives on the stream, not duplicated in the
+    // replay we already applied.
+    pane.write_bytes(b"attach\n").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match stream.recv_timeout(Duration::from_millis(200)) {
+            Ok(chunk) => {
+                mirror.vt_write(&chunk);
+                if mirror.plain_text().unwrap().contains("after-attach") {
+                    break;
+                }
+            }
+            Err(_) => assert!(Instant::now() < deadline, "stream never delivered output"),
+        }
+    }
+    let text = mirror.plain_text().unwrap();
+    assert_eq!(text.matches("before-attach").count(), 1, "duplicated replay: {text}");
+
+    mux.close_pane(pane.id);
+}
+
+#[test]
 fn new_tab_on_empty_headless_session_creates_workspace() {
     // A headless session receives new-tab before any workspace exists;
     // this used to index workspaces[0] and panic.

@@ -74,37 +74,31 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
 }
 
 fn gather_status(app: &App) -> (Option<PaneId>, String) {
-    app.mux.with_state(|workspaces, active_ws, panes| {
-        let mut status = format!("[{}]", app.session_label);
-        let mut active_pane = None;
-        for (i, ws) in workspaces.iter().enumerate() {
-            if i == active_ws {
-                status.push_str(&format!(" {}*", ws.name));
-                let tabs = ws
-                    .tabs
-                    .iter()
-                    .enumerate()
-                    .map(|(t, tab)| {
-                        let title = panes
-                            .get(&tab.active_pane)
-                            .map(|p| p.title())
-                            .filter(|t| !t.is_empty())
-                            .unwrap_or_else(|| "shell".into());
-                        let marker = if t == ws.active_tab { "*" } else { "" };
-                        format!("{}:{}{}", t + 1, truncate(&title, 18), marker)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                status.push_str(&format!("  {tabs}"));
-                if let Some(tab) = ws.tabs.get(ws.active_tab) {
-                    active_pane = Some(tab.active_pane);
-                }
-            } else {
-                status.push_str(&format!(" {}", ws.name));
+    let mut status = format!("[{}]", app.session_label);
+    let mut active_pane = None;
+    for (i, ws) in app.tree.workspaces.iter().enumerate() {
+        if i == app.tree.active_workspace {
+            status.push_str(&format!(" {}*", ws.name));
+            let tabs = ws
+                .tabs
+                .iter()
+                .enumerate()
+                .map(|(t, tab)| {
+                    let title = if tab.title.is_empty() { "shell" } else { tab.title.as_str() };
+                    let marker = if t == ws.active_tab { "*" } else { "" };
+                    format!("{}:{}{}", t + 1, truncate(title, 18), marker)
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            status.push_str(&format!("  {tabs}"));
+            if let Some(tab) = ws.tabs.get(ws.active_tab) {
+                active_pane = Some(tab.active_pane);
             }
+        } else {
+            status.push_str(&format!(" {}", ws.name));
         }
-        (active_pane, status)
-    })
+    }
+    (active_pane, status)
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -126,7 +120,10 @@ fn draw_pane(
     rect: mux_core::Rect,
     focused: bool,
 ) -> Option<(u16, u16, CursorShape)> {
-    let pane = app.mux.pane(pane_id)?;
+    if rect.width == 0 || rect.height == 0 {
+        return None;
+    }
+    let pane = app.session.pane(pane_id)?;
     pane.take_dirty();
 
     let rs = app
