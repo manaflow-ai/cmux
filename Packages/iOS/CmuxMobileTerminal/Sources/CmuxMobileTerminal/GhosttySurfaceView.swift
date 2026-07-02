@@ -747,12 +747,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// compose-button tap.
     fileprivate var lastComposerDockIntent: ComposerDockIntent?
 
-    fileprivate struct DebugScrollbarSnapshot {
-        let total: Int
-        let offset: Int
-        let len: Int
-    }
-
+    fileprivate struct DebugScrollbarSnapshot { let total: Int; let offset: Int; let len: Int }
     fileprivate var debugLastScrollbar: DebugScrollbarSnapshot?
     fileprivate var debugBottomScrollStressPhase = "idle"
     fileprivate var debugBottomViewportMismatchObserved = false
@@ -800,10 +795,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // full height; the test compares the gap, not equality.
             "renderHeight=\(Int(lastRenderRect.height))",
             "boundsHeight=\(Int(bounds.height))",
-            "scrollTotal=\(debugLastScrollbar?.total ?? -1)",
-            "scrollOffset=\(debugLastScrollbar?.offset ?? -1)",
-            "scrollLen=\(debugLastScrollbar?.len ?? -1)",
-            "scrollAtBottom=\(debugScrollbarAtBottomForTesting ? 1 : 0)",
+            "scrollTotal=\(debugLastScrollbar?.total ?? -1)", "scrollOffset=\(debugLastScrollbar?.offset ?? -1)",
+            "scrollLen=\(debugLastScrollbar?.len ?? -1)", "scrollAtBottom=\(debugScrollbarAtBottomForTesting ? 1 : 0)",
             "staleViewportObserved=\(debugBottomViewportMismatchObserved ? 1 : 0)",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
@@ -811,8 +804,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private var debugScrollbarAtBottomForTesting: Bool {
         guard let snapshot = debugLastScrollbar else { return false }
-        return snapshot.total > snapshot.len
-            && snapshot.offset >= max(0, snapshot.total - snapshot.len - 1)
+        return snapshot.total > snapshot.len && snapshot.offset >= max(0, snapshot.total - snapshot.len - 1)
     }
     #endif
     private let snapshotFallbackView: UITextView = {
@@ -1846,37 +1838,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// own curve/duration through ``startKeyboardHeightAnimation(to:transition:)``.
     private static let composerReflowDuration: TimeInterval = 0.25
 
-    /// Frames for the whole bottom dock, computed together so the composer band, the
-    /// docked toolbar, and the keyboard top stack consistently in the surface's single
-    /// coordinate system.
-    ///
-    /// Round 8 stack, from the BOTTOM up: the keyboard (or, keyboard-down, the bottom
-    /// safe area) occupies `keyboardOccupancyInBounds` at the surface bottom; the
-    /// composer band (when open) sits directly above that; the toolbar button band
-    /// sits directly above the composer; the terminal grid fills the rest. So the
-    /// visual order top→bottom is `terminal / toolbar / composer / keyboard` (item 1).
-    /// This is the inverse of Round 7 (toolbar-on-keyboard, composer-above-toolbar):
-    /// the composer is now the chrome closest to the keyboard, with the always-visible
-    /// toolbar above it.
-    ///
-    /// The toolbar's button row is bottom-pinned inside its container (see
-    /// `TerminalInputTextView.dockedButtonRowHeight`), so the controls always hug the
-    /// band's bottom. The toolbar's TOP is the live terminal viewport bottom. The
-    /// rendered layer is independently bottom-pinned to that same viewport while
-    /// async libghostty resize catches up, so the keyboard transition has one moving
-    /// bottom edge instead of a dock edge derived from stale render readback.
-    ///
-    /// While the HIDE button has suppressed the chrome (``chromeHidden``) the dock is
-    /// off screen (both frames `.zero`); the grid reservation matches (it reserves 0),
-    /// so the terminal reclaims the whole height.
+    /// Frames for the bottom dock, computed from the same viewport snapshot as
+    /// the render layer so terminal, toolbar, composer, and keyboard share one
+    /// bottom edge.
     private func bottomDockFrames() -> (composer: CGRect, toolbar: CGRect) {
         let snapshot = viewportSnapshot()
         return (snapshot.composerFrame, snapshot.toolbarFrame)
     }
 
-    /// Position the composer band and the docked toolbar from ``bottomDockFrames()``.
-    /// The single layout entry point for the bottom dock; called on every geometry,
-    /// keyboard, and composer-height change so the whole dock moves as one.
+    /// Position the composer band and docked toolbar from one viewport snapshot.
     private func layoutBottomDock() {
         layoutBottomDock(using: viewportSnapshot())
     }
@@ -2202,13 +2172,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         performFontZoom(direction)
     }
 
-    public func debugSetBottomScrollStressPhase(_ phase: String) {
-        debugBottomScrollStressPhase = phase
-    }
+    public func debugSetBottomScrollStressPhase(_ phase: String) { debugBottomScrollStressPhase = phase }
 
-    public var debugIsBottomScrollStressAtBottom: Bool {
-        debugScrollbarAtBottomForTesting
-    }
+    public var debugIsBottomScrollStressAtBottom: Bool { debugScrollbarAtBottomForTesting }
 
     public func debugScrollToBottomForTesting() {
         guard let surface else { return }
@@ -2222,19 +2188,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @MainActor
     static func updateScrollbarForTesting(total: Int, offset: Int, len: Int, for surface: ghostty_surface_t) {
-        view(for: surface)?.debugLastScrollbar = DebugScrollbarSnapshot(
-            total: total,
-            offset: offset,
-            len: len
-        )
+        view(for: surface)?.debugLastScrollbar = DebugScrollbarSnapshot(total: total, offset: offset, len: len)
     }
 
     private func debugRecordBottomViewportMismatchIfNeeded() {
         guard debugScrollbarAtBottomForTesting else { return }
         let targetHeight = targetTerminalViewportHeight
         let liveHeight = terminalViewportHeight
-        guard liveHeight > targetHeight + 1,
-              lastRenderRect.height <= targetHeight + 1,
+        guard liveHeight > targetHeight + 1, lastRenderRect.height <= targetHeight + 1,
               lastRenderRect.minY > 1 else { return }
         debugBottomViewportMismatchObserved = true
     }
