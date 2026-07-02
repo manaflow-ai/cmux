@@ -52,12 +52,25 @@ struct WorkspaceRow: View {
                     .frame(width: 6)
             }
 
+            // Always one line, even with Wrap Workspace Titles on: wrapping
+            // would defeat the point of the compact list (the wrap toggle is
+            // disabled in Settings while compact mode is active).
             Text(workspace.name)
                 .font(.body)
                 .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
-                .lineLimit(wrapWorkspaceTitles ? nil : 1)
+                .lineLimit(1)
 
-            Spacer(minLength: 0)
+            // A healthy connection contributes nothing, but a reconnecting or
+            // unreachable Mac must stay visible even in compact rows.
+            if connectionStatus != .connected {
+                Spacer(minLength: 8)
+                Text(connectionStatus.label)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            } else {
+                Spacer(minLength: 0)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)

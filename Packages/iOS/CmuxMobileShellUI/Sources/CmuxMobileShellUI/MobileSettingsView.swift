@@ -229,6 +229,9 @@ struct MobileSettingsView: View {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }
                     .accessibilityIdentifier("MobileSettingsWrapTitles")
+                    // Compact rows are always one line, so wrapping would
+                    // silently do nothing while compact mode is on.
+                    .disabled(displaySettings.compactWorkspaceList)
 
                     Picker(selection: $displaySettings.workspacePreviewLineCount) {
                         Text(L10n.string("mobile.settings.previewLines.one", defaultValue: "1 Line"))

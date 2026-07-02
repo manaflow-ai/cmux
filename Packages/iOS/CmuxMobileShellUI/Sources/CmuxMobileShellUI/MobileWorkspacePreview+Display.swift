@@ -83,14 +83,18 @@ extension MobileWorkspacePreview {
         L10n.terminalCount(terminals.count)
     }
 
-    func accessibilitySummary(connectionStatus: MobileMacConnectionStatus) -> String {
+    func accessibilitySummary(connectionStatus: MobileMacConnectionStatus, compact: Bool = false) -> String {
         var parts: [String] = []
         // The unread dot itself is accessibility-hidden; VoiceOver hears the
         // state here instead, leading like Messages does.
         if hasUnread {
             parts.append(L10n.string("mobile.workspace.unread", defaultValue: "Unread"))
         }
-        parts.append(previewLine)
+        // Compact rows do not show the activity preview, so VoiceOver should
+        // not announce it either.
+        if !compact {
+            parts.append(previewLine)
+        }
         // A healthy connection contributes no status text anywhere, including VoiceOver.
         if connectionStatus != .connected {
             parts.append(connectionStatus.label)

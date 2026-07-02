@@ -69,7 +69,7 @@ struct WorkspaceNavigationRow: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
         .accessibilityLabel(workspace.name)
-        .accessibilityValue(workspace.accessibilitySummary(connectionStatus: connectionStatus))
+        .accessibilityValue(workspace.accessibilitySummary(connectionStatus: connectionStatus, compact: isCompact))
         .sheet(isPresented: $isRenaming) {
             WorkspaceRenameSheet(currentName: workspace.name) { newName in
                 renameWorkspace?(workspace.id, newName)
