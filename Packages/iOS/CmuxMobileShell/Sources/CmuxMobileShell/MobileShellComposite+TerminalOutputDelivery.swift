@@ -175,6 +175,7 @@ extension MobileShellComposite {
               terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
             guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {
+                terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
                 MobileDebugLog.anchormux("terminal.output.reset_barrier_active surface=\(surfaceID)")
                 return
             }

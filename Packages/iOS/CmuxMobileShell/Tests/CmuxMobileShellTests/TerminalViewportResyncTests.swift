@@ -393,7 +393,12 @@ import Testing
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     let surfaceID = "live-terminal"
 
-    await router.enqueueReplayTexts(["cold-replay", "initial-viewport-replay", "retry-resize-replay"])
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "failed-reset-replay",
+        "retry-resize-replay",
+    ])
     var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     let coldReplayChunk = try #require(await iterator.next())
@@ -405,8 +410,25 @@ import Testing
     let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
 
     await router.emptyNextViewportResponses()
-    let failedGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
+    await router.holdViewportRequest(number: 2)
+    let failedReport = Task {
+        await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
+    }
+    await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 2)
+    let resetStreamToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
+    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: resetStreamToken)
+    await router.releaseAllHeld()
+    let failedGrid = await failedReport.value
     #expect(failedGrid == nil)
+    let resetReplayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1
+    )
+    #expect(resetReplayRequested, "a reset during a failed pre-ACK viewport report must still replay")
+    let resetReplayChunk = try #require(await iterator.next())
+    #expect(String(data: resetReplayChunk.data, encoding: .utf8) == "failed-reset-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: resetReplayChunk.streamToken)
+    let replayCountAfterFailedReset = await router.count(of: "mobile.terminal.replay")
 
     await router.holdViewportRequest(number: 3)
     let retryReport = Task {
@@ -425,7 +447,7 @@ import Testing
     #expect(retryGrid?.rows == 30)
     let replayAfterRetry = await router.waitForCount(
         of: "mobile.terminal.replay",
-        atLeast: replayCountAfterBaseline + 1
+        atLeast: replayCountAfterFailedReset + 1
     )
     #expect(replayAfterRetry, "the successful retry must request replay for the new effective grid")
     let replayChunk = try #require(await iterator.next())

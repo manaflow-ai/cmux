@@ -78,7 +78,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             if cursor.visible {
                 bytes.append(Data("\u{1B}[?25h\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
             } else {
-                bytes.append(Data("\u{1B}[?25l".utf8))
+                bytes.append(Data("\u{1B}[?25l\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
             }
         }
         return bytes
