@@ -21,6 +21,10 @@ final class SecondaryMacSubscription {
     /// Coalesces hot `workspace.updated` bursts to one leading and one trailing fetch.
     var refreshTask: Task<Void, Never>?
     var refreshPending = false
+    /// Set once the live client has been handed to another owner — currently only
+    /// `promoteSecondaryToForeground`, which reuses this connection as the
+    /// foreground client. `deinit` must not disconnect a client it no longer owns.
+    private var clientHandedOff = false
 
     init(
         macDeviceID: String,
@@ -49,11 +53,14 @@ final class SecondaryMacSubscription {
     }
 
     /// Stop the read-only consumer loops while keeping the client connected.
+    /// The caller takes ownership of `client` (e.g. foreground promotion), so
+    /// `deinit` must no longer disconnect it.
     func detachKeepingClient() {
         task?.cancel()
         task = nil
         refreshTask?.cancel()
         refreshTask = nil
+        clientHandedOff = true
     }
 
     // A subscription dropped without an explicit `cancel()` — e.g. when the
@@ -64,9 +71,15 @@ final class SecondaryMacSubscription {
     // build toolchain, but everything touched here is `Sendable`, and
     // `disconnect()` → `session.tearDown` is idempotent, so running after a
     // prior `cancel()` is a no-op.
+    //
+    // The one client we must NOT disconnect is a handed-off one: after
+    // `detachKeepingClient()` the connection was reused elsewhere (foreground
+    // promotion), so disconnecting it here would tear down a live client that
+    // another owner now depends on.
     deinit {
         task?.cancel()
         refreshTask?.cancel()
+        guard !clientHandedOff else { return }
         let client = self.client
         Task { await client.disconnect() }
     }
