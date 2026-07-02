@@ -230,10 +230,11 @@ struct NotificationsPage: View {
 
 /// Live "running coding agents" summary shown to the right of the
 /// Notifications title: one badge per agent provider (Claude, Codex, opencode,
-/// pi, other). Backed by the same self-reported agent PID registry as the
-/// Sleepy Mode pet census; re-sampled every couple of seconds while the page
-/// is visible, and each pass is O(open tabs). Read-only: the body computes a
-/// value snapshot and never writes store state.
+/// pi, other). Backed by the shared `SleepyAgentCensus` (the self-reported
+/// agent PID registry that also drives the Sleepy Mode pets); re-sampled every
+/// couple of seconds while the page is visible, and each census pass is
+/// O(open tabs). The body only reads a value snapshot; it never writes
+/// `@Published` state.
 struct NotificationAgentCountsView: View {
     struct Segment: Equatable, Identifiable {
         let name: String
@@ -242,8 +243,14 @@ struct NotificationAgentCountsView: View {
     }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 2)) { _ in
-            let counts = SleepyAgentCensus.liveCounts()
+        TimelineView(.periodic(from: .now, by: 2)) { context in
+            // Sample through the shared census instance (same
+            // timeIntervalSinceReferenceDate clock as SleepyFaceView) so the
+            // 2s cache is shared and the `sleepy_mode pets` debug override
+            // drives this surface too.
+            let counts = SleepyModeController.shared.agentCensus.sample(
+                at: context.date.timeIntervalSinceReferenceDate
+            )
             if counts.total > 0 {
                 HStack(spacing: 6) {
                     ForEach(Self.segments(for: counts)) { segment in
