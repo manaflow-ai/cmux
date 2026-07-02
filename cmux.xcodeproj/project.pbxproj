@@ -697,6 +697,7 @@
 		596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */; };
 		8B1B2AB6EC6ACDB2CD39A9BB /* NewBrowserWorkspaceShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */; };
 		A50E998A26659657CAFC8ED2 /* NotificationAgentCountsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54F0E1B9A804AD6F9364371 /* NotificationAgentCountsTests.swift */; };
+		A5149C9B897B099D5F6DA7F8 /* NotificationAgentCountsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A552A444A1D63B14640B6D98 /* NotificationAgentCountsView.swift */; };
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
 		C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552010000000000000004 /* NotificationBurstCoalescer.swift */; };
 		D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */; };
@@ -1940,6 +1941,7 @@
 		596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationFallbackCommandTests.swift; sourceTree = "<group>"; };
 		04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewBrowserWorkspaceShortcutUITests.swift; sourceTree = "<group>"; };
 		A54F0E1B9A804AD6F9364371 /* NotificationAgentCountsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAgentCountsTests.swift; sourceTree = "<group>"; };
+		A552A444A1D63B14640B6D98 /* NotificationAgentCountsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAgentCountsView.swift; sourceTree = "<group>"; };
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
 		C06552010000000000000004 /* NotificationBurstCoalescer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationBurstCoalescer.swift; sourceTree = "<group>"; };
 		D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationDismissSyncTests.swift"; sourceTree = "<group>"; };
@@ -3104,6 +3106,7 @@
 				B37A00000000000000000006 /* MainWindowFocusTypes.swift */,
 				2F0C05000000000000000001 /* MainWindowFocusController.swift */,
 				A5001091 /* NotificationsPage.swift */,
+				A552A444A1D63B14640B6D98 /* NotificationAgentCountsView.swift */,
 				D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */,
 				D1F0A00500000000000000E2 /* MacPresenceDecisionCache.swift */,
 				D1F0A00600000000000000F2 /* ScreenLockObserver.swift */,
@@ -4636,6 +4639,7 @@
 				C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */,
 				00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */,
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,
+				A5149C9B897B099D5F6DA7F8 /* NotificationAgentCountsView.swift in Sources */,
 				C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */,
 				B7F00002 /* NotificationSoundSettings.swift in Sources */,
 				A5001094 /* NotificationsPage.swift in Sources */,
