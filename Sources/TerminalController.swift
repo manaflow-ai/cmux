@@ -11344,8 +11344,12 @@ class TerminalController {
     private func closeWindow(_ arg: String) -> String {
         let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
-        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
-        return ok ? "OK" : "ERROR: Window not found"
+        // `force: true` — a programmatic close must not be silently vetoed by the
+        // interactive last-window quit prompt, and must report the truth (the window
+        // actually closed) rather than a false OK. This also gives a true detach for a
+        // remote-mirror window (windowWillClose stops coordinators / drops the master).
+        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId, force: true) ?? false }
+        return ok ? "OK" : "ERROR: Window not found or could not be closed"
     }
 
     private func moveWorkspaceToWindow(_ args: String) -> String {
