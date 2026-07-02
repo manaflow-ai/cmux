@@ -112,6 +112,142 @@ import Testing
 }
 
 @MainActor
+@Test func coldAttachReplayBarrierHoldsRenderGridDeltaUntilBaseApplies() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    await router.holdNextReplayResponses()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(coldReplayRequested, "mounting a sink must request the cold replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 6,
+        text: "racing-delta",
+        columns: 16,
+        full: false
+    ))
+    let preBaseRendered = try await pollUntil(attempts: 60) {
+        collector.lines.contains { $0.contains("racing-delta") }
+    }
+    #expect(
+        preBaseRendered == false,
+        "a cold-attach render-grid delta must not paint into an empty local terminal before the authoritative replay base applies"
+    )
+
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 5,
+            columns: 24,
+            rows: 4,
+            full: true,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "authoritative-base"),
+            ]
+        ),
+    ])
+    await router.releaseAllHeld()
+
+    let baseDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("authoritative-base") }
+    }
+    #expect(
+        baseDelivered,
+        "the cold replay base must still apply even when newer live output raced it"
+    )
+    let followUpSettled = try await pollUntil { await router.replayResponsesServed() >= 2 }
+    #expect(followUpSettled, "dropped racing output should trigger and settle one catch-up replay")
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 7,
+        text: "post-settle",
+        columns: 16
+    ))
+    let postSettleDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("post-settle") }
+    }
+    #expect(postSettleDelivered, "live render-grid output must resume after the cold barrier settles")
+    collector.unmount()
+}
+
+@MainActor
+@Test func coldAttachReplayBarrierHoldsHybridRawBytesUntilBaseApplies() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.holdNextReplayResponses()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(coldReplayRequested, "mounting a sink must request the cold replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 6,
+        text: "racing-raw"
+    ))
+    let preBaseRendered = try await pollUntil(attempts: 60) {
+        collector.lines.contains { $0.contains("racing-raw") }
+    }
+    #expect(
+        preBaseRendered == false,
+        "cold-attach raw bytes must not paint into an empty local terminal before the authoritative replay base applies"
+    )
+
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 5,
+            columns: 24,
+            rows: 4,
+            full: true,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "authoritative-base"),
+            ]
+        ),
+    ])
+    await router.releaseAllHeld()
+
+    let baseDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("authoritative-base") }
+    }
+    #expect(
+        baseDelivered,
+        "the cold replay base must still apply even when newer raw bytes raced it"
+    )
+    let followUpSettled = try await pollUntil { await router.replayResponsesServed() >= 2 }
+    #expect(followUpSettled, "dropped racing output should trigger and settle one catch-up replay")
+
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 5,
+        text: "post-raw"
+    ))
+    let postSettleDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("post-raw") }
+    }
+    #expect(postSettleDelivered, "live raw output must resume after the cold barrier settles")
+    collector.unmount()
+}
+
+@MainActor
 @Test func renderGridReplayAtSameSeqDoesNotOverwriteNewerLiveGrid() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
