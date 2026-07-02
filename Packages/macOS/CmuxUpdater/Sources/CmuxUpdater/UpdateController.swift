@@ -18,8 +18,10 @@ public import Foundation
 @MainActor
 public final class UpdateController {
     private let updater: SPUUpdater
-    private let driver: UpdateDriver
-    private let log: any UpdateLogging
+    // `driver` and `log` are internal (not private) so `UpdateController+InstallAttempt.swift`
+    // can reach them; they stay module-internal.
+    let driver: UpdateDriver
+    let log: any UpdateLogging
     private let clock: any UpdateClock
     private let defaults: UserDefaults
     private let fileManager: FileManager
@@ -36,15 +38,17 @@ public final class UpdateController {
 
     // Reaction state (replaces the Combine subscriptions).
     /// Sequences "re-resolve to the latest, then install" so the install path never installs the
-    /// version that was captured when the prompt was first surfaced (issue #6366).
-    private var attemptCoordinator = AttemptUpdateCoordinator()
+    /// version that was captured when the prompt was first surfaced (issue #6366). Internal for
+    /// `UpdateController+InstallAttempt.swift`.
+    var attemptCoordinator = AttemptUpdateCoordinator()
     private var stateReactionTask: Task<Void, Never>?
     private var noUpdateDismissTask: Task<Void, Never>?
     private var backgroundProbeTask: Task<Void, Never>?
     private var recheckTask: Task<Void, Never>?
     /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
-    /// flow never reaches downloading/installing (or another visible outcome). See ``attemptUpdate``.
-    private let installWatchdog: InstallWatchdog
+    /// flow never reaches downloading/installing (or another visible outcome). See
+    /// ``attemptUpdate`` in `UpdateController+InstallAttempt.swift` (internal for that file).
+    let installWatchdog: InstallWatchdog
 
     // Readiness retry. Sparkle's `canCheckForUpdates` exposes no push signal usable under
     // Swift 6 strict concurrency (KVO on the @MainActor `SPUUpdater` "sends" a non-Sendable
@@ -166,72 +170,8 @@ public final class UpdateController {
         scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
     }
 
-    // MARK: - Attempt update
-
-    /// Re-check for updates and auto-confirm the install of whatever the fresh check resolves.
-    ///
-    /// This is the single user-facing "install the update" entry point. It deliberately runs a
-    /// fresh check instead of installing the update that was captured when the prompt was first
-    /// surfaced, so a newer release published in the meantime is installed directly rather than
-    /// prompting the user again right after relaunch (issue #6366).
-    public func attemptUpdate() {
-        let action = attemptCoordinator.requestInstallLatest(currentState: model.state)
-        if action == .startFreshCheck {
-            // The user committed to installing. Arm the watchdog so that if the flow never reaches
-            // downloading/installing (or another visible outcome) it surfaces an error instead of
-            // silently looping on "Update Available".
-            installWatchdog.arm { [weak self] in self?.fireInstallWatchdogIfStalled() }
-        }
-        performAttemptAction(action)
-    }
-
-    private func fireInstallWatchdogIfStalled() {
-        installWatchdog.disarm()
-        let attemptWasMonitoring = attemptCoordinator.isMonitoring
-        // The attempt is over regardless of what shows below: a coordinator left monitoring past
-        // its deadline would silently auto-confirm an install off a later, unrelated check.
-        attemptCoordinator.cancel()
-        guard InstallWatchdog.installAttemptStalled(model.state) else { return }
-        log.append("install watchdog fired: update did not start within \(Int(installWatchdog.timeoutSeconds))s")
-        if attemptWasMonitoring {
-            // Resolve the in-flight Sparkle session (reply .dismiss to a pending "Update
-            // Available" prompt / cancel a running check) before replacing the state, so Sparkle
-            // is not left waiting on a dropped callback. Skipped post-confirm: that prompt's
-            // reply was already consumed by `.install`. The driver ignores Sparkle's follow-up
-            // dismiss callback while an error is visible, so the error state set below survives.
-            model.cancelActiveStateForNewCheck()
-        }
-        let error = NSError(
-            domain: UpdateStateModel.updateErrorDomain,
-            code: UpdateStateModel.installDidNotStartCode,
-            userInfo: [NSLocalizedDescriptionKey: String(
-                localized: "update.error.didNotStart.message",
-                defaultValue: "cmux couldn’t start the update. Check your internet connection and try again."
-            )]
-        )
-        model.setState(.error(.init(
-            error: error,
-            retry: { [weak self] in
-                self?.model.setState(.idle)
-                self?.attemptUpdate()
-            },
-            dismiss: { [weak self] in self?.model.setState(.idle) },
-            technicalDetails: "install attempt stalled without reaching download",
-            feedURLString: driver.resolvedFeedURLString()
-        )))
-    }
-
-    private func performAttemptAction(_ action: AttemptUpdateCoordinator.Action) {
-        switch action {
-        case .none:
-            break
-        case .startFreshCheck:
-            checkForUpdates()
-        case .confirmInstall:
-            log.append("attemptUpdate installing freshly resolved update")
-            model.state.confirm()
-        }
-    }
+    // The attempt-update entry point, its coordinator actions, and the install-watchdog trip
+    // handling live in `UpdateController+InstallAttempt.swift`.
 
     // MARK: - "No updates" auto-dismiss
 
