@@ -6742,6 +6742,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         let wasMissingBaselineBarrier = terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] == token
+        // A barrier released without delivering anything leaves the local
+        // surface still showing the pre-barrier content, so the stashed floor
+        // IS the truthful delivered state: restore it as the live baseline.
+        // Without this, a failed/empty follow-up replay erased the baseline a
+        // live full frame had already established, and once the baseline
+        // replay budget was exhausted every later delta was dropped as
+        // baseline-less — a stalled mirror until the next incidental full
+        // frame.
+        if deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil,
+           let floorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] {
+            deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = floorSeq
+        }
+        terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         let baselineDelivered = terminalOutputTransport == .hybrid
             ? terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
             : deliveredTerminalByteEndSeqBySurfaceID[surfaceID] != nil

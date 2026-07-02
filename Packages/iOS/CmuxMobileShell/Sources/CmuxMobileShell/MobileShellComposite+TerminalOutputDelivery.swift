@@ -127,15 +127,6 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(staleFloorSeq) frame=\(renderGrid.stateSeq)"
             )
-            // Rejected purely by the pre-barrier floor (no live baseline): the
-            // frame may be from a NEW sequence epoch after the host recreated
-            // the surface, so ask the authoritative replay to arbitrate. The
-            // accepted replay re-bases the floor; the request is budget-capped
-            // so a burst of genuinely stale frames cannot hammer the host.
-            if source == "event",
-               deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] == nil {
-                requestTerminalReplayForMissingRenderGridBaseline(surfaceID: renderGrid.surfaceID)
-            }
             return
         }
         let hasDeliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] != nil
@@ -377,6 +368,15 @@ extension MobileShellComposite {
                 requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
                 return
             }
+            // Fully resolved: if the acked delivery carried no sequence (a
+            // seq-less raw tail), the pre-barrier floor is still the truthful
+            // delivered state — restore it so the floor never outlives its
+            // barrier.
+            if deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil,
+               let floorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] {
+                deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = floorSeq
+            }
+            terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
             terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
         }
         guard let next,
