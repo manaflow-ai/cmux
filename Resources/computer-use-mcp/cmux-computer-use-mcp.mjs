@@ -454,23 +454,28 @@ async function callReadOnlyTool(tool, args) {
 // caller's index against a table it never saw can click the wrong control.
 async function callInputTool(tool, args) {
   const s = await session();
+  // Fail closed on a missing/blank/non-string app: this bridge's approval,
+  // binding, and snapshot guards all key off `app`, and the MCP schema is not
+  // an authorization boundary. Never forward an unguarded input action and
+  // rely on the downstream engine to reject it.
   const app = typeof args.app === "string" ? args.app.trim() : "";
-  if (app) {
-    await s.ensureStarted();
-    if (args.element_index != null && !s.snapshotApps.has(app)) {
-      return err(
-        `no computer_state snapshot for "${app}" in the current session; run computer_state first — element indices are snapshot-specific`
-      );
+  if (!app) {
+    return err("`app` is required and must be a non-empty string for input actions");
+  }
+  await s.ensureStarted();
+  if (args.element_index != null && !s.snapshotApps.has(app)) {
+    return err(
+      `no computer_state snapshot for "${app}" in the current session; run computer_state first — element indices are snapshot-specific`
+    );
+  }
+  if (!s.boundApps.has(app)) {
+    // Priming is read-only, so it gets the cold-start retry; the input
+    // action itself below is still never auto-retried.
+    const primed = await callEngineReadOnly(s, "get_app_state", { app });
+    if (primed?.isError) {
+      return primed;
     }
-    if (!s.boundApps.has(app)) {
-      // Priming is read-only, so it gets the cold-start retry; the input
-      // action itself below is still never auto-retried.
-      const primed = await callEngineReadOnly(s, "get_app_state", { app });
-      if (primed?.isError) {
-        return primed;
-      }
-      s.boundApps.add(app);
-    }
+    s.boundApps.add(app);
   }
   return s.callTool(tool, args);
 }
