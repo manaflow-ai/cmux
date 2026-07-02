@@ -762,11 +762,27 @@ cmux_computer_use_json_escape() {
 # Any failure — including the timeout or a missing perl — just skips this
 # candidate, so a misbehaving codex can never block Claude from starting.
 cmux_computer_use_codex_supports_app_server() {
-    command -v perl >/dev/null 2>&1 || return 1
+    # Prefer the absolute system perl; fall back to PATH only if it is missing.
+    local perl_bin=/usr/bin/perl
+    [[ -x "$perl_bin" ]] || perl_bin="$(command -v perl 2>/dev/null)"
+    [[ -n "$perl_bin" && -x "$perl_bin" ]] || return 1
+    # Probe the candidate under a minimal allowlisted env (mirrors the MCP
+    # server's child env): keep only what codex/node/subprocess resolution
+    # needs plus benign locale/proxy/cert vars and codex-owned CODEX_*/OPENAI_*,
+    # so a shadow `codex` earlier on PATH never receives cmux socket
+    # credentials, preserved Claude/backend auth-selection vars, or NODE_OPTIONS.
+    local -a env_args=()
+    local key
+    for key in HOME CODEX_HOME PATH TMPDIR USER LOGNAME SHELL TERM LANG LC_ALL TZ \
+        HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY http_proxy https_proxy no_proxy all_proxy \
+        SSL_CERT_FILE SSL_CERT_DIR NODE_EXTRA_CA_CERTS \
+        "${!LC_@}" "${!XDG_@}" "${!CODEX_@}" "${!OPENAI_@}"; do
+        [[ -n "${!key+x}" ]] && env_args+=("$key=${!key}")
+    done
     # Subshell so the parent shell's signal-death notice ("Alarm clock") for a
     # timed-out probe is captured by the redirect instead of leaking to the
     # user's terminal.
-    (perl -e 'alarm 5; exec { $ARGV[0] } @ARGV; exit 127' "$1" app-server --help) >/dev/null 2>&1
+    (env -i "${env_args[@]}" "$perl_bin" -e 'alarm 5; exec { $ARGV[0] } @ARGV; exit 127' "$1" app-server --help) >/dev/null 2>&1
 }
 
 cmux_computer_use_resolve_codex() {
