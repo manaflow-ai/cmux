@@ -1037,7 +1037,7 @@ def test_computer_use_mcp_skipped_without_codex_auth(failures: list[str]) -> Non
     )
     expect(code == 0, f"computer use no-auth: wrapper exited {code}: {stderr}", failures)
     expect(
-        "--mcp-config" not in real_argv,
+        injected_mcp_config_index(real_argv) is None,
         f"computer use no-auth: expected no injection without auth.json, got {real_argv}",
         failures,
     )
@@ -1070,7 +1070,7 @@ def test_computer_use_mcp_skipped_when_disabled(failures: list[str]) -> None:
     )
     expect(code == 0, f"computer use disabled: wrapper exited {code}: {stderr}", failures)
     expect(
-        "--mcp-config" not in real_argv,
+        injected_mcp_config_index(real_argv) is None,
         f"computer use disabled: expected no injection with kill switch, got {real_argv}",
         failures,
     )
@@ -1084,7 +1084,7 @@ def test_computer_use_mcp_skipped_when_server_script_missing(failures: list[str]
     )
     expect(code == 0, f"computer use no-script: wrapper exited {code}: {stderr}", failures)
     expect(
-        "--mcp-config" not in real_argv,
+        injected_mcp_config_index(real_argv) is None,
         f"computer use no-script: expected no injection without the server script, got {real_argv}",
         failures,
     )
@@ -1206,7 +1206,7 @@ def test_computer_use_mcp_ignores_cmux_codex_shims(failures: list[str]) -> None:
     )
     expect(code == 0, f"computer use shim-only: wrapper exited {code}: {stderr}", failures)
     expect(
-        "--mcp-config" not in real_argv,
+        injected_mcp_config_index(real_argv) is None,
         f"computer use shim-only: expected cmux codex shims to be ignored, got {real_argv}",
         failures,
     )
