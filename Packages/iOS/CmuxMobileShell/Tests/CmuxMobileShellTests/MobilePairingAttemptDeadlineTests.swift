@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -15,6 +16,30 @@ import Testing
         #expect(store.connectionState == .disconnected)
         #expect(store.connectionError?.isEmpty == false)
         #expect(store.connectionError?.contains("100.64.0.5") == true)
+        #expect(store.pairingChecklist.network.status == .failed)
+        #expect(store.pairingChecklist.network.message?.contains("100.64.0.5") == true)
+        #expect(store.pairingChecklist.authentication.status == .pending)
+        #expect(store.pairingChecklist.trust.status == .succeeded)
+    }
+
+    // The v2 QR carries a bare tailscale route, but this build advertises only
+    // `.iroh` support, so route selection finds nothing it can dial and fails at
+    // `.routeSelection`: no route is ever dialed, so the network gate is never
+    // proven. `connect()` records the failure with `.routeSelection` (network stays
+    // pending); the generic connect-failure recorder must not reclassify it as a
+    // `.connect`-phase failure and paint the network row succeeded for a route
+    // that was never dialed.
+    @Test func noSupportedRoutePairingDoesNotClaimNetworkSucceeded() async throws {
+        let runtime = PairingDeadlineRuntime(supportedRouteKinds: [.iroh])
+        let store = makeStore(runtime: runtime)
+
+        let result = await store.connectPairingURLResult(Self.qrURL)
+
+        #expect(result == .failed)
+        #expect(store.connectionState == .disconnected)
+        #expect(store.pairingChecklist.network.status == .pending)
+        #expect(store.pairingChecklist.authentication.status == .pending)
+        #expect(store.pairingChecklist.trust.status == .failed)
     }
 
     @Test func scannedOrPastedPairingInputUsesSameDeadline() async throws {
@@ -30,17 +55,23 @@ import Testing
     @Test func immediatePairingRetryDoesNotStartSecondStuckConnect() async throws {
         let transport = CountingSlowIgnoringCancellationTransport()
         let runtime = PairingDeadlineRuntime(
-            transportFactory: CountingSlowIgnoringCancellationTransportFactory(transport: transport)
+            transportFactory: CountingSlowIgnoringCancellationTransportFactory(transport: transport),
+            pairingAttemptTimeoutNanoseconds: 500_000_000
         )
         let store = makeStore(runtime: runtime)
 
-        let first = await store.connectPairingURLResult(Self.qrURL)
+        let firstTask = Task {
+            await store.connectPairingURLResult(Self.qrURL)
+        }
+        await transport.waitForConnectCount(1)
+        let first = await firstTask.value
         let second = await store.connectPairingURLResult(Self.qrURL)
 
         #expect(first == .failed)
         #expect(second == .failed)
         #expect(await transport.connectCount() == 1)
         #expect(store.connectionState == .disconnected)
+        await transport.releaseConnects()
     }
 
     @Test func mixedTrustedAndUntrustedRoutesStillConnectOverTrustedRoute() async throws {
@@ -80,17 +111,38 @@ import Testing
         #expect(result == .connected)
         #expect(store.connectionState == .connected)
         #expect(store.selectedWorkspace?.id.rawValue == "live-workspace")
+        #expect(store.pairingChecklist.steps.map(\.status) == [.succeeded, .succeeded, .succeeded])
+    }
+
+    // `shutdown()` runs from the reversible SwiftUI `onDisappear`. A store seeded
+    // `.connected` models a live session whose hosting view just disappeared. The
+    // bug: `shutdown()` nilled `remoteClient` but left `connectionState == .connected`,
+    // so a SwiftUI-reused store reported connected with no transport, and the
+    // reconnect-on-appear gate (`shouldReconnectStoredMac`, gated on
+    // `connectionState != .connected`) never re-dialed. `shutdown()` must leave the
+    // store consistently disconnected.
+    @Test func shutdownLeavesConnectedStoreConsistentlyDisconnected() {
+        let store = makeStore(connectionState: .connected)
+        #expect(store.connectionState == .connected)
+        #expect(store.macConnectionStatus == .connected)
+
+        store.shutdown()
+
+        #expect(store.connectionState == .disconnected)
+        #expect(store.macConnectionStatus == .unavailable)
     }
 
     private static let qrURL = "cmux-ios://attach?v=2&pc=1&r=100.64.0.5:58465"
 
     private func makeStore(
         runtime: any MobileSyncRuntime = PairingDeadlineRuntime(),
-        pairingCode: String = ""
+        pairingCode: String = "",
+        connectionState: MobileConnectionState = .disconnected
     ) -> MobileShellComposite {
         MobileShellComposite(
             runtime: runtime,
             isSignedIn: true,
+            connectionState: connectionState,
             pairingCode: pairingCode,
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(suiteName: "pairing-deadline-\(UUID().uuidString)")!

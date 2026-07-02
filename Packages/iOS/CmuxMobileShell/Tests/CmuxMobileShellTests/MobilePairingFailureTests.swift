@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -38,6 +39,15 @@ import Testing
         #expect(category.message.contains("58465"))
         // The dominant no-Tailscale case must give actionable reachability guidance.
         #expect(category.guidance != nil)
+    }
+
+    @Test func networkFailuresTargetNetworkChecklistStep() throws {
+        let category = MobilePairingFailureCategory.classify(
+            error: CmxNetworkByteTransportError.connectionFailed("no route", .hostUnreachable),
+            route: try route()
+        )
+
+        #expect(category.pairingStep == .network)
     }
 
     @Test func connectionRefusedMeansListenerNotRunning() throws {
@@ -151,6 +161,39 @@ import Testing
         #expect(category.analyticsReason == "auth")
     }
 
+    @Test func authFailuresTargetAuthenticationChecklistStep() {
+        let categories: [MobilePairingFailureCategory] = [
+            .accountMismatch,
+            .emailMismatch(expected: "mac@example.com", actual: "phone@example.com"),
+            .authFailed,
+            .ticketExpired,
+        ]
+
+        for category in categories {
+            #expect(category.pairingStep == .authentication)
+        }
+    }
+
+    @Test func trustFailuresTargetTrustChecklistStep() {
+        let categories: [MobilePairingFailureCategory] = [
+            .invalidCode,
+            .unrecognizedVersion,
+            .loopbackRejected,
+            .unsupportedRoute,
+            .noSupportedRoute,
+        ]
+
+        for category in categories {
+            #expect(category.pairingStep == .trust)
+        }
+    }
+
+    @Test func unknownFailureDoesNotGuessChecklistStep() {
+        let category = MobilePairingFailureCategory.unknown(host: "h", port: 1)
+
+        #expect(category.pairingStep == nil)
+    }
+
     @Test func rpcAccountMismatchCodeMapsToAccountMismatch() {
         let category = MobilePairingFailureCategory.classify(
             error: MobileShellConnectionError.rpcError("account_mismatch", "different"),
@@ -180,8 +223,53 @@ import Testing
         )
         #expect(category == .cancelled)
         #expect(category.analyticsReason == "cancelled")
+        #expect(category.pairingStep == nil)
         // Cancellation is the only category with an intentionally empty headline.
         #expect(category.message.isEmpty)
+    }
+
+    @Test func validationAuthFailureDoesNotClaimNetworkSucceeded() {
+        let checklist = MobilePairingChecklist.inProgress.applyingFailure(
+            .authFailed,
+            phase: .validation
+        )
+
+        #expect(checklist.network.status == .pending)
+        #expect(checklist.authentication.status == .failed)
+        #expect(checklist.trust.status == .pending)
+    }
+
+    @Test func connectAuthFailurePreservesNetworkSuccess() {
+        let checklist = MobilePairingChecklist.inProgress.applyingFailure(
+            .authFailed,
+            phase: .connect
+        )
+
+        #expect(checklist.network.status == .succeeded)
+        #expect(checklist.authentication.status == .failed)
+        #expect(checklist.trust.status == .pending)
+    }
+
+    @Test func connectTrustFailurePreservesNetworkSuccess() {
+        let checklist = MobilePairingChecklist.inProgress.applyingFailure(
+            .unsupportedRoute,
+            phase: .connect
+        )
+
+        #expect(checklist.network.status == .succeeded)
+        #expect(checklist.authentication.status == .pending)
+        #expect(checklist.trust.status == .failed)
+    }
+
+    @Test func routeSelectionTrustFailureDoesNotClaimNetworkSucceeded() {
+        let checklist = MobilePairingChecklist.inProgress.applyingFailure(
+            .noSupportedRoute,
+            phase: .routeSelection
+        )
+
+        #expect(checklist.network.status == .pending)
+        #expect(checklist.authentication.status == .pending)
+        #expect(checklist.trust.status == .failed)
     }
 
     @Test func offlineCategoryHasNonEmptyMessage() {
