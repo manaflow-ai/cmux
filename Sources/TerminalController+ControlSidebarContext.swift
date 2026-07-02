@@ -169,6 +169,9 @@ extension TerminalController: ControlSidebarContext {
         }
         let before = isLoading()
         if on {
+            // Workspace-scoped: exactly one panel holds a manual key at a time,
+            // so reasserting `on` after focus moves never duplicates the loader.
+            _ = tab.clearAgentLifecycle(key: key, panelId: nil)
             if let panelId = tab.focusedPanelId ?? tab.panels.keys.first {
                 tab.setAgentLifecycle(key: key, panelId: panelId, lifecycle: .running)
             }
