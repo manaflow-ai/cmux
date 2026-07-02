@@ -720,6 +720,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Whether `lastRenderRect` came from an effective-grid letterbox and should
     /// keep using the large-gap top-anchor correction during viewport-only relayouts.
     private var lastRenderRectAllowsTopGapCorrection = false
+    /// Whether the current effective grid came from this surface's confirmed
+    /// viewport-report echo. Daemon-pushed remote grids are bottom-attached; only
+    /// confirmed local viewport negotiation may use the large-gap top anchor.
+    private var effectiveGridAllowsTopGapCorrection = false
+    /// Placement intent from the currently active remote-grid policy. `nil`
+    /// means no output-stream remote grid has seeded the effective grid yet, so
+    /// a confirmed viewport echo may use the direct-open top-anchor default.
+    private var remoteGridAllowsTopGapCorrection: Bool?
     private var lastRenderLayoutViewportHeight: CGFloat?
     private var lastRenderHasSourceLayoutViewport = false
     private var viewportCoordinator = TerminalViewportCoordinator()
@@ -1353,7 +1361,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             forRenderSize: size,
             clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
         )
-        renderPlacement.renderRect(
+        return renderPlacement.renderRect(
             in: viewport,
             size: size,
             allowsLargeTopGapCorrection: allowsLargeTopGapCorrection
@@ -2859,6 +2867,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         cellPixelSize = .zero
         lastRenderRect = .zero
         lastRenderRectAllowsTopGapCorrection = false
+        effectiveGridAllowsTopGapCorrection = false
+        remoteGridAllowsTopGapCorrection = nil
         lastRenderLayoutViewportHeight = nil
         lastRenderHasSourceLayoutViewport = false
         lastAppliedContentScale = 0
@@ -3293,7 +3303,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         applyViewSize(
             cols: cols,
             rows: rows,
-            confirmedViewportEcho: false
+            confirmedViewportEcho: false,
+            remoteGridAllowsTopGapCorrection: false
+        )
+    }
+
+    public func applyViewSize(cols: Int, rows: Int, allowsTopGapCorrection: Bool) {
+        applyViewSize(
+            cols: cols,
+            rows: rows,
+            confirmedViewportEcho: false,
+            remoteGridAllowsTopGapCorrection: allowsTopGapCorrection
         )
     }
 
@@ -3304,7 +3324,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// - Returns: `false` when the surface reset before the geometry applied.
     @discardableResult
     public func applyViewSizeAndWait(cols: Int, rows: Int) async -> Bool {
-        let changed = updateEffectiveGrid(cols: cols, rows: rows, confirmedViewportEcho: false)
+        return await applyViewSizeAndWait(cols: cols, rows: rows, allowsTopGapCorrection: false)
+    }
+
+    /// Apply a remote-grid policy with explicit placement intent and wait for
+    /// libghostty to accept the geometry.
+    @discardableResult
+    public func applyViewSizeAndWait(cols: Int, rows: Int, allowsTopGapCorrection: Bool) async -> Bool {
+        let changed = updateEffectiveGrid(
+            cols: cols,
+            rows: rows,
+            confirmedViewportEcho: false,
+            remoteGridAllowsTopGapCorrection: allowsTopGapCorrection
+        )
         if changed || needsGeometrySync {
             return await syncSurfaceGeometryAndWait(shouldReassertNaturalSize: false)
         }
@@ -3339,8 +3371,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
-    private func applyViewSize(cols: Int, rows: Int, confirmedViewportEcho: Bool) {
-        guard updateEffectiveGrid(cols: cols, rows: rows, confirmedViewportEcho: confirmedViewportEcho) else { return }
+    private func applyViewSize(
+        cols: Int,
+        rows: Int,
+        confirmedViewportEcho: Bool,
+        remoteGridAllowsTopGapCorrection: Bool? = nil
+    ) {
+        guard updateEffectiveGrid(
+            cols: cols,
+            rows: rows,
+            confirmedViewportEcho: confirmedViewportEcho,
+            remoteGridAllowsTopGapCorrection: remoteGridAllowsTopGapCorrection
+        ) else { return }
         // Mark dirty instead of recomputing synchronously. This breaks the
         // feedback loop (didResize → updateTerminalViewport RPC → applyViewSize
         // → syncSurfaceGeometry → didResize …) that, under fast zoom, drove a
@@ -3350,14 +3392,31 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
-    private func updateEffectiveGrid(cols: Int, rows: Int, confirmedViewportEcho: Bool) -> Bool {
+    private func updateEffectiveGrid(
+        cols: Int,
+        rows: Int,
+        confirmedViewportEcho: Bool,
+        remoteGridAllowsTopGapCorrection: Bool? = nil
+    ) -> Bool {
         guard cols > 0, rows > 0 else { return false }
         if confirmedViewportEcho {
             markViewportReportConfirmed()
         }
-        if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return false }
-        MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
-        effectiveGrid = (cols, rows)
+        let previousAllowsTopGapCorrection = effectiveGridAllowsTopGapCorrection
+        if let remoteGridAllowsTopGapCorrection {
+            self.remoteGridAllowsTopGapCorrection = remoteGridAllowsTopGapCorrection
+        }
+        effectiveGridAllowsTopGapCorrection = confirmedViewportEcho
+            ? (self.remoteGridAllowsTopGapCorrection ?? true)
+            : (remoteGridAllowsTopGapCorrection ?? false)
+        let gridChanged = effectiveGrid?.cols != cols || effectiveGrid?.rows != rows
+        guard gridChanged || previousAllowsTopGapCorrection != effectiveGridAllowsTopGapCorrection else {
+            return false
+        }
+        if gridChanged {
+            MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
+            effectiveGrid = (cols, rows)
+        }
         return true
     }
 
@@ -3379,9 +3438,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func clearEffectiveGrid() -> Bool {
-        guard effectiveGrid != nil else { return false }
+        guard effectiveGrid != nil || effectiveGridAllowsTopGapCorrection else { return false }
         MobileDebugLog.anchormux("zoom.useNaturalViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->nil")
         effectiveGrid = nil
+        effectiveGridAllowsTopGapCorrection = false
+        remoteGridAllowsTopGapCorrection = nil
         return true
     }
 
@@ -3630,12 +3691,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let previousTopGapCorrection = reportGridChanged
             ? false
             : lastRenderRectAllowsTopGapCorrection
-        let allowsLargeTopGapCorrection = renderPlacement.allowsLargeTopGapCorrection(
-            pinnedGrid: result.pinnedGrid,
-            awaitingViewportEcho: awaitingViewportEchoForPlacement,
-            naturalGrid: (reportGrid.columns, reportGrid.rows),
-            previousRenderAllowedTopGapCorrection: previousTopGapCorrection
-        )
+        let allowsLargeTopGapCorrection = effectiveGridAllowsTopGapCorrection &&
+            renderPlacement.allowsLargeTopGapCorrection(
+                pinnedGrid: result.pinnedGrid,
+                awaitingViewportEcho: awaitingViewportEchoForPlacement,
+                naturalGrid: (reportGrid.columns, reportGrid.rows),
+                previousRenderAllowedTopGapCorrection: previousTopGapCorrection
+            )
         let measuredRenderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
             ?? CGRect(origin: .zero, size: naturalRenderSize)
         let snapshot = viewportSnapshot()
