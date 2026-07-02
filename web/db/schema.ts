@@ -235,6 +235,31 @@ export const cloudVmBaseEvents = pgTable(
 );
 
 /**
+ * Per-user agent-routing (subrouter) config for Cloud VMs. When set, every
+ * Freestyle attach injects ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN plus the
+ * Codex base-URL keys into the VM so coding agents route through the user's
+ * subrouter tenant. A row with null url/key means "was configured, now
+ * cleared": the next attach removes the cmux-managed wiring. No row means the
+ * user never configured routing, so attaches skip the injection exec entirely.
+ * `subrouterTenantKey` is a secret: never log it and never return it in full
+ * from GET endpoints (mask it, e.g. `srt_ab...yz`).
+ */
+export const cloudVmAgentRouting = pgTable(
+  "cloud_vm_agent_routing",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    subrouterUrl: text("subrouter_url"),
+    subrouterTenantKey: text("subrouter_tenant_key"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_agent_routing_user_unique").on(table.userId),
+  ],
+);
+
+/**
  * APNs device tokens for iOS push notifications. A row exists only after the
  * user explicitly opts in on their device (the feature is off by default), so
  * the mere presence of a row for a user means "this user wants phone pushes".

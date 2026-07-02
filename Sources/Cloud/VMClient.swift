@@ -327,6 +327,14 @@ struct VMWebSocketDaemonEndpoint {
     let expiresAtUnix: Int64
 }
 
+/// Per-user subrouter agent-routing state as reported by the backend. The
+/// tenant key is a secret; the backend only ever returns it masked.
+struct VMAgentRoutingState {
+    let configured: Bool
+    let subrouterUrl: String?
+    let subrouterTenantKeyMasked: String?
+}
+
 enum VMAttachEndpoint {
     case ssh(VMSSHEndpoint)
     case websocket(VMWebSocketPtyEndpoint)
@@ -688,6 +696,40 @@ actor VMClient {
             name: rawName?.isEmpty == false ? rawName! : "base",
             generation: generation,
             retainedProviderVmId: retainedProviderVmId
+        )
+    }
+
+    // MARK: - Agent routing (subrouter)
+
+    func agentRoutingShow() async throws -> VMAgentRoutingState {
+        let (data, http) = try await request("GET", path: "/api/vm/agent-routing")
+        try ensureOK(http, data: data)
+        return try decodeAgentRoutingState(decodeJSONObject(data))
+    }
+
+    func agentRoutingSet(url: String, key: String) async throws -> VMAgentRoutingState {
+        let body: [String: Any] = ["subrouterUrl": url, "subrouterTenantKey": key]
+        let (data, http) = try await request("PUT", path: "/api/vm/agent-routing", jsonBody: body)
+        try ensureOK(http, data: data)
+        return try decodeAgentRoutingState(decodeJSONObject(data))
+    }
+
+    func agentRoutingClear() async throws -> VMAgentRoutingState {
+        let (data, http) = try await request("DELETE", path: "/api/vm/agent-routing")
+        try ensureOK(http, data: data)
+        return try decodeAgentRoutingState(decodeJSONObject(data))
+    }
+
+    private func decodeAgentRoutingState(_ obj: [String: Any]) throws -> VMAgentRoutingState {
+        guard let configured = obj["configured"] as? Bool else {
+            throw VMClientError.malformedResponse("Cloud VM agent routing response was missing `configured`.")
+        }
+        let url = (obj["subrouterUrl"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let masked = (obj["subrouterTenantKeyMasked"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VMAgentRoutingState(
+            configured: configured,
+            subrouterUrl: url?.isEmpty == false ? url : nil,
+            subrouterTenantKeyMasked: masked?.isEmpty == false ? masked : nil
         )
     }
 

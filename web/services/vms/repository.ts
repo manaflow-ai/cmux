@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { cloudDb } from "../../db/client";
 import {
+  cloudVmAgentRouting,
   cloudVmBaseEvents,
   cloudVmBaseGenerations,
   cloudVmBases,
@@ -17,6 +18,7 @@ import type { ProviderId } from "./drivers";
 import { VmCreateInProgressError, VmDatabaseError, VmLimitExceededError, isVmLimitExceededError } from "./errors";
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
+export type CloudVmAgentRoutingRow = typeof cloudVmAgentRouting.$inferSelect;
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
 export type CloudVmBaseGenerationRow = typeof cloudVmBaseGenerations.$inferSelect;
 export type CloudVmLeaseRow = typeof cloudVmLeases.$inferSelect;
@@ -203,6 +205,12 @@ export type VmRepositoryShape = {
     readonly imageId?: string;
     readonly metadata?: Record<string, unknown>;
   }[]) => Effect.Effect<void, VmDatabaseError>;
+  readonly getAgentRouting: (userId: string) => Effect.Effect<CloudVmAgentRoutingRow | null, VmDatabaseError>;
+  readonly upsertAgentRouting: (input: {
+    readonly userId: string;
+    readonly subrouterUrl: string | null;
+    readonly subrouterTenantKey: string | null;
+  }) => Effect.Effect<CloudVmAgentRoutingRow, VmDatabaseError>;
 };
 
 export class VmRepository extends Context.Tag("cmux/VmRepository")<
@@ -1296,5 +1304,41 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         imageId: input.imageId,
         metadata: input.metadata ?? {},
       })));
+    }),
+
+  getAgentRouting: (userId) =>
+    dbEffect("getAgentRouting", async () => {
+      const db = cloudDb();
+      const [row] = await db
+        .select()
+        .from(cloudVmAgentRouting)
+        .where(eq(cloudVmAgentRouting.userId, userId))
+        .limit(1);
+      return row ?? null;
+    }),
+
+  upsertAgentRouting: (input) =>
+    dbEffect("upsertAgentRouting", async () => {
+      const db = cloudDb();
+      const now = new Date();
+      const [row] = await db
+        .insert(cloudVmAgentRouting)
+        .values({
+          userId: input.userId,
+          subrouterUrl: input.subrouterUrl,
+          subrouterTenantKey: input.subrouterTenantKey,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [cloudVmAgentRouting.userId],
+          set: {
+            subrouterUrl: input.subrouterUrl,
+            subrouterTenantKey: input.subrouterTenantKey,
+            updatedAt: now,
+          },
+        })
+        .returning();
+      if (!row) throw new Error("agent routing upsert returned no row");
+      return row;
     }),
 });

@@ -125,6 +125,27 @@ extension TerminalController {
                 let endpoint = try await VMClient.shared.openAttach(id: vmId, requireDaemon: requireDaemon)
                 return Self.socketWorkerAttachInfoPayload(endpoint)
             }
+        case "vm.subrouter_show":
+            return v2VmCall(id: id) {
+                let state = try await VMClient.shared.agentRoutingShow()
+                return Self.socketWorkerAgentRoutingPayload(state)
+            }
+        case "vm.subrouter_set":
+            guard let url = Self.socketWorkerString(params["url"]), !url.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.subrouter_set requires `url`. Use `cmux cloud subrouter set --url <server-url> --key <tenant-key>`.")
+            }
+            guard let key = Self.socketWorkerString(params["key"]), !key.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.subrouter_set requires `key`. Use `cmux cloud subrouter set --url <server-url> --key <tenant-key>`.")
+            }
+            return v2VmCall(id: id) {
+                let state = try await VMClient.shared.agentRoutingSet(url: url, key: key)
+                return Self.socketWorkerAgentRoutingPayload(state)
+            }
+        case "vm.subrouter_clear":
+            return v2VmCall(id: id) {
+                let state = try await VMClient.shared.agentRoutingClear()
+                return Self.socketWorkerAgentRoutingPayload(state)
+            }
         case "vm.sessions":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.sessions requires `id`. Run `cmux vm ls` to find one.")
@@ -225,6 +246,14 @@ extension TerminalController {
             ]
         }
         return payload
+    }
+
+    private nonisolated static func socketWorkerAgentRoutingPayload(_ state: VMAgentRoutingState) -> [String: Any] {
+        [
+            "configured": state.configured,
+            "subrouter_url": state.subrouterUrl ?? NSNull(),
+            "subrouter_tenant_key_masked": state.subrouterTenantKeyMasked ?? NSNull(),
+        ]
     }
 
     private nonisolated static func socketWorkerStringArray(_ raw: Any?) -> [String] {
