@@ -62,8 +62,15 @@ final class CodexTeamsWatcherRegressionTests {
         let openedSplit = cmuxSocket.waitForMethod("surface.split", timeout: 25)
         // The late thread is announced by a bare-threadId notification right
         // after the backfill reads, so its split needs only one more
-        // thread/read round-trip once the first split has opened.
-        let openedLateSplit = cmuxSocket.waitForCommand(containing: "late-subagent-thread", timeout: 10)
+        // thread/read round-trip once the first split has opened. Assert the
+        // late thread is routed through surface.split specifically (its id rides
+        // in the split's startup_environment), not merely mentioned by some
+        // later command like the tab.action rename.
+        let openedLateSplit = cmuxSocket.waitForMethod(
+            "surface.split",
+            containing: "late-subagent-thread",
+            timeout: 10
+        )
         process.terminate()
         // Don't let a watcher that ignores SIGTERM hang the whole suite: bound the
         // graceful shutdown wait, then SIGKILL and reap so the test always exits.

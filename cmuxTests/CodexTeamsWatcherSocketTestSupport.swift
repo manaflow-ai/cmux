@@ -50,6 +50,13 @@ final class RecordingCodexTeamsCmuxSocket: @unchecked Sendable {
         waitForCommand(matching: { Self.method(in: $0) == method }, timeout: timeout)
     }
 
+    func waitForMethod(_ method: String, containing needle: String, timeout: TimeInterval) -> Bool {
+        // Require a single command to be both the given method and carry the
+        // needle, so callers can assert "this thread opened via surface.split"
+        // rather than "some command mentioned this thread".
+        waitForCommand(matching: { Self.method(in: $0) == method && $0.contains(needle) }, timeout: timeout)
+    }
+
     func waitForCommand(containing needle: String, timeout: TimeInterval) -> Bool {
         waitForCommand(matching: { $0.contains(needle) }, timeout: timeout)
     }
