@@ -1538,6 +1538,18 @@ jobs:
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
 
+      # The browser UI regressions below (this step and the browser find step)
+      # intentionally rely on the runner's native WindowServer display and do
+      # NOT self-provision a virtual display. This job is pinned to a display
+      # runner via repo variable MACOS_RUNNER_DISPLAY (e.g. depot-macos-latest),
+      # and the "Validate display runner identity" step above fails the job if a
+      # requested depot-* runner resolves outside Depot. On that display runner
+      # browser XCUITest windows are accessible without a virtual display, which
+      # is why this lane replaced the persistent virtual display it used before.
+      # Keep MACOS_RUNNER_DISPLAY pointed at a display-capable runner. The later
+      # "display resolution churn" step still creates its own scoped virtual
+      # display because that test specifically exercises display add/remove
+      # churn, not because these browser steps need one.
       - name: Run browser omnibar suggestions UI regressions
         run: |
           set -euo pipefail
