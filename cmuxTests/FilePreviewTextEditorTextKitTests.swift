@@ -127,6 +127,62 @@ struct FilePreviewTextEditorTextKitTests {
         }
     }
 
+    @Test("text preview editor clears pending chord shortcuts when leaving a window")
+    func editorClearsPendingShortcutChordsWhenLeavingWindow() throws {
+        try withDefaultShortcutSettings {
+            let originalAppDelegate = AppDelegate.shared
+            AppDelegate.shared = nil
+            defer { AppDelegate.shared = originalAppDelegate }
+
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(
+                    first: ShortcutStroke(
+                        key: "k",
+                        command: false,
+                        shift: false,
+                        option: false,
+                        control: true,
+                        keyCode: UInt16(kVK_ANSI_K)
+                    ),
+                    second: ShortcutStroke(
+                        key: "=",
+                        command: true,
+                        shift: false,
+                        option: false,
+                        control: false,
+                        keyCode: UInt16(kVK_ANSI_Equal)
+                    )
+                ),
+                for: .browserZoomIn
+            )
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            let textView = SavingTextView.makeFilePreviewTextView()
+            window.contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+            window.contentView?.addSubview(textView)
+            defer { window.orderOut(nil) }
+
+            let initialPointSize = try #require(textView.font?.pointSize)
+            let prefix = try #require(Self.keyEvent(
+                characters: "k",
+                modifierFlags: [.control],
+                keyCode: UInt16(kVK_ANSI_K)
+            ))
+            #expect(textView.performKeyEquivalent(with: prefix))
+
+            textView.removeFromSuperview()
+
+            let suffix = try #require(Self.keyEvent(characters: "=", keyCode: UInt16(kVK_ANSI_Equal)))
+            #expect(!textView.performKeyEquivalent(with: suffix))
+            #expect(abs((textView.font?.pointSize ?? 0) - initialPointSize) < 0.01)
+        }
+    }
+
     @Test("text preview editor honors configured zoom shortcut when clauses")
     func editorHonorsConfiguredZoomShortcutWhenClauses() throws {
         try withShortcutSettingsFile(
