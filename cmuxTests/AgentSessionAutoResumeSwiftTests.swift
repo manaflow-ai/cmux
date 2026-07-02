@@ -264,6 +264,171 @@ struct AgentSessionAutoResumeSwiftTests {
         return path
     }
 
+    /// The #7155 rescue prefers the live foreground process's actual cwd
+    /// (libproc) over the recorded session directory: a resumed agent that
+    /// moved itself is followed to where it really is.
+    @MainActor
+    @Test func splitFromResumedAgentPanePrefersLiveForegroundProcessCwd() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-split-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+            let liveDir = try makeTemporaryProjectDirectory(prefix: "cmux-split-resume-live")
+            defer { try? FileManager.default.removeItem(atPath: liveDir) }
+
+            let (restored, restoredPanelId, _) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
+                projectDir: projectDir
+            )
+            restored.foregroundProcessWorkingDirectoryProviderForTesting = { _ in liveDir }
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == liveDir)
+        }
+    }
+
+    /// While the tracked cwd still matches the restored session directory the
+    /// #7155 rescue stays out of the way: the tracked value wins and the live
+    /// process is never inspected, so healthy panes keep today's behavior.
+    @MainActor
+    @Test func splitFromResumedAgentPaneKeepsTrackedCwdWhileUnclobbered() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-split-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId) = try restoreWorkspaceWithAutoResumedClaudeAgent(
+                savedDirectory: projectDir
+            )
+            try #require(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning
+            )
+            var providerConsulted = false
+            restored.foregroundProcessWorkingDirectoryProviderForTesting = { _ in
+                providerConsulted = true
+                return FileManager.default.temporaryDirectory.path
+            }
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == projectDir)
+            #expect(!providerConsulted)
+        }
+    }
+
+    /// When the live process cwd cannot be read (process gone, libproc denied)
+    /// the #7155 rescue falls back to the recorded session directory.
+    @MainActor
+    @Test func splitFromResumedAgentPaneFallsBackToSessionDirectoryWhenLiveCwdUnavailable() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-split-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId, _) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
+                projectDir: projectDir
+            )
+            restored.foregroundProcessWorkingDirectoryProviderForTesting = { _ in nil }
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == projectDir)
+        }
+    }
+
+    /// When the recorded session directory was deleted while the agent ran and
+    /// the live cwd is unreadable, the #7155 rescue steps aside instead of
+    /// inheriting a dead path (mirroring the #6617 deleted-directory
+    /// semantics), so the split falls back to the tracked cwd.
+    @MainActor
+    @Test func splitFromResumedAgentPaneFallsBackToTrackedCwdWhenSessionDirectoryDeleted() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-split-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId, homeDir) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
+                projectDir: projectDir
+            )
+            restored.foregroundProcessWorkingDirectoryProviderForTesting = { _ in nil }
+            try FileManager.default.removeItem(atPath: projectDir)
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == homeDir)
+        }
+    }
+
+    /// Once the resumed agent exits (the pane's shell reaches a prompt again)
+    /// the pane leaves the resumed state: inheritance returns to the tracked
+    /// cwd and the live process is no longer inspected — the recovery the
+    /// #7155 reporter observed after quitting Claude.
+    @MainActor
+    @Test func splitAfterResumedAgentExitsFollowsTrackedCwdAgain() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-split-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+            let repairedDir = try makeTemporaryProjectDirectory(prefix: "cmux-split-post-exit")
+            defer { try? FileManager.default.removeItem(atPath: repairedDir) }
+
+            let (restored, restoredPanelId, _) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
+                projectDir: projectDir
+            )
+
+            // The agent exits: the shell reaches a prompt, which invalidates the
+            // restored-resume state and re-reports the real cwd.
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
+            try #require(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
+            #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: repairedDir)
+
+            var providerConsulted = false
+            restored.foregroundProcessWorkingDirectoryProviderForTesting = { _ in
+                providerConsulted = true
+                return projectDir
+            }
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == repairedDir)
+            #expect(!providerConsulted)
+        }
+    }
+
+    /// Direct coverage for the libproc read behind the #7155 rescue: the test
+    /// runner's own pid resolves to its real working directory, and an invalid
+    /// pid resolves to nil instead of trapping.
+    @Test func processCurrentWorkingDirectoryReadsLiveProcessAndRejectsInvalidPid() throws {
+        let ownCwd = try #require(Workspace.processCurrentWorkingDirectory(pid: getpid()))
+        let resolvedOwnCwd = URL(fileURLWithPath: ownCwd).resolvingSymlinksInPath().path
+        let expectedCwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .resolvingSymlinksInPath().path
+        #expect(resolvedOwnCwd == expectedCwd)
+
+        #expect(Workspace.processCurrentWorkingDirectory(pid: -1) == nil)
+    }
+
     /// Builds a workspace whose focused terminal hosts an auto-resumable Claude
     /// agent-hook session rooted at `savedDirectory`, snapshots it, and restores
     /// it into a fresh workspace. Returns the restored workspace and the restored
