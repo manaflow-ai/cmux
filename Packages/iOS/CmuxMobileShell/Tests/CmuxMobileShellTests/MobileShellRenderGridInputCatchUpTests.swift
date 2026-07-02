@@ -316,6 +316,65 @@ import Testing
 }
 
 @MainActor
+@Test func renderGridReplayBehindPendingInputRetriesNonBarrierReplay() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let surfaceID = "live-terminal"
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let mountReplaySettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(mountReplaySettled)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+    let transport = try #require(box.get())
+
+    await router.holdNextReplayResponses()
+    store.requestTerminalReplay(surfaceID: surfaceID)
+    let oldReplayInFlight = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterMount + 1
+    )
+    #expect(oldReplayInFlight)
+
+    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: surfaceID)
+    let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
+    #expect(inputSent)
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 99,
+        text: "dropped-event-delta",
+        full: false
+    ))
+    let droppedDeltaDelivered = try await pollUntil(attempts: 50) {
+        collector.lines.contains { $0.contains("dropped-event-delta") }
+    }
+    #expect(!droppedDeltaDelivered)
+
+    try await router.enqueueReplayRenderGrids([
+        renderGridFrame(surfaceID: surfaceID, seq: 99, text: "stale-nonbarrier-replay"),
+        renderGridFrame(surfaceID: surfaceID, seq: 100, text: "fresh-nonbarrier-replay"),
+    ])
+    await router.releaseAllHeld()
+    let retryRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterMount + 2
+    )
+    #expect(retryRequested, "a stale non-barrier replay behind pending input must request a replacement")
+    let freshReplayDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("fresh-nonbarrier-replay") }
+    }
+    #expect(freshReplayDelivered)
+    collector.unmount()
+}
+
+@MainActor
 @Test func renderGridReplayRetryExhaustionClearsBarrierForTargetFrame() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

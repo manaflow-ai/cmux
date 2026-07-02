@@ -34,7 +34,7 @@ public typealias CMUXMobileShellStore = MobileShellComposite
 @MainActor
 @Observable
 public final class MobileShellComposite: MobileTerminalOutputSinking {
-    private static let maxTerminalReplayFailureRetries = 2
+    static let maxTerminalReplayFailureRetries = 2
     static let maxTerminalReplayBarrierFollowUps = 1
 
     private enum TerminalOutputTransport: Equatable {
@@ -6671,6 +6671,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            endSeq >= pendingSeq {
             pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
             pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
+            terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
             MobileDebugLog.anchormux("sync.input_seq_caught_up surface=\(surfaceID) seq=\(endSeq)")
         }
     }
@@ -6741,33 +6742,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_preserved_\(reason) surface=\(surfaceID)")
         return true
-    }
-
-    func prepareTerminalReplayFailureRetry(
-        surfaceID: String,
-        replayBarrierToken: UUID?
-    ) -> UUID? {
-        guard let replayBarrierToken,
-              hasTerminalOutputSink(surfaceID: surfaceID),
-              terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken else {
-            return nil
-        }
-        let retryCount = terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0
-        guard retryCount < Self.maxTerminalReplayFailureRetries else {
-            MobileDebugLog.anchormux(
-                "CMUX_REPLAY retry_exhausted surface=\(surfaceID) attempts=\(retryCount)"
-            )
-            return nil
-        }
-        terminalReplayFailureRetryCountsBySurfaceID[surfaceID] = retryCount + 1
-        MobileDebugLog.anchormux(
-            "CMUX_REPLAY retry_after_failure surface=\(surfaceID) attempt=\(retryCount + 1)"
-        )
-        return replayBarrierToken
-    }
-
-    func terminalReplayFailureRetryExhausted(surfaceID: String) -> Bool {
-        (terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0) >= Self.maxTerminalReplayFailureRetries
     }
 
     @discardableResult
@@ -6915,7 +6889,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Whether a surface currently has an attached output stream consumer.
-    private func hasTerminalOutputSink(surfaceID: String) -> Bool {
+    func hasTerminalOutputSink(surfaceID: String) -> Bool {
         terminalByteContinuationsBySurfaceID[surfaceID] != nil
     }
 
@@ -7255,6 +7229,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                                 coveredReplayBarrierDroppedOutputCount:
                                     self.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
                             )
+                            return
+                        }
+                        if replayBarrierTokenForRequest == nil,
+                           self.prepareNonBarrierTerminalReplayFailureRetry(surfaceID: surfaceID) {
+                            self.clearTerminalReplayInFlightIfCurrent(
+                                surfaceID: surfaceID,
+                                requestID: replayRequestID
+                            )
+                            transferredInFlightToRetry = true
+                            self.requestTerminalReplay(surfaceID: surfaceID)
                             return
                         }
                         self.clearTerminalReplayBarrierIfCurrent(
