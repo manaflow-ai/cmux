@@ -26,7 +26,7 @@
 
 import { spawn, execFile } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
-import { access, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -34,6 +34,36 @@ import { promisify } from "node:util";
 import process from "node:process";
 
 const execFileP = promisify(execFile);
+
+// Spawn children (the long-lived codex app-server and the short helpers) with
+// a filtered environment. This server is auto-attached to Claude sessions
+// whose env can carry Anthropic/Vertex credentials, account-selection vars,
+// and cmux socket credentials; codex authenticates from ~/.codex/auth.json,
+// not env, so none of that belongs in the engine process. Keep only what
+// codex/node/subprocess resolution genuinely needs, plus benign locale/proxy/
+// cert vars and any codex-owned CODEX_*/OPENAI_* config.
+const CHILD_ENV_ALLOW = new Set([
+  "HOME", "CODEX_HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "SHELL", "TERM",
+  "LANG", "LC_ALL", "TZ",
+  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+  "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+  "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+]);
+const CHILD_ENV_PREFIXES = ["LC_", "XDG_", "CODEX_", "OPENAI_"];
+
+function childEnv(extra) {
+  const env = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value == null) continue;
+    if (CHILD_ENV_ALLOW.has(key) || CHILD_ENV_PREFIXES.some((p) => key.startsWith(p))) {
+      env[key] = value;
+    }
+  }
+  // NODE_OPTIONS carries cmux's per-launch --require guard; it must not leak
+  // into codex's own node subprocesses.
+  delete env.NODE_OPTIONS;
+  return { ...env, ...extra };
+}
 
 // Fail fast on malformed numeric config: silently coercing to NaN would break
 // request timeouts and AX-tree truncation in confusing ways.
@@ -86,7 +116,10 @@ function supportsAppServer(binary) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(binary, ["app-server", "--help"], { stdio: ["ignore", "ignore", "ignore"] });
+      child = spawn(binary, ["app-server", "--help"], {
+        stdio: ["ignore", "ignore", "ignore"],
+        env: childEnv(),
+      });
     } catch {
       resolve(false);
       return;
@@ -186,6 +219,7 @@ class AppServerSession {
     this.computerUseStatus = null;
     const child = spawn(this.codexBinary, ["app-server"], {
       stdio: ["pipe", "pipe", "pipe"],
+      env: childEnv(),
     });
     this.child = child;
     // Writes can race the child dying; the exit handler already rejects all
@@ -509,15 +543,16 @@ async function desktopScreenshot(display) {
   ) {
     return err("full-desktop capture was not approved; pass `app` for per-app capture instead");
   }
-  const path = join(
-    tmpdir(),
-    `cmux-cu-screenshot-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e6)}.png`
-  );
+  // Capture into a private 0700 dir (mkdtemp), never a shared temp path, so
+  // the full-desktop PNG cannot be read or listed by another local user even
+  // during the brief capture window.
+  const dir = await mkdtemp(join(tmpdir(), "cmux-cu-shot-"));
+  const path = join(dir, "screenshot.png");
   const args = ["-x"];
   if (display != null) args.push("-D", String(display));
   args.push(path);
   try {
-    await execFileP("/usr/sbin/screencapture", args, { timeout: TIMEOUT_MS });
+    await execFileP("/usr/sbin/screencapture", args, { timeout: TIMEOUT_MS, env: childEnv() });
     const data = await readFile(path);
     return ok([{ type: "image", data: data.toString("base64"), mimeType: "image/png" }]);
   } catch (error) {
@@ -526,10 +561,10 @@ async function desktopScreenshot(display) {
         "Screen Recording permission for the terminal app; per-app capture via `app` does not."
     );
   } finally {
-    // Await deletion: this file holds full-desktop pixels, and a client that
+    // Await deletion: this dir holds full-desktop pixels, and a client that
     // closes the server right after receiving the image would let shutdown()
     // exit the process before a fire-and-forget unlink ran, leaking it to tmp.
-    await rm(path, { force: true }).catch(() => {});
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -562,7 +597,7 @@ print(String(data: data, encoding: .utf8) ?? "[]")
 
 function runWithStdin(command, args, input) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env: childEnv() });
     child.stdin.on("error", () => {}); // spawn failure surfaces via the error/close handlers
     let stdout = "";
     let stderr = "";
@@ -649,7 +684,10 @@ const TOOLS = [
         return err(`launching "${app}" was not approved`);
       }
       try {
-        const { stdout } = await execFileP("/usr/bin/open", ["-a", app], { timeout: TIMEOUT_MS });
+        const { stdout } = await execFileP("/usr/bin/open", ["-a", app], {
+          timeout: TIMEOUT_MS,
+          env: childEnv(),
+        });
         return ok([text(stdout?.trim() || `opened ${app}`)]);
       } catch (error) {
         return err(error?.stderr?.trim() || error?.message || String(error));
