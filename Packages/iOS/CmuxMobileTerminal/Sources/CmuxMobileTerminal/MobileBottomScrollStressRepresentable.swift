@@ -21,9 +21,5 @@ struct MobileBottomScrollStressRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {}
-
-    static func dismantleUIView(_ uiView: UIView, coordinator: MobileBottomScrollStressCoordinator) {
-        coordinator.stop()
-    }
 }
 #endif
