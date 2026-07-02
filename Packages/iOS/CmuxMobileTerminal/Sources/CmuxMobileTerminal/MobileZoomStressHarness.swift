@@ -102,7 +102,7 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
         // exercises. This is the device ingredient missing from the harness:
         // the freeze reproduces on device (real zsh) but not on the
         // synthetic-content sim until the output path is loaded like this.
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
             guard size.columns > 0, size.rows > 0 else { return }
             let cols = max(1, size.columns - 3)
             let rows = max(1, size.rows - 3)

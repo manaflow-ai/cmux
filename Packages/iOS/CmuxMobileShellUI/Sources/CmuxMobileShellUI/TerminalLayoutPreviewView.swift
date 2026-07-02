@@ -71,7 +71,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
     /// exercises layout, not input/resize round-trips.
     final class Coordinator: GhosttySurfaceViewDelegate {
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {}
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {}
     }
 }
 #endif
