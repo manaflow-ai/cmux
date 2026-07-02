@@ -16,6 +16,15 @@ every selected suite ran rather than an early prefix. The CI watchdogs
 (``scripts/ci/xcodebuild_noninteractive.py`` and ci.yml's ``run_unit_tests``)
 return exit code 124 when they kill xcodebuild; that and other mid-run aborts
 fail (c) unless terminal completion was already reached.
+
+Completion evidence comes in two strengths. ``** TEST SUCCEEDED **`` or a
+*passed* top-level aggregate is unconditional proof: the whole selected set ran
+and passed. A *failed* top-level aggregate is weaker -- a crashed or aborted
+suite that never printed a summary can still leave xcodebuild emitting
+``Test Suite 'Selected tests' failed at ...``. So a failed aggregate satisfies
+(c) only when a visible XCTest summary explains the failure with an expected
+(0-unexpected) ``failures > 0`` count; a failed aggregate over only clean
+summaries means the failure came from outside the parsed suites and is rejected.
 """
 
 from __future__ import annotations
@@ -52,15 +61,28 @@ COMPLETION_MARKERS = ("** TEST SUCCEEDED **",)
 # -only-testing / full run). xcodebuild emits it only after every selected suite
 # finishes, so it proves completion for a failed run where ``** TEST SUCCEEDED **``
 # is absent. This mirrors xcodebuild_noninteractive.py's SELECTED_TESTS_DONE_RE.
-COMPLETION_RE = re.compile(
-    r"Test Suite '(?:Selected tests|All tests)' (?:passed|failed) at "
+#
+# The ``passed`` and ``failed`` variants are tracked separately: a *passed*
+# aggregate is unconditional proof that every selected suite ran and passed, but
+# a *failed* aggregate is weaker -- a crashed or aborted suite that printed no
+# summary can still leave xcodebuild emitting ``Test Suite 'Selected tests'
+# failed at ...``. main() therefore accepts a bare failed aggregate only when a
+# visible summary explains it with an expected (0-unexpected) failure.
+PASSED_COMPLETION_RE = re.compile(
+    r"Test Suite '(?:Selected tests|All tests)' passed at "
+)
+FAILED_COMPLETION_RE = re.compile(
+    r"Test Suite '(?:Selected tests|All tests)' failed at "
 )
 
 
 def reached_terminal_completion(output: str) -> bool:
     if any(marker in output for marker in COMPLETION_MARKERS):
         return True
-    return COMPLETION_RE.search(output) is not None
+    return (
+        PASSED_COMPLETION_RE.search(output) is not None
+        or FAILED_COMPLETION_RE.search(output) is not None
+    )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -116,6 +138,29 @@ def main(argv: list[str]) -> int:
             "terminal test summary; cannot confirm every selected suite ran"
         )
         return 1
+
+    # ``** TEST SUCCEEDED **`` or a *passed* top-level aggregate proves the whole
+    # selected set ran and passed. A *failed* top-level aggregate proves the run
+    # reached its end, but not that the failure was benign: a crashed or aborted
+    # suite that printed no summary can still leave xcodebuild emitting
+    # ``Test Suite 'Selected tests' failed at ...``. Accept a failed aggregate
+    # only when a visible XCTest summary explains it -- an expected failure
+    # (failures > 0, already known to be 0 unexpected above). If every summary is
+    # clean (0 failures) yet the aggregate failed, the failure came from outside
+    # the parsed suites (crash/abort/skipped remainder) -- the #5641 masking.
+    strong_completion = (
+        any(marker in output for marker in COMPLETION_MARKERS)
+        or PASSED_COMPLETION_RE.search(output) is not None
+    )
+    if not strong_completion and FAILED_COMPLETION_RE.search(output) is not None:
+        if not any(failures > 0 for _tests, failures, _unexpected, _line in summaries):
+            print(
+                "Unexpected test failures detected: xcodebuild reported a failed "
+                "top-level aggregate but no XCTest summary recorded a failure, so the "
+                "failed action came from a crashed/aborted suite outside the parsed "
+                "summaries; cannot confirm every selected suite ran"
+            )
+            return 1
 
     if not any(tests > 0 for tests, _failures, _unexpected, _line in summaries):
         print("Unexpected test failures detected: no XCTest summary executed any tests")

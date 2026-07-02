@@ -207,6 +207,37 @@ xcodebuild: error: Failed to build project cmux with scheme cmux-unit.
     )
 
 
+def test_rejects_failed_aggregate_when_no_summary_explains_the_failure() -> None:
+    # A *failed* top-level aggregate proves the run reached its end, but not that
+    # the failure was benign. Here every parsed summary is clean (0 failures) yet
+    # the aggregate failed: the failing action came from a crashed/aborted suite
+    # that printed no summary, so accepting it would reopen the #5641 masking
+    # hole (a passed top-level aggregate or "** TEST SUCCEEDED **" is absent).
+    expect_fail(
+        65,
+        """
+Test Suite 'EarlySuite' passed
+    Executed 2 tests, with 0 failures (0 unexpected) in 0.125 seconds
+Test Suite 'Selected tests' failed at 2026-06-29 00:00:00.000
+""",
+    )
+
+
+def test_accepts_failed_aggregate_explained_by_expected_failures() -> None:
+    # The real app-host case #5641 must keep green: a shard whose only failures
+    # are expected XCTFail assertions (0 unexpected) exits non-zero and prints a
+    # *failed* top-level aggregate but never "** TEST SUCCEEDED **". The failing
+    # summary explains the failed aggregate, so the run is accepted.
+    expect_pass(
+        65,
+        """
+Test Suite 'BrowserSessionHistoryRestoreTests' failed
+    Executed 7 tests, with 5 failures (0 unexpected) in 3.000 seconds
+Test Suite 'Selected tests' failed at 2026-06-29 00:00:00.000
+""",
+    )
+
+
 def main() -> int:
     test_accepts_nonzero_runner_cleanup_after_zero_unexpected_summaries()
     test_accepts_zero_unexpected_failures_when_all_summaries_report_zero_unexpected()
@@ -219,6 +250,8 @@ def main() -> int:
     test_rejects_unexpected_failure_even_when_last_suite_is_clean()
     test_rejects_zero_test_summaries_without_any_executed_tests()
     test_rejects_logs_without_xctest_execution_summaries()
+    test_rejects_failed_aggregate_when_no_summary_explains_the_failure()
+    test_accepts_failed_aggregate_explained_by_expected_failures()
     print("PASS: xcodebuild test result policy rejects masked failures")
     return 0
 
