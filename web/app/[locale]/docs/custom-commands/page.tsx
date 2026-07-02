@@ -102,7 +102,7 @@ export default function CustomCommandsPage() {
       "type": "command",
       "title": "Codex",
       "subtitle": "Open Codex in a new terminal tab",
-      "command": "codex --dangerously-bypass-approvals-and-sandbox",
+      "command": "codex --yolo",
       "target": "newTabInCurrentPane",
       "shortcut": "cmd+t",
       "icon": { "type": "image", "path": "./icons/codex.svg" }
@@ -330,7 +330,7 @@ export default function CustomCommandsPage() {
                       {
                         "type": "terminal",
                         "name": "Codex",
-                        "command": "state=\\"\${TMPDIR:-/tmp}/cmux-worktree-\${CMUX_WORKSPACE_ID:-manual}.dir\\"; echo \\"Waiting for worktree...\\"; while [ ! -s \\"$state\\" ]; do sleep 0.2; done; dir=$(cat \\"$state\\"); cd \\"$dir\\"; exec codex --dangerously-bypass-approvals-and-sandbox"
+                        "command": "state=\\"\${TMPDIR:-/tmp}/cmux-worktree-\${CMUX_WORKSPACE_ID:-manual}.dir\\"; echo \\"Waiting for worktree...\\"; while [ ! -s \\"$state\\" ]; do sleep 0.2; done; dir=$(cat \\"$state\\"); cd \\"$dir\\"; exec codex --yolo"
                       }
                     ]
                   }
@@ -490,7 +490,7 @@ export default function CustomCommandsPage() {
     "cmux.newTerminal": {
       "type": "command",
       "title": "Codex",
-      "command": "codex --dangerously-bypass-approvals-and-sandbox",
+      "command": "codex --yolo",
       "target": "newTabInCurrentPane",
       "shortcut": "cmd+t",
       "icon": { "type": "image", "path": "./icons/codex.svg" }
