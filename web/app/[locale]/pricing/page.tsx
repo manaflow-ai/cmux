@@ -31,6 +31,11 @@ const SALES_EMAIL = "founders@manaflow.com";
 // description all key off this flag.
 const SHOW_VAULT = false;
 
+// Feature flag: hosted networking (the iOS app reaching your Mac without
+// Tailscale) hasn't shipped — Tailscale is still required today. Flip to
+// `true` to restore the Pro feature bullet and the compare row.
+const SHOW_HOSTED_NETWORKING = false;
+
 export async function generateMetadata({
   params,
 }: {
@@ -52,13 +57,20 @@ export default function PricingPage() {
   const proBaseFeatures = t.raw("pro.features") as string[];
   const proVaultFeatures = t.raw("pro.vaultFeatures") as string[];
   // Vault bullets slot back in right after the Cloud VM compute-hours line.
-  const proFeatures = SHOW_VAULT
+  const proNetworkingFeatures = t.raw("pro.hostedNetworkingFeatures") as string[];
+  let proFeatures = SHOW_VAULT
     ? [...proBaseFeatures.slice(0, 2), ...proVaultFeatures, ...proBaseFeatures.slice(2)]
     : proBaseFeatures;
+  if (SHOW_HOSTED_NETWORKING) {
+    // Networking slots back in right before the closing iOS-app bullet.
+    proFeatures = [...proFeatures.slice(0, -1), ...proNetworkingFeatures, ...proFeatures.slice(-1)];
+  }
   const teamFeatures = t.raw("team.features") as string[];
   const enterpriseFeatures = t.raw("enterprise.features") as string[];
   const compareRows = (t.raw("compare.rows") as CompareRow[]).filter(
-    (row) => SHOW_VAULT || !row.vault,
+    (row) =>
+      (SHOW_VAULT || !row.vault) &&
+      (SHOW_HOSTED_NETWORKING || !row.hostedNetworking),
   );
   const sizeRows = t.raw("sizes.rows") as SizeRow[];
   const faqItems = (t.raw("faq.items") as FaqItem[]).filter(
@@ -379,6 +391,9 @@ type CompareRow = {
   enterprise: string;
   // Marks a row that only applies once cmux Vault ships (see SHOW_VAULT).
   vault?: boolean;
+  // Marks a row that only applies once hosted networking ships
+  // (see SHOW_HOSTED_NETWORKING).
+  hostedNetworking?: boolean;
 };
 
 type SizeRow = {

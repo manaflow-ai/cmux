@@ -103,12 +103,14 @@
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
         "20 active compute-hours per month on a 4 vCPU / 16 GB VM, then usage-based",
         "Model gateway: route across providers with usage and cost analytics",
-        "Hosted networking to reach your Mac from the iOS app, no Tailscale setup",
         "The cmux iOS app and email support"
       ],
       "vaultFeatures": [
         "cmux Vault: every session backed up to the cloud and searchable",
         "Unlimited session history across all your machines"
+      ],
+      "hostedNetworkingFeatures": [
+        "Hosted networking to reach your Mac from the iOS app, no Tailscale setup"
       ]
     },
     "team": {
@@ -221,7 +223,8 @@
           "free": "Bring your own",
           "pro": "Hosted",
           "team": "Hosted",
-          "enterprise": "Self-hosted"
+          "enterprise": "Self-hosted",
+          "hostedNetworking": true
         },
         {
           "label": "Unified billing and seat management",
@@ -328,7 +331,7 @@
         },
         {
           "q": "Do I still need Tailscale for the iOS app?",
-          "a": "You can bring your own networking, like Tailscale, on any plan. Pro adds hosted networking so the iOS app reaches your Mac with no setup, and Enterprise can self-host it."
+          "a": "Yes, for now. Pair your iPhone with your Mac over your own networking, like Tailscale, on any plan; Enterprise can self-host. Hosted networking with zero setup is on the roadmap."
         },
         {
           "q": "How does billing work?",
