@@ -206,7 +206,7 @@ public final class UpdateController {
     /// preserves any in-progress install/attempt intent so a retried archive download continues
     /// silently after Sparkle finds the same update again.
     ///
-    /// The reaction is chosen by the pure ``transientRetryPlan(preservingInstallIntent:coordinatorIsMonitoring:)``:
+    /// The reaction is chosen by the pure ``TransientRetryPlan/init(preservingInstallIntent:coordinatorIsMonitoring:)``:
     /// restart the coordinator's already-monitored check, re-arm the coordinator so the retried
     /// check auto-confirms (when the interrupted phase carried install intent but the coordinator
     /// was not yet monitoring — issue #6366), or run a plain fresh check.
@@ -214,7 +214,7 @@ public final class UpdateController {
     /// - Parameter preservingInstallIntent: Whether the retry request came from a Sparkle
     ///   install/download phase whose update choice should be auto-confirmed again.
     public func retryAfterTransientFailure(preservingInstallIntent: Bool = false) {
-        let plan = Self.transientRetryPlan(
+        let plan = TransientRetryPlan(
             preservingInstallIntent: preservingInstallIntent,
             coordinatorIsMonitoring: attemptCoordinator.isMonitoring
         )

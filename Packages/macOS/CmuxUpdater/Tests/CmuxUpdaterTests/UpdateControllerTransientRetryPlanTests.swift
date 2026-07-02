@@ -10,7 +10,7 @@ import Testing
 /// Available" prompt (which strands the interrupted install).
 ///
 /// ``UpdateController`` owns a live `SPUUpdater`, so the retry *decision* is factored into the pure
-/// ``UpdateController/transientRetryPlan(preservingInstallIntent:coordinatorIsMonitoring:)`` and
+/// ``UpdateController/TransientRetryPlan/init(preservingInstallIntent:coordinatorIsMonitoring:)`` and
 /// asserted here. The surrounding links of the chain are covered separately: the driver emitting a
 /// preserve-intent retry from a download phase (`UpdateDriverRetryTests`), and an armed coordinator
 /// confirming the next resolved update (`AttemptUpdateCoordinatorTests`).
@@ -18,7 +18,7 @@ import Testing
     /// THE FIX: a preserved-intent retry that arrives before the coordinator is monitoring must
     /// re-arm the coordinator (auto-confirm), not fall back to a bare check that prompts.
     @Test func downloadPhaseRetryWithoutMonitoringRearmsCoordinator() {
-        let plan = UpdateController.transientRetryPlan(
+        let plan = UpdateController.TransientRetryPlan(
             preservingInstallIntent: true,
             coordinatorIsMonitoring: false
         )
@@ -29,11 +29,11 @@ import Testing
     /// driver's `preservingInstallIntent` flag.
     @Test func monitoredRetryRestartsMonitoredCheck() {
         #expect(
-            UpdateController.transientRetryPlan(preservingInstallIntent: false, coordinatorIsMonitoring: true)
+            UpdateController.TransientRetryPlan(preservingInstallIntent: false, coordinatorIsMonitoring: true)
                 == .restartMonitoredCheck
         )
         #expect(
-            UpdateController.transientRetryPlan(preservingInstallIntent: true, coordinatorIsMonitoring: true)
+            UpdateController.TransientRetryPlan(preservingInstallIntent: true, coordinatorIsMonitoring: true)
                 == .restartMonitoredCheck
         )
     }
@@ -41,7 +41,7 @@ import Testing
     /// A plain transient retry (no install intent, not monitoring) runs an ordinary fresh check.
     @Test func plainRetryRunsPlainCheck() {
         #expect(
-            UpdateController.transientRetryPlan(preservingInstallIntent: false, coordinatorIsMonitoring: false)
+            UpdateController.TransientRetryPlan(preservingInstallIntent: false, coordinatorIsMonitoring: false)
                 == .plainCheck
         )
     }

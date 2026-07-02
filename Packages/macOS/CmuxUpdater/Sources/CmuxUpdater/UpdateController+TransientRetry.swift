@@ -17,21 +17,24 @@ extension UpdateController {
         case rearmConfirmedInstall
         /// A plain transient retry with no install intent to preserve; run an ordinary fresh check.
         case plainCheck
-    }
 
-    /// Pure decision for ``retryAfterTransientFailure(preservingInstallIntent:)``; see
-    /// ``TransientRetryPlan`` for what each case means.
-    nonisolated static func transientRetryPlan(
-        preservingInstallIntent: Bool,
-        coordinatorIsMonitoring: Bool
-    ) -> TransientRetryPlan {
-        // A retry while the attempt coordinator is already monitoring just restarts its in-flight
-        // check (intent preserved by the coordinator itself). A preserved-intent retry that arrives
-        // *before* the coordinator is monitoring must re-arm it so the retried check auto-confirms
-        // the update it resolves — the case that previously stranded the interrupted install by
-        // falling through to a bare check that only surfaced a prompt (issue #5632).
-        if coordinatorIsMonitoring { return .restartMonitoredCheck }
-        if preservingInstallIntent { return .rearmConfirmedInstall }
-        return .plainCheck
+        /// Pure decision for ``UpdateController/retryAfterTransientFailure(preservingInstallIntent:)``,
+        /// derived from the retry context alone so it stays unit-testable without the live
+        /// `SPUUpdater` the controller owns.
+        ///
+        /// A retry while the attempt coordinator is already monitoring just restarts its in-flight
+        /// check (intent preserved by the coordinator itself). A preserved-intent retry that arrives
+        /// *before* the coordinator is monitoring must re-arm it so the retried check auto-confirms
+        /// the update it resolves — the case that previously stranded the interrupted install by
+        /// falling through to a bare check that only surfaced a prompt (issue #5632).
+        nonisolated init(preservingInstallIntent: Bool, coordinatorIsMonitoring: Bool) {
+            if coordinatorIsMonitoring {
+                self = .restartMonitoredCheck
+            } else if preservingInstallIntent {
+                self = .rearmConfirmedInstall
+            } else {
+                self = .plainCheck
+            }
+        }
     }
 }
