@@ -1232,11 +1232,19 @@ extension Workspace {
             // A persisted terminal cwd can already be the stray fallback cwd
             // from a prior auto-resume restore; the transient rescue/guard must
             // remember where the resume launcher actually sends the agent.
-            let resumeSessionWorkingDirectory =
-                effectiveResumeBindingForStartup?.cwd
-                ?? restorableAgent?.workingDirectory
-                ?? restorableAgent?.launchCommand?.workingDirectory
-                ?? savedWorkingDirectory
+            let resumeSessionWorkingDirectory: String? = {
+                if restoredBindingLaunch != nil {
+                    return effectiveResumeBindingForStartup?.cwd
+                }
+                guard let restorableAgent else { return savedWorkingDirectory }
+                if let workingDirectory = restorableAgent.workingDirectory {
+                    return workingDirectory
+                }
+                if restorableAgent.registration?.cwd == .ignore {
+                    return nil
+                }
+                return restorableAgent.launchCommand?.workingDirectory ?? savedWorkingDirectory
+            }()
             let workingDirectory = savedWorkingDirectory
                 ?? currentDirectory
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
@@ -1412,7 +1420,7 @@ extension Workspace {
                     source: resumeReboundSession.source,
                     surfaceID: terminalPanel.id.uuidString,
                     workspaceID: id.uuidString,
-                    workingDirectory: resumeSessionWorkingDirectory ?? workingDirectory
+                    workingDirectory: resumeSessionWorkingDirectory
                 )
             }
             if let restoredRemotePTYSessionID {

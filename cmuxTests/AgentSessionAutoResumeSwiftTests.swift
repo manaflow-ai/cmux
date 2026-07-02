@@ -517,6 +517,72 @@ struct AgentSessionAutoResumeSwiftTests {
         }
     }
 
+    @MainActor
+    @Test func registeredAgentWithCwdIgnoreDoesNotRescueFromLaunchCwd() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-cwd-ignore-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let sessionId = "session-ignore-\(UUID().uuidString)"
+            let registration = CmuxVaultAgentRegistration(
+                id: "acme-ignore",
+                name: "Acme Ignore",
+                detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+                sessionIdSource: .argvOption("--session"),
+                resumeCommand: "acme-agent --session {{sessionId}}",
+                cwd: .ignore
+            )
+            let source = Workspace()
+            source.currentDirectory = projectDir
+            let sourcePanelId = try #require(source.focusedPanelId)
+            source.updatePanelDirectory(panelId: sourcePanelId, directory: projectDir)
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            source.setRestoredAgentSnapshotForTesting(
+                SessionRestorableAgentSnapshot(
+                    kind: .custom(registration.id),
+                    sessionId: sessionId,
+                    workingDirectory: nil,
+                    launchCommand: AgentLaunchCommandSnapshot(
+                        processDetectedLauncher: registration.id,
+                        executablePath: "/usr/local/bin/acme-agent",
+                        arguments: ["/usr/local/bin/acme-agent", "--session", sessionId],
+                        workingDirectory: projectDir,
+                        environment: [:]
+                    ),
+                    registration: registration
+                ),
+                panelId: sourcePanelId
+            )
+
+            let snapshot = source.sessionSnapshot(includeScrollback: false)
+            let terminal = try #require(snapshot.panels.first?.terminal)
+            #expect(terminal.agent?.workingDirectory == nil)
+            #expect(terminal.agent?.launchCommand?.workingDirectory == projectDir)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try #require(restored.focusedPanelId)
+            try #require(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning
+            )
+            #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
+
+            let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+            try #require(homeDir != projectDir)
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeDir)
+            try #require(restored.panelDirectories[restoredPanelId] == homeDir)
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == homeDir)
+        }
+    }
+
     /// The #7155 rescue prefers the live foreground process's actual cwd
     /// (libproc) over the recorded session directory: a resumed agent that
     /// moved itself is followed to where it really is.
