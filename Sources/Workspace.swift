@@ -10074,7 +10074,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard layoutFollowUpTimeoutWorkItem == nil else { return }
 
         let enqueueAttempt: () -> Void = { [weak self] in
-            self?.scheduleLayoutFollowUpAttempt()
+            self?.wakeLayoutFollowUpForStructuralEvent()
         }
 
         // Intentionally NOT observing NSWindow.didUpdateNotification here. AppKit
@@ -10163,6 +10163,22 @@ final class Workspace: Identifiable, ObservableObject {
         layoutFollowUpAttemptVersion &+= 1
         layoutFollowUpAttemptScheduled = false
         layoutFollowUpStalledAttemptCount = 0
+    }
+
+    /// Wake the follow-up loop because a structural event (surface ready,
+    /// hosted view moved, portal visibility, first responder, panels change)
+    /// arrived. These events are edge-triggered (none fire per event-loop
+    /// tick), so it is safe to let them preempt a pending stall-backoff retry:
+    /// reset the backoff and reschedule immediately instead of waiting out up
+    /// to 0.25s (or, worst case, a retry scheduled past the follow-up timeout
+    /// that would never run). Mirrors the reset in
+    /// beginEventDrivenLayoutFollowUp.
+    private func wakeLayoutFollowUpForStructuralEvent() {
+        guard layoutFollowUpTimeoutWorkItem != nil else { return }
+        layoutFollowUpStalledAttemptCount = 0
+        layoutFollowUpAttemptVersion &+= 1
+        layoutFollowUpAttemptScheduled = false
+        scheduleLayoutFollowUpAttempt()
     }
 
     private func scheduleLayoutFollowUpAttempt() {
@@ -10364,7 +10380,9 @@ final class Workspace: Identifiable, ObservableObject {
         // at the stall backoff delay (layoutFollowUpBackoffDelay, capped 0.25s)
         // and is bounded by the follow-up timeout (refreshLayoutFollowUpTimeout),
         // so a stalled geometry/focus/reparent repair still converges without
-        // depending on high-frequency window updates.
+        // depending on high-frequency window updates. Structural events preempt
+        // this backoff (wakeLayoutFollowUpForStructuralEvent), so a late signal
+        // is handled immediately instead of waiting out the retry delay.
         scheduleLayoutFollowUpAttempt()
     }
 
