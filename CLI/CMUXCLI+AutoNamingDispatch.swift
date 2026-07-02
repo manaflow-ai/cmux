@@ -68,7 +68,7 @@ extension CMUXCLI {
     ) -> String? {
         switch agent {
         case "claude":
-            return summarizeWithClaude(prompt: prompt, env: env, timeout: timeout)
+            return summarizeWithClaude(prompt: prompt, env: env, timeout: timeout, telemetry: telemetry)
         case "codex":
             return summarizeWithCodex(prompt: prompt, env: env, timeout: timeout)
         default:
@@ -104,7 +104,8 @@ extension CMUXCLI {
     private func summarizeWithClaude(
         prompt: String,
         env: [String: String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        telemetry: CLISocketSentryTelemetry
     ) -> String? {
         let policy = AutoNamingEnvironmentPolicy()
         let customPath = env["CMUX_CUSTOM_CLAUDE_PATH"]?
@@ -123,18 +124,25 @@ extension CMUXCLI {
         guard let executable else { return nil }
         return runAutoNamingSummarizer(
             executable: executable,
-            arguments: [
-                "-p",
-                "--model", policy.claudeModel(from: env),
-                "--tools", "",
-                "--disable-slash-commands",
-                "--no-session-persistence",
-                "--strict-mcp-config",
-                "--mcp-config", "{}"
-            ],
+            arguments: AutoNamingEnvironmentPolicy.claudeSummarizerArguments(
+                model: policy.claudeModel(from: env)
+            ),
             prompt: prompt,
             environment: policy.summarizerEnvironment(from: env),
-            timeout: timeout
+            timeout: timeout,
+            onFailure: { reason, exitStatus, stderrTail in
+                let exit = exitStatus.map { String($0) } ?? "n/a"
+                telemetry.breadcrumb("claude-hook.auto-name.summarizer-failed", data: [
+                    "reason": reason,
+                    "exit": exit,
+                    "stderr": stderrTail
+                ])
+                self.autoNameDebugLog("summarizer-failed", [
+                    "reason": reason,
+                    "exit": exit,
+                    "stderr": String(stderrTail.prefix(160))
+                ])
+            }
         )
     }
 
@@ -163,7 +171,12 @@ extension CMUXCLI {
                 "-c", "default_tools_enabled=false",
                 "-c", "tools={}",
                 "-c", "mcp_servers={}",
-                "-c", "web_search=false",
+                // NOTE: do NOT pass `-c web_search=false`. Current Codex rejects a
+                // bool here ("invalid type: unit variant, expected string only in
+                // web_search") and aborts `codex exec` before it runs, returning
+                // nil — which silently broke all Codex auto-naming. Tools are
+                // already disabled above (default_tools_enabled=false + tools={}),
+                // so web search cannot run regardless.
                 "-c", "approval_policy=never",
                 "-c", "shell_environment_policy.inherit=none",
                 "--skip-git-repo-check",

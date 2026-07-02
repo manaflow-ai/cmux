@@ -1548,6 +1548,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 #endif
+
+        // Hookless Codex auto-naming: name Codex workspaces by watching their
+        // rollout files, with zero Codex hooks (no "Running N Stop hooks" noise).
+        if !isRunningUnderXCTest {
+            startCodexAutoNameMonitor()
+        }
     }
 
     private nonisolated static func feedWorkstreamTitle(for event: WorkstreamEvent) -> String? {
@@ -17976,3 +17982,193 @@ extension AppDelegate {
 // MARK: - CmuxAppKitSupportUI seam conformance
 
 extension AppDelegate: WindowDecorating {}
+
+// MARK: - Hookless Codex auto-naming
+//
+// Codex runs hooks synchronously and surfaces them ("Running N Stop hooks"
+// every turn), so cmux must NOT register Codex hooks for naming. Instead the
+// app names Codex workspaces itself: on a timer, for each surface running a
+// `codex` process, resolve the process's open rollout file via lsof (Codex
+// holds it open — deterministic, no hook needed) and invoke
+// `cmux hooks codex auto-name --app-driven` against it. The engine throttle
+// dedups, so this names on first sight then refreshes at the throttle cadence.
+extension AppDelegate {
+    private static var codexAutoNameTimer: Timer?
+    private static let codexAutoNameInterval: TimeInterval = 25
+
+    func startCodexAutoNameMonitor() {
+        guard Self.codexAutoNameTimer == nil else { return }
+        let timer = Timer(timeInterval: Self.codexAutoNameInterval, repeats: true) { _ in
+            AppDelegate.shared?.tickCodexAutoName()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        Self.codexAutoNameTimer = timer
+    }
+
+    private static func codexMonitorDebugLog(_ message: String) {
+        guard ProcessInfo.processInfo.environment["CMUX_AUTONAME_DEBUG"] == "1" else { return }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let url = home.appendingPathComponent(".cmuxterm/auto-name-debug.log")
+        let line = "\(ISO8601DateFormatter().string(from: Date())) codex-monitor \(message)\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    private func tickCodexAutoName() {
+        guard let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            Self.codexMonitorDebugLog("tick aborted: no bundled cli")
+            return
+        }
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        DispatchQueue.global(qos: .utility).async {
+            Self.codexMonitorDebugLog("tick socket=\(socketPath)")
+            // Hookless surface→PID discovery. The process monitor already scopes
+            // every process to its surface via the inherited CMUX_WORKSPACE_ID /
+            // CMUX_SURFACE_ID env (and ppid tree) — the same attribution the
+            // CmuxTop view uses — so we find each `codex` process and its exact
+            // surface without any Codex hook reporting a PID. (tab.agentPIDs is
+            // hook-fed and stays empty when we deliberately install no Codex
+            // hooks, which is the whole point of the hookless path.)
+            let snapshot = CmuxTopProcessSnapshot.capture(
+                includeProcessDetails: false,
+                includeCMUXScope: true
+            )
+            let codexInfos = snapshot.processesByPID.values.filter { Self.isCodexProcessName($0.name) }
+            let scoped = codexInfos.filter { $0.cmuxSurfaceID != nil }
+            Self.codexMonitorDebugLog(
+                "snapshot procs=\(snapshot.processesByPID.count) codex=\(codexInfos.count) codex-scoped=\(scoped.count)"
+            )
+            var seenSurfaces = Set<UUID>()
+            for info in snapshot.processesByPID.values {
+                guard Self.isCodexProcessName(info.name) else { continue }
+                guard let ws = info.cmuxWorkspaceID,
+                      let surface = info.cmuxSurfaceID else {
+                    Self.codexMonitorDebugLog("skip pid=\(info.pid): no cmux scope (ws=\(info.cmuxWorkspaceID != nil) sf=\(info.cmuxSurfaceID != nil))")
+                    continue
+                }
+                guard !seenSurfaces.contains(surface) else { continue }
+                guard let rollout = Self.codexRolloutPath(forPID: pid_t(info.pid)) else {
+                    // Don't mark the surface seen yet — another Codex process for
+                    // the same surface may have the open rollout this one lacks.
+                    Self.codexMonitorDebugLog("skip pid=\(info.pid): no open rollout")
+                    continue
+                }
+                seenSurfaces.insert(surface)
+                let sessionId = Self.codexSessionId(fromRolloutPath: rollout)
+                Self.codexMonitorDebugLog("spawn pid=\(info.pid) ws=\(ws.uuidString) sf=\(surface.uuidString) session=\(sessionId.prefix(8))")
+                Self.spawnCodexAutoName(
+                    cliURL: cliURL, socketPath: socketPath,
+                    workspaceId: ws, surfaceId: surface,
+                    sessionId: sessionId, rolloutPath: rollout
+                )
+            }
+        }
+    }
+
+    private static func isCodexProcessName(_ name: String) -> Bool {
+        // The Codex CLI's argv[0] is `codex` (a symlink), but the process's real
+        // executable name — which the process snapshot reports — is the target
+        // rust binary `codex-aarch64-apple-darwin` / `codex-x86_64-apple-darwin`
+        // (truncated to ~16 chars, e.g. "codex-aarch64-a"). Match both the bare
+        // name and that arch-suffixed binary, while excluding the desktop
+        // Codex.app helpers ("Codex (Renderer)", "Codex (Service)", which are
+        // capitalized and never carry a cmux surface scope anyway).
+        let base = (name as NSString).lastPathComponent
+        return base == "codex" || base.hasPrefix("codex-")
+    }
+
+    private static func runReadingStdout(_ launchPath: String, _ args: [String]) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: launchPath)
+        p.arguments = args
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func codexRolloutPath(forPID pid: pid_t) -> String? {
+        // `-Fn` emits one field per line, each name field prefixed with `n`, so a
+        // rollout path under a home directory containing spaces (e.g.
+        // `/Users/Joe Smith/.codex/...`) survives intact — splitting plain `lsof`
+        // output on spaces would shred it.
+        guard let out = runReadingStdout("/usr/sbin/lsof", ["-Fn", "-p", "\(pid)"]) else { return nil }
+        for line in out.split(separator: "\n") where line.hasPrefix("n") {
+            let path = String(line.dropFirst())
+            if path.hasSuffix(".jsonl"), path.contains("/.codex/sessions/") {
+                return path
+            }
+        }
+        return nil
+    }
+
+    private static func codexSessionId(fromRolloutPath path: String) -> String {
+        let base = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+        // rollout-<timestamp>-<uuid>.jsonl → extract the trailing UUID.
+        let uuidPattern = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        if let r = base.range(of: uuidPattern, options: .regularExpression) {
+            return String(base[r])
+        }
+        return base
+    }
+
+    private static func spawnCodexAutoName(
+        cliURL: URL, socketPath: String,
+        workspaceId: UUID, surfaceId: UUID,
+        sessionId: String, rolloutPath: String
+    ) {
+        let process = Process()
+        process.executableURL = cliURL
+        process.arguments = [
+            "--socket", socketPath,
+            "hooks", "codex", "auto-name", "--app-driven",
+            "--session", sessionId,
+            "--workspace", workspaceId.uuidString,
+            "--surface", surfaceId.uuidString,
+            "--transcript", rolloutPath,
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        environment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
+        environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return }
+        // Bounded reap. The subprocess carries its own 90s LLM timeout, so cap
+        // the blocking window a bit above that and terminate a genuinely hung
+        // process instead of holding the utility-queue thread forever.
+        Self.waitOrTerminate(process, timeout: 120)
+    }
+
+    /// Wait for `process` to exit, polling cheaply; if it overruns `timeout`,
+    /// terminate (then kill) it so a hung subprocess can't pin a thread.
+    private static func waitOrTerminate(_ process: Process, timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning {
+            if Date() >= deadline {
+                process.terminate()
+                Thread.sleep(forTimeInterval: 0.5)
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        process.waitUntilExit() // reap the (now-exited) process
+    }
+}

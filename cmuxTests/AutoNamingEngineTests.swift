@@ -81,26 +81,39 @@ import Testing
         #expect(decision == .skipTooSoon)
     }
 
-    @Test func failedAttemptEnforcesCooldownBeforeRetry() {
+    @Test func failedAttemptRetriesAfterShortFailureInterval() {
         // A failed pass records lastAttemptAt but never lastNamedAt/lastLineCount.
-        // Within minInterval the throttle must back off (no per-turn respawn of a
-        // rate-limited summarizer); after it, retry is allowed.
+        // Within the short failure-retry interval the throttle backs off (no
+        // per-turn respawn of a rate-limited summarizer); after it — far sooner
+        // than the full success interval — a never-named session retries, so a
+        // transient or just-fixed summarizer failure recovers on the next turn
+        // instead of leaving the workspace stuck on "Claude Code" for minutes.
         let base = TimeInterval(1_000_000)
         let failed = snapshot(lastAttemptAt: base)
 
         let tooSoon = engine.throttleDecision(
             snapshot: failed,
             transcriptLineCount: 100,
-            now: Date(timeIntervalSince1970: base + config.minInterval - 1)
+            now: Date(timeIntervalSince1970: base + config.failureRetryInterval - 1)
         )
         #expect(tooSoon == .skipTooSoon)
 
-        let afterCooldown = engine.throttleDecision(
+        let afterFailureInterval = engine.throttleDecision(
             snapshot: failed,
             transcriptLineCount: 100,
-            now: Date(timeIntervalSince1970: base + config.minInterval + 1)
+            now: Date(timeIntervalSince1970: base + config.failureRetryInterval + 1)
         )
-        #expect(afterCooldown == .proceed(baseline: 100))
+        #expect(afterFailureInterval == .proceed(baseline: 100))
+
+        // The fix: a never-named failed pass retries well before the full
+        // success interval that previously gated it.
+        #expect(config.failureRetryInterval < config.minInterval)
+        let beforeSuccessInterval = engine.throttleDecision(
+            snapshot: failed,
+            transcriptLineCount: 100,
+            now: Date(timeIntervalSince1970: base + config.minInterval - 1)
+        )
+        #expect(beforeSuccessInterval == .proceed(baseline: 100))
     }
 
     @Test func failureAfterSuccessBacksOffOnLastAttemptNotLastNamed() {
@@ -326,5 +339,86 @@ import Testing
         #expect(policy.claudeModel(from: [:]) == "haiku")
         #expect(policy.claudeModel(from: ["ANTHROPIC_SMALL_FAST_MODEL": "  "]) == "haiku")
         #expect(policy.claudeModel(from: ["ANTHROPIC_SMALL_FAST_MODEL": "vertex-haiku-id"]) == "vertex-haiku-id")
+    }
+
+    // MARK: - Claude summarizer arguments
+
+    @Test func claudeSummarizerMCPConfigIsValidEmptyServerObject() throws {
+        // Regression: a bare `--mcp-config {}` is rejected by current Claude
+        // Code ("Invalid MCP configuration: mcpServers: expected record,
+        // received undefined"), making `claude -p` exit non-zero so every
+        // auto-naming pass failed silently. The payload must be an object that
+        // carries an `mcpServers` record.
+        let args = AutoNamingEnvironmentPolicy.claudeSummarizerArguments(model: "haiku")
+        let idx = try #require(args.firstIndex(of: "--mcp-config"))
+        try #require(idx + 1 < args.count)
+        let payload = args[idx + 1]
+
+        #expect(payload != "{}")
+        let data = try #require(payload.data(using: .utf8))
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let object = try #require(json)
+        #expect(object["mcpServers"] is [String: Any])
+    }
+
+    @Test func claudeSummarizerArgumentsAreToolAndSessionFree() throws {
+        let args = AutoNamingEnvironmentPolicy.claudeSummarizerArguments(model: "sonnet")
+        #expect(args.contains("-p"))
+        #expect(args.contains("--strict-mcp-config"))
+        #expect(args.contains("--no-session-persistence"))
+        #expect(args.contains("--disable-slash-commands"))
+        // Model is threaded through verbatim.
+        let modelIdx = try #require(args.firstIndex(of: "--model"))
+        try #require(modelIdx + 1 < args.count)
+        #expect(args[modelIdx + 1] == "sonnet")
+    }
+
+    // MARK: - Kickoff naming (name from the prompt at UserPromptSubmit)
+
+    @Test func kickoffBypassesShortTranscriptFloor() {
+        // A short prompt is below minTranscriptLines, so the normal path skips —
+        // but the kickoff path names from the prompt itself, so it must proceed.
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let shortCount = 1
+        #expect(shortCount < config.minTranscriptLines)
+
+        let normal = engine.throttleDecision(
+            snapshot: snapshot(),
+            transcriptLineCount: shortCount,
+            now: now
+        )
+        #expect(normal == .skipShortTranscript)
+
+        let kickoff = engine.throttleDecision(
+            snapshot: snapshot(),
+            transcriptLineCount: shortCount,
+            now: now,
+            bypassMinTranscriptLines: true
+        )
+        #expect(kickoff == .proceed(baseline: shortCount))
+    }
+
+    @Test func kickoffStillRespectsInFlightAndAlreadyNamed() {
+        let base = TimeInterval(1_000_000)
+        // In-flight marker still blocks a kickoff (no double-spawn).
+        let inFlight = engine.throttleDecision(
+            snapshot: snapshot(inFlightAt: base),
+            transcriptLineCount: 1,
+            now: Date(timeIntervalSince1970: base + 1),
+            bypassMinTranscriptLines: true
+        )
+        #expect(inFlight == .skipInFlight)
+    }
+
+    @Test func hookUserTextExtractsPromptFromPayload() {
+        #expect(engine.hookUserText(in: ["prompt": "last30days Taylor Swift"]) == "last30days Taylor Swift")
+        #expect(engine.hookUserText(in: ["user_prompt": "fix the bug"]) == "fix the bug")
+        #expect(engine.hookUserText(in: ["unrelated": "x"]) == nil)
+    }
+
+    @Test func buildContextFromSinglePromptMessageIsUsable() throws {
+        let messages = [AutoNamingTranscriptMessage(role: "user", text: "last30days Taylor Swift")]
+        let context = try #require(engine.buildContext(from: messages))
+        #expect(context.contains("Taylor Swift"))
     }
 }

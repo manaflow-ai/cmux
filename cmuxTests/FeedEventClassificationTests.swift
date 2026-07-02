@@ -187,3 +187,57 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "execute_bash").actionable == false)
     }
 }
+
+/// Regression coverage for Claude `Notification` classification: the idle
+/// "waiting for your input" ping (and "completed") must NOT raise the
+/// "Needs input" badge on its own, while genuine permission/error/attention
+/// notifications must.
+@Suite struct ClaudeNotificationKindTests {
+    private func kind(_ signal: String, _ message: String) -> ClaudeNotificationKind {
+        FeedEventClassifier.claudeNotificationKind(signal: signal, message: message)
+    }
+
+    @Test func idleWaitingDoesNotRaiseNeedsInput() {
+        // The exact message Claude Code emits ~60s after a turn ends.
+        let k = kind("Notification", "Claude is waiting for your input")
+        #expect(k == .waiting)
+        #expect(k.raisesNeedsInput == false)
+    }
+
+    @Test func completedDoesNotRaiseNeedsInput() {
+        let k = kind("Notification", "Task completed successfully")
+        #expect(k == .completed)
+        #expect(k.raisesNeedsInput == false)
+    }
+
+    @Test func permissionRaisesNeedsInput() {
+        let k = kind("Notification", "Claude needs your permission to run a command")
+        #expect(k == .permission)
+        #expect(k.raisesNeedsInput == true)
+    }
+
+    @Test func errorRaisesNeedsInput() {
+        let k = kind("Notification", "The agent failed with an exception")
+        #expect(k == .error)
+        #expect(k.raisesNeedsInput == true)
+    }
+
+    @Test func genericAttentionRaisesNeedsInput() {
+        // No completion/waiting cue and no permission/error keyword: stay
+        // conservative and surface it (could be a real prompt).
+        let k = kind("Notification", "Claude needs your attention")
+        #expect(k == .attention)
+        #expect(k.raisesNeedsInput == true)
+    }
+
+    @Test func needsInputPhrasingClassifiesAsWaitingAtKindLevel() {
+        // "needs input" matches the same waiting cue as the idle ping, so at
+        // the pure-kind level it does not raise needs-input. A genuinely
+        // pending block is recognized by the handler via the session's
+        // `.needsInput` lifecycle (set by the preceding PreToolUse /
+        // permission flow), not by this string heuristic.
+        let k = kind("Notification", "Claude needs input to continue")
+        #expect(k == .waiting)
+        #expect(k.raisesNeedsInput == false)
+    }
+}
