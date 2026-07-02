@@ -5,15 +5,16 @@ Local Workspace* File-menu item). No code yet — this doc is the spec for a
 separate implementation PR.
 
 This document specifies adding a **New Local Workspace** entry to the command
-palette, gated so it only appears when plain New Workspace in the active window
-would spawn a remote tmux session. It is a companion to the menu-item change,
+palette, gated so it only appears when plain New Workspace on the active
+workspace would spawn a remote tmux session. It is a companion to the menu-item change,
 which is the load-bearing piece; this palette entry is pure surface parity and is
 split out to keep that change focused.
 
 ## Background
 
 In a remote-tmux mirror window, plain **New Workspace** (⌘N / File → New
-Workspace) spawns a new tmux session on the window's host and mirrors it in,
+Workspace) spawns a new tmux session on the active workspace's host and
+mirrors it in,
 rather than creating a local workspace. The menu-item change adds a **New Local
 Workspace** command that forces local creation, shown only when New Workspace
 would otherwise go remote.
@@ -22,10 +23,10 @@ That change already provides the two pieces this work builds on:
 
 - `AppDelegate.performNewLocalWorkspaceAction(tabManager:event:debugSource:)` —
   the shared action; routes through `performNewWorkspaceCreationAction(..., forceLocal: true)`.
-- `RemoteTmuxController.wouldNewWorkspaceSpawnRemote(windowId:)` — the
-  non-mutating decision ("would New Workspace in this window route remote?"),
-  already the single source of truth behind the menu item's visibility and the
-  ⌘N routing handler.
+- `RemoteTmuxController.wouldNewWorkspaceSpawnRemote(in:)` — the non-mutating
+  decision ("would New Workspace in this tab manager route remote?", i.e. is its
+  active workspace a live mirror), already the single source of truth behind the
+  menu item's visibility and the ⌘N routing handler.
 
 The command palette is the other primary way users create workspaces
 (`palette.newWorkspace`, `palette.newBrowserWorkspace`), so New Local Workspace
@@ -34,8 +35,11 @@ should be reachable there too.
 ## Goal
 
 Add `palette.newLocalWorkspace`, visible **only** when
-`wouldNewWorkspaceSpawnRemote(windowId:)` is true for the palette's window, and
-executing the same `performNewLocalWorkspaceAction`. No new keyboard shortcut.
+`wouldNewWorkspaceSpawnRemote(in:)` is true for the palette window's tab
+manager, and
+executing the same `performNewLocalWorkspaceAction`. The command already has a
+keyboard shortcut (⌃⌘N, added with the menu item), so the palette row should
+surface that glyph — see §5.
 
 ## Design
 
@@ -55,7 +59,7 @@ enforces the pairing.
 — add alongside the other boolean keys (e.g. after `authWorking`):
 
 ```swift
-/// Whether a plain New Workspace in this window would spawn a remote tmux session.
+/// Whether a plain New Workspace on this window's active workspace would spawn a remote tmux session.
 public static let newWorkspaceRoutesRemote = CommandPaletteContextKeys(rawValue: "newWorkspace.routesRemote")
 ```
 
@@ -67,37 +71,35 @@ this is the only declaration needed.
 
 `Sources/ContentView.swift`, in `commandPaletteContextSnapshot(terminalOpenTargets:)`
 — add at the top level (always emitted, next to the `browserDisabled` `setBool`).
-`ContentView` has a stored `let windowId: UUID`, so it reuses the exact same
-source of truth the menu item uses:
+Use the view's own captured `tabManager` — the same object the handler targets —
+NOT a re-resolution through `tabManagerFor(windowId:)`, which can answer from a
+recoverable (closed-window) route during teardown and let visibility and the
+handler disagree about the target:
 
 ```swift
-if let remoteTmux = AppDelegate.shared?.remoteTmuxController {
+if let appDelegate = AppDelegate.shared {
     snapshot.setBool(
         CommandPaletteContextKeys.newWorkspaceRoutesRemote,
-        remoteTmux.wouldNewWorkspaceSpawnRemote(windowId: windowId)
+        appDelegate.remoteTmuxController.wouldNewWorkspaceSpawnRemote(in: tabManager)
     )
 }
 ```
 
-`remoteTmuxController` is a non-optional `let`, so the `if let` only guards
-`AppDelegate.shared == nil`; when it is nil (or the beta flag is off, so no
-window has a host and `wouldNewWorkspaceSpawnRemote` returns false) the key is
-never set and `snapshot.bool(...)` defaults to false — the command hides. That is
-the intended fail-safe and matches how the `authSignedIn` key is set
-conditionally.
+When `AppDelegate.shared` is nil or no workspace in this manager mirrors a
+remote session (e.g. the beta flag is off), the key is never set or set false,
+and `snapshot.bool(...)` defaults to false — the command hides. That is the
+intended fail-safe and matches how the `authSignedIn` key is set conditionally.
 
 The snapshot is rebuilt fresh whenever palette results recompute, and the value
 feeds the results fingerprint, so the gate is correct every time the palette
-opens. **Reactivity caveat (see Consistency below):** the menu item re-evaluates
-its visibility on every focus/selection change (it reads
-`focusHistoryMenuInvalidator.revision`); the palette has no equivalent hook, so a
-tab/window switch *while the palette stays open* is not guaranteed to re-derive
-the gate. To keep the two surfaces in lockstep even in that case, add an
-invalidation hook mirroring `refreshCachedDefaultTerminalStatus` — clear
-`cachedCommandPaletteFingerprint`, and if presented call
-`scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true, ...)` — on
-the same signals the menu invalidator listens to
-(`.tabManagerFocusHistoryRevisionDidChange` and `NSWindow.didBecomeKeyNotification`).
+opens, and a selection change while the palette is open already lands through
+the existing fingerprint-recompute path. The one gap is a change to the MIRROR
+SET itself with the selection unchanged (attach, or a detach that keeps the
+workspace open locally): nothing recomputes the snapshot. Close it narrowly —
+publish a mirror-routing revision from `RemoteTmuxController` when
+`sessionMirrors` changes and observe it where the palette schedules refreshes —
+rather than re-listening to the menu invalidator's focus/key signals, which the
+fingerprint path already covers.
 
 ### 3. Contribution (with visibility gate)
 
@@ -117,9 +119,10 @@ contributions.append(
 ```
 
 `CommandPaletteCommandContribution` supports both `when:` (visibility) and
-`enablement:` (grey-out). Use `when:` — the item should be **hidden**, not
-disabled, when it doesn't apply, matching the menu item (which is conditionally
-shown) and sibling contextual commands like `palette.installCLI`.
+`enablement:` (a failed `enablement` currently filters the row out of results as
+well). Use `when:` — the item should be **hidden**, not present-but-inert, when
+it doesn't apply, matching the menu item (which is conditionally shown) and
+sibling contextual commands like `palette.installCLI`.
 
 **Testability seam.** The New Workspace / New Browser Workspace contributions are
 appended inline inside the *private instance* method
@@ -149,16 +152,23 @@ registry.register(commandId: "palette.newLocalWorkspace") {
 Synchronous, like `newWorkspace` (the `newBrowserWorkspace` handler only wraps in
 `DispatchQueue.main.async` because it focuses the omnibar afterward).
 
-### 5. Right-sidebar shortcut-hint switch — no change
+### 5. Right-sidebar shortcut-hint switch — add the case
 
 `Sources/ContentView+RightSidebarCommandPalette.swift`'s
-`commandPaletteShortcutAction(forCommandID:)` maps a command ID to a bindable
+`commandPaletteShortcutAction(forCommandID:)` maps a command ID to a
 `KeyboardShortcutSettings.Action` purely to render a shortcut glyph on the row.
-It has a total `default: return nil`, so omitting a case yields "no glyph" — the
-correct behavior, since New Local Workspace has no bound shortcut. **Do not** add
-a case here unless a bindable `.newLocalWorkspace` action is introduced (which
-would pull in the full shortcut policy: enum case, Settings visibility,
-`cmux.json` support, and docs).
+The menu-item change added a bindable `.newLocalWorkspace` action (default ⌃⌘N),
+so add the matching case here (mirroring `palette.newWorkspace`) so the palette
+row shows ⌃⌘N:
+
+```swift
+case "palette.newLocalWorkspace":
+    return .newLocalWorkspace
+```
+
+The switch has a total `default: return nil`; without this case the command still
+appears and runs, it just wouldn't show its shortcut glyph. Since the action now
+exists, add the case.
 
 ### 6. Localization
 
@@ -172,22 +182,13 @@ the subtitle, so the palette and menu strings stay identical per locale.
 ## Consistency
 
 Visibility and behavior both derive from the same primitives as the menu item:
-`wouldNewWorkspaceSpawnRemote(windowId:)` for the gate and
+`wouldNewWorkspaceSpawnRemote(in:)` for the gate and
 `performNewLocalWorkspaceAction` for the action — one decision, one action. On
-every palette open the gate re-derives the current window's state, so it agrees
-with the menu item at open time. The one way they can diverge is timing: the menu
-re-evaluates on every focus/selection change, the palette only on results
-recompute. Adding the invalidation hook above closes that gap; without it, the
-palette gate is still correct per-open, just not live while the palette stays
-open across a tab/window switch.
-
-Note the gate's `hasManager == false` branch (a window with a host but no
-resolvable tab manager, mid-teardown) returns true, so the command could show
-while the action — which always forces local — creates a local workspace. This is
-benign (New Local Workspace's whole job is to create local) and vanishingly rare
-(the palette is hosted by the same view that owns the tab manager), but it means
-the gate is "would New Workspace route remote" in the normal case, not a
-hard guarantee in that teardown sliver.
+every palette open the gate re-derives the active workspace's state, so it
+agrees with the menu item at open time, and selection changes while the palette
+is open flow through the existing fingerprint recompute. The residual gap is a
+mirror-set change with the selection unchanged; the narrow mirror-routing
+revision described in §2 closes it for both surfaces.
 
 ## Testing
 
@@ -202,6 +203,17 @@ hard guarantee in that teardown sliver.
   take the contribution from the static factory above, and assert `when(snapshot)` is
   true / false / false respectively. This is why the contribution must be reachable
   from a static seam.
+- **A predicate-only test is not wiring coverage.** The gate test above still
+  passes if the snapshot population, the contribution insertion, the handler
+  registration, or the shortcut-glyph mapping is simply omitted — four
+  connections, each a one-liner someone can drop in a refactor. Declare the
+  command ID once (`static let newLocalWorkspaceCommandId = "palette.newLocalWorkspace"`)
+  and use it at all four sites, then add connection assertions: the resolved
+  command list from `ContentView.commandPaletteCommands(...)` contains the ID
+  when the context key is set (proves population + insertion), the handler
+  registry resolves the ID (proves registration), and
+  `commandPaletteShortcutAction(forCommandID:)` maps it to `.newLocalWorkspace`
+  (proves the glyph mapping).
 - **Where the test goes.** The gate/snapshot wiring lives in the app target, so the
   behavior-level test belongs in the `cmuxTests` XCTest suite (which can
   `@testable import cmux_DEV`), not the `CmuxCommandPalette` package Tests suite
@@ -219,7 +231,5 @@ hard guarantee in that teardown sliver.
 
 ## Out of scope
 
-- A bindable keyboard shortcut for New Local Workspace (would trigger the shortcut
-  policy end-to-end).
 - Any change to how New Workspace / ⌘N routes; this only adds a palette surface for
   the already-defined local action.
