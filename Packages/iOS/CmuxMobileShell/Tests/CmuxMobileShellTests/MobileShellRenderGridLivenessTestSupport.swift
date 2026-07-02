@@ -76,6 +76,7 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0
@@ -176,6 +177,14 @@ actor LivenessHostRouter {
 
     func enqueueReplayTexts(_ texts: [String]) {
         replayTexts.append(contentsOf: texts)
+    }
+
+    func enqueueReplayPayload(text: String?, sequence: UInt64?) {
+        replayPayloads.append((text: text, sequence: sequence, renderGrid: nil))
+    }
+
+    func enqueueReplayRenderGrid(_ renderGrid: MobileTerminalRenderGridFrame) {
+        replayPayloads.append((text: nil, sequence: nil, renderGrid: renderGrid))
     }
 
     func failNextReplay(count: Int = 1) {
@@ -297,6 +306,23 @@ actor LivenessHostRouter {
             if emptyReplayResponsesRemaining > 0 {
                 emptyReplayResponsesRemaining -= 1
                 return try? Self.resultFrame(id: id, result: [:])
+            }
+            if !replayPayloads.isEmpty {
+                let payload = replayPayloads.removeFirst()
+                var result: [String: Any] = [:]
+                if let text = payload.text {
+                    result["data_b64"] = Data(text.utf8).base64EncodedString()
+                }
+                if let sequence = payload.sequence {
+                    result["seq"] = sequence
+                }
+                if let renderGrid = payload.renderGrid,
+                   let renderGridObject = try? renderGrid.jsonObject() {
+                    result["render_grid"] = renderGridObject
+                    result["columns"] = renderGrid.columns
+                    result["rows"] = renderGrid.rows
+                }
+                return try? Self.resultFrame(id: id, result: result)
             }
             guard !replayTexts.isEmpty else {
                 return try? Self.resultFrame(id: id, result: [:])
@@ -486,89 +512,6 @@ func attachURL(for ticket: CmxAttachTicket) throws -> String {
         .replacingOccurrences(of: "/", with: "_")
         .replacingOccurrences(of: "=", with: "")
     return "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"
-}
-
-func renderGridEventFrame(
-    surfaceID: String,
-    seq: UInt64,
-    text: String,
-    activeScreen: MobileTerminalRenderGridFrame.Screen = .primary,
-    full: Bool = true
-) throws -> Data {
-    let frame = try MobileTerminalRenderGridFrame(
-        surfaceID: surfaceID,
-        stateSeq: seq,
-        columns: 16,
-        rows: 4,
-        full: full,
-        rowSpans: [
-            MobileTerminalRenderGridFrame.RowSpan(
-                row: 0,
-                column: 0,
-                styleID: 0,
-                text: text
-            ),
-        ],
-        activeScreen: activeScreen
-    )
-    let envelope: [String: Any] = [
-        "kind": "event",
-        "topic": "terminal.render_grid",
-        "payload": try frame.jsonObject(),
-    ]
-    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
-}
-
-func terminalBytesEventFrame(surfaceID: String, seq: UInt64, text: String) throws -> Data {
-    let envelope: [String: Any] = [
-        "kind": "event",
-        "topic": "terminal.bytes",
-        "payload": [
-            "surface_id": surfaceID,
-            "seq": seq,
-            "data_b64": Data(text.utf8).base64EncodedString(),
-        ],
-    ]
-    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
-}
-
-func emptyRenderGridEventFrame(
-    surfaceID: String,
-    seq: UInt64,
-    activeScreen: MobileTerminalRenderGridFrame.Screen,
-    full: Bool = false
-) throws -> Data {
-    let frame = try MobileTerminalRenderGridFrame(
-        surfaceID: surfaceID,
-        stateSeq: seq,
-        columns: 16,
-        rows: 4,
-        full: full,
-        rowSpans: [],
-        activeScreen: activeScreen
-    )
-    let envelope: [String: Any] = [
-        "kind": "event",
-        "topic": "terminal.render_grid",
-        "payload": try frame.jsonObject(),
-    ]
-    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
-}
-
-/// Poll until `condition` is true, bounded at `attempts` x 10ms. Returns the
-/// final value so tests can assert both presence and (bounded) absence.
-@MainActor
-func pollUntil(
-    attempts: Int = 300,
-    _ condition: @MainActor () async -> Bool
-) async throws -> Bool {
-    for _ in 0..<attempts {
-        if await condition() {
-            return true
-        }
-        try await Task.sleep(nanoseconds: 10_000_000)
-    }
-    return await condition()
 }
 
 @MainActor

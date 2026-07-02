@@ -2549,8 +2549,11 @@ final class TerminalOutputCollector {
     collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
 
-    for _ in 0..<200 where collector.lines.isEmpty {
-        try await Task.sleep(nanoseconds: 1_000_000)
+    // Same 10ms-slice, 3-second-ceiling cadence as waitForRequestCount, so the
+    // first-paint wait has the explicit CI budget the shared helpers use.
+    for _ in 0..<300 {
+        guard collector.lines.isEmpty else { break }
+        try await Task.sleep(nanoseconds: 10_000_000)
     }
 
     let initialText = try terminalRenderGridReplacementText(seq: 1, text: "initial")
@@ -2584,11 +2587,13 @@ final class TerminalOutputCollector {
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    store.reportTerminalViewport(
-        workspaceID: MobileWorkspacePreview.ID(rawValue: "live-workspace"),
-        terminalID: MobileTerminalPreview.ID(rawValue: "live-terminal"),
-        viewportSize: MobileTerminalViewportSize(columns: 52, rows: 24)
+    let effectiveGrid = await store.updateTerminalViewport(
+        surfaceID: "live-terminal",
+        columns: 52,
+        rows: 24
     )
+    #expect(effectiveGrid?.columns == 52)
+    #expect(effectiveGrid?.rows == 24)
 
     collector.mount(store: store, surfaceID: "live-terminal")
     let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
@@ -3488,6 +3493,11 @@ private actor TerminalRenderGridEventRouter: RequestAwareTransportRouter {
             return try rpcHostStatusFrame(renderGrid: true, terminalBytes: false)
         case "mobile.events.subscribe":
             return try rpcResultFrame(result: ["stream_id": "events"])
+        case "mobile.terminal.viewport":
+            return try rpcResultFrame(result: [
+                "columns": request.viewportColumns ?? 80,
+                "rows": request.viewportRows ?? 24,
+            ])
         case "mobile.terminal.replay":
             return try combinedFrames([
                 rpcTerminalReplayFrame(
