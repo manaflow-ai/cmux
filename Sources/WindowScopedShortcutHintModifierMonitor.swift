@@ -116,6 +116,20 @@ final class WindowScopedShortcutHintModifierMonitor {
             return
         }
 
+        if isModifierPressed {
+            // Hints are already visible and the user changed which modifiers
+            // they hold while staying eligible (e.g. Command -> Control under
+            // `.commandOrControl`). `queueHintShow()` would bail early on the
+            // `isModifierPressed` guard and leave `activeModifierFlags` stale,
+            // so consumers (e.g. the mode-bar hint gate) would keep showing the
+            // hints for the previously-held modifier. Refresh the tracked flags
+            // in place; guarded so an unchanged value doesn't churn observers.
+            if activeModifierFlags != modifierFlags {
+                activeModifierFlags = modifierFlags
+            }
+            return
+        }
+
         queueHintShow()
     }
 
