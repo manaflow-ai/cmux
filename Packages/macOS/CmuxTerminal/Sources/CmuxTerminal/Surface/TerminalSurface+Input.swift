@@ -256,8 +256,7 @@ extension TerminalSurface {
             case 0x1B:
                 // A bare ESC is the Escape key. But a full CSI/SS3 navigation
                 // sequence arriving as raw input (the iOS on-screen arrows send
-                // ESC[B, etc.) must stay one key press, or the terminal receives
-                // Escape followed by literal "[B". Re-issue recognized sequences
+                // ESC[B, etc.) must stay one key press. Re-issue recognized sequences
                 // as key events so libghostty encodes them for the surface's
                 // current cursor-key mode, exactly like a hardware arrow press.
                 if let nav = navigationEscapeKey(scalars, from: index) {
@@ -289,7 +288,6 @@ extension TerminalSurface {
         return events
     }
 
-    /// Returns the byte-like scalar length for a complete terminal string control sequence.
     private static func terminalControlSequenceLength(
         _ scalars: [Unicode.Scalar],
         from start: Int
@@ -299,6 +297,8 @@ extension TerminalSurface {
         switch scalars[start + 1].value {
         case 0x5D: // OSC: ESC ] ... (BEL | ST)
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
+        case 0x5B: // CSI terminal reports such as CPR/DA/DSR responses.
+            return csiTerminalReportSequenceLength(scalars, from: start)
         case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
         default:
