@@ -120,5 +120,27 @@ fn control_socket_round_trip() {
         std::thread::sleep(Duration::from_millis(50));
     }
 
+    mux.close_pane(pane.id);
     mux_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn new_tab_on_empty_headless_session_creates_workspace() {
+    // A headless session receives new-tab before any workspace exists;
+    // this used to index workspaces[0] and panic.
+    let mut opts = PaneOptions::default();
+    opts.command = Some(vec!["/bin/cat".to_string()]);
+    let mux = Mux::new("test-headless", opts);
+    let pane = mux.new_tab(None, None).unwrap();
+    mux.with_tree(|ws, _| {
+        assert_eq!(ws.len(), 1);
+        assert_eq!(ws[0].tabs.len(), 1);
+    });
+
+    // Unknown workspace ids error without leaking a pane.
+    let before = mux.pane_count();
+    assert!(mux.new_tab(Some(9999), None).is_err());
+    assert_eq!(mux.pane_count(), before);
+
+    mux.close_pane(pane.id);
 }

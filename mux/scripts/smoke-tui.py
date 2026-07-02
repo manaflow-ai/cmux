@@ -6,6 +6,7 @@ SOCK = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"cmux-mux-{os.getuid()}",
 
 def rpc(cmd):
     s = socket.socket(socket.AF_UNIX)
+    s.settimeout(15)
     s.connect(SOCK)
     s.sendall((json.dumps(cmd) + "\n").encode())
     buf = b""
@@ -38,8 +39,11 @@ def drain(seconds):
             except OSError:
                 break
 
-drain(2.0)
+deadline = time.time() + 15
+while not os.path.exists(SOCK) and time.time() < deadline:
+    drain(0.2)
 assert os.path.exists(SOCK), f"socket missing at {SOCK}"
+drain(1.0)
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-mux", ident

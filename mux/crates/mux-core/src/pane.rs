@@ -76,9 +76,11 @@ impl Pane {
             pixel_height: 0,
         })?;
 
-        let argv = opts.command.clone().unwrap_or_else(|| {
-            vec![std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())]
-        });
+        let argv = opts
+            .command
+            .clone()
+            .filter(|argv| !argv.is_empty())
+            .unwrap_or_else(|| vec![std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())]);
         let mut cmd = CommandBuilder::new(&argv[0]);
         cmd.args(&argv[1..]);
         cmd.env("TERM", &opts.term);

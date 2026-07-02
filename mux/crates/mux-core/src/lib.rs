@@ -209,31 +209,53 @@ impl Mux {
         Ok(pane)
     }
 
-    /// Create a tab in a workspace (default: the active one).
+    /// Create a tab in a workspace (default: the active one). When the
+    /// session has no workspaces yet (headless before any command), a
+    /// workspace is created around the new tab.
     pub fn new_tab(
         self: &Arc<Self>,
         workspace: Option<WorkspaceId>,
         cwd: Option<String>,
     ) -> anyhow::Result<Arc<Pane>> {
+        // Validate the target before spawning a child.
+        self.with_tree(|workspaces, _| match workspace {
+            Some(id) if !workspaces.iter().any(|w| w.id == id) => {
+                anyhow::bail!("unknown workspace {id}")
+            }
+            _ => Ok(()),
+        })?;
+        if self.with_tree(|workspaces, _| workspaces.is_empty()) {
+            return self.new_workspace(None);
+        }
+
         let pane = self.spawn_pane(cwd)?;
         let tab_id = self.next_id();
-        {
+        let attached = {
             let mut state = self.state.lock().unwrap();
             let ws_idx = match workspace {
-                Some(id) => state
-                    .workspaces
-                    .iter()
-                    .position(|w| w.id == id)
-                    .ok_or_else(|| anyhow::anyhow!("unknown workspace {id}"))?,
-                None => state.active_workspace,
+                Some(id) => state.workspaces.iter().position(|w| w.id == id),
+                None => Some(state.active_workspace.min(state.workspaces.len().saturating_sub(1))),
             };
-            let ws = &mut state.workspaces[ws_idx];
-            ws.tabs.push(Tab {
-                id: tab_id,
-                root: Node::Leaf(pane.id),
-                active_pane: pane.id,
-            });
-            ws.active_tab = ws.tabs.len() - 1;
+            match ws_idx.and_then(|i| state.workspaces.get_mut(i)) {
+                Some(ws) => {
+                    ws.tabs.push(Tab {
+                        id: tab_id,
+                        root: Node::Leaf(pane.id),
+                        active_pane: pane.id,
+                    });
+                    ws.active_tab = ws.tabs.len() - 1;
+                    true
+                }
+                None => {
+                    // Workspace disappeared between validation and attach.
+                    state.panes.remove(&pane.id);
+                    false
+                }
+            }
+        };
+        if !attached {
+            pane.kill();
+            anyhow::bail!("workspace disappeared while creating tab");
         }
         self.emit(MuxEvent::TreeChanged);
         Ok(pane)

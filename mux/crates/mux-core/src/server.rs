@@ -232,6 +232,9 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command) -> anyhow::Result<Value> {
             Ok(json!({ "pane": new_pane.id }))
         }
         Command::KillPane { pane } => {
+            if mux.pane(pane).is_none() {
+                anyhow::bail!("unknown pane {pane}");
+            }
             mux.close_pane(pane);
             Ok(json!({}))
         }

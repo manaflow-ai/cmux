@@ -93,10 +93,13 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
         "cmux-mux: headless, control socket at {}",
         socket_path.display()
     );
-    // Keep the process alive; the control socket drives everything.
+    // Keep the process alive; the control socket drives everything. Dead
+    // panes still need reaping out of the tree (the TUI does this when
+    // attached).
     let events = mux.subscribe();
     loop {
         match events.recv() {
+            Ok(mux_core::MuxEvent::PaneExited(id)) => mux.close_pane(id),
             Ok(_) => {}
             Err(_) => std::thread::park(),
         }

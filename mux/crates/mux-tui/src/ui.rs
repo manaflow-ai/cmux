@@ -143,9 +143,6 @@ fn draw_pane(
     let max_cols = rect.width.min(area.width.saturating_sub(rect.x)) as usize;
     let max_rows = rect.height.min(area.height.saturating_sub(rect.y)) as usize;
 
-    let dim_unfocused = false; // reserved: dim inactive panes
-    let _ = dim_unfocused;
-
     rs.walk_rows(|row, _dirty, cells| {
         if row >= max_rows {
             return;

@@ -101,7 +101,7 @@ impl KeyEncoder {
             } else {
                 sys::ghostty_key_event_set_utf8(
                     self.event,
-                    input.utf8.as_ptr() as *const i8,
+                    input.utf8.as_ptr() as *const std::os::raw::c_char,
                     input.utf8.len(),
                 );
             }
@@ -113,7 +113,7 @@ impl KeyEncoder {
             sys::ghostty_key_encoder_encode(
                 self.encoder,
                 self.event,
-                buf.as_mut_ptr() as *mut i8,
+                buf.as_mut_ptr() as *mut std::os::raw::c_char,
                 buf.len(),
                 &mut written,
             )
@@ -125,7 +125,7 @@ impl KeyEncoder {
                 sys::ghostty_key_encoder_encode(
                     self.encoder,
                     self.event,
-                    big.as_mut_ptr() as *mut i8,
+                    big.as_mut_ptr() as *mut std::os::raw::c_char,
                     big.len(),
                     &mut written2,
                 )
@@ -148,9 +148,6 @@ impl Drop for KeyEncoder {
     }
 }
 
-/// Clear the borrowed utf8 pointer after encode? Not needed: the event is
-/// only read during `ghostty_key_encoder_encode`, and we always set utf8
-/// before each encode call.
 #[cfg(test)]
 mod tests {
     use super::*;

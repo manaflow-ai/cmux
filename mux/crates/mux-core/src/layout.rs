@@ -89,7 +89,33 @@ pub fn layout_tab(root: &Node, area: Rect) -> LayoutResult {
 fn walk(node: &Node, area: Rect, out: &mut LayoutResult) {
     match node {
         Node::Leaf(id) => out.panes.push((*id, area)),
-        Node::Split { dir, ratio, a, b } => match dir {
+        Node::Split { dir, ratio, a, b } => {
+            // Too small to hold two panes plus a divider: give the whole
+            // area to the first side and zero-size the second (frontends
+            // draw nothing for empty rects; pane sizes clamp to 1).
+            let too_small = match dir {
+                SplitDir::Right => area.width < 3,
+                SplitDir::Down => area.height < 3,
+            };
+            if too_small {
+                walk(a, area, out);
+                walk(b, Rect { width: 0, height: 0, ..area }, out);
+                return;
+            }
+            walk_split(*dir, *ratio, a, b, area, out);
+        }
+    }
+}
+
+fn walk_split(
+    dir: SplitDir,
+    ratio: f32,
+    a: &Node,
+    b: &Node,
+    area: Rect,
+    out: &mut LayoutResult,
+) {
+    match dir {
             SplitDir::Right => {
                 let usable = area.width.saturating_sub(1);
                 let a_w = ((usable as f32) * ratio).round() as u16;
@@ -134,7 +160,6 @@ fn walk(node: &Node, area: Rect, out: &mut LayoutResult) {
                     out,
                 );
             }
-        },
     }
 }
 
@@ -161,6 +186,27 @@ mod tests {
         assert_eq!(layout.pane_at(39, 0), Some(1));
         assert_eq!(layout.pane_at(41, 0), Some(2));
         assert_eq!(layout.pane_at(40, 0), None);
+    }
+
+    #[test]
+    fn degenerate_areas_do_not_underflow() {
+        let root = Node::Split {
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Leaf(1)),
+            b: Box::new(Node::Split {
+                dir: SplitDir::Down,
+                ratio: 0.5,
+                a: Box::new(Node::Leaf(2)),
+                b: Box::new(Node::Leaf(3)),
+            }),
+        };
+        for w in 0..5u16 {
+            for h in 0..5u16 {
+                let layout = layout_tab(&root, Rect { x: 0, y: 0, width: w, height: h });
+                assert_eq!(layout.panes.len(), 3, "{w}x{h}");
+            }
+        }
     }
 
     #[test]

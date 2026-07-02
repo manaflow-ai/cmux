@@ -72,11 +72,19 @@ pub fn run(mux: Arc<Mux>, socket_path: &Path) -> anyhow::Result<()> {
         }
     })?;
 
+    let encoder = KeyEncoder::new()?;
+
     enable_raw_mode()?;
-    let mut stdout = std::io::stdout();
-    stdout.execute(EnterAlternateScreen)?;
-    stdout.execute(EnableMouseCapture)?;
-    stdout.execute(EnableBracketedPaste)?;
+    if let Err(e) = (|| -> anyhow::Result<()> {
+        let mut stdout = std::io::stdout();
+        stdout.execute(EnterAlternateScreen)?;
+        stdout.execute(EnableMouseCapture)?;
+        stdout.execute(EnableBracketedPaste)?;
+        Ok(())
+    })() {
+        let _ = restore_terminal();
+        return Err(e);
+    }
     // Restore the host terminal even if we panic mid-frame.
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -85,7 +93,13 @@ pub fn run(mux: Arc<Mux>, socket_path: &Path) -> anyhow::Result<()> {
     }));
 
     let backend = CrosstermBackend::new(std::io::stdout());
-    let mut terminal = RatatuiTerminal::new(backend)?;
+    let mut terminal = match RatatuiTerminal::new(backend) {
+        Ok(terminal) => terminal,
+        Err(e) => {
+            let _ = restore_terminal();
+            return Err(e.into());
+        }
+    };
 
     let mut app = App {
         mux,
@@ -96,7 +110,7 @@ pub fn run(mux: Arc<Mux>, socket_path: &Path) -> anyhow::Result<()> {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "main".into()),
-        encoder: KeyEncoder::new()?,
+        encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
     };
