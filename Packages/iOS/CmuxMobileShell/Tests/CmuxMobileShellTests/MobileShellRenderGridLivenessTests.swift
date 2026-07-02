@@ -165,7 +165,7 @@ import Testing
 }
 
 @MainActor
-@Test func hybridPrimaryFullGridSuppressesSameSeqStaleReplay() async throws {
+@Test func hybridPrimaryFullGridAllowsSameSeqColdReplayBeforeRawBytesCatchUp() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     await router.holdNextReplayResponses()
@@ -210,12 +210,12 @@ import Testing
     ])
     await router.releaseAllHeld()
 
-    let staleDelivered = try await pollUntil(attempts: 60) {
+    let replayDelivered = try await pollUntil {
         collector.lines.contains { $0.contains("old!") }
     }
     #expect(
-        staleDelivered == false,
-        "a hybrid primary full-grid event must make an older same-seq cold replay stale even though raw bytes still own primary painting"
+        replayDelivered,
+        "an advisory primary full grid does not paint terminal content, so the same-sequence cold replay must seed the local terminal until raw bytes catch up"
     )
     collector.unmount()
 }
@@ -304,6 +304,10 @@ import Testing
     }
     #expect(advisoryProcessed, "the newer primary full grid is advisory in default hybrid mode")
 
+    await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 0, text: "raw5!"))
+    let rawDelivered = try await pollUntil { collector.lines.contains { $0.contains("raw5!") } }
+    #expect(rawDelivered, "raw bytes covering the older replay seq must paint before the held replay resolves")
+
     await router.enqueueReplayRenderGridFrames([
         try MobileTerminalRenderGridFrame(
             surfaceID: "live-terminal",
@@ -323,7 +327,7 @@ import Testing
     }
     #expect(
         staleDelivered == false,
-        "a hybrid primary full-grid observation at a newer seq must stale an older held replay"
+        "a newer hybrid primary full-grid observation plus raw byte coverage must stale an older held replay"
     )
     collector.unmount()
 }

@@ -7256,18 +7256,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) snapshotBytes=\(snapshotBytes?.count ?? -1, privacy: .public) renderGrid=\(renderGrid != nil, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.hasTerminalOutputSink(surfaceID: surfaceID), privacy: .public)")
                 #endif
                 if let replaySeq {
+                    let deliveredSeqValue = self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID]
+                    let deliveredSeq = deliveredSeqValue ?? 0
                     let observedFullReplacementSeq =
                         self.terminalFullReplacementSeqBySurfaceID[surfaceID] ?? 0
                     let fullReplacementMakesReplayStale =
-                        observedFullReplacementSeq > replaySeq
-                            || (
-                                observedFullReplacementSeq == replaySeq
-                                    && (self.terminalFullReplacementGenerationBySurfaceID[surfaceID] ?? 0)
-                                        > fullReplacementGenerationAtRequest
+                        deliveredSeqValue.map { $0 >= replaySeq } ?? false
+                            && (
+                                observedFullReplacementSeq > replaySeq
+                                    || (
+                                        observedFullReplacementSeq == replaySeq
+                                            && (self.terminalFullReplacementGenerationBySurfaceID[surfaceID] ?? 0)
+                                                > fullReplacementGenerationAtRequest
+                                    )
                             )
-                    if (self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0) > replaySeq
+                    if deliveredSeq > replaySeq
                         || fullReplacementMakesReplayStale {
-                        let deliveredSeq = self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
                         MobileDebugLog.anchormux("CMUX_REPLAY stale surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)")
                         self.clearTerminalReplayBarrierIfCurrent(
                             surfaceID: surfaceID,
