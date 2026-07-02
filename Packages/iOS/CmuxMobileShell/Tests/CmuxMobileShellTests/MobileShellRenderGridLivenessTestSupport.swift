@@ -309,6 +309,7 @@ actor LivenessHostRouter {
             if !replayRenderGridFrames.isEmpty {
                 let frame = replayRenderGridFrames.removeFirst()
                 guard let renderGridObject = try? frame.jsonObject() else {
+                    Issue.record("enqueued replay render-grid frame failed to serialize")
                     return try? Self.resultFrame(id: id, result: [:])
                 }
                 return try? Self.resultFrame(id: id, result: [

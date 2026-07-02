@@ -182,6 +182,12 @@ private func unsequencedTerminalBytesEventFrame(
     ))
     let resumed = try await pollUntil { collector.lines.contains { $0.contains("after-converge") } }
     #expect(resumed, "live output must resume once the mirror reconverged")
+    // Re-check after convergence: held bytes must be dropped outright, never
+    // buffered and released once the barrier clears.
+    #expect(
+        collector.lines.contains { $0.contains("SPLICE-BYTES") } == false,
+        "bytes held during divergence must not be replayed after the mirror reconverges"
+    )
     collector.unmount()
 }
 
