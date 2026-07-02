@@ -129,6 +129,7 @@ private struct DockSplitContentView: View {
                 customSidebarTabManager: nil,
                 hasUnreadNotification: false,
                 terminalAgentContext: "",
+                workspaceDisplayName: "",
                 paneOwnershipOverride: isVisibleInUI,
                 onFocus: {
                     store.bonsplitController.focusPane(paneId)

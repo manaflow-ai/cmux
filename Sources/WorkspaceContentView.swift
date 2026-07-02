@@ -242,6 +242,7 @@ struct WorkspaceContentView: View {
                         appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
                         terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
+                        workspaceDisplayName: workspace.customTitle ?? workspace.title,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
                             // active workspace. This prevents divergence between the blue focused-tab

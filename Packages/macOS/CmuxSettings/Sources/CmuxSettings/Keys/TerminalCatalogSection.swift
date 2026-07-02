@@ -141,5 +141,52 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.runawayMemoryGuardrail.thresholdGB"
     )
 
+    // MARK: - Terminal badge overlay
+
+    /// Whether the scroll-fixed per-workspace/per-tab badge overlay is drawn on
+    /// top of terminal surfaces (an iTerm2-style watermark identifying which
+    /// workspace and tab a surface belongs to). Off by default.
+    public let badgeEnabled = DefaultsKey<Bool>(
+        id: "terminal.badge.enabled",
+        defaultValue: false,
+        userDefaultsKey: "terminal.badge.enabled"
+    )
+
+    /// Template rendered in the badge overlay. `{workspace}` and `{tab}` tokens
+    /// are substituted with the workspace and surface titles.
+    public let badgeTemplate = DefaultsKey<String>(
+        id: "terminal.badge.template",
+        defaultValue: TerminalBadgeConfiguration.defaultTemplate,
+        userDefaultsKey: "terminal.badge.template"
+    )
+
+    /// Corner the badge overlay is anchored to. Default top-trailing.
+    public let badgePosition = DefaultsKey<TerminalBadgePosition>(
+        id: "terminal.badge.position",
+        defaultValue: .topTrailing,
+        userDefaultsKey: "terminal.badge.position"
+    )
+
+    /// Badge text opacity (clamped to ``TerminalBadgeConfiguration/opacityRange``).
+    public let badgeOpacity = DefaultsKey<Double>(
+        id: "terminal.badge.opacity",
+        defaultValue: TerminalBadgeConfiguration.defaultOpacity,
+        userDefaultsKey: "terminal.badge.opacity"
+    )
+
+    /// Badge text size in points (clamped to ``TerminalBadgeConfiguration/fontSizeRange``).
+    public let badgeFontSize = DefaultsKey<Double>(
+        id: "terminal.badge.fontSize",
+        defaultValue: TerminalBadgeConfiguration.defaultFontSize,
+        userDefaultsKey: "terminal.badge.fontSize"
+    )
+
+    /// Badge text color as a `#RRGGBB` hex string.
+    public let badgeColorHex = DefaultsKey<String>(
+        id: "terminal.badge.colorHex",
+        defaultValue: TerminalBadgeConfiguration.defaultColorHex,
+        userDefaultsKey: "terminal.badge.colorHex"
+    )
+
     public init() {}
 }
