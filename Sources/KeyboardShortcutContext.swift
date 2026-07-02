@@ -201,13 +201,13 @@ extension AppDelegate {
         }
 
         if let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event),
-           let panel = shortcutBrowserPanel(panelId: panelId) {
+           let panel = shortcutBrowserPanel(panelId: panelId, in: shortcutWindow) {
             return panel
         }
 
         if let responder,
            let panelId = BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: shortcutWindow),
-           let panel = shortcutBrowserPanel(panelId: panelId) {
+           let panel = shortcutBrowserPanel(panelId: panelId, in: shortcutWindow) {
             return panel
         }
 
@@ -222,11 +222,32 @@ extension AppDelegate {
         return nil
     }
 
+    /// Whether the keystroke's first responder is owned by a browser panel's web
+    /// view (the page itself or an editable element / field editor inside it), as
+    /// opposed to a browser panel merely being the selected pane while chrome — the
+    /// right sidebar, address bar, or find bar — holds keyboard focus. Scoped to
+    /// browser-panel web views (not the diff viewer / markdown renderer) so the
+    /// browser document-editing bypass only fires on genuine browser web-content
+    /// focus and the default Cmd+I (Show Notifications) keeps working otherwise
+    /// (issue #6776).
+    func shortcutEventFirstResponderOwnsBrowserWebView(_ event: NSEvent) -> Bool {
+        let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let responder = shortcutWindow?.firstResponder,
+              let webView = shortcutOwningWebView(for: responder) else {
+            return false
+        }
+        return shortcutBrowserPanel(webView: webView) != nil
+    }
+
     private func shortcutFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {
         if let window {
             guard let context = mainWindowContexts[ObjectIdentifier(window)] ??
                 mainWindowContexts.values.first(where: { $0.window === window }) else {
                 return nil
+            }
+            if let panel = context.tabManager.selectedWorkspace?
+                .dockBrowserPanel(owning: window.firstResponder, in: window) {
+                return panel
             }
             return context.tabManager.focusedBrowserPanel
         }
@@ -255,18 +276,29 @@ extension AppDelegate {
         return event.window
     }
 
-    private func shortcutBrowserPanel(panelId: UUID) -> BrowserPanel? {
-        for manager in shortcutCandidateTabManagers() {
-            for workspace in manager.tabs {
-                if let panel = workspace.browserPanel(for: panelId) {
-                    return panel
-                }
-            }
+    private func shortcutBrowserPanel(panelId: UUID, in window: NSWindow?) -> BrowserPanel? {
+        guard let workspace = shortcutContextTabManager(in: window)?.selectedWorkspace else {
+            return nil
         }
-        return nil
+        return workspace.browserPanelIncludingDock(for: panelId)
     }
 
     private func shortcutBrowserPanel(webView: WKWebView) -> BrowserPanel? {
+        // Fast path: the portal registry maps the webView to its owning pane id
+        // in O(1). Resolve that id against the candidate workspaces (main area +
+        // Dock) instead of comparing every panel's webView on each keystroke. A
+        // focused browser webView delivering a shortcut is always portal-hosted,
+        // so this covers the common case without the full panel scan.
+        if let context = BrowserWindowPortalRegistry.paneDropContext(for: webView) {
+            for manager in shortcutCandidateTabManagers() {
+                for workspace in manager.tabs {
+                    if let panel = workspace.browserPanelIncludingDock(for: context.panelId) {
+                        return panel
+                    }
+                }
+            }
+        }
+        // Fallback for webViews not registered in a portal: scan candidate panels.
         for manager in shortcutCandidateTabManagers() {
             for workspace in manager.tabs {
                 for panel in workspace.panels.values {
