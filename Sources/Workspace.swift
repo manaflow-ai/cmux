@@ -13616,11 +13616,13 @@ extension Workspace: BonsplitDelegate {
             NSSound.beep()
             return
         }
-        let didOpen = CmuxDiffViewerLauncher.shared.start(
-            cwd: surfaceTabBarBaseCwd(inPane: pane),
-            workspaceId: id,
-            surfaceId: panelIdFromSurfaceId(selected.id)
-        )
+        // Shared agent-aware opener, keyed to this pane's selected surface and
+        // tracked cwd so the button targets its own pane, not global focus.
+        let didOpen = AppDelegate.shared?.openDiffViewerFromSurfaceTabBar(
+            for: owningTabManager,
+            surfaceId: panelIdFromSurfaceId(selected.id),
+            paneCwd: surfaceTabBarBaseCwd(inPane: pane)
+        ) ?? false
         if !didOpen {
             NSSound.beep()
         }

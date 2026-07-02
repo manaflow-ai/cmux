@@ -6164,10 +6164,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         openDiffViewerForFocusedWorkspace(for: tabManager, preferAgentContext: false)
     }
 
+    /// Surface-tab-bar entry into the shared diff opener: same agent-aware
+    /// last-turn selection, but keyed to the button's pane (its selected
+    /// surface + tracked cwd) instead of the focused panel.
+    @discardableResult
+    func openDiffViewerFromSurfaceTabBar(
+        for tabManager: TabManager?,
+        surfaceId: UUID?,
+        paneCwd: String
+    ) -> Bool {
+        openDiffViewerForFocusedWorkspace(
+            for: tabManager,
+            preferAgentContext: true,
+            surfaceOverride: surfaceId,
+            fallbackCwdOverride: paneCwd
+        )
+    }
+
     @discardableResult
     private func openDiffViewerForFocusedWorkspace(
         for tabManager: TabManager?,
-        preferAgentContext: Bool
+        preferAgentContext: Bool,
+        surfaceOverride: UUID? = nil,
+        fallbackCwdOverride: String? = nil
     ) -> Bool {
 #if DEBUG
         if let debugOpenDiffViewerHandler {
@@ -6183,10 +6202,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        let fallbackCwd = workspace.resolvedWorkingDirectory()
+        let fallbackCwd = fallbackCwdOverride
+            ?? workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         if preferAgentContext,
-           let surfaceId = workspace.focusedPanelId,
+           let surfaceId = surfaceOverride ?? workspace.focusedPanelId,
            let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId),
            let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) {
             let snapshotWorkingDirectory = Self.normalizedOpenDiffViewerPath(
@@ -6220,20 +6240,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
-        let agentDiffContext = preferAgentContext ? focusedAgentWorkingDirectoryContext(for: workspace) : nil
+        let agentDiffContext = preferAgentContext
+            ? focusedAgentWorkingDirectoryContext(
+                for: workspace, surfaceId: surfaceOverride ?? workspace.focusedPanelId
+            )
+            : nil
         return launchDiffViewerProcess(
             cliURL: cliURL,
             socketPath: socketPath,
             cwd: agentDiffContext?.cwd ?? fallbackCwd,
             workspaceId: workspace.id,
-            surfaceId: workspace.focusedPanelId,
+            surfaceId: surfaceOverride ?? workspace.focusedPanelId,
             useLastTurnSource: false,
             sessionId: agentDiffContext?.sessionId
         )
     }
 
-    private func focusedAgentWorkingDirectoryContext(for workspace: Workspace) -> (cwd: String, sessionId: String?)? {
-        guard let surfaceId = workspace.focusedPanelId else { return nil }
+    private func focusedAgentWorkingDirectoryContext(
+        for workspace: Workspace, surfaceId: UUID?
+    ) -> (cwd: String, sessionId: String?)? {
+        guard let surfaceId else { return nil }
         guard let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId) else {
             return nil
         }
@@ -15397,17 +15423,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if didOpen { onExecuted?() }
                 return didOpen
             case .diffViewer:
-                guard let workspace = context.tabManager.selectedWorkspace else { return false }
-                // Mirror the shared diff opener: prefer the focused panel's tracked
-                // directory over the workspace's last cwd so the diff targets the repo
-                // the user is actually in.
-                let cwd = workspace.resolvedWorkingDirectory()
-                    ?? FileManager.default.homeDirectoryForCurrentUser.path
-                let didOpen = CmuxDiffViewerLauncher.shared.start(
-                    cwd: cwd,
-                    workspaceId: workspace.id,
-                    surfaceId: workspace.focusedPanelId
-                )
+                // One shared opener for every Diff Viewer entrypoint: the
+                // agent-aware path (last-turn baseline, coalesced context
+                // reads), not a parallel plain `--unstaged` launch.
+                let didOpen = openDiffViewerForFocusedWorkspace(for: context.tabManager)
                 if didOpen { onExecuted?() }
                 return didOpen
             case .revealCurrentDirectoryInFinder:
