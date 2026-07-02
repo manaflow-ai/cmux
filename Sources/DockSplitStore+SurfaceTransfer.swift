@@ -58,6 +58,7 @@ extension DockSplitStore {
             isLoading: isLoading,
             isPinned: preservedTransfer?.isPinned ?? false,
             directory: preservedTransfer?.directory,
+            directoryDisplayLabel: preservedTransfer?.directoryDisplayLabel,
             ttyName: preservedTransfer?.ttyName,
             cachedTitle: preservedTransfer?.cachedTitle,
             customTitle: preservedTransfer?.customTitle,
