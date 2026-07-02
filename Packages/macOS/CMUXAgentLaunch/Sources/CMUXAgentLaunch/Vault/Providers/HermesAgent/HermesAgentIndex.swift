@@ -1,7 +1,10 @@
 import Foundation
 import SQLite3
 
-/// Indexed Hermes sessions do not carry cwd metadata and cannot be filtered by working directory.
+/// A Hermes session indexed from `state.db`. The `sessions` table carries a `cwd` column, so
+/// callers can scope a lookup to a working directory (see
+/// ``HermesAgentIndex/loadSessions(needle:cwdFilter:offset:limit:stateDBPath:)`` and
+/// ``HermesAgentIndex/latestSessionID(cwd:stateDBPath:)``).
 public struct HermesAgentIndexedSession: Equatable, Sendable {
     public let sessionId: String
     public let source: String
@@ -9,6 +12,8 @@ public struct HermesAgentIndexedSession: Equatable, Sendable {
     public let model: String?
     public let modified: Date
     public let preview: String?
+    /// The session's recorded working directory (`sessions.cwd`), or nil when the row has none.
+    public let cwd: String?
 
     public init(
         sessionId: String,
@@ -16,7 +21,8 @@ public struct HermesAgentIndexedSession: Equatable, Sendable {
         title: String,
         model: String?,
         modified: Date,
-        preview: String?
+        preview: String?,
+        cwd: String? = nil
     ) {
         self.sessionId = sessionId
         self.source = source
@@ -24,6 +30,7 @@ public struct HermesAgentIndexedSession: Equatable, Sendable {
         self.model = model
         self.modified = modified
         self.preview = preview
+        self.cwd = cwd
     }
 }
 
@@ -82,7 +89,13 @@ public enum HermesAgentIndex {
             .appendingPathComponent("state.db")
     }
 
-    /// Loads Hermes sessions from state.db. Hermes does not store cwd metadata, so any non-nil cwdFilter returns no sessions and no errors.
+    /// Loads Hermes `cli`/`tui` sessions from state.db, newest first.
+    ///
+    /// When `cwdFilter` is non-nil, only sessions whose `cwd` column equals the filter are
+    /// returned. Matching is symlink-aware (the standardized path and its resolved form are both
+    /// accepted) because Hermes records `os.getcwd()` — which resolves symlinks — while cmux may
+    /// pass the logical launch directory. A row with a NULL/empty `cwd`, or a blank filter, never
+    /// matches. Pass `nil` to list every `cli`/`tui` session regardless of directory.
     public static func loadSessions(
         needle: String,
         cwdFilter: String?,
@@ -97,7 +110,8 @@ public enum HermesAgentIndex {
         guard !overflow else {
             return HermesAgentIndexResult(sessions: [], errors: [])
         }
-        guard cwdFilter == nil else {
+        let cwdCandidates = cwdFilter.map(cwdMatchCandidates(for:)) ?? []
+        if cwdFilter != nil, cwdCandidates.isEmpty {
             return HermesAgentIndexResult(sessions: [], errors: [])
         }
 
@@ -117,7 +131,7 @@ public enum HermesAgentIndex {
 
         do {
             return try withDatabase(snapshot.databaseURL.path) { db in
-                try loadSessions(db: db, needle: needle, offset: offset, limit: limit)
+                try loadSessions(db: db, needle: needle, cwdCandidates: cwdCandidates, offset: offset, limit: limit)
             }
         } catch {
             return HermesAgentIndexResult(
@@ -125,6 +139,129 @@ public enum HermesAgentIndex {
                 errors: ["Hermes Agent: cannot read state.db (\(errorDescription(error)))"]
             )
         }
+    }
+
+    /// Returns the id of the newest `cli`/`tui` session whose `cwd` matches `cwd`, or `nil` when
+    /// there is no match (including no `cwd` metadata, or a missing/unreadable `state.db`).
+    ///
+    /// Unlike ``loadSessions(needle:cwdFilter:offset:limit:stateDBPath:)`` this reads the live
+    /// `state.db` directly (read-only, WAL-safe) rather than copying it to a temp snapshot, so it
+    /// stays cheap on the process-scan auto-resume path where `state.db` can be large. Matching is
+    /// symlink-aware; because a wrong bind corrupts two sessions while a miss is recoverable, any
+    /// ambiguity or error resolves to `nil`.
+    public static func latestSessionID(
+        cwd: String,
+        stateDBPath: String = Self.defaultStateDBPath()
+    ) -> String? {
+        let cwdCandidates = cwdMatchCandidates(for: cwd)
+        guard !cwdCandidates.isEmpty,
+              FileManager.default.fileExists(atPath: stateDBPath) else {
+            return nil
+        }
+        let resolved = try? withDatabase(stateDBPath) { db in
+            try latestSessionID(db: db, cwdCandidates: cwdCandidates)
+        }
+        return resolved ?? nil
+    }
+
+    /// The newest-active `cli`/`tui` session id for the given cwd candidates, or `nil`.
+    ///
+    /// A purpose-built, bounded id-only query: it selects only `s.id` and touches only the
+    /// `sessions` table — no `messages` join, `GROUP BY`, correlated aggregate, or preview subquery —
+    /// so it stays O(cwd-matched sessions) regardless of how large `messages` grows, keeping the
+    /// process-scan restore path cheap.
+    ///
+    /// It considers only *active* sessions (`ended_at IS NULL`). Hermes writes `ended_at` only when a
+    /// session terminates (and clears it on reopen), so this excludes conversations that have already
+    /// ended — a live pane must never be bound to a completed session even if that session started
+    /// more recently.
+    ///
+    /// It returns a session id **only when exactly one active session matches the cwd**. If two or more
+    /// active sessions share the cwd — a second cmux pane, an external terminal, or a stale never-ended
+    /// row — there is no reliable way to tell which one the scanned pane owns, so it returns `nil`
+    /// (`LIMIT 2` detects the ambiguity). A miss is recoverable; a wrong bind resumes the pane into the
+    /// wrong conversation. This is the source-of-truth ambiguity guard; the scanner's process-level
+    /// count is a complementary early check for concurrent cmux panes.
+    private static func latestSessionID(
+        db: OpaquePointer,
+        cwdCandidates: [String]
+    ) throws -> String? {
+        guard !cwdCandidates.isEmpty else { return nil }
+        // Older Hermes schemas lack the `cwd` column; without it there is no way to scope to a cwd,
+        // so decline to bind (a recoverable miss) rather than fail the query.
+        guard tableHasColumn(db, table: "sessions", column: "cwd") else { return nil }
+        let placeholders = cwdCandidates.map { _ in "?" }.joined(separator: ", ")
+        let sql = """
+            SELECT s.id
+            FROM sessions s
+            WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
+              AND s.cwd IN (\(placeholders))
+              AND s.ended_at IS NULL
+            LIMIT 2
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "prepare failed")
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        var bindIndex: Int32 = 1
+        for candidate in cwdCandidates {
+            guard sqlite3_bind_text(stmt, bindIndex, candidate, -1, destructor) == SQLITE_OK else {
+                throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
+            }
+            bindIndex += 1
+        }
+
+        // Bind only when the cwd has a single active session; 2+ rows is ambiguous → nil.
+        var soleSessionID: String?
+        var activeRowCount = 0
+        var stepResult = sqlite3_step(stmt)
+        while stepResult == SQLITE_ROW {
+            activeRowCount += 1
+            if activeRowCount == 1 {
+                soleSessionID = sqliteText(stmt, 0)
+            } else {
+                break
+            }
+            stepResult = sqlite3_step(stmt)
+        }
+        // A single active row is trustworthy only if the scan actually completed (`SQLITE_DONE`). A
+        // transient `SQLITE_BUSY` or a schema/corruption error after the first row would otherwise look
+        // like a clean single result while a second active session went unread — resolve to nil so a
+        // partial read never risks binding the wrong conversation. (2+ rows already fails the count
+        // check as ambiguous.)
+        guard activeRowCount == 1,
+              stepResult == SQLITE_DONE,
+              let sessionId = soleSessionID,
+              !sessionId.isEmpty else {
+            return nil
+        }
+        return sessionId
+    }
+
+    /// The `cwd` values a stored session `cwd` may equal for `cwd` to be considered a match: the
+    /// standardized path and its symlink-resolved form. Empty for a blank input.
+    static func cwdMatchCandidates(for cwd: String) -> [String] {
+        let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let standardized = (trimmed as NSString).standardizingPath
+        let resolved = URL(fileURLWithPath: standardized).resolvingSymlinksInPath().path
+        var candidates: [String] = []
+        for candidate in [standardized, resolved] where !candidate.isEmpty && !candidates.contains(candidate) {
+            candidates.append(candidate)
+        }
+        return candidates
+    }
+
+    /// A single canonical (standardized + symlink-resolved) form of `cwd`, so two directories that
+    /// point at the same physical location through different symlink paths compare equal. Callers
+    /// that need to group panes by working directory (and stay consistent with the symlink-aware
+    /// matching in ``latestSessionID(cwd:stateDBPath:)``) should key on this. Nil for a blank input.
+    public static func canonicalCwd(_ cwd: String) -> String? {
+        cwdMatchCandidates(for: cwd).last
     }
 
     public static func loadTranscript(
@@ -146,11 +283,20 @@ public enum HermesAgentIndex {
     private static func loadSessions(
         db: OpaquePointer,
         needle: String,
+        cwdCandidates: [String],
         offset: Int,
         limit: Int
     ) throws -> HermesAgentIndexResult {
+        // Older Hermes schemas predate the `cwd` column. Without it we cannot honour a cwd filter,
+        // but an unscoped listing must still work — so select `NULL AS cwd` rather than referencing a
+        // missing column (which would fail prepare and break even unfiltered listing).
+        let hasCwdColumn = tableHasColumn(db, table: "sessions", column: "cwd")
+        if !cwdCandidates.isEmpty, !hasCwdColumn {
+            return HermesAgentIndexResult(sessions: [], errors: [])
+        }
         let trimmedNeedle = needle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let hasNeedle = !trimmedNeedle.isEmpty
+        let cwdColumn = hasCwdColumn ? "s.cwd" : "NULL AS cwd"
         var sql = """
             SELECT
               s.id,
@@ -166,11 +312,17 @@ public enum HermesAgentIndex {
                   AND COALESCE(m2.content, '') <> ''
                 ORDER BY m2.timestamp DESC, m2.id DESC
                 LIMIT 1
-              ) AS preview
+              ) AS preview,
+              \(cwdColumn)
             FROM sessions s
             LEFT JOIN messages m ON m.session_id = s.id
             WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
             """
+        // Bind order below MUST mirror the `?` order here: cwd candidates first, then needle.
+        if !cwdCandidates.isEmpty {
+            let placeholders = cwdCandidates.map { _ in "?" }.joined(separator: ", ")
+            sql += "\n  AND s.cwd IN (\(placeholders))"
+        }
         if hasNeedle {
             sql += """
                  AND (
@@ -203,13 +355,21 @@ public enum HermesAgentIndex {
         }
         defer { sqlite3_finalize(stmt) }
 
+        let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        var bindIndex: Int32 = 1
+        for candidate in cwdCandidates {
+            guard sqlite3_bind_text(stmt, bindIndex, candidate, -1, destructor) == SQLITE_OK else {
+                throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
+            }
+            bindIndex += 1
+        }
         if hasNeedle {
             let likePattern = "%\(trimmedNeedle)%"
-            let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-            for index in 1...5 {
-                guard sqlite3_bind_text(stmt, Int32(index), likePattern, -1, destructor) == SQLITE_OK else {
+            for _ in 0..<5 {
+                guard sqlite3_bind_text(stmt, bindIndex, likePattern, -1, destructor) == SQLITE_OK else {
                     throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
                 }
+                bindIndex += 1
             }
         }
 
@@ -226,6 +386,7 @@ public enum HermesAgentIndex {
             let model = sqliteText(stmt, 3)
             let modified = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
             let preview = decodedContentText(sqliteText(stmt, 5))
+            let cwd = normalized(sqliteText(stmt, 6))
             let title = normalized(rawTitle) ?? firstLine(preview) ?? sessionId
             sessions.append(HermesAgentIndexedSession(
                 sessionId: sessionId,
@@ -233,7 +394,8 @@ public enum HermesAgentIndex {
                 title: title,
                 model: model,
                 modified: modified,
-                preview: preview
+                preview: preview,
+                cwd: cwd
             ))
             stepResult = sqlite3_step(stmt)
         }
@@ -376,6 +538,25 @@ public enum HermesAgentIndex {
         }
         let count = Int(sqlite3_column_bytes(stmt, index))
         return String(data: Data(bytes: bytes, count: count), encoding: .utf8)
+    }
+
+    /// Whether `table` has a column named `column`. Used to stay compatible with older Hermes
+    /// `state.db` schemas that predate the `cwd` column (Hermes self-heals its schema on startup,
+    /// but a database not yet reopened by a cwd-aware Hermes still lacks it). `table` is a fixed
+    /// literal, not user input, so interpolating it into the `PRAGMA` is safe.
+    private static func tableHasColumn(_ db: OpaquePointer, table: String, column: String) -> Bool {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table))", -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if sqliteText(stmt, 1) == column {
+                return true
+            }
+        }
+        return false
     }
 
     private static func sqliteMessage(_ db: OpaquePointer?) -> String? {

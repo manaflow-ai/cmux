@@ -90,10 +90,102 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
+        // Pick the registration that owns a process. When both a user/project-config agent and a
+        // built-in detector match, prefer the configured one so a user's own agent is never shadowed
+        // by a built-in — including the reserved-id `hermes-agent` built-in, which config cannot
+        // override by id. Falls back to the first match (a built-in) when no config agent matches.
+        func matchingRegistration(
+            in registry: CmuxVaultAgentRegistry,
+            for observed: VaultObservedAgentProcess
+        ) -> CmuxVaultAgentRegistration? {
+            let matches = registry.registrations.filter { $0.detect.matches(observed) }
+            return matches.first { !CmuxVaultAgentRegistration.builtInRegistrationIDs.contains($0.id) }
+                ?? matches.first
+        }
+
+        // Fetch each process's argv/env at most once per scan; the Hermes ambiguity pre-count and
+        // the resolution loop below both read through this cache.
+        var argumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
+        func cachedProcessArguments(for pid: Int) -> CmuxTopProcessArguments? {
+            if let cached = argumentsByPID[pid] { return cached }
+            let fetched = processArgumentsProvider(pid)
+            argumentsByPID.updateValue(fetched, forKey: pid)
+            return fetched
+        }
+
+        // Group panes by the canonical (symlink-resolved) cwd so two panes in the same physical
+        // repo — one launched through a symlink, one through the real path — share one key and are
+        // both treated as ambiguous, matching the symlink-aware matching in `latestSessionID`.
+        func hermesAmbiguityKey(stateDBPath: String, cwd: String) -> String {
+            stateDBPath + "\u{1f}" + (HermesAgentIndex.canonicalCwd(cwd) ?? cwd)
+        }
+
+        // Count live Hermes (.stateDB) processes per (state.db, cwd). When two panes share one key we
+        // cannot tell which pane owns which session, so no binding is recorded for it below — a
+        // recoverable miss beats binding both panes to the same newest session. Making this exact
+        // needs a per-process key from hermes (see https://github.com/manaflow-ai/cmux/issues/7042).
+        var hermesProcessCountByKey: [String: Int] = [:]
+        for process in processSnapshot.cmuxScopedProcesses() {
+            guard process.cmuxWorkspaceID != nil,
+                  process.cmuxSurfaceID != nil,
+                  let processArguments = cachedProcessArguments(for: process.pid) else {
+                continue
+            }
+            let observed = VaultObservedAgentProcess(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment
+            )
+            guard let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]),
+                  let registration = matchingRegistration(in: registryForWorkingDirectory(cwd), for: observed),
+                  registration.sessionIdSource == .stateDB,
+                  // Only fresh launches compete for the cwd's newest session. A pane with an explicit
+                  // `--resume <id>` binds to that id directly (below) and does not consult the cwd
+                  // heuristic, so counting it would wrongly mark a co-located fresh pane ambiguous.
+                  observed.arguments.hermesResumeSessionID == nil else {
+                continue
+            }
+            let key = hermesAmbiguityKey(
+                stateDBPath: HermesAgentIndex.defaultStateDBPath(env: observed.environment),
+                cwd: cwd
+            )
+            hermesProcessCountByKey[key, default: 0] += 1
+        }
+
+        // Memoize Hermes state.db lookups within a single scan so N same-(db, cwd) panes read once.
+        // The inner dictionary stores `.some(nil)` for a cached miss (via updateValue, which keeps
+        // the key) so a genuine no-match is not re-queried per process.
+        var hermesSessionIDCache: [String: [String: String?]] = [:]
+        func hermesLatestSessionID(stateDBPath: String, cwd: String) -> String? {
+            // Multiple live hermes panes share this (state.db, cwd): no reliable pane->session map.
+            if hermesProcessCountByKey[hermesAmbiguityKey(stateDBPath: stateDBPath, cwd: cwd), default: 0] > 1 {
+                return nil
+            }
+            if let cached = hermesSessionIDCache[stateDBPath]?[cwd] {
+                return cached
+            }
+            let resolvedSessionID = HermesAgentIndex.latestSessionID(cwd: cwd, stateDBPath: stateDBPath)
+            hermesSessionIDCache[stateDBPath, default: [:]].updateValue(resolvedSessionID, forKey: cwd)
+            return resolvedSessionID
+        }
+
+        // Reserved ids (those in RestorableAgentKind.allCases, e.g. `hermes-agent`) have their hook
+        // records indexed by `load` under the native kind, not `.custom`, so a detected snapshot must
+        // use the native kind to reconcile with the hook lifecycle/metadata. Registry-owned ids
+        // (pi/grok/antigravity, absent from allCases) stay `.custom` to match their `.custom`-indexed
+        // hook records. This mirrors the hookKinds split in `RestorableAgentSessionIndex.load`.
+        let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
+        func detectedKind(for registrationID: String) -> RestorableAgentKind {
+            builtInKindIDs.contains(registrationID)
+                ? (RestorableAgentKind(rawValue: registrationID) ?? .custom(registrationID))
+                : .custom(registrationID)
+        }
+
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
-                  let processArguments = processArgumentsProvider(process.pid) else {
+                  let processArguments = cachedProcessArguments(for: process.pid) else {
                 continue
             }
             let observed = VaultObservedAgentProcess(
@@ -104,11 +196,13 @@ extension RestorableAgentSessionIndex {
             )
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
             let processRegistry = registryForWorkingDirectory(cwd)
-            guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
+            guard let registration = matchingRegistration(in: processRegistry, for: observed),
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
-                      fileManager: fileManager
+                      cwd: cwd,
+                      fileManager: fileManager,
+                      stateDBSessionIDLookup: hermesLatestSessionID
                   ) else {
                 continue
             }
@@ -117,7 +211,7 @@ extension RestorableAgentSessionIndex {
             let executablePath = normalized(observed.arguments.first) ?? normalized(process.path) ?? registration.defaultExecutable
             let arguments = observed.arguments.isEmpty ? [executablePath] : observed.arguments
             let snapshot = SessionRestorableAgentSnapshot(
-                kind: .custom(registration.id),
+                kind: detectedKind(for: registration.id),
                 sessionId: sessionId,
                 workingDirectory: registration.cwd == .ignore ? nil : cwd,
                 launchCommand: AgentLaunchCommandSnapshot(
@@ -869,7 +963,9 @@ private extension CmuxVaultAgentSessionIDSource {
     func sessionIDResolution(
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        cwd: String?,
+        fileManager: FileManager,
+        stateDBSessionIDLookup: (_ stateDBPath: String, _ cwd: String) -> String?
     ) -> VaultAgentSessionIDResolution? {
         switch self {
         case .argvOption(let option):
@@ -898,6 +994,27 @@ private extension CmuxVaultAgentSessionIDSource {
                 return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
             }
             return nil
+        case .stateDB:
+            // A live `hermes --resume <id>` / `-r <id>` names the exact session this pane is running,
+            // and hermes rejects an id that does not exist, so trust the argv id over the heuristic:
+            // it is correct even when the pane resumed an older session in a directory that also holds
+            // a newer one, and it disambiguates two panes in the same cwd.
+            if let explicitSessionId = process.arguments.hermesResumeSessionID {
+                return VaultAgentSessionIDResolution(sessionId: explicitSessionId, source: .explicit)
+            }
+            // Otherwise Hermes minted its own id at startup (readable only from state.db, scoped to
+            // this pane's cwd). A directory-less process, an unmatched cwd, or several fresh panes
+            // sharing one cwd record NO binding — a recoverable miss beats cross-binding two live
+            // sessions (the ambiguity guard lives in `stateDBSessionIDLookup`).
+            guard let cwd, !cwd.isEmpty else { return nil }
+            let stateDBPath = HermesAgentIndex.defaultStateDBPath(env: process.environment)
+            guard let sessionId = stateDBSessionIDLookup(stateDBPath, cwd) else { return nil }
+            // `.explicit`, not `.inferredLatestSessionFile`: the lookup already returns a value only
+            // for a single unambiguous active session in the cwd, so this is a verified match — not
+            // the fuzzy newest-file guess that source is meant for. Using `.inferredLatestSessionFile`
+            // would make `RestorableAgentSessionIndex.load` keep a *stale* same-panel hook record over
+            // this current session, defeating the recovery.
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
         }
     }
 }
@@ -988,6 +1105,14 @@ private extension Array where Element == String {
     private func normalizedNonOptionValue(_ rawValue: String) -> String? {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         return !value.isEmpty && !value.hasPrefix("-") ? value : nil
+    }
+
+    /// The explicit session id from a live `hermes --resume <id>` / `-r <id>` argv, or nil for a
+    /// fresh launch. hermes rejects an id that does not exist, so an argv id names the exact running
+    /// session; the scanner trusts it over the state.db cwd-newest heuristic and excludes such panes
+    /// from the same-cwd ambiguity count (they do not compete for the cwd's newest fresh session).
+    var hermesResumeSessionID: String? {
+        nonOptionValue(afterOption: "--resume") ?? nonOptionValue(afterOption: "-r")
     }
 
     var grokResumeSessionID: String? {

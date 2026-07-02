@@ -681,7 +681,9 @@ extension SessionIndexStore {
         switch registration.sessionIdSource {
         case .argvOption:
             needsNativeSessionID = true
-        case .piSessionFile, .grokSessionDirectory:
+        case .piSessionFile, .grokSessionDirectory, .stateDB:
+            // .stateDB (Hermes) is SQLite-backed and never enumerated as JSONL — it loads through
+            // the native SessionAgent.hermesAgent path — but the switch must stay exhaustive.
             needsNativeSessionID = false
         }
         forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in

@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import Foundation
+import SQLite3
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -980,6 +981,632 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             record["transcriptPath"] = transcriptPath
         }
         return record
+    }
+
+    // MARK: - Hermes Agent state.db auto-resume — https://github.com/manaflow-ai/cmux/issues/7042
+
+    func testHermesProcessDetectedSnapshotResumesFromStateDB() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        // A single active cli/tui session in the pane's cwd — the one the fresh launch minted.
+        try Self.writeHermesStateDB(at: stateDB, rows: [
+            (id: "hermes-current", source: "tui", startedAt: 40, cwd: repo.path),
+        ])
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path, fileManager: fm)
+        let process = CmuxTopProcessInfo(
+            pid: 7042,
+            parentPID: 1,
+            name: "hermes",
+            path: "/usr/local/bin/hermes",
+            ttyDevice: nil,
+            cmuxWorkspaceID: workspaceId,
+            cmuxSurfaceID: panelId,
+            cmuxAttributionReason: "cmux-test",
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processId == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["hermes", "--tui", "--model", "hermes-4"],
+                    environment: [
+                        "HERMES_HOME": hermesHome.path,
+                        "CMUX_AGENT_LAUNCH_CWD": repo.path,
+                    ]
+                )
+            }
+        )
+
+        // Before #7042 hermes had no built-in registration, so the pane recorded no snapshot at all.
+        XCTAssertEqual(detectedSnapshots.count, 1)
+        let detected = try XCTUnwrap(
+            detectedSnapshots.values.first,
+            "Hermes pane should record a resume snapshot; it was absent (the bug in #7042)"
+        )
+        // Canonical .hermesAgent kind (not .custom("hermes-agent")), so a detected live process
+        // reconciles with the native hermes hook-store records instead of dropping their lifecycle.
+        XCTAssertEqual(detected.snapshot.kind, .hermesAgent)
+        // The sole active cli/tui session for this cwd, read from state.db.
+        XCTAssertEqual(detected.snapshot.sessionId, "hermes-current")
+
+        let command = try XCTUnwrap(detected.snapshot.resumeCommand)
+        XCTAssertTrue(command.contains("--resume"), command)
+        XCTAssertTrue(command.contains("hermes-current"), command)
+        // The captured --tui/--model launch flags are replayed so a TUI session resumes in the TUI.
+        XCTAssertTrue(command.contains("--tui"), command)
+        XCTAssertTrue(command.contains("--model"), command)
+        XCTAssertTrue(command.contains("hermes-4"), command)
+    }
+
+    func testHermesStateDBDetectionReplacesStaleSamePanelHookRecord() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-stale-hook-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        try Self.writeHermesStateDB(at: stateDB, rows: [
+            (id: "current-session", source: "tui", startedAt: 40, cwd: repo.path),
+        ])
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        // A stale hermes hook record for the same panel points at an old session.
+        try writeHookStore(
+            root: root,
+            storeFilename: "hermes-agent-hook-sessions.json",
+            sessions: [
+                "stale-session": driftedAgentHookRecord(
+                    launcher: "hermes-agent",
+                    sessionId: "stale-session",
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: repo.path,
+                    launchCwd: repo.path,
+                    updatedAt: 100
+                ),
+            ]
+        )
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path, fileManager: fm)
+
+        // Part 1: with no live detection, the panel restores the stale hook session — confirming the
+        // hook record actually loads (so Part 2 is a meaningful replacement, not a trivial pass).
+        let staleIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: registry,
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in nil }
+        )
+        XCTAssertEqual(staleIndex.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, "stale-session")
+
+        // Part 2: the live process + state.db resolve the current single active session, which must
+        // replace the stale same-panel hook. (Regression: classifying the state.db match as
+        // .inferredLatestSessionFile made load keep the stale hook instead.)
+        let process = CmuxTopProcessInfo(
+            pid: 8_500,
+            parentPID: 1,
+            name: "hermes",
+            path: "/usr/local/bin/hermes",
+            ttyDevice: nil,
+            cmuxWorkspaceID: workspaceId,
+            cmuxSurfaceID: panelId,
+            cmuxAttributionReason: "cmux-test",
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processId == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["hermes"],
+                    environment: ["HERMES_HOME": hermesHome.path, "CMUX_AGENT_LAUNCH_CWD": repo.path]
+                )
+            }
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: registry,
+            detectedSnapshots: detected,
+            processArgumentsProvider: { _ in nil }
+        )
+        XCTAssertEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, "current-session")
+    }
+
+    func testHermesProcessInUnknownCwdRecordsNoSnapshot() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-nomatch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        // The only session belongs to a different cwd, so this pane must not cross-bind to it.
+        try Self.writeHermesStateDB(at: stateDB, rows: [
+            (id: "other-cwd-session", source: "cli", startedAt: 40, cwd: root.appendingPathComponent("elsewhere").path),
+        ])
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path, fileManager: fm)
+        let process = CmuxTopProcessInfo(
+            pid: 7043,
+            parentPID: 1,
+            name: "hermes",
+            path: "/usr/local/bin/hermes",
+            ttyDevice: nil,
+            cmuxWorkspaceID: workspaceId,
+            cmuxSurfaceID: panelId,
+            cmuxAttributionReason: "cmux-test",
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processId == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["hermes"],
+                    environment: [
+                        "HERMES_HOME": hermesHome.path,
+                        "CMUX_AGENT_LAUNCH_CWD": root.appendingPathComponent("repo").path,
+                    ]
+                )
+            }
+        )
+
+        XCTAssertTrue(detectedSnapshots.isEmpty, "A recoverable miss must beat cross-binding another cwd's session")
+    }
+
+    func testTwoHermesPanesInSameCwdRecordNoBinding() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-ambig-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        try Self.writeHermesStateDB(at: stateDB, rows: [
+            (id: "session-x", source: "tui", startedAt: 40, cwd: repo.path),
+        ])
+
+        let workspaceId = UUID()
+        let panels = [UUID(), UUID()]
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path, fileManager: fm)
+        let processes = panels.enumerated().map { index, panelId in
+            CmuxTopProcessInfo(
+                pid: 8_001 + index,
+                parentPID: 1,
+                name: "hermes",
+                path: "/usr/local/bin/hermes",
+                ttyDevice: nil,
+                cmuxWorkspaceID: workspaceId,
+                cmuxSurfaceID: panelId,
+                cmuxAttributionReason: "cmux-test",
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processes.contains(where: { $0.pid == processId }) else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["hermes"],
+                    environment: [
+                        "HERMES_HOME": hermesHome.path,
+                        "CMUX_AGENT_LAUNCH_CWD": repo.path,
+                    ]
+                )
+            }
+        )
+
+        // Two live hermes panes share one (state.db, cwd), so neither may be bound: picking the
+        // single newest session for both would resume one pane onto the other pane's session.
+        XCTAssertTrue(detectedSnapshots.isEmpty, "Ambiguous same-cwd hermes panes must record no binding")
+    }
+
+    func testHermesExplicitResumeIdIsHonoredOverCwdLatest() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-explicit-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        // The cwd holds a NEWER idle session, but the pane is running an OLDER resumed one.
+        try Self.writeHermesStateDB(at: stateDB, rows: [
+            (id: "older-resumed", source: "tui", startedAt: 10, cwd: repo.path),
+            (id: "newer-idle", source: "cli", startedAt: 90, cwd: repo.path),
+        ])
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path, fileManager: fm)
+        let process = CmuxTopProcessInfo(
+            pid: 8_100,
+            parentPID: 1,
+            name: "hermes",
+            path: "/usr/local/bin/hermes",
+            ttyDevice: nil,
+            cmuxWorkspaceID: workspaceId,
+            cmuxSurfaceID: panelId,
+            cmuxAttributionReason: "cmux-test",
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processId == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["hermes", "--resume", "older-resumed", "--tui"],
+                    environment: [
+                        "HERMES_HOME": hermesHome.path,
+                        "CMUX_AGENT_LAUNCH_CWD": repo.path,
+                    ]
+                )
+            }
+        )
+
+        let detected = try XCTUnwrap(detectedSnapshots.values.first)
+        // The explicit argv id wins over the cwd-newest state.db row.
+        XCTAssertEqual(detected.snapshot.sessionId, "older-resumed")
+        let command = try XCTUnwrap(detected.snapshot.resumeCommand)
+        XCTAssertTrue(command.contains("older-resumed"), command)
+        XCTAssertFalse(command.contains("newer-idle"), command)
+        XCTAssertTrue(command.contains("--tui"), command)
+    }
+
+    func testHermesPanesInSameCwdViaSymlinkRecordNoBinding() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-symlink-ambig-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        let realRepo = root.appendingPathComponent("real-repo", isDirectory: true)
+        try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try fm.createDirectory(at: realRepo, withIntermediateDirectories: true)
+        let aliasRepo = root.appendingPathComponent("alias-repo", isDirectory: false)
+        try fm.createSymbolicLink(at: aliasRepo, withDestinationURL: realRepo)
+        let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        try Self.writeHermesStateDB(at: stateDB, rows: [
+            (id: "shared-session", source: "tui", startedAt: 40, cwd: realRepo.resolvingSymlinksInPath().path),
+        ])
+
+        let workspaceId = UUID()
+        let panels = [UUID(), UUID()]
+        // One pane launched through the real path, the other through the symlink.
+        let cwds = [realRepo.path, aliasRepo.path]
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path, fileManager: fm)
+        let processes = panels.enumerated().map { index, panelId in
+            CmuxTopProcessInfo(
+                pid: 8_200 + index,
+                parentPID: 1,
+                name: "hermes",
+                path: "/usr/local/bin/hermes",
+                ttyDevice: nil,
+                cmuxWorkspaceID: workspaceId,
+                cmuxSurfaceID: panelId,
+                cmuxAttributionReason: "cmux-test",
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let cwdByPID = Dictionary(uniqueKeysWithValues: zip(processes.map(\.pid), cwds))
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard let cwd = cwdByPID[processId] else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["hermes"],
+                    environment: ["HERMES_HOME": hermesHome.path, "CMUX_AGENT_LAUNCH_CWD": cwd]
+                )
+            }
+        )
+
+        // Symlink and real path resolve to one canonical cwd, so both panes are ambiguous → no binding.
+        XCTAssertTrue(detectedSnapshots.isEmpty, "Symlink-equivalent same-cwd hermes panes must not bind")
+    }
+
+    func testHermesExplicitPaneBindsWhileCoLocatedFreshPaneDefers() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-explicit-fresh-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        // Two active sessions share the cwd.
+        try Self.writeHermesStateDB(at: stateDB, rows: [
+            (id: "resumed-old", source: "tui", startedAt: 10, cwd: repo.path),
+            (id: "fresh-new", source: "cli", startedAt: 100, cwd: repo.path),
+        ])
+
+        let workspaceId = UUID()
+        let explicitPanel = UUID()
+        let freshPanel = UUID()
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path, fileManager: fm)
+        func hermesProcess(pid: Int, panelId: UUID) -> CmuxTopProcessInfo {
+            CmuxTopProcessInfo(
+                pid: pid,
+                parentPID: 1,
+                name: "hermes",
+                path: "/usr/local/bin/hermes",
+                ttyDevice: nil,
+                cmuxWorkspaceID: workspaceId,
+                cmuxSurfaceID: panelId,
+                cmuxAttributionReason: "cmux-test",
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let explicitProcess = hermesProcess(pid: 8_300, panelId: explicitPanel)
+        let freshProcess = hermesProcess(pid: 8_301, panelId: freshPanel)
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [explicitProcess, freshProcess],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                let arguments: [String]
+                switch processId {
+                case explicitProcess.pid: arguments = ["hermes", "--resume", "resumed-old"]
+                case freshProcess.pid: arguments = ["hermes"]
+                default: return nil
+                }
+                return CmuxTopProcessArguments(
+                    arguments: arguments,
+                    environment: ["HERMES_HOME": hermesHome.path, "CMUX_AGENT_LAUNCH_CWD": repo.path]
+                )
+            }
+        )
+
+        // The explicit pane binds to its argv id regardless of ambiguity. The fresh pane cannot: the
+        // cwd holds two active sessions, so latestSessionID returns nil and it records no binding —
+        // a recoverable miss beats resuming it onto the explicit pane's conversation.
+        let byPanel = Dictionary(
+            uniqueKeysWithValues: detectedSnapshots.map { ($0.key.panelId, $0.value.snapshot.sessionId) }
+        )
+        XCTAssertEqual(byPanel[explicitPanel], "resumed-old")
+        XCTAssertNil(byPanel[freshPanel])
+        XCTAssertEqual(detectedSnapshots.count, 1)
+    }
+
+    func testUserConfiguredHermesAgentIsNotShadowedByBuiltIn() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-override-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+
+        // A user/project-config agent (custom id) that also detects `hermes`. It must win over the
+        // built-in `hermes-agent` detector during process scanning, so the built-in never shadows an
+        // explicit user registration (the built-in is listed first, mirroring load() order).
+        let userAgent = CmuxVaultAgentRegistration(
+            id: "my-hermes",
+            name: "My Hermes",
+            detect: CmuxVaultAgentDetectRule(processNames: ["hermes"]),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}"
+        )
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInHermes, userAgent])
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let process = CmuxTopProcessInfo(
+            pid: 8_400,
+            parentPID: 1,
+            name: "hermes",
+            path: "/usr/local/bin/hermes",
+            ttyDevice: nil,
+            cmuxWorkspaceID: workspaceId,
+            cmuxSurfaceID: panelId,
+            cmuxAttributionReason: "cmux-test",
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processId == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["hermes", "--session", "user-sess-123"],
+                    environment: ["CMUX_AGENT_LAUNCH_CWD": repo.path]
+                )
+            }
+        )
+
+        let detected = try XCTUnwrap(detectedSnapshots.values.first)
+        // The user agent won (custom kind, argvOption resolution), not the built-in .hermesAgent.
+        XCTAssertEqual(detected.snapshot.kind, .custom("my-hermes"))
+        XCTAssertEqual(detected.snapshot.sessionId, "user-sess-123")
+    }
+
+    func testBuiltInHermesRegistrationIsRegisteredWithStateDBSource() throws {
+        let hermes = CmuxVaultAgentRegistration.builtInHermes
+        XCTAssertEqual(hermes.id, "hermes-agent")
+        XCTAssertEqual(hermes.sessionIdSource, .stateDB)
+        XCTAssertEqual(hermes.defaultExecutable, "hermes")
+        XCTAssertTrue(hermes.detect.processNames.contains("hermes"))
+
+        // Present in the built-in registry so a bare relaunch process scan can rebind hermes panes.
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: FileManager.default.temporaryDirectory.path)
+        XCTAssertEqual(registry.registration(id: "hermes-agent")?.sessionIdSource, .stateDB)
+    }
+
+    private enum HermesStateDBTestError: Error { case open, sql(String) }
+
+    private static func writeHermesStateDB(
+        at url: URL,
+        rows: [(id: String, source: String, startedAt: Double, cwd: String?)]
+    ) throws {
+        var db: OpaquePointer?
+        guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            throw HermesStateDBTestError.open
+        }
+        defer { sqlite3_close(db) }
+        try execHermesSQL(db, """
+            CREATE TABLE sessions (
+              id TEXT PRIMARY KEY,
+              source TEXT NOT NULL,
+              model TEXT,
+              started_at REAL NOT NULL,
+              ended_at REAL,
+              cwd TEXT,
+              title TEXT
+            );
+            CREATE TABLE messages (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL,
+              role TEXT NOT NULL,
+              content TEXT,
+              tool_name TEXT,
+              tool_calls TEXT,
+              timestamp REAL NOT NULL
+            );
+            """)
+        for row in rows {
+            let cwdLiteral = row.cwd.map { "'\($0)'" } ?? "NULL"
+            try execHermesSQL(db, """
+                INSERT INTO sessions (id, source, model, started_at, cwd)
+                VALUES ('\(row.id)', '\(row.source)', 'model', \(row.startedAt), \(cwdLiteral));
+                """)
+        }
+    }
+
+    private static func execHermesSQL(_ db: OpaquePointer, _ sql: String) throws {
+        var error: UnsafeMutablePointer<Int8>?
+        guard sqlite3_exec(db, sql, nil, nil, &error) == SQLITE_OK else {
+            let message = error.map { String(cString: $0) } ?? "exec failed"
+            sqlite3_free(error)
+            throw HermesStateDBTestError.sql(message)
+        }
     }
 
     // A drifted hook record for an arbitrary (non-Claude) agent: the recorded runtime cwd differs
