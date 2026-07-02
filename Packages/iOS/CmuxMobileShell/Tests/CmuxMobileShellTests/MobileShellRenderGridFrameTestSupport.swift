@@ -15,7 +15,7 @@ func renderGridFrame(
     try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
         stateSeq: seq,
-        columns: 16,
+        columns: 80,
         rows: 4,
         full: full,
         rowSpans: [
