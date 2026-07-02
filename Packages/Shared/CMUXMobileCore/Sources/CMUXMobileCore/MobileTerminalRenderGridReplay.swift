@@ -98,19 +98,23 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         // main display, protected cells, key/input flags, OSC 8 hyperlinks,
         // charset mapping, scroll margins, tabs, both screens, cursor position,
         // viewport contents, and scrollback.
-        bytes.append(Data((
-            "\u{1B}[?2026h\u{1B}[0$}\u{1B}[>m\u{1B}[r\u{1B}[?69l\u{1B}[?5W\u{1B}[?1049l" +
-            hyperlinkStateReset +
-            screenStateReset + "\u{1B}[H\u{1B}[2J\u{1B}[3J" +
-            "\u{1B}[?1049h" + hyperlinkStateReset + screenStateReset + "\u{1B}[H\u{1B}[2J" +
-            "\u{1B}[?1049l\u{1B}[H"
-        ).utf8))
+        bytes.append(Data("\u{1B}[?2026h\u{1B}[0$}\u{1B}[>m\u{1B}[r\u{1B}[?69l\u{1B}[?5W\u{1B}[?1049l".utf8))
+        bytes.append(Data(hyperlinkStateReset.utf8))
+        bytes.append(Data(screenStateReset.utf8))
 
         // Dynamic default colors (OSC 10/11/12). Nil frame values reset the
         // previous override so a full snapshot behaves like the old RIS path.
+        // Apply them before clearing so blank cells use the captured defaults.
         bytes.append(oscColorOrResetBytes(10, reset: 110, frame.terminalForeground))
         bytes.append(oscColorOrResetBytes(11, reset: 111, frame.terminalBackground))
         bytes.append(oscColorOrResetBytes(12, reset: 112, frame.terminalCursorColor))
+        bytes.append(sgrBytes(for: defaultStyle))
+        bytes.append(Data("\u{1B}[H\u{1B}[2J\u{1B}[3J\u{1B}[?1049h".utf8))
+
+        bytes.append(Data(hyperlinkStateReset.utf8))
+        bytes.append(Data(screenStateReset.utf8))
+        bytes.append(sgrBytes(for: defaultStyle))
+        bytes.append(Data("\u{1B}[H\u{1B}[2J\u{1B}[?1049l\u{1B}[H".utf8))
 
         // Paint with autowrap and the cursor off so a full-width row plus an
         // explicit newline cannot wrap into a phantom blank line, and so the
