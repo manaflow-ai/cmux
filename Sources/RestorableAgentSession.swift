@@ -854,7 +854,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     ) -> String? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
-        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+        guard !Self.canUseInlineStartupInput(inlineInput) else {
             return inlineInput
         }
         guard !allowOversizedInlineInput else {
@@ -871,8 +871,32 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             return nil
         }
 
-        let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
-        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+        guard let scriptInput = Self.launcherStartupInput(for: scriptURL) else {
+            try? fileManager.removeItem(at: scriptURL)
+            return nil
+        }
+        return scriptInput
+    }
+
+    private static func launcherStartupInput(for scriptURL: URL) -> String? {
+        let directInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
+        if canUseInlineStartupInput(directInput) {
+            return directInput
+        }
+
+        let encodedPath = Data(scriptURL.path.utf8).base64EncodedString()
+        let decodeCommand = """
+        cmux_agent_resume_script="$(printf '%s' \(shellSingleQuoted(encodedPath)) | base64 --decode 2>/dev/null || printf '%s' \(shellSingleQuoted(encodedPath)) | base64 -D 2>/dev/null)"; exec /bin/zsh "$cmux_agent_resume_script"
+        """
+        let encodedInput = "/bin/zsh -c \(shellSingleQuoted(decodeCommand))\n"
+        return canUseInlineStartupInput(encodedInput) ? encodedInput : nil
+    }
+
+    private static func canUseInlineStartupInput(_ input: String) -> Bool {
+        guard input.utf8.count <= Self.maxInlineStartupInputBytes else { return false }
+        // Ghostty embedded startup input is parsed as escaped Zig string content.
+        // Keep inline transport ASCII-only so UTF-8 restore commands stay byte-exact in the launcher script.
+        return input.utf8.allSatisfy { $0 < 0x80 }
     }
 }
 
