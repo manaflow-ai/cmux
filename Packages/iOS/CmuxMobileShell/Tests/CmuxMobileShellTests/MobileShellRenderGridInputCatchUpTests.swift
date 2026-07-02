@@ -100,6 +100,61 @@ import Testing
 }
 
 @MainActor
+@Test func renderGridInputPendingSequenceRequiresReplayAfterDroppedDelta() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+    let transport = try #require(box.get())
+
+    await store.submitTerminalRawInput(Data("a".utf8), surfaceID: "live-terminal")
+    let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
+    #expect(inputSent)
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 99,
+        text: "dropped-delta",
+        full: false
+    ))
+    let staleFrameDelivered = try await pollUntil(attempts: 50) {
+        collector.lines.contains { $0.contains("dropped-delta") }
+    }
+    #expect(!staleFrameDelivered)
+
+    try await router.enqueueReplayRenderGrids([
+        renderGridFrame(surfaceID: "live-terminal", seq: 100, text: "replayed-target"),
+    ])
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 100,
+        text: "incomplete-target",
+        full: false
+    ))
+    let incompleteTargetDelivered = try await pollUntil(attempts: 50) {
+        collector.lines.contains { $0.contains("incomplete-target") }
+    }
+    #expect(!incompleteTargetDelivered)
+    let replayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterMount + 1
+    )
+    #expect(replayRequested)
+    let replayDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("replayed-target") }
+    }
+    #expect(replayDelivered)
+    collector.unmount()
+}
+
+@MainActor
 @Test func renderGridInputPendingSequenceRequestsReplayAfterDroppedFrameAndRepeatedAck() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

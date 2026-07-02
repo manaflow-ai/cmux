@@ -6979,7 +6979,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func shouldDropRenderGridBehindPendingInput(_ renderGrid: MobileTerminalRenderGridFrame, source: String) -> Bool {
         guard let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
-              renderGrid.stateSeq < pendingSeq else { return false }
+              renderGrid.stateSeq < pendingSeq else {
+            guard pendingTerminalInputDroppedRenderGridSurfaceIDs.contains(renderGrid.surfaceID),
+                  !renderGrid.full,
+                  !renderGrid.isReplaceableViewportPatchForMobileDelivery else {
+                return false
+            }
+            MobileDebugLog.anchormux("sync.render_grid_wait_replay source=\(source) surface=\(renderGrid.surfaceID) frame=\(renderGrid.stateSeq)")
+            if source == "event" {
+                requestTerminalReplay(surfaceID: renderGrid.surfaceID)
+            }
+            return true
+        }
         pendingTerminalInputDroppedRenderGridSurfaceIDs.insert(renderGrid.surfaceID)
         MobileDebugLog.anchormux("sync.render_grid_wait_input source=\(source) surface=\(renderGrid.surfaceID) frame=\(renderGrid.stateSeq) pending=\(pendingSeq)")
         return true
