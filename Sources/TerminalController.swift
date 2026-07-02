@@ -13561,6 +13561,13 @@ class TerminalController {
         }
     }
 
+    private func clearMobileViewportReports(surfaceID: UUID, reason: String) {
+        mobileViewportReportsBySurfaceID[surfaceID] = nil
+        mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+        mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
+        terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+    }
+
     #if DEBUG
     func debugResetMobileViewportReportsForTesting() {
         clearAllMobileViewportReports(reason: "mobile.viewport.testReset")
@@ -13664,6 +13671,7 @@ class TerminalController {
                 data: ["surface_id": surfaceId.uuidString]
             )
         }
+        clearMobileViewportReports(surfaceID: surfaceId, reason: "mobile.terminal.close")
         return .ok([
             "closed": true,
             "workspace_id": resolved.workspace.id.uuidString,
@@ -14106,10 +14114,7 @@ class TerminalController {
             return
         }
         if reports.isEmpty {
-            mobileViewportReportsBySurfaceID[surfaceID] = nil
-            mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
-            mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+            clearMobileViewportReports(surfaceID: surfaceID, reason: reason)
             return
         }
         mobileViewportReportsBySurfaceID[surfaceID] = reports
@@ -14177,10 +14182,7 @@ class TerminalController {
         }
 
         guard !reports.isEmpty else {
-            mobileViewportReportsBySurfaceID[surfaceID] = nil
-            mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
-            mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+            clearMobileViewportReports(surfaceID: surfaceID, reason: reason)
             return
         }
 

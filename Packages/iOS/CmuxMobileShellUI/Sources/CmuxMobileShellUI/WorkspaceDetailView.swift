@@ -107,6 +107,17 @@ struct WorkspaceDetailView: View {
             refreshCachedChatToggleAnchor()
         }
         #endif
+        #if canImport(UIKit)
+        .sheet(isPresented: $isFeedbackComposerPresented) {
+            feedbackComposer
+        }
+        .sheet(isPresented: $isTextSheetPresented) {
+            TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+        }
+        .sheet(isPresented: $isTerminalPickerPresented, onDismiss: performPendingTerminalPickerActionIfNeeded) {
+            terminalPickerSheetContent
+        }
+        #endif
         .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
     }
 
@@ -167,9 +178,6 @@ struct WorkspaceDetailView: View {
             }
         }
         .task(id: chatRefreshKey) { await refreshChatSessions() }
-        .sheet(isPresented: $isTerminalPickerPresented, onDismiss: performPendingTerminalPickerActionIfNeeded) {
-            terminalPickerSheetContent
-        }
         .closeWorkspaceConfirmation(
             isPresented: $isConfirmingClose,
             confirm: confirmCloseWorkspaceFromMenu
@@ -342,15 +350,6 @@ struct WorkspaceDetailView: View {
             confirm: confirmCloseWorkspaceFromMenu
         )
         #if canImport(UIKit)
-        .sheet(isPresented: $isFeedbackComposerPresented) {
-            feedbackComposer
-        }
-        .sheet(isPresented: $isTextSheetPresented) {
-            TerminalTextSheetView(surfaceID: textSheetSurfaceID)
-        }
-        .sheet(isPresented: $isTerminalPickerPresented, onDismiss: performPendingTerminalPickerActionIfNeeded) {
-            terminalPickerSheetContent
-        }
         .workspaceRenameDialog(
             isPresented: $isRenamePresented,
             text: $renameText,

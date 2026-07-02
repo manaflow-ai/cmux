@@ -1488,6 +1488,48 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertNotNil(workspace.terminalPanel(for: panel.id))
     }
 
+    func testMobileTerminalCloseClearsViewportReportsForClosedSurface() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.clearAllMobileViewportReports(reason: "test.cleanup")
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
+        TerminalController.shared.debugSetMobileViewportReportForTesting(
+            surfaceID: panel.id,
+            clientID: "ipad-client",
+            columns: 80,
+            rows: 24
+        )
+        XCTAssertEqual(
+            TerminalController.shared.debugMobileViewportReportClientIDsForTesting(surfaceID: panel.id),
+            Set(["ipad-client"])
+        )
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-clears-viewport",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": panel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case .ok = response else {
+            XCTFail("Expected terminal.close to succeed")
+            return
+        }
+        XCTAssertNil(TerminalController.shared.debugMobileViewportReportClientIDsForTesting(surfaceID: panel.id))
+    }
+
     func testMobileWorkspaceListRejectsMissingScopedTargets() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
