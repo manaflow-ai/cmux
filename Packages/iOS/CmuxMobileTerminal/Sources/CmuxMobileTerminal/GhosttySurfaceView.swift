@@ -2867,8 +2867,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         cellPixelSize = .zero
         lastRenderRect = .zero
         lastRenderRectAllowsTopGapCorrection = false
-        effectiveGridAllowsTopGapCorrection = false
-        remoteGridAllowsTopGapCorrection = nil
         lastRenderLayoutViewportHeight = nil
         lastRenderHasSourceLayoutViewport = false
         lastAppliedContentScale = 0
