@@ -92,9 +92,24 @@ extension TabManager {
     /// Returns the focused Markdown panel for native find actions. Unlike
     /// preview zoom, Find is valid in both the rendered preview and raw text
     /// editor modes.
+    ///
+    /// A main-area or Dock browser can own the AppKit first responder while the
+    /// workspace's `focusedPanelId` still points at a Markdown panel (Dock focus
+    /// does not rewrite `focusedPanelId`). Because every find router consults
+    /// this property before `focusedBrowserPanel`, returning the Markdown panel
+    /// in that state would steal Cmd+F / Cmd+G / Cmd+E / Hide Find from the
+    /// browser the user is actually in. `focusedBrowserPanel` is first-responder
+    /// aware, so defer to it whenever it resolves a browser. When no browser
+    /// owns focus it is nil here — its only non-first-responder path is a
+    /// `focusedPanelId`-based browser, which is mutually exclusive with this
+    /// Markdown match — so this still returns the Markdown panel in the normal
+    /// case (and in the raw-text editor, which cannot coexist with browser
+    /// first-responder ownership).
     var focusedMarkdownPanelForFind: MarkdownPanel? {
         guard let tab = selectedWorkspace,
-              let panelId = tab.focusedPanelId else { return nil }
-        return tab.panels[panelId] as? MarkdownPanel
+              let panelId = tab.focusedPanelId,
+              let markdownPanel = tab.panels[panelId] as? MarkdownPanel else { return nil }
+        if focusedBrowserPanel != nil { return nil }
+        return markdownPanel
     }
 }
