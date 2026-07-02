@@ -191,6 +191,15 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
+    func testDeadHookPIDDoesNotForceActiveAgentTextEntry() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.recordAgentPID(key: "codex.dead-session", pid: 999_999, panelId: panel.id, refreshPorts: false)
+        let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+        XCTAssertTrue(TextBoxInputContainer.allowsSubmitActionSelection(pendingProviderLaunchAction: nil, shouldForceTextEntrySubmit: TextBoxInputContainer.shouldForceTextEntrySubmit(allowsCommandTemplateSubmit: true, terminalAgentContext: context)))
+    }
+
+    @Test
     func testTextBoxLaunchContextRequiresAgentExecutable() {
         XCTAssertEqual(
             TextBoxAgentDetection.boundedLaunchCommandContext(

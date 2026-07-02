@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import AppKit
+import Darwin
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import Bonsplit
@@ -659,6 +660,7 @@ extension WorkspaceContentView {
         }
         if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {
             for key in agentPIDKeys.sorted() {
+                guard Self.isAgentPIDKeyLive(key, workspace: workspace) else { continue }
                 parts.append("agentPIDKey:\(key)")
             }
         }
@@ -666,6 +668,13 @@ extension WorkspaceContentView {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
+    }
+
+    private static func isAgentPIDKeyLive(_ key: String, workspace: Workspace) -> Bool {
+        guard let pid = workspace.agentPIDs[key] else { return true }
+        guard pid > 0 else { return false }
+        errno = 0
+        return kill(pid, 0) == 0 || POSIXErrorCode(rawValue: errno) == .EPERM
     }
 
     #if DEBUG
