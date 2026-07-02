@@ -37,9 +37,9 @@ struct GitStatusProvider: Sendable {
         let escapedDir = directory.replacingOccurrences(of: "'", with: "'\\''")
         let cmd = [
             "cd '\(escapedDir)' 2>/dev/null",
-            "\(nonLockingRemoteGitCommand) rev-parse --show-toplevel 2>/dev/null",
+            "\(Self.nonLockingRemoteGitCommand) rev-parse --show-toplevel 2>/dev/null",
             "echo '---GIT_STATUS---'",
-            "\(nonLockingRemoteGitCommand) status --porcelain=v1 -z 2>/dev/null",
+            "\(Self.nonLockingRemoteGitCommand) status --porcelain=v1 -z 2>/dev/null",
         ].joined(separator: " && ")
         guard let output = runSSH(
             command: cmd, destination: destination,
@@ -48,7 +48,7 @@ struct GitStatusProvider: Sendable {
 
         let parts = output.components(separatedBy: "---GIT_STATUS---\n")
         guard parts.count == 2 else { return [:] }
-        let repoRoot = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let repoRoot = parts[0].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         return parseGitStatus(output: parts[1], repoRoot: repoRoot, explorerRoot: directory)
     }
 
@@ -164,7 +164,7 @@ struct GitStatusProvider: Sendable {
 
     private func nonLockingGitEnvironment() -> [String: String] {
         var environment = environment
-        environment[nonLockingGitEnvironmentKey] = nonLockingGitEnvironmentValue
+        environment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
         return environment
     }
 
