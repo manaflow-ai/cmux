@@ -3283,10 +3283,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// effective grid, so a transient RPC drop does not leave the render pinned
     /// to a stale effective grid (the "stuck letterbox" freeze). Bounded and
     /// display-link driven (the existing settle machinery re-fires it); a
-    /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
+    /// confirmed `applyViewSize` resets the counter. Once the cap is hit, the
+    /// stale pending echo is invalidated so it cannot suppress later
+    /// authoritative render-grid placement forever.
     public func retryViewportReport() {
-        guard viewportReportRetries < Self.maxViewportReportRetries,
-              let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
+        guard let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else {
+            abandonPendingViewportEcho()
+            return
+        }
+        guard viewportReportRetries < Self.maxViewportReportRetries else {
+            abandonPendingViewportEcho()
+            return
+        }
         viewportReportRetries += 1
         MobileDebugLog.anchormux(
             "zoom.viewport.retry \(viewportReportRetries)/\(Self.maxViewportReportRetries) "
@@ -3296,6 +3304,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         awaitingViewportEcho = pending
         pendingViewportReport = pending
         viewportReportSettleFrames = 0
+    }
+
+    private func abandonPendingViewportEcho() {
+        let hadPendingEcho = awaitingViewportEcho != nil || pendingViewportReport != nil
+        viewportReportRetries = 0
+        pendingViewportReport = nil
+        viewportReportSettleFrames = 0
+        guard hadPendingEcho else { return }
+        viewportReportID &+= 1
+        awaitingViewportEcho = nil
+        MobileDebugLog.anchormux("zoom.viewport.retry.exhausted latest=\(viewportReportID)")
+        setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
     public func applyViewSize(cols: Int, rows: Int) {
