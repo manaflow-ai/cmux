@@ -367,6 +367,8 @@ extension CmuxSettingsFileStore {
         "terminal.focusedSplitBorderWidth",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
+        "terminal.textBoxDefaultSubmitAction",
+        "terminal.textBoxSubmitActions",
         "terminal.agentHibernation.enabled",
         "terminal.agentHibernation.idleSeconds",
         "terminal.agentHibernation.maxLiveTerminals",

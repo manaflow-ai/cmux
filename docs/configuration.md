@@ -71,12 +71,45 @@ Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from
 
 When a workspace is split into multiple panes (⌘D), cmux outlines the focused pane with an accent-colored border so the active split is unmistakable — useful when several splits show similar content. It complements the unfocused-split dimming (see below): unfocused splits are dimmed, the focused split is outlined. The border only appears while the workspace has more than one pane.
 
+## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
+
+`terminal.showTextBoxOnNewTerminals` opens the TextBox on newly-created terminal sessions without moving keyboard focus into it.
+
+`terminal.focusTextBoxOnNewTerminals` opens the TextBox and focuses it for foreground terminal sessions created from the app UI, such as new terminal workspaces, tabs, and splits. Terminals created through the cmux CLI/control socket do not auto-focus the TextBox, even when this setting is enabled, so background automation does not steal keyboard focus.
+
+## `terminal.textBoxSubmitActions`
+
+Controls what the TextBox submit button does for new terminal sessions. Active agent sessions such as Claude, Codex, OpenCode, and Pi always use plain Text Entry so prompts go into the running agent instead of launching another command.
+
+Press Shift-Tab in the TextBox to cycle the default action. This shortcut is `shortcuts.bindings.cycleTextBoxSubmitAction`; rebind or disable it from Settings > Keyboard Shortcuts or `cmux.json`. Right-click the submit button to pick any configured action or open this documentation.
+
 ```json
 {
   "terminal": {
     "focusedSplitBorder": true,
     "focusedSplitBorderColor": "#3B82F6",
-    "focusedSplitBorderWidth": 2
+    "focusedSplitBorderWidth": 2,
+    "textBoxDefaultSubmitAction": "codex",
+    "textBoxSubmitActions": [
+      {
+        "id": "codex",
+        "title": "Codex --yolo",
+        "kind": "commandTemplate",
+        "commandTemplate": "codex --yolo -- {{prompt}}",
+        "systemImage": "sparkles",
+        "assetName": "AgentIcons/Codex",
+        "backgroundColorHex": "#8FDBFF"
+      },
+      {
+        "id": "custom-router",
+        "title": "Custom Router",
+        "kind": "commandTemplate",
+        "commandTemplate": "agent-router --plan {{prompt}}",
+        "systemImage": "wand.and.stars",
+        "imagePath": "~/Pictures/router.png",
+        "backgroundColorHex": "#3DDC97"
+      }
+    ]
   }
 }
 ```
@@ -86,6 +119,23 @@ When a workspace is split into multiple panes (⌘D), cmux outlines the focused 
 - `focusedSplitBorderWidth`: border stroke width, in points. Default: `2`. Range: `0.5`-`8`.
 
 To dim the unfocused splits instead of (or in addition to) the border, set Ghostty's `unfocused-split-opacity` in your Ghostty config (**Settings > Terminal > Edit Ghostty Config**); for example `unfocused-split-opacity = 0.7`.
+
+Built-in action IDs: `claude`, `codex`, `opencode`, `pi`.
+
+Set `textBoxDefaultSubmitAction` to `text-entry` to force plain Text Entry for new terminals.
+Built-in provider actions shell-quote `{{prompt}}` before pasting the command. Claude may still show its workspace trust prompt before processing the prompt. Built-ins run `claude --dangerously-skip-permissions -- {{prompt}}`, `codex --yolo -- {{prompt}}`, `opencode --prompt {{prompt}}`, and `pi -- {{prompt}}`.
+
+Action fields:
+
+- `id`: stable action ID.
+- `title`: menu label for custom actions.
+- `kind`: `textEntry` or `commandTemplate`.
+- `commandTemplate`: shell command for `commandTemplate`. Include `{{prompt}}` where the prompt should be shell-quoted into the command line.
+- `preservePromptAfterLaunch`: optional boolean for custom launch-only actions. When `true`, cmux submits `commandTemplate` as a provider launch command while keeping the TextBox prompt intact for the active agent session.
+- `systemImage`: fallback SF Symbol name shown on the submit button.
+- `assetName`: optional app asset catalog image name, for example `AgentIcons/Codex`.
+- `imagePath`: optional PNG or image path for the submit button.
+- `backgroundColorHex`: action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states.
 
 ## `automation.workspaceAutoNaming`
 

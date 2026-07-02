@@ -73,6 +73,8 @@ struct TerminalPanelView: View {
         // important signal (and focus is still conveyed by the cursor and the
         // dimmed neighbors), so let the ring win and suppress the focus border.
         let showsUnreadRing = hasUnreadNotification && notificationPaneRingEnabled
+        @Bindable var textBoxState = panel.textBoxState
+
         return VStack(spacing: 0) {
             // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
             // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
@@ -111,6 +113,9 @@ struct TerminalPanelView: View {
                 TextBoxInputContainer(
                     text: $panel.textBoxContent,
                     attachments: $panel.textBoxAttachments,
+                    selectedSubmitActionID: $textBoxState.selectedSubmitActionID,
+                    pendingProviderLaunchAction: $textBoxState.pendingProviderLaunchAction,
+                    pendingProviderLaunchStartedAt: $textBoxState.pendingProviderLaunchStartedAt,
                     surface: panel.surface,
                     terminalBackgroundColor: appearance.backgroundColor,
                     terminalForegroundColor: appearance.foregroundColor,
@@ -119,13 +124,23 @@ struct TerminalPanelView: View {
                         weight: .regular
                     ),
                     maxLines: TerminalTextBoxInputSettings.resolvedMaxLines(textBoxMaxLines),
-                    terminalAgentContext: terminalAgentContext,
+                    terminalAgentContext: effectiveTerminalAgentContext,
+                    shellActivityState: panel.shellActivity.state,
+                    allowsCommandTemplateSubmit: TextBoxInputContainer.allowsCommandTemplateSubmit(
+                        shellActivityState: panel.shellActivity.state
+                    ),
                     onFocusTextBox: {
                         panel.textBoxDidBecomeFocused()
                         onFocus()
                     },
                     onToggleFocus: {
                         _ = panel.focusTextBoxInputOrTerminal()
+                    },
+                    onRecordLaunchCommand: { command in
+                        panel.recordTextBoxLaunchCommand(command)
+                    },
+                    onClearLaunchCommand: {
+                        panel.clearTextBoxLaunchCommand()
                     },
                     onEscape: {
                         panel.handleTextBoxEscape()
@@ -145,6 +160,45 @@ struct TerminalPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
+        }
+    }
+
+    private var effectiveTerminalAgentContext: String {
+        Self.effectiveTerminalAgentContext(
+            terminalAgentContext,
+            pendingLaunchCommand: panel.textBoxState.pendingLaunchCommand
+        )
+    }
+
+    static func effectiveTerminalAgentContext(
+        _ terminalAgentContext: String,
+        pendingLaunchCommand: String?
+    ) -> String {
+        var context = terminalAgentContext
+        appendTextBoxLaunchContext(
+            "textBoxPendingLaunchCommand:",
+            command: pendingLaunchCommand,
+            to: &context
+        )
+        return context
+    }
+
+    private static func appendTextBoxLaunchContext(
+        _ prefix: String,
+        command: String?,
+        to context: inout String
+    ) {
+        guard let command = command?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else { return }
+        let marker = "\(prefix)\(command)"
+        let existingLines = context
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard !existingLines.contains(marker) else { return }
+        if context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            context = marker
+        } else {
+            context += "\n\(marker)"
         }
     }
 }

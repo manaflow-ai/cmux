@@ -599,6 +599,30 @@ final class CmuxSettingsFileStore {
            ) {
             snapshot.managedUserDefaults[TerminalFocusedSplitBorderSettings.colorHexKey] = .nullableString(value)
         }
+
+        if let value = jsonString(section["textBoxDefaultSubmitAction"]) {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty {
+                snapshot.managedUserDefaults[TerminalTextBoxInputSettings.defaultSubmitActionKey] = .string(normalized)
+            } else {
+                logInvalid("terminal.textBoxDefaultSubmitAction", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("textBoxDefaultSubmitAction") {
+            logInvalid("terminal.textBoxDefaultSubmitAction", sourcePath: sourcePath)
+        }
+
+        if section.keys.contains("textBoxSubmitActions") {
+            if let data = try? JSONSerialization.data(
+                withJSONObject: section["textBoxSubmitActions"] as Any,
+                options: [.withoutEscapingSlashes]
+            ),
+               let actions = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data), actions.allSatisfy(\.isValid),
+               let json = String(data: data, encoding: .utf8) {
+                snapshot.managedUserDefaults[TerminalTextBoxInputSettings.submitActionsKey] = .string(json)
+            } else {
+                logInvalid("terminal.textBoxSubmitActions", sourcePath: sourcePath)
+            }
+        }
     }
 
     private func parseMarkdownSection(
