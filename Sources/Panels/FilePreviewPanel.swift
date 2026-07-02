@@ -4437,7 +4437,7 @@ private struct QuickLookPreviewView: NSViewRepresentable {
     }
 }
 
-private struct FilePreviewPointerObserver: NSViewRepresentable {
+struct FilePreviewPointerObserver: NSViewRepresentable {
     let onPointerDown: () -> Void
 
     func makeNSView(context: Context) -> FilePreviewPointerObserverView {
@@ -4451,7 +4451,7 @@ private struct FilePreviewPointerObserver: NSViewRepresentable {
     }
 }
 
-private final class FilePreviewPointerObserverView: NSView {
+final class FilePreviewPointerObserverView: NSView {
     var onPointerDown: (() -> Void)?
     private var eventMonitor: Any?
 

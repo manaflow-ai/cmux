@@ -510,12 +510,16 @@ struct CLICodexHookTimeoutRegressionTests {
         let hookURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
         let json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
         let hooks = try #require(json["hooks"] as? [String: Any])
-        return hooks.values
+        let commands = hooks.values
             .compactMap { $0 as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["command"] as? String }
+        return commands.map { command in
+            guard command.hasPrefix("/") else { return command }
+            return (try? String(contentsOfFile: command, encoding: .utf8)) ?? command
+        }
     }
 
     private func makeExecutableShellFile(at url: URL, lines: [String]) throws {
