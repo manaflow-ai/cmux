@@ -51,6 +51,7 @@ extension AgentLaunchSanitizer {
             "--allowedTools",
             "--allowed-tools",
             "--betas",
+            "--dangerously-load-development-channels",
             "--disallowedTools",
             "--disallowed-tools",
             "--file",
