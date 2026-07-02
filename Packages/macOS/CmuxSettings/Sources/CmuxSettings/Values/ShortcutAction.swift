@@ -25,6 +25,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     /// Labels the window's clickable controls; typing a label clicks it.
     case showWindowHints
     case newTab
+    case newLocalWorkspace
     case newBrowserWorkspace
     case newCloudWorkspace
     case newCloudMachine

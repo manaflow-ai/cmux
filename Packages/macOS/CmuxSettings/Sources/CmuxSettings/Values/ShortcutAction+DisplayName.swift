@@ -20,6 +20,8 @@ extension ShortcutAction {
         case .showWindowHints:
             return String(localized: "shortcut.showWindowHints.label", defaultValue: "Click by Hint")
         case .newTab: return "New Workspace"
+        case .newLocalWorkspace:
+            return String(localized: "shortcut.newLocalWorkspace.label", defaultValue: "New Local Workspace")
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
         case .newCloudWorkspace:

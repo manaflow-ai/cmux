@@ -160,6 +160,15 @@ export const shortcutCategories: ShortcutCategory[] = [
         },
       },
       {
+        id: "newLocalWorkspace",
+        combos: [["⌃", "⌘", "N"]],
+        description: { en: "New local workspace", ja: "新規ローカルワークスペース" },
+        note: {
+          en: "opens a local workspace while a remote tmux mirror workspace is active, where New Workspace would start a session on that workspace's host instead",
+          ja: "リモート tmux ミラーワークスペースがアクティブなときでも、ローカルワークスペースを開きます（通常の新規ワークスペースはそのワークスペースのホスト上でセッションを開始します）",
+        },
+      },
+      {
         id: "newBrowserWorkspace",
         combos: [["⌥", "⌘", "N"]],
         description: { en: "New browser workspace", ja: "新規ブラウザワークスペース" },

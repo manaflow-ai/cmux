@@ -8941,7 +8941,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // plain New Workspace behavior; the browser variant keeps its own
         // fixed semantics and skips it.
         if initialSurface == .terminal,
+<<<<<<< HEAD
            !skipConfiguredAction,
+=======
+           !forceLocal,
+>>>>>>> 0b5bdc386cc (remote-tmux: bind New Local Workspace to Control+Cmd+N)
            let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,
@@ -15680,6 +15684,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog("shortcut.action name=newBrowserWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
             performNewBrowserWorkspaceAction(event: event, debugSource: "shortcut.optCmdN")
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .newLocalWorkspace) {
+#if DEBUG
+            cmuxDebugLog("shortcut.action name=newLocalWorkspace \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            performNewLocalWorkspaceAction(event: event, debugSource: "shortcut.ctrlCmdN")
             return true
         }
 
