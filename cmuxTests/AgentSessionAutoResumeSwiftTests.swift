@@ -101,6 +101,64 @@ struct AgentSessionAutoResumeSwiftTests {
         }
     }
 
+    /// Regression for #5802: a live agent that is idle at its own prompt reports
+    /// the shell as `promptIdle`, but a scoped live PID still means cmux should
+    /// persist it as running-at-quit so login restore injects the saved resume
+    /// command instead of launching a fresh agent.
+    @MainActor
+    @Test func livePromptIdleAgentSnapshotAutoResumesAfterLoginRestore() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let source = Workspace()
+            let sourcePanelId = try #require(source.focusedPanelId)
+            let sessionId = "codex-live-idle-autoresume-session"
+            let cwd = "/tmp/cmux-live-idle-repo"
+            let livePID = 58_020
+            let index = try makeLiveCodexRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: sessionId,
+                cwd: cwd,
+                pid: livePID
+            )
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "{ cd -- '\(cwd)' 2>/dev/null || [ ! -d '\(cwd)' ]; } && 'codex' 'resume' '\(sessionId)'",
+                    cwd: cwd,
+                    checkpointId: sessionId,
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 1_777_777_777
+                ),
+            ])
+
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .promptIdle)
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: index,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+            let terminalSnapshot = try #require(snapshot.panels.first?.terminal)
+
+            #expect(terminalSnapshot.agent?.sessionId == sessionId)
+            #expect(terminalSnapshot.wasAgentRunning == true)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try #require(restored.focusedPanelId)
+            let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
+
+            try assertAgentAutoResumeUsesStartupCommand(
+                restoredPanel,
+                scriptContains: ["'resume'", sessionId]
+            )
+            #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning)
+        }
+    }
+
     /// Regression for #6617: after Cmd+Q/restore of a workspace whose focused
     /// terminal is running an auto-resumed agent in a project directory, the
     /// resumed shell spawns in its default directory and shell integration
@@ -554,6 +612,65 @@ struct AgentSessionAutoResumeSwiftTests {
             options: [.prettyPrinted, .sortedKeys]
         )
         try data.write(to: stateDir.appendingPathComponent("claude-hook-sessions.json"))
+    }
+
+    private func makeLiveCodexRestorableAgentIndex(
+        workspaceId: UUID,
+        panelId: UUID,
+        sessionId: String,
+        cwd: String,
+        pid: Int
+    ) throws -> RestorableAgentSessionIndex {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-live-codex-index-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let jsonObject: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": cwd,
+                    "pid": pid,
+                    "agentLifecycle": "idle",
+                    "updatedAt": 1_777_777_777,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex"],
+                        "workingDirectory": cwd,
+                        "environment": ["CODEX_HOME": "/tmp/codex"],
+                        "capturedAt": 1_777_777_777,
+                        "source": "process",
+                    ],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: storeURL, options: .atomic)
+
+        return RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { requestedPID in
+                requestedPID == pid
+                    ? CmuxTopProcessArguments(
+                        arguments: ["/usr/local/bin/codex"],
+                        environment: [
+                            "CMUX_WORKSPACE_ID": workspaceId.uuidString,
+                            "CMUX_SURFACE_ID": panelId.uuidString,
+                            "CMUX_AGENT_LAUNCH_KIND": RestorableAgentKind.codex.rawValue,
+                        ]
+                    )
+                    : nil
+            }
+        )
     }
 
     private func claudeHookRecord(

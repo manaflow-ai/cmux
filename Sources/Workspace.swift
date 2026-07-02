@@ -71,10 +71,15 @@ extension Workspace {
         let panelSnapshots = allPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
-                sessionPanelSnapshot(
+                let indexedRestorableAgent = restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId)
+                return sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId),
+                    restorableAgent: indexedRestorableAgent,
+                    restorableAgentHasLiveProcess: restorableAgentIndex?.hasLiveProcess(
+                        workspaceId: id,
+                        panelId: panelId
+                    ) ?? false,
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -358,6 +363,7 @@ extension Workspace {
         panelId: UUID,
         includeScrollback: Bool,
         restorableAgent: SessionRestorableAgentSnapshot?,
+        restorableAgentHasLiveProcess: Bool = false,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
@@ -464,6 +470,11 @@ extension Workspace {
                 : nil
             let agentWasRunning: Bool? = {
                 guard effectiveRestorableAgent != nil else { return nil }
+                // A live idle agent reports an idle shell prompt; trust the hook
+                // index's scoped live-process evidence before the prompt state.
+                if restorableAgentHasLiveProcess {
+                    return true
+                }
                 switch panelShellActivityStates[panelId] {
                 case .some(.commandRunning):
                     return true
@@ -695,6 +706,7 @@ extension Workspace {
             panelId: panelId,
             includeScrollback: true,
             restorableAgent: restorableAgent,
+            restorableAgentHasLiveProcess: agentIndex.hasLiveProcess(workspaceId: id, panelId: panelId),
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
