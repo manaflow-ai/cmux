@@ -6958,9 +6958,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
-        // Tell the Mac this device is no longer viewing the surface so it stops
-        // pinning the shared grid to our viewport and clears the macOS border.
+        // Tell the Mac this device is no longer viewing the surface so it stops pinning the shared grid.
         clearTerminalViewport(surfaceID: surfaceID)
+        viewportReportGenerationsBySurfaceID.removeValue(forKey: surfaceID)
     }
 
     /// The output byte stream for a terminal surface.
