@@ -2970,7 +2970,8 @@ private func rpcTerminalReplayFrame(
     seq: UInt64,
     rawText: String,
     snapshotText: String? = nil,
-    renderGridText: String? = nil
+    renderGridText: String? = nil,
+    renderGridStyled: Bool = false
 ) throws -> Data {
     var result: [String: Any] = [
         "workspace_id": "live-workspace",
@@ -2985,13 +2986,17 @@ private func rpcTerminalReplayFrame(
         result["snapshot_data_b64"] = Data(snapshotText.utf8).base64EncodedString()
     }
     if let renderGridText {
-        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
-            surfaceID: "live-terminal",
-            stateSeq: seq,
-            columns: 16,
-            rows: 4,
-            text: renderGridText
-        )
+        let frame = if renderGridStyled {
+            try terminalRenderGridStyledFrame(seq: seq, text: renderGridText)
+        } else {
+            try MobileTerminalRenderGridFrame.fromPlainRows(
+                surfaceID: "live-terminal",
+                stateSeq: seq,
+                columns: 16,
+                rows: 4,
+                text: renderGridText
+            )
+        }
         result["render_grid"] = try frame.jsonObject()
     }
     return try rpcResultFrame(
@@ -3474,6 +3479,7 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
 
 private actor TerminalRenderGridEventRouter: RequestAwareTransportRouter {
     private var requests: [RecordedRPCRequest] = []
+    private var replayRequestCount = 0
 
     func record(_ request: RecordedRPCRequest) {
         requests.append(request)
@@ -3496,14 +3502,29 @@ private actor TerminalRenderGridEventRouter: RequestAwareTransportRouter {
         case "mobile.events.subscribe":
             return try rpcResultFrame(result: ["stream_id": "events"])
         case "mobile.terminal.replay":
-            return try combinedFrames([
-                rpcTerminalReplayFrame(
-                    seq: 1,
-                    rawText: "unused-tail",
-                    renderGridText: "initial"
-                ),
-                terminalRenderGridEventFrame(seq: 2, text: "live", styled: true),
-            ])
+            replayRequestCount += 1
+            if replayRequestCount == 1 {
+                return try combinedFrames([
+                    rpcTerminalReplayFrame(
+                        seq: 1,
+                        rawText: "unused-tail",
+                        renderGridText: "initial"
+                    ),
+                    terminalRenderGridEventFrame(seq: 2, text: "live", styled: true),
+                ])
+            }
+            // The live event races the cold-attach replay barrier: when it
+            // lands inside the barrier window it is dropped and recovered by
+            // the follow-up catch-up replay instead. An honest host serves
+            // its LATEST grid on that follow-up, so this router must too —
+            // re-serving the stale seq-1 base would model a host that never
+            // converges.
+            return try rpcTerminalReplayFrame(
+                seq: 2,
+                rawText: "unused-tail",
+                renderGridText: "live",
+                renderGridStyled: true
+            )
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
