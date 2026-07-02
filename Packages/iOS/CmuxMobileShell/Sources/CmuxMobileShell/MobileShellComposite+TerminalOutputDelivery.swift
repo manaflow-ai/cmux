@@ -69,6 +69,10 @@ extension MobileShellComposite {
             )
             return
         }
+        // Frames behind an outstanding typing ACK (or partial frames while a
+        // dropped-frame replay is pending) must not paint an older cursor
+        // frame or establish a baseline from pre-input content.
+        guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else { return }
         let hasDeliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] != nil
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
         // The alternate baseline flag is maintained by DELIVERED frames only,
@@ -389,6 +393,7 @@ extension MobileShellComposite {
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)

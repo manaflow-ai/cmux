@@ -12,7 +12,7 @@
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8032	Sources/Panels/BrowserPanelView.swift
 8016	CLI/cmux_open.swift
-7628	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+7720	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7404	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
@@ -160,6 +160,7 @@
 667	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceListView.swift
 664	Sources/CmuxTopSnapshot.swift
 663	Sources/PortScanner.swift
+660	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridInputCatchUpTests.swift
 655	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator.swift
 655	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 653	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Import/Detection/BrowserInstalledBrowserDetector.swift
@@ -213,12 +214,13 @@
 547	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
 546	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 544	cmuxUITests/DisplayResolutionRegressionUITests.swift
+540	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGridReplay.swift
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
+538	Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/MobileTerminalRenderGridTests.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 535	Sources/App/WorkspaceRuntimeSettings.swift
-534	Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/MobileTerminalRenderGridTests.swift
 532	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 530	Sources/BrowserPaneDropTargetView.swift
 530	Sources/TerminalController+ControlSurfaceContext3.swift
@@ -243,7 +245,6 @@
 514	cmuxUITests/UpdatePillUITests.swift
 513	Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Transcript/ChatTranscriptTableView.swift
 509	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
-507	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGridReplay.swift
 507	Sources/TerminalControllerTopSupport.swift
 506	Sources/App/MainWindowVisibilityController.swift
 504	Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/UserDefaultsSettingsStoreTests.swift
