@@ -117,6 +117,13 @@ class AppServerSession {
     // Apps whose CURRENT element-index table was actually returned to the
     // agent by computer_state. Only this set authorizes element-index
     // actions — internal priming and screenshot-only captures must not.
+    // Deliberately NOT consumed per input action: the engine keeps its table
+    // until the next capture, and Codex Computer Use's native loop issues
+    // several element actions off one snapshot, re-perceiving when the model
+    // decides. This guard only closes the cases where the agent's view and
+    // the engine's table can DIVERGE (restart, hidden refresh) — UI drift
+    // after the agent's own action exists identically in native Codex
+    // Computer Use and is handled by the agent's re-capture loop.
     this.snapshotApps = new Set();
     this.startPromise = null;
     this.exitError = null;
@@ -339,8 +346,7 @@ function isColdStartError(error) {
 // retry call and queues it until that server reports ready, so the retry is
 // driven by the engine's own readiness signal. Its startupStatus is appended
 // to persistent failures for diagnosability.
-async function callReadOnlyTool(tool, args) {
-  const s = await session();
+async function callEngineReadOnly(s, tool, args) {
   try {
     return await s.callTool(tool, args);
   } catch (error) {
@@ -357,6 +363,11 @@ async function callReadOnlyTool(tool, args) {
       throw retryError;
     }
   }
+}
+
+async function callReadOnlyTool(tool, args) {
+  const s = await session();
+  return callEngineReadOnly(s, tool, args);
 }
 
 // Input actions require the app to be bound in the current app-server thread.
@@ -377,7 +388,9 @@ async function callInputTool(tool, args) {
       );
     }
     if (!s.boundApps.has(app)) {
-      const primed = await s.callTool("get_app_state", { app });
+      // Priming is read-only, so it gets the cold-start retry; the input
+      // action itself below is still never auto-retried.
+      const primed = await callEngineReadOnly(s, "get_app_state", { app });
       if (primed?.isError) {
         return primed;
       }

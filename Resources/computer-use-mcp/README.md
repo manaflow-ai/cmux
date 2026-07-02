@@ -86,8 +86,9 @@ on-screen window", "launch or focus <app>") before touching
 - `CMUX_CU_CODEX` — path to the codex binary. Default: `codex` on PATH
   (skipping cmux's own per-surface shims), then
   `/Applications/Codex.app/Contents/Resources/codex`. When set it decides
-  alone — no fallback — and the cmux-claude-wrapper availability gate honors
-  it the same way.
+  alone — no fallback. The cmux-claude-wrapper resolves with the same order
+  and pins its result into the injected config as `CMUX_CU_CODEX`, so the
+  availability gate and the spawned engine always agree on one binary.
 - `CMUX_CU_TIMEOUT_MS` — per-command timeout (default `180000`).
 - `CMUX_CU_MAX_TREE` — max AX-tree characters returned by `computer_state`
   (default `60000`).

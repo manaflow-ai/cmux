@@ -746,18 +746,19 @@ cmux_computer_use_json_escape() {
     printf '%s' "$value"
 }
 
-# A real codex install must exist for the computer-use engine. An explicit
-# CMUX_CU_CODEX override decides alone (the MCP server resolves it the same
-# way and does not fall back). cmux's own per-surface `codex` shim is on PATH
-# in every cmux terminal, so a plain `command -v codex` would always succeed;
-# skip cmux shim dirs like the shims themselves do when they fall back to the
-# real binary.
-cmux_computer_use_codex_available() {
+# Resolve the codex binary for the computer-use engine, mirroring the MCP
+# server's own order (CMUX_CU_CODEX decides alone, then PATH, then Codex.app).
+# The resolved path is pinned into the injected config as CMUX_CU_CODEX so the
+# gate and the server always agree on one binary. cmux's own per-surface
+# `codex` shim is on PATH in every cmux terminal, so a plain `command -v
+# codex` would always succeed; skip cmux shim dirs like the shims themselves
+# do when they fall back to the real binary.
+cmux_computer_use_resolve_codex() {
     if [[ -n "${CMUX_CU_CODEX:-}" ]]; then
-        [[ -x "$CMUX_CU_CODEX" ]]
-        return $?
+        [[ -x "$CMUX_CU_CODEX" ]] || return 1
+        printf '%s' "$CMUX_CU_CODEX"
+        return 0
     fi
-    [[ -x "/Applications/Codex.app/Contents/Resources/codex" ]] && return 0
     local dir
     local IFS=:
     for dir in $PATH; do
@@ -766,8 +767,15 @@ cmux_computer_use_codex_available() {
                 continue
                 ;;
         esac
-        [[ -n "$dir" && -x "$dir/codex" ]] && return 0
+        if [[ -n "$dir" && -x "$dir/codex" ]]; then
+            printf '%s' "$dir/codex"
+            return 0
+        fi
     done
+    if [[ -x "/Applications/Codex.app/Contents/Resources/codex" ]]; then
+        printf '%s' "/Applications/Codex.app/Contents/Resources/codex"
+        return 0
+    fi
     return 1
 }
 
@@ -785,15 +793,17 @@ cmux_computer_use_mcp_config() {
     done
     command -v node >/dev/null 2>&1 || return 1
     [[ -f "${CODEX_HOME:-$HOME/.codex}/auth.json" ]] || return 1
-    cmux_computer_use_codex_available || return 1
+    local codex_binary
+    codex_binary="$(cmux_computer_use_resolve_codex)" || return 1
     local self_dir candidate
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
     for candidate in \
         "$self_dir/../cmux-computer-use-mcp.mjs" \
         "$self_dir/../computer-use-mcp/cmux-computer-use-mcp.mjs"; do
         if [[ -f "$candidate" ]]; then
-            printf '{"mcpServers":{"cmux-computer-use":{"command":"node","args":["%s"]}}}' \
-                "$(cmux_computer_use_json_escape "$candidate")"
+            printf '{"mcpServers":{"cmux-computer-use":{"command":"node","args":["%s"],"env":{"CMUX_CU_CODEX":"%s"}}}}' \
+                "$(cmux_computer_use_json_escape "$candidate")" \
+                "$(cmux_computer_use_json_escape "$codex_binary")"
             return 0
         fi
     done

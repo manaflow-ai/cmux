@@ -983,6 +983,14 @@ def test_live_socket_attaches_computer_use_mcp_when_codex_machinery_present(fail
             f"computer use inject: expected the sandbox server script, got {config}",
             failures,
         )
+        # The wrapper pins the codex binary it resolved so the server cannot
+        # end up spawning a different one.
+        pinned = server.get("env", {}).get("CMUX_CU_CODEX", "")
+        expect(
+            pinned.endswith("/codex-bin/codex"),
+            f"computer use inject: expected the resolved sandbox codex pinned via env, got {config}",
+            failures,
+        )
     inject_index = injected_mcp_config_index(real_argv)
     expect(
         inject_index is not None and inject_index < real_argv.index("hello"),
@@ -1071,11 +1079,19 @@ def test_computer_use_mcp_honors_codex_override(failures: list[str]) -> None:
         setup_sandbox=computer_use_sandbox(codex_on_path=False, codex_override="<sandbox-codex>"),
     )
     expect(code == 0, f"computer use override: wrapper exited {code}: {stderr}", failures)
+    config = extract_injected_mcp_config(real_argv)
     expect(
-        injected_mcp_config_index(real_argv) is not None,
+        config is not None,
         f"computer use override: expected injection via CMUX_CU_CODEX, got {real_argv}",
         failures,
     )
+    if config is not None:
+        pinned = config.get("mcpServers", {}).get("cmux-computer-use", {}).get("env", {}).get("CMUX_CU_CODEX", "")
+        expect(
+            pinned.endswith("/codex-override/codex"),
+            f"computer use override: expected the override binary pinned via env, got {config}",
+            failures,
+        )
 
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
