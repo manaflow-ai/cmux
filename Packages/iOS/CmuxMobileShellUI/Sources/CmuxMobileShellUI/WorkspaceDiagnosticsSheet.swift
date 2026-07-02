@@ -97,9 +97,14 @@ struct WorkspaceDiagnosticsSheet: View {
         } else {
             events = []
         }
+        // The `.task` driving loadReport() cancels on sheet dismissal; bail before the
+        // off-main OSLog read and report assembly so their detached work is not started
+        // for a report nothing will consume.
+        if Task.isCancelled { return "" }
         let osLogEntries = await Task.detached(priority: .utility) {
             Self.recentOSLogEntries(generatedAt: generatedAt)
         }.value
+        if Task.isCancelled { return "" }
         let app = MobileDiagnosticsAppInfo.current()
         let auth = MobileDiagnosticsAuthState(
             isSignedIn: authManager.isAuthenticated,
