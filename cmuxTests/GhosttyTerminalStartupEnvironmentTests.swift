@@ -707,6 +707,36 @@ struct GhosttyTerminalStartupEnvironmentTests {
         expectEqual(charmap, "UTF-8")
     }
 
+    @Test
+    func testIsPOSIXCompatibleLocaleNameAcceptsValidPOSIXLocales() {
+        for value in [
+            "en_US.UTF-8", "en_US", "ja_JP.UTF-8", "de_DE.UTF-8", "zh_CN.UTF-8",
+            "en_US.ISO8859-1", "en_US.US-ASCII", "fr_FR.UTF-8@euro",
+            "C", "C.UTF-8", "POSIX", "",
+        ] {
+            expectTrue(
+                TerminalSurface.isPOSIXCompatibleLocaleName(value),
+                "expected \(value) to be POSIX-compatible"
+            )
+        }
+    }
+
+    @Test
+    func testIsPOSIXCompatibleLocaleNameRejectsCLDRIdentifiers() {
+        for value in [
+            "en-US-u-ca-gregory-co-standard-cu-usd-fw-sun-hc-h12-ms-ussystem-tz-usphx",
+            "en-US-u-ca-gregory-cu-usd-fw-sun-ms-ussystem",
+            "en_US@calendar=gregorian;collation=standard;currency=USD",
+            "en-US",
+            "garbage with spaces",
+        ] {
+            expectFalse(
+                TerminalSurface.isPOSIXCompatibleLocaleName(value),
+                "expected \(value) to be rejected as non-POSIX"
+            )
+        }
+    }
+
     private static func spawnedShellLocaleCharmap(environment: [String: String]) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
