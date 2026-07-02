@@ -870,6 +870,8 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawMountReplay, "mounting a sink arms the cold-attach replay")
+    let mountReplayCompleted = try await pollUntil { await router.replayResponsesServed() >= 1 }
+    #expect(mountReplayCompleted, "the cold replay response must complete before scripting the repair replay")
     let transport = try #require(box.get())
 
     await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 5, text: "stale-grid"))
