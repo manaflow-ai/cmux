@@ -26,6 +26,16 @@ extension MobileShellComposite {
         (terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0) >= Self.maxTerminalReplayFailureRetries
     }
 
+    func requestTerminalReplayAfterDroppedRenderGrid(surfaceID: String, source: String) {
+        guard !terminalReplayFailureRetryExhausted(surfaceID: surfaceID) else {
+            MobileDebugLog.anchormux(
+                "CMUX_REPLAY retry_exhausted_after_drop source=\(source) surface=\(surfaceID)"
+            )
+            return
+        }
+        requestTerminalReplay(surfaceID: surfaceID)
+    }
+
     private func prepareTerminalReplayFailureRetry(surfaceID: String) -> Bool {
         guard hasTerminalOutputSink(surfaceID: surfaceID) else { return false }
         let retryCount = terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0

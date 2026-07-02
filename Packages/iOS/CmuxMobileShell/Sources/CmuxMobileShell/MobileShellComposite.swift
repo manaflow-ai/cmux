@@ -6639,7 +6639,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         MobileDebugLog.anchormux(
                             "sync.input_seq_replay_after_drop surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)"
                         )
-                        requestTerminalReplay(surfaceID: surfaceID)
+                        requestTerminalReplayAfterDroppedRenderGrid(surfaceID: surfaceID, source: "input_ack")
                     }
                     return
                 }
@@ -6960,7 +6960,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             MobileDebugLog.anchormux("sync.render_grid_wait_replay source=\(source) surface=\(renderGrid.surfaceID) frame=\(renderGrid.stateSeq)")
             if source == "event" {
-                requestTerminalReplay(surfaceID: renderGrid.surfaceID)
+                requestTerminalReplayAfterDroppedRenderGrid(surfaceID: renderGrid.surfaceID, source: source)
             }
             return true
         }
