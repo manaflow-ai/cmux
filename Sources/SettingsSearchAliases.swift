@@ -92,6 +92,7 @@ enum SettingsSearchAliasIndex {
         ),
         "app:rename-selects-name": localized("settings.search.alias.setting.app.rename-selects-name", defaultValue: "app.renameSelectsExistingName rename select all existing title command palette workspace name"),
         "app:palette-search-all": localized("settings.search.alias.setting.app.palette-search-all", defaultValue: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
+        "app:find-restores-last-search": localized("settings.search.alias.setting.app.find-restores-last-search", defaultValue: "app.findRestoresLastSearch find restore last search previous cmd-f clear empty needle terminal browser"),
         "app:canvas-pane-gap": localized("settings.search.alias.setting.app.canvas-pane-gap", defaultValue: "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         "app:canvas-snapping": localized("settings.search.alias.setting.app.canvas-snapping", defaultValue: "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
         "terminal:scrollbar": localized("settings.search.alias.setting.terminal.scrollbar", defaultValue: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),

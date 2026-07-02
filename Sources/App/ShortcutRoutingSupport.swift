@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxCommandPalette
+import CmuxSettings
 import Foundation
 import CmuxTerminal
 
@@ -524,6 +525,27 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         literalChars: literalChars
     ) != nil
 }
+/// What a newly opened find bar starts with. Shared by the terminal and
+/// browser find entrypoints so Cmd+F recovery stays consistent across
+/// surfaces and honors `app.findRestoresLastSearch`.
+struct FindSearchRecovery: Equatable {
+    var needle: String
+    var selectAll: Bool
+}
+
+func recoveredFindSearch(
+    startsNewSearchSession: Bool,
+    lastNeedle: String,
+    defaults: UserDefaults = .standard
+) -> FindSearchRecovery {
+    let key = AppCatalogSection().findRestoresLastSearch
+    let restoresLastSearch = defaults.object(forKey: key.userDefaultsKey) as? Bool ?? key.defaultValue
+    guard startsNewSearchSession, restoresLastSearch, !lastNeedle.isEmpty else {
+        return FindSearchRecovery(needle: "", selectAll: false)
+    }
+    return FindSearchRecovery(needle: lastNeedle, selectAll: true)
+}
+
 // Main-actor isolated: TerminalSurface.searchState carries the legacy
 // main-thread-only contract as compiler-enforced isolation after the
 // CmuxTerminal lift; both callers (TabManager, overlay tests) are @MainActor.

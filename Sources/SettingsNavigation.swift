@@ -369,6 +369,7 @@ enum SettingsSearchIndex {
         ),
         setting(.app, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
+        setting(.app, "find-restores-last-search", String(localized: "settings.app.findRestoresLastSearch", defaultValue: "Find Restores Last Search"), "cmd f find search restore previous clear empty terminal browser"),
         setting(.app, "canvas-pane-gap", String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"), "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         setting(.app, "canvas-snapping", String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"), "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),

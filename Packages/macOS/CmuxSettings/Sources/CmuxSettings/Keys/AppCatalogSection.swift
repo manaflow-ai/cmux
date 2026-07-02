@@ -159,6 +159,12 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "commandPalette.switcherSearchAllSurfaces"
     )
 
+    public let findRestoresLastSearch = DefaultsKey<Bool>(
+        id: "app.findRestoresLastSearch",
+        defaultValue: true,
+        userDefaultsKey: "find.restoresLastSearch"
+    )
+
     public let fileDropDefaultBehavior = DefaultsKey<FileDropDefaultBehavior>(
         id: "app.fileDropDefaultBehavior",
         defaultValue: .text,

@@ -7417,9 +7417,9 @@ extension BrowserPanel {
         clearBrowserFocusMode(reason: "startFind")
         preferredFocusIntent = .findField
         let created = searchState == nil
-        let recoveredNeedle = created ? lastSearchNeedle : ""
-        if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
-        let shouldSelectAll = created && !recoveredNeedle.isEmpty
+        let recovery = recoveredFindSearch(startsNewSearchSession: created, lastNeedle: lastSearchNeedle)
+        if created { searchState = BrowserSearchState(needle: recovery.needle) }
+        let shouldSelectAll = recovery.selectAll
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)

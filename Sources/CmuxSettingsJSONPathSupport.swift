@@ -131,6 +131,10 @@ enum AppSettingsFileMapping {
             jsonKey: "commandPaletteSearchesAllSurfaces",
             defaultsKey: app.commandPaletteSearchesAllSurfaces.userDefaultsKey
         ),
+        .init(
+            jsonKey: "findRestoresLastSearch",
+            defaultsKey: app.findRestoresLastSearch.userDefaultsKey
+        ),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
@@ -362,6 +366,7 @@ extension CmuxSettingsFileStore {
         "app.hideTabCloseButton",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
+        "app.findRestoresLastSearch",
         "workspaceGroups.newWorkspacePlacement",
         "terminal.showScrollBar",
         "terminal.scrollSpeed",
