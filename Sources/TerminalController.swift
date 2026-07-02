@@ -6216,21 +6216,30 @@ class TerminalController {
         }
 
         var basePayload: [String: Any]?
+        var resolutionError: V2CallResult?
         v2MainSync {
             let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
-            if resolvedContext.error != nil { return }
+            if let error = resolvedContext.error {
+                resolutionError = error
+                return
+            }
             guard let context = resolvedContext.context,
                   context.surfaceId == surfaceId else { return }
             context.browserPanel.navigateSmart(url)
-            let windowId = v2ResolveWindowId(tabManager: tabManager)
-            basePayload = [
-                "workspace_id": context.workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: context.workspaceId),
-                "surface_id": context.surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: context.surfaceId),
-                "window_id": v2OrNull(windowId?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: windowId)
-            ]
+            if AppDelegate.shared?.tabManagerForWindowDockOwner(context.workspaceId) != nil {
+                basePayload = v2WindowDockBrowserActionPayload(context)
+            } else {
+                basePayload = v2BrowserActionPayload(
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    tabManager: tabManager
+                )
+            }
+        }
+        // Preserve the resolver's specific error (mirrors v2BrowserWithPanelContext)
+        // instead of flattening every resolution failure to a generic not_found.
+        if let resolutionError {
+            return resolutionError
         }
         guard var payload = basePayload else {
             return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
@@ -7614,15 +7623,15 @@ class TerminalController {
             default:
                 break
             }
-            let windowId = v2ResolveWindowId(tabManager: tabManager)
-            basePayload = [
-                "workspace_id": context.workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: context.workspaceId),
-                "surface_id": context.surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: context.surfaceId),
-                "window_id": v2OrNull(windowId?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: windowId)
-            ]
+            if AppDelegate.shared?.tabManagerForWindowDockOwner(context.workspaceId) != nil {
+                basePayload = v2WindowDockBrowserActionPayload(context)
+            } else {
+                basePayload = v2BrowserActionPayload(
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    tabManager: tabManager
+                )
+            }
         }
         if let setupError {
             return setupError
