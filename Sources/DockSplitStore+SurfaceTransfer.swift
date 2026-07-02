@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
 import CmuxTerminal
 import CmuxTerminalCore
 import Darwin
@@ -34,16 +35,24 @@ extension DockSplitStore {
 
     static func dockResumeBinding(
         preservedBinding: SurfaceResumeBindingSnapshot?,
+        preservedSessionDirectory: String?,
         restoredResumeSessionWorkingDirectory: String?,
         detachedDirectoryWasReadFromLiveForegroundProcess: Bool,
         agentProvenExited: Bool
     ) -> SurfaceResumeBindingSnapshot? {
         guard !agentProvenExited, let preservedBinding else { return nil }
         guard detachedDirectoryWasReadFromLiveForegroundProcess,
+              let preservedSessionDirectory,
               let restoredResumeSessionWorkingDirectory else {
             return preservedBinding
         }
-        return preservedBinding.retargetingWorkingDirectory(restoredResumeSessionWorkingDirectory)
+        let resolvedWorkingDirectory = AgentResumeWorkingDirectory().resolve(
+            kind: preservedBinding.kind ?? "",
+            runtimeCwd: restoredResumeSessionWorkingDirectory,
+            launchWorkingDirectory: preservedSessionDirectory
+        )
+        guard resolvedWorkingDirectory != preservedBinding.cwd else { return preservedBinding }
+        return preservedBinding.retargetingWorkingDirectory(resolvedWorkingDirectory)
     }
 
     private static func dockAgentPIDHasExited(_ pid: pid_t) -> Bool {
@@ -118,6 +127,7 @@ extension DockSplitStore {
         )
         let resumeBinding = Self.dockResumeBinding(
             preservedBinding: preservedTransfer?.resumeBinding,
+            preservedSessionDirectory: preservedTransfer?.restoredResumeSessionWorkingDirectory,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
             agentProvenExited: agentProvenExited

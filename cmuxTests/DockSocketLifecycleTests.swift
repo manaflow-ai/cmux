@@ -966,17 +966,35 @@ struct DockSocketLifecycleTests {
         ) == nil)
 
         let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
             command: "{ cd -- '\(sessionDirectory)' 2>/dev/null || [ ! -d '\(sessionDirectory)' ]; } && 'codex' 'resume' 'abc'",
             cwd: sessionDirectory,
             source: "agent-hook"
         )
         let retargetedBinding = DockSplitStore.dockResumeBinding(
             preservedBinding: binding,
+            preservedSessionDirectory: sessionDirectory,
             restoredResumeSessionWorkingDirectory: liveDirectory,
             detachedDirectoryWasReadFromLiveForegroundProcess: true,
             agentProvenExited: false
         )
         #expect(retargetedBinding?.cwd == liveDirectory)
         #expect(retargetedBinding?.command.contains(liveDirectory) == true)
+
+        let claudeBinding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "{ cd -- '\(sessionDirectory)' 2>/dev/null || [ ! -d '\(sessionDirectory)' ]; } && 'claude' '--resume' 'abc'",
+            cwd: sessionDirectory,
+            source: "agent-hook"
+        )
+        let preservedClaudeBinding = DockSplitStore.dockResumeBinding(
+            preservedBinding: claudeBinding,
+            preservedSessionDirectory: sessionDirectory,
+            restoredResumeSessionWorkingDirectory: liveDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: true,
+            agentProvenExited: false
+        )
+        #expect(preservedClaudeBinding?.cwd == sessionDirectory)
+        #expect(preservedClaudeBinding?.command.contains(liveDirectory) == false)
     }
 }
