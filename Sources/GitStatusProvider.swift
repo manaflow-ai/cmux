@@ -9,7 +9,7 @@ enum GitFileStatus: Equatable {
 struct GitStatusProvider: Sendable {
     private static let nonLockingGitEnvironmentKey = "GIT_OPTIONAL_LOCKS"
     private static let nonLockingGitEnvironmentValue = "0"
-    private static let nonLockingRemoteGitCommand = "\(nonLockingGitEnvironmentKey)=\(nonLockingGitEnvironmentValue) git"
+    private static let nonLockingRemoteGitCommand = "env \(nonLockingGitEnvironmentKey)=\(nonLockingGitEnvironmentValue) git"
 
     private let gitExecutableURL: URL
     private let sshExecutableURL: URL

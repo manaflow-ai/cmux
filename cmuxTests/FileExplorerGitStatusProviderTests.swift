@@ -105,13 +105,6 @@ struct FileExplorerGitStatusProviderTests {
         try process.run()
         process.waitUntilExit()
 
-        #expect(process.terminationStatus == 0, "git \(arguments.joined(separator: " ")) failed")
-        if process.terminationStatus != 0 {
-            throw GitSetupFailure(arguments: arguments)
-        }
-    }
-
-    private struct GitSetupFailure: Error {
-        let arguments: [String]
+        try #require(process.terminationStatus == 0, "git \(arguments.joined(separator: " ")) failed")
     }
 }
