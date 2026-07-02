@@ -53,22 +53,12 @@ public struct CustomToolbarAction: Codable, Equatable, Sendable, Identifiable {
     /// For ``ToolbarActionPayload/text(_:)`` newlines are normalized to carriage
     /// returns, matching the terminal input pipeline's Return handling.
     public var output: Data? {
-        switch payload {
-        case let .text(value):
-            let normalized = value.replacingOccurrences(of: "\n", with: "\r")
-            guard !normalized.isEmpty else { return nil }
-            return Data(normalized.utf8)
-        case let .keyCombo(modifiers, key):
-            return TerminalKeyEncoder.encode(specialKey: key, modifiers: modifiers)
-        case .menu:
-            return nil
-        }
+        payload.output
     }
 
     /// Child rows when this action opens a dropdown menu.
     public var menuItems: [ToolbarMenuItem] {
-        if case let .menu(items) = payload { return items }
-        return []
+        payload.menuItems
     }
 
     /// Whether this action opens a dropdown menu instead of sending bytes
