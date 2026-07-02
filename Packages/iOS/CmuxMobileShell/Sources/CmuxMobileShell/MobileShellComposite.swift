@@ -1694,12 +1694,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // down/unreachable Mac has a route but fails the connect, so we fall
         // through to the next candidate instead of stranding the user on "Mac
         // offline" just because their active Mac happens to be off.
+        // Scoped dev phones: the scope filter reads build identities from
+        // presence, so wait (bounded) for the first presence frame before
+        // choosing candidates — otherwise a cold-launch reconnect races the
+        // snapshot and every dev Mac looks unknown-⇒-allowed.
+        if iosBuildScope != nil, presenceMap.isEmpty {
+            await awaitFirstPresenceData(upTo: .seconds(3))
+            guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope) else {
+                finishStoredMacReconnectAttempt(generation: generation)
+                return false
+            }
+        }
         var candidates: [MobilePairedMac] = []
-        if let activeMac, reachableRoute(activeMac) != nil {
+        // Active Mac: fail OPEN on unknown identity — it is this phone's own
+        // last-used Mac, and refusing it during a presence outage would strand
+        // offline reconnect. Every OTHER candidate fails CLOSED on unknown
+        // identity: without presence data a wrong-tag dev Mac is
+        // indistinguishable from a real one, and the periodic aggregation
+        // re-runs once identities arrive.
+        if let activeMac, reachableRoute(activeMac) != nil,
+           savedMacScopeDecision(activeMac) != .refused {
             candidates.append(activeMac)
         }
         candidates.append(contentsOf: allMacs.filter { mac in
-            mac.macDeviceID != activeMac?.macDeviceID && reachableRoute(mac) != nil
+            mac.macDeviceID != activeMac?.macDeviceID
+                && reachableRoute(mac) != nil
+                && savedMacScopeDecision(mac) == .allowed
         })
         guard !candidates.isEmpty else {
             // No saved Mac has a usable route right now (none paired, or all
@@ -2107,6 +2127,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func applyPresenceUpdate(_ update: PresenceUpdate, scope: MobileShellScopeSnapshot) {
         presenceMap.apply(update)
+        resumeAllPresenceFirstDataWaiters()
         switch update {
         case .routes(let instance), .online(let instance):
             // Both events can carry fresh attach routes (online = a host that
@@ -2188,14 +2209,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // deliberately kept and the reconnect uses those, the same
                 // outcome a manual Retry would have.
                 let knownMacs = self.pairedMacsForIdentityMatching
-                if self.connectionState != .connected,
-                   let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID,
-                   !onlineDeviceIds.isDisjoint(with: Self.macDeviceIDsForLogicalPairedMac(
+                let activeCameOnline: Bool = {
+                    guard let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID else {
+                        return false
+                    }
+                    return !onlineDeviceIds.isDisjoint(with: Self.macDeviceIDsForLogicalPairedMac(
                         activeMacID,
                         in: knownMacs,
                         supportedKinds: self.runtime?.supportedRouteKinds ?? [],
                         preferNonLoopback: Self.prefersNonLoopbackRoutes
-                   )) {
+                    ))
+                }()
+                // Scoped dev phones fail CLOSED on unknown build identity during
+                // reconnect, so a cold-launch reconnect that raced the first
+                // presence frame may have skipped every non-active saved Mac.
+                // This delivery IS the identity arriving: if any allowed saved
+                // Mac is now online while we sit disconnected, retry — the same
+                // recovery a manual pull-to-refresh would run.
+                let scopedSavedMacCameOnline = self.iosBuildScope != nil
+                    && knownMacs.contains { mac in
+                        onlineDeviceIds.contains(mac.macDeviceID)
+                            && self.savedMacScopeDecision(mac) == .allowed
+                    }
+                if self.connectionState != .connected, activeCameOnline || scopedSavedMacCameOnline {
                     self.recoverMobileConnection(trigger: .presencePush)
                 }
             }
@@ -2744,6 +2780,67 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// physical device it can only ever reach the phone itself, never a remote
     /// Mac. On the simulator `127.0.0.1` IS the host Mac, so loopback is valid
     /// (and is how the dev/UI-test mock host attaches).
+    /// This build's tagged-dev scope (`nil` on release/TestFlight). Overridable
+    /// in tests; production reads the bundle once.
+    var iosBuildScope: MobileIOSBuildScope? = MobileIOSBuildScope.current()
+
+    /// Continuations parked in ``awaitFirstPresenceData(upTo:)`` until the first
+    /// presence frame of the session is applied. Signal-based (resumed from
+    /// ``applyPresenceUpdate``), never a poll; each entry is resumed exactly
+    /// once — by the data signal or by its caller's bounded deadline.
+    private var presenceFirstDataWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    private func resumePresenceFirstDataWaiter(id: UUID) {
+        presenceFirstDataWaiters.removeValue(forKey: id)?.resume()
+    }
+
+    private func resumeAllPresenceFirstDataWaiters() {
+        for id in Array(presenceFirstDataWaiters.keys) {
+            resumePresenceFirstDataWaiter(id: id)
+        }
+    }
+
+    /// Waits (bounded) until any presence data has been applied. The scoped-dev
+    /// reconnect gates on this: saved-Mac build identities come from presence,
+    /// so a cold-launch reconnect that outruns the first snapshot would see
+    /// every identity as unknown-⇒-allowed and could dial another tag's dev Mac
+    /// — the exact cross-tag attach the scope policy exists to stop. On timeout
+    /// (presence down/slow) the reconnect proceeds with unknown identities,
+    /// which is the pre-policy behavior, kept so presence outages never block
+    /// reconnect entirely.
+    func awaitFirstPresenceData(upTo limit: Duration) async {
+        if !presenceMap.isEmpty { return }
+        let id = UUID()
+        let deadline = Task { [weak self] in
+            try? await ContinuousClock().sleep(for: limit)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { self?.resumePresenceFirstDataWaiter(id: id) }
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            presenceFirstDataWaiters[id] = continuation
+        }
+        deadline.cancel()
+    }
+
+    /// The build-scope verdict for auto-connecting to this saved Mac, per
+    /// ``MobileSavedMacScopePolicy``: a tagged dev phone must not dial OTHER
+    /// tags' dev Macs (each tagged build is an isolated identity; dialing them
+    /// attached this phone to other agents' instances).
+    private func savedMacScopeDecision(_ mac: MobilePairedMac) -> MobileSavedMacScopePolicy.Decision {
+        // RAW per-device presence, never the alias rollup (`presenceSummary(for:)`):
+        // aliases coalesce saved records that share a dial endpoint, so a rolled-up
+        // summary could substitute a SIBLING tagged build's identity for this row —
+        // refusing the matching Mac or admitting the wrong one. Each tagged Mac app
+        // heartbeats under its own device UUID, so the per-deviceId summary is the
+        // exact identity of the row being filtered.
+        let summary = presenceMap.deviceSummary(deviceId: mac.macDeviceID)
+        return MobileSavedMacScopePolicy.decision(
+            macDevTag: summary?.tag,
+            macBundleID: summary?.bundleId,
+            iosScope: iosBuildScope
+        )
+    }
+
     static var prefersNonLoopbackRoutes: Bool {
         #if targetEnvironment(simulator)
         false
@@ -3690,7 +3787,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             aliasIDsByMacID[$0] ?? [$0]
         } ?? []
         let foregroundIDSet = Set(foregroundMacDeviceIDs)
-        return macs.filter { !$0.macDeviceID.isEmpty && !foregroundIDSet.contains($0.macDeviceID) }
+        return macs.filter {
+            // Secondaries fail CLOSED on unknown identity: they are best-effort
+            // read-only extras, and the aggregation re-runs once presence
+            // delivers the Mac's build identity.
+            !$0.macDeviceID.isEmpty
+                && !foregroundIDSet.contains($0.macDeviceID)
+                && savedMacScopeDecision($0) == .allowed
+        }
     }
 
     /// Open a persistent read-only connection to `mac`, seed its workspace state,
