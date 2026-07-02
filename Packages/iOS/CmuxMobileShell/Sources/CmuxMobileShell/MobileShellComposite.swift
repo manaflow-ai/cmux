@@ -6686,6 +6686,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func replayAfterRepairedTerminalEventSubscription(surfaceIDs: [String]) {
         for surfaceID in surfaceIDs where hasTerminalOutputSink(surfaceID: surfaceID) {
+            // A repaired subscription means events were missed during the gap,
+            // so this catch-up replay must reflect that gap. `requestTerminalReplay`
+            // no-ops while a replay for the surface is already in flight, which
+            // would silently drop the catch-up behind an older (e.g. cold-attach)
+            // replay whose snapshot predates the missed events, leaving the surface
+            // stuck behind the input response sequence. Supersede any in-flight
+            // replay first so the fresh request always goes out; it re-adopts the
+            // active replay barrier token, if any.
+            cancelTerminalReplayInFlight(surfaceID: surfaceID)
             requestTerminalReplay(surfaceID: surfaceID)
         }
         // The same registration carries `workspace.updated`, so workspace
