@@ -58,11 +58,12 @@ extension TabManager {
                 snapshot: snapshot,
                 placementOverride: placementOverride
             )
+            let workingDirectory = normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let newWorkspace = Workspace(
                 title: title ?? detached.title,
-                workingDirectory: normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory,
+                workingDirectory: workingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
                 initialDetachedSurface: detached
@@ -74,6 +75,7 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
+            applyAutoWorkspaceColorIfNeeded(to: newWorkspace, workingDirectory: workingDirectory)
             if title != nil {
                 newWorkspace.setCustomTitle(title)
             }

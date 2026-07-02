@@ -834,6 +834,9 @@
             "newWorkspacePlacement": "按 cwd 覆盖组内 Cmd-N、组标题中的 + 按钮以及已配置的组操作放置新 workspace 的位置：`afterCurrent`（在当前活动的组内 workspace 后面，没有时回退到 top）、`top`（第二个位置，紧跟锚点之后）或 `end`（最后一个成员之后）。省略时回退到全局默认值。"
           }
         },
+        "workspaceColors": {
+          "autoColorFromCwd": "启用后，没有显式标签颜色的新工作区会根据其 cwd 或所在的 Git 仓库获得确定性颜色。手动设置的工作区颜色仍然优先。"
+        },
         "markdown": {
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",

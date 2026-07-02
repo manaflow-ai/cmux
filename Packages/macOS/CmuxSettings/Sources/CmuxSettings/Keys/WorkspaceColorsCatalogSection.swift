@@ -20,6 +20,13 @@ public struct WorkspaceColorsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarNotificationBadgeColorHex"
     )
 
+    /// Whether new workspaces without an explicit color derive a tab color from their cwd.
+    public let autoColorFromCwd = DefaultsKey<Bool>(
+        id: "workspaceColors.autoColorFromCwd",
+        defaultValue: false,
+        userDefaultsKey: "workspaceTabColor.autoColorFromCwd"
+    )
+
     public let palette = DefaultsKey<[String: String]>(
         id: "workspaceColors.colors",
         defaultValue: [:],

@@ -834,6 +834,9 @@
             "newWorkspacePlacement": "Podešavanje po cwd za mjesto gdje Cmd-N unutar grupe, + dugme u zaglavlju grupe i podešene grupne akcije stavljaju novi workspace: `afterCurrent` (poslije aktivnog workspacea u grupi, uz povratak na top), `top` (druga pozicija, odmah poslije sidra) ili `end` (poslije zadnjeg člana). Ako je izostavljeno, koristi se globalna zadana vrijednost."
           }
         },
+        "workspaceColors": {
+          "autoColorFromCwd": "Kada je omogućeno, novi radni prostori bez izričite boje kartice dobijaju determinističku boju iz svog cwd-a ili obuhvatnog Git repozitorija. Ručno postavljene boje radnih prostora i dalje imaju prednost."
+        },
         "markdown": {
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",

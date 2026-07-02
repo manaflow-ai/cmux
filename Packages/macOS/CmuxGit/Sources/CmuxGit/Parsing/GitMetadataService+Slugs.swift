@@ -6,7 +6,7 @@ extension GitMetadataService {
     ///
     /// Only `(fetch)` lines for `github.com` remotes contribute. Results are
     /// ordered `upstream`, then `origin`, then other remotes alphabetically.
-    nonisolated static func githubRepositorySlugs(fromGitRemoteVOutput output: String) -> [String] {
+    public nonisolated static func githubRepositorySlugs(fromGitRemoteVOutput output: String) -> [String] {
         var slugByRemoteName: [String: String] = [:]
 
         for line in output.split(whereSeparator: \.isNewline) {

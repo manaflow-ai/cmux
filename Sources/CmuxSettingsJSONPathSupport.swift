@@ -87,6 +87,18 @@ struct SettingsFileStringArrayMapping {
     let invalidPath: String
 }
 
+enum WorkspaceColorsSettingsFileMapping {
+    private static let workspaceColors = SettingCatalog().workspaceColors
+
+    static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "autoColorFromCwd",
+            defaultsKey: workspaceColors.autoColorFromCwd.userDefaultsKey,
+            invalidPath: "workspaceColors.autoColorFromCwd"
+        ),
+    ]
+}
+
 enum AppSettingsFileMapping {
     private static let app = AppCatalogSection()
 
@@ -411,6 +423,7 @@ extension CmuxSettingsFileStore {
         "sidebar.showProgress",
         "sidebar.showCustomMetadata",
         RightSidebarWidthSettings.settingsPath,
+        "workspaceColors.autoColorFromCwd",
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",
         "workspaceColors.notificationBadgeColor",

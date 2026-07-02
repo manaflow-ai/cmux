@@ -392,6 +392,10 @@ class TabManager: ObservableObject {
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
 
+    var shouldAutoColorWorkspaceFromCwd: Bool {
+        settings.value(for: settingsCatalog.workspaceColors.autoColorFromCwd)
+    }
+
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
             guard focusHistoryRevision != oldValue else { return }
@@ -449,6 +453,12 @@ class TabManager: ObservableObject {
     // the legacy shared limiter; tests inject their own instance.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
 
+    // Process-wide git probe limiter for this window, shared with the sidebar
+    // git metadata service so cwd-based workspace auto-color resolution stays
+    // within the same bounded permit pool instead of fanning out one blocking
+    // filesystem/Git scan per workspace creation.
+    let workspaceGitProbeLimiter: WorkspaceGitMetadataProbeLimiter
+
     // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
     // is the per-window composition point: it constructs the concrete
     // services, stores only the seams, implements SidebarGitHosting
@@ -503,11 +513,13 @@ class TabManager: ObservableObject {
             debugLog: sidebarGitDebugLog
         )
         self.pullRequestProbing = pullRequestPollService
+        let resolvedGitProbeLimiter = gitProbeLimiter ?? Self.sharedWorkspaceGitProbeLimiter
+        self.workspaceGitProbeLimiter = resolvedGitProbeLimiter
         self.sidebarGitMetadataService = SidebarGitMetadataService(
             workspaceGitMetadataReader: workspaceGitMetadataReader ?? gitMetadataService,
             gitMetadataService: gitMetadataService,
             pullRequestProbing: pullRequestPollService,
-            probeLimiter: gitProbeLimiter ?? Self.sharedWorkspaceGitProbeLimiter,
+            probeLimiter: resolvedGitProbeLimiter,
             clock: gitPollClock,
             debugLog: sidebarGitDebugLog
         )
@@ -981,7 +993,6 @@ class TabManager: ObservableObject {
 
     /// Test seam for mutating live workspace state after the creation snapshot is captured.
     func didCaptureWorkspaceCreationSnapshot() {}
-
 #if DEBUG
     /// Test seam: invoked when an initial workspace git-metadata refresh is
     /// scheduled, so tests can observe scheduling without the network probe.
@@ -1099,6 +1110,7 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
+            applyAutoWorkspaceColorIfNeeded(to: newWorkspace, workingDirectory: workingDirectory)
             if title != nil {
                 newWorkspace.setCustomTitle(title)
             }
@@ -5951,6 +5963,10 @@ extension TabManager {
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot)
+            // Restore re-applies any saved customColor before this call, so the
+            // `customColor == nil` guard inside means we only auto-color tabs the
+            // snapshot left uncolored; the shared limiter bounds the restore burst.
+            applyAutoWorkspaceColorIfNeeded(to: workspace, workingDirectory: workspace.currentDirectory)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
             restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)

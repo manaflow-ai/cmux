@@ -834,6 +834,9 @@
             "newWorkspacePlacement": "Cwd-spezifische Überschreibung dafür, wo Cmd-N innerhalb der Gruppe, die + Schaltfläche im Gruppenkopf und konfigurierte Gruppenaktionen den neuen Workspace platzieren: `afterCurrent` (nach dem aktiven Workspace in der Gruppe, mit Rückfall auf top), `top` (zweite Position direkt nach dem Anker) oder `end` (nach dem letzten Mitglied). Wenn ausgelassen, wird der globale Standard verwendet."
           }
         },
+        "workspaceColors": {
+          "autoColorFromCwd": "Wenn aktiviert, erhalten neue Arbeitsbereiche ohne explizite Tab-Farbe eine deterministische Farbe aus ihrem cwd oder dem umgebenden Git-Repository. Manuell gesetzte Arbeitsbereichsfarben haben weiterhin Vorrang."
+        },
         "markdown": {
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",

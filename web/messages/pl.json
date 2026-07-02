@@ -834,6 +834,9 @@
             "newWorkspacePlacement": "Nadpisanie dla cwd określające, gdzie Cmd-N w grupie, przycisk + w nagłówku grupy i skonfigurowane akcje grupy umieszczają nowy workspace: `afterCurrent` (po aktywnym workspace w grupie, z fallbackiem do top), `top` (druga pozycja, tuż za kotwicą) albo `end` (po ostatnim członku). Jeśli pominięte, używana jest globalna wartość domyślna."
           }
         },
+        "workspaceColors": {
+          "autoColorFromCwd": "Po włączeniu nowe obszary robocze bez jawnie ustawionego koloru karty otrzymują deterministyczny kolor na podstawie swojego cwd lub nadrzędnego repozytorium Git. Ręcznie ustawione kolory obszarów roboczych nadal mają pierwszeństwo."
+        },
         "markdown": {
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",

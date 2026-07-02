@@ -31,6 +31,7 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.app.workspaceInheritWorkingDirectory) == true)
         #expect(client.value(for: catalog.app.newWorkspacePlacement) == .afterCurrent)
         #expect(client.value(for: catalog.workspaceColors.indicatorStyle) == .leftRail)
+        #expect(client.value(for: catalog.workspaceColors.autoColorFromCwd) == false)
         #expect(client.value(for: catalog.workspaceGroups.anchorCloseSuppressed) == false)
         #expect(client.value(for: catalog.workspaceGroups.newWorkspacePlacement) == .afterCurrent)
         #expect(client.value(for: catalog.terminal.titleUpdateCoalescingEnabled) == false)
@@ -57,6 +58,10 @@ struct UserDefaultsSettingsClientTests {
 
         client.set(.solidFill, for: catalog.workspaceColors.indicatorStyle)
         #expect(defaults.string(forKey: "sidebarActiveTabIndicatorStyle") == "solidFill")
+
+        client.set(true, for: catalog.workspaceColors.autoColorFromCwd)
+        #expect(defaults.object(forKey: "workspaceTabColor.autoColorFromCwd") as? Bool == true)
+        #expect(client.value(for: catalog.workspaceColors.autoColorFromCwd) == true)
 
         client.set(.end, for: catalog.workspaceGroups.newWorkspacePlacement)
         #expect(defaults.string(forKey: "workspaceGroup.newWorkspacePlacement") == "end")
