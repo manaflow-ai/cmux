@@ -294,6 +294,42 @@ struct OfflineNotesStoreTests {
     }
 
     @Test
+    func combiningMarkBlobIsBoundedByScalarCapNotGraphemeCount() {
+        let store = makeStore(fileURL: nil, reachability: FakeReachability(isOnline: false))
+        // A base character plus a long run of combining marks is a SINGLE grapheme
+        // cluster, so a `Character`-based cap (`String.prefix`) would store it
+        // essentially untrimmed. The scalar cap must bound the scalar count and,
+        // with it, the persisted byte size.
+        let zalgo = "a" + String(repeating: "\u{0301}", count: 50_000)
+        let note = store.addNote(zalgo)
+        #expect(note?.text.unicodeScalars.count == OfflineNotesStore.maxNoteLength)
+        #expect((note?.text.utf8.count ?? .max) <= 4 * OfflineNotesStore.maxNoteLength)
+    }
+
+    @Test
+    func loadReappliesCapToOversizedPersistedNote() throws {
+        let url = tempFileURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        // A file written by an older build (before the scalar cap) could hold an
+        // over-long note; loading must re-cap it rather than let it reappear
+        // unbounded and be re-encoded on every persist.
+        let oversized = OfflineNote(
+            text: String(repeating: "b", count: OfflineNotesStore.maxNoteLength + 500)
+        )
+        let data = try OfflineNotesStore.makeEncoder().encode([oversized])
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: url)
+
+        let store = makeStore(fileURL: url, reachability: FakeReachability(isOnline: false), autostart: false)
+        #expect(store.notes.count == 1)
+        #expect(store.notes.first?.text.unicodeScalars.count == OfflineNotesStore.maxNoteLength)
+    }
+
+    @Test
     func cliArgumentParsesNotesMode() {
         #expect(RightSidebarMode.from(cliArgument: "notes") == .notes)
         #expect(RightSidebarMode.from(cliArgument: "NOTES") == .notes)
