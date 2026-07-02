@@ -316,7 +316,11 @@ public protocol ControlSurfaceContext: AnyObject {
     ///
     /// - Parameter rawState: The raw `state`/`shell_state`/`activity` token.
     /// - Returns: The parsed state's raw value, or `nil` when unrecognized.
-    func controlSurfaceParseShellActivityState(_ rawState: String) -> String?
+    ///
+    /// `nonisolated` because the app parser is a pure static token table and
+    /// the worker-lane v1 `report_shell_state` body validates off the main
+    /// actor.
+    nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String?
 
     /// Parses a raw port-scan kick reason via the app's
     /// `parseRemotePortScanKickReason`, returning the reason's raw value (the
@@ -324,7 +328,10 @@ public protocol ControlSurfaceContext: AnyObject {
     ///
     /// - Parameter rawReason: The raw `reason` token.
     /// - Returns: The parsed reason's raw value, or `nil` when unrecognized.
-    func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String?
+    ///
+    /// `nonisolated` because the app parser is a pure static token table and
+    /// the worker-lane v1 `ports_kick` body validates off the main actor.
+    nonisolated func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String?
 
     /// Records reported shell-activity state for `surface.report_shell_state`.
     ///

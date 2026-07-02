@@ -271,11 +271,11 @@ extension TerminalController {
 
     // MARK: - token parsers
 
-    func controlSurfaceParseShellActivityState(_ rawState: String) -> String? {
+    nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? {
         Self.parseReportedShellActivityState(rawState)?.rawValue
     }
 
-    func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? {
+    nonisolated func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? {
         Self.parseRemotePortScanKickReason(rawReason)?.rawValue
     }
 
