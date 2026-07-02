@@ -1402,12 +1402,17 @@ extension Workspace {
             // manually (e.g. `sr codex resume`). Recording .idle here is the safe
             // direction per the spec — never invent `ended`.
             if let resumeReboundSession {
+                // The chat record's cwd feeds transcript-path resolution
+                // (Claude transcripts live under the project the agent ran
+                // in), so it must be the resume launcher's real target, not
+                // the persisted terminal cwd a stray report may have parked
+                // on home (#7155).
                 AgentChatTranscriptService.recordResumeIntent(
                     sessionID: resumeReboundSession.sessionID,
                     source: resumeReboundSession.source,
                     surfaceID: terminalPanel.id.uuidString,
                     workspaceID: id.uuidString,
-                    workingDirectory: workingDirectory
+                    workingDirectory: resumeSessionWorkingDirectory ?? workingDirectory
                 )
             }
             if let restoredRemotePTYSessionID {

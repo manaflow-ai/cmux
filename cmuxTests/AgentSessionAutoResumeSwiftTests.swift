@@ -481,6 +481,42 @@ struct AgentSessionAutoResumeSwiftTests {
         }
     }
 
+    /// The cmux-authored chat rebind must record the resume launcher's real
+    /// target directory, not the persisted terminal cwd a stray report may
+    /// have parked on home: the Claude transcript fallback resolves
+    /// `~/.claude/projects/<encoded-cwd>/<session>.jsonl` from the record's
+    /// cwd, so a clobbered value points the chat surface at the wrong
+    /// project (#7155).
+    @MainActor
+    @Test func secondRestoreOfClobberedRestorableAgentPaneRebindsChatSessionToAgentCwd() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-second-restore-chat-rebind")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, _, homeDir) = try restoreResumedRestorableAgentOnlyWorkspaceWithClobberedTrackedCwd(
+                projectDir: projectDir
+            )
+            let clobberedSnapshot = restored.sessionSnapshot(includeScrollback: false)
+            let clobberedTerminal = try #require(clobberedSnapshot.panels.first?.terminal)
+            try #require(clobberedTerminal.workingDirectory == homeDir)
+            let agentSessionId = try #require(clobberedTerminal.agent?.sessionId)
+            // The registry keys records on the session id with the
+            // `<source>-` prefix stripped.
+            try #require(agentSessionId.hasPrefix("claude-"))
+            let registrySessionId = String(agentSessionId.dropFirst("claude-".count))
+
+            let secondRestore = Workspace()
+            secondRestore.restoreSessionSnapshot(clobberedSnapshot)
+            _ = try #require(secondRestore.focusedPanelId)
+
+            let service = try #require(TerminalController.shared.agentChatTranscriptService)
+            let record = try #require(service.registry.record(sessionID: registrySessionId))
+            #expect(record.workingDirectory == projectDir)
+        }
+    }
+
     /// The #7155 rescue prefers the live foreground process's actual cwd
     /// (libproc) over the recorded session directory: a resumed agent that
     /// moved itself is followed to where it really is.
