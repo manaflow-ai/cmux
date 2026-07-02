@@ -139,10 +139,26 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .sidebarAppearance,
                 id: "show-agent-activity",
-                title: String(localized: "settings.app.showAgentActivity", defaultValue: "Show Active Agents in Sidebar"),
-                detailText: String(localized: "settings.app.showAgentActivity.subtitle", defaultValue: "Display a spinner and count on workspaces with running coding agents."),
+                title: String(localized: "settings.app.showAgentActivity", defaultValue: "Show Loading Spinner"),
+                detailText: String(localized: "settings.app.showAgentActivity.subtitle", defaultValue: "Show a loading spinner on workspaces with running coding agents or active loaders. Stays visible even when sidebar details are hidden."),
                 paths: ["sidebar.showAgentActivity"],
-                synonyms: "sidebar.showAgentActivity active coding agent agents spinner running count activity"
+                synonyms: "sidebar.showAgentActivity loading spinner active coding agent agents running activity"
+            ),
+            .init(
+                section: .sidebarAppearance,
+                id: "loading-spinner-position",
+                title: String(localized: "settings.app.loadingSpinnerPosition", defaultValue: "Loading Spinner Position"),
+                detailText: String(localized: "settings.app.loadingSpinnerPosition.subtitle", defaultValue: "Show the spinner on the left (sharing the unread badge slot) or the right of the workspace row."),
+                paths: ["sidebar.loadingSpinnerPosition"],
+                synonyms: "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side"
+            ),
+            .init(
+                section: .sidebarAppearance,
+                id: "notification-badge-position",
+                title: String(localized: "settings.app.notificationBadgePosition", defaultValue: "Notification Badge Position"),
+                detailText: String(localized: "settings.app.notificationBadgePosition.subtitle", defaultValue: "Show the unread notification badge on the left or the right of the workspace row."),
+                paths: ["sidebar.notificationBadgePosition"],
+                synonyms: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"
             ),
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),

@@ -98,6 +98,8 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.showLog",
         "sidebar.showNotificationMessage",
         "sidebar.showAgentActivity",
+        "sidebar.loadingSpinnerPosition",
+        "sidebar.notificationBadgePosition",
         "sidebar.showPorts",
         "sidebar.showProgress",
         "sidebar.showPullRequests",
