@@ -516,6 +516,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let socketListenerHealQueue = DispatchQueue(
         label: "com.cmux.socket-listener-heal", qos: .utility
     )
+    /// Monotonic generation of the control-socket listener, bumped on every
+    /// (re)start through ``startControlSocketListener(tabManager:socketPath:accessMode:)``.
+    /// The activation self-heal probe captures this before its background ping and
+    /// re-checks it on the main actor before rebinding, so a listener already
+    /// refreshed by another recovery path (`workspace.didWake`, menu command,
+    /// ensure) during the ~1s probe window is never torn down on a stale decision
+    /// (#6406 review, activation/wake race).
+    private var socketListenerGeneration = 0
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
@@ -3944,6 +3952,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TerminalController.shared.reserveStartupSocketPath(startupPath)
     }
 
+    /// Single main-actor chokepoint for (re)starting the control-socket listener.
+    /// Bumps ``socketListenerGeneration`` so an in-flight activation self-heal
+    /// probe can detect a concurrent (re)start and drop its now-stale rebind
+    /// decision instead of tearing down a freshly-healthy listener (#6406 review).
+    private func startControlSocketListener(
+        tabManager: TabManager,
+        socketPath: String,
+        accessMode: SocketControlMode
+    ) {
+        socketListenerGeneration &+= 1
+        TerminalController.shared.start(tabManager: tabManager, socketPath: socketPath, accessMode: accessMode)
+    }
+
     private func startSocketListenerIfEnabled(tabManager: TabManager, source: String) {
         guard let config = socketListenerConfigurationIfEnabled() else {
             TerminalController.shared.stop()
@@ -3955,7 +3976,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "path": path,
             "source": source
         ])
-        TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
+        startControlSocketListener(tabManager: tabManager, socketPath: path, accessMode: config.mode)
     }
 
     private func ensureSocketListenerIfEnabled(tabManager: TabManager, source: String) {
@@ -3974,7 +3995,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "source": source,
             "failureSignals": health.failureSignals.joined(separator: ",")
         ])
-        TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
+        startControlSocketListener(tabManager: tabManager, socketPath: path, accessMode: config.mode)
     }
 
     private func restartSocketListenerIfEnabled(source: String) {
@@ -3989,7 +4010,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "source": source
         ])
         TerminalController.shared.stop()
-        TerminalController.shared.start(tabManager: manager, socketPath: restartPath, accessMode: config.mode)
+        startControlSocketListener(tabManager: manager, socketPath: restartPath, accessMode: config.mode)
     }
 
     /// Self-heals a refused control-socket listener on reactivation, so a dead
@@ -4014,6 +4035,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let transport = socketTransport
         let policy = socketListenerActivationRecoveryPolicy
         let preferredPath = config.path
+        // Snapshot the listener generation before the probe so the main-actor
+        // completion can tell whether another recovery path rebound the listener
+        // while the ping was in flight (#6406 review, activation/wake race).
+        let capturedGeneration = socketListenerGeneration
         // Run the blocking `ping` probe on the dedicated utility queue (a real
         // background thread), then hop back to the main actor to finish. The
         // in-flight guard set above is the lifecycle owner: it is cleared in the
@@ -4028,6 +4053,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor in
                 self?.finishSocketListenerActivationCheck(
                     shouldRebind: shouldRebind,
+                    capturedGeneration: capturedGeneration,
                     path: path,
                     health: health,
                     pingResponse: pingResponse
@@ -4043,6 +4069,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @MainActor
     private func finishSocketListenerActivationCheck(
         shouldRebind: Bool,
+        capturedGeneration: Int,
         path: String,
         health: SocketListenerHealth,
         pingResponse: String?
@@ -4050,6 +4077,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         socketListenerActivationCheckInFlight = false
         lastSocketListenerActivationCheck = Date()
         guard shouldRebind else { return }
+        // If another recovery path (re)started the listener while our background
+        // ping was in flight, the probed listener no longer exists and our rebind
+        // decision is stale. Tearing down the fresh listener would drop its
+        // connected clients, so skip and let the next activation re-evaluate
+        // (#6406 review, activation/wake race).
+        guard socketListenerActivationRecoveryPolicy.rebindDecisionIsCurrent(
+            capturedGeneration: capturedGeneration,
+            currentGeneration: socketListenerGeneration
+        ) else {
+            sentryBreadcrumb("socket.listener.heal.skipped", category: "socket", data: [
+                "source": "app.didBecomeActive",
+                "reason": "listener_restarted_during_probe"
+            ])
+            return
+        }
         // Never log the raw socket path or probe response: the path embeds the
         // local username/home dir and the response is socket-controlled text.
         // Emit only bounded classifications and a byte count (issue #6406 review).

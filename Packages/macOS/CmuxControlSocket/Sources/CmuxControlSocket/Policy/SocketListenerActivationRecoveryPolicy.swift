@@ -160,4 +160,24 @@ public struct SocketListenerActivationRecoveryPolicy: Sendable {
     ) -> Bool {
         !listenerIsServing(health: health, pingResponse: pingResponse)
     }
+
+    /// Whether a rebind decision derived from a probe is still current.
+    ///
+    /// The `ping` probe blocks, so the host runs it off the main actor and only
+    /// applies the resulting rebind on the main actor afterward. In that window
+    /// another recovery path (`workspace.didWake`, a menu command, the ensure
+    /// path) can rebind the listener. The host stamps a monotonic generation on
+    /// every (re)start and passes the generation captured before the probe here
+    /// alongside the current one: a mismatch means the probed listener was
+    /// already replaced, so the stale decision must be discarded rather than
+    /// tearing down the fresh listener and dropping its clients (#6406 review,
+    /// activation/wake race).
+    ///
+    /// - Parameters:
+    ///   - capturedGeneration: Listener generation sampled before the probe.
+    ///   - currentGeneration: Listener generation now, on the main actor.
+    /// - Returns: True when no rebind happened meanwhile and the decision holds.
+    public func rebindDecisionIsCurrent(capturedGeneration: Int, currentGeneration: Int) -> Bool {
+        capturedGeneration == currentGeneration
+    }
 }
