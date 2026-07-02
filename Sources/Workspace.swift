@@ -6952,11 +6952,11 @@ final class Workspace: Identifiable, ObservableObject {
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
     }
 
-#if DEBUG
-    /// Test seam for the libproc foreground-process cwd read used by
-    /// ``resumedAgentPaneWorkingDirectoryRescue(panelId:)``.
-    var foregroundProcessWorkingDirectoryProviderForTesting: ((UUID) -> String?)?
-#endif
+    /// The foreground-process cwd read consulted by
+    /// ``resumedAgentPaneWorkingDirectoryRescue(panelId:)``. Nil selects the
+    /// libproc-backed default, which requires a live foreground process on the
+    /// pane's surface; injecting a substitute decouples callers from libproc.
+    var foregroundProcessWorkingDirectoryProvider: ((UUID) -> String?)?
 
     /// Rescues split/new-tab cwd inheritance from a pane whose restored
     /// auto-resume command is still running (#7155).
@@ -6992,11 +6992,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func liveForegroundProcessWorkingDirectory(panelId: UUID) -> String? {
-#if DEBUG
-        if let provider = foregroundProcessWorkingDirectoryProviderForTesting {
+        if let provider = foregroundProcessWorkingDirectoryProvider {
             return provider(panelId)
         }
-#endif
         guard let pid = terminalPanel(for: panelId)?.surface.foregroundProcessID() else { return nil }
         return Self.processCurrentWorkingDirectory(pid: Int32(clamping: pid))
     }
@@ -7007,7 +7005,7 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated static func processCurrentWorkingDirectory(pid: pid_t) -> String? {
         guard pid > 0 else { return nil }
         var info = proc_vnodepathinfo()
-        let expectedSize = MemoryLayout<proc_vnodepathinfo>.stride
+        let expectedSize = MemoryLayout<proc_vnodepathinfo>.size
         let size = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, Int32(expectedSize))
         guard size == expectedSize else { return nil }
         let path = withUnsafeBytes(of: info.pvi_cdir.vip_path) { rawBuffer -> String in

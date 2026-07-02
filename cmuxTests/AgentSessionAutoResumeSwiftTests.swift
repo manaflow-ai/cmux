@@ -280,7 +280,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let (restored, restoredPanelId, _) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
                 projectDir: projectDir
             )
-            restored.foregroundProcessWorkingDirectoryProviderForTesting = { _ in liveDir }
+            restored.foregroundProcessWorkingDirectoryProvider = { _ in liveDir }
 
             let split = try #require(restored.newTerminalSplit(
                 from: restoredPanelId,
@@ -309,7 +309,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning
             )
             var providerConsulted = false
-            restored.foregroundProcessWorkingDirectoryProviderForTesting = { _ in
+            restored.foregroundProcessWorkingDirectoryProvider = { _ in
                 providerConsulted = true
                 return FileManager.default.temporaryDirectory.path
             }
@@ -337,7 +337,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let (restored, restoredPanelId, _) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
                 projectDir: projectDir
             )
-            restored.foregroundProcessWorkingDirectoryProviderForTesting = { _ in nil }
+            restored.foregroundProcessWorkingDirectoryProvider = { _ in nil }
 
             let split = try #require(restored.newTerminalSplit(
                 from: restoredPanelId,
@@ -363,7 +363,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let (restored, restoredPanelId, homeDir) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
                 projectDir: projectDir
             )
-            restored.foregroundProcessWorkingDirectoryProviderForTesting = { _ in nil }
+            restored.foregroundProcessWorkingDirectoryProvider = { _ in nil }
             try FileManager.default.removeItem(atPath: projectDir)
 
             let split = try #require(restored.newTerminalSplit(
@@ -401,7 +401,7 @@ struct AgentSessionAutoResumeSwiftTests {
             restored.updatePanelDirectory(panelId: restoredPanelId, directory: repairedDir)
 
             var providerConsulted = false
-            restored.foregroundProcessWorkingDirectoryProviderForTesting = { _ in
+            restored.foregroundProcessWorkingDirectoryProvider = { _ in
                 providerConsulted = true
                 return projectDir
             }
