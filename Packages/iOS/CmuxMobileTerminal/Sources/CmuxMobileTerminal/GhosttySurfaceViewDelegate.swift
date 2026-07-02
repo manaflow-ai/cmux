@@ -2,8 +2,15 @@
 import CMUXMobileCore
 import Foundation
 
+/// Host-side sink for everything a ``GhosttySurfaceView`` produces: input
+/// bytes for the PTY, natural-grid viewport reports, forwarded gestures, and
+/// composer/toolbar requests. The production conformer is the shell layer's
+/// surface coordinator; harnesses and tests provide scripted conformers.
 @MainActor
 public protocol GhosttySurfaceViewDelegate: AnyObject {
+    /// Bytes the phone wants to send TO the PTY (typing, paste, mouse
+    /// reports). The host forwards them to the Mac, which writes them into
+    /// its libghostty surface and down the shared PTY.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data)
     /// The surface's natural grid changed (keyboard, rotation, zoom settle).
     /// `reportID` is a monotonically increasing stamp for THIS report; a host
@@ -49,9 +56,13 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
 }
 
 public extension GhosttySurfaceViewDelegate {
+    /// Default no-op so hosts without remote scroll forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
+    /// Default no-op so hosts without remote click forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
+    /// Default no-op so hosts without a toolbar editor can ignore the request.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
+    /// Default no-op so hosts without image upload can ignore pasted images.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
     /// Default no-op so hosts without a composer can ignore the toggle request.
     func ghosttySurfaceViewDidRequestComposerToggle(_ surfaceView: GhosttySurfaceView) {}

@@ -28,10 +28,15 @@ public final class TerminalViewportReportScheduler {
     /// One natural-grid report, stamped with the surface's monotonically
     /// increasing report ID (see `GhosttySurfaceViewDelegate`'s `didResize`).
     public struct Report: Equatable, Sendable {
+        /// The surface's monotonic stamp for this report; echoes hand it back
+        /// so stale replies are recognized.
         public let id: UInt64
+        /// Reported column count (at the rendered font).
         public let columns: Int
+        /// Reported row count (base-font capacity; see `TerminalRowCapacityFit`).
         public let rows: Int
 
+        /// Creates a report from the surface's stamp and grid counts.
         public init(id: UInt64, columns: Int, rows: Int) {
             self.id = id
             self.columns = columns
