@@ -125,12 +125,12 @@ func hostPortRoute(
 extension MobileCoreRPCClient {
     func waitUntilTicketRedemptionWaiters(count: Int) async -> Bool {
         for _ in 0..<200 {
-            if await ticketRedemptionGate.waiterCount >= count {
+            if (await ticketRedemptionGate.current?.waiters ?? 0) >= count {
                 return true
             }
             await Task.yield()
         }
-        return await ticketRedemptionGate.waiterCount >= count
+        return (await ticketRedemptionGate.current?.waiters ?? 0) >= count
     }
 }
 

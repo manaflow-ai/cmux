@@ -2,8 +2,11 @@ import CMUXMobileCore
 import Foundation
 
 actor MobileCoreRPCTicketRedemptionGate {
-    private var current: Current?
-    private var abandoned: [UUID: Abandoned] = [:]
+    // `private(set)` (internal read, private write) so `@testable` tests can observe
+    // the in-flight/abandoned bookkeeping directly instead of a test-only accessor
+    // seam living in production source.
+    private(set) var current: Current?
+    private(set) var abandoned: [UUID: Abandoned] = [:]
     private let taskTimeout = RPCTaskTimeout()
     private let timedOutResetNanoseconds: UInt64
     private let nowNanoseconds: @Sendable () -> UInt64
@@ -14,14 +17,6 @@ actor MobileCoreRPCTicketRedemptionGate {
     ) {
         self.timedOutResetNanoseconds = timedOutResetNanoseconds
         self.nowNanoseconds = nowNanoseconds
-    }
-
-    var waiterCount: Int {
-        current?.waiters ?? 0
-    }
-
-    var abandonedCount: Int {
-        abandoned.count
     }
 
     func ticket(
