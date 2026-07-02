@@ -13,6 +13,14 @@ final class CodexTeamsWatcherRegressionTests {
         let cmuxSocket = try RecordingCodexTeamsCmuxSocket()
         defer { cmuxSocket.stop() }
 
+        // Point the spawned watcher at a throwaway HOME so any config, cache, or
+        // debug-log writes land in a temp directory instead of polluting the real
+        // home directory on developer machines and CI.
+        let tempHome = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-codex-watch-home-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempHome) }
+
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -39,6 +47,8 @@ final class CodexTeamsWatcherRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "1"
+        environment["HOME"] = tempHome.path
+        environment["CFFIXED_USER_HOME"] = tempHome.path
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
@@ -55,6 +65,15 @@ final class CodexTeamsWatcherRegressionTests {
         // thread/read round-trip once the first split has opened.
         let openedLateSplit = cmuxSocket.waitForCommand(containing: "late-subagent-thread", timeout: 10)
         process.terminate()
+        // Don't let a watcher that ignores SIGTERM hang the whole suite: bound the
+        // graceful shutdown wait, then SIGKILL and reap so the test always exits.
+        let terminationDeadline = Date().addingTimeInterval(5)
+        while process.isRunning && Date() < terminationDeadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+        }
         process.waitUntilExit()
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""

@@ -109,14 +109,29 @@ final class RecordingCodexTeamsCmuxSocket: @unchecked Sendable {
                 commands.append(line)
                 lock.unlock()
                 let response = Self.response(for: line) + "\n"
-                response.withCString { pointer in
-                    _ = Darwin.write(clientFD, pointer, strlen(pointer))
-                }
+                Self.writeAll(Data(response.utf8), to: clientFD)
                 if Self.method(in: line) == "workspace.equalize_splits" {
                     // Simulate the app closing a control connection that idles
                     // between subagent spawns: drop it once a pane-open burst
                     // (split, rename, equalize) completes. The watcher must
                     // reconnect before opening the next subagent pane.
+                    return
+                }
+            }
+        }
+    }
+
+    private static func writeAll(_ data: Data, to fd: Int32) {
+        data.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.baseAddress else { return }
+            var offset = 0
+            while offset < rawBuffer.count {
+                let written = Darwin.write(fd, base.advanced(by: offset), rawBuffer.count - offset)
+                if written > 0 {
+                    offset += written
+                } else if written < 0 && errno == EINTR {
+                    continue
+                } else {
                     return
                 }
             }
