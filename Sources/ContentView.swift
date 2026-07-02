@@ -122,8 +122,9 @@ private func debugCommandPaletteResponderSummary(_ responder: NSResponder?) -> S
 #endif
 
 @MainActor
-private final class WindowCommandPaletteOverlayController: NSObject {
+final class WindowCommandPaletteOverlayController: NSObject {
     private weak var window: NSWindow?
+    private let windowKeyObservers: WindowKeyNotificationObservers
     private let containerView = CommandPaletteOverlayContainerView(frame: .zero)
     private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
     private let chromeComposition = AppWindowChromeComposition()
@@ -134,11 +135,10 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private var scheduledFocusWorkItem: DispatchWorkItem?
     private var isPaletteVisible = false
     private var hasMountedPaletteRootView = false
-    private var windowDidBecomeKeyObserver: NSObjectProtocol?
-    private var windowDidResignKeyObserver: NSObjectProtocol?
 
-    init(window: NSWindow) {
+    init(window: NSWindow, notificationCenter: NotificationCenter = .default) {
         self.window = window
+        self.windowKeyObservers = WindowKeyNotificationObservers(notificationCenter: notificationCenter)
         super.init()
         containerView.translatesAutoresizingMaskIntoConstraints = false
         containerView.wantsLayer = true
@@ -159,6 +159,10 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         ])
         _ = ensureInstalled()
         installWindowKeyObservers()
+    }
+
+    isolated deinit {
+        stopFocusLockTimer()
     }
 
     @discardableResult
@@ -436,23 +440,8 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     private func installWindowKeyObservers() {
         guard let window else { return }
-        windowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateFocusLockForWindowState()
-            }
-        }
-        windowDidResignKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateFocusLockForWindowState()
-            }
+        windowKeyObservers.install(for: window) { [weak self] in
+            self?.updateFocusLockForWindowState()
         }
     }
 
