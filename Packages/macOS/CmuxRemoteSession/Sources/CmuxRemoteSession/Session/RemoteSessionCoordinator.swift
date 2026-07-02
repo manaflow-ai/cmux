@@ -569,12 +569,18 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
     // MARK: - Subprocess execution (through the runner seam)
 
-    func sshExec(arguments: [String], stdin: Data? = nil, timeout: TimeInterval = 15) throws -> RemoteCommandResult {
+    func sshExec(
+        arguments: [String],
+        stdin: Data? = nil,
+        standardInputFile: URL? = nil,
+        timeout: TimeInterval = 15
+    ) throws -> RemoteCommandResult {
         try runProcess(
             executable: "/usr/bin/ssh",
             arguments: arguments,
             environment: configuration.sshProcessEnvironment,
             stdin: stdin,
+            standardInputFile: standardInputFile,
             timeout: timeout
         )
     }
@@ -600,6 +606,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         environment: [String: String]? = nil,
         currentDirectory: URL? = nil,
         stdin: Data?,
+        standardInputFile: URL? = nil,
         timeout: TimeInterval,
         operation: (any RemoteTransferCancelling)? = nil
     ) throws -> RemoteCommandResult {
@@ -610,6 +617,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 environment: environment,
                 currentDirectory: currentDirectory,
                 stdin: stdin,
+                standardInputFile: standardInputFile,
                 timeout: timeout
             ),
             operation: operation
