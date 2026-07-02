@@ -296,8 +296,9 @@ public enum AgentLaunchSanitizer {
     }
 
     private static func preservedCodexLaunchArguments(args: [String]) -> [String]? {
-        if codexForkCommand(in: args) != nil {
-            return preservedArguments(kind: "codex-fork-restore", args: args)
+        if let forkCommand = codexForkCommand(in: args) {
+            return CodexForkLaunchCapture(args: args, forkIndex: forkCommand.forkIndex, sessionIndex: forkCommand.sessionIndex, preserveOptions: preserveOptions)
+                .arguments()
         }
         return preservedArguments(kind: "codex", args: args)
     }
