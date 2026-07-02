@@ -153,6 +153,18 @@ extension RestorableAgentSessionIndex {
             return resolvedSessionID
         }
 
+        // Reserved ids (those in RestorableAgentKind.allCases, e.g. `hermes-agent`) have their hook
+        // records indexed by `load` under the native kind, not `.custom`, so a detected snapshot must
+        // use the native kind to reconcile with the hook lifecycle/metadata. Registry-owned ids
+        // (pi/grok/antigravity, absent from allCases) stay `.custom` to match their `.custom`-indexed
+        // hook records. This mirrors the hookKinds split in `RestorableAgentSessionIndex.load`.
+        let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
+        func detectedKind(for registrationID: String) -> RestorableAgentKind {
+            builtInKindIDs.contains(registrationID)
+                ? (RestorableAgentKind(rawValue: registrationID) ?? .custom(registrationID))
+                : .custom(registrationID)
+        }
+
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
@@ -182,7 +194,7 @@ extension RestorableAgentSessionIndex {
             let executablePath = normalized(observed.arguments.first) ?? normalized(process.path) ?? registration.defaultExecutable
             let arguments = observed.arguments.isEmpty ? [executablePath] : observed.arguments
             let snapshot = SessionRestorableAgentSnapshot(
-                kind: .custom(registration.id),
+                kind: detectedKind(for: registration.id),
                 sessionId: sessionId,
                 workingDirectory: registration.cwd == .ignore ? nil : cwd,
                 launchCommand: AgentLaunchCommandSnapshot(

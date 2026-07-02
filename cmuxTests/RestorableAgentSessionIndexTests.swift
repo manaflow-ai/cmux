@@ -1048,7 +1048,9 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             detectedSnapshots.values.first,
             "Hermes pane should record a resume snapshot; it was absent (the bug in #7042)"
         )
-        XCTAssertEqual(detected.snapshot.kind.rawValue, "hermes-agent")
+        // Canonical .hermesAgent kind (not .custom("hermes-agent")), so a detected live process
+        // reconciles with the native hermes hook-store records instead of dropping their lifecycle.
+        XCTAssertEqual(detected.snapshot.kind, .hermesAgent)
         // The newest cli/tui session for this cwd, read from state.db (not the older one).
         XCTAssertEqual(detected.snapshot.sessionId, "hermes-current")
 

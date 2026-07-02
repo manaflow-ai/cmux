@@ -498,18 +498,6 @@ enum AgentResumeCommandBuilder {
                     sessionId: sessionId
                 )
             }
-            if customRegistration.id == CmuxVaultAgentRegistration.builtInHermes.id {
-                // Replay the captured launch flags (`--tui`/`--model`/`--profile`) through the
-                // shared `hermes-agent` argv policy, then append `--resume <id>` — the same
-                // single-source-of-truth builder the CLI surface-restore publisher uses. A static
-                // `resumeCommand` template would silently drop `--tui` and resume in the classic REPL.
-                return AgentResumeArgv().builtInKind(
-                    kind: "hermes-agent",
-                    sessionId: sessionId,
-                    executablePath: launchCommand?.executablePath,
-                    arguments: launchCommand?.arguments ?? []
-                )
-            }
             let arguments = customResumeArguments(
                 registration: customRegistration,
                 sessionId: sessionId,
