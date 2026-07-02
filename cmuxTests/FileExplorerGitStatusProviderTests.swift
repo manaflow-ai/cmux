@@ -45,30 +45,23 @@ struct FileExplorerGitStatusProviderTests {
 
     private static func runGit(_ arguments: [String], in directory: URL) throws {
         let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = arguments
         process.currentDirectoryURL = directory
         process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
 
         try process.run()
         process.waitUntilExit()
 
-        let stderr = String(
-            data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) ?? ""
-        #expect(process.terminationStatus == 0, "git \(arguments.joined(separator: " ")) failed: \(stderr)")
+        #expect(process.terminationStatus == 0, "git \(arguments.joined(separator: " ")) failed")
         if process.terminationStatus != 0 {
-            throw GitSetupFailure(message: stderr)
+            throw GitSetupFailure(arguments: arguments)
         }
-        _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
     }
 
     private struct GitSetupFailure: Error {
-        let message: String
+        let arguments: [String]
     }
 }
