@@ -239,6 +239,15 @@ public final class UpdateController {
         // Cancel any pending deferred re-check on every path so a stale one can't fire a
         // duplicate checkForUpdates() after this new check starts.
         recheckTask?.cancel()
+        // A preserved-intent retry only arrives from `retryAfterTransientFailure` after the
+        // driver's multi-second backoff, by which point Sparkle has already acknowledged and torn
+        // down the failed session at error time (see `showUpdaterError` → `acknowledgement()`).
+        // There is therefore no just-dismissed *live* session to coalesce with, so the non-idle
+        // teardown + 100ms delay below — which exists solely to let Sparkle finish aborting a
+        // session before an *immediate* re-check — does not apply. Routing this path through it
+        // would also be wrong: the current non-idle state is the driver's synthetic `.checking`
+        // backoff placeholder whose `cancel` aborts the retry, so `cancelActiveStateForNewCheck()`
+        // would kill the very retry and flicker the pill to idle. Start the fresh check directly.
         if preservingInstallIntent {
             updater.checkForUpdates()
             return
