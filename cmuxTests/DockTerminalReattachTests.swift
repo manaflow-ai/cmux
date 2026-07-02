@@ -176,7 +176,12 @@ extension DockSocketLifecycleTests {
 
         store.focusPanel(panelId)
 
-        #expect(panel.viewReattachToken == reattachTokenBefore + 1)
+        // focusPanel applies the Dock selection once directly and once per
+        // bonsplit delegate callback (didFocusPane, didSelectTab), and each
+        // pass sees the still-detached portal, so the token can advance more
+        // than once. The behavioral guarantee is that focusing requested a
+        // reattach at all.
+        #expect(panel.viewReattachToken > reattachTokenBefore)
     }
 
     @Test("Visible Dock terminal with stale portal anchor requests a view reattach")
@@ -218,7 +223,10 @@ extension DockSocketLifecycleTests {
 
         store.focusPanel(panelId)
 
-        #expect(panel.viewReattachToken == reattachTokenBefore + 1)
+        // See visibleDetachedDockTerminalRequestsViewReattach: focusPanel can
+        // request a reattach once per selection pass against a stale anchor,
+        // so assert the reattach happened rather than an exact count.
+        #expect(panel.viewReattachToken > reattachTokenBefore)
     }
 
     @Test("Dock transfer keeps resumed-agent cwd rescue state while not proven dead")
