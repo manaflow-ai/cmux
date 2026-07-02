@@ -326,7 +326,6 @@ final class cmuxUITests: XCTestCase {
 
         let probe = app.descendants(matching: .any)[Composer.surfaceProbe]
         let hideKeyboard = app.buttons["terminal.inputAccessory.hideKeyboard"]
-        var trackedSamples = 0
 
         func pollTransition(until settled: @escaping ([String: String]) -> Bool, context: String) {
             let deadline = Date().addingTimeInterval(4)
@@ -334,10 +333,14 @@ final class cmuxUITests: XCTestCase {
             while Date() < deadline {
                 let dock = parseProbe(probe.value as? String ?? "")
                 last = dock
+                // Opportunistic mid-animation check; an accessibility read is
+                // slow (~100s of ms) so landing inside the window is not
+                // guaranteed — the authoritative per-frame evidence is the
+                // surface-recorded kbApplyTicks/kbMaxDivergencePt asserted at
+                // the end.
                 if dock["kbTracking"] == "1",
                    let guideTop = Int(dock["kbGuideTop"] ?? ""), guideTop > 0,
                    let toolbarMaxY = Int(dock["toolbarMaxY"] ?? ""), toolbarMaxY > 0 {
-                    trackedSamples += 1
                     XCTAssertLessThanOrEqual(
                         abs(toolbarMaxY - guideTop), 2,
                         "\(context): mid-animation dock bottom diverged from the live keyboard edge. dock=\(dock)"
@@ -369,11 +372,22 @@ final class cmuxUITests: XCTestCase {
             pollTransition(until: { $0["keyboardUp"] == "1" }, context: "keyboard show cycle \(cycle + 1)")
         }
 
-        // The accessibility poll is coarse relative to a ~0.4s animation, but
-        // across five transitions it must land inside at least one of them —
-        // otherwise the tracker never engaged and the per-frame contract went
-        // completely unexercised.
-        XCTAssertGreaterThan(trackedSamples, 0, "no mid-animation tracking sample was ever observed")
+        // Surface-recorded per-frame evidence across all five real keyboard
+        // transitions: tracking must have applied on many display-link frames
+        // (an animation is dozens of frames; 5 is a loose floor covering slow
+        // CI), and on every one of those frames the dock's actual bottom edge
+        // stayed within 2pt of the anchor's live presentation frame.
+        let final = parseProbe(probe.value as? String ?? "")
+        let applyTicks = Int(final["kbApplyTicks"] ?? "") ?? 0
+        XCTAssertGreaterThanOrEqual(
+            applyTicks, 5,
+            "per-frame keyboard tracking never engaged across five real keyboard transitions. dock=\(final)"
+        )
+        let maxDivergence = Int(final["kbMaxDivergencePt"] ?? "") ?? .max
+        XCTAssertLessThanOrEqual(
+            maxDivergence, 2,
+            "dock bottom diverged from the live keyboard edge mid-animation. dock=\(final)"
+        )
     }
 
     @MainActor
