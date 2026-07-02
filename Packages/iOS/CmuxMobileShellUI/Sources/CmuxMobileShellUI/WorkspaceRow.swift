@@ -64,7 +64,7 @@ struct WorkspaceRow: View {
         .padding(.horizontal, isSelected ? 10 : 0)
         .background {
             if isSelected {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Color.accentColor.opacity(0.14))
             }
         }
