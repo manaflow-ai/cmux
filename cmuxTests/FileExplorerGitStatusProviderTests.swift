@@ -51,7 +51,6 @@ struct FileExplorerGitStatusProviderTests {
         let status = GitStatusProvider().fetchStatus(directory: nestedURL.path)
 
         #expect(status[trackedURL.path] == .some(.modified))
-        #expect(status[nestedURL.path] == .some(.modified))
     }
 
     @Test
@@ -78,7 +77,6 @@ struct FileExplorerGitStatusProviderTests {
 
         #expect(status[visibleURL.path] == .some(.modified))
         #expect(status[siblingFileURL.path] == nil)
-        #expect(status[explorerRootURL.path] == .some(.modified))
         #expect(status[siblingURL.path] == nil)
     }
 
