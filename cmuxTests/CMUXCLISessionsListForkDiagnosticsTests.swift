@@ -284,8 +284,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         processEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
         let result = runProcess(executablePath: cliPath, arguments: ["sessions", "list", "--agent", "codex", "--session", sessionId, "--json"], environment: processEnvironment, timeout: 5)
         #expect(result.status == 0, Comment(rawValue: result.stdout))
-        let object = try #require(JSONSerialization.jsonObject(with: try #require(result.stdout.data(using: .utf8))) as? [String: Any])
-        return try #require((try #require(object["sessions"] as? [[String: Any]])).first)
+        let outputData = try #require(result.stdout.data(using: .utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
+        let sessions = try #require(object["sessions"] as? [[String: Any]])
+        return try #require(sessions.first)
     }
 
     @Test func testSessionsListForkStartupInputCountsSelectedEnvironment() throws {
