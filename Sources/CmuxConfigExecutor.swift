@@ -42,7 +42,8 @@ struct CmuxConfigExecutor {
                     command: command,
                     workspace: workspace,
                     tabManager: tabManager,
-                    baseCwd: baseCwd
+                    baseCwd: baseCwd,
+                    presentingWindow: presentingWindow
                 ) else { return }
                 commandDidRun = true
                 onExecuted?()
@@ -496,7 +497,8 @@ struct CmuxConfigExecutor {
         command: CmuxCommandDefinition,
         workspace wsDef: CmuxWorkspaceDefinition,
         tabManager: TabManager,
-        baseCwd: String
+        baseCwd: String,
+        presentingWindow: NSWindow?
     ) -> Bool {
         let workspaceName = wsDef.name ?? command.name
         let restart = command.restart ?? .new
@@ -534,7 +536,7 @@ struct CmuxConfigExecutor {
                 // reachable synchronously from the sidebar extension command API
                 // (a menu/XPC-style context), where a bare `alert.runModal()` can
                 // silently no-op and return cancel without drawing the dialog.
-                guard runCmuxModalAlert(alert) == .alertFirstButtonReturn else {
+                guard runCmuxModalAlert(alert, presentingWindow: presentingWindow) == .alertFirstButtonReturn else {
                     tabManager.selectWorkspace(existing)
                     return false
                 }

@@ -2666,8 +2666,10 @@ final class CmuxConfigStore: ObservableObject {
     func resolvedWorkspaceCommandAction(identifier: String) -> CmuxResolvedConfigAction? {
         let trimmed = sanitizeConfigText(identifier)
         guard !trimmed.isEmpty else { return nil }
-        if let command = loadedCommands.first(where: { $0.id == trimmed }) {
-            guard command.workspace != nil else { return nil }
+        // Only prefer a command matched by generated id when it is itself a workspace
+        // command; otherwise fall through so a colliding workspaceCommand action stays reachable.
+        if let command = loadedCommands.first(where: { $0.id == trimmed }),
+           command.workspace != nil {
             if let action = resolvedAction(id: command.id),
                action.workspaceCommandName == command.name {
                 return action
