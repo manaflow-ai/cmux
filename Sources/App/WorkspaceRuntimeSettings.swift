@@ -383,7 +383,7 @@ enum RendererRealizationSettings {
     static let maxWarmRenderersKey = "terminal.rendererRealization.maxWarmRenderers"
 
     static let defaultEnabled = true
-    static let defaultIdleSeconds: TimeInterval = 30
+    static let defaultIdleSeconds: TimeInterval = 10 * 60
     static let defaultMaxWarmRenderers = 12
     static let didChangeNotification = Notification.Name("cmux.rendererRealizationSettingsDidChange")
 

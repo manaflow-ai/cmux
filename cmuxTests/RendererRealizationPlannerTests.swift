@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -27,10 +28,24 @@ struct RendererRealizationPlannerTests {
 
     private func settings(
         enabled: Bool = true,
-        idle: TimeInterval = 30,
+        idle: TimeInterval = RendererRealizationSettings.defaultIdleSeconds,
         warm: Int = 12
     ) -> RendererRealizationSettings.Values {
         .init(enabled: enabled, idleSeconds: idle, maxWarmRenderers: warm)
+    }
+
+    @Test func defaultsUseLongUnfocusedIdleThreshold() throws {
+        let suiteName = "RendererRealizationPlannerTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let defaultIdleSeconds = RendererRealizationSettings.defaultIdleSeconds
+        #expect(defaultIdleSeconds == 10 * 60)
+        #expect(RendererRealizationSettings.idleSeconds(defaults: defaults) == defaultIdleSeconds)
+        #expect(RendererRealizationSettings.sanitizedIdleSeconds(.infinity) == defaultIdleSeconds)
+        #expect(TerminalCatalogSection().rendererRealizationIdleSeconds.defaultValue == defaultIdleSeconds)
     }
 
     @Test func disabledSelectsNothing() {

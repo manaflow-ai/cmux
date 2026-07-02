@@ -481,7 +481,7 @@
               "type": "integer",
               "minimum": 5,
               "maximum": 604800,
-              "default": 30,
+              "default": 600,
               "description": "Minimum seconds a terminal must stay off-screen before its GPU renderer memory is reclaimed."
             },
             "maxWarmRenderers": {
