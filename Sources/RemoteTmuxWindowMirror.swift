@@ -79,6 +79,14 @@ final class RemoteTmuxWindowMirror {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
             syntheticPaneIds[paneId] = PaneID()
+            // Re-report the composed client size whenever this pane's rendered grid
+            // changes (initial layout, window resize, header show/hide) — the
+            // multi-pane analogue of the single-pane display surface's `onResize`
+            // hook. Race-free: the surface reports AFTER it applies the new grid, so
+            // the composition reads the up-to-date size rather than a pre-resize one.
+            panel.surface.onManualGridResize = { [weak self] _, _ in
+                _ = self?.updateClientSize()
+            }
             // Canonical seed (reflow classification → capture → cwd). The session
             // mirror's cwd observer maps the pane back to this window's tab.
             connection?.seedPane(paneId: paneId)
@@ -104,24 +112,34 @@ final class RemoteTmuxWindowMirror {
 
     @ObservationIgnored private var lastClientSize: (cols: Int, rows: Int)?
 
-    /// Tells tmux to size this session's windows to the rendered cmux area, so
-    /// captured/live pane content matches the on-screen grid. Derives cols/rows
-    /// from the content pixel area and a live pane's cell size; sends
-    /// `refresh-client -C` only when the grid actually changes (no feedback loop:
-    /// the cmux area doesn't change when tmux reflows).
-    /// Returns `true` once the pane surface is live and the size was applied (sent, or
-    /// already current via the `lastClientSize` dedup); `false` when no pane has
-    /// reported its cell size yet, so the caller should retry. Idempotent.
+    /// Tells tmux to size this window to the rendered cmux grid, so captured/live
+    /// pane content matches the on-screen layout. Composes the client grid from
+    /// each leaf pane's ``TerminalSurface/renderedGridCells()`` over the layout tree
+    /// (``RemoteTmuxLayoutNode/composedClientGrid(paneGrid:)``) — the same source of
+    /// truth as the single-pane path — so each pane's per-pane header and dividers
+    /// are subtracted automatically, instead of dividing the raw container pixels
+    /// (which over-counted rows and clipped alt-screen TUIs at the top after a
+    /// split, https://github.com/manaflow-ai/cmux/issues/7053). Sends
+    /// `refresh-client -C` only when the composed grid actually changes (no feedback
+    /// loop: the cmux area doesn't change when tmux reflows).
+    ///
+    /// Returns `true` once every pane surface is live and the size was applied
+    /// (sent, or already current via the `lastClientSize` dedup); `false` while any
+    /// pane hasn't rendered its grid yet, so the caller should retry. Idempotent.
     @discardableResult
-    func updateClientSize(contentSizePoints: CGSize) -> Bool {
-        guard contentSizePoints.width > 1, contentSizePoints.height > 1,
-              let cell = panelsByPaneId.values.lazy.compactMap({ $0.surface.cellSizePoints() }).first,
-              cell.width > 1, cell.height > 1 else { return false }
-        let cols = max(20, Int(contentSizePoints.width / cell.width))
-        let rows = max(5, Int(contentSizePoints.height / cell.height))
-        guard lastClientSize?.cols != cols || lastClientSize?.rows != rows else { return true }
-        lastClientSize = (cols, rows)
-        connection?.setClientSize(columns: cols, rows: rows)
+    func updateClientSize() -> Bool {
+        // Snapshot each live pane's rendered grid on the main actor, then compose
+        // (a pure tree walk over value types). A pane that hasn't rendered its grid
+        // yet is simply absent, so the composition returns `nil` and the caller retries.
+        var paneGrids: [Int: (columns: Int, rows: Int)] = [:]
+        for (paneId, panel) in panelsByPaneId {
+            if let grid = panel.surface.renderedGridCells() { paneGrids[paneId] = grid }
+        }
+        guard let grid = layout.composedClientGrid(paneGrid: { paneGrids[$0] }),
+              grid.columns > 1, grid.rows > 1 else { return false }
+        guard lastClientSize?.cols != grid.columns || lastClientSize?.rows != grid.rows else { return true }
+        lastClientSize = (grid.columns, grid.rows)
+        connection?.setClientSize(columns: grid.columns, rows: grid.rows)
         return true
     }
 

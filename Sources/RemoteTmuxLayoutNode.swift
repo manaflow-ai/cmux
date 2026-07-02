@@ -84,4 +84,58 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
             return children.flatMap { $0.paneIDsInOrder }
         }
     }
+
+    /// Composes a tmux client grid for this subtree from each leaf pane's grid,
+    /// matching tmux's own window geometry.
+    ///
+    /// A horizontal (side-by-side) split's width is the sum of its children's
+    /// widths plus one divider column between each adjacent pair; a vertical
+    /// (stacked) split's height is the sum of its children's heights plus one
+    /// divider row between each adjacent pair; the perpendicular axis takes the
+    /// max across children. tmux inserts a one-cell divider between adjacent
+    /// panes, so composing each leaf's own claimed `(width, height)` reproduces
+    /// the parent's exactly (see the layout-string example in
+    /// ``RemoteTmuxRawLayoutParser``) — the multi-pane analogue of the single-pane
+    /// path's ``TerminalSurface/renderedGridCells()``.
+    ///
+    /// Feeding each leaf its ON-SCREEN rendered grid (which already excludes
+    /// cmux's per-pane header) yields the client size that matches what is
+    /// actually visible, so tmux is never told the panes are taller than the
+    /// terminal area — the over-count that clipped alt-screen TUIs at the top
+    /// after an in-tab split (https://github.com/manaflow-ai/cmux/issues/7053).
+    ///
+    /// - Parameter paneGrid: the `(columns, rows)` for a leaf pane id, or `nil`
+    ///   when that pane has no grid yet.
+    /// - Returns: the composed grid, or `nil` as soon as any leaf's `paneGrid` is
+    ///   `nil` — so a partially-rendered layout never reports a short client size.
+    func composedClientGrid(
+        paneGrid: (_ paneId: Int) -> (columns: Int, rows: Int)?
+    ) -> (columns: Int, rows: Int)? {
+        switch content {
+        case .pane:
+            // BUG (https://github.com/manaflow-ai/cmux/issues/7053): report tmux's
+            // CLAIMED pane geometry, which excludes cmux's per-pane header — so the
+            // client stays too tall and alt-screen TUIs clip at the top after an
+            // in-tab split. The fix sources the on-screen rendered grid via `paneGrid`.
+            return (columns: width, rows: height)
+        case let .horizontal(children):
+            var columns = 0
+            var rows = 0
+            for child in children {
+                guard let grid = child.composedClientGrid(paneGrid: paneGrid) else { return nil }
+                columns += grid.columns
+                rows = max(rows, grid.rows)
+            }
+            return (columns: columns + max(0, children.count - 1), rows: rows)
+        case let .vertical(children):
+            var columns = 0
+            var rows = 0
+            for child in children {
+                guard let grid = child.composedClientGrid(paneGrid: paneGrid) else { return nil }
+                columns = max(columns, grid.columns)
+                rows += grid.rows
+            }
+            return (columns: columns, rows: rows + max(0, children.count - 1))
+        }
+    }
 }
