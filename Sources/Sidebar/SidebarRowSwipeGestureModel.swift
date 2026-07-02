@@ -2,6 +2,8 @@ import CoreGraphics
 
 struct SidebarRowSwipeGestureModel {
     struct Configuration: Equatable, Sendable {
+        static let defaultMaxRevealDistance: CGFloat = 96
+
         let maxRevealDistance: CGFloat
         let commitThreshold: CGFloat
         let commitZoneHysteresis: CGFloat
@@ -10,7 +12,7 @@ struct SidebarRowSwipeGestureModel {
         let rubberBandExtraLimitFraction: CGFloat
 
         init(
-            maxRevealDistance: CGFloat = 96,
+            maxRevealDistance: CGFloat = Self.defaultMaxRevealDistance,
             commitThreshold: CGFloat = 64,
             commitZoneHysteresis: CGFloat = 4,
             minimumLeadingActionContainerWidth: CGFloat = 128,
@@ -126,8 +128,11 @@ struct SidebarRowSwipeGestureModel {
         }
 
         guard case let .tracking(direction, accumulatedOffset) = state else {
+            if state == .suppressingMomentum {
+                state = .idle
+            }
             return Result(
-                claimed: state == .suppressingMomentum,
+                claimed: false,
                 offset: 0,
                 commit: nil,
                 shouldAnimateOffset: false
@@ -150,12 +155,12 @@ struct SidebarRowSwipeGestureModel {
 
     private mutating func end(_ event: Event) -> Result {
         guard case let .tracking(direction, accumulatedOffset) = state else {
-            if state == .ignoringUntilEnd || isPending {
+            if state == .ignoringUntilEnd || isPending || state == .suppressingMomentum {
                 state = .idle
             }
             resetCommitZone()
             return Result(
-                claimed: state == .suppressingMomentum,
+                claimed: false,
                 offset: 0,
                 commit: nil,
                 shouldAnimateOffset: false
@@ -171,12 +176,12 @@ struct SidebarRowSwipeGestureModel {
 
     private mutating func cancel() -> Result {
         guard case .tracking = state else {
-            if state == .ignoringUntilEnd || isPending {
+            if state == .ignoringUntilEnd || isPending || state == .suppressingMomentum {
                 state = .idle
             }
             resetCommitZone()
             return Result(
-                claimed: state == .suppressingMomentum,
+                claimed: false,
                 offset: 0,
                 commit: nil,
                 shouldAnimateOffset: false

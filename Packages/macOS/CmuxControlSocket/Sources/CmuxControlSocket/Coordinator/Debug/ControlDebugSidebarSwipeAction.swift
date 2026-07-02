@@ -1,7 +1,7 @@
 #if DEBUG
 /// Synthetic sidebar-row swipe actions accepted by
 /// `debug.sidebar.simulate_swipe`.
-public enum ControlDebugSidebarSwipeAction: String, Sendable, Equatable {
+public enum ControlDebugSidebarSwipeAction: String, Sendable, Equatable, CaseIterable {
     /// Reveal the leading swipe action and leave it visible.
     case revealLeading = "reveal-leading"
     /// Reveal the trailing swipe action and leave it visible.

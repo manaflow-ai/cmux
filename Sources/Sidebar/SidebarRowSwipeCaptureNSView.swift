@@ -53,7 +53,10 @@ final class SidebarRowSwipeCaptureNSView: NSView {
             return
         }
 
-        let result = handle(phase: phase, deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY)
+        // The gesture model consumes finger-space deltas: positive X reveals the leading action.
+        let deltaX = event.isDirectionInvertedFromDevice ? event.scrollingDeltaX : -event.scrollingDeltaX
+        let deltaY = event.isDirectionInvertedFromDevice ? event.scrollingDeltaY : -event.scrollingDeltaY
+        let result = handle(phase: phase, deltaX: deltaX, deltaY: deltaY)
         guard result.claimed else {
             super.scrollWheel(with: event)
             return

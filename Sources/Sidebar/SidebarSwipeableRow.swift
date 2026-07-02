@@ -81,7 +81,7 @@ struct SidebarSwipeableRow<Content: View>: View {
     }
 
     private var iconRevealWidth: CGFloat {
-        min(abs(offset), 96)
+        min(abs(offset), SidebarRowSwipeGestureModel.Configuration.defaultMaxRevealDistance)
     }
 
     private var iconOpacity: Double {

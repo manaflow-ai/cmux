@@ -124,13 +124,9 @@ extension ControlCommandCoordinator {
                 code: "invalid_params",
                 message: "Missing or invalid action",
                 data: .object([
-                    "actions": .array([
-                        .string(ControlDebugSidebarSwipeAction.revealLeading.rawValue),
-                        .string(ControlDebugSidebarSwipeAction.revealTrailing.rawValue),
-                        .string(ControlDebugSidebarSwipeAction.commitLeading.rawValue),
-                        .string(ControlDebugSidebarSwipeAction.commitTrailing.rawValue),
-                        .string(ControlDebugSidebarSwipeAction.release.rawValue),
-                    ])
+                    "actions": .array(ControlDebugSidebarSwipeAction.allCases.map {
+                        .string($0.rawValue)
+                    })
                 ])
             )
         }

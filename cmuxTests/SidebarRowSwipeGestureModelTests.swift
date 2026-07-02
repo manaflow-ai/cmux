@@ -110,6 +110,50 @@ import Testing
         #expect(momentum.shouldAnimateOffset == false)
     }
 
+    @Test func phaselessWheelEventsAfterSwipeAreForwardedAndResetMomentumSuppression() {
+        var model = SidebarRowSwipeGestureModel()
+
+        _ = model.handle(.init(phase: .began, scrollingDeltaX: 0, scrollingDeltaY: 0))
+        _ = model.handle(.init(phase: .changed, scrollingDeltaX: 70, scrollingDeltaY: 2))
+        let release = model.handle(.init(phase: .ended, scrollingDeltaX: 0, scrollingDeltaY: 0))
+        let firstWheel = model.handle(.init(phase: .changed, scrollingDeltaX: 0, scrollingDeltaY: 18))
+        let secondWheel = model.handle(.init(phase: .changed, scrollingDeltaX: 0, scrollingDeltaY: 24))
+        _ = model.handle(.init(phase: .began, scrollingDeltaX: 0, scrollingDeltaY: 0))
+        let freshSwipe = model.handle(.init(phase: .changed, scrollingDeltaX: 18, scrollingDeltaY: 1))
+
+        #expect(release.claimed)
+        #expect(release.commit == .leading)
+        #expect(firstWheel.claimed == false)
+        #expect(firstWheel.offset == 0)
+        #expect(firstWheel.commit == nil)
+        #expect(secondWheel.claimed == false)
+        #expect(secondWheel.offset == 0)
+        #expect(secondWheel.commit == nil)
+        #expect(freshSwipe.claimed)
+        #expect(freshSwipe.offset == 18)
+    }
+
+    @Test func momentumEventsAfterSwipeRemainSuppressed() {
+        var model = SidebarRowSwipeGestureModel()
+
+        _ = model.handle(.init(phase: .began, scrollingDeltaX: 0, scrollingDeltaY: 0))
+        _ = model.handle(.init(phase: .changed, scrollingDeltaX: 70, scrollingDeltaY: 2))
+        let release = model.handle(.init(phase: .ended, scrollingDeltaX: 0, scrollingDeltaY: 0))
+        let firstMomentum = model.handle(.init(phase: .momentum, scrollingDeltaX: 80, scrollingDeltaY: 0))
+        let secondMomentum = model.handle(.init(phase: .momentum, scrollingDeltaX: 40, scrollingDeltaY: 0))
+
+        #expect(release.claimed)
+        #expect(release.commit == .leading)
+        #expect(firstMomentum.claimed)
+        #expect(firstMomentum.offset == 0)
+        #expect(firstMomentum.commit == nil)
+        #expect(firstMomentum.shouldAnimateOffset == false)
+        #expect(secondMomentum.claimed)
+        #expect(secondMomentum.offset == 0)
+        #expect(secondMomentum.commit == nil)
+        #expect(secondMomentum.shouldAnimateOffset == false)
+    }
+
     @Test func rubberBandDampingCapsOffsetGrowthBeyondMaxReveal() {
         let configuration = SidebarRowSwipeGestureModel.Configuration()
         var model = SidebarRowSwipeGestureModel(configuration: configuration)
