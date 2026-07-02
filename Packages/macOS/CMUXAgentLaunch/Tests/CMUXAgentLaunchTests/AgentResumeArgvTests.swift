@@ -148,6 +148,37 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Codex resume respects an explicit captured check_for_update_on_startup setting")
+    func codexResumeRespectsExplicitUpdateCheckSetting() {
+        // The codex sanitizer policy preserves `-c key=value` pairs, so a captured
+        // explicit setting must stay authoritative (no injected override) and a
+        // restore-of-a-restore must not stack duplicate overrides.
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["codex", "-c", "check_for_update_on_startup=true"]
+            ) == ["codex", "resume", "SID", "-c", "check_for_update_on_startup=true"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["codex", "-c", "check_for_update_on_startup=false"]
+            ) == ["codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
+        )
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codexTeams",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["cmux", "codex-teams", "-c", "check_for_update_on_startup=true"]
+            ) == .resolved(["cmux", "codex-teams", "resume", "SID", "-c", "check_for_update_on_startup=true"])
+        )
+    }
+
     @Test("cmux wrapper launchers resolve before per-kind verbs")
     func launcherWrappers() {
         #expect(
