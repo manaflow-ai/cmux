@@ -220,6 +220,50 @@ import Testing
         )
     }
 
+    @Test func splitTintPlanningUsesTrueBackgroundNotAlreadyTintedSource() throws {
+        // Regression for PR #6981 autoreview: the local split path must plan tints
+        // against the real terminal background, never a source pane's already-applied
+        // tint. `nextColor` blends its palette *into* `baseColor`, so the base choice
+        // changes every generated hex; feeding an already-tinted color drifts into
+        // tint-of-a-tint colors instead of cycling the intended true-base palette.
+        let trueBase = try #require(NSColor(hex: "#101010"))
+
+        // A first split tints the source with the first true-base palette color.
+        let sourceTint = try #require(
+            TerminalSplitPaneTintPlanner.nextColor(baseColor: trueBase, usedHexes: [])
+        )
+        let sourceHex = sourceTint.hexString()
+
+        // Correct (post-fix): the next split is planned against the TRUE base with the
+        // source tint only recorded in `usedHexes`, yielding a distinct, on-palette color.
+        let againstTrueBase = try #require(
+            TerminalSplitPaneTintPlanner.nextColor(baseColor: trueBase, usedHexes: [sourceHex])
+        )
+        // Wrong (pre-fix): planning against the already-tinted source color compounds
+        // the tint into an off-palette color.
+        let againstTintedSource = try #require(
+            TerminalSplitPaneTintPlanner.nextColor(baseColor: sourceTint, usedHexes: [sourceHex])
+        )
+
+        #expect(againstTrueBase.hexString() != sourceHex)
+        #expect(againstTintedSource.hexString() != sourceHex)
+        #expect(againstTrueBase.hexString() != againstTintedSource.hexString())
+
+        // The true-base result stays within the palette generated against the real
+        // background; the compounded tint-of-a-tint color does not.
+        var paletteUsedHexes = Set<String>()
+        var truePalette = Set<String>()
+        for _ in 0..<8 {
+            let color = try #require(
+                TerminalSplitPaneTintPlanner.nextColor(baseColor: trueBase, usedHexes: paletteUsedHexes)
+            )
+            truePalette.insert(color.hexString())
+            paletteUsedHexes.insert(color.hexString())
+        }
+        #expect(truePalette.contains(againstTrueBase.hexString()))
+        #expect(!truePalette.contains(againstTintedSource.hexString()))
+    }
+
     private func withIsolatedDefaults(_ body: (UserDefaults) throws -> Void) throws {
         let suiteName = "cmux.split-pane-tint.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

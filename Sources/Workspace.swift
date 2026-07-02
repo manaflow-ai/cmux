@@ -7243,8 +7243,15 @@ final class Workspace: Identifiable, ObservableObject {
     private func applyAutomaticSplitPaneTints(sourcePanelId: UUID, newPanel: TerminalPanel) {
         guard TerminalSplitPaneTintSettings().isEnabled(defaults: terminalSplitPaneTintDefaults) else { return }
         let sourcePanel = terminalPanel(for: sourcePanelId)
-        let baseColor = sourcePanel?.surface.paneBackgroundOverrideColor
-            ?? WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "splitPaneTint").backgroundColor
+        // Always plan tints against the real terminal background, never a pane's
+        // existing override. `TerminalSplitPaneTintPlanner` blends its palette
+        // *into* `baseColor`, so seeding it with an already-tinted source color
+        // would generate off-palette tint-of-a-tint colors and make repeated
+        // splits from a tinted pane drift/compound instead of cycling the distinct
+        // palette. Existing source/manual overrides stay represented in `usedHexes`
+        // (dedup) and `sourceNeedsTint` below, matching the remote-tmux mirror path
+        // (`RemoteTmuxWindowMirror.applyAutomaticPaneTints`).
+        let baseColor = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "splitPaneTint").backgroundColor
         let usedHexes = Set(
             panels.values.compactMap { panel -> String? in
                 guard let terminalPanel = panel as? TerminalPanel else { return nil }
