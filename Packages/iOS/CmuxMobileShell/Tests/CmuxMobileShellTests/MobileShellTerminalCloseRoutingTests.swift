@@ -69,9 +69,7 @@ import Testing
 
         #expect(await router.recordedTerminalCloses().count == 1)
         #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalA, terminalB])
-        // The optimistic neighbor selection ran; it stays valid after the
-        // rollback because the neighbor still exists.
-        #expect(store.selectedTerminalID == terminalB)
+        #expect(store.selectedTerminalID == terminalA)
     }
 
     /// Closing a workspace's only terminal is not offered by the sheet and the

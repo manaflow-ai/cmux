@@ -93,11 +93,10 @@ extension MobileShellComposite {
 
     /// Close a terminal surface on the Mac.
     ///
-    /// The row is removed optimistically: it disappears (and, when it was the
-    /// selected terminal, selection moves to its adjacent neighbor) before the
-    /// Mac responds. The authoritative workspace-list re-sync after the request
-    /// reconciles either way — a rejected close (for example the workspace's
-    /// last surface) restores the row.
+    /// Foreground Mac rows are removed optimistically: the row disappears (and,
+    /// when it was the selected terminal, selection moves to its adjacent
+    /// neighbor) before the Mac responds. The local snapshot rolls back on send
+    /// failure or if no authoritative foreground refresh reconciles the close.
     /// - Parameters:
     ///   - workspaceID: The workspace containing the terminal.
     ///   - terminalID: The terminal surface to close.
@@ -114,17 +113,47 @@ extension MobileShellComposite {
         // mutation that can only fail (the picker sheet also hides the delete
         // affordance at one row, this guards the API path).
         guard workspace.terminals.count > 1 else { return }
-        // Params resolve the owning Mac and window through the current
-        // `workspaces` rows, so build them before the optimistic removal.
         var params = workspaceMutationParams(id: workspaceID)
         params["surface_id"] = terminalID.rawValue
-        removeTerminalRowOptimistically(from: workspace, terminalID: terminalID)
-        await sendWorkspaceMutation(
-            method: "terminal.close",
-            params: params,
-            id: workspaceID,
-            actionName: "terminal_close"
-        )
+        let target = workspaceMutationTarget(for: workspaceID)
+        guard let client = target.client else {
+            await refreshAfterWorkspaceMutation(target)
+            return
+        }
+        let rollbackWorkspacesByMac = workspacesByMac
+        let rollbackSelectedTerminalID = selectedTerminalID
+        let canOptimisticallyRemove = target.isForeground
+        if canOptimisticallyRemove {
+            removeTerminalRowOptimistically(from: workspace, terminalID: terminalID)
+        }
+        let optimisticVersion = workspaceTopologyVersion
+        func rollbackOptimisticRemoval() {
+            guard canOptimisticallyRemove else { return }
+            workspacesByMac = rollbackWorkspacesByMac
+            selectedTerminalID = rollbackSelectedTerminalID
+        }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "terminal.close",
+                params: params
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else {
+                rollbackOptimisticRemoval()
+                return
+            }
+            if target.isForeground {
+                markMacConnectionUnavailableIfNeeded(after: error)
+            }
+            mobileShellLog.error("workspace mutation failed action=terminal_close id=\(workspaceID.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            rollbackOptimisticRemoval()
+            return
+        }
+        await refreshAfterWorkspaceMutation(target)
+        if canOptimisticallyRemove, workspaceTopologyVersion == optimisticVersion {
+            rollbackOptimisticRemoval()
+        }
     }
 
     /// Drop `terminalID`'s row from the per-Mac source of truth and, when it was
@@ -141,9 +170,7 @@ extension MobileShellComposite {
             let followers = workspace.terminals[(removedIndex + 1)...]
             let leaders = workspace.terminals[..<removedIndex].reversed()
             if let neighbor = followers.first ?? leaders.first {
-                // Chrome-initiated selection: the surface that comes up must not
-                // grab the keyboard, exactly like a picker tap.
-                selectTerminalFromChrome(neighbor.id)
+                selectedTerminalID = neighbor.id
             }
         }
         // Match by the Mac-local id (aggregation scopes the flat row ids, while
