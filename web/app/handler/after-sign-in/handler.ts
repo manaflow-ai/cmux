@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
+import {
+  RECENT_SIGN_IN_ACCOUNTS_MAX,
+  RECENT_SIGN_IN_ACCOUNTS_STORAGE_KEY,
+  type RememberedSignInAccountInput,
+} from "../sign-in/recent-accounts";
 
 const NATIVE_SCHEME = "cmux://";
 const NATIVE_SCHEMES = new Set(["cmux", "cmux-nightly"]);
@@ -31,6 +36,9 @@ type StackAuthSessionLike = {
 };
 
 type StackAuthUserLike = {
+  id?: string | null;
+  primaryEmail?: string | null;
+  displayName?: string | null;
   createSession: (options: { expiresInMillis: number }) => Promise<StackAuthSessionLike>;
 };
 
@@ -177,6 +185,58 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+function stackUserAccount(user: StackAuthUserLike | null): RememberedSignInAccountInput | null {
+  if (!user) return null;
+  const id = typeof user.id === "string" && user.id.trim() ? user.id.trim() : null;
+  const email = typeof user.primaryEmail === "string" && user.primaryEmail.trim()
+    ? user.primaryEmail.trim()
+    : null;
+  const name = typeof user.displayName === "string" && user.displayName.trim()
+    ? user.displayName.trim()
+    : null;
+  if (!id && !email) return null;
+  return { id, email, name };
+}
+
+function jsonForScript(value: unknown): string {
+  return JSON.stringify(value).replaceAll("<", "\\u003c");
+}
+
+function rememberAccountScript(account: RememberedSignInAccountInput | null): string {
+  if (!account) return "";
+  const accountJSON = jsonForScript(account);
+  const storageKey = jsonForScript(RECENT_SIGN_IN_ACCOUNTS_STORAGE_KEY);
+  return `  <script>
+    (() => {
+      try {
+        const account = ${accountJSON};
+        const key = ${storageKey};
+        const clean = (value) => typeof value === "string" && value.trim() ? value.trim() : null;
+        const email = clean(account.email)?.toLowerCase() ?? null;
+        const id = clean(account.id) ?? email;
+        if (!id) return;
+        const next = {
+          id,
+          email,
+          name: clean(account.name),
+          lastSeenAt: new Date().toISOString(),
+        };
+        const raw = window.localStorage.getItem(key);
+        const parsed = raw ? JSON.parse(raw) : [];
+        const current = Array.isArray(parsed) ? parsed : [];
+        const rest = current.filter((candidate) => {
+          if (!candidate || typeof candidate !== "object") return false;
+          if (candidate.id === next.id) return false;
+          if (next.email && typeof candidate.email === "string" && candidate.email.toLowerCase() === next.email) return false;
+          return typeof candidate.id === "string" && candidate.id.trim();
+        });
+        window.localStorage.setItem(key, JSON.stringify([next, ...rest].slice(0, ${RECENT_SIGN_IN_ACCOUNTS_MAX})));
+      } catch {}
+    })();
+  </script>
+`;
+}
+
 function preferredLocale(request: NextRequest): Locale {
   const accepted = request.headers.get("accept-language") ?? "";
   const requested = accepted
@@ -210,7 +270,8 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
 function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
-  autoOpen: boolean
+  autoOpen: boolean,
+  account: RememberedSignInAccountInput | null
 ): NextResponse {
   const { locale, messages } = localized;
   const escapedHref = escapeHtml(href);
@@ -221,6 +282,7 @@ function nativeReturnResponse(
   const autoOpenScript = autoOpen
     ? `  <script>\n    window.location.replace(${scriptHref});\n  </script>\n`
     : "";
+  const rememberedAccountScript = rememberAccountScript(account);
   const response = new NextResponse(
     `<!doctype html>
 <html lang="${escapeHtml(locale)}">
@@ -272,7 +334,7 @@ function nativeReturnResponse(
     <p>${escapedBody}</p>
     <a href="${escapedHref}">${escapedButton}</a>
   </main>
-${autoOpenScript}
+${rememberedAccountScript}${autoOpenScript}
 </body>
 </html>`,
     {
@@ -315,10 +377,12 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     let refreshToken = parsedAccess.refreshToken ?? parsedRefresh;
     let accessToken = parsedAccess.accessToken;
     let accessCookie = decodeCookieValue(rawAccessCookie);
+    let rememberedAccount: RememberedSignInAccountInput | null = null;
 
     try {
       const user = await authApp.getUser({ or: "return-null" });
       if (user) {
+        rememberedAccount = stackUserAccount(user);
         const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
         const tokens = await session.getTokens();
         if (tokens.refreshToken) refreshToken = tokens.refreshToken;
@@ -342,7 +406,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
         const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
         const autoOpen = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
         if (href) {
-          return nativeReturnResponse(href, localizedMessages, autoOpen);
+          return nativeReturnResponse(href, localizedMessages, autoOpen, rememberedAccount);
         }
       }
       return NextResponse.redirect(new URL("/", request.url));
@@ -355,7 +419,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
 
     if (refreshToken && accessCookie) {
       const fallback = buildNativeHref(null, refreshToken, accessCookie);
-      if (fallback) return nativeReturnResponse(fallback, localizedMessages, false);
+      if (fallback) return nativeReturnResponse(fallback, localizedMessages, false, rememberedAccount);
     }
 
     return NextResponse.redirect(new URL("/", request.url));

@@ -24,6 +24,7 @@ export function getStackServerApp(): StackServerApp<true> {
     secretServerKey,
     tokenStore: "nextjs-cookie",
     urls: {
+      signIn: "/handler/sign-in",
       afterSignIn: "/handler/after-sign-in",
       afterSignUp: "/handler/after-sign-in",
     },

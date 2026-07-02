@@ -49,7 +49,6 @@
     "taglinePrefix": "开源终端，专为 ",
     "typingCodingAgents": "编程 agent",
     "typingMultitasking": "多任务",
-    "subtitle": "基于 Ghostty 构建的免费开源原生 macOS 终端。支持垂直标签页、agent 需要关注时的通知环、分割面板，以及用于可编程性的 <cliLink>CLI</cliLink>。",
     "features": "功能特性",
     "faq": "常见问题",
     "communitySection": "社区",
@@ -1519,7 +1518,6 @@
   },
   "nightly": {
     "title": "cmux NIGHTLY",
-    "subtitle": "来自 main 分支的最新构建",
     "metaTitle": "cmux NIGHTLY — 每夜构建",
     "metaDescription": "下载 cmux NIGHTLY，从最新 main 提交自动构建的独立应用。与稳定版并行运行，拥有独立的自动更新。",
     "description": "cmux NIGHTLY 从 main 的最新提交自动构建。它拥有独立的 Bundle ID，因此可以与稳定版并行运行，互不冲突。用它来测试尚未发布的新功能。",
@@ -1595,6 +1593,18 @@
     "title": "已登录 cmux",
     "body": "如果 cmux 没有自动打开，请使用下面的按钮。",
     "button": "返回 cmux"
+  },
+  "signInChooser": {
+    "title": "登录 cmux",
+    "continueProduct": "选择一个账号继续。",
+    "continueAction": "继续",
+    "useAnotherAccount": "使用其他账号继续",
+    "loading": "正在打开登录...",
+    "signInFailed": "登录失败。请重试。",
+    "privacyPrefix": "继续即表示你同意 cmux 的",
+    "privacyPolicy": "隐私政策",
+    "privacyMiddle": "和",
+    "termsOfService": "服务条款"
   },
   "landing": {
     "bestTerminal": {

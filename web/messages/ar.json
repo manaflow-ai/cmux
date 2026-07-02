@@ -49,7 +49,6 @@
     "taglinePrefix": "الطرفية المصممة لـ",
     "typingCodingAgents": "وكلاء البرمجة",
     "typingMultitasking": "تعدد المهام",
-    "subtitle": "محطة طرفية أصلية لنظام macOS مجانية ومفتوحة المصدر مبنية على Ghostty. علامات تبويب عمودية، وحلقات إشعارات عندما يحتاج الوكلاء إلى الانتباه، وأجزاء مقسمة، و<cliLink>واجهة CLI</cliLink> للبرمجة.",
     "features": "الميزات",
     "faq": "الأسئلة الشائعة",
     "communitySection": "المجتمع",
@@ -1519,7 +1518,6 @@
   },
   "nightly": {
     "title": "cmux NIGHTLY",
-    "subtitle": "أحدث الإصدارات من الفرع الرئيسي",
     "metaTitle": "cmux NIGHTLY — إصدارات ليلية",
     "metaDescription": "حمّل cmux NIGHTLY، تطبيق مستقل يُبنى تلقائياً من أحدث commit على main. يعمل بجانب النسخة المستقرة مع تحديثات تلقائية خاصة به.",
     "description": "يُبنى cmux NIGHTLY تلقائياً من أحدث commit على main. يمتلك معرّف حزمة خاص به، لذا يعمل بجانب النسخة المستقرة دون تعارض. استخدمه لاختبار الميزات الجديدة قبل إصدارها.",
@@ -1595,6 +1593,18 @@
     "title": "تم تسجيل الدخول إلى cmux",
     "body": "إذا لم يفتح cmux تلقائيًا، استخدم الزر أدناه.",
     "button": "العودة إلى cmux"
+  },
+  "signInChooser": {
+    "title": "تسجيل الدخول إلى cmux",
+    "continueProduct": "اختر حسابًا للمتابعة.",
+    "continueAction": "متابعة",
+    "useAnotherAccount": "المتابعة بحساب آخر",
+    "loading": "جارٍ فتح تسجيل الدخول...",
+    "signInFailed": "فشل تسجيل الدخول. حاول مرة أخرى.",
+    "privacyPrefix": "بالمتابعة، فإنك توافق على",
+    "privacyPolicy": "سياسة الخصوصية",
+    "privacyMiddle": "و",
+    "termsOfService": "شروط الخدمة الخاصة بـ cmux"
   },
   "landing": {
     "bestTerminal": {

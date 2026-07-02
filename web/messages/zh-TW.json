@@ -49,7 +49,6 @@
     "taglinePrefix": "開源終端，專為 ",
     "typingCodingAgents": "程式 agent",
     "typingMultitasking": "多工處理",
-    "subtitle": "基於 Ghostty 構建的免費開源原生 macOS 終端。支援垂直分頁、代理需要注意時的通知環、分割窗格，以及用於可程式化的 <cliLink>CLI</cliLink>。",
     "features": "功能",
     "faq": "常見問題",
     "communitySection": "社群",
@@ -1519,7 +1518,6 @@
   },
   "nightly": {
     "title": "cmux NIGHTLY",
-    "subtitle": "來自 main 分支的最新建置",
     "metaTitle": "cmux NIGHTLY — 每夜建置",
     "metaDescription": "下載 cmux NIGHTLY，從最新 main 提交自動建置的獨立應用。與穩定版並行運行，擁有獨立的自動更新。",
     "description": "cmux NIGHTLY 從 main 的最新提交自動建置。它擁有獨立的 Bundle ID，因此可以與穩定版並行運行，互不衝突。用它來測試尚未發佈的新功能。",
@@ -1595,6 +1593,18 @@
     "title": "已登入 cmux",
     "body": "如果 cmux 沒有自動開啟，請使用下方按鈕。",
     "button": "返回 cmux"
+  },
+  "signInChooser": {
+    "title": "登入 cmux",
+    "continueProduct": "選擇一個帳號以繼續。",
+    "continueAction": "繼續",
+    "useAnotherAccount": "使用其他帳號繼續",
+    "loading": "正在開啟登入...",
+    "signInFailed": "登入失敗。請再試一次。",
+    "privacyPrefix": "繼續即表示你同意 cmux 的",
+    "privacyPolicy": "隱私權政策",
+    "privacyMiddle": "和",
+    "termsOfService": "服務條款"
   },
   "landing": {
     "bestTerminal": {

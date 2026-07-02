@@ -49,7 +49,6 @@
     "taglinePrefix": "Das Terminal für ",
     "typingCodingAgents": "Coding-Agenten",
     "typingMultitasking": "Multitasking",
-    "subtitle": "Kostenloser, quelloffener nativer macOS-Terminal auf Basis von Ghostty. Vertikale Tabs, Benachrichtigungsringe wenn Agenten Aufmerksamkeit benötigen, geteilte Bereiche und eine <cliLink>CLI</cliLink> für Programmierbarkeit.",
     "features": "Funktionen",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -1519,7 +1518,6 @@
   },
   "nightly": {
     "title": "cmux NIGHTLY",
-    "subtitle": "Aktuelle Builds vom main-Branch",
     "metaTitle": "cmux NIGHTLY — Nightly Builds",
     "metaDescription": "Laden Sie cmux NIGHTLY herunter, eine separate App, die automatisch aus dem neuesten main-Commit erstellt wird. Läuft neben der stabilen Version mit eigenen Auto-Updates.",
     "description": "cmux NIGHTLY wird automatisch aus dem neuesten Commit auf main erstellt. Es hat eine eigene Bundle-ID und läuft daher ohne Konflikte neben der stabilen Version. Damit können Sie neue Funktionen testen, bevor sie veröffentlicht werden.",
@@ -1595,6 +1593,18 @@
     "title": "Bei cmux angemeldet",
     "body": "Wenn cmux nicht automatisch geöffnet wurde, verwende die Schaltfläche unten.",
     "button": "Zurück zu cmux"
+  },
+  "signInChooser": {
+    "title": "Bei cmux anmelden",
+    "continueProduct": "Wähle ein Konto aus, um fortzufahren.",
+    "continueAction": "Weiter",
+    "useAnotherAccount": "Mit einem anderen Konto fortfahren",
+    "loading": "Anmeldung wird geöffnet...",
+    "signInFailed": "Anmeldung fehlgeschlagen. Versuche es erneut.",
+    "privacyPrefix": "Wenn du fortfährst, stimmst du den",
+    "privacyPolicy": "Datenschutzrichtlinie",
+    "privacyMiddle": "und die",
+    "termsOfService": "Nutzungsbedingungen lesen"
   },
   "landing": {
     "bestTerminal": {
