@@ -8,6 +8,7 @@ public extension MobileTerminalRenderGridFrame {
             columns: columns,
             rows: rows,
             stateSeq: stateSeq,
+            activeScreen: activeScreen,
             rowSignatures: rowSignatures()
         )
     }
@@ -31,11 +32,15 @@ public extension MobileTerminalRenderGridFrame {
             columns: columns,
             rows: rows,
             stateSeq: stateSeq,
+            activeScreen: activeScreen,
             rowSignatures: nextSignatures
         )
         guard let previous,
               previous.columns == columns,
               previous.rows == rows else {
+            return (self, nextState)
+        }
+        if previous.activeScreen != activeScreen {
             return (self, nextState)
         }
 

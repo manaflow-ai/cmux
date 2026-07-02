@@ -146,6 +146,57 @@ import Testing
 }
 
 @MainActor
+@Test func terminalViewportDropsOutputWhileResizeAcknowledgementIsInFlight() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "initial-viewport-replay", "resize-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
+
+    await router.holdViewportRequest(number: 2)
+    let resizeReport = Task {
+        await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
+    }
+    await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 2)
+
+    let staleAccepted = store.deliverTerminalBytes(
+        Data("stale-during-viewport-ack".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(!staleAccepted, "output must be dropped while a resize acknowledgement is in flight")
+    let replayBeforeAck = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!replayBeforeAck, "pre-ACK drops must wait for the effective grid before replaying")
+
+    await router.releaseAllHeld()
+    let resizedGrid = await resizeReport.value
+    #expect(resizedGrid?.rows == 30)
+    let replayAfterAck = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1
+    )
+    #expect(replayAfterAck, "the acknowledged resize must request replay")
+    let resizeReplayChunk = try #require(await iterator.next())
+    #expect(String(data: resizeReplayChunk.data, encoding: .utf8) == "resize-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: resizeReplayChunk.streamToken)
+}
+
+@MainActor
 @Test func terminalViewportIgnoresStaleResizeAcknowledgements() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()

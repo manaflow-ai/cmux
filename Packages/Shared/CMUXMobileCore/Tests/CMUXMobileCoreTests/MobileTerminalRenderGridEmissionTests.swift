@@ -54,6 +54,31 @@ import Testing
     #expect(emission.state == next.emissionState)
 }
 
+@Test func renderGridEmissionKeepsScreenSwitchSnapshotFull() throws {
+    let previous = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 52,
+        columns: 8,
+        rows: 2,
+        text: "shell"
+    ).emissionState
+    let next = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 53,
+        columns: 8,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "tui"),
+        ],
+        activeScreen: .alternate
+    )
+
+    let emission = try #require(try next.renderGridEmission(comparedTo: previous))
+
+    #expect(emission.frame.full)
+    #expect(emission.frame.activeScreen == .alternate)
+}
+
 @Test func renderGridEmissionKeepsNonOriginChangesAsDeltas() throws {
     let previous = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal-a",
