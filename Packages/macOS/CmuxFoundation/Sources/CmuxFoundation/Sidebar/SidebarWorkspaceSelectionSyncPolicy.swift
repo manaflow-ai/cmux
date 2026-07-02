@@ -77,30 +77,38 @@ public struct SidebarWorkspaceSelectionSyncPolicy {
     /// order, dropping rows the sidebar currently hides.
     ///
     /// The range endpoints are indices into `liveWorkspaceIds` (the full list),
-    /// but the sidebar can render only a subset: a tag filter shows just the
-    /// matching workspaces, and collapsed groups hide their non-anchor members.
-    /// A range between two *visible* rows therefore walks over hidden ids in
-    /// between, so they must be excluded — otherwise a Shift-click would select
-    /// (and sync into the multi-selection) workspaces the user cannot see.
+    /// but the sidebar renders only a subset, and its two hiding mechanisms are
+    /// *mutually exclusive*:
     ///
-    /// Pass `visibleWorkspaceIds == nil` when no tag filter is active to keep
-    /// every id in range; `hiddenWorkspaceIds` carries collapsed-group members
-    /// that stay hidden regardless of any filter. Order follows the live list.
+    ///  - When a tag filter is active (`tagFilterMatchingIds != nil`) the sidebar
+    ///    flattens groups and renders only the matching workspaces as flat rows.
+    ///    Collapse state is ignored, so a collapsed-group member that matches the
+    ///    filter is visible and must stay selectable — the range is clamped to
+    ///    `tagFilterMatchingIds` and `collapsedGroupHiddenIds` is disregarded.
+    ///  - With no filter (`tagFilterMatchingIds == nil`) groups render normally,
+    ///    so non-anchor members of collapsed groups (`collapsedGroupHiddenIds`)
+    ///    are hidden and dropped from the range.
+    ///
+    /// Deciding the mode here (rather than at the call site) keeps the
+    /// filter-vs-collapse resolution in one tested place. Order follows the live
+    /// list.
     public func shiftClickRangeWorkspaceIds(
         anchorIndex: Int,
         clickedIndex: Int,
         liveWorkspaceIds: [UUID],
-        visibleWorkspaceIds: Set<UUID>?,
-        hiddenWorkspaceIds: Set<UUID>
+        tagFilterMatchingIds: Set<UUID>?,
+        collapsedGroupHiddenIds: Set<UUID>
     ) -> [UUID] {
         let lower = min(anchorIndex, clickedIndex)
         let upper = max(anchorIndex, clickedIndex)
         guard lower >= 0, upper < liveWorkspaceIds.count else { return [] }
+        // A tag filter flattens groups, so collapse-hiding never applies under it.
+        let hiddenIds: Set<UUID> = tagFilterMatchingIds == nil ? collapsedGroupHiddenIds : []
         return liveWorkspaceIds[lower...upper].filter { id in
-            if let visibleWorkspaceIds, !visibleWorkspaceIds.contains(id) {
+            if let tagFilterMatchingIds, !tagFilterMatchingIds.contains(id) {
                 return false
             }
-            return !hiddenWorkspaceIds.contains(id)
+            return !hiddenIds.contains(id)
         }
     }
 

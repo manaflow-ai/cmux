@@ -4513,7 +4513,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// The dedup in `normalizedCustomTags`, the sidebar tag projection, and the
     /// Shift-click range clamp all fold through this one function so a tag
     /// filter and the selection it drives agree on what "matches".
-    static func customTagFoldingKey(_ tag: String) -> String {
+    ///
+    /// `nonisolated` because the sidebar's `WorkspaceTagProjection.key(for:)`
+    /// runs in a nonisolated context; the body is pure (`String.folding` plus
+    /// `Locale.current`) so it needs no main-actor state.
+    nonisolated static func customTagFoldingKey(_ tag: String) -> String {
         tag.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 

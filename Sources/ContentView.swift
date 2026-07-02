@@ -14959,10 +14959,29 @@ struct TabItemView: View, Equatable {
             : nil
 
         if isShift, let anchorIndex = shiftAnchorIndex {
-            // Rows hidden inside collapsed groups stay hidden regardless of any
-            // tag filter, so a Shift-click range must skip them (e.g. clicking a
-            // collapsed group's anchor then Shift-clicking a row below would
-            // otherwise sweep every collapsed child between them).
+            // A Shift-click range walks the full workspace order between the
+            // anchor and the click, but the sidebar hides rows in one of two
+            // mutually exclusive ways. Both raw sets are computed here and the
+            // policy decides which applies (a tag filter flattens groups, so
+            // collapse-hiding is disregarded under it):
+            //
+            //  - A tag filter flattens groups (`groupsById: [:]`) and renders
+            //    *only* matching workspaces as flat rows. Collapse state is
+            //    ignored, so a collapsed-group member that matches the filter is
+            //    visible and must stay selectable.
+            //  - With no filter, groups render normally and non-anchor members of
+            //    collapsed groups are hidden, so those ids are dropped from the
+            //    range (e.g. clicking a collapsed group's anchor then
+            //    Shift-clicking below must not sweep the hidden children between).
+            //
+            // The filter match uses the same folding key as the sidebar
+            // projection (`WorkspaceTagProjection.key(for:)`), so the matching
+            // set is exactly the rows the filter renders.
+            let tagFilterMatchingIds: Set<UUID>? = activeWorkspaceTagFilter.map { filterTag in
+                Set(tabManager.tabs.lazy
+                    .filter { Workspace.customTags($0.customTags, containMatchFor: filterTag) }
+                    .map(\.id))
+            }
             let collapsedGroupIds: Set<UUID> = Set(
                 tabManager.workspaceGroups
                     .filter { $0.isCollapsed }
@@ -14971,7 +14990,7 @@ struct TabItemView: View, Equatable {
             let anchorIdsByGroup: [UUID: UUID] = Dictionary(
                 uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
             )
-            let collapsedHiddenIds: Set<UUID> = Set(
+            let collapsedGroupHiddenIds: Set<UUID> = Set(
                 tabManager.tabs.compactMap { tab -> UUID? in
                     guard let gid = tab.groupId,
                           collapsedGroupIds.contains(gid),
@@ -14979,21 +14998,12 @@ struct TabItemView: View, Equatable {
                     return tab.id
                 }
             )
-            // When a tag filter is active the sidebar renders only matching
-            // workspaces; clamp the full-order range to that visible set so a
-            // Shift-click never selects a hidden, non-matching workspace (which
-            // would otherwise sync into the sidebar multi-selection).
-            let tagVisibleIds: Set<UUID>? = activeWorkspaceTagFilter.map { filterTag in
-                Set(tabManager.tabs.lazy
-                    .filter { Workspace.customTags($0.customTags, containMatchFor: filterTag) }
-                    .map(\.id))
-            }
             let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
                 anchorIndex: anchorIndex,
                 clickedIndex: index,
                 liveWorkspaceIds: workspaceIds,
-                visibleWorkspaceIds: tagVisibleIds,
-                hiddenWorkspaceIds: collapsedHiddenIds
+                tagFilterMatchingIds: tagFilterMatchingIds,
+                collapsedGroupHiddenIds: collapsedGroupHiddenIds
             )
             if isCommand {
                 selectedTabIds.formUnion(rangeIds)

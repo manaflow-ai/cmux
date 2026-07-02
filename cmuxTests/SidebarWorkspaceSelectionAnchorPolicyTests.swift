@@ -132,8 +132,31 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
             anchorIndex: 0,
             clickedIndex: 2,
             liveWorkspaceIds: [a, b, c],
-            visibleWorkspaceIds: [a, c],
-            hiddenWorkspaceIds: []
+            tagFilterMatchingIds: [a, c],
+            collapsedGroupHiddenIds: []
+        )
+
+        #expect(rangeIds == [a, c])
+    }
+
+    @MainActor
+    @Test
+    func shiftClickRangeKeepsFilterMatchingCollapsedGroupMembers() {
+        // A tag filter flattens groups, so a collapsed-group member that matches
+        // the filter is rendered as a flat row and must stay selectable. Even
+        // though C is also in `collapsedGroupHiddenIds`, the active filter means
+        // collapse-hiding is disregarded and the range is clamped only to the
+        // matching set — Shift-clicking A across to C selects [A, C].
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+
+        let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
+            anchorIndex: 0,
+            clickedIndex: 2,
+            liveWorkspaceIds: [a, b, c],
+            tagFilterMatchingIds: [a, c],
+            collapsedGroupHiddenIds: [c]
         )
 
         #expect(rangeIds == [a, c])
@@ -152,8 +175,8 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
             anchorIndex: 2,
             clickedIndex: 0,
             liveWorkspaceIds: [a, b, c],
-            visibleWorkspaceIds: nil,
-            hiddenWorkspaceIds: []
+            tagFilterMatchingIds: nil,
+            collapsedGroupHiddenIds: []
         )
 
         #expect(rangeIds == [a, b, c])
@@ -162,8 +185,8 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
     @MainActor
     @Test
     func shiftClickRangeExcludesCollapsedGroupHiddenWorkspaces() {
-        // Collapsed-group members stay hidden regardless of any tag filter, so
-        // they are dropped from the range even when no filter is active.
+        // With no tag filter, collapsed-group members are hidden and dropped
+        // from the range.
         let a = UUID()
         let hidden = UUID()
         let c = UUID()
@@ -172,8 +195,8 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
             anchorIndex: 0,
             clickedIndex: 2,
             liveWorkspaceIds: [a, hidden, c],
-            visibleWorkspaceIds: nil,
-            hiddenWorkspaceIds: [hidden]
+            tagFilterMatchingIds: nil,
+            collapsedGroupHiddenIds: [hidden]
         )
 
         #expect(rangeIds == [a, c])
@@ -189,8 +212,8 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
             anchorIndex: 0,
             clickedIndex: 5,
             liveWorkspaceIds: [a, b],
-            visibleWorkspaceIds: nil,
-            hiddenWorkspaceIds: []
+            tagFilterMatchingIds: nil,
+            collapsedGroupHiddenIds: []
         )
 
         #expect(rangeIds.isEmpty)
