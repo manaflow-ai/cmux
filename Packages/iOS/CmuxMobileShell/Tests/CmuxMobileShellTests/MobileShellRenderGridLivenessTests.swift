@@ -165,6 +165,62 @@ import Testing
 }
 
 @MainActor
+@Test func hybridPrimaryFullGridSuppressesSameSeqStaleReplay() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.holdNextReplayResponses()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(coldReplayRequested, "mounting a sink must request the cold replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 5,
+        text: "fresh-wide-grid",
+        columns: 16
+    ))
+    let advisoryProcessed = try await pollUntil {
+        collector.viewportPolicies.last == .natural
+    }
+    #expect(advisoryProcessed, "primary render-grid events are advisory in default hybrid mode")
+    #expect(
+        collector.lines.contains { $0.contains("fresh-wide-grid") } == false,
+        "the hybrid advisory path must not advance raw-byte delivery"
+    )
+
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 5,
+            columns: 4,
+            rows: 4,
+            full: true,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "old!"),
+            ]
+        ),
+    ])
+    await router.releaseAllHeld()
+
+    let staleDelivered = try await pollUntil(attempts: 60) {
+        collector.lines.contains { $0.contains("old!") }
+    }
+    #expect(
+        staleDelivered == false,
+        "a hybrid primary full-grid event must make an older same-seq cold replay stale even though raw bytes still own primary painting"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func renderGridReplayAtSameSeqStillAppliesAfterPartialLiveDelta() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
