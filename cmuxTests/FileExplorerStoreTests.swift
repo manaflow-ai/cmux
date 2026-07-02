@@ -1456,7 +1456,7 @@ struct ProcessSSHFileExplorerListingTests {
         // Without `|| exit 1` on the `find`, the failure is swallowed and the
         // script reaches the trailing `exit 0` with empty output — the regression.
         #expect(process.terminationStatus != 0)
-        #expect(String(decoding: data, as: UTF8.self).isEmpty)
+        #expect(data.isEmpty)
     }
 
     // MARK: POSIX shell bootstrap (login-shell independence, base64 dependency)
