@@ -210,10 +210,10 @@
 547	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
 546	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 544	cmuxUITests/DisplayResolutionRegressionUITests.swift
+540	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/TerminalSection.swift
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
-537	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/TerminalSection.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 534	Sources/TerminalController+ControlSurfaceContext2.swift
 532	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift

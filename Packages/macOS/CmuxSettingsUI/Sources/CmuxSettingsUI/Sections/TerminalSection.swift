@@ -182,7 +182,10 @@ public struct TerminalSection: View {
                 controlWidth: 220
             ) {
                 TextField(
-                    TerminalBadgeConfiguration.defaultTemplate,
+                    String(
+                        localized: "settings.terminal.badge.template.placeholder",
+                        defaultValue: "{workspace} · {tab}"
+                    ),
                     text: Binding(
                         get: { badgeTemplate.current },
                         set: { badgeTemplate.set($0) }

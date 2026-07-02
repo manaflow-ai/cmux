@@ -50,6 +50,19 @@ struct TerminalBadgeTests {
         #expect(config.resolvedText(workspace: "Repo", tab: "shell") == "Repo · shell")
     }
 
+    @Test func partialEmptyWorkspaceStripsDanglingSeparator() {
+        // Canvas / remote-tmux surfaces pass an empty workspace name; the default
+        // template must render just the tab title, not a dangling "· shell".
+        let config = TerminalBadgeConfiguration(template: "{workspace} · {tab}")
+        #expect(config.resolvedText(workspace: "", tab: "shell") == "shell")
+    }
+
+    @Test func partialEmptyTabStripsDanglingSeparator() {
+        // The inverse: an empty tab title must not leave a trailing "Repo ·".
+        let config = TerminalBadgeConfiguration(template: "{workspace} · {tab}")
+        #expect(config.resolvedText(workspace: "Repo", tab: "") == "Repo")
+    }
+
     @Test func literalOnlyTemplateAlwaysRenders() {
         let config = TerminalBadgeConfiguration(template: "session")
         #expect(config.resolvedText(workspace: "", tab: "") == "session")
