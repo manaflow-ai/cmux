@@ -61,6 +61,40 @@ final class RecordingCodexTeamsCmuxSocket: @unchecked Sendable {
         waitForCommand(matching: { $0.contains(needle) }, timeout: timeout)
     }
 
+    /// Wait until every `(method, needle)` condition has at least one matching
+    /// recorded command, or the single shared `timeout` elapses, then return
+    /// the per-condition satisfied flags evaluated against the final snapshot.
+    ///
+    /// Callers get one bounded wait for the whole set instead of summing
+    /// per-assertion timeouts. The app-host test harness kills the test host a
+    /// fixed number of seconds after the XCTest terminal summary, so a suite
+    /// whose sequential waits sum past that window is truncated before any
+    /// assertion records pass/fail. Matching all conditions under one deadline
+    /// keeps total wall-clock bounded by `timeout`: a fully-satisfied set
+    /// returns as soon as the last command lands, and an unsatisfied set
+    /// returns its flags at the deadline instead of once per missing command.
+    func waitForCommands(
+        matchingAll conditions: [(method: String, needle: String?)],
+        timeout: TimeInterval
+    ) -> [Bool] {
+        func evaluate() -> [Bool] {
+            let snapshot = commandSnapshot()
+            return conditions.map { condition in
+                snapshot.contains { line in
+                    Self.method(in: line) == condition.method
+                        && (condition.needle.map { line.contains($0) } ?? true)
+                }
+            }
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let flags = evaluate()
+            if flags.allSatisfy({ $0 }) { return flags }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        return evaluate()
+    }
+
     private func waitForCommand(matching predicate: (String) -> Bool, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {

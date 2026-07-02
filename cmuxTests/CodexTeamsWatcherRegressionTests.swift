@@ -55,26 +55,50 @@ final class CodexTeamsWatcherRegressionTests {
         process.standardError = stderrPipe
 
         try process.run()
-        // The watcher opens a real URLSessionWebSocketTask to the fake app server;
-        // its connection timeout is 10s and it retries every 1s. Wait well past
-        // that so a slow CI WebSocket connect still completes (and so a genuine
-        // connect failure surfaces in stderr) instead of being killed mid-handshake.
-        let openedSplit = cmuxSocket.waitForMethod("surface.split", timeout: 25)
-        // The late thread is announced by a bare-threadId notification right
-        // after the backfill reads, so its split needs only one more
-        // thread/read round-trip once the first split has opened. Assert the
-        // late thread is routed through surface.split specifically (its id rides
-        // in the split's startup_environment), not merely mentioned by some
-        // later command like the tab.action rename.
-        let openedLateSplit = cmuxSocket.waitForMethod(
-            "surface.split",
-            containing: "late-subagent-thread",
-            timeout: 10
+        // The watcher opens a real URLSessionWebSocketTask to the fake app
+        // server; a cold CI loopback URLSession connect can take ~17s on macOS
+        // 15. Wait for every expected split under ONE shared deadline instead of
+        // summing four sequential per-assertion timeouts. The app-host harness
+        // kills the test host ~45s after the XCTest terminal summary, so
+        // sequential waits that sum past that (25+10+10+10) get truncated before
+        // a single #expect records pass/fail — silently hiding both the RED
+        // failures here and any real regression. A single 30s budget stays
+        // inside the window whether the watcher connects slowly, fails the two
+        // RED assertions, or never connects at all: a fully-satisfied set
+        // returns as soon as the last split lands (GREEN exits in ~20s), while
+        // an unsatisfied set records its failures at ~30s, well under the kill.
+        //
+        // Each split is matched by method (surface.split) plus the thread id it
+        // carries in its startup_environment, so a thread counts only when it is
+        // actually routed through surface.split — not merely mentioned by some
+        // later command such as the tab.action rename.
+        //
+        // - late-subagent-thread: announced by a bare-threadId notification just
+        //   after the backfill reads; one extra thread/read once connected.
+        // - late-inflight-subagent-thread (Finding 1): announced by a bare
+        //   threadId delivered while a thread/read is in flight, so it lands on
+        //   that request's notification handler where re-entrant hydration is
+        //   disabled. The watcher must defer and drain it, not drop it.
+        // - reloaded-subagent-thread (Finding 2): its first read is still
+        //   not_loaded, so it must not be pinned as hydrated forever; when the
+        //   app-server re-announces it as loaded the watcher must re-read it.
+        let splitResults = cmuxSocket.waitForCommands(
+            matchingAll: [
+                (method: "surface.split", needle: nil),
+                (method: "surface.split", needle: "late-subagent-thread"),
+                (method: "surface.split", needle: "late-inflight-subagent-thread"),
+                (method: "surface.split", needle: "reloaded-subagent-thread")
+            ],
+            timeout: 30
         )
+        let openedSplit = splitResults[0]
+        let openedLateSplit = splitResults[1]
+        let openedInflightSplit = splitResults[2]
+        let openedReloadedSplit = splitResults[3]
         process.terminate()
         // Don't let a watcher that ignores SIGTERM hang the whole suite: bound the
         // graceful shutdown wait, then SIGKILL and reap so the test always exits.
-        let terminationDeadline = Date().addingTimeInterval(5)
+        let terminationDeadline = Date().addingTimeInterval(2)
         while process.isRunning && Date() < terminationDeadline {
             Thread.sleep(forTimeInterval: 0.02)
         }
@@ -92,6 +116,14 @@ final class CodexTeamsWatcherRegressionTests {
         #expect(
             openedLateSplit,
             "Expected codex-teams watcher to open a split for a late-spawned thread announced only by a bare threadId notification. stdout=\(stdout) stderr=\(stderr) appServerMethods=\(appServer.methodSnapshot()) cmuxCommands=\(cmuxSocket.commandSnapshot())"
+        )
+        #expect(
+            openedInflightSplit,
+            "Expected codex-teams watcher to open a split for a thread announced by a bare threadId notification delivered mid-thread/read. stdout=\(stdout) stderr=\(stderr) appServerMethods=\(appServer.methodSnapshot()) cmuxCommands=\(cmuxSocket.commandSnapshot())"
+        )
+        #expect(
+            openedReloadedSplit,
+            "Expected codex-teams watcher to re-read and open a split for a thread whose first read was not_loaded and was re-announced once loaded. stdout=\(stdout) stderr=\(stderr) appServerMethods=\(appServer.methodSnapshot()) cmuxCommands=\(cmuxSocket.commandSnapshot())"
         )
         #expect(!appServer.methodSnapshot().contains("thread/resume"))
     }
@@ -113,6 +145,7 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
     private let lock = NSLock()
     private var stopped = false
     private var methods: [String] = []
+    private var readCounts: [String: Int] = [:]
 
     init() throws {
         let listener = try Self.bindLoopbackTCP()
@@ -145,6 +178,14 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
         lock.lock()
         methods.append(method)
         lock.unlock()
+    }
+
+    private func recordRead(of threadId: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        let count = (readCounts[threadId] ?? 0) + 1
+        readCounts[threadId] = count
+        return count
     }
 
     private var isStopped: Bool {
@@ -195,24 +236,41 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
                 if method == "thread/resume" {
                     return
                 }
-                if let response = response(for: request, method: method) {
+                let params = request["params"] as? [String: Any]
+                let readThreadId = method == "thread/read" ? (params?["threadId"] as? String) : nil
+                let readCount = readThreadId.map { recordRead(of: $0) } ?? 0
+                if readThreadId == "subagent-thread" {
+                    // Finding 1: a thread announced by a bare-threadId status
+                    // notification delivered *before* the in-flight read's
+                    // response, so it lands on that request's notification
+                    // handler where re-entrant hydration is disabled. A watcher
+                    // that drops such notifications never opens its pane.
+                    sendBareThreadNotification("late-inflight-subagent-thread", to: clientFD)
+                }
+                if readThreadId == "reloaded-subagent-thread", readCount == 1 {
+                    // Finding 2 as the tightest race: the thread is still
+                    // `not_loaded` on this first read AND its "now loaded"
+                    // transition is re-announced *in flight* — before this read's
+                    // response — so the bare notification lands on this request's
+                    // own handler (re-entrant hydration disabled) and is deferred
+                    // onto the very drain that just read this id as not_loaded.
+                    // A watcher that reads each deferred id at most once per drain
+                    // drops that transition and never opens the pane; a correct
+                    // watcher retries the id within the same drain once the
+                    // not_loaded read forgets it.
+                    sendBareThreadNotification("reloaded-subagent-thread", to: clientFD)
+                }
+                if let response = response(for: request, method: method, readCount: readCount) {
                     sendText(response, to: clientFD)
                 }
-                if method == "thread/read",
-                   ((request["params"] as? [String: Any])?["threadId"] as? String) == "subagent-thread" {
+                if readThreadId == "subagent-thread" {
                     // Mirror current Codex app-servers: a thread spawned after
                     // the watcher connected is announced only by a bare-threadId
                     // status notification, never by a full thread object.
-                    sendText(
-                        [
-                            "method": "thread/status/changed",
-                            "params": [
-                                "threadId": "late-subagent-thread",
-                                "status": ["type": "active"]
-                            ]
-                        ],
-                        to: clientFD
-                    )
+                    sendBareThreadNotification("late-subagent-thread", to: clientFD)
+                    // Finding 2: a thread whose first read is still `not_loaded`.
+                    // The watcher must not pin it as hydrated forever.
+                    sendBareThreadNotification("reloaded-subagent-thread", to: clientFD)
                 }
             case 0x8:
                 return
@@ -224,7 +282,7 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
         }
     }
 
-    private func response(for request: [String: Any], method: String) -> [String: Any]? {
+    private func response(for request: [String: Any], method: String, readCount: Int) -> [String: Any]? {
         guard let id = request["id"] else { return nil }
         switch method {
         case "initialize":
@@ -245,7 +303,7 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
             return [
                 "id": id,
                 "result": [
-                    "thread": threadObject(id: threadID)
+                    "thread": threadObject(id: threadID, readCount: readCount)
                 ]
             ]
         default:
@@ -253,13 +311,21 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
         }
     }
 
-    private func threadObject(id: String) -> [String: Any] {
-        if id == "subagent-thread" || id == "late-subagent-thread" {
-            let nickname = id == "subagent-thread" ? "Zeno" : "Hopper"
+    private func threadObject(id: String, readCount: Int) -> [String: Any] {
+        let subagentNicknames = [
+            "subagent-thread": "Zeno",
+            "late-subagent-thread": "Hopper",
+            "late-inflight-subagent-thread": "Kepler",
+            "reloaded-subagent-thread": "Reloader"
+        ]
+        if let nickname = subagentNicknames[id] {
+            // The reloaded thread reports `not_loaded` on its first read and only
+            // becomes attachable once the app-server finishes loading it.
+            let statusType = (id == "reloaded-subagent-thread" && readCount <= 1) ? "not_loaded" : "idle"
             return [
                 "id": id,
                 "cwd": "/tmp",
-                "status": ["type": "idle"],
+                "status": ["type": statusType],
                 "agentNickname": nickname,
                 "source": [
                     "subAgent": [
@@ -336,6 +402,19 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
             }
         }
         return WebSocketFrame(opcode: opcode, payload: Data(payload))
+    }
+
+    private func sendBareThreadNotification(_ threadId: String, to fd: Int32) {
+        sendText(
+            [
+                "method": "thread/status/changed",
+                "params": [
+                    "threadId": threadId,
+                    "status": ["type": "active"]
+                ]
+            ],
+            to: fd
+        )
     }
 
     private func sendText(_ object: [String: Any], to fd: Int32) {
