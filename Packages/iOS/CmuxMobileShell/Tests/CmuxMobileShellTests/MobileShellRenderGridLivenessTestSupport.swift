@@ -77,6 +77,7 @@ actor LivenessHostRouter {
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
     private var replayTexts: [String] = []
+    private var replayRenderGridFrames: [MobileTerminalRenderGridFrame] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0
 
@@ -176,6 +177,13 @@ actor LivenessHostRouter {
 
     func enqueueReplayTexts(_ texts: [String]) {
         replayTexts.append(contentsOf: texts)
+    }
+
+    /// Queue full render-grid frames for upcoming `mobile.terminal.replay`
+    /// responses, modeling a host whose replay carries the preferred
+    /// render-grid payload (e.g. after the Mac re-applied a viewport cap).
+    func enqueueReplayRenderGridFrames(_ frames: [MobileTerminalRenderGridFrame]) {
+        replayRenderGridFrames.append(contentsOf: frames)
     }
 
     func failNextReplay(count: Int = 1) {
@@ -297,6 +305,21 @@ actor LivenessHostRouter {
             if emptyReplayResponsesRemaining > 0 {
                 emptyReplayResponsesRemaining -= 1
                 return try? Self.resultFrame(id: id, result: [:])
+            }
+            if !replayRenderGridFrames.isEmpty {
+                let frame = replayRenderGridFrames.removeFirst()
+                guard let renderGridObject = try? frame.jsonObject() else {
+                    Issue.record("enqueued replay render-grid frame failed to serialize")
+                    return try? Self.resultFrame(id: id, result: [:])
+                }
+                return try? Self.resultFrame(id: id, result: [
+                    "workspace_id": "live-workspace",
+                    "surface_id": frame.surfaceID,
+                    "seq": frame.stateSeq,
+                    "columns": frame.columns,
+                    "rows": frame.rows,
+                    "render_grid": renderGridObject,
+                ])
             }
             guard !replayTexts.isEmpty else {
                 return try? Self.resultFrame(id: id, result: [:])
