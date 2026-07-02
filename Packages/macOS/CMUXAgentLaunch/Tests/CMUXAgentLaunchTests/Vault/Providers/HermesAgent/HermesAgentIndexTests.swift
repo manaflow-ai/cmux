@@ -133,8 +133,8 @@ struct HermesAgentIndexTests {
         #expect(scoped.sessions.map(\.sessionId) == ["a-new", "a-old"])
     }
 
-    @Test("latestSessionID returns the newest session for a cwd and never another cwd's session")
-    func latestSessionIDReturnsNewestSessionScopedToCwd() throws {
+    @Test("latestSessionID binds each cwd to its own single active session")
+    func latestSessionIDScopesToOwnCwd() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
@@ -142,16 +142,38 @@ struct HermesAgentIndexTests {
 
         let repoA = try makeDirectory(root.appendingPathComponent("repo-a", isDirectory: true))
         let repoB = try makeDirectory(root.appendingPathComponent("repo-b", isDirectory: true))
+        // One active session per cwd; repo-b's is newer globally but must not leak into repo-a.
         try exec(dbURL, """
         INSERT INTO sessions (id, source, model, started_at, cwd)
         VALUES
-          ('a-old', 'cli', 'model-a', 10, '\(repoA)'),
-          ('a-new', 'tui', 'model-b', 50, '\(repoA)'),
-          ('b-newest-globally', 'cli', 'model-c', 999, '\(repoB)');
+          ('a-session', 'tui', 'model-a', 50, '\(repoA)'),
+          ('b-session', 'cli', 'model-b', 999, '\(repoB)');
         """)
 
-        #expect(HermesAgentIndex.latestSessionID(cwd: repoA, stateDBPath: dbURL.path) == "a-new")
-        #expect(HermesAgentIndex.latestSessionID(cwd: repoB, stateDBPath: dbURL.path) == "b-newest-globally")
+        #expect(HermesAgentIndex.latestSessionID(cwd: repoA, stateDBPath: dbURL.path) == "a-session")
+        #expect(HermesAgentIndex.latestSessionID(cwd: repoB, stateDBPath: dbURL.path) == "b-session")
+    }
+
+    @Test("latestSessionID returns nil when a cwd has multiple active sessions")
+    func latestSessionIDReturnsNilForAmbiguousCwd() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+        let repo = try makeDirectory(root.appendingPathComponent("repo", isDirectory: true))
+        // Two active sessions in one cwd (e.g. an external hermes beside a cmux pane) is ambiguous:
+        // there is no reliable way to know which the pane owns, so bind nothing.
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, ended_at, cwd)
+        VALUES
+          ('active-a', 'cli', 'm', 10, NULL, '\(repo)'),
+          ('active-b', 'tui', 'm', 50, NULL, '\(repo)');
+        """)
+        #expect(HermesAgentIndex.latestSessionID(cwd: repo, stateDBPath: dbURL.path) == nil)
+
+        // Ending one leaves a single active session, which resolves cleanly.
+        try exec(dbURL, "UPDATE sessions SET ended_at = 60 WHERE id = 'active-b';")
+        #expect(HermesAgentIndex.latestSessionID(cwd: repo, stateDBPath: dbURL.path) == "active-a")
     }
 
     @Test("latestSessionID never picks an ended session over a newer live one")
@@ -193,26 +215,26 @@ struct HermesAgentIndexTests {
         #expect(HermesAgentIndex.latestSessionID(cwd: repo, stateDBPath: dbURL.path) == "active-old")
     }
 
-    @Test("latestSessionID orders by session timestamps, not message recency (bounded restore path)")
-    func latestSessionIDOrdersBySessionTimestampsNotMessages() throws {
+    @Test("latestSessionID never consults the messages table (bounded restore path)")
+    func latestSessionIDIgnoresMessages() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
         try makeHermesStateDB(at: dbURL)
         let repo = try makeDirectory(root.appendingPathComponent("repo", isDirectory: true))
-        // 'older-started' carries a far newer message; 'newer-started' has none. The restore path
-        // orders by started/ended time (a fresh launch mints the newest row), never scanning
-        // messages, so 'newer-started' wins regardless of message recency.
+        // The sole active session has no messages; an ended session in the cwd carries a far newer
+        // message. Selection is purely session-based (single active row), so the message is never
+        // scanned and the active session is returned — keeping the restore path bounded.
         try exec(dbURL, """
-        INSERT INTO sessions (id, source, model, started_at, cwd)
+        INSERT INTO sessions (id, source, model, started_at, ended_at, cwd)
         VALUES
-          ('older-started', 'cli', 'm', 10, '\(repo)'),
-          ('newer-started', 'tui', 'm', 50, '\(repo)');
+          ('active-no-msgs', 'tui', 'm', 10, NULL, '\(repo)'),
+          ('ended-with-msg', 'cli', 'm', 100, 200, '\(repo)');
         INSERT INTO messages (session_id, role, content, timestamp)
-        VALUES ('older-started', 'user', 'recent activity', 9999);
+        VALUES ('ended-with-msg', 'user', 'recent activity', 9999);
         """)
 
-        #expect(HermesAgentIndex.latestSessionID(cwd: repo, stateDBPath: dbURL.path) == "newer-started")
+        #expect(HermesAgentIndex.latestSessionID(cwd: repo, stateDBPath: dbURL.path) == "active-no-msgs")
     }
 
     @Test("latestSessionID and cwd filter exclude gateway sources and NULL-cwd rows")

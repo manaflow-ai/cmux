@@ -50,7 +50,7 @@
 1944	Sources/RestorableAgentSession.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
-1818	cmuxTests/RestorableAgentSessionIndexTests.swift
+1821	cmuxTests/RestorableAgentSessionIndexTests.swift
 1810	Sources/SessionIndexStore.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
@@ -210,13 +210,13 @@
 553	Sources/RightSidebarPanelView.swift
 549	Sources/Panels/BrowserAutomation.swift
 547	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
+546	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Vault/Providers/HermesAgent/HermesAgentIndex.swift
 546	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 544	cmuxUITests/DisplayResolutionRegressionUITests.swift
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 537	Sources/TerminalController+ControlSurfaceContext2.swift
-536	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Vault/Providers/HermesAgent/HermesAgentIndex.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 535	Sources/App/WorkspaceRuntimeSettings.swift
 532	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift

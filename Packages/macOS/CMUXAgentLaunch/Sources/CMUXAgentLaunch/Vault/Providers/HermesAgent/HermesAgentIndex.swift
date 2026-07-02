@@ -170,12 +170,14 @@ public enum HermesAgentIndex {
     /// It considers only *active* sessions (`ended_at IS NULL`). Hermes writes `ended_at` only when a
     /// session terminates (and clears it on reopen), so this excludes conversations that have already
     /// ended — a live pane must never be bound to a completed session even if that session started
-    /// more recently. Among active sessions it takes the newest `started_at`: the only case that
-    /// reaches this fallback is a *fresh* launch (a pane resuming a specific session carries
-    /// `--resume <id>`, honoured by the scanner before this), whose just-minted row is the newest
-    /// active one for its cwd. If Hermes ever marked a live session ended, the worst case is a
-    /// recoverable miss (nil), never a wrong bind. Concurrent fresh panes in one cwd are rejected
-    /// upstream by the scanner's ambiguity guard.
+    /// more recently.
+    ///
+    /// It returns a session id **only when exactly one active session matches the cwd**. If two or more
+    /// active sessions share the cwd — a second cmux pane, an external terminal, or a stale never-ended
+    /// row — there is no reliable way to tell which one the scanned pane owns, so it returns `nil`
+    /// (`LIMIT 2` detects the ambiguity). A miss is recoverable; a wrong bind resumes the pane into the
+    /// wrong conversation. This is the source-of-truth ambiguity guard; the scanner's process-level
+    /// count is a complementary early check for concurrent cmux panes.
     private static func latestSessionID(
         db: OpaquePointer,
         cwdCandidates: [String]
@@ -188,8 +190,7 @@ public enum HermesAgentIndex {
             WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
               AND s.cwd IN (\(placeholders))
               AND s.ended_at IS NULL
-            ORDER BY s.started_at DESC, s.id DESC
-            LIMIT 1
+            LIMIT 2
             """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
@@ -207,9 +208,18 @@ public enum HermesAgentIndex {
             bindIndex += 1
         }
 
-        guard sqlite3_step(stmt) == SQLITE_ROW,
-              let sessionId = sqliteText(stmt, 0),
-              !sessionId.isEmpty else {
+        // Bind only when the cwd has a single active session; 2+ rows is ambiguous → nil.
+        var soleSessionID: String?
+        var activeRowCount = 0
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            activeRowCount += 1
+            if activeRowCount == 1 {
+                soleSessionID = sqliteText(stmt, 0)
+            } else {
+                break
+            }
+        }
+        guard activeRowCount == 1, let sessionId = soleSessionID, !sessionId.isEmpty else {
             return nil
         }
         return sessionId

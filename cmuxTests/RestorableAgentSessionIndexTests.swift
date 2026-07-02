@@ -996,8 +996,8 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
         try fm.createDirectory(at: repo, withIntermediateDirectories: true)
         let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        // A single active cli/tui session in the pane's cwd — the one the fresh launch minted.
         try Self.writeHermesStateDB(at: stateDB, rows: [
-            (id: "hermes-old", source: "cli", startedAt: 10, cwd: repo.path),
             (id: "hermes-current", source: "tui", startedAt: 40, cwd: repo.path),
         ])
 
@@ -1051,7 +1051,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         // Canonical .hermesAgent kind (not .custom("hermes-agent")), so a detected live process
         // reconciles with the native hermes hook-store records instead of dropping their lifecycle.
         XCTAssertEqual(detected.snapshot.kind, .hermesAgent)
-        // The newest cli/tui session for this cwd, read from state.db (not the older one).
+        // The sole active cli/tui session for this cwd, read from state.db.
         XCTAssertEqual(detected.snapshot.sessionId, "hermes-current")
 
         let command = try XCTUnwrap(detected.snapshot.resumeCommand)
@@ -1315,7 +1315,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertTrue(detectedSnapshots.isEmpty, "Symlink-equivalent same-cwd hermes panes must not bind")
     }
 
-    func testHermesExplicitAndFreshPaneInSameCwdBothBind() throws {
+    func testHermesExplicitPaneBindsWhileCoLocatedFreshPaneDefers() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-hermes-explicit-fresh-\(UUID().uuidString)", isDirectory: true)
@@ -1326,6 +1326,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
         try fm.createDirectory(at: repo, withIntermediateDirectories: true)
         let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        // Two active sessions share the cwd.
         try Self.writeHermesStateDB(at: stateDB, rows: [
             (id: "resumed-old", source: "tui", startedAt: 10, cwd: repo.path),
             (id: "fresh-new", source: "cli", startedAt: 100, cwd: repo.path),
@@ -1379,13 +1380,15 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             }
         )
 
-        // The explicit pane keeps its resumed id; the fresh pane binds to its own newest session.
-        // An explicit-resume neighbour must not make the fresh pane look ambiguous.
+        // The explicit pane binds to its argv id regardless of ambiguity. The fresh pane cannot: the
+        // cwd holds two active sessions, so latestSessionID returns nil and it records no binding —
+        // a recoverable miss beats resuming it onto the explicit pane's conversation.
         let byPanel = Dictionary(
             uniqueKeysWithValues: detectedSnapshots.map { ($0.key.panelId, $0.value.snapshot.sessionId) }
         )
         XCTAssertEqual(byPanel[explicitPanel], "resumed-old")
-        XCTAssertEqual(byPanel[freshPanel], "fresh-new")
+        XCTAssertNil(byPanel[freshPanel])
+        XCTAssertEqual(detectedSnapshots.count, 1)
     }
 
     func testUserConfiguredHermesAgentIsNotShadowedByBuiltIn() throws {
