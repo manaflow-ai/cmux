@@ -103,8 +103,8 @@ final class FileExplorerHeaderView: NSView {
         }
         sortButton.image = NSImage(systemSymbolName: "arrow.up.arrow.down", accessibilityDescription: nil)?
             .withSymbolConfiguration(config)
-        sortButton.toolTip = String(
-            format: String(localized: "fileExplorer.sort.tooltip", defaultValue: "Sort: %@, %@"),
+        sortButton.toolTip = String.localizedStringWithFormat(
+            String(localized: "fileExplorer.sort.tooltip", defaultValue: "Sort: %@, %@"),
             sortOptions.key.localizedTitle,
             sortOptions.order.localizedTitle
         )
