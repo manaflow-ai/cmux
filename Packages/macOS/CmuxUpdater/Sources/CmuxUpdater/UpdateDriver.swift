@@ -263,6 +263,16 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private func cancelPendingTransientErrorRetry() {
         transientErrorRetryTask?.cancel()
         transientErrorRetryTask = nil
+        // The guard preserves the escalating failure count across the *synchronous* internal restart
+        // teardown: on the plain-recheck path the controller calls `cancelActiveStateForNewCheck()`,
+        // which reruns this same closure via `state.cancel()` while `shouldPreserveRetryStateForNextCheck`
+        // is briefly set (from just before the delegate call until `beginChecking` consumes it). It does
+        // not swallow a user-initiated cancel: during the multi-second backoff sleep the flag is still
+        // false, so tapping Cancel then resets and idles here as usual. The flag's true-window never
+        // becomes a long uncancellable checking pill because at retry time Sparkle has already
+        // acknowledged/ended the failed session (see `showUpdaterError` → `acknowledgement()`) and the
+        // >=1s backoff has elapsed, so `checkForUpdatesWhenReady` sees `canCheckForUpdates == true` and
+        // starts the check immediately instead of parking in the readiness-wait loop.
         guard !shouldPreserveRetryStateForNextCheck else { return }
         transientErrorRetryFailureCount = 0
         if case .checking = model.state {
