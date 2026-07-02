@@ -3924,3 +3924,69 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
         XCTAssertTrue(destination.tabs.contains { $0.id == moving.id })
     }
 }
+
+@MainActor
+final class TabManagerBackgroundWorkspaceMountBoundTests: XCTestCase {
+    // Regression coverage for issue #7136: a burst of eagerly-loaded background
+    // workspaces (e.g. dozens of scripted or auto-resumed agent workspaces) must
+    // NOT all force-mount into the single main-window SwiftUI GraphHost. When they
+    // do, `GraphHost.flushTransactions()` performs O(number-of-hosted-panes) work
+    // every runloop tick and pins the main thread at 100%+ CPU. The mounted
+    // background-load set that inflates `reconcileMountedWorkspaceIds`' mount cap
+    // must therefore stay bounded to a small constant no matter how many
+    // workspaces request a background prime.
+    func testBackgroundWorkspaceMountsStayBoundedUnderEagerLoadBurst() {
+        let manager = TabManager()
+
+        let workspaceIds = (0..<50).map { _ in UUID() }
+        for id in workspaceIds {
+            manager.requestBackgroundWorkspaceLoad(for: id)
+            manager.retainBackgroundWorkspaceMount(for: id)
+        }
+
+        // 4 is a deliberately loose ceiling: it distinguishes a bounded mount set
+        // (a small constant) from the unbounded regression (== workspace count).
+        XCTAssertLessThanOrEqual(
+            manager.mountedBackgroundWorkspaceLoadIds.count,
+            4,
+            "Background-prime mounts must stay bounded regardless of how many " +
+            "workspaces are eagerly loaded, so the single main-window view graph " +
+            "never updates O(all panes) per frame (#7136)."
+        )
+    }
+
+    // The bound must be a *concurrency* limit with reusable slots, not a lifetime
+    // cap — otherwise background priming would stall permanently after the first
+    // few workspaces. Releasing a retained mount must free a slot for another.
+    func testBackgroundWorkspaceMountSlotIsReusableAfterRelease() {
+        let manager = TabManager()
+
+        let workspaceIds = (0..<10).map { _ in UUID() }
+        for id in workspaceIds {
+            manager.retainBackgroundWorkspaceMount(for: id)
+        }
+
+        let mountedAfterBurst = manager.mountedBackgroundWorkspaceLoadIds
+        XCTAssertLessThanOrEqual(mountedAfterBurst.count, 4)
+        XCTAssertFalse(mountedAfterBurst.isEmpty)
+
+        guard let releasedId = mountedAfterBurst.first,
+              let refusedId = workspaceIds.first(where: { !mountedAfterBurst.contains($0) }) else {
+            XCTFail("Expected at least one retained and one refused background mount")
+            return
+        }
+
+        manager.releaseBackgroundWorkspaceMount(for: releasedId)
+        manager.retainBackgroundWorkspaceMount(for: refusedId)
+
+        XCTAssertTrue(
+            manager.mountedBackgroundWorkspaceLoadIds.contains(refusedId),
+            "A freed background-mount slot must be reusable by another workspace (#7136)."
+        )
+        XCTAssertLessThanOrEqual(
+            manager.mountedBackgroundWorkspaceLoadIds.count,
+            4,
+            "The background-mount set must remain bounded after slot reuse (#7136)."
+        )
+    }
+}
