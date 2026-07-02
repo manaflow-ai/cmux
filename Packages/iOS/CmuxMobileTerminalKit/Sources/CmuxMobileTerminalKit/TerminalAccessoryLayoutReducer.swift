@@ -339,6 +339,18 @@ public struct TerminalAccessoryLayoutReducer<ID: Hashable & Sendable>: Sendable 
     /// Reducing the count preserves every action by merging overflow rows into
     /// the last retained row. Increasing the count appends empty rows.
     ///
+    /// Rows are numbered top-to-bottom: "Row 1"…"Row N" in the settings UI, and
+    /// in the toolbar "Row 1" renders at the top down to "Row N" nearest the
+    /// keyboard (the last row also carries the fixed HIDE/customize controls).
+    /// Growth deliberately appends the new empty rows *after* the existing ones
+    /// so each existing row keeps its number and position instead of being
+    /// renumbered/shifted on every count change; the added rows start empty and
+    /// the user fills them via the per-item "Move to Row" picker (`move(_:toRow:in:)`)
+    /// and within-row drag. Prepending/bottom-anchoring instead would push the
+    /// user's existing shortcuts to a higher-numbered row on every increase,
+    /// contradicting the stable "Row 1…N" numbering. This is intentional and
+    /// pinned by `TerminalAccessoryLayoutReducerTests`.
+    ///
     /// - Parameters:
     ///   - rowCount: The requested row count. Values below 1 are clamped to 1.
     ///   - layout: The current layout.
@@ -351,6 +363,8 @@ public struct TerminalAccessoryLayoutReducer<ID: Hashable & Sendable>: Sendable 
             let mergedTail = rows.dropFirst(desiredRowCount - 1).flatMap { $0 }
             rows = Array(keptPrefix) + [mergedTail]
         } else if rows.count < desiredRowCount {
+            // Append (not prepend) so existing rows keep their "Row 1…k" numbers;
+            // see the doc comment above for why growth is intentionally top-anchored.
             rows.append(contentsOf: Array(repeating: [], count: desiredRowCount - rows.count))
         }
         return Layout(rows: rows, enabled: layout.enabled)
