@@ -353,6 +353,27 @@ extension AppDelegate {
         return nil
     }
 
+    /// One-pass `tabId -> workspace title` index across every window context.
+    /// Notification lists call this once per render and look up each row's title
+    /// in O(1), instead of scanning the tab list per notification row, which was
+    /// O(notifications × tabs). Resolution mirrors `tabTitle(for:)`: window
+    /// contexts win, then the active `tabManager` covers any tab not yet present
+    /// in a context. See https://github.com/manaflow-ai/cmux/issues/5794.
+    func tabTitlesByTabId() -> [UUID: String] {
+        var titles: [UUID: String] = [:]
+        for context in mainWindowContexts.values {
+            for tab in context.tabManager.tabs where titles[tab.id] == nil {
+                titles[tab.id] = tab.title
+            }
+        }
+        if let activeTabs = tabManager?.tabs {
+            for tab in activeTabs where titles[tab.id] == nil {
+                titles[tab.id] = tab.title
+            }
+        }
+        return titles
+    }
+
     /// Returns the `TabManager` that owns `tabId`, if any.
     func tabManagerFor(tabId: UUID) -> TabManager? {
         if let manager = contextContainingTabId(tabId)?.tabManager {

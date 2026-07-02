@@ -684,6 +684,12 @@
           "default": true,
           "description": "Flash the focused pane when requested."
         },
+        "suppressOnlyFocusedSurface": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.suppressOnlyFocusedSurface",
+          "description": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
+        },
         "sound": {
           "type": "string",
           "enum": [
@@ -1158,6 +1164,12 @@
           "default": 300,
           "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
         },
+        "askWhereToSaveDownloads": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.browser.askWhereToSaveDownloads",
+          "description": "Show a save panel for browser downloads instead of saving directly to Downloads."
+        },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,
@@ -1376,6 +1388,7 @@
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
+              "newWorkspaceGroup",
               "groupSelectedWorkspaces",
               "toggleFocusedWorkspaceGroupCollapsed",
               "reopenClosedBrowserPanel",

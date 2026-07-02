@@ -296,39 +296,6 @@ struct OmnibarInlineCompletion: Equatable {
     }
 }
 
-private struct OmnibarAddressButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        OmnibarAddressButtonStyleBody(configuration: configuration)
-    }
-}
-
-private struct OmnibarAddressButtonStyleBody: View {
-    let configuration: OmnibarAddressButtonStyle.Configuration
-
-    @Environment(\.isEnabled) private var isEnabled
-    @State private var isHovered = false
-
-    private var backgroundOpacity: Double {
-        guard isEnabled else { return 0.0 }
-        if configuration.isPressed { return 0.16 }
-        if isHovered { return 0.08 }
-        return 0.0
-    }
-
-    var body: some View {
-        configuration.label
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.primary.opacity(backgroundOpacity))
-            )
-            .onHover { hovering in
-                isHovered = hovering
-            }
-            .animation(.easeOut(duration: 0.12), value: isHovered)
-            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
-    }
-}
-
 func resolvedBrowserChromeBackgroundColor(
     for colorScheme: ColorScheme,
     themeBackgroundColor: NSColor,
@@ -1373,16 +1340,22 @@ struct BrowserPanelView: View {
             }
             .safeHelp(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
 
-            if panel.isDownloading {
-                HStack(spacing: 4) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(String(localized: "browser.downloading", defaultValue: "Downloading..."))
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.leading, 6)
-                .safeHelp(String(localized: "browser.downloadInProgress", defaultValue: "Download in progress"))
+            BrowserPDFDocumentToolbarButtons(
+                panel: panel,
+                iconPointSize: chromeMetrics.navigationIconFontSize,
+                hitSize: addressBarButtonHitSize
+            )
+
+            if panel.isDownloading || !panel.recentDownloads.isEmpty {
+                BrowserDownloadsToolbarButton(
+                    downloads: panel.recentDownloads,
+                    isDownloading: panel.isDownloading,
+                    iconPointSize: chromeMetrics.navigationIconFontSize,
+                    hitSize: addressBarButtonHitSize,
+                    onOpen: { panel.openDownload($0) },
+                    onReveal: { panel.revealDownloadInFinder($0) },
+                    onClear: { panel.clearRecentDownloads() }
+                )
             }
         }
     }
@@ -4788,6 +4761,19 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 )
             }
 #endif
+            // #6250: AppKit invokes `performKeyEquivalent` across the entire
+            // window view hierarchy, so this coordinator runs even while web
+            // content (the WKWebView) — not the omnibar — owns first responder.
+            // In that state the omnibar field has no field editor, so `editor`
+            // is nil. Treating Return/Escape/arrows (and Ctrl+N/P, Shift+Delete)
+            // as omnibar input there makes an *unfocused* omnibar submit and
+            // hard-navigate the pane on a physical Enter that belongs to the
+            // page — a spurious reload that aborts in-flight `fetch`/XHR in SPAs.
+            // Only act on these keys while the field is actually being edited.
+            // This mirrors the `currentEditor()`-gated `insertNewline:` path in
+            // `control(_:textView:doCommandBy:)`, which only runs for the live
+            // field editor.
+            guard editor != nil else { return false }
             guard editor?.hasMarkedText() != true else { return false }
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags.intersection([.command, .control, .shift, .option, .function])

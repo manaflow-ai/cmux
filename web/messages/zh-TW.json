@@ -737,13 +737,13 @@
       "layoutItem1": "已釘選的頂層列（工作區與群組）。",
       "layoutItem2": "未釘選的頂層列（工作區與群組）。",
       "creatingTitle": "建立群組",
-      "creatingIntro": "可以透過兩種方式建立群組：鍵盤快速鍵或工作區右鍵選單。兩者都會在所選項目上方插入一個新的錨點工作區，並將所選工作區移入該群組。群組建立後，你可以從群組標題處管理它並向其中新增工作區（請參閱下方的「管理群組」）。",
-      "keyboardTitle": "透過鍵盤（{shortcut}）",
-      "keyboardDesc": "在側邊欄中選取兩個或更多工作區，然後按下 {shortcut}。一個全新的錨點工作區會插入在所選項目上方，且所有選取的工作區都會成為子項。群組會自動命名為 Group 1、Group 2 等等——你可以隨時透過標頭情境選單重新命名。",
+      "creatingIntro": "群組可從鍵盤快捷鍵或側邊欄內容選單建立。空白群組會插入新的錨點工作區作為群組標題。以選取項目建立的群組會把該錨點插入選取項目上方，並將選取的工作區移入群組。群組建立後，你可以從群組標題管理它並加入工作區（請見下方的管理群組）。",
+      "keyboardTitle": "從鍵盤快捷鍵",
+      "keyboardDesc": "按 ⌃⌘G 可建立新的空白工作區群組。在側邊欄選取兩個以上工作區，然後按 {shortcut} 將選取項目分組。兩種方式都會建立新的錨點工作區，並自動命名為 Group 1、Group 2 等等。可隨時從標題內容選單重新命名。",
       "keyboardNote": "{shortcut} 與 React Grab 的預設快捷鍵相衝突。群組處理常式只有在側邊欄明確多選至少兩個工作區時才會消耗此和弦，因此在單選以及瀏覽器或終端機情境中，React Grab 仍會觸發。如果你不希望兩者共用同一個按鍵，可以在「設定 → 鍵盤」中重新繫結。",
       "keyboardSingle": "單一分頁群組無法透過快捷鍵建立。請改用工作區右鍵選單中的 New Group from Workspace 項目來建立。",
       "contextMenuTitle": "透過工作區情境選單",
-      "contextMenuDesc": "在側邊欄中對任一工作區按右鍵並選擇 New Group from Workspace；當選取多個工作區時，則選擇 New Group from Selection。這會使用與快捷鍵相同的自動命名行為。",
+      "contextMenuDesc": "在側邊欄中的任何工作區按右鍵，選擇新增空白工作區群組、從工作區新增群組，或在選取多個工作區時選擇從選取項目新增群組。側邊欄清單下方的空白區域也提供新增空白工作區群組。這些路徑使用與快捷鍵相同的自動命名行為。",
       "managingTitle": "管理群組",
       "managingIntro": "群組建立後，可以透過其標題的右鍵選單以及標題上的 + 按鈕來管理群組並向其中新增工作區。這兩者都不會建立新群組。",
       "headerMenuTitle": "透過群組標頭情境選單",
@@ -819,6 +819,9 @@
           "scrollSpeed": "套用於終端機滾輪與觸控板捲動量的倍率。數值越大捲動越快，數值越小捲動越慢。",
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
           "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "啟用後，只有當通知橫幅的 Surface 正好是目前聚焦的 Surface 時，該橫幅才會自動撤回。對於目前可見 workspace 中未聚焦的 Surface 所投遞的橫幅，在你聚焦該 Surface（或點擊／關閉它）之前會持續顯示，而不會在 workspace 變為可見時被撤回。關閉則保留舊有的基於 workspace 可見性的撤回行為。"
         },
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
@@ -1072,7 +1075,8 @@
       "closeWorkspaceDesc": "關閉工作區。",
       "splitCommands": "分割指令",
       "newSplitDesc": "建立新的分割窗格。方向：left、right、up、down。",
-      "listSurfacesDesc": "列出目前工作區中的所有 surface。",
+      "listPanelsDesc": "列出目前工作區中的所有 surface。",
+      "listPaneSurfacesDesc": "列出目前聚焦窗格中的 surface。",
       "focusSurfaceDesc": "聚焦到指定的 surface。",
       "inputCommands": "輸入指令",
       "sendDesc": "向聚焦的終端機傳送文字輸入。",
