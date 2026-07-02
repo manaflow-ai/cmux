@@ -3250,8 +3250,10 @@ class TerminalController {
     /// auto-owned titles independently of that setting — except a
     /// `persist_after_exit` write also tagged `auto_derived` (a title newly
     /// derived from the agent transcript rather than one cmux already applied),
-    /// which still honors the opt-in. `panel_id` accepts either a panel UUID or
-    /// a surface UUID.
+    /// which still honors the opt-in. A `persist_after_exit` write may pass
+    /// `excluding_pid` (the exiting agent's pid); it is rejected when a
+    /// *different* live agent still owns the workspace. `panel_id` accepts
+    /// either a panel UUID or a surface UUID.
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
         let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
         if v2Bool(params, "probe") == true {
@@ -3281,6 +3283,12 @@ class TerminalController {
         // must still honor the opt-in even though the persist path otherwise
         // bypasses the setting to preserve already-applied titles.
         let autoDerived = v2Bool(params, "auto_derived") == true
+        // The exiting agent's own pid, so a `persist_after_exit` write can be
+        // rejected while a *different* live agent still owns the shared workspace
+        // title. The CLI-side guard only sees the exiting agent's own sessions;
+        // this covers the cross-agent split case. Sent as a string to avoid JSON
+        // number ambiguity.
+        let persistExcludingPid = v2String(params, "excluding_pid").flatMap { Int($0) }
         if clearAuto {
             guard let tabManager = v2ResolveTabManager(params: params) else {
                 return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -3341,9 +3349,24 @@ class TerminalController {
         var found = false
         var workspaceApplied = false
         var panelApplied: Bool?
+        var skippedForLiveAgent = false
         v2MainSync {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             found = true
+            // Don't let an exiting agent stamp its title over the shared workspace
+            // while a *different* agent is still live in it. The exiting agent's own
+            // pid is excluded (its process can still be briefly alive while the
+            // SessionEnd hook runs); same-agent siblings are already guarded
+            // CLI-side. Only applies to persist-after-exit writes.
+            if persistAfterExit, let persistExcludingPid,
+               workspace.agentPIDs.contains(where: { entry in
+                   entry.value > 0
+                       && Int(entry.value) != persistExcludingPid
+                       && (kill(entry.value, 0) == 0 || errno == EPERM)
+               }) {
+                skippedForLiveAgent = true
+                return
+            }
             workspaceApplied = tabManager.setCustomTitle(tabId: workspaceId, title: title, source: .auto)
             if let panelId {
                 // Hook payloads carry surface ids; accept either a panel id
@@ -3376,6 +3399,7 @@ class TerminalController {
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
             "title": title,
             "workspace_applied": workspaceApplied,
+            "workspace_owned_by_live_agent": skippedForLiveAgent,
             "panel_applied": v2OrNull(panelApplied),
             "persist_after_exit": persistAfterExit,
             "enabled": enabled

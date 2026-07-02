@@ -138,10 +138,17 @@ extension CMUXCLI {
     /// is tagged `auto_derived` and the app rejects it when auto-naming is
     /// disabled; a title cmux already applied is only preserved and persists
     /// regardless of the setting.
+    ///
+    /// This CLI store only tracks the exiting agent's own sessions, so it cannot
+    /// see a live session from a *different* agent (each agent keeps its own hook
+    /// store) sharing the workspace. `excludingPid` carries the exiting agent's
+    /// process id so the app can additionally reject the persist when another
+    /// agent's process still owns the shared workspace title.
     func persistAgentSessionTitleAfterExit(
         _ exitTitle: AgentSessionExitTitle?,
         workspaceId: String,
         excludingSessionId: String,
+        excludingPid: Int?,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
         telemetryKey: String,
@@ -163,6 +170,9 @@ extension CMUXCLI {
         ]
         if exitTitle.derivedFromTranscript {
             params["auto_derived"] = true
+        }
+        if let excludingPid {
+            params["excluding_pid"] = String(excludingPid)
         }
         guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: params) else {
             telemetry.breadcrumb("\(telemetryKey).persist-title.socket-failed")
