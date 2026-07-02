@@ -504,6 +504,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
+    /// Self-heal decision logic for a refused control-socket listener (#6406).
+    private let socketListenerActivationRecoveryPolicy = SocketListenerActivationRecoveryPolicy()
+    /// Last completed activation readiness check, used to throttle the ping probe (#6406).
+    private var lastSocketListenerActivationCheck: Date?
+    /// True while an activation readiness probe is in flight, so checks never overlap (#6406).
+    private var socketListenerActivationCheckInFlight = false
+    /// Dedicated owner for the blocking control-socket `ping` probe, so it runs on
+    /// a real background thread instead of occupying a Swift-concurrency cooperative
+    /// thread; the in-flight guard above serializes lifecycle (#6406).
+    private let socketListenerHealQueue = DispatchQueue(
+        label: "com.cmux.socket-listener-heal", qos: .utility
+    )
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
@@ -1814,6 +1826,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
 
+        healControlSocketListenerOnActivationIfNeeded()
+
         guard let notificationStore else { return }
         notificationStore.handleApplicationDidBecomeActive()
         guard let tabManager else { return }
@@ -2961,8 +2975,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let pingResponse = health.isHealthy
                 ? socketTransport.probeCommand("ping", at: expectedPath, timeout: 1.0)
                 : nil
-            let isReady = health.isHealthy && pingResponse == "PONG"
-            if isReady {
+            // Same readiness decision the production activation self-heal uses
+            // (https://github.com/manaflow-ai/cmux/issues/6406).
+            let shouldRebind = self.socketListenerActivationRecoveryPolicy.shouldRebindListener(
+                health: health,
+                pingResponse: pingResponse
+            )
+            if !shouldRebind {
                 self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityReady")
                 return
             }
@@ -3925,6 +3944,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TerminalController.shared.reserveStartupSocketPath(startupPath)
     }
 
+    /// Redacts a socket path for telemetry. The raw control-socket path embeds
+    /// the local username/home directory, so every breadcrumb carries only
+    /// whether a path is configured — never the path itself. One shared
+    /// redaction for all socket lifecycle/heal breadcrumbs (issue #6406 review).
+    private static func redactedSocketPathForTelemetry(_ path: String) -> String {
+        path.isEmpty ? "empty" : "configured"
+    }
+
     private func startSocketListenerIfEnabled(tabManager: TabManager, source: String) {
         guard let config = socketListenerConfigurationIfEnabled() else {
             TerminalController.shared.stop()
@@ -3933,7 +3960,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let path = TerminalController.shared.activeSocketPath(preferredPath: config.path)
         sentryBreadcrumb("socket.listener.start", category: "socket", data: [
             "mode": config.mode.rawValue,
-            "path": path,
+            "path": Self.redactedSocketPathForTelemetry(path),
             "source": source
         ])
         TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
@@ -3951,7 +3978,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         sentryBreadcrumb("socket.listener.ensure", category: "socket", data: [
             "mode": config.mode.rawValue,
-            "path": path,
+            "path": Self.redactedSocketPathForTelemetry(path),
             "source": source,
             "failureSignals": health.failureSignals.joined(separator: ",")
         ])
@@ -3966,11 +3993,135 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
         sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
             "mode": config.mode.rawValue,
-            "path": restartPath,
+            "path": Self.redactedSocketPathForTelemetry(restartPath),
             "source": source
         ])
         TerminalController.shared.stop()
         TerminalController.shared.start(tabManager: manager, socketPath: restartPath, accessMode: config.mode)
+    }
+
+    /// Self-heals a refused control-socket listener on reactivation, so a dead
+    /// socket (issue #6406, errno 61) recovers without an app restart. The
+    /// authoritative `ping` probe blocks, so it runs off the main actor and
+    /// only a confirmed-not-serving listener is rebound. The throttle window is
+    /// stamped when the probe *resolves* (not when it is dispatched) and an
+    /// in-flight guard keeps probes from overlapping. See
+    /// ``SocketListenerActivationRecoveryPolicy`` for the decision logic.
+    private func healControlSocketListenerOnActivationIfNeeded() {
+        guard !socketListenerActivationCheckInFlight,
+              tabManager != nil,
+              let config = socketListenerConfigurationIfEnabled() else { return }
+
+        let secondsSinceLastCheck = lastSocketListenerActivationCheck.map { Date().timeIntervalSince($0) }
+        guard socketListenerActivationRecoveryPolicy.shouldRunReadinessCheck(
+            secondsSinceLastCheck: secondsSinceLastCheck
+        ) else { return }
+        socketListenerActivationCheckInFlight = true
+
+        let controller = TerminalController.shared
+        let transport = socketTransport
+        let policy = socketListenerActivationRecoveryPolicy
+        let preferredPath = config.path
+        // Run the blocking `ping` probe on the dedicated utility queue (a real
+        // background thread), then hop back to the main actor to finish. The
+        // in-flight guard set above is the lifecycle owner: it is cleared in the
+        // completion, so at most one probe is ever outstanding.
+        socketListenerHealQueue.async { [weak self] in
+            // Capture the authoritative accept-loop generation alongside the
+            // probe so it names the exact listener whose health/ping we read.
+            // The completion re-checks it on the main actor: if any recovery
+            // path (host restart, path-monitor rearm, accept-source rebind)
+            // replaced the listener meanwhile, the generation moves and the
+            // rebind decision is dropped instead of tearing down the fresh
+            // listener (#6406 review, activation/wake race).
+            let capturedGeneration = controller.activeListenerGeneration
+            let path = controller.activeSocketPath(preferredPath: preferredPath)
+            let health = controller.socketListenerHealth(expectedSocketPath: path)
+            let pingResponse = health.isHealthy
+                ? transport.probeCommand("ping", at: path, timeout: 1.0)
+                : nil
+            let shouldRebind = policy.shouldRebindListener(health: health, pingResponse: pingResponse)
+            Task { @MainActor in
+                self?.finishSocketListenerActivationCheck(
+                    shouldRebind: shouldRebind,
+                    capturedGeneration: capturedGeneration,
+                    path: path,
+                    health: health,
+                    pingResponse: pingResponse
+                )
+            }
+        }
+    }
+
+    /// Main-actor completion of the activation readiness check: clears the
+    /// in-flight guard, opens the next throttle window now that the probe has
+    /// resolved, and rebinds through the shared restart path when the listener
+    /// is confirmed not serving.
+    @MainActor
+    private func finishSocketListenerActivationCheck(
+        shouldRebind: Bool,
+        capturedGeneration: UInt64,
+        path: String,
+        health: SocketListenerHealth,
+        pingResponse: String?
+    ) {
+        socketListenerActivationCheckInFlight = false
+        lastSocketListenerActivationCheck = Date()
+        guard shouldRebind else { return }
+        // Three conditions must all hold before rebinding. First, if any recovery
+        // path replaced the listener while our background ping was in flight, the
+        // probed listener no longer exists and the decision is stale — the
+        // authoritative accept-loop generation moves on every (re)start, host-
+        // driven or the listener's own path-monitor / accept-source recovery.
+        // Second, if the accept loop's own recovery is mid-backoff (a parked
+        // rearm or a suspended accept source) the generation has *not* moved but
+        // the server will restore the listener on its own; rebinding now would
+        // cancel that scheduled recovery and reset the accept-failure streak,
+        // defeating the backoff under sustained resource pressure. Third, if the
+        // app is tearing down (quit or updater relaunch) the termination path is
+        // stopping the listener on purpose and reset the generation to 0; a probe
+        // that captured 0 would see 0 == 0, pass the currency check, and resurrect
+        // the socket after teardown — so bail while terminating. Any of the three:
+        // skip and let the next activation re-evaluate (#6406 review,
+        // activation/wake race + backoff preservation + teardown race).
+        let currentGeneration = TerminalController.shared.activeListenerGeneration
+        let serverRecoveryPending = TerminalController.shared.hasPendingAcceptRecovery
+        let isTerminating = isTerminatingApp
+        guard socketListenerActivationRecoveryPolicy.rebindShouldProceed(
+            capturedGeneration: capturedGeneration,
+            currentGeneration: currentGeneration,
+            serverRecoveryPending: serverRecoveryPending,
+            isTerminating: isTerminating
+        ) else {
+            let skipReason: String
+            if isTerminating {
+                skipReason = "app_terminating"
+            } else if socketListenerActivationRecoveryPolicy.rebindDecisionIsCurrent(
+                capturedGeneration: capturedGeneration,
+                currentGeneration: currentGeneration
+            ) {
+                skipReason = "recovery_pending"
+            } else {
+                skipReason = "listener_restarted_during_probe"
+            }
+            sentryBreadcrumb("socket.listener.heal.skipped", category: "socket", data: [
+                "source": "app.didBecomeActive",
+                "reason": skipReason
+            ])
+            return
+        }
+        // Never log the raw socket path or probe response: the path embeds the
+        // local username/home dir and the response is socket-controlled text.
+        // Emit only bounded classifications and a byte count (issue #6406 review).
+        sentryBreadcrumb("socket.listener.heal", category: "socket", data: [
+            "source": "app.didBecomeActive",
+            "socketPath": Self.redactedSocketPathForTelemetry(path),
+            "failureSignals": health.failureSignals.joined(separator: ","),
+            "pingResponseKind": SocketListenerActivationRecoveryPolicy
+                .pingResponseKind(pingResponse).rawValue,
+            "pingResponseBytes": pingResponse?.utf8.count ?? 0
+        ])
+        restartSocketListenerIfEnabled(source: "app.didBecomeActive")
     }
 
     private func disableSuddenTerminationIfNeeded() {

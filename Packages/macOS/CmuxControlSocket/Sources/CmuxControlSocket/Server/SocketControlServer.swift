@@ -85,6 +85,7 @@ public final class SocketControlServer {
         let acceptLoopAlive: Bool
         let activeGeneration: UInt64
         let pendingRearmGeneration: UInt64?
+        let listenerReadSourceSuspended: Bool
         let reservedStartupSocketPath: String?
         let listenerStartInProgress: Bool
         let socketPathLockHeld: Bool
@@ -196,6 +197,7 @@ public final class SocketControlServer {
             acceptLoopAlive: state.acceptLoopAlive,
             activeGeneration: state.activeAcceptLoopGeneration,
             pendingRearmGeneration: state.pendingAcceptLoopRearmGeneration,
+            listenerReadSourceSuspended: state.listenerReadSourceSuspended,
             reservedStartupSocketPath: state.reservedStartupSocketPath,
             listenerStartInProgress: state.listenerStartInProgress,
             socketPathLockHeld: state.socketPathLockFD >= 0,
@@ -219,6 +221,69 @@ public final class SocketControlServer {
     /// The listener's current socket path, regardless of lifecycle phase.
     public nonisolated var currentSocketPath: String {
         listenerStateSnapshot().socketPath
+    }
+
+    /// The active accept-loop generation: a monotonic id stamped on every
+    /// listener (re)start and reset to `0` on stop.
+    ///
+    /// Every restart routes through the same startup that bumps this — the
+    /// host-driven start/stop, the path monitor's rearm, and the accept
+    /// source's recovery rebind alike — so it is the authoritative signal
+    /// that "the listener a caller last observed has since been replaced."
+    /// A blocking readiness probe captures this before it runs and re-reads
+    /// it afterward; a change means the probed listener is gone and any
+    /// rebind decision derived from that probe is stale, so acting on it
+    /// would tear down a freshly recovered listener and drop its clients
+    /// (https://github.com/manaflow-ai/cmux/issues/6406, activation/wake
+    /// race). See ``SocketListenerActivationRecoveryPolicy/rebindDecisionIsCurrent(capturedGeneration:currentGeneration:)``.
+    public nonisolated var activeListenerGeneration: UInt64 {
+        listenerStateSnapshot().activeGeneration
+    }
+
+    /// Whether the accept loop's own recovery is mid-backoff and will bring the
+    /// listener back on its own.
+    ///
+    /// On an accept failure the server backs off deliberately rather than
+    /// spinning: a fatal errno or a persistent failure streak parks a delayed
+    /// rearm (`pendingRearmGeneration`, with the listener torn down until it
+    /// fires), and a milder failure suspends the accept source for a resume
+    /// backoff (`listenerReadSourceSuspended`). Both windows leave the
+    /// accept-loop generation unchanged, and both make the listener look exactly
+    /// like the refused socket the activation heal targets — down flags during a
+    /// rearm, a live socket that stops answering `ping` during a suspend. Healing
+    /// then would restart over the scheduled recovery and reset the failure
+    /// streak, defeating the backoff under sustained resource pressure (e.g.
+    /// `EMFILE`).
+    ///
+    /// Those two flags are published from the main actor, but the failure is
+    /// detected on the accept queue, which latches an in-flight recovery hop
+    /// (`AcceptRecoveryState.recoveryHopInFlight`) *before* dispatching the
+    /// main-actor task that sets them. That leading edge is a third pending
+    /// window — recovery is committed but not yet reflected in the listener
+    /// snapshot — so it must count too, or an activation landing in it would
+    /// restart over the scheduled backoff and reset the accept-failure streak.
+    /// The latch is honored only for the live generation: a hop keyed to a
+    /// superseded generation is a stale drain from a listener that has since
+    /// been replaced, and must not block the heal.
+    ///
+    /// The activation heal exists only for the case where *nothing* re-arms
+    /// recovery (#6406), so it must stand down whenever this reports the server
+    /// is already recovering. See
+    /// ``SocketListenerActivationRecoveryPolicy/rebindShouldProceed(capturedGeneration:currentGeneration:serverRecoveryPending:isTerminating:)``.
+    public nonisolated var hasPendingAcceptRecovery: Bool {
+        let snapshot = listenerStateSnapshot()
+        if snapshot.pendingRearmGeneration != nil || snapshot.listenerReadSourceSuspended {
+            return true
+        }
+        // Leading edge: the accept queue latches the in-flight recovery hop
+        // before the main-actor task publishes the rearm/suspend flags above.
+        // Honor it only for the live generation — a latch from a superseded
+        // generation is a stale drain, not a pending recovery. Sequential,
+        // non-nested lock read: `listenerStateSnapshot()` releases the state
+        // mirror before this acquires the recovery lock, so no lock-order cycle.
+        return acceptRecovery.withLock { recovery in
+            recovery.recoveryHopInFlight && recovery.generation == snapshot.activeGeneration
+        }
     }
 
     /// The socket path remote-session restore should reconnect through, or
