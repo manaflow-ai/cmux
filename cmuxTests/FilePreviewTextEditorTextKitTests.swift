@@ -76,6 +76,28 @@ struct FilePreviewTextEditorTextKitTests {
         #expect(textView.selectedRange().location == (content as NSString).range(of: "needle").location)
     }
 
+    @Test("line scan counts a CRLF line ending as a single line break")
+    func textLocationCountsCRLFAsSingleLineBreak() {
+        // `\r\n` is one Swift `Character` (grapheme cluster) whose `isNewline` is true
+        // exactly once, so a CRLF line ending must advance the line counter once, not
+        // twice. If it were miscounted as two breaks, line 3 would resolve into
+        // "second" and the offset would be wrong. Pure-function regression guard for
+        // the file-preview line counter, independent of NSTextView line-ending handling.
+        let crlf = "first\r\nsecond\r\nabcd needle"
+        #expect(
+            FilePreviewPanel.textLocation(lineNumber: 3, columnNumber: 6, in: crlf)
+                == (crlf as NSString).range(of: "needle").location
+        )
+
+        // The same document with LF endings resolves through the identical code path,
+        // confirming there is no CRLF-specific branch — only the grapheme-cluster step.
+        let lf = "first\nsecond\nabcd needle"
+        #expect(
+            FilePreviewPanel.textLocation(lineNumber: 3, columnNumber: 1, in: lf)
+                == (lf as NSString).range(of: "abcd").location
+        )
+    }
+
     @Test("search navigation treats columns as UTF-8 byte offsets")
     func searchNavigationUsesUTF8ByteColumnOffset() async throws {
         let content = "first\n🔍 needle\n"

@@ -116,6 +116,15 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
 
 // MARK: - Store Tests
 
+/// Result of the timed `gitMetadataDirectory` probe in
+/// `testGitMetadataDirectoryRejectsFIFOGitEntry`. The `timedOut` case lets a regression
+/// that reintroduces the blocking `open()` fail the test cleanly instead of wedging the
+/// whole test process on a FIFO that never gets a writer.
+private enum GitMetadataProbeOutcome: Sendable {
+    case completed(String?)
+    case timedOut
+}
+
 /// The store's `@Published` state is driven by unstructured `Task { ... }` calls that
 /// hop to `@MainActor`. Pinning the test class to `@MainActor` keeps observations on
 /// the same actor as the mutations, so reads see a consistent snapshot.
@@ -733,6 +742,42 @@ struct FileExplorerStoreTests {
         let padding = String(repeating: "#\n", count: 40_000) // > 64 KiB
         try writeGitPointer(padding + "gitdir: \(oversizedTargetDir.path)\n", in: oversizedRoot)
         #expect(FileExplorerStore.gitMetadataDirectory(under: oversizedRoot.path) == nil)
+    }
+
+    @Test("gitMetadataDirectory rejects a FIFO .git entry without blocking on open()")
+    func testGitMetadataDirectoryRejectsFIFOGitEntry() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-git-fifo-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        // A repository-controlled `.git` can be a FIFO. `fileExists` reports it as a
+        // non-directory, so without the regular-file guard the resolver would open it
+        // with `FileHandle(forReadingFrom:)`, which blocks on open() until a writer
+        // appears — hanging watcher setup on the main actor. The guard must reject it.
+        let gitPath = root.appendingPathComponent(".git").path
+        try #require(mkfifo(gitPath, 0o600) == 0)
+
+        // Race resolution against a timeout so a regression fails cleanly here rather
+        // than blocking forever on the FIFO's open().
+        let outcome = await withTaskGroup(of: GitMetadataProbeOutcome.self) { group in
+            group.addTask { .completed(FileExplorerStore.gitMetadataDirectory(under: root.path)) }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                return .timedOut
+            }
+            let first = await group.next() ?? .timedOut
+            group.cancelAll()
+            return first
+        }
+
+        switch outcome {
+        case .completed(let metadata):
+            #expect(metadata == nil, "A FIFO .git entry must resolve to nil, not be read")
+        case .timedOut:
+            Issue.record("gitMetadataDirectory blocked on a FIFO .git entry — regular-file guard missing")
+        }
     }
 }
 

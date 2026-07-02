@@ -27,7 +27,10 @@ import Foundation
 /// after `FSEventStreamInvalidate`. No callback ever touches a freed instance,
 /// so a separately retained context box is unnecessary.
 final class FileSystemEventStream: @unchecked Sendable {
-    private static let maximumExclusionPathCount = 8
+    /// Upper bound on FSEvents exclusion paths. `FSEventStreamSetExclusionPaths`
+    /// accepts at most 8 entries and silently ignores the rest, so this stream and
+    /// its ``RecursivePathWatcher`` owner truncate to this single shared limit.
+    static let maximumExclusionPathCount = 8
     private static let queueSpecificKey = DispatchSpecificKey<UInt8>()
     private static let queue: DispatchQueue = {
         let queue = DispatchQueue(label: "com.cmux.recursive-path-watcher", qos: .utility)

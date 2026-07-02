@@ -21,7 +21,7 @@
 6077	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5573	cmuxTests/BrowserConfigTests.swift
-4573	Sources/Panels/FilePreviewPanel.swift
+4578	Sources/Panels/FilePreviewPanel.swift
 4483	Sources/cmuxApp.swift
 4367	cmuxTests/BrowserPanelTests.swift
 4264	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
@@ -54,8 +54,8 @@
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
+1686	Sources/FileExplorerStore.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
-1671	Sources/FileExplorerStore.swift
 1661	Sources/FileExplorerView.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1649	cmuxTests/TerminalControllerSocketSecurityTests.swift
@@ -67,9 +67,9 @@
 1420	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1384	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
+1376	cmuxTests/FileExplorerStoreTests.swift
 1363	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
-1331	cmuxTests/FileExplorerStoreTests.swift
 1295	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift
 1287	cmuxTests/RestorableAgentSessionIndexTests.swift

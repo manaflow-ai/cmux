@@ -1338,9 +1338,14 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.pendingTextNavigation = nil
     }
 
-    private static func textLocation(lineNumber: Int, columnNumber: Int, in text: String) -> Int {
+    static func textLocation(lineNumber: Int, columnNumber: Int, in text: String) -> Int {
         var index = text.startIndex
         var currentLine = 1
+        // Iterate by `Character` (grapheme cluster), not by Unicode scalar or byte:
+        // a `\r\n` (CRLF) sequence is a single `Character` whose `isNewline` is true
+        // exactly once, and `index(after:)` steps over both code units together. So a
+        // CRLF line ending advances `currentLine` once — never twice — keeping line
+        // numbers correct for Windows-style files.
         while currentLine < lineNumber, index < text.endIndex {
             let character = text[index]
             index = text.index(after: index)

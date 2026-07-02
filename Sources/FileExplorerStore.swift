@@ -1032,7 +1032,22 @@ final class FileExplorerStore: ObservableObject {
 
     /// Reads up to ``maximumGitPointerFileBytes`` from the `.git` pointer file at
     /// `path`, so a malformed or malicious oversized file can't be loaded whole.
+    ///
+    /// Only a regular file holds a real `gitdir:` pointer. A repository-controlled
+    /// `.git` entry can be a FIFO, socket, or device, and opening one for reading
+    /// can block indefinitely on `open()` (a reader blocks until a FIFO writer
+    /// appears), hanging watcher setup on the main actor before the byte cap above
+    /// can ever apply. `stat` follows symlinks — matching the
+    /// `fileExists(atPath:isDirectory:)` probe in ``gitMetadataDirectory(under:)``,
+    /// so a legitimate `.git` symlink to a regular pointer file still resolves —
+    /// and never blocks, so reject anything that is not a regular file up front.
     private static func readGitPointerFile(at path: String) -> String? {
+        var info = stat()
+        guard stat(path, &info) == 0,
+              (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG)
+        else {
+            return nil
+        }
         guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
             return nil
         }
