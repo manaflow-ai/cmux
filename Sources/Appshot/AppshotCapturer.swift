@@ -142,7 +142,8 @@ enum AppshotCapturer {
         let app = AXUIElementCreateApplication(pid)
         let root = resolveTargetWindow(app: app, matching: targetBounds) ?? app
 
-        if axTitle.isEmpty, let windowTitle = copyString(root, kAXTitleAttribute) {
+        if axTitle.isEmpty,
+           let windowTitle = copyBoundedString(root, kAXTitleAttribute, limit: maxAccessibilityChars) {
             axTitle = windowTitle
         }
 
@@ -259,11 +260,14 @@ enum AppshotCapturer {
         }
     }
 
-    /// Reads a string attribute capped at `limit` characters. For the value
-    /// attribute — which can be a whole document — it reads only a provably
-    /// bounded amount: a leading ranged fetch, or a full read solely when the
-    /// reported character count proves the value is within budget. A large or
-    /// hostile `kAXValue` is never materialized in full on this hotkey path.
+    /// Reads a string attribute, materializing at most `limit` characters as a
+    /// Swift `String`. For the value attribute — which can be a whole document —
+    /// it reads only a provably bounded amount first: a leading ranged fetch, or
+    /// a full read solely when the reported character count proves the value is
+    /// within budget. Title and description have no ranged or counted AX API, so
+    /// they are capped at read time by ``copyBoundedString``. A large or hostile
+    /// attribute is never materialized in full as a Swift string on this hotkey
+    /// path.
     private static func boundedString(_ element: AXUIElement, _ attribute: String, limit: Int) -> String? {
         guard limit > 0 else { return nil }
         if attribute == kAXValueAttribute {
@@ -277,15 +281,36 @@ enum AppshotCapturer {
                 return ranged.count > limit ? String(ranged.prefix(limit)) : ranged
             }
             // Require a non-negative count within budget. A negative count (from a
-            // misbehaving provider) must not slip past into the full `copyString`
-            // read below, which would materialize the whole value.
+            // misbehaving provider) must not slip past into the bounded read
+            // below and let a whole-document value through.
             guard let count = copyInt(element, kAXNumberOfCharactersAttribute),
                   (0...limit).contains(count) else {
                 return nil
             }
         }
-        guard let raw = copyString(element, attribute) else { return nil }
-        return raw.count > limit ? String(raw.prefix(limit)) : raw
+        return copyBoundedString(element, attribute, limit: limit)
+    }
+
+    /// Copies a string attribute, bridging at most `limit` characters into a
+    /// Swift `String`. When a provider returns a very large CFString — a hostile
+    /// or buggy title/description on the global-hotkey path against an arbitrary
+    /// frontmost app — only a leading `limit`-character substring is bridged, so
+    /// cmux never trims, dedups, stores, or otherwise retains an unbounded Swift
+    /// string. The transient CFString is the AX framework's own IPC copy; no
+    /// public AX API exposes a ranged or counted read for non-value attributes
+    /// such as title/description, so capping the materialized Swift value is the
+    /// strongest available bound.
+    private static func copyBoundedString(_ element: AXUIElement, _ attribute: String, limit: Int) -> String? {
+        guard limit > 0 else { return nil }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == CFStringGetTypeID() else { return nil }
+        let cfString = value as! CFString
+        guard CFStringGetLength(cfString) > limit else { return cfString as String }
+        guard let clamped = CFStringCreateWithSubstring(nil, cfString, CFRange(location: 0, length: limit)) else {
+            return nil
+        }
+        return clamped as String
     }
 
     /// Fetches up to `max` children of `element` via the counted AX array API,
@@ -309,13 +334,6 @@ enum AppshotCapturer {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
         return value as? [AXUIElement]
-    }
-
-    private static func copyString(_ element: AXUIElement, _ attribute: String) -> String? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
-              let value, CFGetTypeID(value) == CFStringGetTypeID() else { return nil }
-        return (value as! CFString) as String
     }
 
     private static func copyInt(_ element: AXUIElement, _ attribute: String) -> Int? {
