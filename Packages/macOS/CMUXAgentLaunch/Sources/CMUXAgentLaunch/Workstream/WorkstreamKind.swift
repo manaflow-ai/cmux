@@ -6,6 +6,7 @@ import Foundation
 public enum WorkstreamKind: String, Codable, Sendable, CaseIterable, Equatable {
     // Actionable — shown by default.
     case permissionRequest
+    case approvalWait
     case exitPlan
     case question
 
@@ -21,7 +22,7 @@ public enum WorkstreamKind: String, Codable, Sendable, CaseIterable, Equatable {
 
     public var isActionable: Bool {
         switch self {
-        case .permissionRequest, .exitPlan, .question:
+        case .permissionRequest, .approvalWait, .exitPlan, .question:
             return true
         default:
             return false

@@ -96,6 +96,7 @@ struct WorkstreamEventTests {
     @Test("Codex CLI lifecycle feed events decode at the app boundary")
     func codexLifecycleFeedEventsDecode() throws {
         let cases: [(String, WorkstreamEvent.HookEventName)] = [
+            ("ApprovalWait", .approvalWait),
             ("PostToolUse", .postToolUse),
             ("PreCompact", .preCompact),
             ("PostCompact", .postCompact),

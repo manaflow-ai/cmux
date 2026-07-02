@@ -14,12 +14,14 @@ public enum WorkstreamDecision: Codable, Sendable, Equatable {
 /// Lifecycle state of a `WorkstreamItem`.
 public enum WorkstreamStatus: Codable, Sendable, Equatable {
     /// Actionable item awaiting user input. Only valid for
-    /// `.permissionRequest`, `.exitPlan`, `.question`.
+    /// `.permissionRequest`, `.approvalWait`, `.exitPlan`, `.question`.
     case pending
     /// Actionable item the user resolved with the given decision.
     case resolved(WorkstreamDecision, at: Date)
     /// Actionable item that timed out before the user acted.
     case expired(at: Date)
+    /// Actionable attention item that ended because the agent continued.
+    case cleared(at: Date)
     /// Telemetry item (non-actionable). Always starts and stays here.
     case telemetry
 

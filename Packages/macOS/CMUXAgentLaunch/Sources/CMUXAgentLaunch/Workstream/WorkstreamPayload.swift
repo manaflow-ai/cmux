@@ -89,6 +89,7 @@ public enum WorkstreamPayload: Codable, Sendable, Equatable {
         toolInputJSON: String,
         pattern: String?
     )
+    case approvalWait(toolName: String, toolInputJSON: String)
     case exitPlan(
         requestId: String,
         plan: String,
@@ -109,6 +110,7 @@ public enum WorkstreamPayload: Codable, Sendable, Equatable {
 
     private enum CaseKey: String, CodingKey {
         case permissionRequest
+        case approvalWait
         case exitPlan
         case question
         case toolUse
@@ -126,6 +128,11 @@ public enum WorkstreamPayload: Codable, Sendable, Equatable {
         case toolName
         case toolInputJSON
         case pattern
+    }
+
+    private enum ApprovalWaitKeys: String, CodingKey {
+        case toolName
+        case toolInputJSON
     }
 
     private enum ExitPlanKeys: String, CodingKey {
@@ -184,6 +191,12 @@ public enum WorkstreamPayload: Codable, Sendable, Equatable {
                 toolName: try p.decode(String.self, forKey: .toolName),
                 toolInputJSON: try p.decode(String.self, forKey: .toolInputJSON),
                 pattern: try p.decodeIfPresent(String.self, forKey: .pattern)
+            )
+        case .approvalWait:
+            let p = try c.nestedContainer(keyedBy: ApprovalWaitKeys.self, forKey: key)
+            self = .approvalWait(
+                toolName: try p.decode(String.self, forKey: .toolName),
+                toolInputJSON: try p.decode(String.self, forKey: .toolInputJSON)
             )
         case .exitPlan:
             let p = try c.nestedContainer(keyedBy: ExitPlanKeys.self, forKey: key)
@@ -257,6 +270,10 @@ public enum WorkstreamPayload: Codable, Sendable, Equatable {
             try p.encode(toolName, forKey: .toolName)
             try p.encode(toolInputJSON, forKey: .toolInputJSON)
             try p.encodeIfPresent(pattern, forKey: .pattern)
+        case .approvalWait(let toolName, let toolInputJSON):
+            var p = c.nestedContainer(keyedBy: ApprovalWaitKeys.self, forKey: .approvalWait)
+            try p.encode(toolName, forKey: .toolName)
+            try p.encode(toolInputJSON, forKey: .toolInputJSON)
         case .exitPlan(let requestId, let plan, let defaultMode):
             var p = c.nestedContainer(keyedBy: ExitPlanKeys.self, forKey: .exitPlan)
             try p.encode(requestId, forKey: .requestId)
