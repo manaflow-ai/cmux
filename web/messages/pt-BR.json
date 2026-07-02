@@ -737,13 +737,13 @@
       "layoutItem1": "Linhas de nível superior fixadas (workspaces e grupos).",
       "layoutItem2": "Linhas de nível superior não fixadas (workspaces e grupos).",
       "creatingTitle": "Criando um grupo",
-      "creatingIntro": "Um grupo é criado de uma de duas maneiras: por um atalho de teclado ou pelo menu de contexto de um workspace. Ambos inserem um novo workspace âncora acima da seleção e movem os workspaces selecionados para o grupo. Depois que um grupo existe, você o gerencia e adiciona workspaces a ele a partir do cabeçalho do grupo (consulte Gerenciar um grupo abaixo).",
-      "keyboardTitle": "Pelo teclado ({shortcut})",
-      "keyboardDesc": "Selecione dois ou mais workspaces na barra lateral e pressione {shortcut}. Um novo workspace âncora é inserido acima da seleção e todos os workspaces selecionados tornam-se filhos. O grupo é nomeado automaticamente como Group 1, Group 2 e assim por diante — renomeie-o a qualquer momento pelo menu de contexto do cabeçalho.",
+      "creatingIntro": "Um grupo é criado por um atalho de teclado ou por um menu de contexto da barra lateral. Grupos vazios inserem uma nova área de trabalho âncora como cabeçalho do grupo. Grupos baseados em seleção inserem essa âncora acima da seleção e movem as áreas de trabalho selecionadas para o grupo. Depois que o grupo existe, você o gerencia e adiciona áreas de trabalho a ele pelo cabeçalho do grupo (consulte Gerenciar um grupo abaixo).",
+      "keyboardTitle": "Por atalhos de teclado",
+      "keyboardDesc": "Pressione ⌃⌘G para criar um novo grupo de áreas de trabalho vazio. Selecione duas ou mais áreas de trabalho na barra lateral e pressione {shortcut} para agrupar a seleção. Ambos os caminhos criam uma nova área de trabalho âncora e nomeiam automaticamente o grupo como Group 1, Group 2 e assim por diante. Renomeie a qualquer momento pelo menu de contexto do cabeçalho.",
       "keyboardNote": "{shortcut} colide com o padrão do React Grab. O manipulador de grupo só consome o atalho quando há uma multisseleção explícita de pelo menos dois workspaces na barra lateral, então o React Grab ainda é acionado em seleção única e em contextos de navegador ou terminal. Reatribua-o em Configurações → Teclado se preferir que os dois não compartilhem uma tecla.",
       "keyboardSingle": "Grupos de aba única não são criados pelo atalho. Use a entrada Novo grupo a partir desta área no menu de contexto da área de trabalho para isso.",
       "contextMenuTitle": "Pelo menu de contexto de um workspace",
-      "contextMenuDesc": "Clique com o botão direito em qualquer área de trabalho na barra lateral e escolha Novo grupo a partir desta área, ou Novo grupo a partir da seleção quando várias áreas de trabalho estiverem selecionadas. Isso usa o mesmo comportamento de nomeação automática do atalho.",
+      "contextMenuDesc": "Clique com o botão direito em qualquer área de trabalho na barra lateral e escolha Novo grupo de áreas de trabalho vazio, Novo grupo a partir da área de trabalho ou Novo grupo a partir da seleção quando várias áreas de trabalho estiverem selecionadas. A área em branco abaixo da lista da barra lateral também oferece Novo grupo de áreas de trabalho vazio. Esses caminhos usam o mesmo comportamento de nomeação automática dos atalhos.",
       "managingTitle": "Gerenciar um grupo",
       "managingIntro": "Depois que um grupo existe, o menu de contexto do seu cabeçalho e o botão + no cabeçalho permitem gerenciar o grupo e adicionar workspaces a ele. Nenhum dos dois cria um novo grupo.",
       "headerMenuTitle": "Pelo menu de contexto do cabeçalho do grupo",
@@ -819,6 +819,9 @@
           "scrollSpeed": "Multiplicador aplicado aos deslocamentos da roda de rolagem e do trackpad no terminal. Valores mais altos rolam mais rápido e os mais baixos, mais devagar.",
           "showTextBoxOnNewTerminals": "Mostra a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",
           "focusTextBoxOnNewTerminals": "Foca a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox."
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Quando ativado, um banner de notificação é retirado automaticamente apenas quando sua superfície é exatamente a superfície focada. Um banner entregue para uma superfície não focada no workspace atualmente visível permanece visível até você focar essa superfície (ou clicar nele/dispensá-lo), em vez de ser retirado quando o workspace se torna visível. Desativado preserva a retirada antiga baseada na visibilidade do workspace."
         },
         "browser": {
           "defaultSearchEngine": "Mecanismo de busca padrão para consultas na barra de endereço do navegador que não são URLs. Use custom com customSearchEngineURLTemplate para outros provedores.",
@@ -1068,7 +1071,8 @@
       "closeWorkspaceDesc": "Fechar um workspace.",
       "splitCommands": "Comandos de divisão",
       "newSplitDesc": "Criar um novo painel dividido. Direções: left, right, up, down.",
-      "listSurfacesDesc": "Listar todas as superfícies no workspace atual.",
+      "listPanelsDesc": "Listar todas as superfícies no workspace atual.",
+      "listPaneSurfacesDesc": "Listar as superfícies no painel em foco.",
       "focusSurfaceDesc": "Focar uma superfície específica.",
       "inputCommands": "Comandos de entrada",
       "sendDesc": "Enviar texto para o terminal focado.",

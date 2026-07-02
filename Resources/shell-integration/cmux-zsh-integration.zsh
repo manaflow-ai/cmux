@@ -292,7 +292,12 @@ _cmux_install_cli_command_shim() {
         else
             printf 'exec "%s" "$@"\n' "$escaped_wrapper"
         fi
-    } >"$shim_path" 2>/dev/null || return 0
+    # Use zsh's explicit clobber redirection (>|) so cmux always refreshes its
+    # own generated shim, even when the user's interactive zsh has `noclobber`
+    # set. A plain `>` is refused under noclobber and prints `file exists` on
+    # startup (the writer runs again from the _cmux_fix_path precmd hook after
+    # the shim already exists). See issue #6714.
+    } >|"$shim_path" 2>/dev/null || return 0
     /bin/chmod 0700 "$shim_path" >/dev/null 2>&1 || return 0
 
     if [[ "$command_name" == "claude" ]]; then

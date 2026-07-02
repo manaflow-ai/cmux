@@ -118,6 +118,108 @@ private func XCTFail(
 final class TerminalControllerSocketSecurityTests {
     private var teardownBlocks: [() -> Void] = []
 
+    @Test func browserDownloadQueueKeepsCompletionAfterPromptReadyEvent() {
+        let controller = TerminalController.shared
+        let surfaceId = UUID()
+        controller.cleanupSurfaceState(surfaceIds: [surfaceId])
+        defer { controller.cleanupSurfaceState(surfaceIds: [surfaceId]) }
+
+        recordDownloadEvent("started", id: "download-1", surfaceId: surfaceId)
+        recordDownloadEvent("ready_to_save", id: "download-1", surfaceId: surfaceId)
+
+        let returned = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId)
+        XCTAssertEqual(returned?["type"] as? String, "ready_to_save")
+        recordDownloadEvent("ready_to_save", id: "download-1", surfaceId: surfaceId)
+        XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
+        recordDownloadEvent("saved", id: "download-1", surfaceId: surfaceId, path: "/tmp/report.csv")
+        for index in 0...140 { recordDownloadEvent("started", id: "started-\(index)", surfaceId: surfaceId) }
+        let saved = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId); XCTAssertEqual(saved?["type"] as? String, "saved")
+        XCTAssertEqual(saved?["path"] as? String, "/tmp/report.csv")
+        XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
+    }
+
+    @Test func browserDownloadQueuePrefersPromptedCompletionWhenAlreadyClosed() {
+        let controller = TerminalController.shared
+        let surfaceId = UUID()
+        controller.cleanupSurfaceState(surfaceIds: [surfaceId])
+        defer { controller.cleanupSurfaceState(surfaceIds: [surfaceId]) }
+
+        recordDownloadEvent("started", id: "download-closed", surfaceId: surfaceId)
+        recordDownloadEvent("ready_to_save", id: "download-closed", surfaceId: surfaceId)
+        recordDownloadEvent("saved", id: "download-closed", surfaceId: surfaceId, path: "/tmp/report.csv")
+
+        let returned = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId)
+        XCTAssertEqual(returned?["type"] as? String, "saved")
+        XCTAssertEqual(returned?["path"] as? String, "/tmp/report.csv")
+        XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
+    }
+
+    @Test func browserDownloadConsumedIDRegistryIsBounded() {
+        let controller = TerminalController.shared
+        let surfaceId = UUID()
+        controller.cleanupSurfaceState(surfaceIds: [surfaceId])
+        defer { controller.cleanupSurfaceState(surfaceIds: [surfaceId]) }
+
+        let oldestID = "download-0"
+        let newestID = "download-140"
+        for index in 0...140 {
+            controller.v2MarkBrowserDownloadEventConsumed(
+                ["type": "saved", "download_id": "download-\(index)"],
+                surfaceId: surfaceId
+            )
+        }
+
+        recordDownloadEvent("saved", id: oldestID, surfaceId: surfaceId)
+
+        let returned = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId)
+        XCTAssertEqual(returned?["download_id"] as? String, oldestID)
+
+        recordDownloadEvent("saved", id: newestID, surfaceId: surfaceId)
+
+        XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
+    }
+
+    @Test func browserDownloadEventQueueIsBounded() {
+        let controller = TerminalController.shared
+        let surfaceId = UUID()
+        controller.cleanupSurfaceState(surfaceIds: [surfaceId])
+        defer { controller.cleanupSurfaceState(surfaceIds: [surfaceId]) }
+
+        for index in 0...140 {
+            recordDownloadEvent(
+                "ready_to_save",
+                id: "download-\(index)",
+                surfaceId: surfaceId,
+                filename: "report-\(index).csv"
+            )
+        }
+
+        var returnedIDs: [String] = []
+        while let event = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId) {
+            if let downloadID = event["download_id"] as? String {
+                returnedIDs.append(downloadID)
+            }
+        }
+
+        XCTAssertEqual(returnedIDs.count, 128)
+        XCTAssertEqual(returnedIDs.first, "download-13")
+        XCTAssertEqual(returnedIDs.last, "download-140")
+    }
+
+    private func recordDownloadEvent(
+        _ type: String,
+        id: String,
+        surfaceId: UUID,
+        filename: String = "report.csv",
+        path: String? = nil
+    ) {
+        var event: [String: Any] = ["type": type, "download_id": id, "filename": filename]
+        if let path {
+            event["path"] = path
+        }
+        TerminalController.shared.v2RecordBrowserDownloadEvent(surfaceId: surfaceId, event: event)
+    }
+
     init() {
         TerminalController.shared.stop()
     }
