@@ -149,3 +149,27 @@ import Testing
     // re-save state that no longer holds defaults.
     #expect(vt.components(separatedBy: "\u{1B}[?1;4;5;6;7;8;9;40;45;47;66;67;69;1000;1002;1003s").count - 1 == 1)
 }
+
+@Test func renderGridFullSnapshotResetsPrimaryCursorShapeBeforeAlternateEntry() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 9,
+        columns: 8,
+        rows: 1,
+        cursor: .init(row: 0, column: 0, style: .bar, blinking: false),
+        rowSpans: [.init(row: 0, column: 0, text: "TUI")],
+        activeScreen: .alternate
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    // Cursor shape is per-screen state that survives the ?1049 roundtrip, so
+    // the primary screen must be reset to the default shape before the replay
+    // enters the alternate screen; otherwise a stale bar/underline shape from
+    // the reused surface reappears when the TUI exits.
+    let shapeReset = try #require(vt.range(of: "\u{1B}[0 q"))
+    let alternateEntry = try #require(vt.range(of: "\u{1B}[?1049h"))
+    #expect(shapeReset.upperBound <= alternateEntry.lowerBound)
+    // The frame's captured cursor shape still lands last on the active screen.
+    let capturedShape = try #require(vt.range(of: "\u{1B}[6 q"))
+    #expect(alternateEntry.upperBound <= capturedShape.lowerBound)
+}

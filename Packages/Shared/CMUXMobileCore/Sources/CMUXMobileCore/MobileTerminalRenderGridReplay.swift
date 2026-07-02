@@ -82,7 +82,13 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         var bytes = Data()
         let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
-        let screenStateReset = "\u{1B}[1\"q\u{1B}[0\"q\u{1B}[999<u\u{1B}[0;1=u\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B"
+        // Leads with DECSCUSR 0: cursor shape is per-screen state in Ghostty
+        // and survives the alternate-screen roundtrip, so without this a stale
+        // bar/underline shape from the reused surface's primary screen would
+        // resurface when a replayed TUI later exits the alternate screen. RIS
+        // used to clear it; the frame's captured cursor style is reapplied on
+        // the active screen at the end of the restore.
+        let screenStateReset = "\u{1B}[0 q\u{1B}[1\"q\u{1B}[0\"q\u{1B}[999<u\u{1B}[0;1=u\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B"
         let hyperlinkStateReset = "\u{1B}]8;;\u{1B}\\"
         // OSC 133;D returns the cursor's semantic content to `.output`, the
         // fresh-screen default. RIS used to clear this; without it a reused
