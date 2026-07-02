@@ -219,6 +219,7 @@ private struct BottomScrollStressRepresentable: UIViewRepresentable {
             _ = await waitUntil(timeoutNanoseconds: 2_000_000_000) {
                 view.debugIsBottomScrollStressAtBottom
             }
+            let initialTargetHeight = probeInt("targetViewportHeight", in: view.composerDockProbeValue) ?? Int(view.bounds.height)
 
             let composer = UIView()
             composer.backgroundColor = .clear
@@ -231,9 +232,22 @@ private struct BottomScrollStressRepresentable: UIViewRepresentable {
             view.setNeedsLayout()
             view.layoutIfNeeded()
 
-            _ = await waitUntil(timeoutNanoseconds: 2_000_000_000) {
+            guard await waitUntil(timeoutNanoseconds: 2_000_000_000, {
                 let probe = view.composerDockProbeValue
-                return probe.contains("staleViewportObserved=1")
+                if probe.contains("staleViewportObserved=1") { return true }
+                guard let target = self.probeInt("targetViewportHeight", in: probe),
+                      let renderHeight = self.probeInt("renderHeight", in: probe),
+                      let renderMinY = self.probeInt("renderMinY", in: probe),
+                      let scrollAtBottom = self.probeInt("scrollAtBottom", in: probe) else {
+                    return false
+                }
+                return target <= initialTargetHeight - 100
+                    && renderHeight <= target + 1
+                    && renderMinY <= 1
+                    && scrollAtBottom == 1
+            }) else {
+                view.debugSetBottomScrollStressPhase("timeout")
+                return
             }
             view.debugSetBottomScrollStressPhase("done")
         }
@@ -255,6 +269,15 @@ private struct BottomScrollStressRepresentable: UIViewRepresentable {
                 try? await Task.sleep(nanoseconds: 20_000_000)
             }
             return predicate()
+        }
+
+        private func probeInt(_ key: String, in probe: String) -> Int? {
+            for field in probe.split(separator: ";") {
+                let parts = field.split(separator: "=", maxSplits: 1)
+                guard parts.count == 2, String(parts[0]) == key else { continue }
+                return Int(parts[1])
+            }
+            return nil
         }
     }
 }
