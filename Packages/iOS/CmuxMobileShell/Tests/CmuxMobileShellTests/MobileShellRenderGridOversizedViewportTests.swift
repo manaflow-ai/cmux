@@ -1,0 +1,236 @@
+import CMUXMobileCore
+import CmuxMobileRPC
+import Foundation
+import Testing
+@testable import CmuxMobileShell
+
+// Regression coverage for https://github.com/manaflow-ai/cmux/issues/7202:
+// a mirrored terminal in a multi-pane Mac workspace rendered adjacent rows'
+// characters spliced into the same line on the phone, persistently.
+//
+// The producer grid is the Mac surface grid. The Mac normally caps it to
+// min(phone viewport, pane size) via `mobile.terminal.viewport`, so output is
+// authored for a grid the phone can render. When that cap is missing or stale
+// (multi-pane layout churn, a lost viewport report round-trip), the Mac keeps
+// streaming output authored for a grid LARGER than the phone's: absolute row
+// addressing clamps rows beyond the local grid onto the bottom row, and
+// over-wide rows wrap through autowrap — both splice adjacent rows' glyphs
+// into one rendered row. Deltas repaint only changed rows, so the splice
+// never self-heals.
+//
+// The phone can detect this divergence: every render-grid frame (including
+// the advisory frames of the hybrid transport) carries the producer's
+// columns×rows. These tests pin the recovery contract: output authored for a
+// grid that exceeds this phone's reported viewport must be held behind a
+// replay barrier instead of painted, the phone must re-assert its viewport
+// report so the Mac re-caps the shared grid, and the mirror must repaint from
+// the first fitting replay.
+
+/// A live render-grid event frame with an explicit producer grid size.
+private func renderGridEventFrame(
+    surfaceID: String,
+    seq: UInt64,
+    columns: Int,
+    rows: Int,
+    text: String,
+    full: Bool
+) throws -> Data {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: seq,
+        columns: columns,
+        rows: rows,
+        full: full,
+        clearedRows: full ? [] : [0],
+        rowSpans: [
+            MobileTerminalRenderGridFrame.RowSpan(
+                row: 0,
+                column: 0,
+                styleID: 0,
+                text: text
+            ),
+        ]
+    )
+    let envelope: [String: Any] = [
+        "kind": "event",
+        "topic": "terminal.render_grid",
+        "payload": try frame.jsonObject(),
+    ]
+    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+}
+
+/// A raw-bytes event without a sequence, so delivery never depends on the
+/// byte-continuity counter (which differs before and after a replay barrier).
+private func unsequencedTerminalBytesEventFrame(
+    surfaceID: String,
+    text: String
+) throws -> Data {
+    let envelope: [String: Any] = [
+        "kind": "event",
+        "topic": "terminal.bytes",
+        "payload": [
+            "surface_id": surfaceID,
+            "data_b64": Data(text.utf8).base64EncodedString(),
+        ],
+    ]
+    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+}
+
+@MainActor
+@Test func oversizedRenderGridFrameHoldsOutputAndReassertsViewport() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    // Prove the mount-time replay barrier is down before the scenario starts.
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 0,
+        text: "pre-probe"
+    ))
+    let probeDelivered = try await pollUntil { collector.lines.contains { $0.contains("pre-probe") } }
+    #expect(probeDelivered, "raw bytes must flow before the oversized frame arrives")
+
+    // The phone's natural grid, as the surface view reports it on didResize.
+    _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    let viewportReportBaseline = await router.count(of: "mobile.terminal.viewport")
+    let replayBaseline = await router.count(of: "mobile.terminal.replay")
+
+    // Fitting replay responses model the Mac after it re-applied the phone's
+    // viewport cap. Several are enqueued so the barrier's bounded follow-up
+    // replays also resolve cleanly.
+    let convergedFrames = try (0..<3).map { index in
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 40 + UInt64(index),
+            columns: 20,
+            rows: 6,
+            full: true,
+            rowSpans: [
+                MobileTerminalRenderGridFrame.RowSpan(
+                    row: 0,
+                    column: 0,
+                    styleID: 0,
+                    text: "converged"
+                ),
+            ]
+        )
+    }
+    await router.enqueueReplayRenderGridFrames(convergedFrames)
+
+    // A multi-pane Mac pane grid the phone can never render faithfully: the
+    // Mac lost this phone's viewport cap, so frames (and the raw bytes behind
+    // them) are authored for 90x40 while the phone can only show 20x6.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 20,
+        columns: 90,
+        rows: 40,
+        text: "oversized",
+        full: false
+    ))
+
+    // The phone must re-assert its viewport report so the Mac re-caps the
+    // shared grid, and re-arm an authoritative replay for the repaint.
+    let sawViewportReassert = try await pollUntil {
+        await router.count(of: "mobile.terminal.viewport") > viewportReportBaseline
+    }
+    #expect(
+        sawViewportReassert,
+        "an oversized producer grid must re-assert this phone's viewport report so the Mac re-caps the shared grid"
+    )
+    let sawRecoveryReplay = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayBaseline
+    }
+    #expect(
+        sawRecoveryReplay,
+        "an oversized producer grid must arm an authoritative replay to repaint once the grid converges"
+    )
+
+    // Raw bytes authored for the larger Mac grid must be held: replayed into
+    // the smaller local grid they clamp rows onto the bottom row and wrap
+    // over-wide rows, splicing adjacent rows' characters (issue #7202).
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 9,
+        text: "SPLICE-BYTES"
+    ))
+    _ = try await pollUntil(attempts: 30) { collector.lines.contains { $0.contains("SPLICE-BYTES") } }
+    #expect(
+        collector.lines.contains { $0.contains("SPLICE-BYTES") } == false,
+        "raw bytes authored for a grid larger than the phone's viewport must be held behind the replay barrier, not spliced into the local grid"
+    )
+
+    // The recovery replay's fitting frame repaints the mirror.
+    let convergedDelivered = try await pollUntil { collector.lines.contains { $0.contains("converged") } }
+    #expect(
+        convergedDelivered,
+        "the recovery replay must repaint the mirror once the Mac grid fits the phone's viewport again"
+    )
+
+    // Live output resumes after convergence.
+    await transport.deliver(try unsequencedTerminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        text: "after-converge"
+    ))
+    let resumed = try await pollUntil { collector.lines.contains { $0.contains("after-converge") } }
+    #expect(resumed, "live output must resume once the mirror reconverged")
+    collector.unmount()
+}
+
+@MainActor
+@Test func fittingRenderGridFramesKeepOutputFlowing() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 0,
+        text: "pre-probe"
+    ))
+    let probeDelivered = try await pollUntil { collector.lines.contains { $0.contains("pre-probe") } }
+    #expect(probeDelivered, "raw bytes must flow after mount")
+
+    _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 40, rows: 12)
+    let viewportReportBaseline = await router.count(of: "mobile.terminal.viewport")
+
+    // A producer grid within the phone's viewport (the letterboxed multi-pane
+    // steady state) must not trip the divergence recovery.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 20,
+        columns: 16,
+        rows: 4,
+        text: "fits",
+        full: false
+    ))
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 9,
+        text: "still-flowing"
+    ))
+    let delivered = try await pollUntil { collector.lines.contains { $0.contains("still-flowing") } }
+    #expect(delivered, "output for a fitting producer grid must keep flowing")
+
+    let reportCount = await router.count(of: "mobile.terminal.viewport")
+    #expect(
+        reportCount == viewportReportBaseline,
+        "a fitting producer grid must not trigger viewport re-assertion"
+    )
+    collector.unmount()
+}
