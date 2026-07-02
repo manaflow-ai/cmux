@@ -718,6 +718,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
     var secondaryAggregationScopeGeneration = 0
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
+    private var effectiveViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]
     var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
@@ -919,6 +920,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.connectionAttemptGeneration = UUID()
         self.chatEventSourceGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
+        self.effectiveViewportSizesBySurfaceID = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.terminalActiveScreenBySurfaceID = [:]
@@ -5244,6 +5246,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func resetTerminalOutputTracking() {
         cancelAllTerminalReplayTasks()
+        effectiveViewportSizesBySurfaceID = [:]
         deliveredTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalActiveScreenBySurfaceID = [:]
@@ -6948,6 +6951,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
+        effectiveViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
@@ -7033,6 +7037,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let payload = try? MobileTerminalViewportResponse.decode(data),
                   let grid = payload.effectiveGrid else {
                 return nil
+            }
+            let effectiveGrid = MobileTerminalViewportSize(columns: grid.columns, rows: grid.rows)
+            let previousGrid = effectiveViewportSizesBySurfaceID[surfaceID]
+            effectiveViewportSizesBySurfaceID[surfaceID] = effectiveGrid
+            if let previousGrid,
+               previousGrid != effectiveGrid,
+               hasTerminalOutputSink(surfaceID: surfaceID) {
+                let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+                MobileDebugLog.anchormux(
+                    "terminal.output.viewport_resync surface=\(surfaceID) grid=\(effectiveGrid.columns)x\(effectiveGrid.rows)"
+                )
+                requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
             }
             return (grid.columns, grid.rows)
         } catch {
