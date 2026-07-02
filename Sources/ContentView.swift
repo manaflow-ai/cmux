@@ -5166,14 +5166,15 @@ struct ContentView: View {
     private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
         let windowContexts = commandPaletteSwitcherWindowContexts()
         let fingerprintContexts = windowContexts.map { context in
-            CommandPaletteSwitcherFingerprintContext(
+            let groupNamesByAnchor = Self.commandPaletteGroupNamesByAnchor(context.tabManager.workspaceGroups)
+            return CommandPaletteSwitcherFingerprintContext(
                 windowId: context.windowId,
                 windowLabel: context.windowLabel,
                 selectedWorkspaceId: context.selectedWorkspaceId,
                 workspaces: commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace in
                     CommandPaletteSwitcherFingerprintWorkspace(
                         id: workspace.id,
-                        displayName: workspaceDisplayName(workspace, in: context.tabManager),
+                        displayName: Self.commandPaletteWorkspaceDisplayName(workspace, groupNamesByAnchor: groupNamesByAnchor),
                         metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                         surfaces: includeSurfaces
                             ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
@@ -5290,9 +5291,10 @@ struct ContentView: View {
 
             let windowId = context.windowId
             let windowTabManager = context.tabManager
+            let groupNamesByAnchor = Self.commandPaletteGroupNamesByAnchor(windowTabManager.workspaceGroups)
             let windowKeywords = commandPaletteWindowKeywords(windowLabel: context.windowLabel)
             for workspace in workspaces {
-                let workspaceName = workspaceDisplayName(workspace, in: windowTabManager)
+                let workspaceName = Self.commandPaletteWorkspaceDisplayName(workspace, groupNamesByAnchor: groupNamesByAnchor)
                 let workspaceCommandId = "switcher.workspace.\(workspace.id.uuidString.lowercased())"
                 let workspaceKeywords = CommandPaletteSwitcherSearchIndexer(
                     baseKeywords: [
@@ -8205,6 +8207,23 @@ struct ContentView: View {
         return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
     }
 
+    /// Anchor-workspace-id → group name, built once per palette rebuild so the
+    /// switcher's fingerprint/index loops resolve group-anchor names with a dict
+    /// lookup instead of rescanning `workspaceGroups` per workspace — O(n + g)
+    /// rather than O(n × g) (#5893). Unnamed groups are omitted so their anchor
+    /// falls back to the workspace's own title.
+    static func commandPaletteGroupNamesByAnchor(_ groups: [WorkspaceGroup]) -> [UUID: String] {
+        var namesByAnchor: [UUID: String] = [:]
+        namesByAnchor.reserveCapacity(groups.count)
+        for group in groups {
+            let groupName = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !groupName.isEmpty {
+                namesByAnchor[group.anchorWorkspaceId] = groupName
+            }
+        }
+        return namesByAnchor
+    }
+
     /// Command-palette display name for a workspace (switcher list and command
     /// subtitles), accounting for group anchors: a group's anchor is rendered as
     /// the group header, so it shows the group's `name`, not the anchor's own
@@ -8212,15 +8231,24 @@ struct ContentView: View {
     /// Mirrors `TabManager.resolvedWorkspaceDisplayTitle(for:)`.
     static func commandPaletteWorkspaceDisplayName(
         _ workspace: Workspace,
-        groups: [WorkspaceGroup]
+        groupNamesByAnchor: [UUID: String]
     ) -> String {
-        if let group = groups.first(where: { $0.anchorWorkspaceId == workspace.id }) {
-            let groupName = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !groupName.isEmpty {
-                return groupName
-            }
+        if let groupName = groupNamesByAnchor[workspace.id] {
+            return groupName
         }
         return commandPaletteWorkspaceDisplayName(workspace)
+    }
+
+    /// Single-lookup convenience (tests, one-off callers). Batch callers should
+    /// build `commandPaletteGroupNamesByAnchor` once and reuse the overload above.
+    static func commandPaletteWorkspaceDisplayName(
+        _ workspace: Workspace,
+        groups: [WorkspaceGroup]
+    ) -> String {
+        commandPaletteWorkspaceDisplayName(
+            workspace,
+            groupNamesByAnchor: commandPaletteGroupNamesByAnchor(groups)
+        )
     }
 
     private func workspaceDisplayName(_ workspace: Workspace, in tabManager: TabManager) -> String {

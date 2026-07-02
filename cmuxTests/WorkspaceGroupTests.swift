@@ -1090,4 +1090,27 @@ struct WorkspaceGroupTests {
             ) == "My Workspace"
         )
     }
+
+    // The batch (map-based) resolver the switcher's fingerprint/index loops use
+    // must produce the same names as the per-workspace `groups:` overload; the
+    // precomputed map just avoids rescanning `workspaceGroups` per workspace and
+    // must reflect the group's current name and omit nothing (#5893).
+    @Test func commandPaletteGroupNameMapMatchesPerWorkspaceResolver() throws {
+        let manager = makeTabManager()
+        let groupId = try #require(
+            manager.createWorkspaceGroup(name: "Group 1", childWorkspaceIds: [manager.tabs[0].id])
+        )
+        manager.renameWorkspaceGroup(groupId: groupId, name: "Renamed Group")
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        let namesByAnchor = ContentView.commandPaletteGroupNamesByAnchor(manager.workspaceGroups)
+        #expect(namesByAnchor[group.anchorWorkspaceId] == "Renamed Group")
+
+        for workspace in manager.tabs {
+            #expect(
+                ContentView.commandPaletteWorkspaceDisplayName(workspace, groupNamesByAnchor: namesByAnchor)
+                    == ContentView.commandPaletteWorkspaceDisplayName(workspace, groups: manager.workspaceGroups)
+            )
+        }
+    }
 }
