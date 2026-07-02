@@ -1217,6 +1217,7 @@ final class ClaudeHookSessionStore {
         surfaceId: String?,
         excludingSessionId: String?,
         onlyNewerThanExcludedSession: Bool = false,
+        requireRunningStatus: Bool = true,
         requireLiveProcess: Bool = false
     ) throws -> Bool {
         guard let normalizedWorkspace = normalizeOptional(workspaceId) else {
@@ -1233,7 +1234,7 @@ final class ClaudeHookSessionStore {
                 guard var record = state.sessions[sessionId] else { continue }
                 guard normalizeOptional(record.workspaceId) == normalizedWorkspace,
                       record.sessionId != excluded,
-                      record.runtimeStatus == .running else {
+                      (!requireRunningStatus || record.runtimeStatus == .running) else {
                     continue
                 }
                 if let normalizedSurface, normalizeOptional(record.surfaceId) != normalizedSurface {
@@ -1258,6 +1259,24 @@ final class ClaudeHookSessionStore {
 
             return foundRunningSession
         }
+    }
+
+    /// Any *live* session (process still alive) for `workspaceId` other than
+    /// `excludingSessionId`, regardless of runtime status. Unlike
+    /// `hasRunningSession`, an idle / needs-input / status-less sibling with a
+    /// live process still counts — that sibling still owns the workspace, so an
+    /// exiting session must not persist its title over it.
+    func hasOtherLiveSession(
+        workspaceId: String,
+        excludingSessionId: String?
+    ) throws -> Bool {
+        try hasRunningSession(
+            workspaceId: workspaceId,
+            surfaceId: nil,
+            excludingSessionId: excludingSessionId,
+            requireRunningStatus: false,
+            requireLiveProcess: true
+        )
     }
 
     private static func processExists(_ pid: Int?) -> Bool {
@@ -23169,6 +23188,14 @@ struct CMUXCLI {
                         surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                         telemetry: telemetry
                     )
+            if shouldRegisterPID, !suppressVisibleMutations {
+                clearPersistedAgentSessionTitle(
+                    workspaceId: workspaceId,
+                    client: client,
+                    telemetryKey: "claude-hook.session-start",
+                    telemetry: telemetry
+                )
+            }
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -23740,6 +23767,16 @@ struct CMUXCLI {
                     env: ProcessInfo.processInfo.environment
                 )
                 if shouldClearVisibleState, !suppressVisibleMutations {
+                    persistAgentSessionTitleAfterExit(
+                        agentSessionExitTitle(agent: "claude", record: consumedSession),
+                        workspaceId: workspaceId,
+                        excludingSessionId: consumedSession.sessionId,
+                        excludingPid: claudePid,
+                        sessionStore: sessionStore,
+                        client: client,
+                        telemetryKey: "claude-hook.session-end",
+                        telemetry: telemetry
+                    )
                     _ = try? sendV1Command(
                         "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
                         client: client
@@ -29564,6 +29601,16 @@ export default CMUXSessionRestore;
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
             } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
+                persistAgentSessionTitleAfterExit(
+                    agentSessionExitTitle(agent: def.name, record: consumed),
+                    workspaceId: consumed.workspaceId,
+                    excludingSessionId: sessionId,
+                    excludingPid: consumed.pid,
+                    sessionStore: store,
+                    client: client,
+                    telemetryKey: "\(def.name)-hook.session-end",
+                    telemetry: telemetry
+                )
                 clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: consumed.workspaceId,
@@ -29913,6 +29960,14 @@ export default CMUXSessionRestore;
                 didSendFeedTelemetry = true
                 print("{}")
                 return
+            }
+            if !suppressVisibleMutations {
+                clearPersistedAgentSessionTitle(
+                    workspaceId: workspaceId,
+                    client: client,
+                    telemetryKey: "\(def.name)-hook.session-start",
+                    telemetry: telemetry
+                )
             }
             if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(

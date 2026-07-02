@@ -266,6 +266,202 @@ import Testing
         }
     }
 
+    @Test func persistAfterExitAppliesAutoTitleWhenAutoNamingDisabled() throws {
+        try withAutoNamingSetting(false) {
+            try withManager { _, workspace in
+                workspace.applyProcessTitle("cmux103")
+
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Fix auth bug",
+                    "persist_after_exit": true
+                ])
+
+                #expect(envelope["ok"] as? Bool == true)
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == true)
+                #expect(workspace.title == "Fix auth bug")
+                #expect(workspace.customTitle == "Fix auth bug")
+                #expect(workspace.effectiveCustomTitleSource == .auto)
+
+                workspace.applyProcessTitle("project-directory")
+                #expect(workspace.title == "Fix auth bug")
+            }
+        }
+    }
+
+    @Test func persistAfterExitRejectsTranscriptDerivedTitleWhenAutoNamingDisabled() throws {
+        try withAutoNamingSetting(false) {
+            try withManager { _, workspace in
+                workspace.applyProcessTitle("project-directory")
+
+                // A transcript-derived title (`auto_derived`) is a *new* auto-naming
+                // action, so persist-after-exit must still honor the opt-in even
+                // though it otherwise bypasses the setting to preserve titles cmux
+                // already applied.
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Investigate auth bug",
+                    "persist_after_exit": true,
+                    "auto_derived": true
+                ])
+
+                #expect(envelope["ok"] as? Bool == false)
+                let error = try #require(envelope["error"] as? [String: Any])
+                #expect(error["code"] as? String == "disabled")
+                #expect(workspace.customTitle == nil)
+                #expect(workspace.title == "project-directory")
+            }
+        }
+    }
+
+    @Test func persistAfterExitSkippedWhileAnotherAgentIsLiveInWorkspace() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                workspace.applyProcessTitle("project-directory")
+                // A *different* agent (e.g. Codex) is still live in this workspace;
+                // register it with the test process's own pid (recordAgentPID also
+                // records the process identity the liveness check verifies).
+                workspace.recordAgentPID(
+                    key: "codex",
+                    pid: ProcessInfo.processInfo.processIdentifier,
+                    panelId: nil
+                )
+
+                // The exiting Claude session (excluding_pid) must not stamp its
+                // title over the shared workspace while that sibling agent is alive.
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Exiting Claude title",
+                    "persist_after_exit": true,
+                    "excluding_pid": "1"
+                ])
+                #expect(envelope["ok"] as? Bool == true)
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == false)
+                #expect(result["workspace_owned_by_live_agent"] as? Bool == true)
+                #expect(workspace.customTitle == nil)
+                #expect(workspace.title == "project-directory")
+
+                // With only the exiting agent itself live (its own pid excluded),
+                // the persist proceeds — the guard is specific to *other* agents.
+                workspace.clearAllAgentPIDs()
+                workspace.recordAgentPID(
+                    key: "claude",
+                    pid: ProcessInfo.processInfo.processIdentifier,
+                    panelId: nil
+                )
+                let applied = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Exiting Claude title",
+                    "persist_after_exit": true,
+                    "excluding_pid": String(ProcessInfo.processInfo.processIdentifier)
+                ])
+                #expect(applied["ok"] as? Bool == true)
+                let appliedResult = try #require(applied["result"] as? [String: Any])
+                #expect(appliedResult["workspace_applied"] as? Bool == true)
+                #expect(appliedResult["workspace_owned_by_live_agent"] as? Bool == false)
+                #expect(workspace.customTitle == "Exiting Claude title")
+            }
+        }
+    }
+
+    @Test func persistAfterExitSkippedWhenExitingPidUnknownAndAgentLive() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                workspace.applyProcessTitle("project-directory")
+                // A live agent owns the workspace, and the exiting hook could not
+                // infer its own pid (no excluding_pid). An unknown pid was never
+                // registered here, so this live agent is a different session — the
+                // guard must still fire rather than clobber its title.
+                workspace.recordAgentPID(
+                    key: "codex",
+                    pid: ProcessInfo.processInfo.processIdentifier,
+                    panelId: nil
+                )
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Exiting title",
+                    "persist_after_exit": true
+                ])
+                #expect(envelope["ok"] as? Bool == true)
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == false)
+                #expect(result["workspace_owned_by_live_agent"] as? Bool == true)
+                #expect(workspace.customTitle == nil)
+            }
+        }
+    }
+
+    @Test func clearAutoSkippedWhileAnotherAgentIsLiveInWorkspace() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                workspace.applyProcessTitle("project-directory")
+                workspace.setCustomTitle("Live sibling title", source: .auto)
+                // SessionStart clears the persisted exit title *before* it registers
+                // the starting session's own pid, so a live agent seen here is a
+                // different, still-running session that owns the workspace title.
+                workspace.recordAgentPID(
+                    key: "claude",
+                    pid: ProcessInfo.processInfo.processIdentifier,
+                    panelId: nil
+                )
+
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "clear_auto": true
+                ])
+                #expect(envelope["ok"] as? Bool == true)
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_cleared"] as? Bool == false)
+                #expect(result["workspace_owned_by_live_agent"] as? Bool == true)
+                #expect(workspace.customTitle == "Live sibling title")
+
+                // Once no live agent owns the workspace, the persisted title clears
+                // so the next session can re-evolve its own name.
+                workspace.clearAllAgentPIDs()
+                let cleared = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "clear_auto": true
+                ])
+                #expect(cleared["ok"] as? Bool == true)
+                let clearedResult = try #require(cleared["result"] as? [String: Any])
+                #expect(clearedResult["workspace_cleared"] as? Bool == true)
+                #expect(workspace.customTitle == nil)
+            }
+        }
+    }
+
+    @Test func clearAutoTitleOnlyClearsAutoOwnedWorkspace() throws {
+        try withAutoNamingSetting(false) {
+            try withManager { _, workspace in
+                workspace.applyProcessTitle("project-directory")
+                workspace.setCustomTitle("Fix auth bug", source: .auto)
+
+                var envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "clear_auto": true
+                ])
+                #expect(envelope["ok"] as? Bool == true)
+                var result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_cleared"] as? Bool == true)
+                #expect(workspace.customTitle == nil)
+                #expect(workspace.title == "project-directory")
+
+                workspace.setCustomTitle("Manual name")
+                envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "clear_auto": true
+                ])
+                #expect(envelope["ok"] as? Bool == true)
+                result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_cleared"] as? Bool == false)
+                #expect(workspace.customTitle == "Manual name")
+                #expect(workspace.effectiveCustomTitleSource == .user)
+            }
+        }
+    }
+
     @Test func panelIdTargetsTabTitleAndWorkspaceOnlyLeavesTabsAlone() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in
