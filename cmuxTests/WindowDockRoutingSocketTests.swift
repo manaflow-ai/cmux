@@ -241,6 +241,21 @@ struct WindowDockRoutingSocketTests {
             #expect(otherWindowDock.containsPanel(explicitForeignDockSurfaceId))
             #expect(!activeWindowDock.containsPanel(explicitForeignDockSurfaceId))
 
+            let explicitForeignDockPaneSplit = try v2Result(method: "pane.create", params: [
+                "placement": "dock",
+                "type": "terminal",
+                "workspace_id": activeWorkspace.id.uuidString,
+                "pane_id": otherPane.id.uuidString,
+                "direction": "right",
+                "focus": false,
+            ])
+            let explicitForeignDockSplitSurfaceIdRaw = try #require(explicitForeignDockPaneSplit["dock_surface_id"] as? String)
+            let explicitForeignDockSplitSurfaceId = try #require(UUID(uuidString: explicitForeignDockSplitSurfaceIdRaw))
+            #expect(explicitForeignDockPaneSplit["workspace_id"] as? String == dockWindowId.uuidString)
+            #expect(explicitForeignDockPaneSplit["window_id"] as? String == dockWindowId.uuidString)
+            #expect(otherWindowDock.containsPanel(explicitForeignDockSplitSurfaceId))
+            #expect(!activeWindowDock.containsPanel(explicitForeignDockSplitSurfaceId))
+
             // An explicit window_id that contradicts the Dock named by
             // workspace_id fails closed instead of re-homing the report.
             let crossListEnvelope = try v2Envelope(method: "surface.list", params: [

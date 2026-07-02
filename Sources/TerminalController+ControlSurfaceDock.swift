@@ -41,11 +41,14 @@ extension TerminalController {
         guard RightSidebarMode.dock.isAvailable() else {
             return .dockUnavailable(message: dockUnavailableMessage())
         }
-        guard let dock = windowDockForCreateRouting(routing, tabManager: tabManager) else {
+        guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        guard !windowDockCreateRoutingConflicts(routing, dock: dock) else {
+        guard !windowDockCreateRoutingConflicts(routing, dockOwnerId: dockOwnerId, aliasTabManager: tabManager) else {
             return .dockConflictingRoutingSelectors(message: dockConflictingRoutingSelectorsMessage())
+        }
+        guard let dock = AppDelegate.shared?.windowDockForRegisteredOwner(dockOwnerId) else {
+            return .workspaceNotFound
         }
         guard let paneId = dock.resolvePane(requestedPaneID: inputs.requestedPaneID) else {
             return .paneNotFound
@@ -53,7 +56,7 @@ extension TerminalController {
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
         if focus {
-            revealDockForFocus(tabManager: tabManager)
+            focusAndRevealWindowDock(for: dock, fallback: tabManager)
         }
         let newPanelId = dock.newSurface(
             kind: kind,
@@ -69,7 +72,7 @@ extension TerminalController {
             return .createFailed
         }
         return .createdDock(
-            windowID: v2ResolveWindowId(tabManager: tabManager),
+            windowID: dock.workspaceId,
             workspaceID: dock.workspaceId,
             dockPaneID: paneId.id,
             dockSurfaceID: newPanelId,
@@ -142,30 +145,33 @@ extension TerminalController {
         return nil
     }
 
-    /// The window Dock targeted by a Dock create request. Explicit Dock-owner
+    /// The window Dock owner targeted by a Dock create request. Explicit Dock-owner
     /// selectors (including the legacy alias pinned to the caller window) still
     /// choose the owner first, but a non-Dock `workspace_id` can be an injected
     /// caller context; in that case an explicit Dock surface/pane selector is
     /// more specific and chooses its containing window Dock before fallback.
-    func windowDockForCreateRouting(_ routing: ControlRoutingSelectors, tabManager: TabManager) -> DockSplitStore? {
+    ///
+    /// This intentionally returns an id, not a store: invalid contradictory
+    /// create requests must be rejected without lazily materializing a Dock.
+    func windowDockOwnerIdForCreateRouting(_ routing: ControlRoutingSelectors, tabManager: TabManager) -> UUID? {
         guard let app = AppDelegate.shared else { return nil }
         if let workspaceID = routing.workspaceID {
             if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
-                return app.windowDock(for: tabManager)
+                return app.windowId(for: tabManager)
             }
-            if let dock = app.windowDockForRegisteredOwner(workspaceID) {
-                return dock
+            if app.tabManagerForWindowDockOwner(workspaceID) != nil {
+                return workspaceID
             }
         }
         if let surfaceID = routing.surfaceID,
            let dock = windowDockContainingPanel(surfaceID) {
-            return dock
+            return dock.workspaceId
         }
         if let paneID = routing.paneID,
            let dock = windowDockContainingPane(paneID) {
-            return dock
+            return dock.workspaceId
         }
-        return app.windowDock(for: tabManager)
+        return app.windowId(for: tabManager)
     }
 
     /// Whether an explicit `window_id` contradicts `dock`'s owning window (a
@@ -217,8 +223,33 @@ extension TerminalController {
     /// Whether a Dock create request carries explicit selectors that name a
     /// different window Dock than the one the create path resolved. Create has
     /// no post-mutation containment guard, so reject these before adding panels.
-    func windowDockCreateRoutingConflicts(_ routing: ControlRoutingSelectors, dock: DockSplitStore) -> Bool {
-        windowDockMismatchesExplicitSelectors(routing, dock: dock)
+    func windowDockCreateRoutingConflicts(
+        _ routing: ControlRoutingSelectors,
+        dockOwnerId: UUID,
+        aliasTabManager: TabManager
+    ) -> Bool {
+        if routing.hasWindowIDParam,
+           let requestedWindowID = routing.windowID,
+           requestedWindowID != dockOwnerId {
+            return true
+        }
+        if let surfaceID = routing.surfaceID,
+           let containingDock = windowDockContainingPanel(surfaceID),
+           containingDock.workspaceId != dockOwnerId {
+            return true
+        }
+        if let paneID = routing.paneID,
+           let containingDock = windowDockContainingPane(paneID),
+           containingDock.workspaceId != dockOwnerId {
+            return true
+        }
+        guard let workspaceID = routing.workspaceID else { return false }
+        if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
+            guard let aliasWindowId = AppDelegate.shared?.windowId(for: aliasTabManager) else { return false }
+            return aliasWindowId != dockOwnerId
+        }
+        guard AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceID) != nil else { return false }
+        return workspaceID != dockOwnerId
     }
 
     /// Focuses the Dock's owning window, makes it the active manager, and

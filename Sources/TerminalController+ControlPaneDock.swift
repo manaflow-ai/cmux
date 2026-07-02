@@ -26,12 +26,14 @@ extension TerminalController {
         guard RightSidebarMode.dock.isAvailable() else {
             return .dockUnavailable(message: dockUnavailableMessage())
         }
-        guard let app = AppDelegate.shared,
-              let dock = app.windowDock(for: tabManager) else {
+        guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        guard !windowDockCreateRoutingConflicts(routing, dock: dock) else {
+        guard !windowDockCreateRoutingConflicts(routing, dockOwnerId: dockOwnerId, aliasTabManager: tabManager) else {
             return .dockConflictingRoutingSelectors(message: dockConflictingRoutingSelectorsMessage())
+        }
+        guard let dock = AppDelegate.shared?.windowDockForRegisteredOwner(dockOwnerId) else {
+            return .workspaceNotFound
         }
         // An explicit source surface must live in the Dock tree; do not silently
         // fall back to another Dock pane (mirrors the workspace `.noSourceSurface`).
@@ -41,7 +43,7 @@ extension TerminalController {
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
         if focus {
-            revealDockForFocus(tabManager: tabManager)
+            focusAndRevealWindowDock(for: dock, fallback: tabManager)
         }
         let newPanelId = dock.newSplit(
             kind: kind,
@@ -60,9 +62,8 @@ extension TerminalController {
             return .createFailed
         }
         let paneUUID = dock.paneId(forPanelId: newPanelId)?.id
-        let windowId = v2ResolveWindowId(tabManager: tabManager)
         return .createdDock(
-            windowID: windowId,
+            windowID: dock.workspaceId,
             workspaceID: dock.workspaceId,
             dockPaneID: paneUUID,
             dockSurfaceID: newPanelId,
