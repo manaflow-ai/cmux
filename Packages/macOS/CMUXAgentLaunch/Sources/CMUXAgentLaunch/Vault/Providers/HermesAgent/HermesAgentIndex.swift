@@ -162,12 +162,14 @@ public enum HermesAgentIndex {
 
     /// The newest-active `cli`/`tui` session id for the given cwd candidates, or `nil`.
     ///
-    /// A purpose-built id-only query: no `messages` `LEFT JOIN` / `GROUP BY` and no preview subquery
-    /// (unlike ``loadSessions(db:needle:cwdCandidates:offset:limit:)``, which builds full rows for
-    /// the search UI). Ordering keys on last message activity so auto-resume targets the session the
-    /// index shows as most recent for the cwd, and still prefers a session resumed from an older id
-    /// over a newer-but-idle one in the same directory; the `MAX(timestamp)` correlated subquery
-    /// runs only for the (few) cwd-matched rows, not the whole history.
+    /// A purpose-built, bounded id-only query: it selects only `s.id` and touches only the
+    /// `sessions` table — no `messages` join, `GROUP BY`, correlated aggregate, or preview subquery —
+    /// so it stays O(cwd-matched sessions) regardless of how large `messages` grows, keeping the
+    /// process-scan restore path cheap. Ordering by `COALESCE(s.ended_at, s.started_at)` is correct
+    /// for the only case that reaches this fallback: a *fresh* Hermes launch (a pane resuming a
+    /// specific session carries `--resume <id>` in argv, which the scanner honours before calling
+    /// this) mints a new row whose timestamp is the newest for its cwd. Concurrent fresh panes in one
+    /// cwd are rejected upstream by the scanner's ambiguity guard.
     private static func latestSessionID(
         db: OpaquePointer,
         cwdCandidates: [String]
@@ -179,11 +181,7 @@ public enum HermesAgentIndex {
             FROM sessions s
             WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
               AND s.cwd IN (\(placeholders))
-            ORDER BY COALESCE(
-              (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id),
-              s.ended_at,
-              s.started_at
-            ) DESC
+            ORDER BY COALESCE(s.ended_at, s.started_at) DESC
             LIMIT 1
             """
         var stmt: OpaquePointer?

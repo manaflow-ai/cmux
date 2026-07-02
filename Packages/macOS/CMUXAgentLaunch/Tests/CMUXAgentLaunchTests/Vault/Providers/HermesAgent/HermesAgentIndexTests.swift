@@ -154,6 +154,28 @@ struct HermesAgentIndexTests {
         #expect(HermesAgentIndex.latestSessionID(cwd: repoB, stateDBPath: dbURL.path) == "b-newest-globally")
     }
 
+    @Test("latestSessionID orders by session timestamps, not message recency (bounded restore path)")
+    func latestSessionIDOrdersBySessionTimestampsNotMessages() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+        let repo = try makeDirectory(root.appendingPathComponent("repo", isDirectory: true))
+        // 'older-started' carries a far newer message; 'newer-started' has none. The restore path
+        // orders by started/ended time (a fresh launch mints the newest row), never scanning
+        // messages, so 'newer-started' wins regardless of message recency.
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, cwd)
+        VALUES
+          ('older-started', 'cli', 'm', 10, '\(repo)'),
+          ('newer-started', 'tui', 'm', 50, '\(repo)');
+        INSERT INTO messages (session_id, role, content, timestamp)
+        VALUES ('older-started', 'user', 'recent activity', 9999);
+        """)
+
+        #expect(HermesAgentIndex.latestSessionID(cwd: repo, stateDBPath: dbURL.path) == "newer-started")
+    }
+
     @Test("latestSessionID and cwd filter exclude gateway sources and NULL-cwd rows")
     func cwdScopedLookupExcludesGatewayAndNullCwd() throws {
         let root = try temporaryDirectory()
