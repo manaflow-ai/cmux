@@ -29,6 +29,37 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: HookExtra = 
   return result.ok;
 }
 
+// Fire-and-forget variant for latency-sensitive paths whose result is unused.
+// sendHook blocks Pi's event loop on a full cmux CLI process launch (hundreds
+// of ms), which made every prompt submission visibly lag before the fix.
+function sendHookFireAndForget(subcommand: string, ctx: ExtensionContext, extra: HookExtra = {}): void {
+  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
+  if (!process.env.CMUX_SURFACE_ID) return;
+
+  const sessionId = sessionIdFrom(ctx);
+  if (!sessionId) return;
+
+  const cwd = cwdFrom(ctx);
+  const payload: HookExtra = {
+    session_id: sessionId,
+    cwd,
+    hook_event_name: eventName(subcommand),
+    event: eventName(subcommand),
+    ...extra,
+  };
+  try {
+    const child = spawn(cmuxExecutable(), ["hooks", "pi", subcommand], {
+      env: hookEnvironment(cwd, true),
+      stdio: ["pipe", "ignore", "ignore"],
+      detached: true,
+    });
+    child.on("error", () => {});
+    child.stdin.on("error", () => {});
+    child.stdin.end(JSON.stringify(payload));
+    child.unref();
+  } catch (_) {}
+}
+
 function surfaceTargetArgs(): string[] | null {
   const surfaceId = firstString(process.env.CMUX_SURFACE_ID);
   if (!surfaceId) return null;
@@ -236,7 +267,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, ctx) => {
     const sessionId = sessionIdFrom(ctx);
     const turnId = sessionId ? beginTurn(sessionId, event) : undefined;
-    sendHook("prompt-submit", ctx, { prompt: event.prompt, turn_id: turnId });
+    // Fire-and-forget: this runs between the user's Enter keypress and the
+    // prompt registering. Blocking here (spawnSync) added the full cmux CLI
+    // startup cost (~300ms+) to every submission, and the result is unused.
+    sendHookFireAndForget("prompt-submit", ctx, { prompt: event.prompt, turn_id: turnId });
   });
 
   pi.on("tool_execution_start", async (event, ctx) => {
