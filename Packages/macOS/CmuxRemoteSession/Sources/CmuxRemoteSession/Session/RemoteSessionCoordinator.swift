@@ -279,11 +279,13 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     func beginConnectionAttemptLocked() {
         guard !isStopping else { return }
 
-        Self.killOrphanedRemoteSSHProcesses(
-            destination: configuration.destination,
-            relayPort: configuration.relayPort,
-            persistentDaemonSlot: configuration.persistentDaemonSlot
-        )
+        if configuration.transport != .local {
+            Self.killOrphanedRemoteSSHProcesses(
+                destination: configuration.destination,
+                relayPort: configuration.relayPort,
+                persistentDaemonSlot: configuration.persistentDaemonSlot
+            )
+        }
         connectionAttemptStartedAt = Date()
         debugLog("remote.session.connect.begin retry=\(reconnectRetryCount) \(debugConfigSummary())")
         // The armed retry (if any) is consumed by this attempt; a stale fire
@@ -314,7 +316,9 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         do {
             let requiredCapabilities = requiredDaemonCapabilities
             let hello: DaemonHello
-            if configuration.skipDaemonBootstrap {
+            if configuration.transport == .local {
+                hello = try bootstrapLocalDaemonLocked(requiredCapabilities: requiredCapabilities)
+            } else if configuration.skipDaemonBootstrap {
                 // Cloud-VM path: cmuxd-remote is pre-baked in the image and exposed via
                 // systemd socket activation at /run/cmuxd-remote.sock. We skip the probe,
                 // upload, and stdio-hello steps entirely — they all depend on ssh-exec
@@ -349,7 +353,9 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 remotePath: hello.remotePath
             )
             recordHeartbeatActivityLocked()
-            if configuration.skipDaemonBootstrap {
+            if configuration.transport == .local {
+                startProxyLocked()
+            } else if configuration.skipDaemonBootstrap {
                 debugLog("remote.relay.skipped reason=vm-baked transport=\(configuration.transport.rawValue)")
                 if configuration.daemonWebSocketEndpoint != nil {
                     startProxyLocked()
