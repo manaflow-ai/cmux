@@ -784,6 +784,12 @@ final class FileExplorerStore: ObservableObject {
     private var remoteHomeResolutionTask: Task<Void, Never>?
     private var remoteHomeResolutionKey: String?
 
+    private let gitStatusProvider: GitStatusProvider
+
+    init(gitStatusProvider: GitStatusProvider = GitStatusProvider()) {
+        self.gitStatusProvider = gitStatusProvider
+    }
+
     var displayRootPath: String {
         if let sshProvider = provider as? SSHFileExplorerProvider {
             guard !rootPath.isEmpty else {
@@ -858,8 +864,9 @@ final class FileExplorerStore: ObservableObject {
             let port = sshProvider.port
             let identity = sshProvider.identityFile
             let opts = sshProvider.sshOptions
+            let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
-                let status = GitStatusProvider().fetchStatusSSH(
+                let status = gitStatusProvider.fetchStatusSSH(
                     directory: path, destination: dest, port: port,
                     identityFile: identity, sshOptions: opts
                 )
@@ -868,8 +875,9 @@ final class FileExplorerStore: ObservableObject {
                 }
             }
         } else {
+            let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
-                let status = GitStatusProvider().fetchStatus(directory: path)
+                let status = gitStatusProvider.fetchStatus(directory: path)
                 DispatchQueue.main.async { [weak self] in
                     self?.gitStatusByPath = status
                 }

@@ -80,11 +80,102 @@ struct FileExplorerGitStatusProviderTests {
         #expect(status[siblingURL.path] == nil)
     }
 
+    @Test
+    func statusQueryMapsTypeChangedAndUnmergedEntries() throws {
+        let repoURL = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+
+        let fakeGitURL = try Self.writeExecutableScript(
+            #"""
+            #!/bin/sh
+            if [ "${CMUX_TEST_GIT_ENV:-}" != "expected" ]; then
+                exit 3
+            fi
+            if [ "${GIT_OPTIONAL_LOCKS:-}" != "0" ]; then
+                exit 4
+            fi
+            case "$1 $2" in
+            "rev-parse --show-toplevel")
+                printf '%s\n' "$CMUX_TEST_REPO_ROOT"
+                ;;
+            "status --porcelain=v1")
+                printf ' T type-change.txt\0UU conflicted.txt\0'
+                ;;
+            *)
+                exit 2
+                ;;
+            esac
+            """#,
+            named: "fake-git",
+            in: repoURL
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_TEST_GIT_ENV"] = "expected"
+        environment["CMUX_TEST_REPO_ROOT"] = repoURL.path
+
+        let status = GitStatusProvider(
+            gitExecutableURL: fakeGitURL,
+            environment: environment
+        ).fetchStatus(directory: repoURL.path)
+
+        #expect(
+            status[repoURL.appendingPathComponent("type-change.txt").path] == .some(.modified)
+        )
+        #expect(
+            status[repoURL.appendingPathComponent("conflicted.txt").path] == .some(.modified)
+        )
+    }
+
+    @Test
+    func sshStatusQueryUsesInjectedProcessEnvironment() throws {
+        let repoURL = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+
+        let fakeSSHURL = try Self.writeExecutableScript(
+            #"""
+            #!/bin/sh
+            if [ "${CMUX_TEST_SSH_ENV:-}" != "expected" ]; then
+                exit 3
+            fi
+            printf '%s\n---GIT_STATUS---\n M remote.txt\0' "$CMUX_TEST_REPO_ROOT"
+            """#,
+            named: "fake-ssh",
+            in: repoURL
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_TEST_REPO_ROOT"] = repoURL.path
+        environment["CMUX_TEST_SSH_ENV"] = "expected"
+
+        let status = GitStatusProvider(
+            sshExecutableURL: fakeSSHURL,
+            environment: environment
+        ).fetchStatusSSH(
+            directory: repoURL.path,
+            destination: "example.invalid",
+            port: nil,
+            identityFile: nil,
+            sshOptions: []
+        )
+
+        #expect(
+            status[repoURL.appendingPathComponent("remote.txt").path] == .some(.modified)
+        )
+    }
+
     private static func makeTemporaryDirectory() throws -> URL {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-file-explorer-git-status-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         return rootURL
+    }
+
+    private static func writeExecutableScript(
+        _ contents: String, named name: String, in directory: URL
+    ) throws -> URL {
+        let scriptURL = directory.appendingPathComponent(name)
+        try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+        return scriptURL
     }
 
     private static func initializeRepo(at repoURL: URL) throws {

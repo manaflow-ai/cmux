@@ -91,6 +91,8 @@ struct GitStatusProvider: Sendable {
 
     private func parseStatusChars(index: Character, workTree: Character) -> GitFileStatus? {
         if index == "?" && workTree == "?" { return .untracked }
+        if index == "U" || workTree == "U" { return .modified }
+        if index == "T" || workTree == "T" { return .modified }
         if index == "A" || workTree == "A" { return .added }
         if index == "C" || workTree == "C" { return .added }
         if index == "D" || workTree == "D" { return .deleted }
@@ -181,6 +183,7 @@ struct GitStatusProvider: Sendable {
         args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
         args += [destination, command]
         process.arguments = args
+        process.environment = environment
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
