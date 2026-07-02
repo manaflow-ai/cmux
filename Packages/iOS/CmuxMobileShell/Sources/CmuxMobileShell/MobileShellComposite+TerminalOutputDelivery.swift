@@ -321,15 +321,9 @@ extension MobileShellComposite {
                 requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
                 return
             }
-            // Fully resolved: if the acked delivery carried no sequence (a
-            // seq-less raw tail), the pre-barrier floor is still the truthful
-            // delivered state — restore it so the floor never outlives its
-            // barrier.
-            if deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil,
-               let floorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] {
-                deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = floorSeq
-            }
-            terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            // Fully resolved: a seq-less raw tail leaves no delivered sequence,
+            // so the floor restore is the truthful baseline hand-back.
+            restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
             terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
         }
         guard let next,

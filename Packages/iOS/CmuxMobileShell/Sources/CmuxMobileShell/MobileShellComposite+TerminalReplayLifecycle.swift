@@ -152,19 +152,9 @@ extension MobileShellComposite {
             return false
         }
         let wasMissingBaselineBarrier = terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] == token
-        // A barrier released without delivering leaves the surface showing the
-        // pre-barrier content, so the stashed floor IS the truthful baseline;
-        // restoring it keeps later deltas flowing instead of stalling them
-        // behind an exhausted missing-baseline budget.
-        let restoredBaselineFromFloor: Bool
-        if deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil,
-           let floorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] {
-            deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = floorSeq
-            restoredBaselineFromFloor = true
-        } else {
-            restoredBaselineFromFloor = false
-        }
-        terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        // Restoring the floor keeps later deltas flowing instead of stalling
+        // them behind an exhausted missing-baseline budget.
+        let restoredBaselineFromFloor = restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
         // A restored baseline is NOT a delivered one for budget purposes: the
         // gate that armed this barrier is still unsatisfied, and clearing the
         // budget here would let an empty-answering host be hammered with one
@@ -345,6 +335,21 @@ extension MobileShellComposite {
     /// ``markTerminalBytesDelivered(surfaceID:endSeq:)``).
     func rebaseTerminalReplayStaleFloor(surfaceID: String) {
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+    }
+
+    /// Barrier released without delivering: the surface still shows the
+    /// pre-barrier content, so the stashed floor IS the truthful baseline.
+    /// Restores it (returning whether it did) and always drops the floor.
+    @discardableResult
+    func restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: String) -> Bool {
+        var restored = false
+        if deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil,
+           let floorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] {
+            deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = floorSeq
+            restored = true
+        }
+        terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        return restored
     }
 
     /// Move the delivered high-water mark into the pre-barrier stale floor so
