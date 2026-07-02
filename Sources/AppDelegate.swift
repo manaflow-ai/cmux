@@ -7704,7 +7704,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.addButton(withTitle: String(localized: "common.restore", defaultValue: "Restore"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
-        field.placeholderString = "snapshot-id"
+        field.placeholderString = String(localized: "command.cloudVM.restore.prompt.placeholder", defaultValue: "snapshot-id")
         alert.accessoryView = field
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return nil }

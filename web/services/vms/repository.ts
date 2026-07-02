@@ -14,7 +14,7 @@ import {
   cloudVmUsageEvents,
 } from "../../db/schema";
 import type { ProviderId } from "./drivers";
-import { VmDatabaseError, VmLimitExceededError, isVmLimitExceededError } from "./errors";
+import { VmCreateInProgressError, VmDatabaseError, VmLimitExceededError, isVmLimitExceededError } from "./errors";
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
@@ -93,7 +93,7 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number;
     readonly baseName?: string;
     readonly reason?: string | null;
-  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateInProgressError | VmDatabaseError | VmLimitExceededError>;
   readonly markBaseCreateRunning: (input: {
     readonly baseId: string;
     readonly generation: number;
@@ -684,6 +684,19 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           const now = new Date();
           const previousGeneration = existing?.generation ?? null;
           const previousVm = existing?.vm ?? null;
+          const existingOperationInFlight =
+            existing?.base.state === "creating" ||
+            existing?.base.state === "opening" ||
+            existing?.base.state === "resetting" ||
+            previousGeneration?.state === "creating" ||
+            previousVm?.status === "provisioning" ||
+            (previousVm?.status === "running" && !previousVm.providerVmId);
+          if (existingOperationInFlight) {
+            throw new VmCreateInProgressError({
+              idempotencyKey: previousVm?.idempotencyKey ??
+                `base:${scope.scopeType}:${scope.scopeId}:${name}:g${existing?.base.activeGeneration ?? 0}`,
+            });
+          }
           const nextGeneration = (existing?.base.activeGeneration ?? 0) + 1;
           const idempotencyKey = `base:${scope.scopeType}:${scope.scopeId}:${name}:g${nextGeneration}`;
           const activePredicates = [

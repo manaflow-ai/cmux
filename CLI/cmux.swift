@@ -10754,15 +10754,35 @@ struct CMUXCLI {
         }
         client.close()
         if let passwordCredential = options.passwordCredential, !passwordCredential.isEmpty {
+            let askpassRunner = try prepareSSHAskpassRunner(passwordCredential: passwordCredential)
             try execInteractiveProgram(
                 launchPath: "/bin/sh",
-                arguments: ["-c", sshAskpassExecShellScript(passwordCredential: passwordCredential), "cmux-vm-ssh-attach", launchPath] + Array(sshArguments.dropFirst())
+                arguments: [askpassRunner, launchPath] + Array(sshArguments.dropFirst())
             )
         }
         try execInteractiveProgram(
             launchPath: launchPath,
             arguments: Array(sshArguments.dropFirst())
         )
+    }
+
+    private func prepareSSHAskpassRunner(passwordCredential: String) throws -> String {
+        let fileManager = FileManager.default
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let dirURL = tempRoot.appendingPathComponent("cmux-ssh-askpass.\(UUID().uuidString)", isDirectory: true)
+        let passwordURL = dirURL.appendingPathComponent("password", isDirectory: false)
+        let runnerURL = dirURL.appendingPathComponent("run", isDirectory: false)
+        try fileManager.createDirectory(at: dirURL, withIntermediateDirectories: false)
+        _ = chmod(dirURL.path, S_IRWXU)
+        guard let passwordData = passwordCredential.data(using: .utf8) else {
+            throw CLIError(message: "vm ssh-attach could not encode the Cloud VM credential.")
+        }
+        try passwordData.write(to: passwordURL, options: .atomic)
+        _ = chmod(passwordURL.path, S_IRUSR | S_IWUSR)
+        let runner = sshAskpassExecShellScript(passwordFilePath: passwordURL.path, cleanupDirectory: dirURL.path)
+        try runner.write(to: runnerURL, atomically: true, encoding: .utf8)
+        _ = chmod(runnerURL.path, S_IRWXU)
+        return runnerURL.path
     }
 
     private func defaultFreestyleCloudSSHAttachLoopCommand(vmID: String, executablePath: String) -> String {
