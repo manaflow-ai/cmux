@@ -90,7 +90,7 @@ import Testing
         #expect(path == [selectedID])
     }
 
-    @Test func keepsDetailRouteWhenListRefreshTemporarilyOmitsItAfterSelectionRetargets() {
+    @Test func remapsDetailRouteWhenListRefreshOmitsItAfterSelectionRetargets() {
         let selectedID = MobileWorkspacePreview.ID(rawValue: "workspace-b")
         let path = WorkspaceShellCompactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
             currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
@@ -98,6 +98,16 @@ import Testing
             selectedWorkspaceID: selectedID
         )
 
-        #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-a")])
+        #expect(path == [selectedID])
+    }
+
+    @Test func removesMissingDetailRouteWhenSelectionClears() {
+        let path = WorkspaceShellCompactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
+            currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
+            visibleWorkspaceIDs: [MobileWorkspacePreview.ID(rawValue: "workspace-b")],
+            selectedWorkspaceID: nil
+        )
+
+        #expect(path.isEmpty)
     }
 }

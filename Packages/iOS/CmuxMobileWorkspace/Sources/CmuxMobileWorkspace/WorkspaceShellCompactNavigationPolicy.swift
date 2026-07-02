@@ -52,15 +52,29 @@ public struct WorkspaceShellCompactNavigationPolicy {
     }
 
     /// Computes the navigation path after the workspace list's visible IDs
-    /// change. The compact route is not derived from list visibility: a fresh
-    /// no-agent workspace can temporarily disappear from a list response while the
-    /// terminal arrives, and clearing the path there makes the list toolbar replace
-    /// the detail toolbar. Explicit pushes and pops own route changes instead.
+    /// change. Keep the current detail route mounted while the routed workspace
+    /// is still selected, even if a transient list refresh omits it while the
+    /// terminal arrives. If the authoritative selection has moved away, pop or
+    /// remap to the selected visible workspace so deleted workspaces do not stay
+    /// mounted from a stale route snapshot.
     public static func pathForVisibleWorkspaceIDsChange<ID: Hashable>(
         currentPath: [ID],
         visibleWorkspaceIDs: Set<ID>,
         selectedWorkspaceID: ID?
     ) -> [ID] {
-        return currentPath
+        guard let currentDetailID = currentPath.last else {
+            return currentPath
+        }
+        guard !visibleWorkspaceIDs.contains(currentDetailID) else {
+            return currentPath
+        }
+        guard selectedWorkspaceID != currentDetailID else {
+            return currentPath
+        }
+        if let selectedWorkspaceID,
+           visibleWorkspaceIDs.contains(selectedWorkspaceID) {
+            return [selectedWorkspaceID]
+        }
+        return currentPath.filter { visibleWorkspaceIDs.contains($0) }
     }
 }
