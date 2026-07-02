@@ -143,6 +143,22 @@ extension DockSplitStore {
         // resume closure when the panel returns to a workspace, where the next
         // visit resumes it. Running resume from the Dock would require duplicating
         // that Workspace machinery here and is intentionally out of scope.
+        //
+        // This snapshot is frozen at dock-entry and never refreshed while docked,
+        // which is correct: the Dock tracks none of the workspace's per-panel
+        // state (no `panelDirectories`, `surfaceTTYNames`, `panelTitles`,
+        // `panelCustomTitles`, `pinnedPanelIds`, or `manualUnreadPanelIds`), so it
+        // has no fresher value to record. Dock-immutable fields (pin, custom
+        // title, manual-unread, agent/resume snapshots, remote identity) have no
+        // mutation path here at all. Live terminal-derived fields (`directory`,
+        // `ttyName`) are re-seeded from this payload on re-attach and then
+        // corrected by the live terminal's own reporting once
+        // `Workspace.attachDetachedSurface` restores workspace tracking
+        // (`updatePanelDirectory(source: .liveReport)`); `title` is already read
+        // live at detach above. Preserving this payload is strictly better than
+        // the prior behavior of dropping all of it (nil/false) on a Dock round-
+        // trip. If a future Dock feature can mutate any of these fields, refresh
+        // this entry at that point.
         detachedSurfaceTransfersByPanelId[detached.panelId] = detached
         withCoalescedTerminalViewReattach {
             applyVisibility(to: panel)
