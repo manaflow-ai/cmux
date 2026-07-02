@@ -94,6 +94,8 @@ struct NotificationsPage: View {
                 .cmuxFont(.title2)
                 .fontWeight(.semibold)
 
+            NotificationAgentCountsView()
+
             Spacer()
 
             if notificationStore.notificationMenuSnapshot.hasNotifications {
