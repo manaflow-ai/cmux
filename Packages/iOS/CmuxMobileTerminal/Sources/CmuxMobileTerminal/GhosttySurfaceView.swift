@@ -667,6 +667,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Local natural grid waiting for the Mac's effective-grid echo. While set,
     /// an older smaller effective grid is treated as stale viewport-growth state.
     private var awaitingViewportEcho: TerminalGridSize?
+    /// True after the Mac has confirmed at least one local viewport report.
+    /// Until then, a pending initial natural-grid report is not evidence of
+    /// viewport growth and must not suppress direct remote-grid top anchoring.
+    private var hasConfirmedViewportReport = false
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
     /// `viewportReportSettleThreshold` frames. Reporting every intermediate
@@ -3322,6 +3326,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func resetViewportReportStateForSurfaceReset() {
         lastReportedSize = nil
         awaitingViewportEcho = nil
+        hasConfirmedViewportReport = false
         pendingViewportReport = nil
         viewportReportSettleFrames = 0
         viewportReportRetries = 0
@@ -3427,6 +3432,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func markViewportReportConfirmed() {
         viewportReportRetries = 0
+        hasConfirmedViewportReport = true
         guard awaitingViewportEcho != nil else { return }
         awaitingViewportEcho = nil
         setNeedsGeometrySync(reassertNaturalSize: false)
@@ -3741,10 +3747,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let shouldReportNaturalSize = reportGridChanged ||
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
         let awaitingViewportEchoForPlacement: (cols: Int, rows: Int)?
-        if reportGridChanged, hasPriorReportedSize {
-            awaitingViewportEchoForPlacement = (cols: reportGrid.columns, rows: reportGrid.rows)
+        if hasConfirmedViewportReport {
+            if reportGridChanged, hasPriorReportedSize {
+                awaitingViewportEchoForPlacement = (cols: reportGrid.columns, rows: reportGrid.rows)
+            } else {
+                awaitingViewportEchoForPlacement = awaitingViewportEcho.map { (cols: $0.columns, rows: $0.rows) }
+            }
         } else {
-            awaitingViewportEchoForPlacement = awaitingViewportEcho.map { (cols: $0.columns, rows: $0.rows) }
+            awaitingViewportEchoForPlacement = nil
         }
         let naturalRenderSize = CGSize(
             width: max(1, CGFloat(naturalSize.pixelWidth) / scale),
