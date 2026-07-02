@@ -4486,6 +4486,19 @@ final class Workspace: Identifiable, ObservableObject {
     /// paste with no delimiter — can't allocate or whitespace-split proportional
     /// to its full length.
     static let maxEditingTagTokenScanLength = maxCustomTagLength * 16
+    /// Upper bound on the *total* scalars the editing tokenizer scans across all
+    /// tokens before it stops yielding, independent of how many tags are
+    /// accepted. Neither the per-token cap nor the `maxCustomTagCount`
+    /// accepted-tag cap bounds input that is almost entirely empty or duplicate
+    /// tokens — bare-comma floods, whitespace-only fields, or a repeated `a,` —
+    /// because those hit the normalizer's `continue` paths without advancing the
+    /// accepted count, so without this budget the tokenizer would still walk the
+    /// entire paste on the main actor. Sized to comfortably cover the largest
+    /// well-formed input (`maxCustomTagCount` tokens each scanned to
+    /// `maxEditingTagTokenScanLength` plus its delimiter) so realistic pastes are
+    /// never truncated; a paste that exceeds it is pathological and its tail is
+    /// intentionally dropped in favor of bounding main-thread work.
+    static let maxEditingTagTotalScanLength = maxCustomTagCount * (maxEditingTagTokenScanLength + 1)
 
     /// Normalizes an arbitrary sequence of raw tag strings into the stored form:
     /// whitespace-collapsed, length- and count-bounded, deduplicated by folding
@@ -4511,7 +4524,13 @@ final class Workspace: Identifiable, ObservableObject {
                 .joined(separator: " ")
             guard !normalized.isEmpty else { continue }
             if normalized.count > maxCustomTagLength {
+                // Truncating mid-string can cut on the space that joins two
+                // collapsed words, leaving a trailing separator; trim it so the
+                // stored tag never ends in whitespace. The prefix always starts
+                // with a non-whitespace scalar (whitespace was the join
+                // separator), so trimming can never empty it.
                 normalized = String(normalized.prefix(maxCustomTagLength))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
             }
             let key = Self.customTagFoldingKey(normalized)
             guard seenKeys.insert(key).inserted else { continue }
@@ -4549,7 +4568,11 @@ final class Workspace: Identifiable, ObservableObject {
         // tags, and bounds each token's length so a single giant field can't
         // blow up the per-token whitespace split either.
         normalizedCustomTags(
-            EditingTagTokenSequence(text: text, maxTokenScanLength: maxEditingTagTokenScanLength)
+            EditingTagTokenSequence(
+                text: text,
+                maxTokenScanLength: maxEditingTagTokenScanLength,
+                maxTotalScanLength: maxEditingTagTotalScanLength
+            )
         )
     }
 
@@ -4561,25 +4584,37 @@ final class Workspace: Identifiable, ObservableObject {
     /// memory) but only its bounded prefix is materialized, so an unbounded
     /// field can't allocate proportional to its full length. Empty tokens
     /// between consecutive delimiters are preserved (the normalizer drops them).
+    ///
+    /// A `maxTotalScanLength` budget caps the scalars scanned across *all*
+    /// tokens: the per-token cap and the consumer's accepted-tag cap don't bound
+    /// input dominated by empty or duplicate tokens (they reach neither cap), so
+    /// this budget is what stops a bare-comma / repeated-token flood from walking
+    /// the whole paste. Once the budget is spent the iterator ends, dropping any
+    /// remaining tail — acceptable because it only triggers on pastes far larger
+    /// than any well-formed tag list.
     private struct EditingTagTokenSequence: Sequence {
         let text: String
         let maxTokenScanLength: Int
+        let maxTotalScanLength: Int
 
         func makeIterator() -> AnyIterator<String> {
             let scalars = text.unicodeScalars
             var index = scalars.startIndex
             let end = scalars.endIndex
+            var scanned = 0
             return AnyIterator {
-                // Once every scalar is consumed the iterator is exhausted. A
-                // token returned at a delimiter that is the final scalar leaves
-                // `index == end`, so the trailing empty segment is intentionally
-                // not emitted (the normalizer would drop it anyway).
-                guard index < end else { return nil }
+                // Exhausted once every scalar is consumed OR the total-scan
+                // budget is spent. A token returned at a delimiter that is the
+                // final scalar leaves `index == end`, so the trailing empty
+                // segment is intentionally not emitted (the normalizer would
+                // drop it anyway).
+                guard index < end, scanned < maxTotalScanLength else { return nil }
                 var token = String.UnicodeScalarView()
                 var appended = 0
-                while index < end {
+                while index < end, scanned < maxTotalScanLength {
                     let scalar = scalars[index]
                     index = scalars.index(after: index)
+                    scanned += 1
                     if scalar == "," || scalar == "\n" {
                         return String(token)
                     }

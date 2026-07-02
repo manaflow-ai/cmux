@@ -15693,7 +15693,11 @@ struct TabItemView: View, Equatable {
             localized: "alert.workspaceTags.message",
             defaultValue: "Enter tags separated by commas."
         )
-        let input = NSTextField(string: workspaceTagsPromptSeed(targetIds: targetIds))
+        // `nil` seed means the targets have differing tags (mixed selection);
+        // the field starts blank so the user isn't shown one workspace's tags as
+        // if they applied to all.
+        let seed = workspaceTagsPromptSeed(targetIds: targetIds)
+        let input = NSTextField(string: seed ?? "")
         input.placeholderString = String(
             localized: "alert.workspaceTags.placeholder",
             defaultValue: "In CI, Waiting for review"
@@ -15706,16 +15710,25 @@ struct TabItemView: View, Equatable {
 
         let response = runCmuxModalAlert(alert)
         guard response == .alertFirstButtonReturn else { return }
-        tabManager.applyWorkspaceTags(editingText: input.stringValue, toWorkspaceIds: targetIds)
+        // A mixed selection seeds a blank field. Applying it unchanged would
+        // clear tags on every target — data loss the user did not request — so
+        // treat "blank field for a mixed selection, left untouched" as a no-op.
+        // A uniform selection has a concrete seed (possibly ""), so clearing its
+        // field still applies as an intentional "remove all tags".
+        let editingText = input.stringValue
+        if seed == nil, editingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return
+        }
+        tabManager.applyWorkspaceTags(editingText: editingText, toWorkspaceIds: targetIds)
     }
 
-    private func workspaceTagsPromptSeed(targetIds: [UUID]) -> String {
+    private func workspaceTagsPromptSeed(targetIds: [UUID]) -> String? {
         let targetTags = targetIds.compactMap { workspaceId in
             tabManager.tabs.first(where: { $0.id == workspaceId })?.customTags
         }
         guard let first = targetTags.first,
               targetTags.allSatisfy({ $0 == first }) else {
-            return ""
+            return nil
         }
         return first.joined(separator: ", ")
     }

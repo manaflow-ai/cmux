@@ -51,17 +51,39 @@ import Testing
         #expect(tags.last == "tag\(Workspace.maxCustomTagCount - 1)")
     }
 
-    @Test func customTagsFromEditingTextBoundsGiantTokenAndResumesAfterDelimiter() {
-        // A single multi-megabyte field with no delimiter must be truncated to
-        // the length cap (never processed whole), and the tokenizer must still
-        // scan past the bounded prefix to the delimiter so the following tag is
-        // parsed. This exercises the incremental, length-bounded tokenizer.
+    @Test func customTagsFromEditingTextBoundsGiantTokenScan() {
+        // A single multi-megabyte field is truncated to the length cap AND the
+        // tokenizer stops within its total-scan budget instead of walking the
+        // whole field to look for a following delimiter. Tail input after such a
+        // pathological field is intentionally dropped — bounding main-thread
+        // work takes priority over parsing tags that trail megabytes of junk.
         let huge = String(repeating: "a", count: 2_000_000)
         let tags = Workspace.customTags(fromEditingText: huge + ",Ready")
 
-        #expect(tags.count == 2)
-        #expect(tags.first?.count == Workspace.maxCustomTagLength)
-        #expect(tags.last == "Ready")
+        #expect(tags == [String(repeating: "a", count: Workspace.maxCustomTagLength)])
+    }
+
+    @Test func customTagsFromEditingTextBoundsEmptyAndDuplicateFloodInput() {
+        // Empty tokens (bare commas) and duplicate tokens hit the normalizer's
+        // `continue` paths without raising the accepted-tag count, so neither the
+        // per-token cap nor the count cap bounds them. The total-scan budget must
+        // stop the tokenizer rather than let it walk the entire pasted string on
+        // the main actor.
+        let commaFlood = String(repeating: ",", count: 5_000_000)
+        #expect(Workspace.customTags(fromEditingText: commaFlood).isEmpty)
+
+        let duplicateFlood = String(repeating: "dup,", count: 5_000_000)
+        #expect(Workspace.customTags(fromEditingText: duplicateFlood) == ["dup"])
+    }
+
+    @Test func normalizedCustomTagsTrimsTrailingSpaceLeftByLengthTruncation() {
+        // When the length cap falls exactly on the space that joins two
+        // collapsed words, the stored tag must not keep that trailing separator.
+        let head = String(repeating: "a", count: Workspace.maxCustomTagLength - 1)
+        let normalized = Workspace.normalizedCustomTags(["\(head) tail"])
+
+        #expect(normalized == [head])
+        #expect(normalized.first?.hasSuffix(" ") == false)
     }
 
     @Test func customTagsMatchFilterCaseAndDiacriticInsensitively() {
