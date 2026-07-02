@@ -63,6 +63,7 @@ extension DockSplitStore {
             restoredUnreadIndicator: nil,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
+            restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: nil,
             agentRuntime: nil,
             isRemoteTerminal: false,

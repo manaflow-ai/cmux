@@ -159,6 +159,7 @@ extension Workspace {
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore()
@@ -1466,6 +1467,20 @@ extension Workspace {
                 } else {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
                 }
+                // Remember the session directory the auto-resume launcher targets
+                // for the run's lifetime so `updatePanelDirectory` can reject the
+                // spurious post-restore reports that would otherwise clobber the
+                // pane's tracked cwd while the resumed agent holds the foreground
+                // (#7155). Local panes only: a remote saved path can't be
+                // validated against the local disk, mirroring the guard above.
+                if restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput,
+                   restoredDirectoryIsLocalPath,
+                   let resumeSessionDirectory = savedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !resumeSessionDirectory.isEmpty {
+                    restoredResumeSessionWorkingDirectoriesByPanelId[terminalPanel.id] = resumeSessionDirectory
+                } else {
+                    restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
+                }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {
@@ -2602,6 +2617,18 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    /// The session directory each restored auto-resume launcher targets, kept for
+    /// the lifetime of the resumed run — unlike the one-shot #6617 report guard
+    /// above, which the first spurious report consumes. While a resumed agent
+    /// holds the pane's foreground the shell never reaches a prompt, so any later
+    /// live cwd report that diverges from this anchor is spurious and would
+    /// otherwise clobber the pane's tracked cwd (and the workspace
+    /// currentDirectory) on the surface default. Keeping it lets
+    /// ``updatePanelDirectory`` reject those reports so every cwd consumer stays
+    /// on the resumed session's directory (#7155). Internal so
+    /// `Workspace+PanelLifecycle` can clear it on panel close and the
+    /// detached-surface transfer can carry it across a workspace move.
+    var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable
         case awaitingAutoResumeCommand
@@ -4570,6 +4597,10 @@ final class Workspace: Identifiable, ObservableObject {
            shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
             return false
         }
+        if source == .liveReport,
+           shouldIgnoreResumedAgentDivergentDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
+            return false
+        }
         let directoryChanged = panelDirectories[panelId] != trimmed
         if directoryChanged { panelDirectories[panelId] = trimmed }
         let trimmedDisplayLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -4624,6 +4655,48 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         return restoredDirectoryStillExists
+    }
+
+    /// Whether a live cwd report should be ignored because a restored
+    /// auto-resume agent still holds the pane's foreground (#7155).
+    ///
+    /// While that agent runs the shell never reaches a prompt, so it cannot
+    /// re-report the pane's real cwd. The one-shot #6617 guard above covers only
+    /// the first spurious post-restore report; any later report that diverges
+    /// from the session directory the launcher targeted is likewise spurious
+    /// (typically the surface default, home) and — left unguarded — would clobber
+    /// `panelDirectories`/`currentDirectory` for the rest of the run, so every
+    /// consumer (splits, new tabs, ``resolvedWorkingDirectory()``, the sidebar
+    /// project root, the tab bar) inherits home. Anchoring on the remembered
+    /// session directory keeps them all on the resumed session's directory.
+    ///
+    /// A report equal to the session directory is honored (the child shell's own
+    /// `cd` re-affirming it). Local panes only — a remote pane's paths can't be
+    /// validated locally. Once the session directory no longer exists on disk the
+    /// report is accepted: the anchor is gone, so the reported cwd is the real
+    /// fallback, mirroring the #6617 deleted-directory semantics.
+    private func shouldIgnoreResumedAgentDivergentDirectoryReport(
+        panelId: UUID,
+        reportedDirectory: String
+    ) -> Bool {
+        guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return false }
+        guard !isRemoteWorkspace, !isRemoteTerminalSurface(panelId) else { return false }
+        guard let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
+            restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
+        ) else { return false }
+        if reportedDirectory == sessionDirectory { return false }
+        var sessionDirectoryIsDirectory: ObjCBool = false
+        let sessionDirectoryStillExists = FileManager.default.fileExists(
+            atPath: sessionDirectory,
+            isDirectory: &sessionDirectoryIsDirectory
+        ) && sessionDirectoryIsDirectory.boolValue
+#if DEBUG
+        cmuxDebugLog(
+            "session.resume.cwdReport.\(sessionDirectoryStillExists ? "ignored" : "accepted") " +
+            "panel=\(panelId.uuidString.prefix(5)) session=\(sessionDirectory) reported=\(reportedDirectory)"
+        )
+#endif
+        return sessionDirectoryStillExists
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
@@ -4837,6 +4910,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
     }
 
     private func clearRestoredAgentResumeBinding(
@@ -5178,6 +5252,9 @@ final class Workspace: Identifiable, ObservableObject {
             validSurfaceIds.contains($0.key)
         }
         restoredAgentResumeStatesByPanelId = restoredAgentResumeStatesByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        restoredResumeSessionWorkingDirectoriesByPanelId = restoredResumeSessionWorkingDirectoriesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         invalidatedRestoredAgentFingerprintsByPanelId = invalidatedRestoredAgentFingerprintsByPanelId.filter {
@@ -9387,11 +9464,21 @@ final class Workspace: Identifiable, ObservableObject {
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
             if let resumeState = detached.restorableAgentResumeState {
                 restoredAgentResumeStatesByPanelId[detached.panelId] = resumeState
+                // Carry the resume session directory with the resume state so the
+                // #7155 spurious-report guard keeps working after a workspace move
+                // (the moved pane's shell still can't reach a prompt).
+                if let resumeSessionDirectory = detached.restoredResumeSessionWorkingDirectory {
+                    restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = resumeSessionDirectory
+                } else {
+                    restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
+                }
             } else {
                 restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
+                restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
             }
         } else {
             restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
+            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
         }
         if let resumeBinding = detached.resumeBinding, !resumeBinding.isProcessDetected {
             surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
@@ -12214,6 +12301,7 @@ extension Workspace: BonsplitDelegate {
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectoriesByPanelId[panelId],
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
