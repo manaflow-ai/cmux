@@ -3857,10 +3857,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
-        // Recompute from current bounds after layout. Pending size is only a fallback
-        // when we don't have usable bounds (e.g. detached/off-window transitions).
-        superview?.layoutSubtreeIfNeeded()
-        layoutSubtreeIfNeeded()
+        // Recompute from current bounds now and let the pending layout pass refine it
+        // (layout() calls updateSurfaceSize()). Do NOT force layoutSubtreeIfNeeded here:
+        // viewDidMoveToWindow fires inside AppKit's _setWindow: constraint pass during
+        // workspace-switch reparenting, and forcing layout there reenters NSHostingView
+        // layout ("laid out reentrantly" faults; SwiftUI skips the pass).
+        needsLayout = true
         updateSurfaceSize()
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
@@ -11806,7 +11808,14 @@ struct GhosttyTerminalView: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             onDidMoveToWindow?()
-            notifyGeometryChangedIfNeeded()
+            // Defer the geometry notification: it fires inside AppKit's _setWindow:
+            // constraint pass during workspace-switch reparenting, and the portal
+            // reconcile it triggers forces layout, reentering NSHostingView layout.
+            // The next layout() invokes notifyGeometryChangedIfNeeded() anyway; this
+            // async pass covers moves that do not dirty layout.
+            DispatchQueue.main.async { [weak self] in
+                self?.notifyGeometryChangedIfNeeded()
+            }
         }
 
         override func viewDidMoveToSuperview() {
