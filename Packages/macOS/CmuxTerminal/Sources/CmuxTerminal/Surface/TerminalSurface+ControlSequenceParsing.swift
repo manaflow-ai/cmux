@@ -1,5 +1,11 @@
 extension TerminalSurface {
-    /// Returns the byte-like scalar length for a complete terminal control sequence.
+    /// Returns the scalar length of a complete control sequence that must be
+    /// routed to the terminal parser (`process_output`) rather than delivered to
+    /// the PTY: OSC/DCS/PM/APC strings, and the CSI cursor reports/queries
+    /// (DSR/CPR) the emulator answers. Interactive CSI input — function keys,
+    /// kitty-keyboard, mouse, arbitrary `terminal.input` — is deliberately not
+    /// matched so it stays on the input path. Returns nil for anything else.
+    /// See #5763: only cursor reports/queries were being misrouted.
     static func terminalControlSequenceLength(
         _ scalars: [Unicode.Scalar],
         from start: Int
@@ -7,12 +13,31 @@ extension TerminalSurface {
         guard start + 1 < scalars.count, scalars[start].value == 0x1B else { return nil }
 
         switch scalars[start + 1].value {
-        case 0x5B: // CSI: ESC [ ... final-byte
-            return csiControlSequenceLength(scalars, from: start)
+        case 0x5B: // CSI: ESC [ ... — only cursor reports/queries (DSR/CPR)
+            return csiReportSequenceLength(scalars, from: start)
         case 0x5D: // OSC: ESC ] ... (BEL | ST)
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
         case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
+        default:
+            return nil
+        }
+    }
+
+    /// Length of a complete CSI sequence *iff* its final byte marks a cursor
+    /// report/query the emulator must consume or answer — DSR (`n`) or CPR (`R`).
+    /// Both finals are unambiguous terminal reports (no interactive key encodes a
+    /// CSI ending in `n` or `R`), so narrowing to them keeps the #5763 cursor-sync
+    /// fix while leaving function keys, kitty-keyboard, mouse, and other raw CSI
+    /// input on the PTY path. Returns nil for any non-report CSI.
+    private static func csiReportSequenceLength(
+        _ scalars: [Unicode.Scalar],
+        from start: Int
+    ) -> Int? {
+        guard let length = csiControlSequenceLength(scalars, from: start) else { return nil }
+        switch scalars[start + length - 1].value {
+        case 0x6E, 0x52: // n (DSR), R (CPR)
+            return length
         default:
             return nil
         }
