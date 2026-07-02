@@ -84,13 +84,13 @@ struct WorkspaceDiagnosticsSheet: View {
     private func buildReport() async -> String {
         let generatedAt = Date()
         let (_, debugLog) = await MobileDebugLog.shared.sink.snapshotWithCount()
-        let structuredEventLogData: Data?
-        if let diagnosticLog = store.diagnosticLog {
-            let data = await diagnosticLog.export()
-            structuredEventLogData = data.isEmpty ? nil : data
-        } else {
-            structuredEventLogData = nil
-        }
+        // The process-wide structured `diagnosticLog` is a flight recorder created
+        // once in AppCompositionRoot and never reset at the account boundary, so it is
+        // deliberately omitted from this account-scoped shared report: on a shared
+        // device it would otherwise let the next user surface the previous account's
+        // structured activity history (connection/pairing/input/composer timing). The
+        // account-scoped In-App Event Log (diagnosticsEventLog, cleared on sign-out)
+        // remains the report's event source.
         let events: [MobileDiagnosticsEvent]
         if let diagnosticsEventLog = store.diagnosticsEventLog {
             events = await diagnosticsEventLog.snapshot()
@@ -122,7 +122,6 @@ struct WorkspaceDiagnosticsSheet: View {
                 auth: auth,
                 connection: connection,
                 events: events,
-                structuredEventLogData: structuredEventLogData,
                 debugLog: debugLog,
                 osLogEntries: osLogEntries
             )
@@ -135,20 +134,16 @@ struct WorkspaceDiagnosticsSheet: View {
         auth: MobileDiagnosticsAuthState,
         connection: MobileDiagnosticsConnectionState,
         events: [MobileDiagnosticsEvent],
-        structuredEventLogData: Data?,
         debugLog: String,
         osLogEntries: [MobileDiagnosticsOSLogEntry]
     ) -> String {
-        let structuredEventLogText = structuredEventLogData.map {
-            String(decoding: $0, as: UTF8.self)
-        }
         return MobileDiagnosticsReportBuilder().buildReport(
             generatedAt: generatedAt,
             app: app,
             auth: auth,
             connection: connection,
             events: events,
-            structuredEventLog: structuredEventLogText,
+            structuredEventLog: nil,
             debugLog: debugLog,
             osLogEntries: osLogEntries
         )
