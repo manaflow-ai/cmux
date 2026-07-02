@@ -84,10 +84,10 @@ extension CMUXCLI {
             guard index < bytes.count else { return nil }
             let start = index
             sessionsListSkipString(in: bytes, index: &index)
-            if start < index, let argument = String(bytes: bytes[start..<index], encoding: .utf8) {
+            if let argument = String(bytes: bytes[start..<index], encoding: .utf8) {
                 arguments.append(argument)
             }
-            sessionsListSkipNulls(in: bytes, index: &index)
+            sessionsListConsumeTerminatingNull(in: bytes, index: &index)
         }
         return arguments.isEmpty ? nil : arguments
     }
@@ -98,5 +98,9 @@ extension CMUXCLI {
 
     private func sessionsListSkipNulls(in bytes: [UInt8], index: inout Int) {
         while index < bytes.count, bytes[index] == 0 { index += 1 }
+    }
+
+    private func sessionsListConsumeTerminatingNull(in bytes: [UInt8], index: inout Int) {
+        if index < bytes.count, bytes[index] == 0 { index += 1 }
     }
 }

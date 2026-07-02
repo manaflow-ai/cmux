@@ -214,6 +214,10 @@ extension CMUXCLI {
                 hookRecordRestorable: hookRecordRestorable
             ),
         ]
+        if let pid = diagnosticRecord.pid,
+           let process = sessionsListProcessIdentity(for: pid) {
+            diagnostics["stored_pid_arguments"] = process.arguments
+        }
         diagnostics["stored_pid_exists"] = storedPIDExists ?? NSNull()
         return diagnostics
     }

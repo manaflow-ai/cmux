@@ -243,7 +243,8 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     func sessionsListDiagnosticSession(
         agent: String = "codex", launcher: String, executablePath: String, arguments: [String],
-        environment: [String: String] = [:], workingDirectory: String = "/tmp/cmux/debug"
+        environment: [String: String] = [:], workingDirectory: String = "/tmp/cmux/debug", pid: Int? = nil,
+        transcriptPath: String? = nil
     ) throws -> [String: Any] {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -251,30 +252,31 @@ extension CMUXCLIErrorOutputRegressionTests {
         let stateDir = root.appendingPathComponent("state", isDirectory: true)
         try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-
         let sessionId = "019ef275-74e3-7777-9773-9dcb118ed5aa"
+        var record: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": "33B0D372-292E-42BF-97B6-E37CCA79AB84",
+            "surfaceId": "A2AECAA9-EE1C-4999-B7A9-EE4BB4CDA5D8",
+            "cwd": workingDirectory,
+            "startedAt": 1_781_996_800.0,
+            "updatedAt": 1_781_996_867.0,
+            "launchCommand": [
+                "launcher": launcher,
+                "executablePath": executablePath,
+                "arguments": arguments,
+                "workingDirectory": workingDirectory,
+                "environment": environment,
+                "source": "environment",
+            ],
+        ]
+        if let pid { record["pid"] = pid }
+        if let transcriptPath { record["transcriptPath"] = transcriptPath }
         let store: [String: Any] = [
             "version": 1,
-            "sessions": [sessionId: [
-                "sessionId": sessionId,
-                "workspaceId": "33B0D372-292E-42BF-97B6-E37CCA79AB84",
-                "surfaceId": "A2AECAA9-EE1C-4999-B7A9-EE4BB4CDA5D8",
-                "cwd": workingDirectory,
-                "startedAt": 1_781_996_800.0,
-                "updatedAt": 1_781_996_867.0,
-                "launchCommand": [
-                    "launcher": launcher,
-                    "executablePath": executablePath,
-                    "arguments": arguments,
-                    "workingDirectory": workingDirectory,
-                    "environment": environment,
-                    "source": "environment",
-                ],
-            ]],
+            "sessions": [sessionId: record],
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: stateDir.appendingPathComponent("\(agent)-hook-sessions.json"), options: .atomic)
-
         var processEnvironment = ProcessInfo.processInfo.environment
         for key in Array(processEnvironment.keys) where key.hasPrefix("CMUX_") { processEnvironment.removeValue(forKey: key) }
         processEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"

@@ -16,6 +16,16 @@ struct RestorableAgentSessionStalePIDTests {
         defer { try? fm.removeItem(at: root) }
         let dir = root.appendingPathComponent("repo", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let previousHookStateDir = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
+        let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        setenv("CMUX_AGENT_HOOK_STATE_DIR", stateDir.path, 1)
+        defer {
+            if let previousHookStateDir {
+                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDir, 1)
+            } else {
+                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
+            }
+        }
 
         let ws = UUID()
         let panel = UUID()
@@ -62,6 +72,16 @@ struct RestorableAgentSessionStalePIDTests {
         defer { try? fm.removeItem(at: root) }
         let dir = root.appendingPathComponent("repo", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let previousHookStateDir = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
+        let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        setenv("CMUX_AGENT_HOOK_STATE_DIR", stateDir.path, 1)
+        defer {
+            if let previousHookStateDir {
+                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDir, 1)
+            } else {
+                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
+            }
+        }
 
         let ws = UUID()
         let panel = UUID()

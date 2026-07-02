@@ -24,16 +24,13 @@ extension CMUXCLI {
         launchCommand: AgentHookLaunchCommandRecord?
     ) -> String {
         var commandParts: [String] = []
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(
-            from: launchCommand?.environment ?? [:],
-            kind: agent
+        let environmentParts = sessionsListLaunchEnvironmentParts(
+            agent: agent,
+            environment: launchCommand?.environment
         )
-        if !selectedEnvironment.isEmpty {
+        if !environmentParts.isEmpty {
             commandParts.append("env")
-            for key in selectedEnvironment.keys.sorted() {
-                guard let value = selectedEnvironment[key] else { continue }
-                commandParts.append("\(key)=\(value)")
-            }
+            commandParts.append(contentsOf: environmentParts)
         }
         commandParts.append(contentsOf: arguments)
 
@@ -71,10 +68,55 @@ extension CMUXCLI {
     func sessionsListWorkingDirectoryPrefixed(_ command: String, workingDirectory: String?) -> String {
         guard let workingDirectory else { return command }
         let quoted = sessionsListShellSingleQuoted(workingDirectory)
-        return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && \(command)"
+        return "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && \(command)"
     }
 
     func sessionsListShellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        if value.utf8.contains(where: { $0 >= 0x80 }) {
+            return sessionsListASCIIPrintfCommandSubstitution(for: value)
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private func sessionsListLaunchEnvironmentParts(
+        agent: String,
+        environment: [String: String]?
+    ) -> [String] {
+        guard let environment, !environment.isEmpty else { return [] }
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: agent)
+        var environmentParts: [String] = []
+        var preservedClaudeKeys: [String] = []
+        for key in selectedEnvironment.keys.sorted() {
+            guard let value = selectedEnvironment[key] else { continue }
+            environmentParts.append("\(key)=\(value)")
+            if agent == "claude", sessionsListClaudeAuthSelectionEnvironmentKeys.contains(key) {
+                preservedClaudeKeys.append(key)
+            }
+        }
+        if !preservedClaudeKeys.isEmpty {
+            environmentParts.append("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1")
+            environmentParts.append("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=\(preservedClaudeKeys.joined(separator: ","))")
+        }
+        return environmentParts
+    }
+
+    private var sessionsListClaudeAuthSelectionEnvironmentKeys: Set<String> {
+        [
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_SMALL_FAST_MODEL",
+            "CLAUDE_CODE_USE_BEDROCK",
+            "CLAUDE_CODE_USE_VERTEX",
+            "CLAUDE_CONFIG_DIR",
+        ]
+    }
+
+    private func sessionsListASCIIPrintfCommandSubstitution(for value: String) -> String {
+        let octalBytes = value.utf8
+            .map { String(format: #"\%03o"#, Int($0)) }
+            .joined()
+        return #""$(printf '"# + octalBytes + #"')""#
     }
 }
