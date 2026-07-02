@@ -220,30 +220,35 @@ enum NotesTreeStorage {
     /// omitted. Sorted directories-first, then case-insensitive by name.
     ///
     /// `limit` caps how many entries are materialized (stat + marker reads +
-    /// sort) so a pathologically large directory cannot make the watcher-driven
-    /// reload do unbounded work; callers pass their remaining node budget.
-    /// Beyond the cap, selection follows filesystem order. The scan also bails
-    /// early when the surrounding reload task is cancelled (partial results are
-    /// discarded by the caller's cancellation guards).
+    /// sort), and the streaming enumerator stops reading the directory once the
+    /// cap is hit, so a pathologically large directory cannot make the
+    /// watcher-driven reload do unbounded work or allocation; callers pass
+    /// their remaining node budget. Beyond the cap, selection follows
+    /// filesystem order. The scan also bails early when the surrounding reload
+    /// task is cancelled (partial results are discarded by the caller's
+    /// cancellation guards).
     static func listEntries(inDirectory directory: String, limit: Int = .max) -> [NotesTreeEntry] {
-        let fm = FileManager.default
-        guard let names = try? fm.contentsOfDirectory(atPath: directory) else { return [] }
+        let dirURL = URL(fileURLWithPath: directory, isDirectory: true)
+        guard let enumerator = FileManager.default.enumerator(
+            at: dirURL,
+            includingPropertiesForKeys: [.isSymbolicLinkKey, .isDirectoryKey],
+            options: [.skipsSubdirectoryDescendants]
+        ) else { return [] }
         var entries: [NotesTreeEntry] = []
-        for name in names {
+        for case let url as URL in enumerator {
             if entries.count >= limit || Task.isCancelled { break }
+            let name = url.lastPathComponent
             if name.hasPrefix(".") || name == workspaceMarkerName || name == sessionMarkerName { continue }
-            let full = (directory as NSString).appendingPathComponent(name)
             // Never traverse symlinks: a project-controlled link under
             // `.cmux/notes` (e.g. `home -> $HOME`) must not let the tree
             // list, open, or watch files outside the notes root. Mutations
             // canonicalize separately; listing is the first boundary.
-            if let type = (try? fm.attributesOfItem(atPath: full))?[.type] as? FileAttributeType,
-               type == .typeSymbolicLink {
+            guard let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey]),
+                  values.isSymbolicLink != true else {
                 continue
             }
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: full, isDirectory: &isDir) else { continue }
-            if isDir.boolValue {
+            let full = (directory as NSString).appendingPathComponent(name)
+            if values.isDirectory == true {
                 if let marker = sessionMarker(inDirectory: full) {
                     if marker.userCreated != true, isEmptySessionFolder(full) { continue }
                     entries.append(NotesTreeEntry(name: name, path: full, kind: .sessionFolder(marker)))
