@@ -439,7 +439,19 @@ actor RemoteTmuxSSHTransport {
                         continuation.resume(returning: proc.terminationStatus)
                     }
                     do {
-                        try process.run()
+                        // Launch under the cancellation lock. `checkCancellation()` above
+                        // only proves we were not cancelled a moment ago; a timeout firing
+                        // in the window before `run()` starts the child would otherwise see
+                        // `isRunning == false`, do nothing, and let a hung ssh child outlive
+                        // the requested timeout. Under the lock the two orderings are safe:
+                        // cancel-first makes `launch()` throw `CancellationError` (no child
+                        // starts), launch-first guarantees `cancel()` observes and kills it.
+                        try cancellation.launch()
+                    } catch is CancellationError {
+                        // Cancellation won the race; no child started, so resume here — the
+                        // termination handler will never fire for a process that never ran.
+                        process.terminationHandler = nil
+                        continuation.resume(throwing: CancellationError())
                     } catch {
                         // The process never started, so the handler will not fire; resume
                         // exactly once here with the launch failure.
