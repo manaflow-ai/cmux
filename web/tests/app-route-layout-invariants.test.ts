@@ -12,6 +12,9 @@ describe("Next app route layout invariants", () => {
 
     expect(rootLayout).toContain("<html");
     expect(rootLayout).toContain("<body");
+    expect(rootLayout).toContain("x-next-intl-locale");
+    expect(rootLayout).toContain("lang={locale}");
+    expect(rootLayout).toContain("dir={dir}");
     expect(localizedLayout).not.toContain("<html");
     expect(localizedLayout).not.toContain("<body");
     expect(handlerLayout).not.toContain("<html");
