@@ -11,7 +11,11 @@ import UIKit
 final class GhosttySurfaceBridge: @unchecked Sendable {
     // lint:allow lock — sanctioned carve-out: serial low-level primitive hidden behind the type, guarding a single weak ref on the libghostty-callback / typing-latency path; actor rewrite tracked as the GhosttySurfaceView split follow-up.
     private let lock = NSLock()
-    private var _surfaceView: GhosttySurfaceView?
+    // Weak: the view owns the bridge, so a strong back-reference forms a
+    // retain cycle that keeps a dismantled surface (and its libghostty
+    // surface) alive forever — `deinit` is the only caller of
+    // `disposeSurface()`, and it can never run while the cycle exists.
+    private weak var _surfaceView: GhosttySurfaceView?
 
     var surfaceView: GhosttySurfaceView? {
         get {

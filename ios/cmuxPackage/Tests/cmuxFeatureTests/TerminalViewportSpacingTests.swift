@@ -77,9 +77,9 @@ private final class ViewportSpacingHarness {
         // notifications that race the scripted keyboard heights below.
         view.autoFocusOnWindowAttach = false
         // The xctest host has no window scene, so a Metal present can never
-        // complete here; skip render dispatch so the render-stall recovery
+        // complete here; suppress render dispatch so the render-stall recovery
         // never pauses the geometry pipeline under test.
-        view.debugSkipRenderDispatchForTesting = true
+        view.isRenderDispatchSuppressed = true
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         view.frame = window.bounds
         window.addSubview(view)

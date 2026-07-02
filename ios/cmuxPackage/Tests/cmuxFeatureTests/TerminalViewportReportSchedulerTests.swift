@@ -122,4 +122,25 @@ struct TerminalViewportReportSchedulerTests {
         #expect(probe.applied.first?.id == 1)
         #expect(probe.applied.first?.rows == nil)
     }
+
+    @Test("cancel during an in-flight send never applies its echo")
+    func cancelStopsApplication() async {
+        let probe = SchedulerProbe()
+
+        // Report 1 is in flight when the owner detaches (cancel). Its echo
+        // resolving afterwards must not reach apply.
+        probe.submit(id: 1, rows: 55)
+        #expect(await probe.waitUntil { probe.sent == [1] })
+        probe.scheduler.cancel()
+        probe.resolve(id: 1, rows: 55)
+        for _ in 0..<200 { await Task.yield() }
+        #expect(probe.applied.isEmpty, "echo applied after cancel: \(probe.applied)")
+
+        // The scheduler stays usable after cancel: a new submit drains again.
+        probe.submit(id: 2, rows: 60)
+        #expect(await probe.waitUntil { probe.sent == [1, 2] })
+        probe.resolve(id: 2, rows: 60)
+        #expect(await probe.waitUntil { probe.applied.count == 1 })
+        #expect(probe.applied.first?.id == 2)
+    }
 }

@@ -764,13 +764,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
 
-    /// Test hook: geometry/spacing tests run in a scene-less xctest host where
-    /// a Metal present can never complete, so a real render dispatch stalls,
-    /// trips the render-pipeline stall recovery, and pauses geometry (and with
-    /// it the viewport reports under test). True skips the render dispatch
-    /// entirely; geometry (`set_size` + measure) never needs a present.
-    var debugSkipRenderDispatchForTesting = false
     #endif
+
+    /// Suppresses render dispatch while keeping the display link, geometry,
+    /// and viewport reporting alive. Hosts where a Metal present can never
+    /// complete (a scene-less xctest process) set this so a stalled present
+    /// cannot trip the render-pipeline stall recovery and pause geometry;
+    /// geometry (`set_size` + measure) never needs a present. Defaults false;
+    /// no production caller flips it (tests reach it via `@testable import`).
+    var isRenderDispatchSuppressed = false
 
     var currentGridSize: TerminalGridSize {
         lastReportedSize ?? TerminalGridSize(columns: 100, rows: 32, pixelWidth: 900, pixelHeight: 650)
@@ -3077,11 +3079,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // suspension; `resumeRendering` clears it on the next active transition.
         guard !renderPipelineRecoveryPaused,
               !renderingSuspended,
+              !isRenderDispatchSuppressed,
               let surface,
               !isDismantled else { return }
-        #if DEBUG
-        if debugSkipRenderDispatchForTesting { return }
-        #endif
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
         if renderInFlight {

@@ -250,6 +250,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask = nil
             liveFontTask?.cancel()
             liveFontTask = nil
+            viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
         }
 

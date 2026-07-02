@@ -45,6 +45,14 @@ public final class TerminalViewportReportScheduler {
     private let apply: @MainActor (Report, EffectiveGrid?) -> Void
     private var pending: Report?
     private var draining = false
+    /// The drain loop, stored so teardown can cancel it explicitly instead of
+    /// relying on the weak-self exit at the next loop check.
+    private var drainTask: Task<Void, Never>?
+    /// The one in-flight RPC. Cancelled when a newer report supersedes it so a
+    /// stalled send cannot delay the newest geometry for the transport's full
+    /// deadline (cancellation is cooperative: a transport that ignores it just
+    /// completes and its echo is discarded as stale).
+    private var inFlightSend: Task<EffectiveGrid?, Never>?
 
     /// - Parameters:
     ///   - send: Performs the viewport RPC for one report and returns the
@@ -63,16 +71,27 @@ public final class TerminalViewportReportScheduler {
     }
 
     /// Queue `report` as the newest report and start draining if idle. An
-    /// unsent older report is superseded, and an in-flight report's echo is
+    /// unsent older report is superseded, an in-flight send is cancelled (its
+    /// echo would be stale anyway), and a completed in-flight report's echo is
     /// discarded on return because this newer report exists.
     public func submit(_ report: Report) {
         pending = report
+        inFlightSend?.cancel()
         guard !draining else { return }
         draining = true
-        Task { @MainActor [weak self] in
+        drainTask = Task { @MainActor [weak self] in
             while let next = self?.takePending() {
                 guard let self else { return }
-                let effective = await self.send(next)
+                let sendTask = Task { @MainActor [send = self.send] in
+                    await send(next)
+                }
+                self.inFlightSend = sendTask
+                let effective = await sendTask.value
+                // Teardown cancelled the drain while the send was in flight:
+                // never apply into a dismantled surface, and leave
+                // `inFlightSend` alone (a successor drain may own it by now).
+                guard !Task.isCancelled else { return }
+                self.inFlightSend = nil
                 // A newer report landed while this one was in flight: its
                 // echo is stale by construction. Skip it; the loop sends the
                 // newer report next.
@@ -81,7 +100,19 @@ public final class TerminalViewportReportScheduler {
                 }
             }
             self?.draining = false
+            self?.drainTask = nil
         }
+    }
+
+    /// Stop the drain loop and the in-flight RPC. Called by the owner on
+    /// detach so pending work cannot apply into a surface being torn down.
+    public func cancel() {
+        inFlightSend?.cancel()
+        inFlightSend = nil
+        drainTask?.cancel()
+        drainTask = nil
+        pending = nil
+        draining = false
     }
 
     private func takePending() -> Report? {
