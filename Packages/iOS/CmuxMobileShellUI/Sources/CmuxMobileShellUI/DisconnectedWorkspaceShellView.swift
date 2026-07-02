@@ -81,12 +81,15 @@ struct DisconnectedWorkspaceShellView: View {
                     }
                     #if os(iOS)
                     // Registry + presence enrich the rows (online dots, build
-                    // labels). The timer then keeps presence and last-seen fresh
+                    // labels). The loop then keeps presence and last-seen fresh
                     // while the app is parked on this screen; like the Computers
                     // screen it deliberately does NOT dial offline Macs (see
                     // `refreshComputersScreen()`), so no reconnect storm.
+                    // Cancellation is wired to this `.task`'s lifecycle.
                     await store?.loadRegistryDevices()
-                    for await _ in Timer.publish(every: 10, on: .main, in: .common).autoconnect().values {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(10))
+                        guard !Task.isCancelled else { break }
                         await store?.refreshComputersScreen()
                     }
                     #endif
@@ -202,7 +205,10 @@ struct DisconnectedWorkspaceShellView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable {
-            await store?.loadPairedMacs()
+            // Same refresh the 10s loop performs (plus registry), so a pull
+            // updates the presence/last-seen the rows lead with, not just the
+            // stored Mac list.
+            await store?.refreshComputersScreen()
             await store?.loadRegistryDevices()
         }
         .accessibilityIdentifier("MobileDisconnectedSavedMacList")
@@ -245,14 +251,19 @@ struct DisconnectedWorkspaceShellView: View {
     /// Reconnect this row's computer. `switchToMac` promotes a live secondary
     /// connection or re-dials the Mac after refreshing its routes from the
     /// per-user backup; on failure the user gets an explicit alert instead of a
-    /// silently ignored tap.
+    /// silently ignored tap. `switchToMac` also returns `false` when a newer
+    /// switch (e.g. from the Settings sheet's host picker) supersedes this one;
+    /// in that case the newer attempt is still in flight or has already
+    /// connected, and alerting "couldn't connect" would be wrong — skip it.
     private func connect(to macDeviceID: String, named name: String) {
         guard connectingMacID == nil, let store else { return }
         connectingMacID = macDeviceID
         Task {
             let connected = await store.switchToMac(macDeviceID: macDeviceID)
             connectingMacID = nil
-            if !connected {
+            if !connected,
+               store.connectionState != .connected,
+               !store.isMacSwitchInFlight {
                 connectFailedComputerName = name
             }
         }

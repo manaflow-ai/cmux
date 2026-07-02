@@ -198,7 +198,7 @@ struct MacComputerRow: View {
                 .font(.caption2)
                 .foregroundStyle(dotColor)
                 .accessibilityLabel(primaryStatusPhrase)
-                .accessibilityIdentifier("MobileComputerStatus-\(computer.deviceId)-\(isConnected ? "connected" : "disconnected")")
+                .accessibilityIdentifier("MobileComputerStatus-\(computer.deviceId)-\(statusIdentifierSuffix)")
         }
     }
 
@@ -240,6 +240,16 @@ struct MacComputerRow: View {
     }
 
     private var isConnected: Bool { computer.connectionStatus == .connected }
+
+    /// The dot's automation suffix, derived from the same signal as its color so
+    /// UI tests and debugging never disagree with the visible state: phone
+    /// connection on the Computers screen, presence on the reconnect list.
+    private var statusIdentifierSuffix: String {
+        switch style {
+        case .computers: return isConnected ? "connected" : "disconnected"
+        case .reconnect: return computer.presence == .online ? "online" : "offline"
+        }
+    }
 
     private var avatarGradient: LinearGradient {
         MachineAvatarColors.gradient(
