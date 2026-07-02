@@ -95,13 +95,18 @@ extension MobileShellComposite {
 
     func upgradePendingColdTerminalReplaysIfNeeded() {
         guard !terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.isEmpty else { return }
-        guard supportedHostCapabilities.contains(Self.terminalReplayCapability) else {
-            terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = []
-            return
-        }
         let surfaceIDs = terminalColdReplayNeedsBarrierUpgradeSurfaceIDs
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = []
+        let barrierCapable = supportedHostCapabilities.contains(Self.terminalReplayCapability)
         for surfaceID in surfaceIDs where hasTerminalOutputSink(surfaceID: surfaceID) {
+            guard barrierCapable else {
+                // Hosts that answer mobile.terminal.replay without advertising
+                // terminal.replay.v1 still need the pre-connection mount's cold
+                // replay; mirror the unbarriered fallback used when mounting
+                // after the connection resolved.
+                requestTerminalReplay(surfaceID: surfaceID)
+                continue
+            }
             guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil else { continue }
             let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
             requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
