@@ -32,20 +32,21 @@ enum AppshotCapturer {
         let screenRecording = CGPreflightScreenCaptureAccess()
         let accessibility = AXIsProcessTrusted()
 
-        // ScreenCaptureKit capture is genuinely async (suspends, doesn't block);
-        // do it first, then PNG-encode the result.
+        // ScreenCaptureKit capture is genuinely async (suspends, doesn't block).
         let image: CGImage? = screenRecording
             ? await captureWindowImage(windowID: window.windowID, scale: scale)
             : nil
-        let imagePath = image.flatMap { writePNG($0) }
 
         // The Accessibility walk is synchronous IPC — up to thousands of
-        // round-trips — so run it and the file writes off the bounded
-        // cooperative thread pool rather than blocking a pool thread for the
-        // whole walk. (The window/app title prefers the AX title, falling back
-        // to the CGWindowList title captured above.)
+        // round-trips — and PNG encoding plus the file writes are CPU/disk work,
+        // so run all of it off the bounded cooperative thread pool rather than
+        // blocking a pool thread. (The window/app title prefers the AX title,
+        // falling back to the CGWindowList title captured above.)
+        // CGImage is an immutable CoreGraphics value; safe to hand to the queue.
+        nonisolated(unsafe) let capturedImage = image
         return await withCheckedContinuation { (continuation: CheckedContinuation<AppshotCapture?, Never>) in
             DispatchQueue.global(qos: .userInitiated).async {
+                let imagePath = capturedImage.flatMap { writePNG($0) }
                 var title = window.title
                 var textPath: String?
                 if accessibility {
@@ -200,9 +201,15 @@ enum AppshotCapturer {
             // unsupported — a full read only when the reported character count
             // proves it is within budget. Never materialize an unbounded value.
             if let ranged = copyRangedString(element, location: 0, length: limit) {
-                return ranged
+                // A provider that ignores the requested length could return more
+                // than `limit`; clamp so the bounded-read guarantee holds.
+                return ranged.count > limit ? String(ranged.prefix(limit)) : ranged
             }
-            guard let count = copyInt(element, kAXNumberOfCharactersAttribute), count <= limit else {
+            // Require a non-negative count within budget. A negative count (from a
+            // misbehaving provider) must not slip past into the full `copyString`
+            // read below, which would materialize the whole value.
+            guard let count = copyInt(element, kAXNumberOfCharactersAttribute),
+                  (0...limit).contains(count) else {
                 return nil
             }
         }
