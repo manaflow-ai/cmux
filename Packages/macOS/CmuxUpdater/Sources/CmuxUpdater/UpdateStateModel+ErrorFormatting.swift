@@ -16,8 +16,12 @@ extension UpdateStateModel {
             switch nsError.code {
             case installDidNotStartCode:
                 return String(localized: "update.error.didNotStart.title", defaultValue: "Update Didn’t Start")
-            default:
+            case updaterNotReadyCode:
                 return String(localized: "update.error.updaterNotReady.title", defaultValue: "Updater Not Ready")
+            default:
+                // An unrecognized cmux.update code falls through to the generic title below
+                // rather than masquerading as a known failure.
+                break
             }
         }
         if let networkError = networkError(from: nsError) {
@@ -128,13 +132,19 @@ extension UpdateStateModel {
     /// A direct download URL for the latest release when manually downloading is a sensible
     /// recovery for `error`, or `nil` when it is not.
     ///
-    /// Returned for installation, extraction, resume, and download failures, where grabbing the
-    /// latest build sidesteps a broken in-app install (for example the wedged-launchd case this
-    /// surfaces a "Download Latest Version" button for). Returns `nil` for feed, signature,
-    /// configuration, and "already up to date" errors, where a manual download would not help or
-    /// could be unsafe (notably signature/validation failures).
+    /// Returned for installation, extraction, resume, and download failures — including cmux's
+    /// own install-watchdog trip — where grabbing the latest build sidesteps a broken in-app
+    /// install (for example the wedged-launchd case this surfaces a "Download Latest Version"
+    /// button for). Returns `nil` for feed, signature, configuration, and "already up to date"
+    /// errors, where a manual download would not help or could be unsafe (notably
+    /// signature/validation failures).
     public static func manualDownloadURL(for error: any Swift.Error) -> URL? {
         let nsError = error as NSError
+        if nsError.domain == updateErrorDomain, nsError.code == installDidNotStartCode {
+            // The in-app install never got going; grabbing the build directly is the natural
+            // recovery, same as for Sparkle's own download/install failures below.
+            return URL(string: manualDownloadURLString)
+        }
         guard nsError.domain == SUSparkleErrorDomain else { return nil }
         switch nsError.code {
         case 1004,                                    // SUResumeAppcastError

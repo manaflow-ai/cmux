@@ -78,4 +78,16 @@ final class InstallWatchdog {
             return false
         }
     }
+
+    /// Whether feeding a state change to ``AttemptUpdateCoordinator`` just ended the install
+    /// attempt without handing an install to Sparkle: the coordinator stopped monitoring for any
+    /// reason other than `.confirmInstall` (the user cancelled the fresh check back to idle, or
+    /// it terminated in notFound/error). The watchdog is bound to the attempt that armed it, so
+    /// the controller disarms on this — a deadline that outlives its attempt would otherwise fire
+    /// a spurious "Update Didn't Start" over a later, unrelated check that happens to be sitting
+    /// in `.checking`/`.updateAvailable`.
+    static func attemptEndedWithoutInstall(action: AttemptUpdateCoordinator.Action,
+                                           isCoordinatorMonitoring: Bool) -> Bool {
+        !isCoordinatorMonitoring && action != .confirmInstall
+    }
 }

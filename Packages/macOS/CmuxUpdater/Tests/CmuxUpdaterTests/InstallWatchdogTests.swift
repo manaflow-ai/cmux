@@ -76,6 +76,67 @@ import Testing
         }
     }
 
+    /// The watchdog is bound to the attempt that armed it: the coordinator ending its watch
+    /// without a `.confirmInstall` hand-off (cancelled check, notFound, error) ends the watchdog's
+    /// watch too. Only an actual install hand-off — or the coordinator still being mid-flow —
+    /// keeps the deadline armed.
+    @Test func attemptEndedWithoutInstallTruthTable() {
+        let actions: [AttemptUpdateCoordinator.Action] = [.none, .startFreshCheck, .confirmInstall]
+        for action in actions {
+            // While the coordinator is still monitoring, the attempt is alive regardless of action.
+            #expect(!InstallWatchdog.attemptEndedWithoutInstall(action: action, isCoordinatorMonitoring: true))
+            let expected = action != .confirmInstall
+            #expect(InstallWatchdog.attemptEndedWithoutInstall(action: action, isCoordinatorMonitoring: false) == expected)
+        }
+    }
+
+    /// User cancels the attempt's fresh check (checking → idle): the coordinator goes inactive
+    /// without confirming, which must read as "attempt ended" so the controller disarms — a
+    /// leftover deadline would fire a spurious "Update Didn't Start" over the user's next,
+    /// unrelated check.
+    @Test func cancelledFreshCheckEndsTheWatchdogsWatch() {
+        var coordinator = AttemptUpdateCoordinator()
+        #expect(coordinator.requestInstallLatest(currentState: updateAvailable()) == .startFreshCheck)
+        #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
+        let action = coordinator.handleStateChange(.idle)
+        #expect(action == .none)
+        #expect(InstallWatchdog.attemptEndedWithoutInstall(
+            action: action,
+            isCoordinatorMonitoring: coordinator.isMonitoring
+        ))
+    }
+
+    /// The successful hand-off (`.confirmInstall`) also drops the coordinator to inactive, but the
+    /// watchdog must stay armed there: it still guards the window between replying `.install` and
+    /// Sparkle visibly progressing to downloading.
+    @Test func confirmInstallHandOffKeepsWatchdogArmed() {
+        var coordinator = AttemptUpdateCoordinator()
+        #expect(coordinator.requestInstallLatest(currentState: .idle) == .startFreshCheck)
+        #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
+        let action = coordinator.handleStateChange(updateAvailable())
+        #expect(action == .confirmInstall)
+        #expect(!InstallWatchdog.attemptEndedWithoutInstall(
+            action: action,
+            isCoordinatorMonitoring: coordinator.isMonitoring
+        ))
+    }
+
+    /// The watchdog error offers the direct-download recovery (the in-app path just proved it
+    /// can't start), while the transient "updater not ready" error does not.
+    @Test func watchdogErrorOffersManualDownload() {
+        let didNotStart = NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode)
+        let notReady = NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.updaterNotReadyCode)
+        #expect(UpdateStateModel.manualDownloadURL(for: didNotStart) != nil)
+        #expect(UpdateStateModel.manualDownloadURL(for: notReady) == nil)
+    }
+
+    /// An unrecognized cmux.update code renders the generic failure title instead of silently
+    /// masquerading as "Updater Not Ready".
+    @Test func unknownCmuxUpdateCodeFallsBackToGenericTitle() {
+        let unknown = NSError(domain: UpdateStateModel.updateErrorDomain, code: 999)
+        #expect(UpdateStateModel.userFacingErrorTitle(for: unknown) == "Update Failed")
+    }
+
     /// The watchdog error renders with its own copy, not the generic "Update Failed" catch-all.
     @Test func watchdogErrorRendersDedicatedCopy() {
         let error = NSError(

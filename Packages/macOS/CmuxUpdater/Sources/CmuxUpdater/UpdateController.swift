@@ -143,7 +143,20 @@ public final class UpdateController {
         let overrideState = model.overrideState
 
         if attemptCoordinator.isMonitoring {
-            performAttemptAction(attemptCoordinator.handleStateChange(state))
+            let action = attemptCoordinator.handleStateChange(state)
+            // The watchdog guards one specific install attempt. If that attempt just ended
+            // without handing an install to Sparkle (the user cancelled the fresh check, or it
+            // terminated in notFound/error), disarm now so the leftover deadline can't fire a
+            // spurious "Update Didn't Start" over a later, unrelated check. A `.confirmInstall`
+            // hand-off keeps the deadline armed until a resolved state below disarms it.
+            if installWatchdog.isArmed,
+               InstallWatchdog.attemptEndedWithoutInstall(
+                   action: action,
+                   isCoordinatorMonitoring: attemptCoordinator.isMonitoring
+               ) {
+                installWatchdog.disarm()
+            }
+            performAttemptAction(action)
         }
         // Disarm the install watchdog the moment the flow progresses the install or shows a clear
         // outcome, so a healthy install (or a real error / "no updates") never trips it.
@@ -174,9 +187,20 @@ public final class UpdateController {
 
     private func fireInstallWatchdogIfStalled() {
         installWatchdog.disarm()
-        guard InstallWatchdog.installAttemptStalled(model.state) else { return }
+        let attemptWasMonitoring = attemptCoordinator.isMonitoring
+        // The attempt is over regardless of what shows below: a coordinator left monitoring past
+        // its deadline would silently auto-confirm an install off a later, unrelated check.
         attemptCoordinator.cancel()
+        guard InstallWatchdog.installAttemptStalled(model.state) else { return }
         log.append("install watchdog fired: update did not start within \(Int(installWatchdog.timeoutSeconds))s")
+        if attemptWasMonitoring {
+            // Resolve the in-flight Sparkle session (reply .dismiss to a pending "Update
+            // Available" prompt / cancel a running check) before replacing the state, so Sparkle
+            // is not left waiting on a dropped callback. Skipped post-confirm: that prompt's
+            // reply was already consumed by `.install`. The driver ignores Sparkle's follow-up
+            // dismiss callback while an error is visible, so the error state set below survives.
+            model.cancelActiveStateForNewCheck()
+        }
         let error = NSError(
             domain: UpdateStateModel.updateErrorDomain,
             code: UpdateStateModel.installDidNotStartCode,
