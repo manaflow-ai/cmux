@@ -23908,10 +23908,7 @@ struct CMUXCLI {
     }
 
     /// `cmux workspace loading <on|off> [--id <name>]` — toggle a workspace's
-    /// loading spinner. Each distinct `--id` is a separate loader, so concurrent
-    /// loaders stack into the count; `off` clears that loader. Drives the same
-    /// sidebar spinner the agent hooks feed, via a reserved `manual` lifecycle
-    /// key, so it never affects agent hibernation/PID/status handling.
+    /// loading spinner via the reserved `manual` lifecycle namespace.
     private func runWorkspaceLoading(
         commandArgs: [String],
         client: SocketClient,
@@ -23948,11 +23945,7 @@ struct CMUXCLI {
             ))
         }
 
-        // Named loaders live under the reserved manual namespace so several can
-        // stack into the count without colliding with agent keys. The id is
-        // interpolated into a whitespace-tokenized v1 socket line, so restrict
-        // it to a shell-safe charset instead of letting "build step" split into
-        // extra arguments server-side.
+        // The id lands in a whitespace-tokenized v1 line, so restrict its charset.
         let manual = AgentHibernationLifecycleStatusKeys.manualKey
         let key: String
         if let rawId = idArg?.trimmingCharacters(in: .whitespacesAndNewlines), !rawId.isEmpty {
@@ -23972,9 +23965,7 @@ struct CMUXCLI {
             key = manual
         }
 
-        // Workspace-scoped: resolve the workspace (not a surface). The server
-        // sets/clears the loader across the whole workspace, so `off` works no
-        // matter which surface ran `on`.
+        // Workspace-scoped: `off` clears the loader from every panel.
         let windowRaw = winArg ?? windowId
         let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(nil, windowRaw: windowRaw)
         let winId = try normalizeWindowHandle(windowRaw, client: client)
@@ -23990,7 +23981,6 @@ struct CMUXCLI {
             ))
         }
 
-        // Response is "before=ON;after=OFF" so an agent sees the state change.
         let response = try sendV1Command(
             "workspace_loading \(key) \(turnOn ? "on" : "off") --tab=\(wsId)",
             client: client

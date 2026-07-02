@@ -13043,15 +13043,8 @@ struct TabItemView: View, Equatable {
     private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
 
-    /// Animation for the leading status slot's width/opacity (the title
-    /// "x slide" + indicator fade). A spring rather than a fixed cubic ease:
-    /// it decelerates naturally and, crucially, is interruptible — toggling the
-    /// loader mid-animation re-targets from the current velocity instead of
-    /// restarting. Tuned quick + well-damped (short response, ~no overshoot) so
-    /// it settles in a few frames and never jiggles the title. It only animates
-    /// width/opacity (the slot stays badge-tall), so it never re-measures the
-    /// LazyVStack height the way the banned #5764 height animations did, and
-    /// it's value-scoped so idle rows never animate.
+    /// Status slot slide/fade: an interruptible, well-damped spring (re-targets
+    /// mid-toggle instead of restarting; no overshoot jiggle).
     private static let statusSlideAnimation = Animation.spring(response: 0.3, dampingFraction: 0.9)
 
     var isMultiSelected: Bool {
@@ -13268,6 +13261,28 @@ struct TabItemView: View, Equatable {
         return String.localizedStringWithFormat(format, Int64(workspaceSnapshot.activeCodingAgentCount))
     }
 
+    // Built only inside the position-gated branches so rows without a badge or
+    // spinner do no tooltip formatting work (hot sidebar path).
+    private func unreadBadgeView(size: CGFloat) -> some View {
+        ZStack {
+            Circle()
+                .fill(activeUnreadBadgeFillColor)
+            Text("\(unreadCount)")
+                .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
+                .foregroundColor(activeUnreadBadgeTextColor)
+        }
+        .frame(width: size, height: size)
+    }
+
+    private func loadingSpinnerView(side: CGFloat) -> some View {
+        SidebarAgentActivityIndicator(
+            spinnerColor: activeCodingAgentSpinnerNSColor,
+            side: side
+        )
+        .safeHelp(activeCodingAgentTooltip)
+        .accessibilityLabel(Text(activeCodingAgentTooltip))
+    }
+
     private var activeCodingAgentSpinnerNSColor: NSColor {
         // Muted grey in both states: secondary label on normal rows, a dimmed
         // selection foreground on selected rows so it stays grey but legible on
@@ -13446,56 +13461,30 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
-        // The loading spinner is a live status signal, so it ignores Hide All
-        // Sidebar Details (unlike the verbose detail rows). The unread badge and
-        // the spinner can each independently sit on the leading (left) or
-        // trailing (right) side of the row.
+        // The spinner is a live status signal, so it ignores Hide All Sidebar
+        // Details; badge and spinner are positioned independently.
         let showsLoadingSpinner = showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
         let badgeOnLeading = unreadCount > 0 && settings.notificationBadgePosition == .leading
         let badgeOnTrailing = unreadCount > 0 && settings.notificationBadgePosition == .trailing
         let spinnerOnLeading = showsLoadingSpinner && settings.loadingSpinnerPosition == .leading
         let spinnerOnTrailing = showsLoadingSpinner && settings.loadingSpinnerPosition == .trailing
-        // Leading status slot holds whichever of the badge / spinner are set to
-        // the left; when present it pushes the title right.
         let leadingSlotActive = badgeOnLeading || spinnerOnLeading
         let trailingStatusActive = badgeOnTrailing || spinnerOnTrailing
-
-        let unreadBadgeView = ZStack {
-            Circle()
-                .fill(activeUnreadBadgeFillColor)
-            Text("\(unreadCount)")
-                .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
-                .foregroundColor(activeUnreadBadgeTextColor)
-        }
-        .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
-
-        let loadingSpinnerView = SidebarAgentActivityIndicator(
-            spinnerColor: activeCodingAgentSpinnerNSColor,
-            side: scaledUnreadBadgeSize
-        )
-        .safeHelp(activeCodingAgentTooltip)
-        .accessibilityLabel(Text(activeCodingAgentTooltip))
 
         let titleRowSpacing: CGFloat = 8
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: titleRowSpacing) {
-                // Leading status slot. The unread badge and the left-positioned
-                // spinner share this one fixed-height slot (the spinner takes
-                // over while loading). The slot is always present so its WIDTH
-                // can animate 0 -> badge size, which slides the title right (the
-                // "x slide"); the negative trailing padding cancels the HStack
-                // spacing while collapsed so empty rows have no phantom gap.
-                // Only width/opacity animate, never row height (the slot stays
-                // badge-tall), so this never interpolates the LazyVStack height
-                // (#5764 / #5845).
+                // Leading status slot: badge and left spinner share it, and its
+                // animated width slides the title. Width/opacity only — never
+                // row height, which would churn the LazyVStack (#5764).
                 ZStack {
                     if badgeOnLeading {
-                        unreadBadgeView
+                        unreadBadgeView(size: scaledUnreadBadgeSize)
                             .opacity(spinnerOnLeading ? 0 : 1)
                     }
                     if spinnerOnLeading {
-                        loadingSpinnerView
+                        loadingSpinnerView(side: scaledUnreadBadgeSize)
                     }
                 }
                 .frame(
@@ -13562,21 +13551,19 @@ struct TabItemView: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
 
-                // Trailing status cluster: the right-positioned unread badge
-                // and/or spinner, then the close-button corner. A right spinner
-                // shares the close corner (flush right) and the close x takes
-                // over on hover. The close slot always reserves its width so
-                // hover never re-lays-out the row.
+                // Trailing status cluster. A right spinner shares the close
+                // corner and the hover x takes over; the close slot always
+                // reserves its width so hover never re-lays-out the row.
                 if trailingStatusActive || canCloseWorkspace {
                     HStack(spacing: max(4, 4 * fontScale)) {
                         if badgeOnTrailing {
-                            unreadBadgeView
+                            unreadBadgeView(size: scaledUnreadBadgeSize)
                                 .transition(.opacity)
                         }
                         if canCloseWorkspace {
                             ZStack {
                                 if spinnerOnTrailing {
-                                    loadingSpinnerView
+                                    loadingSpinnerView(side: scaledUnreadBadgeSize)
                                         .opacity(showCloseButton ? 0 : 1)
                                         .transition(.opacity)
                                 }
@@ -13600,17 +13587,14 @@ struct TabItemView: View, Equatable {
                             }
                             .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize)
                         } else if spinnerOnTrailing {
-                            loadingSpinnerView
+                            loadingSpinnerView(side: scaledUnreadBadgeSize)
                                 .transition(.opacity)
                         }
                     }
                 }
             }
-            // Animate only opacity (fade/cross-fade of the badge + spinner) and
-            // the height-neutral horizontal push when the leading slot appears.
-            // All of these are width/opacity only — never row height — so they
-            // don't interpolate the LazyVStack height (#5764 / #5845) and don't
-            // animate reordering.
+            // Width/opacity only — never row height (#5764) — so reordering
+            // stays un-animated.
             .animation(Self.statusSlideAnimation, value: leadingSlotActive)
             .animation(Self.statusSlideAnimation, value: spinnerOnLeading)
             .animation(Self.statusSlideAnimation, value: spinnerOnTrailing)

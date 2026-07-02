@@ -4602,9 +4602,7 @@ final class Workspace: Identifiable, ObservableObject {
         let previousStates = agentLifecycleStatesByPanelId
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         publishAgentLifecycleStatesIfNeeded(previousStates)
-        // Manual loaders (`cmux workspace loading`) are cosmetic: they drive the
-        // sidebar spinner but must not record hibernation activity, or a manual
-        // toggle would delay hibernating an otherwise idle agent panel.
+        // Manual loaders are cosmetic; recording them would delay hibernation.
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
@@ -4665,10 +4663,8 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         fallback: AgentHibernationLifecycleState?
     ) -> AgentHibernationLifecycleState {
-        // Manual loaders (`cmux workspace loading`, keyed `manual`/`manual:<id>`)
-        // share this map to drive the sidebar spinner, but they are cosmetic:
-        // they must not make a panel's restorable agent look running/needs-input
-        // to hibernation decisions.
+        // Manual loaders drive the sidebar spinner only; they must not make a
+        // panel's restorable agent look running to hibernation.
         let states = (agentLifecycleStatesByPanelId[panelId] ?? [:])
             .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
             .map(\.value)

@@ -293,13 +293,8 @@ extension ControlCommandCoordinator {
     }
 
     /// `workspace_loading <key> <on|off> [--tab=<id>]` — workspace-scoped manual
-    /// loading toggle. `off` clears the loader from every panel so it turns off
-    /// regardless of which surface ran it. Reports the workspace loading-spinner
-    /// state before and after, e.g. `before=ON;after=OFF`.
-    ///
-    /// Keys are restricted to the manual loader namespace (the wire twin of the
-    /// app's `AgentHibernationLifecycleStatusKeys.manualKey`): the bare `manual`
-    /// key or a `manual:<id>` named loader. Agent status keys must go through
+    /// loading toggle; replies `before=ON;after=OFF`. Keys are restricted to the
+    /// manual namespace (`manual` / `manual:<id>`); agent keys must go through
     /// `set_agent_lifecycle`, which validates them per target.
     func sidebarWorkspaceLoading(_ args: String) -> String {
         let parsed = sidebarParseOptions(args)

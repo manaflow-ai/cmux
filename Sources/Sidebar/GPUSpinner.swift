@@ -2,28 +2,16 @@ import AppKit
 import QuartzCore
 import SwiftUI
 
-/// Spinner styles drawn entirely with Core Animation layers. The rotation is a
-/// `transform.rotation.z` animation run by the render server, so there is zero
-/// per-frame CPU work and nothing on the main thread once the animation is
-/// installed.
 enum GPUSpinnerStyle {
-    /// The native macOS indeterminate look: fading "spokes" (rounded bars)
-    /// arranged in a ring. The bars are static; only the ring rotates.
+    /// The native macOS indeterminate look: static fading spokes, rotating ring.
     case macOSSpokes
-    /// A single rotating arc (the original cmux sidebar spinner).
+    /// A single rotating arc.
     case arc
 }
 
-/// A GPU-driven indeterminate spinner.
-///
-/// Energy profile: the only animated property is the layer transform, which the
-/// window server interpolates off the main thread on the GPU. There is no
-/// timer, no `setNeedsDisplay` per frame, and no main-thread work while it
-/// spins, so it is the battery-friendly alternative to `NSProgressIndicator`
-/// (which redraws every frame on the CPU). The animation is removed whenever the
-/// view leaves the window, the window is occluded/minimized, or the system
-/// "Reduce Motion" accessibility setting is on, so an off-screen or background
-/// spinner costs nothing.
+/// A GPU-driven indeterminate spinner: the only animated property is the layer
+/// transform (render-server interpolated, zero per-frame CPU), and the
+/// animation is removed while off-window, occluded, or under Reduce Motion.
 struct GPUSpinner: NSViewRepresentable {
     let style: GPUSpinnerStyle
     let color: NSColor
@@ -103,13 +91,11 @@ final class GPUSpinnerNSView: NSView {
         let side = min(bounds.width, bounds.height)
         guard side > 0, spokeLayers.count == Self.spokeCount else { return }
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        // Match the native macOS spinner's compact proportions: spokes occupy an
-        // outer ring with a clear center gap, not reaching the bounds edge.
+        // Native macOS proportions: outer ring with a clear center gap.
         let outerRadius = side * 0.40
         let innerRadius = side * 0.18
         let thickness = max(1, side * 0.10)
         let length = max(1, outerRadius - innerRadius)
-        // Distance from the center to each spoke's own center.
         let radius = (outerRadius + innerRadius) / 2
         for (index, spoke) in spokeLayers.enumerated() {
             let angle = CGFloat(index) / CGFloat(Self.spokeCount) * .pi * 2
@@ -119,7 +105,6 @@ final class GPUSpinnerNSView: NSView {
                 x: center.x + cos(angle) * radius,
                 y: center.y + sin(angle) * radius
             )
-            // Rotate so the bar's long axis points radially outward.
             spoke.transform = CATransform3DMakeRotation(angle - .pi / 2, 0, 0, 1)
         }
         contentLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
@@ -151,9 +136,7 @@ final class GPUSpinnerNSView: NSView {
         case .macOSSpokes:
             for index in 0..<Self.spokeCount {
                 let spoke = CALayer()
-                // Static opacity ramp: the leading spoke is brightest, trailing
-                // spokes fade. Only the ring rotates, so the bright spoke chases
-                // around the circle.
+                // Static opacity ramp; only the ring rotates.
                 let t = Float(index) / Float(Self.spokeCount - 1)
                 spoke.opacity = 0.35 + 0.65 * t
                 contentLayer.addSublayer(spoke)
@@ -172,8 +155,6 @@ final class GPUSpinnerNSView: NSView {
     }
 
     private func applyColor() {
-        // Resolve in this view's effective appearance so semantic colors pick
-        // up the right light/dark variant regardless of the ambient context.
         var cg = CGColor(gray: 0.6, alpha: 1)
         effectiveAppearance.performAsCurrentDrawingAppearance {
             cg = Self.resolvedCGColor(color)
@@ -217,16 +198,13 @@ final class GPUSpinnerNSView: NSView {
     }
 
     @objc private func visibilityChanged() {
-        // Reduce Motion swaps between the static ring and the animated ring, so
-        // rebuild the static appearance before re-evaluating the animation.
         layoutContent()
         updateAnimationState()
     }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        // Semantic colors (secondaryLabelColor, …) are snapshotted into CGColors
-        // at apply time, so re-resolve on light/dark switches.
+        // Re-resolve snapshotted semantic colors on light/dark switches.
         applyColor()
     }
 
@@ -245,11 +223,8 @@ final class GPUSpinnerNSView: NSView {
         }
     }
 
-    /// Anchors a repeating animation's `beginTime` to a shared media-clock grid
-    /// so every spinner of the same duration stays phase-locked, regardless of
-    /// when it was created, shown, or resumed after a pause. Because the anchor
-    /// is always a multiple of `duration` in the layer's time space, the phase
-    /// `(t - beginTime) mod duration` is identical across all spinners.
+    /// Anchors `beginTime` to a multiple of `duration` in layer time so all
+    /// spinners of the same duration stay phase-locked.
     private func syncedBeginTime(duration: CFTimeInterval) -> CFTimeInterval {
         let now = contentLayer.convertTime(CACurrentMediaTime(), from: nil)
         return now - now.truncatingRemainder(dividingBy: duration)
@@ -259,8 +234,7 @@ final class GPUSpinnerNSView: NSView {
         guard contentLayer.animation(forKey: Self.animationKey) == nil else { return }
         switch style {
         case .macOSSpokes:
-            // Discrete steps, one spoke per step, to match the native macOS
-            // indeterminate spinner's stepped cadence. Clockwise (negative z).
+            // Discrete one-spoke steps, clockwise, matching the native cadence.
             let animation = CAKeyframeAnimation(keyPath: "transform.rotation.z")
             let count = Self.spokeCount
             animation.values = (0...count).map { -CGFloat($0) / CGFloat(count) * .pi * 2 }

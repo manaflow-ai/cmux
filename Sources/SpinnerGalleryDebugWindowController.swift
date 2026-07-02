@@ -2,21 +2,10 @@
 import AppKit
 import SwiftUI
 
-/// Debug-only window comparing indeterminate spinner implementations and their
-/// energy characteristics side by side. Open via Debug → Debug Windows →
-/// Spinner Gallery…, or headlessly via the `debug.spinner_gallery.show` socket
-/// command.
-///
-/// The energy ratings are mechanism-based (CPU per-frame redraw vs GPU-only
-/// transform animation, main-thread vs off-thread), not live measurements. To
-/// confirm empirically, open Activity Monitor's Energy tab or Instruments'
-/// Energy Log while this window is frontmost.
-///
-/// Localization exception: this whole file is `#if DEBUG` and never ships in a
-/// release build, so its strings are intentionally English-only verbatim
-/// diagnostics, matching the other Debug → Debug Windows panels (Feed Preview,
-/// Background Debug, …). It is not part of the user-facing localization
-/// contract.
+/// Debug-only spinner comparison window (Debug → Debug Windows → Spinner
+/// Gallery…, or the `debug.spinner_gallery.show` socket verb). Strings are
+/// English-only by design: the file is `#if DEBUG`, matching the other debug
+/// windows.
 final class SpinnerGalleryDebugWindowController: ReleasingWindowController {
     static let shared = SpinnerGalleryDebugWindowController()
 
