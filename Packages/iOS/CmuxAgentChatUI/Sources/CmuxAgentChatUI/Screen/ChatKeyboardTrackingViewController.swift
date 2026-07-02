@@ -23,6 +23,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     private let keyboardContentView = UIView(frame: .zero)
     private let transcriptClipView = UIView(frame: .zero)
+    private let bottomChromeContainerView = UIView(frame: .zero)
     private let composerBackgroundView = UIVisualEffectView(effect: nil)
     let transcriptHostingController: UIHostingController<Transcript>
     let composerHostingController: UIHostingController<Composer>
@@ -90,11 +91,16 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         transcriptHostingController.view.translatesAutoresizingMaskIntoConstraints = false
         transcriptClipView.addSubview(transcriptHostingController.view)
 
+        bottomChromeContainerView.backgroundColor = .clear
+        bottomChromeContainerView.clipsToBounds = false
+        bottomChromeContainerView.translatesAutoresizingMaskIntoConstraints = false
+        keyboardContentView.addSubview(bottomChromeContainerView)
+
         composerBackgroundView.translatesAutoresizingMaskIntoConstraints = false
         composerBackgroundView.isUserInteractionEnabled = false
         composerBackgroundView.clipsToBounds = true
         configureComposerBackground()
-        keyboardContentView.addSubview(composerBackgroundView)
+        bottomChromeContainerView.addSubview(composerBackgroundView)
 
         addChild(composerHostingController)
         composerHostingController.view.backgroundColor = .clear
@@ -103,7 +109,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         composerHostingController.view.translatesAutoresizingMaskIntoConstraints = false
         composerHostingController.view.setContentHuggingPriority(.required, for: .vertical)
         composerHostingController.view.setContentCompressionResistancePriority(.required, for: .vertical)
-        keyboardContentView.addSubview(composerHostingController.view)
+        bottomChromeContainerView.addSubview(composerHostingController.view)
         installLayoutConstraints()
 
         transcriptHostingController.didMove(toParent: self)
@@ -151,14 +157,19 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             transcriptHostingController.view.bottomAnchor.constraint(equalTo: transcriptClipView.bottomAnchor),
             transcriptHeightConstraint,
 
-            composerBackgroundView.topAnchor.constraint(equalTo: composerHostingController.view.topAnchor),
-            composerBackgroundView.leadingAnchor.constraint(equalTo: keyboardContentView.leadingAnchor),
-            composerBackgroundView.trailingAnchor.constraint(equalTo: keyboardContentView.trailingAnchor),
-            composerBackgroundView.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor),
+            bottomChromeContainerView.topAnchor.constraint(equalTo: composerHostingController.view.topAnchor),
+            bottomChromeContainerView.leadingAnchor.constraint(equalTo: keyboardContentView.leadingAnchor),
+            bottomChromeContainerView.trailingAnchor.constraint(equalTo: keyboardContentView.trailingAnchor),
+            bottomChromeContainerView.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor),
 
-            composerHostingController.view.leadingAnchor.constraint(equalTo: keyboardContentView.leadingAnchor),
-            composerHostingController.view.trailingAnchor.constraint(equalTo: keyboardContentView.trailingAnchor),
-            composerHostingController.view.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor),
+            composerBackgroundView.topAnchor.constraint(equalTo: bottomChromeContainerView.topAnchor),
+            composerBackgroundView.leadingAnchor.constraint(equalTo: bottomChromeContainerView.leadingAnchor),
+            composerBackgroundView.trailingAnchor.constraint(equalTo: bottomChromeContainerView.trailingAnchor),
+            composerBackgroundView.bottomAnchor.constraint(equalTo: bottomChromeContainerView.bottomAnchor),
+
+            composerHostingController.view.leadingAnchor.constraint(equalTo: bottomChromeContainerView.leadingAnchor),
+            composerHostingController.view.trailingAnchor.constraint(equalTo: bottomChromeContainerView.trailingAnchor),
+            composerHostingController.view.bottomAnchor.constraint(equalTo: bottomChromeContainerView.bottomAnchor),
             composerHeightConstraint,
         ])
     }
@@ -302,6 +313,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             keyboardContentView.layer.removeAllAnimations()
             transcriptClipView.layer.removeAllAnimations()
             transcriptHostingController.view.layer.removeAllAnimations()
+            bottomChromeContainerView.layer.removeAllAnimations()
             composerBackgroundView.layer.removeAllAnimations()
             composerHostingController.view.layer.removeAllAnimations()
         }
@@ -419,12 +431,13 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         scrollEdgeCoordinator.configure(
             tableView: tables.first,
             owner: self,
-            composerView: composerHostingController.view
+            bottomChromeView: bottomChromeContainerView
         )
     }
 
     private func updateComposerVisibility() {
         guard isViewLoaded else { return }
+        bottomChromeContainerView.isHidden = !showsComposer
         composerHostingController.view.isHidden = !showsComposer
         composerBackgroundView.isHidden = !showsComposer
         updateMeasuredGeometryConstants()
