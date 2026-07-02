@@ -1116,6 +1116,96 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         )
     }
 
+    // MARK: - Hermes built-in registration
+
+    func testBuiltInHermesRegistrationShape() {
+        let reg = CmuxVaultAgentRegistration.builtInHermes
+        // The id is "hermes-agent" so a single identity flows through the
+        // SessionAgent.hermesAgent browser entry, the AgentLaunchSanitizer
+        // "hermes-agent" argv policy, and the env policy that gates HERMES_HOME.
+        XCTAssertEqual(reg.id, "hermes-agent")
+        XCTAssertEqual(reg.detect.processName, "hermes")
+        // defaultExecutable comes from the process name (the binary), not the id.
+        XCTAssertEqual(reg.defaultExecutable, "hermes")
+        // state.db-backed: the only id source that can resolve a Hermes session.
+        XCTAssertEqual(reg.sessionIdSource, .stateDB)
+    }
+
+    func testBuiltInHermesIsRegisteredByDefault() throws {
+        // Use an isolated, empty home so the assertion reflects only the built-in
+        // registration set — never whatever vault config happens to exist on the
+        // machine running the suite (which would make this pass/fail for the
+        // wrong reason).
+        let isolatedHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-registry-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: isolatedHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: isolatedHome) }
+
+        let registry = CmuxVaultAgentRegistry.load(
+            homeDirectory: isolatedHome.path,
+            workingDirectory: nil,
+            environment: [:],
+            fileManager: .default
+        )
+        XCTAssertNotNil(registry.registration(id: "hermes-agent"),
+                        "hermes-agent must be a built-in vault registration so a running hermes process is detected and resumed")
+    }
+
+    // A resumed hermes session must replay the captured launch flags so an
+    // interactive `hermes --tui` session comes back in the TUI (not the classic
+    // REPL) and a `--model`/`--profile` choice is preserved — then append
+    // `--resume <id>`. A static template would silently drop these.
+    func testHermesResumeCommandPreservesTuiAndModelFlags() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("hermes-agent"),
+            sessionId: "20260629_120000_abc123",
+            workingDirectory: "/repo/work",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "hermes-agent",
+                executablePath: "/opt/homebrew/bin/hermes",
+                arguments: ["/opt/homebrew/bin/hermes", "--tui", "--model", "opus"],
+                workingDirectory: "/repo/work",
+                environment: nil,
+                capturedAt: 99,
+                source: "process"
+            ),
+            registration: .builtInHermes
+        )
+        let resume = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(resume.contains("'--resume' '20260629_120000_abc123'"),
+                      "resume must target the session id; got: \(resume)")
+        XCTAssertTrue(resume.contains("'--tui'"),
+                      "resume must preserve --tui so a TUI session does not come back as the classic REPL; got: \(resume)")
+        XCTAssertTrue(resume.contains("'--model' 'opus'"),
+                      "resume must preserve the model selection; got: \(resume)")
+        XCTAssertTrue(resume.contains("hermes"),
+                      "resume must invoke the hermes executable; got: \(resume)")
+    }
+
+    // A plain `hermes` (classic REPL, the default) resumes without spurious flags.
+    func testHermesResumeCommandMinimalForReplLaunch() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("hermes-agent"),
+            sessionId: "20260629_130000_def456",
+            workingDirectory: "/repo/work",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "hermes-agent",
+                executablePath: "/opt/homebrew/bin/hermes",
+                arguments: ["/opt/homebrew/bin/hermes"],
+                workingDirectory: "/repo/work",
+                environment: nil,
+                capturedAt: 99,
+                source: "process"
+            ),
+            registration: .builtInHermes
+        )
+        let resume = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(resume.contains("'--resume' '20260629_130000_def456'"),
+                      "resume must target the session id; got: \(resume)")
+        XCTAssertFalse(resume.contains("'--tui'"),
+                       "a REPL launch must not gain a --tui flag on resume; got: \(resume)")
+    }
+
     private func makeSnapshot() -> AppSessionSnapshot {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
