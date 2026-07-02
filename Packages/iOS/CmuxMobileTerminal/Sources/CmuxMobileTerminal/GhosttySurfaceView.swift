@@ -831,6 +831,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// Measured cell size in device pixels (zero before first measure).
         let cellPixelSize: CGSize
         let keyboardHeight: CGFloat
+        /// The font actually rendering right now (may be auto-fit adjusted).
+        let liveFontSize: Float32
+        /// The user's explicit font choice that capacity reports are based on.
+        let baseFontSize: Float32
     }
 
     func debugGeometrySnapshotForTesting() -> DebugGeometrySnapshot {
@@ -855,7 +859,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             viewportRect: terminalViewportRect,
             effectiveGrid: effectiveGrid,
             cellPixelSize: cellPixelSize,
-            keyboardHeight: keyboardHeight
+            keyboardHeight: keyboardHeight,
+            liveFontSize: liveFontSize,
+            baseFontSize: fontSize
         )
     }
 

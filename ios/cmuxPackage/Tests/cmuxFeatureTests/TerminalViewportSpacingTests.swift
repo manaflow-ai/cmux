@@ -37,12 +37,25 @@ private final class ViewportSpacingDelegate: NSObject, GhosttySurfaceViewDelegat
     /// captured exactly like the production coordinator captures it, so a
     /// test echo answers the same report the coordinator's RPC would answer.
     private(set) var reportIDs: [TerminalGridSize: UInt64] = [:]
+    /// When set, every report is echoed back immediately with the daemon's
+    /// min-per-axis policy against this simulated Mac grid — the steady-state
+    /// daemon behavior, used by the auto-fit tests where convergence needs a
+    /// live negotiation loop rather than hand-scripted echoes.
+    var autoEchoMacGrid: (cols: Int, rows: Int)?
 
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
 
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
         reports.append(size)
         reportIDs[size] = reportID
+        if let mac = autoEchoMacGrid {
+            surfaceView.markViewportReportConfirmed()
+            surfaceView.applyConfirmedViewSize(
+                cols: min(size.columns, mac.cols),
+                rows: min(size.rows, mac.rows),
+                reportID: reportID
+            )
+        }
     }
 }
 
@@ -335,6 +348,74 @@ struct TerminalViewportSpacingTests {
         // The retry's echo lands; the render must reclaim the full viewport.
         harness.echo(retried)
         #expect(await harness.waitForFill(), "after retry echo: top gap \(harness.topGap)pt")
+    }
+
+    /// THE STRETCH FEATURE: when the Mac window (or any other attached device)
+    /// constrains the shared PTY to fewer rows than the phone can show at its
+    /// base font, the phone must not park a dead band above the content — it
+    /// raises its rendered font just enough that the granted rows fill the
+    /// viewport, and it keeps reporting its base-font row CAPACITY so the
+    /// negotiation can recover when the constraint lifts.
+    @Test("mac-constrained rows stretch to fill the phone via font fit")
+    func macShortWindowStretchesToFillHeight() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let initial = try #require(await harness.waitForReport(after: 0))
+        #expect(initial.rows > 20)
+
+        // The Mac window is 12 rows shorter than the phone's capacity; the
+        // daemon min-per-axis echoes flow automatically from here on.
+        let macGrid = (cols: initial.columns + 100, rows: initial.rows - 12)
+        harness.delegate.autoEchoMacGrid = macGrid
+        harness.echo(initial, macColumns: macGrid.cols, macRows: macGrid.rows)
+
+        // The phone must converge to a full-height render with a raised font,
+        // not a ~12-row dead band above the content.
+        let stretched = await harness.pump(timeout: 8) {
+            let snap = harness.snapshot
+            return harness.topGap <= harness.cellHeightPoints * 1.5
+                && harness.bottomGap <= 1
+                && snap.liveFontSize > snap.baseFontSize + 0.25
+        }
+        #expect(stretched, """
+            no stretch: top gap \(harness.topGap)pt (cell \(harness.cellHeightPoints)pt), \
+            live font \(harness.snapshot.liveFontSize) vs base \(harness.snapshot.baseFontSize)
+            """)
+
+        // Keyboard opens: the phone itself becomes the row constraint, so the
+        // font returns to base and the content still fills the viewport.
+        harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
+        let keyboardFit = await harness.pump(timeout: 8) {
+            let snap = harness.snapshot
+            return harness.topGap <= harness.cellHeightPoints * 1.5
+                && harness.bottomGap <= 1
+                && abs(snap.liveFontSize - snap.baseFontSize) < 0.5
+        }
+        #expect(keyboardFit, "keyboard-up: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize)")
+
+        // Keyboard closes: back to the mac-constrained state, stretched again.
+        harness.view.setKeyboardHeightForTesting(0)
+        let restretched = await harness.pump(timeout: 8) {
+            let snap = harness.snapshot
+            return harness.topGap <= harness.cellHeightPoints * 1.5
+                && harness.bottomGap <= 1
+                && snap.liveFontSize > snap.baseFontSize + 0.25
+        }
+        #expect(restretched, "keyboard-down: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize)")
+
+        // The Mac window grows past the phone's capacity: the daemon pushes
+        // the bigger grid; the font must decay back to base with the phone
+        // still full-height (the negotiation is not a one-way ratchet).
+        harness.delegate.autoEchoMacGrid = (cols: macGrid.cols, rows: 10_000)
+        await harness.view.applyViewSizeAndWait(cols: initial.columns, rows: initial.rows)
+        let recovered = await harness.pump(timeout: 8) {
+            let snap = harness.snapshot
+            return harness.topGap <= harness.cellHeightPoints * 1.5
+                && harness.bottomGap <= 1
+                && abs(snap.liveFontSize - snap.baseFontSize) < 0.5
+        }
+        #expect(recovered, "after mac grow: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize) vs base \(harness.snapshot.baseFontSize)")
     }
 
     /// Whether the render rect currently reflects the effective pin (used to
