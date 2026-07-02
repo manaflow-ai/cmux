@@ -78,29 +78,6 @@ actor AsyncFlag {
     }
 }
 
-actor AsyncReleaseGate {
-    private var released = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func wait() async {
-        if released {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    func release() {
-        released = true
-        let waiters = waiters
-        self.waiters = []
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-}
-
 /// A parsed snapshot of one RPC request frame for test assertions.
 struct RecordedRPCRequest: Sendable {
     var id: String?

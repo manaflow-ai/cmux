@@ -288,14 +288,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private func ticketForRequest(_ request: [String: Any], deadline: RPCRequestDeadline) async throws -> CmxAttachTicket {
         let current = await ticketState.current()
         guard Self.requestRequiresAuth(request),
-              Self.ticketReferenceRequiringRedemption(in: current) != nil else {
+              ticketReferenceRequiringRedemption(in: current) != nil else {
             return current
         }
         return try await ticketRedemptionGate.ticket(
             timeoutNanoseconds: try deadline.remainingNanoseconds()
         ) { [self] in
             let latest = await ticketState.current()
-            guard let ticketRef = Self.ticketReferenceRequiringRedemption(in: latest) else {
+            guard let ticketRef = ticketReferenceRequiringRedemption(in: latest) else {
                 return latest
             }
             let redeemed = try await redeemAttachTicket(
@@ -306,15 +306,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             await ticketState.replace(with: redeemed)
             return redeemed
         }
-    }
-
-    private static func ticketReferenceRequiringRedemption(in ticket: CmxAttachTicket) -> String? {
-        guard let ticketRef = ticket.ticketRef?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !ticketRef.isEmpty,
-              ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
-            return nil
-        }
-        return ticketRef
     }
 
     private func redeemAttachTicket(
@@ -338,11 +329,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             requestID: id,
             deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
         )
-        let response = try MobileAttachTicketRedeemResponse.decode(responseData)
+        let response = try MobileAttachTicketRedeemResponse(decoding: responseData)
         guard response.ticket.ticketRef?.trimmingCharacters(in: .whitespacesAndNewlines) == ticketRef else {
             throw MobileShellConnectionError.invalidResponse
         }
-        return try Self.redeemedTicket(
+        return try redeemedTicket(
             response.ticket,
             ticketRef: ticketRef,
             constrainedTo: baseTicket
@@ -372,30 +363,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             "stack_access_token": accessToken
         ]
         return try JSONSerialization.data(withJSONObject: request)
-    }
-
-    private static func redeemedTicket(
-        _ redeemed: CmxAttachTicket,
-        ticketRef: String,
-        constrainedTo scanned: CmxAttachTicket
-    ) throws -> CmxAttachTicket {
-        try CmxAttachTicket(
-            version: redeemed.version,
-            workspaceID: redeemed.workspaceID,
-            terminalID: redeemed.terminalID,
-            macDeviceID: redeemed.macDeviceID.isEmpty ? scanned.macDeviceID : redeemed.macDeviceID,
-            macDisplayName: redeemed.macDisplayName ?? scanned.macDisplayName,
-            macUserEmail: redeemed.macUserEmail ?? scanned.macUserEmail,
-            macUserID: redeemed.macUserID ?? scanned.macUserID,
-            macPairingCompatibilityVersion: redeemed.macPairingCompatibilityVersion
-                ?? scanned.macPairingCompatibilityVersion,
-            macAppVersion: redeemed.macAppVersion ?? scanned.macAppVersion,
-            macAppBuild: redeemed.macAppBuild ?? scanned.macAppBuild,
-            routes: scanned.routes,
-            expiresAt: redeemed.expiresAt,
-            ticketRef: ticketRef,
-            authToken: redeemed.authToken
-        )
     }
 
     private func stackAccessTokenForStatus(deadline: RPCRequestDeadline) async throws -> String? {
@@ -503,6 +470,45 @@ private extension MobileCoreRPCClient {
     func isHostStatusRequest(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return method == "mobile.host.status"
+    }
+
+    /// The pending ticket's reference when it still needs Stack-auth redemption:
+    /// a non-empty `ticketRef` with no resolved `authToken` yet. `nil` once the
+    /// ticket carries its bearer token or has no reference to redeem.
+    func ticketReferenceRequiringRedemption(in ticket: CmxAttachTicket) -> String? {
+        guard let ticketRef = ticket.ticketRef?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !ticketRef.isEmpty,
+              ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
+            return nil
+        }
+        return ticketRef
+    }
+
+    /// Merge a freshly `redeemed` ticket over the `scanned` QR ticket, preferring
+    /// redeemed fields and filling gaps from the scan, then stamping the resolved
+    /// `ticketRef`. Routes stay the scanned set (the redeem reply omits them).
+    func redeemedTicket(
+        _ redeemed: CmxAttachTicket,
+        ticketRef: String,
+        constrainedTo scanned: CmxAttachTicket
+    ) throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            version: redeemed.version,
+            workspaceID: redeemed.workspaceID,
+            terminalID: redeemed.terminalID,
+            macDeviceID: redeemed.macDeviceID.isEmpty ? scanned.macDeviceID : redeemed.macDeviceID,
+            macDisplayName: redeemed.macDisplayName ?? scanned.macDisplayName,
+            macUserEmail: redeemed.macUserEmail ?? scanned.macUserEmail,
+            macUserID: redeemed.macUserID ?? scanned.macUserID,
+            macPairingCompatibilityVersion: redeemed.macPairingCompatibilityVersion
+                ?? scanned.macPairingCompatibilityVersion,
+            macAppVersion: redeemed.macAppVersion ?? scanned.macAppVersion,
+            macAppBuild: redeemed.macAppBuild ?? scanned.macAppBuild,
+            routes: scanned.routes,
+            expiresAt: redeemed.expiresAt,
+            ticketRef: ticketRef,
+            authToken: redeemed.authToken
+        )
     }
 }
 

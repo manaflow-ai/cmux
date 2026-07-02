@@ -2,20 +2,6 @@ import CMUXMobileCore
 import Foundation
 
 actor MobileCoreRPCTicketRedemptionGate {
-    private struct Current {
-        var id: UUID
-        var task: Task<CmxAttachTicket, any Error>
-        var completionObserver: Task<Void, Never>?
-        var waiters: Int
-        var timedOutUntil: UInt64?
-        var isCompleted: Bool
-    }
-
-    private struct Abandoned {
-        var task: Task<CmxAttachTicket, any Error>
-        var completionObserver: Task<Void, Never>?
-    }
-
     private var current: Current?
     private var abandoned: [UUID: Abandoned] = [:]
     private let taskTimeout = RPCTaskTimeout()
