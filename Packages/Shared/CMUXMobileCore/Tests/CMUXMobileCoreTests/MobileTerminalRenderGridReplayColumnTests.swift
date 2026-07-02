@@ -76,19 +76,59 @@ import Testing
     )
 }
 
+@Test func renderGridDeltaReplaysAbsoluteRowsWhenOriginModeIsActive() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 51,
+        columns: 8,
+        rows: 4,
+        full: false,
+        clearedRows: [0],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "alpha"),
+        ],
+        modes: [
+            .init(code: 6, ansi: false, on: true),
+            .init(code: 7, ansi: false, on: true),
+        ]
+    )
+
+    var bytes = Data("\u{1B}[2;4r\u{1B}[?6h".utf8)
+    bytes.append(frame.vtPatchBytes())
+    let rows = renderedRows(try replayedCells(
+        from: bytes,
+        rows: frame.rows,
+        columns: frame.columns,
+        initialRows: [
+            "────────",
+            "row-one!",
+            "row-two!",
+            "row-tre!",
+        ]
+    ))
+
+    #expect(rows[0] == "alpha   ")
+    #expect(rows[1] == "row-one!")
+    #expect(!rows[0].contains("─"))
+}
+
 private func replayedCells(
     from data: Data,
     rows: Int,
     columns: Int,
-    widthOf: (Character) -> Int
+    initialRows: [String]? = nil,
+    widthOf: (Character) -> Int = { _ in 1 }
 ) throws -> [[Character?]] {
     let text = try #require(String(data: data, encoding: .utf8))
-    var cells = Array(
-        repeating: Array<Character?>(repeating: nil, count: columns),
-        count: rows
-    )
+    var cells = initialRows.map { cellRows(from: $0, rows: rows, columns: columns) } ??
+        Array(
+            repeating: Array<Character?>(repeating: nil, count: columns),
+            count: rows
+        )
     var row = 0
     var column = 0
+    var originMode = false
+    var scrollRegionTop = 0
     var index = text.startIndex
     while index < text.endIndex {
         if text[index] == "\u{1B}" {
@@ -97,6 +137,8 @@ private func replayedCells(
                 from: index,
                 row: &row,
                 column: &column,
+                originMode: &originMode,
+                scrollRegionTop: &scrollRegionTop,
                 cells: &cells
             )
             continue
@@ -128,6 +170,8 @@ private func consumeEscape(
     from escapeIndex: String.Index,
     row: inout Int,
     column: inout Int,
+    originMode: inout Bool,
+    scrollRegionTop: inout Int,
     cells: inout [[Character?]]
 ) -> String.Index {
     var index = text.index(after: escapeIndex)
@@ -145,7 +189,8 @@ private func consumeEscape(
     switch text[index] {
     case "H", "f":
         let values = csiIntegerParameters(parameters)
-        row = max(0, (values.first ?? 1) - 1)
+        let rowBase = originMode ? scrollRegionTop : 0
+        row = rowBase + max(0, (values.first ?? 1) - 1)
         column = max(0, (values.dropFirst().first ?? 1) - 1)
     case "G":
         column = max(0, (csiIntegerParameters(parameters).first ?? 1) - 1)
@@ -153,6 +198,18 @@ private func consumeEscape(
         if parameters == "2", cells.indices.contains(row) {
             cells[row] = Array<Character?>(repeating: nil, count: cells[row].count)
         }
+    case "h", "l":
+        let values = csiIntegerParameters(parameters)
+        if parameters.hasPrefix("?"), values.contains(6) {
+            originMode = text[index] == "h"
+            row = originMode ? scrollRegionTop : 0
+            column = 0
+        }
+    case "r":
+        let values = csiIntegerParameters(parameters)
+        scrollRegionTop = max(0, (values.first ?? 1) - 1)
+        row = 0
+        column = 0
     default:
         break
     }
@@ -174,4 +231,23 @@ private func csiIntegerParameters(_ parameters: String) -> [Int] {
             let digits = component.drop { !$0.isNumber }
             return Int(digits) ?? 1
         }
+}
+
+private func cellRows(from rows: [String], rows rowCount: Int, columns: Int) -> [[Character?]] {
+    var cells = Array(
+        repeating: Array<Character?>(repeating: nil, count: columns),
+        count: rowCount
+    )
+    for (row, text) in rows.prefix(rowCount).enumerated() {
+        for (column, character) in text.prefix(columns).enumerated() {
+            cells[row][column] = character
+        }
+    }
+    return cells
+}
+
+private func renderedRows(_ cells: [[Character?]]) -> [String] {
+    cells.map { row in
+        String(row.map { $0 ?? " " })
+    }
 }
