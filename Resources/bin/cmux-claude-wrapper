@@ -756,9 +756,17 @@ cmux_computer_use_json_escape() {
 # A codex only counts if it actually speaks the app-server protocol the
 # computer-use engine runs on — legacy CLIs (e.g. a stray v0.2.x in
 # /usr/local/bin) reject the subcommand, and pinning one would surface 12
-# always-failing tools while a working Codex.app sits ignored.
+# always-failing tools while a working Codex.app sits ignored. The probe runs
+# on the Claude launch path, so it is hard-bounded: perl's alarm(2) survives
+# exec and kills a hung candidate after 5s (macOS ships perl; no `timeout`).
+# Any failure — including the timeout or a missing perl — just skips this
+# candidate, so a misbehaving codex can never block Claude from starting.
 cmux_computer_use_codex_supports_app_server() {
-    "$1" app-server --help >/dev/null 2>&1
+    command -v perl >/dev/null 2>&1 || return 1
+    # Subshell so the parent shell's signal-death notice ("Alarm clock") for a
+    # timed-out probe is captured by the redirect instead of leaking to the
+    # user's terminal.
+    (perl -e 'alarm 5; exec { $ARGV[0] } @ARGV; exit 127' "$1" app-server --help) >/dev/null 2>&1
 }
 
 cmux_computer_use_resolve_codex() {

@@ -12,6 +12,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -888,6 +889,7 @@ def computer_use_sandbox(
     disabled: bool = False,
     codex_override: str | None = None,
     legacy_codex_first: bool = False,
+    hanging_codex_first: bool = False,
 ):
     def setup(tmp: Path, env: dict) -> None:
         if script:
@@ -913,6 +915,13 @@ def computer_use_sandbox(
             legacy_dir.mkdir(parents=True, exist_ok=True)
             make_executable(legacy_dir / "codex", "#!/usr/bin/env bash\nexit 1\n")
             env["PATH"] = f"{legacy_dir}:{env['PATH']}"
+        if hanging_codex_first:
+            # A codex whose probe hangs: the wrapper's 5s alarm must kill it
+            # and keep resolving instead of blocking the Claude launch.
+            hang_dir = tmp / "hanging-codex"
+            hang_dir.mkdir(parents=True, exist_ok=True)
+            make_executable(hang_dir / "codex", "#!/usr/bin/env bash\nsleep 60\n")
+            env["PATH"] = f"{hang_dir}:{env['PATH']}"
         if codex_in_shim_dir_only:
             shim_dir = tmp / "cmux-cli-shims" / "surface-test"
             shim_dir.mkdir(parents=True, exist_ok=True)
@@ -1154,6 +1163,31 @@ def test_computer_use_mcp_skips_codex_without_app_server(failures: list[str]) ->
     expect(
         injected_mcp_config_index(real_argv) is None,
         f"computer use legacy override: expected no injection, got {real_argv}",
+        failures,
+    )
+
+    # A hanging probe must be killed by the 5s alarm and never block the
+    # launch; the working codex later on PATH still wins.
+    start = time.monotonic()
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(hanging_codex_first=True),
+    )
+    elapsed = time.monotonic() - start
+    expect(code == 0, f"computer use hanging probe: wrapper exited {code}: {stderr}", failures)
+    expect(
+        elapsed < 30,
+        f"computer use hanging probe: launch blocked for {elapsed:.1f}s",
+        failures,
+    )
+    config = extract_injected_mcp_config(real_argv)
+    pinned = ""
+    if config is not None:
+        pinned = config.get("mcpServers", {}).get("cmux-computer-use", {}).get("env", {}).get("CMUX_CU_CODEX", "")
+    expect(
+        pinned.endswith("/codex-bin/codex"),
+        f"computer use hanging probe: expected the working codex pinned, got {real_argv}",
         failures,
     )
 
