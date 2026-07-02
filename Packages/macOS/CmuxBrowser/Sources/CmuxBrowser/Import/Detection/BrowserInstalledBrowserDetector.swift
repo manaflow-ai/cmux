@@ -351,25 +351,19 @@ public struct BrowserInstalledBrowserDetector {
         for child in children {
             guard (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
             let name = child.lastPathComponent
-            let isLikelyProfile =
-                name == "Default" ||
-                name.hasPrefix("Profile ") ||
-                name.hasPrefix("Guest Profile") ||
-                name.hasPrefix("Person ") ||
-                nameMap[name] != nil
-            if isLikelyProfile && looksLikeChromiumProfile(rootURL: child) {
-                profiles.append(
-                    InstalledBrowserProfile(
-                        displayName: Self.chromiumProfileDisplayName(
-                            directoryName: name,
-                            nameMap: nameMap,
-                            isDefault: name == "Default"
-                        ),
-                        rootURL: child,
+            guard name != "Network" else { continue }
+            guard looksLikeChromiumProfile(rootURL: child) else { continue }
+            profiles.append(
+                InstalledBrowserProfile(
+                    displayName: Self.chromiumProfileDisplayName(
+                        directoryName: name,
+                        nameMap: nameMap,
                         isDefault: name == "Default"
-                    )
+                    ),
+                    rootURL: child,
+                    isDefault: name == "Default"
                 )
-            }
+            )
         }
 
         return Self.sortProfiles(Self.dedupedProfiles(profiles))
@@ -470,7 +464,12 @@ public struct BrowserInstalledBrowserDetector {
     private func looksLikeChromiumProfile(rootURL: URL) -> Bool {
         let historyURL = rootURL.appendingPathComponent("History", isDirectory: false)
         let cookiesURL = rootURL.appendingPathComponent("Cookies", isDirectory: false)
-        return fileManager.fileExists(atPath: historyURL.path) || fileManager.fileExists(atPath: cookiesURL.path)
+        let networkCookiesURL = rootURL
+            .appendingPathComponent("Network", isDirectory: true)
+            .appendingPathComponent("Cookies", isDirectory: false)
+        return fileManager.fileExists(atPath: historyURL.path) ||
+            fileManager.fileExists(atPath: cookiesURL.path) ||
+            fileManager.fileExists(atPath: networkCookiesURL.path)
     }
 
     private func looksLikeFirefoxProfile(rootURL: URL) -> Bool {

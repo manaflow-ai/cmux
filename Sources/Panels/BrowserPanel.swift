@@ -9734,9 +9734,9 @@ enum BrowserDataImporter {
         var skippedEncryptedCookies = 0
         let decryptor = ChromiumCookieDecryptor(browser: browser)
 
-        let databaseURLs = sourceProfiles.map {
-            $0.rootURL.appendingPathComponent("Cookies", isDirectory: false)
-        }.filter { fileManager.fileExists(atPath: $0.path) }
+        let databaseURLs = dedupedCanonicalURLs(
+            sourceProfiles.flatMap { chromiumCookieDatabaseURLs(for: $0) }
+        ).filter { fileManager.fileExists(atPath: $0.path) }
 
         for databaseURL in databaseURLs {
             do {
@@ -9809,6 +9809,15 @@ enum BrowserDataImporter {
         }
         let skippedCount = max(0, dedupedCookies.count - importedCount) + skippedEncryptedCookies
         return CookieImportResult(importedCount: importedCount, skippedCount: skippedCount, warnings: warnings)
+    }
+
+    private static func chromiumCookieDatabaseURLs(for profile: InstalledBrowserProfile) -> [URL] {
+        [
+            profile.rootURL
+                .appendingPathComponent("Network", isDirectory: true)
+                .appendingPathComponent("Cookies", isDirectory: false),
+            profile.rootURL.appendingPathComponent("Cookies", isDirectory: false),
+        ]
     }
 
     private static func importFirefoxHistory(
