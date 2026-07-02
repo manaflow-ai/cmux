@@ -37,6 +37,9 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.renameWorkspace`
 - `shortcuts.bindings.editWorkspaceDescription`
 - `shortcuts.bindings.closeWorkspace`
+- `shortcuts.bindings.newWorkspaceGroup`
+- `shortcuts.bindings.groupSelectedWorkspaces`
+- `shortcuts.bindings.toggleFocusedWorkspaceGroupCollapsed`
 
 ## Panes and surfaces
 

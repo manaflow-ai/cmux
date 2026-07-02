@@ -918,13 +918,13 @@
       "layoutItem1": "Pinned top-level rows (workspaces and groups).",
       "layoutItem2": "Unpinned top-level rows (workspaces and groups).",
       "creatingTitle": "Creating a group",
-      "creatingIntro": "A group is created in one of two ways: a keyboard shortcut or a workspace context menu. Both insert a fresh anchor workspace above the selection and move the selected workspaces into the group. Once a group exists, you manage it and add workspaces to it from the group header (see Managing a group below).",
-      "keyboardTitle": "From the keyboard ({shortcut})",
-      "keyboardDesc": "Select two or more workspaces in the sidebar, then press {shortcut}. A fresh anchor workspace is inserted above the selection and all selected workspaces become children. The group is auto-named Group 1, Group 2, and so on — rename it anytime via the header context menu.",
+      "creatingIntro": "A group is created from a keyboard shortcut or a sidebar context menu. Empty groups insert a fresh anchor workspace as the group header. Selection-based groups insert that anchor above the selection and move the selected workspaces into the group. Once a group exists, you manage it and add workspaces to it from the group header (see Managing a group below).",
+      "keyboardTitle": "From keyboard shortcuts",
+      "keyboardDesc": "Press ⌃⌘G to create a new empty workspace group. Select two or more workspaces in the sidebar, then press {shortcut} to group the selection. Both paths create a fresh anchor workspace and auto-name the group Group 1, Group 2, and so on. Rename it anytime via the header context menu.",
       "keyboardNote": "{shortcut} collides with React Grab's default. The group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and in browser or terminal contexts. Rebind it in Settings → Keyboard if you would rather the two not share a key.",
       "keyboardSingle": "Single-tab groups are not created from the shortcut. Use the workspace context menu New Group from Workspace entry for that.",
       "contextMenuTitle": "From a workspace context menu",
-      "contextMenuDesc": "Right-click any workspace in the sidebar and choose New Group from Workspace, or New Group from Selection when multiple workspaces are selected. This uses the same auto-naming behavior as the shortcut.",
+      "contextMenuDesc": "Right-click any workspace in the sidebar and choose New Empty Workspace Group, New Group from Workspace, or New Group from Selection when multiple workspaces are selected. The blank area below the sidebar list also offers New Empty Workspace Group. These paths use the same auto-naming behavior as the shortcuts.",
       "managingTitle": "Managing a group",
       "managingIntro": "Once a group exists, its header context menu and the + button on the header let you manage the group and add workspaces to it. Neither creates a new group.",
       "headerMenuTitle": "From the group header context menu",
@@ -1003,7 +1003,18 @@
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
           "scrollSpeed": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower.",
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
-          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox.",
+          "textBoxDefaultSubmitAction": "Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs.",
+          "textBoxSubmitActions": "Configurable TextBox submit actions shown on the submit button, Shift-Tab cycle, and right-click menu.",
+          "textBoxSubmitActionId": "Stable action ID referenced by terminal.textBoxDefaultSubmitAction.",
+          "textBoxSubmitActionTitle": "Menu label for this submit action.",
+          "textBoxSubmitActionKind": "Whether this action submits plain Text Entry or expands a shell command template.",
+          "textBoxSubmitActionCommandTemplate": "Shell command template for commandTemplate actions. Include {{prompt}} to shell-quote the prompt into the command.",
+          "textBoxSubmitActionPreservePromptAfterLaunch": "When true, launch commandTemplate without the prompt and keep the prompt in the TextBox for the active agent.",
+          "textBoxSubmitActionSystemImage": "Fallback SF Symbol name shown on the submit button.",
+          "textBoxSubmitActionAssetName": "Optional app asset catalog image name shown on the submit button.",
+          "textBoxSubmitActionImagePath": "Optional PNG or image file path shown on the submit button. Tilde is expanded.",
+          "textBoxSubmitActionBackgroundColorHex": "Action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states."
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
@@ -1011,7 +1022,8 @@
         "browser": {
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
-          "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL."
+          "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
+          "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
@@ -2000,7 +2012,8 @@
   "afterSignIn": {
     "title": "Signed in to cmux",
     "body": "If cmux did not open automatically, use the button below.",
-    "button": "Return to cmux"
+    "button": "Return to cmux",
+    "switchAccountButton": "Use a different account"
   },
   "landing": {
     "bestTerminal": {
