@@ -14,7 +14,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: cloud-vm-migrate-${{ inputs.target }}
@@ -30,6 +29,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           ref: refs/heads/main
 
       - name: Setup Bun
@@ -46,6 +46,9 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: preflight
     environment: cloud-vm-staging
+    permissions:
+      contents: read
+      id-token: write
     defaults:
       run:
         working-directory: web
@@ -63,6 +66,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           ref: refs/heads/main
 
       - name: Setup Bun
@@ -103,6 +107,9 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: migrate-staging
     environment: cloud-vm-production
+    permissions:
+      contents: read
+      id-token: write
     defaults:
       run:
         working-directory: web
@@ -120,6 +127,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           ref: refs/heads/main
 
       - name: Setup Bun

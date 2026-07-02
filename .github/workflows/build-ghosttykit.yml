@@ -3,6 +3,9 @@ name: Build GhosttyKit
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -30,6 +33,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           submodules: recursive
 
       - name: Get ghostty SHA
@@ -43,8 +47,9 @@ jobs:
         id: check-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHOSTTY_SHA: ${{ steps.ghostty-sha.outputs.sha }}
         run: |
-          TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}-${GHOSTTYKIT_BUILD_FLAVOR}"
+          TAG="xcframework-${GHOSTTY_SHA}-${GHOSTTYKIT_BUILD_FLAVOR}"
           if gh release view "$TAG" --repo manaflow-ai/ghostty >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "Release $TAG already exists, skipping build"
@@ -110,17 +115,18 @@ jobs:
         if: steps.check-release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GHOSTTY_RELEASE_TOKEN }}
+          GHOSTTY_SHA: ${{ steps.ghostty-sha.outputs.sha }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then
             echo "GHOSTTY_RELEASE_TOKEN not available (fork PR), skipping upload"
             exit 0
           fi
-          TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}-${GHOSTTYKIT_BUILD_FLAVOR}"
+          TAG="xcframework-${GHOSTTY_SHA}-${GHOSTTYKIT_BUILD_FLAVOR}"
           gh release create "$TAG" \
             --repo manaflow-ai/ghostty \
-            --target "${{ steps.ghostty-sha.outputs.sha }}" \
-            --title "GhosttyKit xcframework (${{ steps.ghostty-sha.outputs.sha }}, ${GHOSTTYKIT_BUILD_FLAVOR})" \
-            --notes "Pre-built GhosttyKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }} with crash-report-subdir=${GHOSTTYKIT_CRASH_REPORT_SUBDIR}" \
+            --target "$GHOSTTY_SHA" \
+            --title "GhosttyKit xcframework (${GHOSTTY_SHA}, ${GHOSTTYKIT_BUILD_FLAVOR})" \
+            --notes "Pre-built GhosttyKit.xcframework for commit ${GHOSTTY_SHA} with crash-report-subdir=${GHOSTTYKIT_CRASH_REPORT_SUBDIR}" \
             GhosttyKit.xcframework.tar.gz
           echo "Published release $TAG"
