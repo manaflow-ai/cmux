@@ -319,11 +319,11 @@ extension TerminalController: ControlDebugContext {
         // the legacy `[String: Any]` params are reconstructed exactly
         // (`foundationObject` is the inverse of the dispatcher's bridging) and
         // the favicon body runs verbatim.
-        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { _, ws, surfaceId, browserPanel in
+        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { workspaceId, surfaceId, browserPanel in
             let pngData = browserPanel.faviconPNGData
             return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "has_favicon": pngData != nil,

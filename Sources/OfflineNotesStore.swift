@@ -17,7 +17,20 @@ import Observation
 @MainActor
 @Observable
 final class OfflineNotesStore {
+    /// Created lazily the first time the Notes panel is opened. In production the
+    /// store is only ever constructed via this accessor, and its ``init`` flips
+    /// ``hasInstance`` to `true`, so quit-time durability can be gated on "the
+    /// store was actually used this session" rather than the live beta toggle —
+    /// without force-creating the store (and its backing file) for users who
+    /// never opened Notes.
     static let shared = OfflineNotesStore()
+
+    /// Whether the store has been instantiated this session (set from ``init``).
+    /// Read from the app terminate hook to decide whether a final durable persist
+    /// is needed, decoupling quit durability from the current beta-feature
+    /// toggle. In production the store is only built via ``shared``, so this
+    /// becomes `true` exactly when Notes is first used.
+    private(set) static var hasInstance = false
 
     /// Captured notes, newest last (capture order).
     private(set) var notes: [OfflineNote] = []
@@ -60,6 +73,11 @@ final class OfflineNotesStore {
         reachability: (any OfflineNotesReachabilityMonitoring)? = nil,
         autostart: Bool = true
     ) {
+        // Record that the store exists this session (a static flag, so this is
+        // valid before `self` is fully initialized). The terminate hook reads it
+        // to fire quit-time durability independently of the live beta toggle; in
+        // production the store is only constructed via `shared`.
+        Self.hasInstance = true
         self.fileURL = fileURL
         self.dispatcher = dispatcher ?? OfflineNoteAgentDispatcher()
         self.reachability = reachability ?? OfflineNotesNetworkReachability()
