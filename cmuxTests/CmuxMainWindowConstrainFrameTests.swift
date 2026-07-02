@@ -97,5 +97,93 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
             CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [])
         )
     }
+
+    // MARK: - WindowTitlebarReachability (shared predicate)
+
+    func testReachabilityFullyInsideVisibleAreaPassesBothThresholds() {
+        let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let frame = NSRect(x: 100, y: 100, width: 800, height: 600)
+        XCTAssertTrue(
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .lenient)
+        )
+        XCTAssertTrue(
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .strict)
+        )
+    }
+
+    func testReachabilityTitlebarAboveScreenTopFailsBothThresholds() {
+        // 200pt of the window body is visible at the bottom of the screen, but
+        // the whole top strip sits above the physical screen — the stranded
+        // shape a monitor disconnect produces.
+        let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let frame = NSRect(x: 100, y: 700, width: 800, height: 600)
+        XCTAssertFalse(
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .lenient)
+        )
+        XCTAssertFalse(
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .strict)
+        )
+    }
+
+    func testReachabilityTuckedUnderMenuBarIsLenientOnlyReachable() {
+        // Menu-bar band is 863..900. The titlebar band (top 28pt, 865..893) is
+        // fully inside it — grabbable by nothing — while the lenient 64pt strip
+        // still has 34pt visible below the menu bar.
+        let visible = NSRect(x: 0, y: 0, width: 1440, height: 863)
+        let frame = NSRect(x: 320, y: 293, width: 800, height: 600) // maxY 893
+        XCTAssertTrue(
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .lenient)
+        )
+        XCTAssertFalse(
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .strict)
+        )
+    }
+
+    func testReachabilityStrictWidthBoundary() {
+        let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        // Window hangs off the left edge; exactly 120pt of the band remains visible.
+        let atBoundary = NSRect(x: -680, y: 100, width: 800, height: 600)
+        XCTAssertTrue(
+            WindowTitlebarReachability.isTopStripReachable(atBoundary, onAnyOf: [visible], thresholds: .strict)
+        )
+        // One point less than the 120pt floor: not reachable.
+        let belowBoundary = NSRect(x: -681, y: 100, width: 800, height: 600)
+        XCTAssertFalse(
+            WindowTitlebarReachability.isTopStripReachable(belowBoundary, onAnyOf: [visible], thresholds: .strict)
+        )
+    }
+
+    func testReachabilityNarrowWindowRequiresOnlyItsFullWidth() {
+        // A 100pt-wide window is narrower than the 120pt floor; its full width
+        // being visible is enough.
+        let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let frame = NSRect(x: 10, y: 100, width: 100, height: 400)
+        XCTAssertTrue(
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .strict)
+        )
+    }
+
+    func testReachabilityConsidersEveryScreen() {
+        // Unreachable on the first screen, reachable on the second.
+        let left = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let right = NSRect(x: 1440, y: 0, width: 2560, height: 1415)
+        let frame = NSRect(x: 1500, y: 600, width: 800, height: 600)
+        XCTAssertTrue(
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [left, right], thresholds: .strict)
+        )
+        XCTAssertFalse(
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [left], thresholds: .strict)
+        )
+    }
+
+    func testReachabilityEmptyScreenListIsUnreachable() {
+        let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        XCTAssertFalse(
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [], thresholds: .lenient)
+        )
+        XCTAssertFalse(
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [], thresholds: .strict)
+        )
+    }
 }
 #endif
