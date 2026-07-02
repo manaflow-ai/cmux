@@ -648,6 +648,381 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.contains(hyperlink), "non-color OSC sequences must be preserved")
     }
 
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6691.
+    //
+    // Ghostty's `write_screen_file:copy,vt` export (used to capture session
+    // scrollback) drops OSC 133 semantic-prompt markers, so replayed scrollback
+    // loses the per-row prompt metadata that drives jump-to-prompt and
+    // click-to-move. Agents such as Claude Code emit the prompt-start mark only
+    // once at process startup, so after an auto-resume rebuild the affordance
+    // never returns. The replay store must re-inject an OSC 133 ; A mark before
+    // the restored last user message so the rebuilt screen regains it.
+    func testScrollbackReplayReinjectsSemanticPromptMarkForLastUserMessage() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let promptPrefix = "\(esc)[2m> \(reset)" // dim "> " agent prompt prefix
+        let message = "refactor the login flow"
+        let scrollback = [
+            "\(esc)[1mWelcome to the session\(reset)",
+            "\(promptPrefix)\(message)",
+            "\(esc)[32m● Done editing files\(reset)",
+        ].joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+
+        // The OSC 133 ; A marker must be present...
+        XCTAssertTrue(
+            marked.contains("\(esc)]133;A"),
+            "Expected a re-injected OSC 133 prompt-start marker, got: \(marked)"
+        )
+        // ...immediately before the line carrying the last user message, so the
+        // rebuilt screen marks that row (and only that row) as a prompt.
+        XCTAssertTrue(
+            marked.contains("\(SessionScrollbackReplayStore.semanticPromptStartMark)\(promptPrefix)\(message)"),
+            "Expected the marker to precede the last user message line, got: \(marked)"
+        )
+        // The surrounding scrollback content is preserved verbatim.
+        XCTAssertTrue(marked.contains("Welcome to the session"))
+        XCTAssertTrue(marked.contains("● Done editing files"))
+    }
+
+    // Re-injection must no-op when there is no known last user message, leaving
+    // replayed scrollback (e.g. for plain shells) untouched.
+    func testScrollbackReplayLeavesScrollbackUntouchedWithoutLastUserMessage() {
+        let scrollback = "$ ls\nfile-a\nfile-b\n"
+        XCTAssertEqual(
+            SessionScrollbackReplayStore.reinjectingLastPromptMark(into: scrollback, lastUserMessage: nil),
+            scrollback
+        )
+        XCTAssertEqual(
+            SessionScrollbackReplayStore.reinjectingLastPromptMark(into: scrollback, lastUserMessage: "   "),
+            scrollback
+        )
+    }
+
+    // When two rows match — e.g. an agent renders a Markdown blockquote echo of
+    // the request below the real prompt — the matcher cannot tell the prompt from
+    // the echo (`>` is both a prompt sigil and a blockquote marker, and the
+    // authoritative OSC 133 was dropped by the export), so it safely NO-OPS rather
+    // than risk marking agent output or the wrong turn.
+    func testScrollbackReplayNoOpsOnAmbiguousBlockquoteEcho() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "fix the flaky test"
+        let lines = [
+            "> \(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test", // real prompt
+            "\(esc)[33m⏺\(reset) Here's the plan:",
+            "> fix the flaky test",  // agent Markdown blockquote echo, below the prompt
+            "\(esc)[32m● done\(reset)",
+        ]
+        let scrollback = lines.joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+
+        XCTAssertFalse(marked.contains("\(esc)]133;A"), "ambiguous match must not inject any mark")
+        XCTAssertEqual(marked, scrollback, "ambiguous match must leave the scrollback unchanged")
+    }
+
+    // A single (unambiguous) prompt row is marked even when SGR color escapes are
+    // interleaved through its message text.
+    func testScrollbackReplayMarksSinglePromptThroughInterleavedSGR() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "fix the flaky test"
+        let lines = [
+            "\(esc)[1mready\(reset)",
+            "> \(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test", // unique SGR-interleaved prompt
+            "\(esc)[32m● done\(reset)",
+        ]
+        let scrollback = lines.joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+        let markedLines = marked.components(separatedBy: "\n")
+
+        XCTAssertTrue(
+            markedLines[1].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "the unique SGR-interleaved prompt row must be marked, got: \(markedLines[1])"
+        )
+        XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
+    }
+
+    // A long prompt soft-wraps across several captured rows. The marker must
+    // still land on the FIRST row of the wrapped prompt (so jump-to-prompt jumps
+    // to the start), which single-row matching would miss.
+    func testScrollbackReplayMarksFirstRowOfWrappedPrompt() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "please refactor the authentication flow and add regression tests"
+        // The prompt as rendered across two captured rows on a narrow grid.
+        let firstRow = "> please refactor the authentication flow and"
+        let secondRow = "add regression tests"
+        let lines = [
+            "\(esc)[1magent ready\(reset)",
+            firstRow,
+            secondRow,
+            "\(esc)[32m● working\(reset)",
+        ]
+        let scrollback = lines.joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+        let markedLines = marked.components(separatedBy: "\n")
+
+        XCTAssertEqual(markedLines.count, 4)
+        XCTAssertTrue(
+            markedLines[1].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "the first wrapped row must be marked, got: \(markedLines[1])"
+        )
+        XCTAssertFalse(markedLines[2].contains("\(esc)]133;A"), "wrapped continuation row must stay unmarked")
+        // Exactly one marker is injected.
+        XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
+    }
+
+    // Agent output frequently echoes the user's words mid-sentence ("I'll
+    // refactor the login flow"). The marker must land on the prompt row that
+    // BEGINS with the message, not on the later agent-output row that merely
+    // contains the words.
+    func testScrollbackReplayDoesNotMarkAgentOutputEchoingTheMessage() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "refactor the login flow"
+        let lines = [
+            "\(esc)[2m> \(reset)refactor the login flow",            // the actual prompt row
+            "\(esc)[33m⏺ I'll refactor the login flow now…\(reset)", // agent echo, below the prompt
+            "\(esc)[32m● Done\(reset)",
+        ]
+        let scrollback = lines.joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+        let markedLines = marked.components(separatedBy: "\n")
+
+        XCTAssertTrue(
+            markedLines[0].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "the prompt row must be marked, got: \(markedLines[0])"
+        )
+        XCTAssertFalse(
+            markedLines[1].contains("\(esc)]133;A"),
+            "agent output echoing the message must not be marked, got: \(markedLines[1])"
+        )
+        XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
+    }
+
+    // A bare agent-output line that opens with the same words ("refactor the
+    // login flow is done…") — no prompt sigil — must not steal the marker from the
+    // real sigil-prefixed prompt row above it.
+    func testScrollbackReplayPrefersSigilPromptOverBareAgentEcho() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "refactor the login flow"
+        let lines = [
+            "\(esc)[2m> \(reset)refactor the login flow",       // real prompt (sigil)
+            "\(esc)[33m⏺\(reset) working…",
+            "refactor the login flow is done; tests pass",       // bare agent line opening with the words
+        ]
+        let scrollback = lines.joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+        let markedLines = marked.components(separatedBy: "\n")
+
+        XCTAssertTrue(
+            markedLines[0].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "the sigil-prefixed prompt must win over a bare echo, got: \(markedLines[0])"
+        )
+        XCTAssertFalse(markedLines[2].contains("\(esc)]133;A"), "a bare agent line must not steal the marker")
+        XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
+    }
+
+    // Agent plan output often restates the request as a Markdown bullet or
+    // heading ("- refactor the login flow"). These lead with a list/heading
+    // marker, not a prompt sigil, so they must not be mistaken for the prompt row
+    // even though they appear below it.
+    func testScrollbackReplayDoesNotMarkMarkdownBulletEchoingTheMessage() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "refactor the login flow"
+        let lines = [
+            "\(esc)[2m> \(reset)refactor the login flow", // the real prompt row
+            "\(esc)[1mPlan:\(reset)",
+            "- refactor the login flow",                   // agent bullet restating it
+            "# Refactor the login flow",                   // agent heading restating it
+            "- add regression tests",
+        ]
+        let scrollback = lines.joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+        let markedLines = marked.components(separatedBy: "\n")
+
+        XCTAssertTrue(
+            markedLines[0].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "the real prompt row must be marked, got: \(markedLines[0])"
+        )
+        XCTAssertFalse(markedLines[2].contains("\(esc)]133;A"), "a Markdown bullet must not be marked")
+        XCTAssertFalse(markedLines[3].contains("\(esc)]133;A"), "a Markdown heading must not be marked")
+        XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
+    }
+
+    // A multiline prompt (newlines collapsed) whose words land on different
+    // captured rows still matches across rows.
+    func testScrollbackReplayMarksMultilinePromptAcrossRows() {
+        let esc = "\u{001B}"
+        let message = "first line\nsecond line of the prompt"
+        let scrollback = [
+            "> first line",
+            "second line of the prompt",
+            "\(esc)[32m● ok\(esc)[0m",
+        ].joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+        let markedLines = marked.components(separatedBy: "\n")
+        XCTAssertTrue(
+            markedLines[0].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "first row of the multiline prompt must be marked, got: \(markedLines[0])"
+        )
+    }
+
+    // End-to-end: the replay environment file written for restore carries the
+    // re-injected OSC 133 mark in front of the restored last user message.
+    func testScrollbackReplayEnvironmentReinjectsPromptMarkIntoReplayFile() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "add a dark mode toggle"
+        let scrollback = "\(esc)[1mclaude\(reset)\n> \(message)\n\(esc)[32m● Done\(reset)\n"
+
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: scrollback,
+            lastUserMessage: message,
+            tempDirectory: tempDir
+        )
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+            XCTFail("Expected replay file path")
+            return
+        }
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file contents")
+            return
+        }
+
+        XCTAssertTrue(
+            contents.contains("\(SessionScrollbackReplayStore.semanticPromptStartMark)> \(message)"),
+            "replay file must carry the OSC 133 mark before the last user message, got: \(contents)"
+        )
+        // Surrounding scrollback survives the round trip.
+        XCTAssertTrue(contents.contains("claude"))
+        XCTAssertTrue(contents.contains("● Done"))
+    }
+
+    // Integration across the persistence boundary: capture stores the bounded
+    // prompt match key, it survives a Codable round trip, and the restore path
+    // threads it into `replayEnvironment` so the written replay file carries the
+    // re-injected OSC 133 mark. (The capture side computes it via
+    // `persistablePromptMatchKey` — see `Workspace.sessionPanelSnapshot`.)
+    func testTerminalSnapshotPromptMarkKeyRoundTripsIntoReplayInjection() throws {
+        let esc = "\u{001B}"
+        let message = "wire up the settings panel"
+        let scrollback = "\(esc)[1mclaude\(esc)[0m\n> \(message)\n\(esc)[32m● Done\(esc)[0m\n"
+        let key = try XCTUnwrap(SessionScrollbackReplayStore.persistablePromptMatchKey(
+            forScrollback: scrollback,
+            lastUserMessage: message
+        ))
+        let snapshot = SessionTerminalPanelSnapshot(scrollback: scrollback, lastPromptMarkKey: key)
+
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(SessionTerminalPanelSnapshot.self, from: data)
+        XCTAssertEqual(decoded.lastPromptMarkKey, key, "prompt mark key must persist through Codable")
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: decoded.scrollback,
+            lastUserMessage: decoded.lastPromptMarkKey,
+            tempDirectory: tempDir
+        )
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey],
+              let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file")
+            return
+        }
+        XCTAssertTrue(
+            contents.contains("\(SessionScrollbackReplayStore.semanticPromptStartMark)> \(message)"),
+            "restore must re-inject the OSC 133 mark using the persisted key, got: \(contents)"
+        )
+    }
+
+    // The capture gate returns the bounded match key only when the saved
+    // scrollback actually contains that prompt row — never for an unrelated
+    // panel's scrollback, never when scrollback is omitted — and never the full
+    // (possibly secret-bearing) message, only the ≤48-char proven prefix.
+    func testPersistablePromptMatchKeyGatesPersistenceAndBoundsKey() {
+        let esc = "\u{001B}"
+        let message = "refactor the login flow"
+        let withPrompt = "\(esc)[2m> \(esc)[0m\(message)\n\(esc)[32m● working\(esc)[0m\n"
+        let unrelated = "building project…\n$ swift build\nCompiling…\n"
+
+        XCTAssertNotNil(
+            SessionScrollbackReplayStore.persistablePromptMatchKey(forScrollback: withPrompt, lastUserMessage: message),
+            "scrollback containing the prompt row must yield a persistable key"
+        )
+        XCTAssertNil(
+            SessionScrollbackReplayStore.persistablePromptMatchKey(forScrollback: unrelated, lastUserMessage: message),
+            "an unrelated panel's scrollback must not yield a key"
+        )
+        XCTAssertNil(SessionScrollbackReplayStore.persistablePromptMatchKey(forScrollback: nil, lastUserMessage: message))
+        XCTAssertNil(SessionScrollbackReplayStore.persistablePromptMatchKey(forScrollback: withPrompt, lastUserMessage: nil))
+
+        // Privacy: a long prompt persists only the bounded prefix that is actually
+        // present in the scrollback, never the full (up to 240-char) message.
+        let longMessage = String(repeating: "alpha bravo ", count: 30) // > 240 chars
+        let longScrollback = "> \(longMessage)\noutput\n"
+        let key = SessionScrollbackReplayStore.persistablePromptMatchKey(
+            forScrollback: longScrollback,
+            lastUserMessage: longMessage
+        )
+        XCTAssertNotNil(key)
+        XCTAssertLessThanOrEqual((key ?? "").count, 48, "persisted key must be the bounded match prefix")
+        XCTAssertNotEqual(key, longMessage, "must not persist the full long message")
+    }
+
+    // A snapshot that omits scrollback must also omit the prompt mark key, so no
+    // copy of user input is persisted for terminals whose contents are not saved.
+    func testTerminalSnapshotWithoutScrollbackDecodesNilPromptMarkKey() throws {
+        let snapshot = SessionTerminalPanelSnapshot(workingDirectory: "/tmp")
+        XCTAssertNil(snapshot.lastPromptMarkKey)
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(SessionTerminalPanelSnapshot.self, from: data)
+        XCTAssertNil(decoded.lastPromptMarkKey)
+    }
+
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
         XCTAssertTrue(
             Workspace.shouldPersistSessionScrollback(

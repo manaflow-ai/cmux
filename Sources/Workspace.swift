@@ -524,7 +524,19 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: agentWasRunning,
+                // Persist only the bounded prompt match KEY, and only into the
+                // snapshot of the terminal whose saved scrollback actually contains
+                // that prompt row, so restore can re-inject the OSC 133 mark Ghostty's
+                // export drops (#6691). `latestSubmittedMessage` is workspace-scoped;
+                // `persistablePromptMatchKey` returns the ≤48-char needle iff the
+                // scrollback carries the matching row (else nil), keeping it out of
+                // unrelated panels' snapshots and never writing prompt text the saved
+                // scrollback does not already contain (also nil when scrollback is omitted).
+                lastPromptMarkKey: SessionScrollbackReplayStore.persistablePromptMatchKey(
+                    forScrollback: resolvedScrollback,
+                    lastUserMessage: latestSubmittedMessage
+                )
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1357,7 +1369,11 @@ extension Workspace {
 #endif
             let shouldReplayLocalScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
             let restoredScrollback = shouldReplayLocalScrollback ? snapshot.terminal?.scrollback : nil
-            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: restoredScrollback)
+            let restoredPromptMarkKey = shouldReplayLocalScrollback ? snapshot.terminal?.lastPromptMarkKey : nil
+            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
+                for: restoredScrollback,
+                lastUserMessage: restoredPromptMarkKey
+            )
             // Reuse the persisted surface id so the restored terminal keeps
             // the same identity (the panel/surface id IS the ghostty surface
             // id), which keeps agent-session terminal bindings valid across
