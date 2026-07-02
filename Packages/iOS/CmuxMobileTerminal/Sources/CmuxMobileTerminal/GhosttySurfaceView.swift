@@ -3306,6 +3306,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
     }
 
+    /// Apply the daemon's authoritative rendering grid with explicit placement intent.
+    /// - Parameters:
+    ///   - cols: The authoritative terminal column count.
+    ///   - rows: The authoritative terminal row count.
+    ///   - allowsTopGapCorrection: Whether a large remote-grid letterbox may anchor to the viewport top.
     public func applyViewSize(cols: Int, rows: Int, allowsTopGapCorrection: Bool) {
         applyViewSize(
             cols: cols,
@@ -3325,8 +3330,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return await applyViewSizeAndWait(cols: cols, rows: rows, allowsTopGapCorrection: false)
     }
 
-    /// Apply a remote-grid policy with explicit placement intent and wait for
-    /// libghostty to accept the geometry.
+    /// Apply a remote-grid policy with explicit placement intent and wait for libghostty to accept the geometry.
+    /// - Parameters:
+    ///   - cols: The authoritative terminal column count.
+    ///   - rows: The authoritative terminal row count.
+    ///   - allowsTopGapCorrection: Whether a large remote-grid letterbox may anchor to the viewport top.
+    /// - Returns: `false` when the surface reset before the geometry applied.
     @discardableResult
     public func applyViewSizeAndWait(cols: Int, rows: Int, allowsTopGapCorrection: Bool) async -> Bool {
         let changed = updateEffectiveGrid(
