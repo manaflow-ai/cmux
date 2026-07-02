@@ -77,6 +77,7 @@ import Testing
 
     #expect(emission.frame.full)
     #expect(emission.frame.activeScreen == .alternate)
+    #expect(emission.state == next.emissionState)
 }
 
 @Test func renderGridEmissionKeepsNonOriginChangesAsDeltas() throws {
