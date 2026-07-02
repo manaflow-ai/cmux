@@ -28,6 +28,7 @@ const cloudDb = mock(() => {
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
+  stackServerApp: { getUser },
 }));
 
 mock.module("@vercel/firewall", () => ({

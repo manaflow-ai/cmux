@@ -398,13 +398,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add another Mac"
+            "value": "Add another Computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "別の Mac を追加"
+            "value": "別のコンピュータを追加"
           }
         }
       }
@@ -415,13 +415,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add device form"
+            "value": "Add Computer form"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイス追加フォーム"
+            "value": "コンピュータ追加フォーム"
           }
         }
       }
@@ -670,13 +670,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add device"
+            "value": "Add Computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスを追加"
+            "value": "コンピュータを追加"
           }
         }
       }
@@ -1350,13 +1350,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Macs signed in to your account. Use the workspace title picker to focus one Mac or show All Macs."
+            "value": "The computers signed in to your account. Use the workspace title picker to focus one computer or show All Computers."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アカウントにサインインしている Mac。ワークスペースのタイトルピッカーで 1 台の Mac に絞り込むか、すべての Mac を表示できます。"
+            "value": "アカウントにサインインしているコンピュータ。ワークスペースのタイトルピッカーで 1 台のコンピュータに絞り込むか、すべてのコンピュータを表示できます。"
           }
         }
       }
@@ -1486,13 +1486,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This removes paired record %@. Other matching records may still appear."
+            "value": "This removes this computer and its matching paired records. Its workspaces stop appearing here. Pair it again to add it back."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング済みレコード %@ を削除します。一致する他のレコードは引き続き表示される場合があります。"
+            "value": "このコンピュータと一致するペアリング済みレコードを削除します。そのワークスペースは表示されなくなります。再度ペアリングすると追加できます。"
           }
         }
       }
@@ -1877,13 +1877,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trying to reach the Mac app."
+            "value": "Trying to reach the selected cmux build."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac アプリに接続しようとしています。"
+            "value": "選択した cmux ビルドに接続しようとしています。"
           }
         }
       }
@@ -1911,13 +1911,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The live connection dropped. The Mac may still be online. Tap Reconnect."
+            "value": "The live connection dropped. The selected cmux build may still be online. Tap Reconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ライブ接続が切断されました。Mac はまだオンラインの可能性があります。再接続をタップしてください。"
+            "value": "ライブ接続が切断されました。選択した cmux ビルドはまだオンラインの可能性があります。再接続をタップしてください。"
           }
         }
       }
@@ -2217,13 +2217,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add a Mac to start syncing terminal workspaces."
+            "value": "Add a computer to start syncing terminal workspaces."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac を追加してターミナルワークスペースの同期を開始します。"
+            "value": "コンピュータを追加してターミナルワークスペースの同期を開始します。"
           }
         }
       }
@@ -2251,13 +2251,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap a saved Mac to reconnect, or add another."
+            "value": "Tap a saved computer to reconnect, or add another."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存した Mac をタップして再接続するか、別の Mac を追加します。"
+            "value": "保存したコンピュータをタップして再接続するか、別のコンピュータを追加します。"
           }
         }
       }
@@ -2268,13 +2268,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Macs"
+            "value": "Your Computers"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存した Mac"
+            "value": "保存したコンピュータ"
           }
         }
       }
@@ -2292,6 +2292,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続できないときは"
+          }
+        }
+      }
+    },
+    "mobile.debug.copyLogs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Debug Logs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバッグログをコピー"
           }
         }
       }
@@ -2455,13 +2472,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair Another Mac"
+            "value": "Pair Another Computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "別のMacをペアリング"
+            "value": "別のコンピュータをペアリング"
           }
         }
       }
@@ -2472,13 +2489,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No paired Macs yet."
+            "value": "No paired computers yet."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング済みのMacはまだありません。"
+            "value": "ペアリング済みのコンピュータはまだありません。"
           }
         }
       }
@@ -2489,13 +2506,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switch which Mac this device controls. Pairing another Mac keeps the others, so you can hop between them."
+            "value": "Switch which computer this device controls. Pairing another computer keeps the others, so you can hop between them."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このデバイスが操作するMacを切り替えます。別のMacをペアリングしても他のMacは保持されるので、行き来できます。"
+            "value": "このデバイスが操作するコンピュータを切り替えます。別のコンピュータをペアリングしても他のコンピュータは保持されるので、行き来できます。"
           }
         }
       }
@@ -2523,13 +2540,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paired Macs"
+            "value": "Paired Computers"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング済みのMac"
+            "value": "ペアリング済みのコンピュータ"
           }
         }
       }
@@ -2540,13 +2557,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switch Mac"
+            "value": "Switch Computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macを切り替え"
+            "value": "コンピュータを切り替え"
           }
         }
       }
@@ -3673,6 +3690,23 @@
         }
       }
     },
+    "mobile.recovery.accountMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This computer is signed in to a different cmux account. Sign out and sign back in with that account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータは別の cmux アカウントでサインインしています。そのアカウントでサインアウトしてからサインインし直してください。"
+          }
+        }
+      }
+    },
     "mobile.recovery.lost": {
       "extractionState": "manual",
       "localizations": {
@@ -3754,6 +3788,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "情報"
+          }
+        }
+      }
+    },
+    "mobile.settings.accountFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device must be signed in to the same cmux account as the computer you pair with."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスは、ペアリングするコンピュータと同じ cmux アカウントでサインインしている必要があります。"
           }
         }
       }
@@ -3856,6 +3907,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペアリングの仕組み"
+          }
+        }
+      }
+    },
+    "mobile.settings.mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ"
           }
         }
       }
@@ -3968,13 +4036,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set up your Mac"
+            "value": "Set Up Computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macをセットアップ"
+            "value": "コンピュータをセットアップ"
           }
         }
       }
@@ -3985,13 +4053,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switch Mac"
+            "value": "Switch Computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macを切り替え"
+            "value": "コンピュータを切り替え"
           }
         }
       }
@@ -4019,13 +4087,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switches which Stack team's Macs and devices this app shows."
+            "value": "Switches which Stack team's computers and devices this app shows."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアプリに表示する Stack チームの Mac とデバイスを切り替えます。"
+            "value": "このアプリに表示する Stack チームのコンピュータとデバイスを切り替えます。"
           }
         }
       }
@@ -4104,13 +4172,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "To see your Mac's terminals here, four things have to line up. The step you are on is marked below."
+            "value": "To see your computer's terminals here, four things have to line up. The step you are on is marked below."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ここでMacのターミナルを表示するには、4つの条件がそろう必要があります。今いるステップは下に印が付いています。"
+            "value": "ここでコンピュータのターミナルを表示するには、4つの条件がそろう必要があります。今いるステップは下に印が付いています。"
           }
         }
       }
@@ -4121,13 +4189,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "To see your Mac's terminals here, four things have to line up."
+            "value": "To see your computer's terminals here, four things have to line up."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ここでMacのターミナルを表示するには、4つの条件がそろう必要があります。"
+            "value": "ここでコンピュータのターミナルを表示するには、4つの条件がそろう必要があります。"
           }
         }
       }
@@ -4138,13 +4206,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Tailscale? On the same Wi-Fi you can still connect by typing the Mac's local address and port by hand in Add device. That link is unencrypted, so only use it on a network you trust."
+            "value": "No Tailscale? On the same Wi-Fi you can still connect by typing the computer's local address and port by hand in Add Computer. That link is unencrypted, so only use it on a network you trust."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleがない場合でも、同じWi-Fiなら、「デバイスを追加」でMacのローカルアドレスとポートを手入力して接続できます。その接続は暗号化されないため、信頼できるネットワークでのみ使用してください。"
+            "value": "Tailscaleがない場合でも、同じWi-Fiなら、「コンピュータを追加」でコンピュータのローカルアドレスとポートを手入力して接続できます。その接続は暗号化されないため、信頼できるネットワークでのみ使用してください。"
           }
         }
       }
@@ -4155,13 +4223,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install the cmux Mac app and leave it running, signed in to the same account. The phone pairs to a running Mac, so a quit or never-installed app is the most common reason pairing does nothing."
+            "value": "Install cmux on your computer and leave it running, signed in to the same account. The phone pairs to a running cmux build, so a quit or never-installed app is the most common reason pairing does nothing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxのMacアプリをインストールし、同じアカウントでサインインしたまま起動しておきます。iPhoneは起動中のMacとペアリングするため、アプリが終了している、または未インストールであることが、ペアリングが進まない最も多い原因です。"
+            "value": "コンピュータにcmuxをインストールし、同じアカウントでサインインしたまま起動しておきます。iPhoneは起動中のcmuxビルドとペアリングするため、アプリが終了している、または未インストールであることが、ペアリングが進まない最も多い原因です。"
           }
         }
       }
@@ -4172,13 +4240,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Download cmux for Mac"
+            "value": "Download cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac版cmuxをダウンロード"
+            "value": "cmuxをダウンロード"
           }
         }
       }
@@ -4189,13 +4257,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Run cmux on your Mac"
+            "value": "Run cmux on your computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macでcmuxを起動"
+            "value": "コンピュータでcmuxを起動"
           }
         }
       }
@@ -4206,13 +4274,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "If the Mac rejects this device's sign-in, the two are on different cmux accounts or this device's session is stale. Sign this phone in to the Mac's account (or sign the Mac in to this one), then pair again."
+            "value": "If the computer rejects this device's sign-in, the two are on different cmux accounts or this device's session is stale. Sign this phone in to the computer's account (or sign the computer in to this one), then pair again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macがこの端末のサインインを拒否する場合、両者が別々のcmuxアカウントになっているか、この端末のセッションが古くなっています。この端末をMacのアカウントでサインインし（またはMacをこの端末のアカウントでサインインし）、もう一度ペアリングしてください。"
+            "value": "コンピュータがこの端末のサインインを拒否する場合、両者が別々のcmuxアカウントになっているか、この端末のセッションが古くなっています。この端末をコンピュータのアカウントでサインインし（またはコンピュータをこの端末のアカウントでサインインし）、もう一度ペアリングしてください。"
           }
         }
       }
@@ -4240,13 +4308,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scanning the Mac's QR code needs Tailscale: the Mac only shows a code when it has a Tailscale address your phone can reach. Install Tailscale on both, sign both in to the same tailnet, and the code appears."
+            "value": "Scanning the computer's QR code needs Tailscale: the computer only shows a code when it has a Tailscale address your phone can reach. Install Tailscale on both, sign both in to the same tailnet, and the code appears."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacのQRコードをスキャンするにはTailscaleが必要です。Macは、iPhoneから届くTailscaleアドレスを持っているときだけコードを表示します。両方にTailscaleをインストールし、同じtailnetでサインインすると、コードが表示されます。"
+            "value": "コンピュータのQRコードをスキャンするにはTailscaleが必要です。コンピュータは、iPhoneから届くTailscaleアドレスを持っているときだけコードを表示します。両方にTailscaleをインストールし、同じtailnetでサインインすると、コードが表示されます。"
           }
         }
       }
@@ -4274,13 +4342,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Mac and this phone must be signed in to the same cmux account, and on the same tailnet (or the same Wi-Fi for a manual local connection)."
+            "value": "The computer and this phone must be signed in to the same cmux account, and on the same tailnet (or the same Wi-Fi for a manual local connection)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macとこの端末は、同じcmuxアカウントでサインインし、同じtailnet（手動でローカル接続する場合は同じWi-Fi）にある必要があります。"
+            "value": "コンピュータとこの端末は、同じcmuxアカウントでサインインし、同じtailnet（手動でローカル接続する場合は同じWi-Fi）にある必要があります。"
           }
         }
       }
@@ -4291,13 +4359,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to cmux on this phone with the same account your Mac uses. Without that, there is nothing to connect to."
+            "value": "Sign in to cmux on this phone with the same account the paired computer uses. Without that, there is nothing to connect to."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この端末で、Macと同じアカウントを使ってcmuxにサインインします。サインインしないと、接続先がありません。"
+            "value": "この端末で、ペアリング済みコンピュータと同じアカウントを使ってcmuxにサインインします。サインインしないと、接続先がありません。"
           }
         }
       }
@@ -4342,13 +4410,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set up Tailscale on the Mac"
+            "value": "Set up Tailscale on the computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacにTailscaleを設定"
+            "value": "コンピュータにTailscaleを設定"
           }
         }
       }
@@ -4359,13 +4427,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set up your Mac"
+            "value": "Set Up Computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macをセットアップ"
+            "value": "コンピュータをセットアップ"
           }
         }
       }
@@ -4376,13 +4444,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You have paired this Mac before but it is not reachable now. Wake it, make sure cmux is running, and confirm both devices are on the same tailnet or Wi-Fi. Then reconnect."
+            "value": "You have paired this computer before but it is not reachable now. Wake it, make sure cmux is running, and confirm both devices are on the same tailnet or Wi-Fi. Then reconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacは以前ペアリング済みですが、今は届きません。Macを起こし、cmuxが起動していることを確認し、両方の端末が同じtailnetまたはWi-Fiにあることを確かめてから再接続してください。"
+            "value": "このコンピュータは以前ペアリング済みですが、今は届きません。コンピュータを起こし、cmuxが起動していることを確認し、両方の端末が同じtailnetまたはWi-Fiにあることを確かめてから再接続してください。"
           }
         }
       }
@@ -4393,13 +4461,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wake the Mac"
+            "value": "Wake the computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macを起こす"
+            "value": "コンピュータを起こす"
           }
         }
       }
@@ -4434,6 +4502,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "カスタムアクションを追加"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.chat.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose which compatible terminal buttons appear on both the chat and terminal keyboard bars. Changes here also update the terminal keyboard bar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットとターミナル両方のキーボードバーに表示する互換性のあるターミナルボタンを選びます。ここでの変更はターミナルのキーボードバーにも反映されます。"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.chat.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shared Shortcuts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有ショートカット"
           }
         }
       }
@@ -4536,23 +4638,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "サインイン"
-          }
-        }
-      }
-    },
-    "mobile.signIn.cancel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancel"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャンセル"
           }
         }
       }
@@ -5951,6 +6036,23 @@
         }
       }
     },
+    "mobile.terminal.rendererFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal renderer failed to start."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルレンダラーを起動できませんでした。"
+          }
+        }
+      }
+    },
     "mobile.terminal.viewAsText": {
       "extractionState": "manual",
       "localizations": {
@@ -6518,13 +6620,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux could not finish restoring this session. Check that the Mac app is running, then retry or add this Mac again."
+            "value": "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux はこのセッションの復元を完了できませんでした。Mac アプリが起動していることを確認してから、再試行するか、この Mac をもう一度追加してください。"
+            "value": "cmux はこのセッションの復元を完了できませんでした。選択した cmux ビルドが起動していることを確認してから、再試行するか、このコンピュータをもう一度追加してください。"
           }
         }
       }
@@ -6909,13 +7011,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All Macs"
+            "value": "All Computers"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべての Mac"
+            "value": "すべてのコンピュータ"
           }
         }
       }
@@ -6926,13 +7028,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose Mac"
+            "value": "Choose Computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac を選択"
+            "value": "コンピュータを選択"
           }
         }
       }
@@ -6943,13 +7045,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac"
+            "value": "Computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac"
+            "value": "コンピュータ"
           }
         }
       }
@@ -7732,6 +7834,210 @@
           "stringUnit": {
             "state": "translated",
             "value": "デフォルトに戻す"
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.allRemoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allRemoved="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allRemoved="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.checkpoint.computers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "computers: "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "computers: "
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.checkpoint.page": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "page "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ "
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.checkpoint.workspacesStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " workspaces, status "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " ワークスペース、ステータス "
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.halfNoDisconnectedBanner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfNoDisconnectedBanner="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfNoDisconnectedBanner="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.halfRemainingPresent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfRemainingPresent="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfRemainingPresent="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.halfRemovedAbsent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfRemovedAbsent="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halfRemovedAbsent="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.refreshPreservedEmptyList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refreshPreservedEmptyList="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refreshPreservedEmptyList="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.refreshPreservedHalfList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refreshPreservedHalfList="
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "refreshPreservedHalfList="
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.status.pass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PASS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PASS"
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.status.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RUNNING"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RUNNING"
+          }
+        }
+      }
+    },
+    "mobile.deleteComputersVerifier.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Computers Verifier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ削除検証"
           }
         }
       }
