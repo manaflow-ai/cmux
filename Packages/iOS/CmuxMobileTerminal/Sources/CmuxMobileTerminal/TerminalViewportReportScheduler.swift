@@ -44,6 +44,8 @@ public final class TerminalViewportReportScheduler {
         }
     }
 
+    /// The daemon's effective grid for one report: the min-per-axis result of
+    /// the viewport negotiation, as returned by the `send` RPC.
     public typealias EffectiveGrid = (columns: Int, rows: Int)
 
     private let send: @MainActor (Report) async -> EffectiveGrid?

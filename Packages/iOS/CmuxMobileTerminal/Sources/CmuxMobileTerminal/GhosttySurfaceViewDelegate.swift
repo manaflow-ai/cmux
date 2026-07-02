@@ -55,6 +55,8 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView)
 }
 
+/// Default no-op implementations for the optional delegate requirements, so
+/// hosts only implement the surfaces they actually route.
 public extension GhosttySurfaceViewDelegate {
     /// Default no-op so hosts without remote scroll forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
