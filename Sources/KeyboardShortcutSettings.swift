@@ -1789,6 +1789,28 @@ struct ShortcutStroke: Equatable, Hashable {
             return true
         }
 
+        // The ANSI keyCode fallback below lets a US-ANSI shortcut still fire by
+        // physical keyCode on layouts that place its key elsewhere. It must NOT
+        // hijack a key that already produces a *clean, different* base character.
+        // On Spanish-ISO / Latin American / German layouts the dedicated "+" key
+        // sits at the US "]" position (keyCode 30) yet types "+", which normalizes
+        // to the zoom key "=". Without this guard, Cmd-"+" matches "]"-bound
+        // shortcuts (Forward / Focus Forward) via keyCode and is consumed before
+        // Zoom In is reached — so font increase silently does nothing (issue #5981).
+        // When the event already resolves to a recognized base key, trust the
+        // character and decline the keyCode fallback. Layouts whose physical key
+        // yields a non-base-key glyph (French "$", Nordic dead keys) are untouched
+        // and keep matching by keyCode.
+        if Self.eventResolvesToDifferentBaseShortcutKey(
+            eventCharacter: eventCharacter,
+            layoutCharacter: layoutCharacter,
+            shortcutKey: shortcutKey,
+            applyShiftSymbolNormalization: flags.contains(.shift),
+            eventKeyCode: keyCode
+        ) {
+            return false
+        }
+
         let allowANSIKeyCodeFallback = flags.contains(.control)
             || (flags.contains(.command)
                 && !flags.contains(.control)
@@ -1991,6 +2013,45 @@ struct ShortcutStroke: Equatable, Hashable {
             applyShiftSymbolNormalization: applyShiftSymbolNormalization,
             eventKeyCode: eventKeyCode
         ) == shortcutKey
+    }
+
+    /// Whether the event's produced glyph resolves to a recognized base shortcut
+    /// key that is *different* from `shortcutKey`. Such a glyph is the user's
+    /// genuine intent (the legend printed on the key they pressed), so a
+    /// keyCode-based ANSI fallback for an unrelated US-ANSI shortcut must not
+    /// claim the event. Returns false for empty/dead-key/non-base glyphs so the
+    /// fallback still rescues layouts that place a US key at a foreign position.
+    private static func eventResolvesToDifferentBaseShortcutKey(
+        eventCharacter: String?,
+        layoutCharacter: String?,
+        shortcutKey: String,
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
+    ) -> Bool {
+        // `eventCharacter` (charactersIgnoringModifiers) keeps Shift but not the
+        // command-aware layout state, so it takes the caller's Shift flag — same
+        // as the primary character match. `layoutCharacter` is already produced
+        // through `layoutCharacterProvider(keyCode, modifierFlags)`, which is Shift
+        // aware, so it must NOT be Shift-normalized again (matching the `false`
+        // used for the layout-character match above); double-shifting would map a
+        // bare "{" to "[" and spuriously trip this guard.
+        let candidates: [(glyph: String?, applyShift: Bool)] = [
+            (eventCharacter, applyShiftSymbolNormalization),
+            (layoutCharacter, false),
+        ]
+        for (glyph, applyShift) in candidates {
+            guard let glyph, !glyph.isEmpty else { continue }
+            let normalized = normalizedShortcutEventCharacter(
+                glyph,
+                applyShiftSymbolNormalization: applyShift,
+                eventKeyCode: eventKeyCode
+            )
+            guard normalized != shortcutKey else { continue }
+            if keyCodeForShortcutKey(normalized) != nil {
+                return true
+            }
+        }
+        return false
     }
 
     private static func keyCodeForShortcutKey(_ key: String) -> UInt16? {

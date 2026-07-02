@@ -380,6 +380,73 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    // Regression for https://github.com/manaflow-ai/cmux/issues/5981.
+    // On Spanish-ISO, Latin American, and German layouts the dedicated "+" key
+    // sits at the US "]" position (keyCode 30) and types a bare "+". The Cmd-]
+    // shortcuts (Forward / Focus Forward) must NOT claim that event via the ANSI
+    // keyCode fallback — otherwise Cmd-"+" navigates forward (beeping when there
+    // is no history) instead of zooming in, in both the terminal and browser.
+    func testDedicatedPlusKeyIsNotStolenByBracketShortcutsOnNonUSLayout() {
+        let plusKeyArgs: (KeyboardShortcutSettings.Action) -> Bool = { action in
+            action.defaultShortcut.matches(
+                keyCode: 30, // US kVK_ANSI_RightBracket — the dedicated "+" key on ES/DE
+                modifierFlags: [.command],
+                eventCharacter: "+",
+                layoutCharacterProvider: { _, _ in "+" }
+            )
+        }
+
+        XCTAssertFalse(
+            plusKeyArgs(.focusHistoryForward),
+            "Cmd-\"+\" must not trigger Focus Forward (Cmd-]) on layouts where \"+\" is keyCode 30"
+        )
+        XCTAssertFalse(
+            plusKeyArgs(.browserForward),
+            "Cmd-\"+\" must not trigger browser Forward (Cmd-]) on layouts where \"+\" is keyCode 30"
+        )
+
+        // ...and the same press must still be recognized as Zoom In.
+        XCTAssertTrue(
+            plusKeyArgs(.browserZoomIn),
+            "Cmd and the dedicated + key should still zoom the browser in"
+        )
+    }
+
+    // The keyCode fallback must keep working for layouts whose physical "]" key
+    // produces a glyph that is NOT a base shortcut key (e.g. French/Italian
+    // produce "$" at keyCode 30). There the user has no other way to reach Cmd-],
+    // so Forward / Focus Forward must still match by keyCode.
+    func testBracketShortcutsStillMatchByKeyCodeWhenGlyphIsNotABaseKey() {
+        let dollarKeyArgs: (KeyboardShortcutSettings.Action) -> Bool = { action in
+            action.defaultShortcut.matches(
+                keyCode: 30,
+                modifierFlags: [.command],
+                eventCharacter: "$", // French/Italian keyCode 30
+                layoutCharacterProvider: { _, _ in "$" }
+            )
+        }
+
+        XCTAssertTrue(
+            dollarKeyArgs(.focusHistoryForward),
+            "Cmd-] (keyCode 30) should still trigger Focus Forward when the glyph is \"$\""
+        )
+        XCTAssertTrue(
+            dollarKeyArgs(.browserForward),
+            "Cmd-] (keyCode 30) should still trigger browser Forward when the glyph is \"$\""
+        )
+
+        // US ANSI: the "]" key types "]" and must keep matching Forward directly.
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.browserForward.defaultShortcut.matches(
+                keyCode: 30,
+                modifierFlags: [.command],
+                eventCharacter: "]",
+                layoutCharacterProvider: { _, _ in "]" }
+            ),
+            "US Cmd-] should still trigger browser Forward"
+        )
+    }
+
     func testFocusHistoryMenuShortcutsSuppressDuplicateBrowserHistoryKeys() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
