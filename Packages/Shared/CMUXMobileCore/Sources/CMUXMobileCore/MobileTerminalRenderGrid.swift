@@ -289,10 +289,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             clearedRows: full ? [] : Array(includedRows.sorted()),
             styles: styles,
             rowSpans: rowSpans.filter { includedRows.contains($0.row) },
-            // Full-state restore data only applies to a full snapshot; a delta
-            // frame just clears and repaints the changed viewport rows.
+            // Deltas only carry the DEC modes that replay temporarily overrides.
             activeScreen: activeScreen,
-            modes: full ? modes : modes.filter(\.isDECAutowrapMode),
+            modes: full ? modes : modes.filter { $0.isDECOriginMode || $0.isDECAutowrapMode },
             terminalForeground: full ? terminalForeground : nil,
             terminalBackground: full ? terminalBackground : nil,
             terminalCursorColor: full ? terminalCursorColor : nil,
@@ -438,9 +437,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             self.on = on
         }
 
-        var isDECAutowrapMode: Bool {
-            !ansi && code == Self.decAutowrapModeCode
-        }
+        var isDECAutowrapMode: Bool { !ansi && code == Self.decAutowrapModeCode }
+
+        var isDECOriginMode: Bool { !ansi && code == Self.decOriginModeCode }
 
         enum CodingKeys: String, CodingKey {
             case code

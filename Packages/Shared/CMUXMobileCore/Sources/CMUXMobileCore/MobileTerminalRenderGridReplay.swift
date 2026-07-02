@@ -49,7 +49,10 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         var bytes = Data()
         let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
-        bytes.append(deltaReplayModeNormalizationBytes())
+        let modeState = deltaReplayModeState()
+        if modeState != nil {
+            bytes.append(deltaReplayModeNormalizationBytes())
+        }
         let rowsToClear = Set(frame.clearedRows).union(frame.rowSpans.map(\.row)).sorted()
         for row in rowsToClear {
             bytes.append(sgrBytes(for: defaultStyle))
@@ -66,7 +69,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             }
         }
         bytes.append(sgrBytes(for: defaultStyle))
-        bytes.append(deltaReplayModeRestoreBytes())
+        if let modeState { bytes.append(modeBytes(modeState.autowrap)) }
         // A delta never hides the cursor while painting, so (unlike a full
         // snapshot) it leaves a nil cursor untouched instead of forcing it
         // visible.
@@ -78,6 +81,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                 bytes.append(Data("\u{1B}[?25l".utf8))
             }
         }
+        if let modeState { bytes.append(modeBytes(modeState.origin)) }
         return bytes
     }
 
@@ -168,15 +172,11 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         ).utf8)
     }
 
-    private func deltaReplayModeRestoreBytes() -> Data {
-        let autowrapMode = frame.modes.first { mode in
-            mode.isDECAutowrapMode
-        } ?? .init(
-            code: MobileTerminalRenderGridFrame.ModeSetting.decAutowrapModeCode,
-            ansi: false,
-            on: true
-        )
-        return modeBytes(autowrapMode)
+    private func deltaReplayModeState() -> (origin: MobileTerminalRenderGridFrame.ModeSetting, autowrap: MobileTerminalRenderGridFrame.ModeSetting)? {
+        guard let origin = frame.modes.first(where: \.isDECOriginMode), let autowrap = frame.modes.first(where: \.isDECAutowrapMode) else {
+            return nil
+        }
+        return (origin, autowrap)
     }
 
     /// Append `lineCount` lines (rows `0..<lineCount` of `spans`) as a natural

@@ -14066,12 +14066,11 @@ class TerminalController {
               let minRows = reports.values.map(\.rows).min() else {
             return nil
         }
-        terminalPanel.surface.applyMobileViewportLimit(
+        return terminalPanel.surface.applyMobileViewportLimit(
             columns: minColumns,
             rows: minRows,
             reason: reason
         )
-        return (minColumns, minRows)
     }
 
     /// Remove a single client's viewport report for a surface (dedicated
@@ -14098,12 +14097,11 @@ class TerminalController {
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
         if let minColumns = reports.values.map(\.columns).min(),
            let minRows = reports.values.map(\.rows).min() {
-            terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
+            return terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
                 columns: minColumns,
                 rows: minRows,
                 reason: reason
             )
-            return (minColumns, minRows)
         }
         return nil
     }
@@ -14171,7 +14169,7 @@ class TerminalController {
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         if let minColumns = reports.values.map(\.columns).min(),
            let minRows = reports.values.map(\.rows).min() {
-            terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
+            _ = terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
                 columns: minColumns,
                 rows: minRows,
                 reason: reason

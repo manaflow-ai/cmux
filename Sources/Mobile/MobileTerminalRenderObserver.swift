@@ -204,16 +204,7 @@ final class MobileTerminalRenderObserver {
 
             if changedRows.isEmpty {
                 guard previous.stateSeq != snapshot.frame.stateSeq else { return }
-                guard let emptyFrame = try? MobileTerminalRenderGridFrame(
-                    surfaceID: snapshot.frame.surfaceID,
-                    stateSeq: snapshot.frame.stateSeq,
-                    columns: snapshot.frame.columns,
-                    rows: snapshot.frame.rows,
-                    cursor: snapshot.frame.cursor,
-                    full: false,
-                    styles: snapshot.frame.styles,
-                    rowSpans: []
-                ) else {
+                guard let emptyFrame = try? snapshot.frame.filteredRows([], full: false) else {
                     return
                 }
                 frame = emptyFrame
