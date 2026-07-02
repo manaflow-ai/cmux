@@ -681,6 +681,23 @@
         }
       }
     },
+    "mobile.common.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
     "mobile.common.retry": {
       "extractionState": "manual",
       "localizations": {
@@ -1391,6 +1408,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "未接続"
+          }
+        }
+      }
+    },
+    "mobile.computers.olderPairing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Older pairing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古いペアリング"
           }
         }
       }
@@ -2309,6 +2343,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "デバッグログをコピー"
+          }
+        }
+      }
+    },
+    "mobile.disconnected.connectFailedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make sure the computer is awake and online, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータがスリープしておらずオンラインであることを確認してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.disconnected.connectFailedTitleFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't connect to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に接続できませんでした"
+          }
+        }
+      }
+    },
+    "mobile.disconnected.listFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap a computer to reconnect. Swipe left to remove one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータをタップすると再接続します。左にスワイプすると削除できます。"
           }
         }
       }
