@@ -1049,6 +1049,17 @@ struct cmuxApp: App {
 
             Divider()
 
+            splitCommandToggle(
+                title: String(localized: "menu.view.broadcastInput", defaultValue: "Broadcast Input to All Panes"),
+                isOn: activeTabManager.selectedWorkspace.map { activeTabManager.isBroadcastInputEnabled(for: $0.id) } ?? false,
+                shortcut: menuShortcut(for: .toggleWorkspaceInputBroadcast)
+            ) {
+                activeTabManager.toggleSelectedWorkspaceInputBroadcast()
+            }
+            .disabled(activeTabManager.selectedWorkspace == nil)
+
+            Divider()
+
             // Numbered workspace selection (9 = last workspace)
             ForEach(1...9, id: \.self) { number in
                 // `menuShortcut(for:)` already returns `.unbound` when the action
@@ -1386,6 +1397,20 @@ struct cmuxApp: App {
                 .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
         } else {
             Button(title, action: action)
+        }
+    }
+
+    /// A menu toggle (renders a checkmark when `isOn`) that conditionally binds a
+    /// keyboard shortcut, mirroring ``splitCommandButton(title:shortcut:action:)``.
+    /// `action` runs on every toggle; the caller drives the authoritative state.
+    @ViewBuilder
+    func splitCommandToggle(title: String, isOn: Bool, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
+        let binding = Binding(get: { isOn }, set: { _ in action() })
+        if let key = shortcut.keyEquivalent {
+            Toggle(title, isOn: binding)
+                .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
+        } else {
+            Toggle(title, isOn: binding)
         }
     }
 

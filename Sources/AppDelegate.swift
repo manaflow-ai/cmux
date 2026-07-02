@@ -4842,8 +4842,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Broadcast state is per-window; carry it across the move (detach drops
+        // it from the source window, attach does not restore it on its own).
+        let wasBroadcasting = sourceManager.isBroadcastInputEnabled(for: workspaceId)
         guard let workspace = sourceManager.detachWorkspace(tabId: workspaceId) else { return false }
         destinationManager.attachWorkspace(workspace, at: atIndex, select: focus)
+        if wasBroadcasting {
+            destinationManager.setBroadcastInputEnabled(true, for: workspaceId)
+        }
 
         if focus {
             _ = focusMainWindow(windowId: windowId)
@@ -13463,6 +13469,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             tabManager?.selectPreviousTab()
             return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleWorkspaceInputBroadcast) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            let handled = routedManager?.toggleSelectedWorkspaceInputBroadcast() ?? false
+            return handled
         }
 
         if matchConfiguredShortcut(event: event, action: .renameWorkspace) {

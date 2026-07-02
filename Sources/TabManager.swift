@@ -229,6 +229,10 @@ class TabManager: ObservableObject {
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+    /// Workspaces (this window) with iTerm2-style input broadcast enabled.
+    /// Authoritative state; `setBroadcastInputEnabled(_:for:)` is the single
+    /// mutation path and pushes a derived flag down to each workspace's surfaces.
+    @Published private(set) var broadcastInputWorkspaceIds: Set<UUID> = []
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -774,6 +778,35 @@ class TabManager: ObservableObject {
 
     private var selectedWorkspaceTerminalPanels: [TerminalPanel] {
         selectedWorkspace?.panels.values.compactMap { $0 as? TerminalPanel } ?? []
+    }
+
+    // MARK: - Input broadcast
+
+    /// Whether iTerm2-style input broadcast is enabled for `workspaceId`.
+    func isBroadcastInputEnabled(for workspaceId: UUID) -> Bool {
+        broadcastInputWorkspaceIds.contains(workspaceId)
+    }
+
+    /// The single mutation path for input broadcast. Updates the authoritative
+    /// set and pushes the derived per-surface flag down to the workspace so the
+    /// keyDown hot path can gate cheaply. Shared by the View menu, the
+    /// Cmd+Shift+B shortcut, and the `workspace.action` socket/CLI command.
+    func setBroadcastInputEnabled(_ enabled: Bool, for workspaceId: UUID) {
+        if enabled {
+            guard broadcastInputWorkspaceIds.insert(workspaceId).inserted else { return }
+        } else {
+            guard broadcastInputWorkspaceIds.remove(workspaceId) != nil else { return }
+        }
+        tabs.first(where: { $0.id == workspaceId })?.applyInputBroadcastEnabled(enabled)
+    }
+
+    /// Toggles input broadcast for the currently selected workspace.
+    /// - Returns: `true` when a workspace was available to toggle.
+    @discardableResult
+    func toggleSelectedWorkspaceInputBroadcast() -> Bool {
+        guard let workspaceId = selectedWorkspace?.id else { return false }
+        setBroadcastInputEnabled(!isBroadcastInputEnabled(for: workspaceId), for: workspaceId)
+        return true
     }
 
     var isFindVisible: Bool {
@@ -2049,6 +2082,7 @@ class TabManager: ObservableObject {
         }
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
+        broadcastInputWorkspaceIds.remove(workspace.id)
         browserModel.removeClosedBrowserPanels(forWorkspaceId: workspace.id)
         workspace.owningTabManager = nil
 
@@ -2092,6 +2126,12 @@ class TabManager: ObservableObject {
         // render it as an orphaned indented row with stale grouping state.
         removed.groupId = nil
         unwireClosedBrowserTracking(for: removed)
+        // Broadcast state is per-window. Drop it from this window's set and
+        // reset the surfaces' hot-path flag; the move's destination re-applies
+        // the flag after attach (see AppDelegate/TerminalController move paths),
+        // so a path that forgets to preserve fails safe (broadcast off).
+        broadcastInputWorkspaceIds.remove(removed.id)
+        removed.applyInputBroadcastEnabled(false)
         browserModel.removeClosedBrowserPanels(forWorkspaceId: removed.id)
         removed.owningTabManager = nil
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
@@ -5945,6 +5985,7 @@ extension TabManager {
         workspaceCycleCooldownTask = nil
         isWorkspaceCycleHot = false
         selectionSideEffectsGeneration &+= 1
+        broadcastInputWorkspaceIds.removeAll()
         browserModel.clearRecentlyClosedBrowserPanels()
 
         // Build the new workspace list locally to avoid intermediate @Published

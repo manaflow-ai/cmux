@@ -68,6 +68,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case reopenClosedBrowserPanel
     case newSurface
     case toggleTerminalCopyMode
+    /// Toggles iTerm2-style input broadcast to all panes in the focused workspace.
+    case toggleWorkspaceInputBroadcast
     case focusTextBoxInput
     case attachTextBoxFile
     /// Sends a Ctrl-F keystroke through to the focused terminal.
@@ -186,6 +188,7 @@ extension ShortcutAction {
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
+             .toggleWorkspaceInputBroadcast,
              .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal,
              .clearScreenKeepScrollback:
             return .navigation
@@ -373,6 +376,8 @@ extension ShortcutAction {
         case .reopenClosedBrowserPanel: return "Reopen Last Closed"
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
+        case .toggleWorkspaceInputBroadcast:
+            return String(localized: "shortcut.toggleWorkspaceInputBroadcast.label", defaultValue: "Broadcast Input to All Panes")
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .sendCtrlFToTerminal:
