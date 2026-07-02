@@ -292,6 +292,50 @@ extension ControlCommandCoordinator {
         return "OK"
     }
 
+    /// `workspace_loading <key> <on|off> [--tab=<id>]` — workspace-scoped manual
+    /// loading toggle; replies `before=ON;after=OFF`. Keys are restricted to the
+    /// manual namespace (`manual` / `manual:<id>`); agent keys must go through
+    /// `set_agent_lifecycle`, which validates them per target.
+    func sidebarWorkspaceLoading(_ args: String) -> String {
+        let parsed = sidebarParseOptions(args)
+        let usage = "workspace_loading <key> <on|off> [--tab=<id>]"
+        guard parsed.positional.count >= 2 else {
+            return "ERROR: Usage: \(usage)"
+        }
+        let key = parsed.positional[0]
+        guard key == "manual" || key.hasPrefix("manual:") else {
+            return "ERROR: workspace_loading only accepts manual loader keys (manual or manual:<id>); use set_agent_lifecycle for agent keys"
+        }
+        if key != "manual" {
+            // Mirror the CLI's --id validation on the wire boundary so raw
+            // socket clients can't grow lifecycle-key state with unbounded or
+            // unparseable ids.
+            let id = key.dropFirst("manual:".count)
+            let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+            guard !id.isEmpty, id.count <= 64, id.unicodeScalars.allSatisfy(allowed.contains) else {
+                return "ERROR: Invalid manual loader id; use 1-64 characters from letters, digits, '.', '_', '-'"
+            }
+        }
+        let on: Bool
+        switch parsed.positional[1].lowercased() {
+        case "on", "running", "start", "show":
+            on = true
+        case "off", "idle", "stop", "hide":
+            on = false
+        default:
+            return "ERROR: Usage: \(usage)"
+        }
+        guard let result = sidebarContext?.controlSidebarSetWorkspaceLoading(
+            tabArg: parsed.options["tab"],
+            key: key,
+            on: on
+        ) else {
+            return "ERROR: Workspace not found"
+        }
+        func label(_ value: Bool) -> String { value ? "ON" : "OFF" }
+        return "before=\(label(result.before));after=\(label(result.after))"
+    }
+
     /// `agent_hibernation` — the global hibernation toggle.
     func sidebarAgentHibernation(_ args: String) -> String {
         let parsed = sidebarParseOptions(args)

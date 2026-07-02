@@ -11,6 +11,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showPortsKey = "sidebarShowPorts"
     static let showLogKey = "sidebarShowLog"
     static let showProgressKey = "sidebarShowProgress"
+    static let showAgentActivityKey = "sidebarShowAgentActivity"
     static let showCustomMetadataKey = "sidebarShowStatusPills"
 
     static let showBranchDirectory = true
@@ -20,6 +21,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showPorts = true
     static let showLog = true
     static let showProgress = true
+    static let showAgentActivity = true
     static let showCustomMetadata = true
 }
 
@@ -243,6 +245,10 @@ enum SidebarSettingsFileMapping {
             defaultsKey: SidebarWorkspaceDetailDefaults.showProgressKey
         ),
         .init(
+            jsonKey: "showAgentActivity",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showAgentActivityKey
+        ),
+        .init(
             jsonKey: "showCustomMetadata",
             defaultsKey: SidebarWorkspaceDetailDefaults.showCustomMetadataKey
         ),
@@ -396,6 +402,9 @@ extension CmuxSettingsFileStore {
         "sidebar.showPorts",
         "sidebar.showLog",
         "sidebar.showProgress",
+        "sidebar.showAgentActivity",
+        "sidebar.loadingSpinnerPosition",
+        "sidebar.notificationBadgePosition",
         "sidebar.showCustomMetadata",
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",

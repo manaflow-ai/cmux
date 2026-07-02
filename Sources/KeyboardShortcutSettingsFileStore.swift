@@ -690,6 +690,24 @@ final class CmuxSettingsFileStore {
             }
         }
 
+        if let raw = jsonString(section["loadingSpinnerPosition"]) {
+            let key = SidebarCatalogSection().loadingSpinnerPosition
+            if let value = SidebarIndicatorPosition.decodeFromJSON(raw) {
+                snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
+            } else {
+                logInvalid("sidebar.loadingSpinnerPosition", sourcePath: sourcePath)
+            }
+        }
+
+        if let raw = jsonString(section["notificationBadgePosition"]) {
+            let key = SidebarCatalogSection().notificationBadgePosition
+            if let value = SidebarIndicatorPosition.decodeFromJSON(raw) {
+                snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
+            } else {
+                logInvalid("sidebar.notificationBadgePosition", sourcePath: sourcePath)
+            }
+        }
+
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
                 RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)

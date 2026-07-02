@@ -7924,7 +7924,7 @@ struct CMUXCLI {
         guard let sub = commandArgs.first?.lowercased() else {
             throw CLIError(message: String(
                 localized: "cli.error.workspaceSubcommandRequired",
-                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, reconnect, disconnect, group"
+                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
             ))
         }
         let rest = Array(commandArgs.dropFirst())
@@ -8013,11 +8013,18 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowOverride
             )
+        case "loading":
+            try runWorkspaceLoading(
+                commandArgs: rest,
+                client: client,
+                windowId: windowOverride,
+                jsonOutput: jsonOutput
+            )
         default:
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.error.workspaceSubcommandUnknown",
-                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, reconnect, disconnect, group"
+                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
                 ),
                 locale: .current,
                 sub
@@ -14843,6 +14850,10 @@ struct CMUXCLI {
                                       whose automatic reconnect paused because the host
                                       was unreachable
               disconnect [workspace]  Stop a remote (SSH) workspace's connection
+              loading <on|off> [--id <name>]
+                                      Toggle the workspace's loading spinner. Each --id
+                                      is a separate loader that stacks; omit for one
+                                      default loader.
               group <subcommand>      Workspace group operations (see cmux workspace-group --help)
 
             env/reconnect/disconnect accept a positional handle or --workspace
@@ -14856,6 +14867,9 @@ struct CMUXCLI {
               cmux workspace close workspace:3
               cmux workspace reconnect
               cmux workspace disconnect --workspace workspace:3
+              cmux workspace loading on
+              cmux workspace loading on --id build
+              cmux workspace loading off
             """)
         case "workspace-group":
             return """
@@ -23920,6 +23934,108 @@ struct CMUXCLI {
                 fallback["message"] = response
             }
             print(jsonString(fallback))
+        } else {
+            print(response)
+        }
+    }
+
+    /// `cmux workspace loading <on|off> [--id <name>]` — toggle a workspace's
+    /// loading spinner via the reserved `manual` lifecycle namespace.
+    private func runWorkspaceLoading(
+        commandArgs: [String],
+        client: SocketClient,
+        windowId: String?,
+        jsonOutput: Bool
+    ) throws {
+        let usage = String(
+            localized: "cli.workspaceLoading.usage",
+            defaultValue: "Usage: cmux workspace loading <on|off> [--id <name>] [--workspace <id>] [--window <id>] [--json]"
+        )
+        let (idArg, r0) = parseOption(commandArgs, name: "--id")
+        let (wsArg, r1) = parseOption(r0, name: "--workspace")
+        let (winArg, r2) = parseOption(r1, name: "--window")
+
+        let positional = r2.filter { $0 != "--" && !$0.hasPrefix("--") }
+        guard let sub = positional.first?.lowercased() else {
+            throw CLIError(message: usage)
+        }
+        let turnOn: Bool
+        switch sub {
+        case "on", "start", "show", "running", "busy":
+            turnOn = true
+        case "off", "stop", "hide", "done", "idle", "finished":
+            turnOn = false
+        default:
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.error.workspaceLoadingInvalidState",
+                    defaultValue: "Invalid state '%@'. Expected on or off. %@"
+                ),
+                locale: .current,
+                sub,
+                usage
+            ))
+        }
+
+        // The id lands in a whitespace-tokenized v1 line, so restrict its charset.
+        let manual = AgentHibernationLifecycleStatusKeys.manualKey
+        let key: String
+        if let rawId = idArg?.trimmingCharacters(in: .whitespacesAndNewlines), !rawId.isEmpty {
+            let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+            guard rawId.unicodeScalars.allSatisfy(allowed.contains) else {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.error.workspaceLoadingInvalidId",
+                        defaultValue: "Invalid --id '%@'. Use letters, digits, '.', '_', or '-' (no spaces)."
+                    ),
+                    locale: .current,
+                    rawId
+                ))
+            }
+            key = "\(manual):\(rawId)"
+        } else {
+            key = manual
+        }
+
+        // Workspace-scoped: `off` clears the loader from every panel.
+        let windowRaw = winArg ?? windowId
+        let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(nil, windowRaw: windowRaw)
+        let winId = try normalizeWindowHandle(windowRaw, client: client)
+        guard let wsId = try normalizeWorkspaceHandle(
+            workspaceArg,
+            client: client,
+            windowHandle: winId,
+            allowCurrent: true
+        ) else {
+            throw CLIError(message: String(
+                localized: "cli.error.workspaceLoadingNoWorkspace",
+                defaultValue: "No workspace resolved. Run inside a cmux workspace or pass --workspace <id>."
+            ))
+        }
+
+        let response = try sendV1Command(
+            "workspace_loading \(key) \(turnOn ? "on" : "off") --tab=\(wsId)",
+            client: client
+        )
+
+        if jsonOutput {
+            var before = false
+            var after = false
+            for part in response.split(separator: ";") {
+                let kv = part.split(separator: "=", maxSplits: 1)
+                guard kv.count == 2 else { continue }
+                let isOn = kv[1].trimmingCharacters(in: .whitespaces).uppercased() == "ON"
+                if kv[0] == "before" { before = isOn }
+                if kv[0] == "after" { after = isOn }
+            }
+            print(jsonString([
+                "ok": true,
+                "id": idArg ?? "",
+                "workspace_id": wsId,
+                "before": before,
+                "after": after,
+                "loading": after,
+            ]))
         } else {
             print(response)
         }

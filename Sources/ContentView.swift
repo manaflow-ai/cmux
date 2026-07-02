@@ -9579,6 +9579,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
+    let loadingSpinnerPosition: SidebarIndicatorPosition
+    let notificationBadgePosition: SidebarIndicatorPosition
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
@@ -9635,6 +9637,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         )
 
         activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
+        loadingSpinnerPosition = settings.value(for: catalog.sidebar.loadingSpinnerPosition)
+        notificationBadgePosition = settings.value(for: catalog.sidebar.notificationBadgePosition)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
@@ -10076,6 +10080,7 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.sidebar.showAgentActivity) private var showAgentActivity
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
@@ -12436,6 +12441,7 @@ struct VerticalTabsSidebar: View {
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
             latestNotificationText: liveLatestNotificationText,
+            showsAgentActivity: showAgentActivity,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -13247,6 +13253,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?
         let progress: SidebarProgressState?
+        let activeCodingAgentCount: Int
         let compactGitBranchSummaryText: String?
         let compactDirectoryCandidates: [String]
         let compactBranchDirectoryCandidates: [String]
@@ -13279,6 +13286,7 @@ struct TabItemView: View, Equatable {
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
+        lhs.showsAgentActivity == rhs.showsAgentActivity &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
@@ -13317,6 +13325,7 @@ struct TabItemView: View, Equatable {
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
     let latestNotificationText: String?
+    let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
@@ -13359,6 +13368,10 @@ struct TabItemView: View, Equatable {
 
     private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
+
+    /// Status slot slide/fade: an interruptible, well-damped spring (re-targets
+    /// mid-toggle instead of restarting; no overshoot jiggle).
+    private static let statusSlideAnimation = Animation.spring(response: 0.3, dampingFraction: 0.9)
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -13560,6 +13573,53 @@ struct TabItemView: View, Equatable {
         (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
 
+    private var activeCodingAgentTooltip: String {
+        // The count covers coding agents AND manual `cmux workspace loading`
+        // loaders, so the wording stays task-generic.
+        if workspaceSnapshot.activeCodingAgentCount == 1 {
+            return String(
+                localized: "sidebar.agentActivity.tooltip.one",
+                defaultValue: "Loading (1 active task)"
+            )
+        }
+        let format = String(
+            localized: "sidebar.agentActivity.tooltip.many",
+            defaultValue: "Loading (%lld active tasks)"
+        )
+        return String.localizedStringWithFormat(format, Int64(workspaceSnapshot.activeCodingAgentCount))
+    }
+
+    // Built only inside the position-gated branches so rows without a badge or
+    // spinner do no tooltip formatting work (hot sidebar path).
+    private func unreadBadgeView(size: CGFloat) -> some View {
+        ZStack {
+            Circle()
+                .fill(activeUnreadBadgeFillColor)
+            Text("\(unreadCount)")
+                .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
+                .foregroundColor(activeUnreadBadgeTextColor)
+        }
+        .frame(width: size, height: size)
+    }
+
+    private func loadingSpinnerView(side: CGFloat) -> some View {
+        SidebarAgentActivityIndicator(
+            spinnerColor: activeCodingAgentSpinnerNSColor,
+            side: side
+        )
+        .safeHelp(activeCodingAgentTooltip)
+        .accessibilityLabel(Text(activeCodingAgentTooltip))
+    }
+
+    private var activeCodingAgentSpinnerNSColor: NSColor {
+        // Muted grey in both states: secondary label on normal rows, a dimmed
+        // selection foreground on selected rows so it stays grey but legible on
+        // the highlight.
+        usesInvertedActiveForeground
+            ? selectedWorkspaceForegroundNSColor(opacity: 0.55)
+            : .secondaryLabelColor
+    }
+
     private var remoteWorkspaceSidebarText: String? {
         guard tab.isRemoteWorkspace else { return nil }
         let trimmedTarget = tab.remoteDisplayTarget?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13717,18 +13777,41 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
+        // The spinner is a live status signal, so it ignores Hide All Sidebar
+        // Details; badge and spinner are positioned independently.
+        let showsLoadingSpinner = showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
+        let badgeOnLeading = unreadCount > 0 && settings.notificationBadgePosition == .leading
+        let badgeOnTrailing = unreadCount > 0 && settings.notificationBadgePosition == .trailing
+        let spinnerOnLeading = showsLoadingSpinner && settings.loadingSpinnerPosition == .leading
+        let spinnerOnTrailing = showsLoadingSpinner && settings.loadingSpinnerPosition == .trailing
+        let leadingSlotActive = badgeOnLeading || spinnerOnLeading
+        let trailingStatusActive = badgeOnTrailing || spinnerOnTrailing
+
+        let titleRowSpacing: CGFloat = 8
+
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
-                if unreadCount > 0 {
-                    ZStack {
-                        Circle()
-                            .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
-                            .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
-                            .foregroundColor(activeUnreadBadgeTextColor)
+            HStack(alignment: .top, spacing: titleRowSpacing) {
+                // Leading status slot: badge and left spinner share it, and its
+                // animated width slides the title. Width/opacity only — never
+                // row height, which would churn the LazyVStack (#5764).
+                ZStack {
+                    if badgeOnLeading {
+                        // Intentional: the spinner takes the shared slot while
+                        // loading; the badge returns when loading ends.
+                        unreadBadgeView(size: scaledUnreadBadgeSize)
+                            .opacity(spinnerOnLeading ? 0 : 1)
                     }
-                    .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+                    if spinnerOnLeading {
+                        loadingSpinnerView(side: scaledUnreadBadgeSize)
+                    }
                 }
+                .frame(
+                    width: leadingSlotActive ? scaledUnreadBadgeSize : 0,
+                    height: scaledUnreadBadgeSize
+                )
+                .opacity(leadingSlotActive ? 1 : 0)
+                .padding(.trailing, leadingSlotActive ? 0 : -titleRowSpacing)
+                .clipped()
 
                 if workspaceSnapshot.isPinned {
                     CmuxSystemSymbolImage(magnified: "pin.fill", pointSize: scaledFontSize(9), weight: .semibold)
@@ -13782,30 +13865,49 @@ struct TabItemView: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
 
-                // The close button is a sibling that always reserves its width
-                // when the workspace is closable, so the title wraps/truncates
-                // before this corner instead of flowing under the hover x. Its
-                // visibility toggles via opacity so hover never re-lays-out the
-                // row. (Matches the group-header plus-button pattern.)
-                if canCloseWorkspace {
-                    Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        CmuxSystemSymbolImage(magnified: "xmark", pointSize: scaledFontSize(9), weight: .medium)
-                            .foregroundColor(activeSecondaryColor(0.7))
-                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                            .contentShape(Rectangle())
+                // Trailing corner slot, flush right: spinner (while loading),
+                // else the right-positioned badge; the hover x takes over. The
+                // slot always reserves its width so hover never re-lays-out
+                // the row.
+                if trailingStatusActive || canCloseWorkspace {
+                    ZStack(alignment: .trailing) {
+                        if spinnerOnTrailing {
+                            loadingSpinnerView(side: scaledUnreadBadgeSize)
+                                .opacity(canCloseWorkspace && showCloseButton ? 0 : 1)
+                                .transition(.opacity)
+                        } else if badgeOnTrailing {
+                            unreadBadgeView(size: scaledUnreadBadgeSize)
+                                .opacity(canCloseWorkspace && showCloseButton ? 0 : 1)
+                                .transition(.opacity)
+                        }
+                        if canCloseWorkspace {
+                            Button(action: {
+                                #if DEBUG
+                                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                                #endif
+                                tabManager.closeWorkspaceWithConfirmation(tab)
+                            }) {
+                                CmuxSystemSymbolImage(magnified: "xmark", pointSize: scaledFontSize(9), weight: .medium)
+                                    .foregroundColor(activeSecondaryColor(0.7))
+                                    .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .safeHelp(closeButtonTooltip)
+                            .opacity(showCloseButton ? 1 : 0)
+                            .allowsHitTesting(showCloseButton)
+                            .accessibilityHidden(!showCloseButton)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .opacity(showCloseButton ? 1 : 0)
-                    .allowsHitTesting(showCloseButton)
-                    .accessibilityHidden(!showCloseButton)
+                    .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .trailing)
                 }
             }
+            // Width/opacity only — never row height (#5764) — so reordering
+            // stays un-animated.
+            .animation(Self.statusSlideAnimation, value: leadingSlotActive)
+            .animation(Self.statusSlideAnimation, value: spinnerOnLeading)
+            .animation(Self.statusSlideAnimation, value: spinnerOnTrailing)
+            .animation(Self.statusSlideAnimation, value: badgeOnTrailing)
 
             if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(
@@ -14849,6 +14951,9 @@ struct TabItemView: View, Equatable {
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? tab.progress : nil,
+            activeCodingAgentCount: SidebarAgentActivitySummary.activeCodingAgentCount(
+                statesByPanelId: tab.agentLifecycleStatesByPanelId
+            ),
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,

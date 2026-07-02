@@ -67,6 +67,17 @@ public protocol ControlSidebarContext: AnyObject {
         panelID: UUID?
     )
 
+    /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`
+    /// marks the manual loader `key` running on the workspace; `off` clears it
+    /// from every panel so it turns off regardless of which surface invoked it.
+    /// Returns the workspace's overall loading-spinner state before and after
+    /// the change, or `nil` if the workspace was not found.
+    func controlSidebarSetWorkspaceLoading(
+        tabArg: String?,
+        key: String,
+        on: Bool
+    ) -> ControlSidebarWorkspaceLoadingState?
+
     /// Applies the `agent_hibernation` global toggle.
     func controlSidebarSetAgentHibernation(enabled: Bool)
 

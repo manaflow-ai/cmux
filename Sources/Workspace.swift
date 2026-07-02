@@ -4669,12 +4669,16 @@ final class Workspace: Identifiable, ObservableObject {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
-        recordAgentLifecycleChange(panelId: targetPanelId)
+        // Manual loaders are cosmetic; recording them would delay hibernation.
+        if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
+            recordAgentLifecycleChange(panelId: targetPanelId)
+        }
     }
 
     @discardableResult
     func clearAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
         var didClear = false
+        let recordsHibernationActivity = !AgentHibernationLifecycleStatusKeys.isManualKey(key)
         let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleStatesByPanelId.keys)
         for panelId in panelIds {
             guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
@@ -4683,13 +4687,34 @@ final class Workspace: Identifiable, ObservableObject {
                 agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
             }
             didClear = true
-            recordAgentLifecycleChange(panelId: panelId)
+            if recordsHibernationActivity {
+                recordAgentLifecycleChange(panelId: panelId)
+            }
         }
         return didClear
     }
 
     func clearAgentLifecycleStates(panelId: UUID) {
-        guard agentLifecycleStatesByPanelId.removeValue(forKey: panelId) != nil else { return }
+        guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
+        // Manual loaders are workspace-scoped: keep them on this panel when it
+        // survives an agent lifecycle reset, or migrate them to another panel
+        // when this one is closing, so `cmux workspace loading on` does not
+        // vanish with an unrelated panel.
+        let manualStates = removed.filter { AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+        if !manualStates.isEmpty {
+            let host: UUID? = if panels[panelId] != nil {
+                panelId
+            } else if let focused = focusedPanelId, focused != panelId, panels[focused] != nil {
+                focused
+            } else {
+                panels.keys.first(where: { $0 != panelId })
+            }
+            if let host {
+                for (key, lifecycle) in manualStates {
+                    agentLifecycleStatesByPanelId[host, default: [:]][key] = lifecycle
+                }
+            }
+        }
         recordAgentLifecycleChange(panelId: panelId)
     }
 
@@ -4713,11 +4738,14 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         fallback: AgentHibernationLifecycleState?
     ) -> AgentHibernationLifecycleState {
-        guard let panelStates = agentLifecycleStatesByPanelId[panelId],
-              !panelStates.isEmpty else {
+        // Manual loaders drive the sidebar spinner only; they must not make a
+        // panel's restorable agent look running to hibernation.
+        let states = (agentLifecycleStatesByPanelId[panelId] ?? [:])
+            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+            .map(\.value)
+        guard !states.isEmpty else {
             return fallback ?? .unknown
         }
-        let states = Array(panelStates.values)
         if states.contains(.running) { return .running }
         if states.contains(.needsInput) { return .needsInput }
         if states.contains(.unknown) { return .unknown }

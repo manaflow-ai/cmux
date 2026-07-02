@@ -109,6 +109,11 @@ extension TerminalController: ControlSidebarContext {
         if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
             return true
         }
+        // The manual namespace is reserved for workspace_loading; a custom
+        // vault agent must not claim it (hibernation ignores manual keys).
+        guard !AgentHibernationLifecycleStatusKeys.isManualKey(key) else {
+            return false
+        }
         guard let tab = controlSidebarResolveMutationTab(target),
               CmuxVaultAgentRegistration.isValidID(key) else {
             return false
@@ -154,6 +159,37 @@ extension TerminalController: ControlSidebarContext {
             }
             tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
         }
+    }
+
+    func controlSidebarSetWorkspaceLoading(
+        tabArg: String?,
+        key: String,
+        on: Bool
+    ) -> ControlSidebarWorkspaceLoadingState? {
+        guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else { return nil }
+        func isLoading() -> Bool {
+            SidebarAgentActivitySummary.activeCodingAgentCount(
+                statesByPanelId: tab.agentLifecycleStatesByPanelId
+            ) > 0
+        }
+        let before = isLoading()
+        if on {
+            // Workspace-scoped: exactly one panel holds a manual key at a time,
+            // so reasserting `on` after focus moves never duplicates the loader.
+            _ = tab.clearAgentLifecycle(key: key, panelId: nil)
+            // Bound distinct manual loaders per workspace so socket clients
+            // can't grow lifecycle-key state without limit.
+            let manualLoaderCount = tab.agentLifecycleStatesByPanelId.values.reduce(0) { partial, states in
+                partial + states.keys.reduce(0) { AgentHibernationLifecycleStatusKeys.isManualKey($1) ? $0 + 1 : $0 }
+            }
+            if manualLoaderCount < 32, let panelId = tab.focusedPanelId ?? tab.panels.keys.first {
+                tab.setAgentLifecycle(key: key, panelId: panelId, lifecycle: .running)
+            }
+        } else {
+            // Workspace-scoped: clear from all panels, not just the caller's.
+            _ = tab.clearAgentLifecycle(key: key, panelId: nil)
+        }
+        return ControlSidebarWorkspaceLoadingState(before: before, after: isLoading())
     }
 
     func controlSidebarSetAgentHibernation(enabled: Bool) {
