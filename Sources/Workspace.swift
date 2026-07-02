@@ -23,6 +23,9 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+import os
+
+nonisolated private let workspaceLogger = Logger(subsystem: "com.cmuxterm.app", category: "workspace")
 
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -130,6 +133,7 @@ extension Workspace {
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
+            noteAnchorId: noteAnchorId,
             layout: layout,
             layoutMode: layoutMode.rawValue,
             canvasPanes: canvasSessionPaneSnapshots(),
@@ -158,6 +162,11 @@ extension Workspace {
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        noteAnchorIdsByPanelId.removeAll(keepingCapacity: false)
+        if let snapshotNoteAnchorId = snapshot.noteAnchorId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !snapshotNoteAnchorId.isEmpty {
+            noteAnchorId = snapshotNoteAnchorId
+        }
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
@@ -563,7 +572,14 @@ extension Workspace {
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
-            markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+            markdownSnapshot = SessionMarkdownPanelSnapshot(
+                filePath: markdownPanel.filePath,
+                displayMode: markdownPanel.displayMode,
+                noteSlug: markdownPanel.noteSlug,
+                noteID: markdownPanel.noteID,
+                noteBodyPath: markdownPanel.noteBodyPath,
+                noteTitle: markdownPanel.noteTitle
+            )
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
@@ -636,6 +652,7 @@ extension Workspace {
             gitBranch: branchSnapshot,
             listeningPorts: listeningPorts,
             ttyName: ttyName,
+            noteAnchorId: noteAnchorIdsByPanelId[panelId],
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: markdownSnapshot,
@@ -1496,13 +1513,55 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
         case .markdown:
-            guard let filePath = snapshot.markdown?.filePath,
-                  let markdownPanel = newMarkdownSurface(
-                    inPane: paneId,
-                    filePath: filePath,
-                    focus: false
-                  ) else {
+            guard let snapshotMarkdown = snapshot.markdown else { return nil }
+            // If this markdown panel was opened as a project-scoped note,
+            // reconstruct the canonical note path from the persisted index path
+            // or legacy slug and current workspace root. This avoids filesystem
+            // probes on the main actor and keeps moved projects from restoring
+            // the old absolute path.
+            let restoredNoteProjectRoot = NoteSupport.restoredProjectRoot(
+                forStoredNotePath: snapshotMarkdown.filePath,
+                currentDirectory: currentDirectory
+            )
+            let restoredNoteSlug = snapshotMarkdown.noteSlug.flatMap { try? NoteSupport.validateSlug($0) }
+            let restoredNoteBodyPath = snapshotMarkdown.noteBodyPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasProjectNoteMetadata = restoredNoteSlug != nil || !(restoredNoteBodyPath?.isEmpty ?? true)
+            if hasProjectNoteMetadata,
+               let projectRoot = restoredNoteProjectRoot,
+               !NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) {
                 return nil
+            }
+
+            let restorePath: String
+            if let noteBodyPath = restoredNoteBodyPath,
+               !noteBodyPath.isEmpty,
+               let projectRoot = restoredNoteProjectRoot {
+                restorePath = CmuxNoteStore.absoluteBodyPath(bodyPath: noteBodyPath, projectRoot: projectRoot)
+            } else if let slug = restoredNoteSlug,
+               let projectRoot = restoredNoteProjectRoot {
+                restorePath = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
+            } else {
+                restorePath = snapshotMarkdown.filePath
+            }
+            guard let markdownPanel = newMarkdownSurface(
+                inPane: paneId,
+                filePath: restorePath,
+                focus: false
+            ) else {
+                return nil
+            }
+            if let slug = restoredNoteSlug,
+               let projectRoot = restoredNoteProjectRoot,
+               NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) {
+                markdownPanel.markAsProjectNote(
+                    slug: slug,
+                    id: snapshotMarkdown.noteID,
+                    bodyPath: snapshotMarkdown.noteBodyPath,
+                    title: snapshotMarkdown.noteTitle
+                )
+            }
+            if let displayMode = snapshotMarkdown.displayMode {
+                markdownPanel.setDisplayMode(displayMode, focusTextEditor: false)
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
@@ -1562,6 +1621,10 @@ extension Workspace {
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
+        }
+        if let noteAnchor = snapshot.noteAnchorId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !noteAnchor.isEmpty {
+            noteAnchorIdsByPanelId[panelId] = noteAnchor
         }
 
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
@@ -1702,7 +1765,7 @@ extension Workspace {
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) {
         guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
 
-        var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
+        var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition], layoutPath: String)] = []
         buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves)
 
         // First leaf reuses the initial terminal created by addWorkspace;
@@ -1710,7 +1773,13 @@ extension Workspace {
         // a placeholder terminal.
         var focusPanelId: UUID?
         for leaf in leaves {
-            populateCustomPane(leaf.paneId, surfaces: leaf.surfaces, baseCwd: baseCwd, focusPanelId: &focusPanelId)
+            populateCustomPane(
+                leaf.paneId,
+                surfaces: leaf.surfaces,
+                layoutPath: leaf.layoutPath,
+                baseCwd: baseCwd,
+                focusPanelId: &focusPanelId
+            )
         }
 
         let liveRoot = bonsplitController.treeSnapshot()
@@ -1724,18 +1793,19 @@ extension Workspace {
     private func buildCustomLayoutTree(
         _ node: CmuxLayoutNode,
         inPane paneId: PaneID,
-        leaves: inout [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])]
+        layoutPath: String = "root",
+        leaves: inout [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition], layoutPath: String)]
     ) {
         switch node {
         case .pane(let pane):
-            leaves.append((paneId: paneId, surfaces: pane.surfaces))
+            leaves.append((paneId: paneId, surfaces: pane.surfaces, layoutPath: layoutPath))
 
         case .split(let split):
             guard split.children.count == 2 else {
                 #if DEBUG
                 NSLog("[CmuxConfig] split node requires exactly 2 children, got %d", split.children.count)
                 #endif
-                leaves.append((paneId: paneId, surfaces: []))
+                leaves.append((paneId: paneId, surfaces: [], layoutPath: layoutPath))
                 return
             }
 
@@ -1756,18 +1826,29 @@ extension Workspace {
                       focus: false
                   ),
                   let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
-                leaves.append((paneId: paneId, surfaces: []))
+                leaves.append((paneId: paneId, surfaces: [], layoutPath: layoutPath))
                 return
             }
 
-            buildCustomLayoutTree(split.children[0], inPane: paneId, leaves: &leaves)
-            buildCustomLayoutTree(split.children[1], inPane: secondPaneId, leaves: &leaves)
+            buildCustomLayoutTree(
+                split.children[0],
+                inPane: paneId,
+                layoutPath: "\(layoutPath).0",
+                leaves: &leaves
+            )
+            buildCustomLayoutTree(
+                split.children[1],
+                inPane: secondPaneId,
+                layoutPath: "\(layoutPath).1",
+                leaves: &leaves
+            )
         }
     }
 
     private func populateCustomPane(
         _ paneId: PaneID,
         surfaces: [CmuxSurfaceDefinition],
+        layoutPath: String,
         baseCwd: String,
         focusPanelId: inout UUID?
     ) {
@@ -1783,6 +1864,7 @@ extension Workspace {
                 panelId: placeholderPanelId,
                 inPane: paneId,
                 surface: firstSurface,
+                surfaceSeed: "\(layoutPath).surface.0",
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId
             )
@@ -1792,6 +1874,7 @@ extension Workspace {
             createNewSurface(
                 inPane: paneId,
                 surface: surfaces[surfaceIndex],
+                surfaceSeed: "\(layoutPath).surface.\(surfaceIndex)",
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId
             )
@@ -1802,6 +1885,7 @@ extension Workspace {
         panelId: UUID,
         inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
+        surfaceSeed: String,
         baseCwd: String,
         focusPanelId: inout UUID?
     ) {
@@ -1841,6 +1925,15 @@ extension Workspace {
                 if surface.focus == true { focusPanelId = panel.id }
             }
 
+        case .note:
+            let slug = noteSlugForConfigSurface(surface, fallbackSeed: surfaceSeed)
+            scheduleConfigNoteSurface(
+                replacingPanelId: panelId,
+                inPane: paneId,
+                slug: slug,
+                customTitle: surface.name,
+                shouldFocus: surface.focus == true
+            )
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
@@ -1857,6 +1950,7 @@ extension Workspace {
     private func createNewSurface(
         inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
+        surfaceSeed: String,
         baseCwd: String,
         focusPanelId: inout UUID?
     ) {
@@ -1886,6 +1980,15 @@ extension Workspace {
                 if surface.focus == true { focusPanelId = panel.id }
             }
 
+        case .note:
+            let slug = noteSlugForConfigSurface(surface, fallbackSeed: surfaceSeed)
+            scheduleConfigNoteSurface(
+                replacingPanelId: nil,
+                inPane: paneId,
+                slug: slug,
+                customTitle: surface.name,
+                shouldFocus: surface.focus == true
+            )
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
@@ -1896,6 +1999,54 @@ extension Workspace {
                 if surface.focus == true { focusPanelId = panel.id }
             }
         }
+    }
+
+    private func scheduleConfigNoteSurface(
+        replacingPanelId placeholderPanelId: UUID?,
+        inPane paneId: PaneID,
+        slug: String,
+        customTitle: String?,
+        shouldFocus: Bool
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let placeholderPanelId, panels[placeholderPanelId] == nil {
+                return
+            }
+            guard let panel = await newNoteSurface(
+                inPane: paneId,
+                slug: slug,
+                createIfMissing: true,
+                focus: false,
+                reuseExisting: false
+            ) else {
+                return
+            }
+            if let placeholderPanelId {
+                _ = closePanel(placeholderPanelId, force: true)
+            }
+            if let customTitle {
+                setPanelCustomTitle(panelId: panel.id, title: customTitle)
+            }
+            if shouldFocus {
+                focusPanel(panel.id)
+            }
+        }
+    }
+
+    /// Resolve a note slug from a config-declared `note` surface. The slug
+    /// source-of-truth is `surface.name`; when missing or invalid we derive a
+    /// stable slug from the surface's config position so repeated reloads open
+    /// the same note file.
+    private func noteSlugForConfigSurface(
+        _ surface: CmuxSurfaceDefinition,
+        fallbackSeed: String
+    ) -> String {
+        if let raw = surface.name,
+           let validated = try? NoteSupport.validateSlug(raw) {
+            return validated
+        }
+        return NoteSupport.configFallbackSlug(seed: fallbackSeed)
     }
 
     private func applyCustomDividerPositions(
@@ -2297,14 +2448,16 @@ final class Workspace: Identifiable, ObservableObject {
     /// Durable canvas-layout state (pane frames, z-order). Lives on the
     /// workspace so it survives canvas view remounts and workspace switches.
     let canvasModel = CanvasModel(metricsProvider: { CanvasLayoutSettings.currentMetrics() })
-    private struct SurfaceTabBarExecutableButton {
+    struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
         let builtInAction: CmuxSurfaceTabBarBuiltInAction?
         let workspaceCommand: CmuxResolvedCommand?
         let terminalCommandSourcePath: String?
+        let menuItems: [SurfaceTabBarExecutableButton]
     }
 
     private var surfaceTabBarCommandButtons: [String: SurfaceTabBarExecutableButton] = [:]
+    private var surfaceTabBarMenuTarget: SurfaceTabBarMenuTarget?
     private var surfaceTabBarButtonSourcePath: String?
     private var surfaceTabBarButtonGlobalConfigPath: String?
 
@@ -2456,6 +2609,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// restored from older snapshots; absent provenance is treated as `.user`.
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
+    var noteAnchorId: String = CmuxNoteStore.newAnchorID()
+    var noteAnchorIdsByPanelId: [UUID: String] = [:]
     @Published var manualUnreadPanelIds: Set<UUID> = [] {
         didSet {
             guard manualUnreadPanelIds != oldValue else { return }
@@ -3313,50 +3468,22 @@ final class Workspace: Identifiable, ObservableObject {
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
+        let availableButtons = buttons
         let executableButtons = Dictionary(
-            uniqueKeysWithValues: buttons.compactMap { button in
-                if button.terminalCommand != nil {
-                    return (
-                        button.id,
-                        SurfaceTabBarExecutableButton(
-                            button: button,
-                            builtInAction: nil,
-                            workspaceCommand: nil,
-                            terminalCommandSourcePath: button.actionSourcePath ?? terminalCommandSourcePaths[button.id]
-                        )
-                    )
-                }
-                if let workspaceCommand = workspaceCommands[button.id] {
-                    return (
-                        button.id,
-                        SurfaceTabBarExecutableButton(
-                            button: button,
-                            builtInAction: nil,
-                            workspaceCommand: workspaceCommand,
-                            terminalCommandSourcePath: nil
-                        )
-                    )
-                }
-                if case .builtIn(let builtInAction) = button.action,
-                   builtInAction.bonsplitAction == nil {
-                    return (
-                        button.id,
-                        SurfaceTabBarExecutableButton(
-                            button: button,
-                            builtInAction: builtInAction,
-                            workspaceCommand: nil,
-                            terminalCommandSourcePath: nil
-                        )
-                    )
-                }
-                return nil
+            uniqueKeysWithValues: availableButtons.compactMap { button in
+                makeSurfaceTabBarExecutableButton(
+                    button,
+                    terminalCommandSourcePaths: terminalCommandSourcePaths,
+                    workspaceCommands: workspaceCommands,
+                    includeBonsplitHandledBuiltIns: false
+                ).map { (button.id, $0) }
             }
         )
         surfaceTabBarCommandButtons = executableButtons
         surfaceTabBarButtonSourcePath = sourcePath
         surfaceTabBarButtonGlobalConfigPath = globalConfigPath
 
-        let bonsplitButtons = buttons.map { button in
+        let bonsplitButtons = availableButtons.map { button in
             let executable = executableButtons[button.id]
             let allowProjectLocalIcon = executable.map {
                 CmuxConfigExecutor.isTrustedSurfaceButton(
@@ -3377,6 +3504,61 @@ final class Workspace: Identifiable, ObservableObject {
         guard configuration.appearance.splitButtons != bonsplitButtons else { return }
         configuration.appearance.splitButtons = bonsplitButtons
         bonsplitController.configuration = configuration
+    }
+
+    private func makeSurfaceTabBarExecutableButton(
+        _ button: CmuxSurfaceTabBarButton,
+        terminalCommandSourcePaths: [String: String],
+        workspaceCommands: [String: CmuxResolvedCommand],
+        includeBonsplitHandledBuiltIns: Bool
+    ) -> SurfaceTabBarExecutableButton? {
+        let menuItems = (button.menu ?? []).compactMap {
+            makeSurfaceTabBarExecutableButton(
+                $0.button,
+                terminalCommandSourcePaths: terminalCommandSourcePaths,
+                workspaceCommands: workspaceCommands,
+                includeBonsplitHandledBuiltIns: true
+            )
+        }
+        let terminalCommandSourcePath = button.actionSourcePath ?? terminalCommandSourcePaths[button.id]
+        if button.terminalCommand != nil {
+            return SurfaceTabBarExecutableButton(
+                button: button,
+                builtInAction: nil,
+                workspaceCommand: nil,
+                terminalCommandSourcePath: terminalCommandSourcePath,
+                menuItems: menuItems
+            )
+        }
+        if let workspaceCommand = workspaceCommands[button.id] {
+            return SurfaceTabBarExecutableButton(
+                button: button,
+                builtInAction: nil,
+                workspaceCommand: workspaceCommand,
+                terminalCommandSourcePath: nil,
+                menuItems: menuItems
+            )
+        }
+        if case .builtIn(let builtInAction) = button.action,
+           includeBonsplitHandledBuiltIns || builtInAction.bonsplitAction == nil || !menuItems.isEmpty {
+            return SurfaceTabBarExecutableButton(
+                button: button,
+                builtInAction: builtInAction,
+                workspaceCommand: nil,
+                terminalCommandSourcePath: nil,
+                menuItems: menuItems
+            )
+        }
+        if !menuItems.isEmpty {
+            return SurfaceTabBarExecutableButton(
+                button: button,
+                builtInAction: nil,
+                workspaceCommand: nil,
+                terminalCommandSourcePath: nil,
+                menuItems: menuItems
+            )
+        }
+        return nil
     }
 
     // MARK: - Surface ID to Panel ID Mapping
@@ -3955,6 +4137,176 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? FilePreviewPanel
     }
 
+    func noteAttachmentTargetForWorkspace() -> CmuxNoteAttachmentTarget {
+        .workspace(workspaceAnchorId: noteAnchorId)
+    }
+
+    func noteAttachmentTargetForPanel(panelId: UUID, requireTerminal: Bool = false) -> CmuxNoteAttachmentTarget? {
+        guard let panel = panels[panelId] else { return nil }
+        if requireTerminal, panel.panelType != .terminal {
+            return nil
+        }
+        let surfaceAnchorId = noteAnchorId(forPanelId: panelId)
+        return .surface(
+            workspaceAnchorId: noteAnchorId,
+            surfaceAnchorId: surfaceAnchorId,
+            surfaceKind: panel.panelType.rawValue
+        )
+    }
+
+    func noteAnchorId(forPanelId panelId: UUID) -> String {
+        if let existing = noteAnchorIdsByPanelId[panelId] {
+            return existing
+        }
+        let next = CmuxNoteStore.newAnchorID()
+        noteAnchorIdsByPanelId[panelId] = next
+        postNotesTreeTerminalMetadataDidChange(panelId: panelId)
+        return next
+    }
+
+    /// Read-only variant of `noteAttachmentTargetForPanel` that never mints a
+    /// new anchor. Used to resolve a caller surface's existing notes (e.g.
+    /// `note list`/`note here`) without mutating anchor state. Returns nil when
+    /// the surface has never had a note attached.
+    func existingNoteAttachmentTargetForPanel(panelId: UUID) -> CmuxNoteAttachmentTarget? {
+        guard let panel = panels[panelId],
+              let surfaceAnchorId = noteAnchorIdsByPanelId[panelId] else {
+            return nil
+        }
+        return .surface(
+            workspaceAnchorId: noteAnchorId,
+            surfaceAnchorId: surfaceAnchorId,
+            surfaceKind: panel.panelType.rawValue
+        )
+    }
+
+    /// Agent sessions known to run in THIS workspace's panes, for the Notes
+    /// tree. Sources, in order: pid-tracked agents (`agentPIDs`) and index
+    /// entries whose live pid sits on one of this workspace's pane TTYs. The
+    /// TTY pass is what survives app relaunches — reattached agents keep
+    /// reporting their previous run's workspace/surface UUIDs through hooks,
+    /// so UUID matching alone is not treated as current-run ground truth.
+    /// Each entry carries the pane's note anchor (when one was minted, never
+    /// minting) so pane-attached flat notes can nest under their session.
+    /// Every terminal pane in this workspace, in pane/tab order, as Notes-tree
+    /// terminal rows: panel pointer + note anchor (when minted) + tab title.
+    func notesTreeObservedTerminals() -> [NotesTreeObservedTerminal] {
+        var terminals: [NotesTreeObservedTerminal] = []
+        for paneId in bonsplitController.allPaneIds {
+            for tab in bonsplitController.tabs(inPane: paneId) {
+                guard let panelId = panelIdFromSurfaceId(tab.id),
+                      let terminal = panels[panelId] as? TerminalPanel else { continue }
+                let title = panelTitle(panelId: panelId) ?? terminal.displayTitle
+                terminals.append(NotesTreeObservedTerminal(
+                    panelId: panelId.uuidString,
+                    anchorId: noteAnchorIdsByPanelId[panelId],
+                    title: title
+                ))
+            }
+        }
+        return terminals
+    }
+
+    func postNotesTreeTerminalMetadataDidChange(panelId: UUID) {
+        guard RightSidebarBetaFeatureSettings.isNotesEnabled(),
+              panels[panelId] is TerminalPanel else { return }
+        NotificationCenter.default.post(
+            name: .workspaceNotesTreeTerminalMetadataDidChange,
+            object: self,
+            userInfo: ["workspaceId": id, "panelId": panelId]
+        )
+    }
+
+    func notesTreeObservedAgentSessions() async -> NotesTreeObservation {
+        SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+        let terminals = notesTreeObservedTerminals()
+        let currentTerminalPanelIds = Set(terminals.compactMap { UUID(uuidString: $0.panelId) })
+        var seen = Set<String>()
+        var observed: [NotesTreeObservedSession] = []
+        func add(_ snapshot: SessionRestorableAgentSnapshot, panelId rawPanelId: UUID?) {
+            guard let panelId = rawPanelId,
+                  currentTerminalPanelIds.contains(panelId) else { return }
+            let sessionId = snapshot.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sessionId.isEmpty else { return }
+            let key = "\(snapshot.kind.rawValue)\n\(sessionId)"
+            guard seen.insert(key).inserted else { return }
+            observed.append(NotesTreeObservedSession(
+                agent: snapshot.kind.rawValue,
+                sessionId: sessionId,
+                surfaceAnchorId: noteAnchorIdsByPanelId[panelId],
+                terminalPanelId: panelId.uuidString
+            ))
+        }
+        let entries = SharedLiveAgentIndex.shared.index?.allEntries() ?? []
+        var pidOwner: [Int: UUID] = [:]
+        for (ownerId, keys) in agentPIDKeysByPanelId {
+            for key in keys {
+                if let pid = agentPIDs[key] { pidOwner[Int(pid)] = ownerId }
+            }
+        }
+        for (_, entry) in entries {
+            let pidMatchedOwner = entry.processIDs.compactMap { pidOwner[$0] }.first
+            guard let ownerId = pidMatchedOwner else { continue }
+            let panelId = panelIdFromSurfaceId(TabID(uuid: ownerId)) ?? ownerId
+            add(entry.snapshot, panelId: panelId)
+        }
+        // TTY pass: ground truth for what is REALLY running in this
+        // workspace's panes, regardless of which run's UUIDs the hook records
+        // carry — and the only signal at all for bare launches that bypassed
+        // the hook wrapper (user PATH/alias shadowing).
+        let ttyByPanel = surfaceTTYNames
+        guard !ttyByPanel.isEmpty else {
+            return NotesTreeObservation(sessions: observed, terminals: terminals)
+        }
+        var panelByTTY: [String: UUID] = [:]
+        for (panelId, tty) in ttyByPanel {
+            panelByTTY[NotesTreePaneProcessLookup.normalizeTTY(tty)] = panelId
+        }
+        let ttys = Array(panelByTTY.keys)
+        let paneProcesses = await NotesTreePaneProcessLookup.paneProcessesAsync(ttys: ttys)
+        var matchedPanePids = Set<Int>()
+        let liveEntries = entries.filter { !$0.entry.processIDs.isEmpty }
+        let pidToTTY = Dictionary(
+            paneProcesses.map { ($0.pid, $0.tty) }, uniquingKeysWith: { first, _ in first }
+        )
+        for (_, entry) in liveEntries {
+            guard let pid = entry.processIDs.first(where: { pidToTTY[$0] != nil }),
+                  let tty = pidToTTY[pid],
+                  let ownerId = panelByTTY[tty] else { continue }
+            matchedPanePids.formUnion(entry.processIDs)
+            let panelId = panelIdFromSurfaceId(TabID(uuid: ownerId)) ?? ownerId
+            add(entry.snapshot, panelId: panelId)
+        }
+        // Hookless agents: an agent-named process on a pane TTY with no hook
+        // record anywhere. Report name + start time; the store resolves the
+        // session from the cwd's session files.
+        var anonymous: [NotesTreeAnonymousAgentObservation] = []
+        let builtInAgentIds = Set(SessionAgent.builtInCases.map(\.rawValue))
+        for process in paneProcesses where !matchedPanePids.contains(process.pid) {
+            let commandAgent = process.command.lowercased()
+            // Built-in executable names only: SessionAgent(rawValue:) accepts
+            // arbitrary registered ids, which would match every shell on the
+            // TTY.
+            guard builtInAgentIds.contains(commandAgent) else { continue }
+            guard let ownerId = panelByTTY[process.tty],
+                  currentTerminalPanelIds.contains(ownerId) else { continue }
+            anonymous.append(NotesTreeAnonymousAgentObservation(
+                agent: commandAgent,
+                startedAt: process.startedAt,
+                surfaceAnchorId: noteAnchorIdsByPanelId[ownerId],
+                terminalPanelId: ownerId.uuidString
+            ))
+        }
+        #if DEBUG
+        cmuxDebugLog(
+            "notes.observe ws=\(id.uuidString.prefix(8)) restored=\(restoredAgentSnapshotsByPanelId.count) "
+            + "entries=\(entries.count) ttyPanels=\(panelByTTY.count) ttyProcs=\(paneProcesses.count) "
+            + "observed=\(observed.count) anon=\(anonymous.count)"
+        )
+        #endif
+        return NotesTreeObservation(sessions: observed, anonymousAgents: anonymous, terminals: terminals)
+    }
+
     /// The working directory app-level actions (diff viewer, configured commands)
     /// should target for this workspace: the focused panel's tracked directory, then
     /// its terminal's requested directory, then the workspace's current directory.
@@ -4156,6 +4508,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelCustomTitles[panelId] = trimmed
             panelCustomTitleSources[panelId] = source
         }
+        postNotesTreeTerminalMetadataDidChange(panelId: panelId)
 
         guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
@@ -5130,6 +5483,9 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 #endif
+        if didMutatePanelTitle {
+            postNotesTreeTerminalMetadataDidChange(panelId: panelId)
+        }
         return didMutate
     }
 
@@ -5141,6 +5497,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelDirectoryDisplayLabels = panelDirectoryDisplayLabels.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
+        noteAnchorIdsByPanelId = noteAnchorIdsByPanelId.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
@@ -8395,6 +8752,185 @@ final class Workspace: Identifiable, ObservableObject {
         return markdownPanel
     }
 
+    // MARK: - Notes
+
+    /// Open (or focus) a project-scoped note as a surface in the given pane.
+    /// Internally this is a `MarkdownPanel` — the "note" distinction lives at
+    /// the storage convention and at the `CmuxSurfaceType.note` public surface
+    /// type. Note metadata lives in `<project>/.cmux/notes/index.json`; legacy
+    /// `.cmux/notes/<slug>.md` files are still opened through the same store.
+    @MainActor @discardableResult
+    func newNoteSurface(
+        inPane paneId: PaneID,
+        slug: String,
+        createIfMissing: Bool = true,
+        focus: Bool? = nil,
+        reuseExisting: Bool = true
+    ) async -> MarkdownPanel? {
+        await openOrCreateNoteSurface(
+            inPane: paneId,
+            slug: slug,
+            title: nil,
+            attachment: nil,
+            createIfMissing: createIfMissing,
+            focus: focus,
+            reuseExisting: reuseExisting,
+            preferAttachedExisting: false
+        )
+    }
+
+    @MainActor @discardableResult
+    func openAttachedNoteForSurface(
+        inPane paneId: PaneID,
+        panelId: UUID,
+        focus: Bool = true,
+        requireTerminal: Bool = false
+    ) async -> MarkdownPanel? {
+        guard let attachment = noteAttachmentTargetForPanel(
+            panelId: panelId,
+            requireTerminal: requireTerminal
+        ) else {
+            return nil
+        }
+        // "New Note" mirrors `cmux note new`: every invocation creates a fresh
+        // auto-slug note rather than reopening the surface's existing note. The
+        // attachment is still recorded for provenance, but we never prefer or
+        // reuse an already-attached note — otherwise repeated New Note actions
+        // (and the case where the prior note was dragged to another pane) would
+        // just refocus the existing note instead of creating another one.
+        // Surface-scoped notes open as a RIGHT SPLIT of the source surface
+        // (the CLI's `cmux note new` default), keeping the conversation and
+        // its note side by side instead of burying the note as a tab.
+        return await openOrCreateNoteSurface(
+            inPane: paneId,
+            slug: nil,
+            title: nil,
+            attachment: attachment,
+            createIfMissing: true,
+            focus: focus,
+            reuseExisting: false,
+            preferAttachedExisting: false,
+            splitFromPanelId: panelId
+        )
+    }
+
+    @MainActor @discardableResult
+    func openAttachedNoteForWorkspace(
+        inPane paneId: PaneID,
+        focus: Bool = true
+    ) async -> MarkdownPanel? {
+        // See `openAttachedNoteForSurface`: New Note always creates a fresh note
+        // instead of refocusing the workspace's existing note.
+        await openOrCreateNoteSurface(
+            inPane: paneId,
+            slug: nil,
+            title: nil,
+            attachment: noteAttachmentTargetForWorkspace(),
+            createIfMissing: true,
+            focus: focus,
+            reuseExisting: false,
+            preferAttachedExisting: false
+        )
+    }
+
+    @MainActor @discardableResult
+    func openOrCreateNoteSurface(
+        inPane paneId: PaneID,
+        slug: String?,
+        title: String? = nil,
+        attachment: CmuxNoteAttachmentTarget? = nil,
+        createIfMissing: Bool = true,
+        focus: Bool? = nil,
+        reuseExisting: Bool = true,
+        preferAttachedExisting: Bool = false,
+        splitFromPanelId: UUID? = nil
+    ) async -> MarkdownPanel? {
+        let workspaceCurrentDirectory = currentDirectory
+        let workspaceIsRemote = isRemoteWorkspace
+        guard let root = await Self.noteProjectRootOffMain(
+            currentDirectory: workspaceCurrentDirectory,
+            isRemoteWorkspace: workspaceIsRemote
+        ) else {
+            workspaceLogger.error("Note surfaces are not available for remote workspaces")
+            return nil
+        }
+        let noteResult: CmuxNoteStoreResult
+        do {
+            noteResult = try await Self.createOrOpenNoteOffMain(
+                slug: slug,
+                title: title,
+                projectRoot: root,
+                createIfMissing: createIfMissing,
+                attachment: attachment,
+                preferAttachedExisting: preferAttachedExisting
+            )
+        } catch {
+            workspaceLogger.error(
+                "Failed to open note surface slug=\(slug ?? "nil", privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+            )
+            return nil
+        }
+
+        let filePath = noteResult.path
+        if reuseExisting {
+            let panel = openOrFocusMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus ?? false)
+            panel?.markAsProjectNote(
+                slug: noteResult.note.slug,
+                id: noteResult.note.id,
+                bodyPath: noteResult.note.bodyPath,
+                title: noteResult.note.title
+            )
+            panel?.setDisplayMode(.text, focusTextEditor: focus ?? false)
+            return panel
+        }
+        let panel: MarkdownPanel?
+        if let splitFromPanelId {
+            // Right split of the source surface (matches `cmux note new`).
+            panel = newMarkdownSplit(
+                from: splitFromPanelId,
+                orientation: .horizontal,
+                filePath: filePath,
+                focus: focus ?? false
+            ) ?? newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        } else {
+            panel = newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        }
+        panel?.markAsProjectNote(
+            slug: noteResult.note.slug,
+            id: noteResult.note.id,
+            bodyPath: noteResult.note.bodyPath,
+            title: noteResult.note.title
+        )
+        panel?.setDisplayMode(.text, focusTextEditor: focus ?? false)
+        return panel
+    }
+
+    private nonisolated static func createOrOpenNoteOffMain(
+        slug: String?,
+        title: String?,
+        projectRoot: String,
+        createIfMissing: Bool,
+        attachment: CmuxNoteAttachmentTarget?,
+        preferAttachedExisting: Bool
+    ) async throws -> CmuxNoteStoreResult {
+        try await CmuxNoteStore.createOrOpenAsync(
+            slug: slug,
+            title: title,
+            projectRoot: projectRoot,
+            createIfMissing: createIfMissing,
+            attachment: attachment,
+            preferAttachedExisting: preferAttachedExisting
+        )
+    }
+
+    private nonisolated static func noteProjectRootOffMain(
+        currentDirectory: String,
+        isRemoteWorkspace: Bool
+    ) async -> String? {
+        guard !isRemoteWorkspace else { return nil }
+        return await NoteSupport.projectRootAsync(forCwd: currentDirectory)
+    }
+
     @discardableResult
     func openOrFocusFilePreviewSurface(
         inPane paneId: PaneID,
@@ -9312,6 +9848,11 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
         }
+        if let noteAnchorId = detached.noteAnchorId {
+            noteAnchorIdsByPanelId[detached.panelId] = noteAnchorId
+        } else {
+            noteAnchorIdsByPanelId.removeValue(forKey: detached.panelId)
+        }
         let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted ?? false
         let detachedBrowserPlayingAudio = (detached.panel as? BrowserPanel)?.isPlayingAudio ?? false
 
@@ -9342,6 +9883,7 @@ final class Workspace: Identifiable, ObservableObject {
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
+            noteAnchorIdsByPanelId.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
             discardBrowserPanelSubscription(panelId: detached.panelId, panel: detached.panel)
             if let agentPanel = detached.panel as? AgentSessionPanel {
@@ -12215,6 +12757,7 @@ extension Workspace: BonsplitDelegate {
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 resumeBinding: resumeBinding,
+                noteAnchorId: noteAnchorIdsByPanelId[panelId],
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
@@ -12709,23 +13252,21 @@ extension Workspace: BonsplitDelegate {
         guard let executable = surfaceTabBarCommandButtons[identifier] else {
             return
         }
+        executeSurfaceTabBarExecutableButton(executable, inPane: pane)
+    }
+
+    func executeSurfaceTabBarExecutableButton(_ executable: SurfaceTabBarExecutableButton, inPane pane: PaneID) {
         let presentingWindow = selectedTerminalPanel(inPane: pane)?.surface.uiWindow
             ?? NSApp.keyWindow
             ?? NSApp.mainWindow
 
+        if !executable.menuItems.isEmpty {
+            presentSurfaceTabBarMenu(executable, inPane: pane, presentingWindow: presentingWindow)
+            return
+        }
+
         if let builtInAction = executable.builtInAction {
-            switch builtInAction {
-            case .newWorkspace:
-                owningTabManager?.addWorkspace()
-            case .cloudVM:
-                _ = AppDelegate.shared?.performCloudVMAction(
-                    tabManager: owningTabManager,
-                    preferredWindow: presentingWindow,
-                    debugSource: "surfaceTabBar.cloudVM"
-                )
-            case .newTerminal, .newBrowser, .splitRight, .splitDown:
-                break
-            }
+            executeSurfaceTabBarBuiltInAction(builtInAction, inPane: pane, presentingWindow: presentingWindow)
             return
         }
 
@@ -12739,23 +13280,11 @@ extension Workspace: BonsplitDelegate {
                 applyTabSelection(tabId: selectedTab.id, inPane: pane)
             }
 
-            let paneDirectory = selectedTerminalPanel(inPane: pane).flatMap { terminal -> String? in
-                for candidate in [panelDirectories[terminal.id], terminal.requestedWorkingDirectory] {
-                    let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if let trimmed, !trimmed.isEmpty {
-                        return trimmed
-                    }
-                }
-                return nil
-            }
-            let rawCwd = paneDirectory ?? currentDirectory
-            let trimmedCwd = rawCwd.trimmingCharacters(in: .whitespacesAndNewlines)
-            let baseCwd = trimmedCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : trimmedCwd
             guard let tabManager = owningTabManager else { return }
             _ = CmuxConfigExecutor.execute(
                 command: workspaceCommand.command,
                 tabManager: tabManager,
-                baseCwd: baseCwd,
+                baseCwd: surfaceTabBarBaseCwd(inPane: pane),
                 configSourcePath: workspaceCommand.sourcePath,
                 globalConfigPath: globalConfigPath,
                 displayTitle: executable.button.title ?? executable.button.tooltip ?? workspaceCommand.command.name,
@@ -12798,6 +13327,265 @@ extension Workspace: BonsplitDelegate {
         guard didExecute else {
             return
         }
+    }
+
+    private func presentSurfaceTabBarMenu(
+        _ executable: SurfaceTabBarExecutableButton,
+        inPane pane: PaneID,
+        presentingWindow: NSWindow?
+    ) {
+        let menu = NSMenu(title: surfaceTabBarMenuTitle(for: executable))
+        let target = SurfaceTabBarMenuTarget(workspace: self, pane: pane)
+        surfaceTabBarMenuTarget = target
+        for item in executable.menuItems {
+            appendSurfaceTabBarMenuItem(item, to: menu, target: target)
+        }
+        guard menu.items.isEmpty == false else {
+            NSSound.beep()
+            surfaceTabBarMenuTarget = nil
+            return
+        }
+
+        if let event = NSApp.currentEvent,
+           let view = event.window?.contentView {
+            menu.popUp(positioning: nil, at: view.convert(event.locationInWindow, from: nil), in: view)
+        } else if let view = presentingWindow?.contentView {
+            menu.popUp(
+                positioning: nil,
+                at: NSPoint(x: view.bounds.maxX - 32, y: view.bounds.maxY - 24),
+                in: view
+            )
+        } else {
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        }
+        surfaceTabBarMenuTarget = nil
+    }
+
+    private func appendSurfaceTabBarMenuItem(
+        _ executable: SurfaceTabBarExecutableButton,
+        to menu: NSMenu,
+        target: SurfaceTabBarMenuTarget
+    ) {
+        let item = NSMenuItem(
+            title: surfaceTabBarMenuTitle(for: executable),
+            action: executable.menuItems.isEmpty ? #selector(SurfaceTabBarMenuTarget.performMenuItem(_:)) : nil,
+            keyEquivalent: ""
+        )
+        item.target = target
+        item.representedObject = SurfaceTabBarMenuItemPayload(item: executable)
+        item.image = surfaceTabBarMenuImage(for: executable)
+        item.isEnabled = surfaceTabBarMenuItemIsEnabled(executable, inPane: target.pane)
+        if !executable.menuItems.isEmpty {
+            let submenu = NSMenu(title: item.title)
+            for child in executable.menuItems {
+                appendSurfaceTabBarMenuItem(child, to: submenu, target: target)
+            }
+            item.submenu = submenu
+            item.isEnabled = !submenu.items.isEmpty
+        }
+        menu.addItem(item)
+    }
+
+    private func surfaceTabBarMenuTitle(for executable: SurfaceTabBarExecutableButton) -> String {
+        if let builtInAction = executable.builtInAction {
+            // Action references inherit the longer command title during config
+            // resolution; the compact menu should only show explicit overrides.
+            let defaultActionTitle = CmuxResolvedConfigAction.builtIn(builtInAction).title
+            for candidate in [executable.button.title, executable.button.tooltip] {
+                let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let trimmed, !trimmed.isEmpty, trimmed != defaultActionTitle {
+                    return trimmed
+                }
+            }
+            return builtInAction.menuTitle
+        }
+
+        let button = executable.button
+        for candidate in [button.title, button.tooltip] {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmed, !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        if let workspaceCommand = executable.workspaceCommand {
+            return workspaceCommand.command.name
+        }
+        if let command = button.terminalCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !command.isEmpty {
+            return command
+        }
+        return button.id
+    }
+
+    private func surfaceTabBarMenuImage(for executable: SurfaceTabBarExecutableButton) -> NSImage? {
+        let icon = executable.button.icon ?? executable.button.action.defaultButtonIcon
+        guard case .symbol(let name) = icon else { return nil }
+        return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+    }
+
+    private func surfaceTabBarMenuItemIsEnabled(_ executable: SurfaceTabBarExecutableButton, inPane pane: PaneID) -> Bool {
+        guard let builtInAction = executable.builtInAction else { return true }
+        guard builtInAction.isAvailable() else { return false }
+        switch builtInAction {
+        case .rightSidebarFeed:
+            return RightSidebarMode.feed.isAvailable()
+        case .rightSidebarDock:
+            return RightSidebarMode.dock.isAvailable()
+        case .more:
+            return !executable.menuItems.isEmpty
+        case .filesPane, .findPane, .vaultPane:
+            return !bonsplitController.allPaneIds.isEmpty
+        case .diffViewer:
+            return owningTabManager != nil
+        case .newWorkspace, .cloudVM, .newTerminal, .newBrowser, .newNote, .splitRight, .splitDown,
+             .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault,
+             .revealCurrentDirectoryInFinder, .customizeSurfaceTabBar:
+            return true
+        }
+    }
+
+    private func executeSurfaceTabBarBuiltInAction(
+        _ action: CmuxSurfaceTabBarBuiltInAction,
+        inPane pane: PaneID,
+        presentingWindow: NSWindow?
+    ) {
+        switch action {
+        case .newWorkspace:
+            owningTabManager?.addWorkspace()
+        case .cloudVM:
+            _ = AppDelegate.shared?.performCloudVMAction(
+                tabManager: owningTabManager,
+                preferredWindow: presentingWindow,
+                debugSource: "surfaceTabBar.cloudVM"
+            )
+        case .newTerminal:
+            bonsplitController.focusPane(pane)
+            _ = newTerminalSurface(inPane: pane, focus: true)
+        case .newBrowser:
+            bonsplitController.focusPane(pane)
+            _ = newBrowserSurface(inPane: pane, focus: true)
+        case .newNote:
+            bonsplitController.focusPane(pane)
+            let selectedPanelId = bonsplitController.selectedTab(inPane: pane)
+                .flatMap { panelIdFromSurfaceId($0.id) }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let selectedPanelId, panels[selectedPanelId] != nil {
+                    _ = await openAttachedNoteForSurface(
+                        inPane: pane,
+                        panelId: selectedPanelId,
+                        focus: true
+                    )
+                } else {
+                    _ = await openAttachedNoteForWorkspace(inPane: pane, focus: true)
+                }
+            }
+        case .splitRight:
+            clearSplitZoom()
+            _ = bonsplitController.splitPane(pane, orientation: .horizontal)
+        case .splitDown:
+            clearSplitZoom()
+            _ = bonsplitController.splitPane(pane, orientation: .vertical)
+        case .more:
+            break
+        case .rightSidebarFiles:
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .files,
+                focusFirstItem: true,
+                preferredWindow: presentingWindow
+            )
+        case .rightSidebarFind:
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .find,
+                focusFirstItem: true,
+                preferredWindow: presentingWindow
+            )
+        case .rightSidebarVault:
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .sessions,
+                focusFirstItem: true,
+                preferredWindow: presentingWindow
+            )
+        case .rightSidebarFeed:
+            guard RightSidebarMode.feed.isAvailable() else {
+                NSSound.beep()
+                return
+            }
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .feed,
+                focusFirstItem: true,
+                preferredWindow: presentingWindow
+            )
+        case .rightSidebarDock:
+            guard RightSidebarMode.dock.isAvailable() else {
+                NSSound.beep()
+                return
+            }
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .dock,
+                focusFirstItem: true,
+                preferredWindow: presentingWindow
+            )
+        case .filesPane:
+            openRightSidebarToolPane(.files, inPane: pane)
+        case .findPane:
+            openRightSidebarToolPane(.find, inPane: pane)
+        case .vaultPane:
+            openRightSidebarToolPane(.sessions, inPane: pane)
+        case .diffViewer:
+            openDiffViewerFromSurfaceTabBar(inPane: pane)
+        case .revealCurrentDirectoryInFinder:
+            let url = URL(fileURLWithPath: surfaceTabBarBaseCwd(inPane: pane), isDirectory: true)
+            Task {
+                await WorkspaceFinderDirectoryOpener.openInFinder(url)
+            }
+        case .customizeSurfaceTabBar:
+            AppDelegate.shared?.openPreferencesWindow(
+                debugSource: "surfaceTabBar.customize",
+                navigationTarget: .paneTabBar
+            )
+        }
+    }
+
+    private func openRightSidebarToolPane(_ mode: RightSidebarMode, inPane pane: PaneID) {
+        guard mode.canOpenAsPane else {
+            NSSound.beep()
+            return
+        }
+        clearSplitZoom()
+        if openOrFocusRightSidebarToolSurface(inPane: pane, mode: mode, focus: true) == nil {
+            NSSound.beep()
+        }
+    }
+
+    private func openDiffViewerFromSurfaceTabBar(inPane pane: PaneID) {
+        guard let selected = bonsplitController.selectedTab(inPane: pane) else {
+            NSSound.beep()
+            return
+        }
+        let didOpen = CmuxDiffViewerLauncher.shared.start(
+            cwd: surfaceTabBarBaseCwd(inPane: pane),
+            workspaceId: id,
+            surfaceId: panelIdFromSurfaceId(selected.id)
+        )
+        if !didOpen {
+            NSSound.beep()
+        }
+    }
+
+    private func surfaceTabBarBaseCwd(inPane pane: PaneID) -> String {
+        let paneDirectory = selectedTerminalPanel(inPane: pane).flatMap { terminal -> String? in
+            for candidate in [panelDirectories[terminal.id], terminal.requestedWorkingDirectory] {
+                let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let trimmed, !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+            return nil
+        }
+        let rawCwd = paneDirectory ?? currentDirectory
+        let trimmedCwd = rawCwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : trimmedCwd
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {

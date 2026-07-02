@@ -2914,6 +2914,9 @@ struct CMUXCLI {
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
+    private static let rightSidebarNotesEnabledDefaultsKey = "rightSidebar.beta.notes.enabled"
+    private static let rightSidebarFeedEnabledDefaultsKey = "rightSidebar.beta.feed.enabled"
+    private static let rightSidebarDockEnabledDefaultsKey = "rightSidebar.beta.dock.enabled"
 
     private static func containingAppBundleIdentifier() -> String? {
         normalizedEnvValue(CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier)
@@ -2925,11 +2928,103 @@ struct CMUXCLI {
         ?? defaultBrowserSettingsDomain
     }
 
+    private static func appDefaultsCandidates(environment: [String: String] = ProcessInfo.processInfo.environment) -> [UserDefaults] {
+        var candidates: [UserDefaults] = []
+        if let bundleId = normalizedEnvValue(environment["CMUX_BUNDLE_ID"]),
+           let defaults = UserDefaults(suiteName: bundleId) {
+            candidates.append(defaults)
+        }
+        if let bundleId = containingAppBundleIdentifier(),
+           let defaults = UserDefaults(suiteName: bundleId) {
+            candidates.append(defaults)
+        }
+        candidates.append(.standard)
+        return candidates
+    }
+
+    private static func betaFeatureEnabled(
+        key: String,
+        defaultValue: Bool = false,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        for defaults in appDefaultsCandidates(environment: environment) {
+            if defaults.object(forKey: key) != nil {
+                return defaults.bool(forKey: key)
+            }
+        }
+        return defaultValue
+    }
+
+    private static func availableRightSidebarModeTokens(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String] {
+        var tokens = ["files", "find", "vault", "sessions"]
+        if betaFeatureEnabled(key: rightSidebarNotesEnabledDefaultsKey, environment: environment) {
+            tokens.append("notes")
+        }
+        if betaFeatureEnabled(key: rightSidebarFeedEnabledDefaultsKey, environment: environment) {
+            tokens.append("feed")
+        }
+        if betaFeatureEnabled(key: rightSidebarDockEnabledDefaultsKey, environment: environment) {
+            tokens.append("dock")
+        }
+        return tokens
+    }
+
+    private static func rightSidebarUsage(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        let modes = availableRightSidebarModeTokens(environment: environment).joined(separator: "|")
+        let template = String(localized: "cli.rightSidebar.usage.template", defaultValue: """
+            Usage: cmux right-sidebar <command> [flags]
+
+            Control the right sidebar from the CLI.
+
+            Commands:
+              toggle                         Toggle right sidebar visibility
+              show                           Show the right sidebar
+              hide                           Hide the right sidebar
+              focus                          Focus the current right sidebar mode
+              set <%@>
+                                             Show, switch mode, and focus
+              mode                           Print {"visible":bool,"mode":string}
+              %@
+                                             Alias for show + set + focus
+
+            Flags:
+              --workspace <id|ref|index>     Target the window containing a workspace
+              --window <id|ref|index>        Target a window
+              --no-focus                     With set, switch mode without moving focus
+
+            Examples:
+              cmux right-sidebar toggle
+              cmux right-sidebar set find
+              cmux right-sidebar set vault --no-focus
+              cmux right-sidebar mode
+        """)
+        return String(format: template, modes, modes)
+    }
+
+    private static func noteGlobalUsage(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        guard betaFeatureEnabled(key: rightSidebarNotesEnabledDefaultsKey, environment: environment) else {
+            return ""
+        }
+        return String(localized: "cli.note.globalUsage", defaultValue: """
+          note new [--slug <name>] [--attach <none|workspace|surface|terminal>] [--title <text>] [--direction <dir>] [--focus <true|false>]
+          note open <slug> [--attach <none|workspace|surface|terminal>] [--direction <dir>] [--focus <true|false>]
+          note list [--json]                                                     (list notes in the project)
+          note here [--json]                                                     (print the note resolved for the calling surface)
+          note path <slug>                                                       (print absolute path for a note slug)
+          note read <slug>                                                       (print note content)
+          note write <slug> [--text <text>|--stdin|<text...>] [--create <true|false>]
+          note append <slug> [--text <text>|--stdin|<text...>] [--create <true|false>]
+          note rm <slug>                                                         (delete a note file)
+          """)
+    }
+
     // Presentation flags are global, but command option values can also look like flags.
     private static let commandOptionsWithValues: Set<String> = [
         "--action", "--after-workspace", "--agent", "--amount", "--arch",
         "--attr", "--before-workspace", "--body", "--color", "--command",
-        "--config", "--cwd", "--description", "--direction", "--domain",
+        "--config", "--create", "--cwd", "--description", "--direction", "--domain",
         "--dx", "--dy", "--email", "--event", "--expires", "--focus",
         "--function", "--id", "--image", "--index", "--key", "--kind",
         "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
@@ -5008,6 +5103,10 @@ struct CMUXCLI {
         case "markdown":
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        // Note commands (project-scoped markdown notes at .cmux/notes/<slug>.md)
+        case "note":
+            try runNoteCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -5177,6 +5276,510 @@ struct CMUXCLI {
         }
     }
 
+    // MARK: - Note Commands
+
+    /// Subcommand dispatcher for `cmux note <verb>`. Verbs:
+    ///   new   — create (if missing), optionally attach, and open a project note
+    ///   open  — open an existing slug (error if missing)
+    ///   list  — list all notes in the project
+    ///   path  — print the absolute path for a slug
+    ///   read  — print note content
+    ///   write — replace note content
+    ///   append — append note content
+    ///   rm    — delete the note file
+    private func runNoteCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        var args = commandArgs
+
+        let (workspaceOpt, argsAfterWorkspace) = parseOption(args, name: "--workspace")
+        let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
+        let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
+        let (directionOpt, argsAfterDirection) = parseOption(argsAfterSurface, name: "--direction")
+        let (focusOpt, argsAfterFocus) = parseOption(argsAfterDirection, name: "--focus")
+        let (attachOpt, argsAfterAttach) = parseOption(argsAfterFocus, name: "--attach")
+        let (titleOpt, argsAfterTitle) = parseOption(argsAfterAttach, name: "--title")
+        args = argsAfterTitle
+
+        guard let subcommand = args.first else {
+            throw CLIError(
+                message: String(
+                    localized: "cli.note.error.missingSubcommand",
+                    defaultValue: "cmux note: missing subcommand. Usage: cmux note <new|open|list|path|read|write|append|rm> [options]"
+                )
+            )
+        }
+        let trailingArgs = Array(args.dropFirst())
+
+        // Build the routing params shared by all socket-backed subcommands.
+        func buildRoutingParams(includeDefaultSurface: Bool = false) throws -> [String: Any] {
+            var params: [String: Any] = [:]
+            // Resolve window/workspace first so an indexed `--surface` is looked
+            // up inside the requested scope, matching sibling commands.
+            let windowId = try windowOpt.flatMap { try normalizeWindowHandle($0, client: client) }
+            if let windowId { params["window_id"] = windowId }
+            let workspaceRaw = workspaceOpt
+                ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            var workspaceId: String?
+            if let workspaceRaw {
+                workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client)
+                if let workspaceId { params["workspace_id"] = workspaceId }
+            }
+            // Only inherit the caller's ambient surface when no explicit
+            // workspace/window was given. With `--workspace <other>`, the caller's
+            // CMUX_SURFACE_ID belongs to a different workspace and the server would
+            // reject it as sourceSurfaceNotFound.
+            let surfaceRaw = surfaceOpt
+                ?? (includeDefaultSurface && windowOpt == nil && workspaceOpt == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            if let surfaceRaw, let surface = try normalizeSurfaceHandle(
+                surfaceRaw, client: client, workspaceHandle: workspaceId, windowHandle: windowId
+            ) {
+                params["surface_id"] = surface
+            }
+            if let attachOpt {
+                params["attach"] = attachOpt
+            }
+            if let titleOpt {
+                params["title"] = titleOpt
+            }
+            return params
+        }
+
+        func missingSlugMessage(verb: String, usage: String) -> String {
+            String.localizedStringWithFormat(
+                String(
+                    localized: "cli.note.error.missingSlug",
+                    defaultValue: "cmux note %@: missing slug. Usage: %@"
+                ),
+                verb,
+                usage
+            )
+        }
+
+        func unknownFlagMessage(verb: String, flag: String) -> String {
+            String.localizedStringWithFormat(
+                String(
+                    localized: "cli.note.error.unknownFlag",
+                    defaultValue: "cmux note %@: unknown flag '%@'"
+                ),
+                verb,
+                flag
+            )
+        }
+
+        func unexpectedArgumentMessage(verb: String, argument: String) -> String {
+            String.localizedStringWithFormat(
+                String(
+                    localized: "cli.note.error.unexpectedArgument",
+                    defaultValue: "cmux note %@: unexpected argument '%@'"
+                ),
+                verb,
+                argument
+            )
+        }
+
+        func slugArgument(for verb: String, usage: String) throws -> String {
+            guard let slugArg = trailingArgs.first, !slugArg.isEmpty else {
+                throw CLIError(message: missingSlugMessage(verb: verb, usage: usage))
+            }
+            if slugArg.hasPrefix("-") {
+                throw CLIError(message: unknownFlagMessage(verb: verb, flag: slugArg))
+            }
+            if let extraArg = trailingArgs.dropFirst().first {
+                if extraArg.hasPrefix("-") {
+                    throw CLIError(message: unknownFlagMessage(verb: verb, flag: extraArg))
+                }
+                throw CLIError(message: unexpectedArgumentMessage(verb: verb, argument: extraArg))
+            }
+            return slugArg
+        }
+
+        func printRaw(_ text: String) {
+            if let data = text.data(using: .utf8) {
+                FileHandle.standardOutput.write(data)
+            }
+        }
+
+        func readNoteContentFromStdin() throws -> String {
+            let data = FileHandle.standardInput.readDataToEndOfFile()
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw CLIError(
+                    message: String(
+                        localized: "cli.note.error.stdinUTF8",
+                        defaultValue: "cmux note: stdin must be valid UTF-8"
+                    )
+                )
+            }
+            return text
+        }
+
+        func contentMutationArguments(for verb: String, usage: String) throws -> (slug: String, content: String, createIfMissing: Bool) {
+            let (textOpt, argsAfterText) = parseOption(trailingArgs, name: "--text")
+            let (createOpt, argsAfterCreate) = parseOption(argsAfterText, name: "--create")
+            var remaining = argsAfterCreate
+            let readFromStdin = remaining.contains("--stdin")
+            remaining.removeAll { $0 == "--stdin" }
+
+            guard let slugArg = remaining.first, !slugArg.isEmpty else {
+                throw CLIError(message: missingSlugMessage(verb: verb, usage: usage))
+            }
+            if slugArg.hasPrefix("-") {
+                throw CLIError(message: unknownFlagMessage(verb: verb, flag: slugArg))
+            }
+
+            let positional = Array(remaining.dropFirst())
+            if let unknownFlag = positional.first(where: { $0.hasPrefix("-") }) {
+                throw CLIError(message: unknownFlagMessage(verb: verb, flag: unknownFlag))
+            }
+            if textOpt != nil || readFromStdin {
+                if let extraArg = positional.first {
+                    throw CLIError(message: unexpectedArgumentMessage(verb: verb, argument: extraArg))
+                }
+            }
+            let content: String
+            if let textOpt {
+                content = textOpt
+            } else if readFromStdin {
+                content = try readNoteContentFromStdin()
+            } else if !positional.isEmpty {
+                content = positional.joined(separator: " ")
+            } else if isatty(STDIN_FILENO) == 0 {
+                content = try readNoteContentFromStdin()
+            } else {
+                throw CLIError(
+                    message: String.localizedStringWithFormat(
+                        String(
+                            localized: "cli.note.error.missingContent",
+                            defaultValue: "cmux note %@: provide content with --text, --stdin, or positional text"
+                        ),
+                        verb
+                    )
+                )
+            }
+
+            let createIfMissing: Bool
+            if let createOpt {
+                guard let parsed = parseBoolString(createOpt) else {
+                    throw CLIError(
+                        message: String.localizedStringWithFormat(
+                            String(
+                                localized: "cli.note.error.invalidCreate",
+                                defaultValue: "cmux note %@: --create must be true or false"
+                            ),
+                            verb
+                        )
+                    )
+                }
+                createIfMissing = parsed
+            } else {
+                createIfMissing = true
+            }
+
+            return (slugArg, content, createIfMissing)
+        }
+
+        switch subcommand.lowercased() {
+        case "new", "create":
+            let (slugOpt, argsAfterSlug) = parseOption(trailingArgs, name: "--slug")
+            if let slugOpt, slugOpt.hasPrefix("-") {
+                throw CLIError(message: unknownFlagMessage(verb: "new", flag: slugOpt))
+            }
+            if let extraArg = argsAfterSlug.first {
+                if extraArg.hasPrefix("-") {
+                    throw CLIError(message: unknownFlagMessage(verb: "new", flag: extraArg))
+                }
+                throw CLIError(message: unexpectedArgumentMessage(verb: "new", argument: extraArg))
+            }
+            var params = try buildRoutingParams(includeDefaultSurface: true)
+            if let slugOpt, !slugOpt.isEmpty {
+                params["slug"] = slugOpt
+            }
+            params["direction"] = directionOpt ?? "right"
+            try applyFocusOption(focusOpt, defaultValue: false, to: &params)
+            let payload = try client.sendV2(method: "note.create", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let slug = (payload["slug"] as? String)
+                    ?? String(localized: "cli.note.output.unknownParen", defaultValue: "(unknown)")
+                let path = (payload["path"] as? String) ?? ""
+                let attached = (payload["attached"] as? Bool) ?? false
+                let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat)
+                    ?? String(localized: "cli.note.output.unknown", defaultValue: "unknown")
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.note.output.createdWithAttachment",
+                        defaultValue: "OK slug=%@ surface=%@ path=%@ attached=%@"
+                    ),
+                    slug,
+                    surfaceText,
+                    path,
+                    attached ? "true" : "false"
+                ))
+            }
+
+        case "open":
+            let slugArg = try slugArgument(for: "open", usage: "cmux note open <slug>")
+            var params = try buildRoutingParams(includeDefaultSurface: true)
+            params["slug"] = slugArg
+            params["direction"] = directionOpt ?? "right"
+            try applyFocusOption(focusOpt, defaultValue: false, to: &params)
+            let payload = try client.sendV2(method: "note.open", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let slug = (payload["slug"] as? String) ?? slugArg
+                let path = (payload["path"] as? String) ?? ""
+                let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat)
+                    ?? String(localized: "cli.note.output.unknown", defaultValue: "unknown")
+                let reused = (payload["reused"] as? Bool) ?? false
+                let attached = (payload["attached"] as? Bool) ?? false
+                let reusedSuffix = reused
+                    ? String(localized: "cli.note.output.reusedSuffix", defaultValue: " (reused)")
+                    : ""
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.note.output.openedWithAttachment",
+                        defaultValue: "OK slug=%@ surface=%@ path=%@ attached=%@%@"
+                    ),
+                    slug,
+                    surfaceText,
+                    path,
+                    attached ? "true" : "false",
+                    reusedSuffix
+                ))
+            }
+
+        case "list", "ls":
+            if let extraArg = trailingArgs.first {
+                if extraArg.hasPrefix("-") {
+                    throw CLIError(message: unknownFlagMessage(verb: "list", flag: extraArg))
+                }
+                throw CLIError(message: unexpectedArgumentMessage(verb: "list", argument: extraArg))
+            }
+            let params = try buildRoutingParams(includeDefaultSurface: true)
+            let payload = try client.sendV2(method: "note.list", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let root = (payload["project_root"] as? String)
+                    ?? String(localized: "cli.note.output.unknownParen", defaultValue: "(unknown)")
+                let notes = (payload["notes"] as? [[String: Any]]) ?? []
+                if notes.isEmpty {
+                    print(String(
+                        format: String(
+                            localized: "cli.note.output.noNotes",
+                            defaultValue: "No notes in %@/.cmux/notes/"
+                        ),
+                        locale: .current,
+                        root
+                    ))
+                } else {
+                    print(String(
+                        format: String(
+                            localized: "cli.note.output.projectRoot",
+                            defaultValue: "Project root: %@"
+                        ),
+                        locale: .current,
+                        root
+                    ))
+                    print(String(localized: "cli.note.output.notesHeader", defaultValue: "Notes:"))
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = "yyyy-MM-dd HH:mm"
+                    for note in notes {
+                        let slug = (note["slug"] as? String) ?? "?"
+                        let title = (note["title"] as? String) ?? slug
+                        let size: Int64
+                        if let int64Size = note["size_bytes"] as? Int64 {
+                            size = int64Size
+                        } else if let intSize = note["size_bytes"] as? Int {
+                            size = Int64(intSize)
+                        } else {
+                            size = 0
+                        }
+                        let mtime = (note["mtime"] as? Double).map {
+                            formatter.string(from: Date(timeIntervalSince1970: $0))
+                        } ?? "?"
+                        print(String(
+                            format: String(
+                                localized: "cli.note.output.noteRowWithTitle",
+                                defaultValue: "  %@\t%@\t%lldB\t%@"
+                            ),
+                            locale: .current,
+                            slug,
+                            title,
+                            size,
+                            mtime
+                        ))
+                    }
+                }
+                if let resolvedSlug = payload["resolved_slug"] as? String {
+                    let link = ((payload["resolved"] as? [String: Any])?["link"] as? String) ?? ""
+                    print(String.localizedStringWithFormat(
+                        String(
+                            localized: "cli.note.output.resolvedLine",
+                            defaultValue: "→ note for this surface: %@ (%@) — read it with: cmux note here"
+                        ),
+                        resolvedSlug,
+                        link
+                    ))
+                }
+            }
+
+        case "here", "current", "mine":
+            if let extraArg = trailingArgs.first {
+                if extraArg.hasPrefix("-") {
+                    throw CLIError(message: unknownFlagMessage(verb: "here", flag: extraArg))
+                }
+                throw CLIError(message: unexpectedArgumentMessage(verb: "here", argument: extraArg))
+            }
+            let params = try buildRoutingParams(includeDefaultSurface: true)
+            let payload = try client.sendV2(method: "note.list", params: params)
+            let resolved = payload["resolved"] as? [String: Any]
+            if jsonOutput {
+                if let resolved {
+                    print(jsonString(formatIDs(resolved, mode: idFormat)))
+                } else {
+                    print(jsonString(["resolved": NSNull()]))
+                }
+            } else if let resolved {
+                let slug = (resolved["slug"] as? String)
+                    ?? String(localized: "cli.note.output.unknown", defaultValue: "unknown")
+                let path = (resolved["path"] as? String) ?? ""
+                let link = (resolved["link"] as? String) ?? ""
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.note.output.here",
+                        defaultValue: "slug=%@ path=%@ link=%@"
+                    ),
+                    slug,
+                    path,
+                    link
+                ))
+            } else {
+                print(String(
+                    localized: "cli.note.output.hereNone",
+                    defaultValue: "No note is linked to this surface or workspace yet. Create one with: cmux note new"
+                ))
+            }
+
+        case "path":
+            let slugArg = try slugArgument(for: "path", usage: "cmux note path <slug>")
+            var params = try buildRoutingParams()
+            params["slug"] = slugArg
+            let payload = try client.sendV2(method: "note.path", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let path = (payload["path"] as? String) ?? ""
+                print(path)
+            }
+
+        case "read", "cat":
+            let slugArg = try slugArgument(for: "read", usage: "cmux note read <slug>")
+            var params = try buildRoutingParams()
+            params["slug"] = slugArg
+            let payload = try client.sendV2(method: "note.read", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                printRaw((payload["content"] as? String) ?? "")
+            }
+
+        case "write":
+            let mutation = try contentMutationArguments(
+                for: "write",
+                usage: "cmux note write <slug> [--text <text>|--stdin|<text...>]"
+            )
+            var params = try buildRoutingParams()
+            params["slug"] = mutation.slug
+            params["content"] = mutation.content
+            params["create"] = mutation.createIfMissing
+            let payload = try client.sendV2(method: "note.write", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let slug = (payload["slug"] as? String) ?? mutation.slug
+                let bytes = intFromAny(payload["bytes"]) ?? mutation.content.utf8.count
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.note.output.wrote",
+                        defaultValue: "OK wrote slug=%@ bytes=%d"
+                    ),
+                    slug,
+                    bytes
+                ))
+            }
+
+        case "append":
+            let mutation = try contentMutationArguments(
+                for: "append",
+                usage: "cmux note append <slug> [--text <text>|--stdin|<text...>]"
+            )
+            var params = try buildRoutingParams()
+            params["slug"] = mutation.slug
+            params["content"] = mutation.content
+            params["create"] = mutation.createIfMissing
+            let payload = try client.sendV2(method: "note.append", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let slug = (payload["slug"] as? String) ?? mutation.slug
+                let bytes = intFromAny(payload["bytes"]) ?? mutation.content.utf8.count
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.note.output.appended",
+                        defaultValue: "OK appended slug=%@ bytes=%d"
+                    ),
+                    slug,
+                    bytes
+                ))
+            }
+
+        case "rm", "delete":
+            let slugArg = try slugArgument(for: "rm", usage: "cmux note rm <slug>")
+            var params = try buildRoutingParams()
+            params["slug"] = slugArg
+            let payload = try client.sendV2(method: "note.delete", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let deleted = (payload["deleted"] as? Bool) ?? false
+                let slug = (payload["slug"] as? String) ?? slugArg
+                let message = deleted
+                    ? String.localizedStringWithFormat(
+                        String(
+                            localized: "cli.note.output.deleted",
+                            defaultValue: "OK deleted slug=%@"
+                        ),
+                        slug
+                    )
+                    : String.localizedStringWithFormat(
+                        String(
+                            localized: "cli.note.output.alreadyAbsent",
+                            defaultValue: "OK already-absent slug=%@"
+                        ),
+                        slug
+                    )
+                print(message)
+            }
+
+        default:
+            throw CLIError(
+                message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.note.error.unknownSubcommand",
+                        defaultValue: "cmux note: unknown subcommand '%@'. Verbs: new, open, list, path, read, write, append, rm"
+                    ),
+                    subcommand
+                )
+            )
+        }
+    }
+
     private func runProjectCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -5336,6 +5939,7 @@ struct CMUXCLI {
         "new-window",
         "new-workspace",
         "next-window",
+        "note",
         "notify",
         "omc",
         "omo",
@@ -15898,32 +16502,7 @@ struct CMUXCLI {
               cmux sidebar-state --workspace workspace:2
             """
         case "right-sidebar":
-            return String(localized: "cli.rightSidebar.usage", defaultValue: """
-            Usage: cmux right-sidebar <command> [flags]
-
-            Control the right sidebar from the CLI.
-
-            Commands:
-              toggle                         Toggle right sidebar visibility
-              show                           Show the right sidebar
-              hide                           Hide the right sidebar
-              focus                          Focus the current right sidebar mode
-              set <files|find|vault|sessions|feed|dock>
-                                             Show, switch mode, and focus
-              mode                           Print {"visible":bool,"mode":string}
-              files|find|vault|sessions|feed|dock
-                                             Alias for show + set + focus
-
-            Flags:
-              --workspace <id|ref|index>     Target the window containing a workspace
-              --window <id|ref|index>        Target a window
-              --no-focus                     With set, switch mode without moving focus
-
-            Examples:
-              cmux right-sidebar toggle
-              cmux right-sidebar set find
-              cmux right-sidebar mode
-            """)
+            return Self.rightSidebarUsage()
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
             Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]
@@ -16091,6 +16670,56 @@ struct CMUXCLI {
               cmux markdown open ./docs/design.md --workspace 0
               cmux markdown open plan.md --direction down
             """
+        case "note":
+            return String(localized: "cli.note.usage", defaultValue: """
+                Usage: cmux note <verb> [options]
+
+                Project-scoped markdown notes stored under .cmux/notes/ with
+                durable metadata in .cmux/notes/index.json. Notes can attach to
+                a workspace, surface, or terminal and render in markdown panels
+                with live file watching.
+
+                Verbs:
+                  new                Create (if missing), attach, and open a note.
+                  open <slug>        Open an existing note; add --attach to attach it.
+                  list               List notes in the project, newest first.
+                  here               Print the note resolved for this surface, then workspace.
+                  path <slug>        Print the absolute file path for a slug.
+                  read <slug>        Print note content.
+                  write <slug>       Replace note content from --text, --stdin, or args.
+                  append <slug>      Append note content from --text, --stdin, or args.
+                  rm <slug>          Delete the note file (idempotent).
+
+                Options (shared across verbs):
+                  --slug <name>      Slug to use for `new` (kebab-case, [a-z0-9-]+).
+                                     Auto-generated as `note-<6hex>` when omitted.
+                  --title <text>     Title for a new note.
+                  --attach <mode>    none|workspace|surface|terminal.
+                                     `new` defaults to surface; `open` defaults to none.
+                  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+                  --surface <id|ref|index>     Source surface to split from (default: $CMUX_SURFACE_ID or focused)
+                  --window <id|ref|index>      Target window
+                  --direction <left|right|up|down>   Split direction (default: right)
+                  --focus <true|false>         Focus the note panel (default: false)
+                  --text <text>      Content for write/append.
+                  --stdin            Read write/append content from stdin.
+                  --create <true|false>  Create note on write/append when missing (default: true).
+                  --json                       Emit JSON instead of human-readable output
+
+                Examples:
+                  cmux note new
+                  cmux note new --slug todo
+                  cmux note new --attach workspace --title "Launch notes"
+                  cmux note open todo --attach terminal
+                  cmux note open todo
+                  cmux note open todo --direction down --focus true
+                  cmux note list
+                  cmux note read todo
+                  cmux note write todo --text "## Todo"
+                  printf '\\n- Ship notes\\n' | cmux note append todo --stdin
+                  $EDITOR "$(cmux note path todo)"
+                  cmux note rm todo
+                """)
         default:
             return nil
         }
@@ -16602,7 +17231,7 @@ struct CMUXCLI {
 
         case "set":
             guard parsed.positional.count == 2 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, or dock"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, notes, find, vault, sessions, feed, or dock"))
             }
             let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             guard isRightSidebarCLIMode(mode) else {
@@ -16614,7 +17243,7 @@ struct CMUXCLI {
             }
             return args
 
-        case "files", "find", "vault", "sessions", "feed", "dock":
+        case "files", "notes", "find", "vault", "sessions", "feed", "dock":
             guard parsed.positional.count == 1 else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
             }
@@ -34305,7 +34934,7 @@ export default CMUXSessionRestore;
           open-notification --id <uuid>
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
-          right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          right-sidebar <toggle|show|hide|focus|set|mode|\(Self.availableRightSidebarModeTokens().joined(separator: "|"))> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
@@ -34343,6 +34972,8 @@ export default CMUXSessionRestore;
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
+
+          \(Self.noteGlobalUsage())
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status

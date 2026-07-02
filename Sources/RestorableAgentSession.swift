@@ -1016,6 +1016,15 @@ struct RestorableAgentSessionIndex: Sendable {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
     }
 
+    /// Every recorded entry with its recorded (workspaceId, panel/surface
+    /// UUID) key. Agents survive app relaunches and keep reporting their
+    /// previous run's UUIDs through hooks, so callers that need
+    /// current-workspace attribution must correlate by live pid
+    /// (`Entry.processIDs`) in addition to the recorded workspace id.
+    func allEntries() -> [(key: PanelKey, entry: Entry)] {
+        entriesByPanel.map { ($0.key, $0.value) }
+    }
+
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         entry(workspaceId: workspaceId, panelId: panelId)?.snapshot
     }

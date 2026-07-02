@@ -18,7 +18,7 @@ public enum RovoDevSessionResolver {
             return nil
         }
 
-        let normalizedCwd = RovoDevIndex.normalizedPath(cwd)
+        let normalizedCwd = rovoDevNormalizedPath(cwd)
         var candidates: [RovoDevSessionCandidate] = []
         candidates.reserveCapacity(sessionURLs.count)
         for sessionURL in sessionURLs {
@@ -30,15 +30,15 @@ public enum RovoDevSessionResolver {
                   let metadata = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 continue
             }
-            let workspace = RovoDevMetadataFields.workspacePath(from: metadata)
-            let normalizedWorkspace = RovoDevIndex.normalizedPath(workspace)
+            let workspace = rovoDevWorkspacePath(from: metadata)
+            let normalizedWorkspace = rovoDevNormalizedPath(workspace)
             guard rovoDevWorkspace(normalizedWorkspace, matches: normalizedCwd) else {
                 continue
             }
             let sessionContextURL = sessionURL.appendingPathComponent("session_context.json", isDirectory: false)
             let modified = max(
-                RovoDevIndex.contentModificationDate(ofRegularFile: metadataURL) ?? Date.distantPast,
-                RovoDevIndex.contentModificationDate(ofRegularFile: sessionContextURL) ?? Date.distantPast
+                rovoDevContentModificationDate(ofRegularFile: metadataURL) ?? Date.distantPast,
+                rovoDevContentModificationDate(ofRegularFile: sessionContextURL) ?? Date.distantPast
             )
             candidates.append(RovoDevSessionCandidate(
                 sessionId: sessionURL.lastPathComponent,
@@ -205,4 +205,51 @@ public enum RovoDevSessionResolver {
         default: return character
         }
     }
+}
+
+private let rovoDevWorkspacePathKeys: [String] = [
+    "workspace_path",
+    "workspacePath",
+    "workspace",
+    "cwd",
+    "working_directory",
+    "workingDirectory",
+    "project_path",
+    "projectPath",
+]
+
+private func rovoDevWorkspacePath(from metadata: [String: Any]) -> String? {
+    firstNonEmptyRovoDevString(from: metadata, keys: rovoDevWorkspacePathKeys)
+}
+
+private func firstNonEmptyRovoDevString(from metadata: [String: Any], keys: [String]) -> String? {
+    for key in keys {
+        guard let value = metadata[key] as? String else { continue }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return trimmed
+        }
+    }
+    return nil
+}
+
+private func rovoDevContentModificationDate(ofRegularFile url: URL) -> Date? {
+    guard let values = try? url.resourceValues(
+        forKeys: [.contentModificationDateKey, .isRegularFileKey]
+    ),
+          values.isRegularFile == true else {
+        return nil
+    }
+    return values.contentModificationDate
+}
+
+private func rovoDevNormalizedPath(_ path: String?) -> String? {
+    guard let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty else {
+        return nil
+    }
+    return URL(fileURLWithPath: NSString(string: trimmed).expandingTildeInPath)
+        .resolvingSymlinksInPath()
+        .standardizedFileURL
+        .path
 }

@@ -83,7 +83,8 @@ extension TerminalSurface {
             Self.cmuxContextEnvironment(
                 workspaceId: tabId,
                 surfaceId: id,
-                socketPath: socketPath
+                socketPath: socketPath,
+                workspaceNotesDir: spawnPolicyProvider.workspaceNotesDirectory(workspaceId: tabId)
             ),
             to: &env,
             protectedKeys: &protectedStartupEnvironmentKeys

@@ -92,6 +92,8 @@ extension TerminalController {
         "pane.break",
         "pane.join",
         "markdown.open",
+        "note.create",
+        "note.open",
         "browser.open_split",
         "sidebar.custom.open"
     ]

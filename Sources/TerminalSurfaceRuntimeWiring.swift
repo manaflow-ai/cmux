@@ -11,6 +11,44 @@ import struct CmuxSettings.AgentIntegrationSettingsStore
 // here carries behavior verbatim from the legacy god-file reach-up it
 // replaces; this file is intended composition-root residue.
 
+@MainActor private var workspaceNotesDirectoryResolvers:
+    [ObjectIdentifier: WorkspaceNotesDirectoryResolverEntry] = [:]
+
+@MainActor private func pruneWorkspaceNotesDirectoryResolvers() {
+    workspaceNotesDirectoryResolvers = workspaceNotesDirectoryResolvers.filter {
+        $0.value.owner != nil
+    }
+}
+
+extension TerminalSurface {
+    /// Register (or replace) a window's notes-dir resolver, keyed by owner.
+    @MainActor
+    static func registerWorkspaceNotesDirectoryResolver(
+        owner: AnyObject,
+        _ resolve: @escaping @MainActor (UUID) -> String?
+    ) {
+        pruneWorkspaceNotesDirectoryResolvers()
+        workspaceNotesDirectoryResolvers[ObjectIdentifier(owner)] =
+            WorkspaceNotesDirectoryResolverEntry(owner: owner, resolve: resolve)
+    }
+
+    /// Remove a window's notes-dir resolver when its owner is torn down.
+    @MainActor
+    static func unregisterWorkspaceNotesDirectoryResolver(owner: AnyObject) {
+        workspaceNotesDirectoryResolvers.removeValue(forKey: ObjectIdentifier(owner))
+    }
+
+    /// Resolve a workspace's Notes tree root across registered windows.
+    @MainActor
+    static func resolveWorkspaceNotesDirectory(_ workspaceId: UUID) -> String? {
+        pruneWorkspaceNotesDirectoryResolvers()
+        for entry in workspaceNotesDirectoryResolvers.values {
+            if let dir = entry.resolve(workspaceId) { return dir }
+        }
+        return nil
+    }
+}
+
 // MARK: Engine
 
 extension GhosttyApp: TerminalEngineHosting {
@@ -63,6 +101,10 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
         TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
+    }
+
+    func workspaceNotesDirectory(workspaceId: UUID) -> String? {
+        TerminalSurface.resolveWorkspaceNotesDirectory(workspaceId)
     }
 }
 

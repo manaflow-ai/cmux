@@ -655,6 +655,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             switch lib {
             case "mermaid":
                 sources = [assets.lazyAsset(name: "mermaid.min", ext: "js")]
+            case "mathjax":
+                sources = [assets.lazyAsset(name: "mathjax-tex-svg.min", ext: "js")]
             case "vega-lite":
                 // Order matters: vega first, then vega-lite, then vega-embed.
                 sources = [

@@ -104,47 +104,106 @@ struct MarkdownPanelView: View {
                     themeBackgroundColor: appearance.contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
                     drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap
+                    wordWrap: fileEditorWordWrap,
+                    onPointerDown: onRequestPanelFocus
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
 
+    @ViewBuilder
     private var filePathHeader: some View {
-        PanelFilePathHeader(
-            iconSystemName: panel.displayIcon ?? "doc.richtext",
-            filePath: panel.filePath,
-            foregroundColor: themeForegroundColor
-        ) {
-            if panel.displayMode == .text {
-                PanelHeaderIconButton(
-                    systemName: "arrow.counterclockwise",
-                    label: String(localized: "markdown.toolbar.revert", defaultValue: "Revert"),
-                    isDisabled: !panel.isDirty,
-                    action: { panel.loadTextContent() }
+        if panel.isProjectNote {
+            // Project notes live at store-managed paths, so the header leads
+            // with the record title as a Google-Docs-style rename field
+            // instead of the meaningless file path (still available via the
+            // field's tooltip and the external-open menu).
+            HStack(spacing: 8) {
+                NoteTitleRenameField(
+                    title: panel.displayTitle,
+                    filePath: panel.filePath,
+                    foregroundColor: themeForegroundColor,
+                    onRename: { panel.renameNoteTitle($0) }
                 )
+                Spacer(minLength: 8)
+                headerTrailingControls
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .background(Color.clear)
+        } else {
+            PanelFilePathHeader(
+                iconSystemName: nil,
+                filePath: panel.filePath,
+                foregroundColor: themeForegroundColor
+            ) {
+                headerTrailingControls
+            }
+        }
+    }
 
-                PanelHeaderIconButton(
-                    systemName: "square.and.arrow.down",
-                    label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
-                    isDisabled: !panel.isDirty || panel.isSaving,
-                    action: { panel.saveTextContent() }
-                )
-            }
-            if panel.displayMode == .preview {
-                MarkdownTypographyControl(panel: panel)
-            }
-            markdownModeButton
-            MarkdownPanelToolbar(
-                confirmation: copyConfirmation?.label,
-                onCopyMarkdown: { copyAsMarkdown() },
-                onCopyHTML: { copyAsHTML() }
+    @ViewBuilder
+    private var headerTrailingControls: some View {
+        // Notes auto-save, so the Save control only appears for plain
+        // Markdown files (which still save explicitly).
+        if panel.displayMode == .text, !panel.behavesAsNote, panel.isDirty || panel.isSaving {
+            PanelHeaderIconButton(
+                systemName: "square.and.arrow.down",
+                label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
+                isDisabled: !panel.isDirty || panel.isSaving,
+                action: { panel.saveTextContent() }
             )
-            FileExternalOpenMenu(
-                fileURL: URL(fileURLWithPath: panel.filePath),
-                isDisabled: panel.isFileUnavailable
-            )
+        }
+        if panel.displayMode == .preview {
+            MarkdownTypographyControl(panel: panel)
+        }
+        markdownModeButton
+        MarkdownPanelToolbar(
+            confirmation: copyConfirmation?.label,
+            onCopyMarkdown: { copyAsMarkdown() },
+            onCopyHTML: { copyAsHTML() }
+        )
+        FileExternalOpenMenu(
+            fileURL: URL(fileURLWithPath: panel.filePath),
+            isDisabled: panel.isFileUnavailable
+        )
+    }
+
+    // MARK: - Copy actions
+
+    private func copyAsMarkdown() {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(panel.content, forType: .string)
+        flashCopyConfirmation(.markdown)
+    }
+
+    private func copyAsHTML() {
+        Task { @MainActor in
+            guard let html = await panel.rendererSession.renderedHTML(markdown: panel.content) else { return }
+            // Plain-text targets get readable text, not raw markup.
+            let text = await panel.rendererSession.renderedText() ?? panel.content
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
+            // and a plain-text fallback so plain editors still receive content.
+            pb.setString(html, forType: .html)
+            pb.setString(text, forType: .string)
+            flashCopyConfirmation(.html)
+        }
+    }
+
+    private func flashCopyConfirmation(_ kind: CopyConfirmation) {
+        copyConfirmationGeneration &+= 1
+        let generation = copyConfirmationGeneration
+        copyConfirmation = kind
+        Task { @MainActor in
+            try? await ContinuousClock().sleep(for: .milliseconds(1_600))
+            guard copyConfirmationGeneration == generation else { return }
+            if copyConfirmation == kind {
+                copyConfirmation = nil
+            }
         }
     }
 
@@ -205,42 +264,6 @@ struct MarkdownPanelView: View {
         themeBackgroundColor.isLightColor ? .light : .dark
     }
 
-    // MARK: - Copy actions
-
-    private func copyAsMarkdown() {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(panel.content, forType: .string)
-        flashCopyConfirmation(.markdown)
-    }
-
-    private func copyAsHTML() {
-        Task { @MainActor in
-            guard let html = await panel.rendererSession.renderedHTML(markdown: panel.content) else { return }
-            let text = await panel.rendererSession.renderedText() ?? panel.content
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
-            // and a plain-text fallback so plain editors still receive content.
-            pb.setString(html, forType: .html)
-            pb.setString(text, forType: .string)
-            flashCopyConfirmation(.html)
-        }
-    }
-
-    private func flashCopyConfirmation(_ kind: CopyConfirmation) {
-        copyConfirmationGeneration &+= 1
-        let generation = copyConfirmationGeneration
-        copyConfirmation = kind
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_600_000_000)
-            guard copyConfirmationGeneration == generation else { return }
-            if copyConfirmation == kind {
-                copyConfirmation = nil
-            }
-        }
-    }
-
     // MARK: - Focus Flash
 
     private func triggerFocusFlashAnimation() {
@@ -267,8 +290,6 @@ struct MarkdownPanelView: View {
         }
     }
 }
-
-// MARK: - Toolbar
 
 private struct MarkdownPanelToolbar: View {
     let confirmation: String?

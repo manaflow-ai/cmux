@@ -7,6 +7,7 @@ import SwiftUI
 /// off by default.
 @MainActor
 public struct BetaFeaturesSection: View {
+    @State private var notes: DefaultsValueModel<Bool>
     @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
@@ -14,6 +15,7 @@ public struct BetaFeaturesSection: View {
     @State private var remoteTmux: DefaultsValueModel<Bool>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
+        _notes = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarNotes))
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
@@ -28,6 +30,8 @@ public struct BetaFeaturesSection: View {
                 BetaFeaturesWarningNote(
                     String(localized: "settings.betaFeatures.warning", defaultValue: "These features are experimental and may change or break. Enable them only when you are testing them.")
                 )
+                SettingsCardDivider()
+                notesRow
                 SettingsCardDivider()
                 feedRow
                 SettingsCardDivider()
@@ -45,6 +49,7 @@ public struct BetaFeaturesSection: View {
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
+            notes,
             feed,
             dock,
             extensions,
@@ -52,6 +57,23 @@ public struct BetaFeaturesSection: View {
             remoteTmux,
         ]
         models.forEach { $0.startObserving() }
+    }
+
+    @ViewBuilder
+    private var notesRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:notes",
+            String(localized: "settings.betaFeatures.notes", defaultValue: "Notes"),
+            subtitle: notes.current
+                ? String(localized: "settings.betaFeatures.notes.subtitleOn", defaultValue: "Shows Notes in the right sidebar mode switcher for per-workspace notes and agent sessions.")
+                : String(localized: "settings.betaFeatures.notes.subtitleOff", defaultValue: "Hides Notes from the right sidebar until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { notes.current }, set: { notes.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaNotesToggle")
+        }
     }
 
     @ViewBuilder

@@ -997,6 +997,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// instead of spawning the bundled `cmux diff` CLI, so shortcut-dispatch tests can
     /// assert routing without launching a subprocess.
     var debugOpenDiffViewerHandler: (() -> Void)?
+    /// Test seam: when set, the built-in `cmux.newNote` action invokes this
+    /// instead of creating a note file.
+    var debugNewNoteBuiltInActionHandler: (() -> Void)?
     var debugCreateMainWindowSourceIsNativeFullScreenOverride: Bool?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
@@ -13305,6 +13308,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .newNote) {
+            let didCreate = executeConfiguredCmuxActionShortcut(
+                CmuxResolvedConfigAction.builtIn(.newNote),
+                event: event,
+                context: configuredCmuxShortcutContext
+            )
+            if !didCreate {
+                NSSound.beep()
+            }
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleRightSidebar) {
             // Escape AppKit's performKeyEquivalent animation context. Without
             // deferring the toggle, NSAnimationContext implicitly animates the
@@ -15291,6 +15306,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 onExecuted?()
                 return true
+            case .newNote:
+#if DEBUG
+                if let debugNewNoteBuiltInActionHandler {
+                    debugNewNoteBuiltInActionHandler()
+                    onExecuted?()
+                    return true
+                }
+#endif
+                guard let workspace = context.tabManager.selectedWorkspace,
+                      let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+                    return false
+                }
+                let panelId = workspace.focusedPanelId
+                    ?? workspace.bonsplitController.selectedTab(inPane: paneId).flatMap { workspace.panelIdFromSurfaceId($0.id) }
+                Task { @MainActor in
+                    if let panelId, workspace.panels[panelId] != nil {
+                        _ = await workspace.openAttachedNoteForSurface(
+                            inPane: paneId,
+                            panelId: panelId,
+                            focus: true
+                        )
+                    } else {
+                        _ = await workspace.openAttachedNoteForWorkspace(inPane: paneId, focus: true)
+                    }
+                }
+                onExecuted?()
+                return true
             case .splitRight:
                 if shouldSuppressSplitShortcutForTransientTerminalFocusState(
                     direction: .right,
@@ -15317,6 +15359,93 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didSplit { onExecuted?() }
                 return didSplit
+            case .more:
+                return false
+            case .rightSidebarFiles:
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .files,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarFind:
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .find,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarVault:
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .sessions,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarFeed:
+                guard RightSidebarMode.feed.isAvailable() else { return false }
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .feed,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarDock:
+                guard RightSidebarMode.dock.isAvailable() else { return false }
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .dock,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .filesPane:
+                let didOpen = openRightSidebarToolPane(mode: .files, context: context)
+                if didOpen { onExecuted?() }
+                return didOpen
+            case .findPane:
+                let didOpen = openRightSidebarToolPane(mode: .find, context: context)
+                if didOpen { onExecuted?() }
+                return didOpen
+            case .vaultPane:
+                let didOpen = openRightSidebarToolPane(mode: .sessions, context: context)
+                if didOpen { onExecuted?() }
+                return didOpen
+            case .diffViewer:
+                guard let workspace = context.tabManager.selectedWorkspace else { return false }
+                // Mirror the shared diff opener: prefer the focused panel's tracked
+                // directory over the workspace's last cwd so the diff targets the repo
+                // the user is actually in.
+                let cwd = workspace.resolvedWorkingDirectory()
+                    ?? FileManager.default.homeDirectoryForCurrentUser.path
+                let didOpen = CmuxDiffViewerLauncher.shared.start(
+                    cwd: cwd,
+                    workspaceId: workspace.id,
+                    surfaceId: workspace.focusedPanelId
+                )
+                if didOpen { onExecuted?() }
+                return didOpen
+            case .revealCurrentDirectoryInFinder:
+                guard let workspace = context.tabManager.selectedWorkspace,
+                      let path = WorkspaceFinderDirectoryResolver.path(for: workspace) else {
+                    return false
+                }
+                Task {
+                    await WorkspaceFinderDirectoryOpener.openInFinder(URL(fileURLWithPath: path, isDirectory: true))
+                }
+                onExecuted?()
+                return true
+            case .customizeSurfaceTabBar:
+                openPreferencesWindow(
+                    debugSource: "configured.cmux.customizeSurfaceTabBar",
+                    navigationTarget: .paneTabBar
+                )
+                onExecuted?()
+                return true
             }
         case .command, .agent, .workspaceCommand:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
@@ -15338,6 +15467,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .actionReference:
             return false
         }
+    }
+
+    private func openRightSidebarToolPane(mode: RightSidebarMode, context: MainWindowContext) -> Bool {
+        guard mode.canOpenAsPane,
+              let workspace = context.tabManager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return false
+        }
+        workspace.clearSplitZoom()
+        return workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true) != nil
     }
 
     /// Match a shortcut stroke against an event, handling normal keys.

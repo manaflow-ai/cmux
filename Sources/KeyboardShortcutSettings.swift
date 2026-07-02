@@ -89,6 +89,7 @@ enum KeyboardShortcutSettings {
         case markOldestUnreadAndJumpNext
         case focusRightSidebar
         case switchRightSidebarToFiles
+        case switchRightSidebarToNotes
         case switchRightSidebarToFind
         case switchRightSidebarToSessions
         case switchRightSidebarToFeed
@@ -115,6 +116,7 @@ enum KeyboardShortcutSettings {
         case toggleFocusedWorkspaceGroupCollapsed
         case reopenClosedBrowserPanel
         case newSurface
+        case newNote
         case toggleTerminalCopyMode
         case focusTextBoxInput
         case attachTextBoxFile
@@ -214,6 +216,7 @@ enum KeyboardShortcutSettings {
                 return String(localized: "shortcut.markOldestUnreadAndJumpNext.label", defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread")
             case .focusRightSidebar: return String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Toggle Right Sidebar Focus")
             case .switchRightSidebarToFiles: return String(localized: "shortcut.switchRightSidebarToFiles.label", defaultValue: "Show Sidebar Files")
+            case .switchRightSidebarToNotes: return String(localized: "shortcut.switchRightSidebarToNotes.label", defaultValue: "Show Sidebar Notes")
             case .switchRightSidebarToFind: return String(localized: "shortcut.switchRightSidebarToFind.label", defaultValue: "Show Sidebar Find")
             case .switchRightSidebarToSessions: return String(localized: "shortcut.switchRightSidebarToSessions.label", defaultValue: "Show Sidebar Vault")
             case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
@@ -238,6 +241,7 @@ enum KeyboardShortcutSettings {
             case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
+            case .newNote: return String(localized: "shortcut.newNote.label", defaultValue: "New Note")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
@@ -308,6 +312,7 @@ enum KeyboardShortcutSettings {
         var isPublicShortcutAction: Bool {
             switch self {
             case .switchRightSidebarToFiles,
+                 .switchRightSidebarToNotes,
                  .switchRightSidebarToFind,
                  .switchRightSidebarToSessions,
                  .switchRightSidebarToFeed,
@@ -375,6 +380,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
             case .switchRightSidebarToFiles:
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToNotes:
+                return StoredShortcut(key: "6", command: false, shift: false, option: false, control: true)
             case .switchRightSidebarToFind:
                 return StoredShortcut(key: "2", command: false, shift: false, option: false, control: true)
             case .switchRightSidebarToSessions:
@@ -473,6 +480,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            case .newNote:
+                return StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
             case .focusTextBoxInput:

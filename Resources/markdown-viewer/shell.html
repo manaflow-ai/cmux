@@ -149,6 +149,26 @@ body {
   height: auto;
 }
 .cmux-mermaid .cmux-source, .cmux-vega .cmux-source { display: none; }
+.cmux-math {
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 100%;
+  vertical-align: baseline;
+}
+.cmux-math svg {
+  max-width: 100%;
+  height: auto;
+  vertical-align: -0.2em;
+}
+.cmux-math-block {
+  display: block;
+  margin: 0.8em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.cmux-math-block svg {
+  display: inline-block;
+}
 .markdown-body code[data-cmux-file] {
   cursor: default;
   border-bottom: 1px dotted var(--fgColor-muted);
@@ -295,6 +315,23 @@ html { scroll-behavior: smooth; }
     try { return decodeURIComponent(String(s || '')); }
     catch (e) { return String(s || ''); }
   }
+
+  window.MathJax = window.MathJax || {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']],
+      processEscapes: true
+    },
+    svg: {
+      fontCache: 'none'
+    },
+    options: {
+      enableMenu: false
+    },
+    startup: {
+      typeset: false
+    }
+  };
 
   function stripQueryFragment(path) {
     var s = String(path || '');
@@ -933,6 +970,86 @@ html { scroll-behavior: smooth; }
     return template.innerHTML;
   }
 
+  function isSafeGeneratedSVGFragmentReference(value) {
+    return /^#[A-Za-z0-9_.:-]+$/.test(String(value || '').trim());
+  }
+
+  function generatedSVGValueHasUnsafeURL(value) {
+    var raw = String(value || '');
+    var compact = compactForProtocolCheck(raw).toLowerCase();
+    if (
+      compact.indexOf('javascript:') !== -1 ||
+      compact.indexOf('vbscript:') !== -1 ||
+      compact.indexOf('data:') !== -1 ||
+      compact.indexOf('@import') !== -1
+    ) {
+      return true;
+    }
+    var urlPattern = /url\(\s*(['"]?)([^'")]+)\1\s*\)/ig;
+    var match;
+    while ((match = urlPattern.exec(raw)) !== null) {
+      if (!isSafeGeneratedSVGFragmentReference(match[2])) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Generated diagram/math output (MathJax, Mermaid, Vega) legitimately
+  // needs SVG, which sanitizeRenderedHTML blocks outright — so it skips that
+  // sanitizer and gets this scrub instead: drop script-capable elements and
+  // event handlers, allow only fragment URL references inside generated SVG,
+  // and reject style/CSS content that could load external resources.
+  function scrubGeneratedSubtree(root) {
+    if (!root || root.nodeType !== 1) { return root; }
+    var blocked = /^(script|foreignobject|iframe|object|embed)$/i;
+    var all = [root].concat(Array.prototype.slice.call(root.querySelectorAll('*')));
+    all.forEach(function(el) {
+      var tag = String(el.tagName || '').toLowerCase();
+      if (blocked.test(tag)) {
+        if (el.parentNode) { el.parentNode.removeChild(el); }
+        return;
+      }
+      if (tag === 'style' && generatedSVGValueHasUnsafeURL(el.textContent || '')) {
+        if (el.parentNode) { el.parentNode.removeChild(el); }
+        return;
+      }
+      Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
+        var name = String(attr.name || '').toLowerCase();
+        if (
+          name.indexOf('on') === 0 ||
+          name === 'background' ||
+          name === 'srcset' ||
+          name === 'srcdoc' ||
+          name === 'formaction'
+        ) {
+          el.removeAttribute(attr.name);
+          return;
+        }
+        if (name === 'href' || name === 'xlink:href') {
+          if (!isSafeGeneratedSVGFragmentReference(attr.value)) {
+            el.removeAttribute(attr.name);
+          }
+          return;
+        }
+        if (name === 'src') {
+          el.removeAttribute(attr.name);
+          return;
+        }
+        if (generatedSVGValueHasUnsafeURL(attr.value)) {
+          el.removeAttribute(attr.name);
+        }
+      });
+    });
+    return root;
+  }
+
+  function scrubGeneratedContainer(el) {
+    Array.prototype.slice.call(el.children || []).forEach(function(child) {
+      scrubGeneratedSubtree(child);
+    });
+  }
+
   // Configure marked: GitHub-flavored, with custom renderers for
   // code (syntax-highlighted via highlight.js), headings (with
   // GitHub-style slug ids for anchor links), and local markdown file
@@ -1026,7 +1143,9 @@ html { scroll-behavior: smooth; }
   };
 
   function renderLibError(libName, msg) {
-    var sel = libName === 'mermaid' ? '.cmux-mermaid' : '.cmux-vega';
+    var sel = libName === 'mermaid' ? '.cmux-mermaid'
+      : libName === 'mathjax' ? '.cmux-math'
+      : '.cmux-vega';
     contentEl.querySelectorAll(sel + ':not([data-rendered])').forEach(function(el) {
       el.setAttribute('data-rendered', '1');
       el.innerHTML = '<div class="cmux-render-error">' + libName + ': ' + escapeHtml(msg) + '</div>';
@@ -1311,6 +1430,7 @@ html { scroll-behavior: smooth; }
       try {
         mermaid.render(id, src).then(function(res) {
           el.innerHTML = res.svg;
+          scrubGeneratedContainer(el);
           applyMermaidZoom(el);
           if (res.bindFunctions) { try { res.bindFunctions(el); } catch (e) {} }
         }).catch(function(err) {
@@ -1417,7 +1537,9 @@ html { scroll-behavior: smooth; }
         el.innerHTML = '';
         var opts = { mode: mode, actions: false, renderer: 'svg' };
         if (isDark) { opts.theme = 'dark'; }
-        vegaEmbed(el, spec, opts).catch(function(err) {
+        vegaEmbed(el, spec, opts).then(function() {
+          scrubGeneratedContainer(el);
+        }).catch(function(err) {
           el.innerHTML = '<div class="cmux-render-error">Vega: '
             + escapeHtml(String((err && err.message) || err)) + '</div>';
         });
@@ -1428,12 +1550,188 @@ html { scroll-behavior: smooth; }
     });
   }
 
+  function isEscapedDelimiter(text, index) {
+    var count = 0;
+    for (var i = index - 1; i >= 0 && text.charAt(i) === '\\'; i--) {
+      count++;
+    }
+    return count % 2 === 1;
+  }
+
+  function findClosingMathDelimiter(text, start, token) {
+    for (var i = start; i <= text.length - token.length; i++) {
+      if (text.substr(i, token.length) === token && !isEscapedDelimiter(text, i)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function pushTextSegment(segments, text, start, end) {
+    if (end > start) {
+      segments.push({ text: text.slice(start, end) });
+    }
+  }
+
+  function parseMathSegments(text) {
+    var raw = String(text || '');
+    var segments = [];
+    var noClosingAfter = Object.create(null);
+    var lastTextStart = 0;
+    var i = 0;
+
+    while (i < raw.length) {
+      var openLength = 0;
+      var closeToken = '';
+      var display = false;
+
+      if (raw.substr(i, 2) === '$$' && !isEscapedDelimiter(raw, i)) {
+        openLength = 2;
+        closeToken = '$$';
+        display = true;
+      } else if (raw.substr(i, 2) === '\\[' && !isEscapedDelimiter(raw, i)) {
+        openLength = 2;
+        closeToken = '\\]';
+        display = true;
+      } else if (raw.substr(i, 2) === '\\(' && !isEscapedDelimiter(raw, i)) {
+        openLength = 2;
+        closeToken = '\\)';
+      } else if (
+        raw.charAt(i) === '$' &&
+        raw.charAt(i + 1) !== '$' &&
+        !isEscapedDelimiter(raw, i) &&
+        !/\s/.test(raw.charAt(i + 1) || '')
+      ) {
+        openLength = 1;
+        closeToken = '$';
+      }
+
+      if (!openLength) {
+        i++;
+        continue;
+      }
+
+      var contentStart = i + openLength;
+      if (noClosingAfter[closeToken] != null && contentStart >= noClosingAfter[closeToken]) {
+        i += openLength;
+        continue;
+      }
+
+      var closeIndex = findClosingMathDelimiter(raw, contentStart, closeToken);
+      if (closeIndex < 0) {
+        // Once a suffix has no close token, later openers of the same kind
+        // cannot close either; do not rescan that tail for malformed notes.
+        noClosingAfter[closeToken] = contentStart;
+        i += openLength;
+        continue;
+      }
+
+      var tex = raw.slice(contentStart, closeIndex);
+      var trailingChar = closeToken === '$' ? raw.charAt(closeIndex - 1) : 'x';
+      if (!tex.trim() || (closeToken === '$' && /\s/.test(trailingChar || ''))) {
+        i = closeIndex + closeToken.length;
+        continue;
+      }
+
+      pushTextSegment(segments, raw, lastTextStart, i);
+      segments.push({ tex: tex, display: display });
+      i = closeIndex + closeToken.length;
+      lastTextStart = i;
+    }
+
+    if (!segments.some(function(segment) { return segment.tex != null; })) {
+      return null;
+    }
+    pushTextSegment(segments, raw, lastTextStart, raw.length);
+    return segments;
+  }
+
+  function replaceMathInTextNodes(root) {
+    var nodes = [];
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: function(node) {
+        var parent = node.parentElement;
+        if (!parent || !node.nodeValue) { return NodeFilter.FILTER_REJECT; }
+        if (parent.closest('pre, code, kbd, samp, script, style, textarea, .cmux-source, .cmux-math')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        var text = node.nodeValue;
+        if (
+          text.indexOf('$') < 0 &&
+          text.indexOf('\\(') < 0 &&
+          text.indexOf('\\[') < 0
+        ) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+
+    while (walker.nextNode()) {
+      nodes.push(walker.currentNode);
+    }
+
+    nodes.forEach(function(node) {
+      var segments = parseMathSegments(node.nodeValue);
+      if (!segments) { return; }
+      var fragment = document.createDocumentFragment();
+      segments.forEach(function(segment) {
+        if (segment.text != null) {
+          fragment.appendChild(document.createTextNode(segment.text));
+          return;
+        }
+        var el = document.createElement('span');
+        el.className = segment.display ? 'cmux-math cmux-math-block' : 'cmux-math';
+        el.setAttribute('data-tex', escapeDataAttribute(segment.tex));
+        el.setAttribute('data-display', segment.display ? '1' : '0');
+        el.textContent = segment.tex;
+        fragment.appendChild(el);
+      });
+      node.parentNode.replaceChild(fragment, node);
+    });
+  }
+
+  function renderMathBlocks() {
+    if (typeof MathJax === 'undefined') {
+      renderLibError('mathjax', 'library missing');
+      return;
+    }
+    var blocks = Array.prototype.slice.call(contentEl.querySelectorAll('.cmux-math:not([data-rendered])'));
+    if (!blocks.length) { return; }
+    var ready = MathJax.startup && MathJax.startup.promise ? MathJax.startup.promise : Promise.resolve();
+    ready.then(function() {
+      if (!MathJax.tex2svgPromise) {
+        renderLibError('mathjax', 'renderer missing');
+        return;
+      }
+      blocks.forEach(function(el) {
+        if (el.getAttribute('data-rendered') === '1') { return; }
+        el.setAttribute('data-rendered', '1');
+        var tex = unescapeDataAttribute(el.getAttribute('data-tex'));
+        var display = el.getAttribute('data-display') === '1';
+        MathJax.tex2svgPromise(tex, { display: display }).then(function(node) {
+          el.textContent = '';
+          el.appendChild(scrubGeneratedSubtree(node));
+        }).catch(function(err) {
+          el.innerHTML = '<span class="cmux-render-error">MathJax: '
+            + escapeHtml(String((err && err.message) || err)) + '</span>';
+        });
+      });
+    }).catch(function(err) {
+      renderLibError('mathjax', String((err && err.message) || err));
+    });
+  }
+
   function postProcessSpecialBlocks() {
+    replaceMathInTextNodes(contentEl);
     if (contentEl.querySelector('.cmux-mermaid:not([data-rendered])')) {
       loadLib('mermaid', renderMermaidBlocks);
     }
     if (contentEl.querySelector('.cmux-vega:not([data-rendered])')) {
       loadLib('vega-lite', renderVegaBlocks);
+    }
+    if (contentEl.querySelector('.cmux-math:not([data-rendered])')) {
+      loadLib('mathjax', renderMathBlocks);
     }
     addCodeCopyButtons();
     markMarkdownFileLinks();

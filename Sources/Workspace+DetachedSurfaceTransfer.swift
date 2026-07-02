@@ -33,6 +33,10 @@ extension Workspace {
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
         let resumeBinding: SurfaceResumeBindingSnapshot?
+        /// The panel's persistent note anchor (`Workspace.noteAnchorIdsByPanelId`),
+        /// carried across moves so notes attached to the live surface keep
+        /// resolving in the destination workspace instead of minting a new anchor.
+        let noteAnchorId: String?
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
@@ -61,6 +65,7 @@ extension Workspace {
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 resumeBinding: resumeBinding,
+                noteAnchorId: noteAnchorId,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,

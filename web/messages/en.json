@@ -1158,7 +1158,16 @@
       "absolutePath": "Absolute path",
       "cwdAbsolute": "used as-is",
       "fullExample": "Full example",
-      "restartNew": "Create a new workspace (default)"
+      "restartNew": "Create a new workspace (default)",
+      "tabBarButtonsTitle": "Surface tab bar buttons and More menu",
+      "tabBarButtonsDesc": "<code>ui.surfaceTabBar.buttons</code> controls the buttons at the end of each pane tab bar. Put it in <code>~/.config/cmux/cmux.json</code> for a global default, or in a project <code>.cmux/cmux.json</code> to override the buttons for workspaces whose current directory is inside that project. The project file wins for the button list, while actions and commands can still fall back to global definitions.",
+      "tabBarMoreMenuDesc": "cmux always appends the built-in More button unless <code>hideMoreButton</code> is true. A configured More menu should contain pane-relevant actions, for example opening Vault, Files, Find, Diffs, Finder, or this customization documentation.",
+      "tabBarBuiltinVaultPane": "Open Vault as a pane.",
+      "tabBarBuiltinFilesPane": "Open Files as a pane.",
+      "tabBarBuiltinFindPane": "Open Find as a pane.",
+      "tabBarBuiltinDiffViewer": "Open Diffs for the active workspace directory.",
+      "tabBarBuiltinRevealFinder": "Reveal the active pane directory in Finder.",
+      "tabBarBuiltinCustomize": "Open Settings to cmux.json."
     },
     "keyboardShortcuts": {
       "title": "Keyboard Shortcuts",

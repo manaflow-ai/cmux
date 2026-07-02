@@ -2568,7 +2568,8 @@ private struct MirrorTabTransferData: Codable {
 }
 
 /// Build the encoded payload bonsplit's external-drop decoder accepts.
-private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Data? {
+/// Internal: the Notes tree attaches the same payload to session-folder drags.
+func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Data? {
     let mirror = MirrorTabTransferData(
         tab: MirrorTabItem(
             id: dragId,
@@ -2617,6 +2618,29 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
         let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
         pb.addTypes([type], owner: nil)
         pb.setData(data, forType: type)
+    }
+
+    // Shared session pointer so a Vault session can be dropped into the Notes
+    // tree (same payload Notes session folders carry), creating a session folder.
+    let pointer = NotesSessionDescriptor(
+        agent: entry.agent.rawValue,
+        sessionId: entry.sessionId,
+        title: entry.displayTitle,
+        cwd: entry.resumeWorkingDirectory ?? entry.cwd ?? "",
+        modified: entry.modified.timeIntervalSince1970
+    )
+    if let pointerData = try? JSONEncoder().encode(pointer) {
+        let sessionType = NotesTreePanelView.sessionDragPasteboardType
+        provider.registerDataRepresentation(
+            forTypeIdentifier: sessionType.rawValue,
+            visibility: .ownProcess
+        ) { completion in
+            completion(pointerData, nil)
+            return nil
+        }
+        let pb = NSPasteboard(name: .drag)
+        pb.addTypes([sessionType], owner: nil)
+        pb.setData(pointerData, forType: sessionType)
     }
 
     provider.suggestedName = entry.displayTitle

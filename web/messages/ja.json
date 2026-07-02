@@ -1117,7 +1117,16 @@
       "absolutePath": "絶対パス",
       "cwdAbsolute": "そのまま使用",
       "fullExample": "完全な例",
-      "restartNew": "新しいワークスペースを作成する (デフォルト)"
+      "restartNew": "新しいワークスペースを作成する (デフォルト)",
+      "tabBarButtonsTitle": "サーフェスタブバーのボタンと More メニュー",
+      "tabBarButtonsDesc": "<code>ui.surfaceTabBar.buttons</code> は各ペインのタブバー末尾に表示されるボタンを制御します。グローバルなデフォルトは <code>~/.config/cmux/cmux.json</code> に、プロジェクト配下のワークスペースだけ上書きする場合はプロジェクトの <code>.cmux/cmux.json</code> に記述します。ボタンの一覧はプロジェクト側の設定が優先され、アクションやコマンドの定義はグローバル設定にフォールバックします。",
+      "tabBarMoreMenuDesc": "<code>hideMoreButton</code> が true でない限り、cmux は組み込みの More ボタンを常に末尾に追加します。設定した More メニューには、Vault・Files・Find・Diff・Finder・このカスタマイズドキュメントを開くなど、ペインに関連するアクションを入れることを推奨します。",
+      "tabBarBuiltinVaultPane": "Vault をペインとして開きます。",
+      "tabBarBuiltinFilesPane": "Files をペインとして開きます。",
+      "tabBarBuiltinFindPane": "Find をペインとして開きます。",
+      "tabBarBuiltinDiffViewer": "アクティブなワークスペースディレクトリの Diff を開きます。",
+      "tabBarBuiltinRevealFinder": "アクティブなペインのディレクトリを Finder で表示します。",
+      "tabBarBuiltinCustomize": "設定の cmux.json を開きます。"
     },
     "keyboardShortcuts": {
       "title": "キーボードショートカット",

@@ -81,7 +81,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard let store = sessionIndexStoreStorage else { return }
             syncSessionIndexRoot(from: workspace, store: store)
-        case .feed, .dock, .customSidebar:
+        case .notes, .feed, .dock, .customSidebar:
             break
         }
     }
@@ -139,7 +139,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             guard let anchor = sessionIndexFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .feed, .dock, .customSidebar:
+        case .notes, .feed, .dock, .customSidebar:
             break
         }
     }
@@ -161,7 +161,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .feed, .dock, .customSidebar:
+        case .notes, .feed, .dock, .customSidebar:
             return nil
         }
     }
@@ -244,7 +244,8 @@ struct RightSidebarToolPanelView: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: appearance.backgroundColor))
+            .background(Color(nsColor: paneBackgroundColor))
+            .environment(\.colorScheme, paneColorScheme)
             .overlay {
                 WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
             }
@@ -264,6 +265,8 @@ struct RightSidebarToolPanelView: View {
                 onOpenFilePreview: panel.openFilePreview,
                 presentation: .files,
                 placement: .pane,
+                paneBackgroundColor: paneBackgroundColor,
+                paneColorScheme: paneColorScheme,
                 onFocus: requestPanelFocusIfNeeded,
                 onContainerChange: panel.attachFileExplorerContainer
             )
@@ -274,6 +277,8 @@ struct RightSidebarToolPanelView: View {
                 onOpenFilePreview: panel.openFilePreview,
                 presentation: .find,
                 placement: .pane,
+                paneBackgroundColor: paneBackgroundColor,
+                paneColorScheme: paneColorScheme,
                 onFocus: requestPanelFocusIfNeeded,
                 onContainerChange: panel.attachFileExplorerContainer
             )
@@ -284,13 +289,23 @@ struct RightSidebarToolPanelView: View {
                     SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
                 }
             )
+            .background(Color(nsColor: paneBackgroundColor))
             .background(
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)
             )
-        case .feed, .dock, .customSidebar:
+        case .notes, .feed, .dock, .customSidebar:
             EmptyView()
         }
+    }
+
+    private var paneBackgroundColor: NSColor {
+        (appearance.backgroundColor.usingColorSpace(.sRGB) ?? appearance.backgroundColor)
+            .withAlphaComponent(1)
+    }
+
+    private var paneColorScheme: ColorScheme {
+        cmuxReadableColorScheme(for: paneBackgroundColor)
     }
 
     private func requestPanelFocusIfNeeded() {

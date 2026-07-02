@@ -187,6 +187,53 @@ export default function CustomCommandsPage() {
         })}
       </p>
 
+      <DocsHeading level={3} id="surface-tab-bar-buttons">{t("tabBarButtonsTitle")}</DocsHeading>
+      <p>
+        {t.rich("tabBarButtonsDesc", {
+          code: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <p>
+        {t.rich("tabBarMoreMenuDesc", {
+          code: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <CodeBlock title=".cmux/cmux.json" lang="json">{`{
+  "ui": {
+    "surfaceTabBar": {
+      "hideMoreButton": false,
+      "buttons": [
+        "cmux.newTerminal",
+        "cmux.newBrowser",
+        "cmux.splitRight",
+        "cmux.splitDown",
+        {
+          "type": "menu",
+          "id": "cmux.more",
+          "title": "More",
+          "icon": { "type": "symbol", "name": "ellipsis.vertical" },
+          "items": [
+            "cmux.vaultPane",
+            "cmux.filesPane",
+            "cmux.findPane",
+            "cmux.diffViewer",
+            "cmux.revealCurrentDirectoryInFinder",
+            "cmux.customizeSurfaceTabBar"
+          ]
+        }
+      ]
+    }
+  }
+}`}</CodeBlock>
+      <ul>
+        <li><code>cmux.vaultPane</code>: {t("tabBarBuiltinVaultPane")}</li>
+        <li><code>cmux.filesPane</code>: {t("tabBarBuiltinFilesPane")}</li>
+        <li><code>cmux.findPane</code>: {t("tabBarBuiltinFindPane")}</li>
+        <li><code>cmux.diffViewer</code>: {t("tabBarBuiltinDiffViewer")}</li>
+        <li><code>cmux.revealCurrentDirectoryInFinder</code>: {t("tabBarBuiltinRevealFinder")}</li>
+        <li><code>cmux.customizeSurfaceTabBar</code>: {t("tabBarBuiltinCustomize")}</li>
+      </ul>
+
       <DocsHeading level={2} id="custom-actions">{t("customActions")}</DocsHeading>
       <p>
         {t.rich("customActionsDesc", {

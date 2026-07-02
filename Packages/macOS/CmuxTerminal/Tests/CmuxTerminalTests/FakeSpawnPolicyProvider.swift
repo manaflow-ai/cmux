@@ -1,3 +1,4 @@
+import Foundation
 @testable import CmuxTerminal
 
 @MainActor
@@ -21,5 +22,9 @@ final class FakeSpawnPolicyProvider: TerminalSurfaceSpawnPolicyProviding {
 
     func controlSocketPath() -> String {
         "/tmp/cmux-test.sock"
+    }
+
+    func workspaceNotesDirectory(workspaceId: UUID) -> String? {
+        nil
     }
 }
