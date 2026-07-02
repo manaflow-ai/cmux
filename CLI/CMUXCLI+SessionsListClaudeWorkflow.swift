@@ -20,7 +20,7 @@ extension CMUXCLI {
             roots: roots,
             lookup: lookup
         )
-        guard let resolved = sessionsListNewestClaudeSiblingTranscript(
+        guard let resolved = sessionsListSingleClaudeSiblingTranscript(
             in: candidateProjectDirs,
             excludingSessionId: record.sessionId
         ) else {
@@ -74,28 +74,28 @@ extension CMUXCLI {
         return projectDirs
     }
 
-    private func sessionsListNewestClaudeSiblingTranscript(
+    private func sessionsListSingleClaudeSiblingTranscript(
         in projectDirs: [String],
         excludingSessionId excludedSessionId: String
     ) -> (sessionId: String, path: String)? {
-        var best: (sessionId: String, path: String, modifiedAt: TimeInterval)?
+        var matches: [(sessionId: String, path: String)] = []
         for projectDir in projectDirs {
-            sessionsListNewestClaudeTranscript(
+            sessionsListCollectClaudeTranscripts(
                 inDirectory: projectDir,
                 excludingSessionId: excludedSessionId,
                 remainingDirectoryDepth: 4,
-                best: &best
+                matches: &matches
             )
         }
-        guard let best else { return nil }
-        return (best.sessionId, best.path)
+        guard matches.count == 1, let match = matches.first else { return nil }
+        return match
     }
 
-    private func sessionsListNewestClaudeTranscript(
+    private func sessionsListCollectClaudeTranscripts(
         inDirectory directory: String,
         excludingSessionId excludedSessionId: String,
         remainingDirectoryDepth: Int,
-        best: inout (sessionId: String, path: String, modifiedAt: TimeInterval)?
+        matches: inout [(sessionId: String, path: String)]
     ) {
         guard sessionsListDirectoryExists(atPath: directory),
               let children = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
@@ -110,17 +110,13 @@ extension CMUXCLI {
                       sessionsListRegularNonEmptyFileExists(atPath: childPath) else {
                     continue
                 }
-                let modifiedAt = ((try? FileManager.default.attributesOfItem(atPath: childPath)[.modificationDate]) as? Date)?
-                    .timeIntervalSince1970 ?? 0
-                if best == nil || modifiedAt > best!.modifiedAt {
-                    best = (sessionId, childPath, modifiedAt)
-                }
+                matches.append((sessionId, childPath))
             } else if remainingDirectoryDepth > 0 {
-                sessionsListNewestClaudeTranscript(
+                sessionsListCollectClaudeTranscripts(
                     inDirectory: childPath,
                     excludingSessionId: excludedSessionId,
                     remainingDirectoryDepth: remainingDirectoryDepth - 1,
-                    best: &best
+                    matches: &matches
                 )
             }
         }

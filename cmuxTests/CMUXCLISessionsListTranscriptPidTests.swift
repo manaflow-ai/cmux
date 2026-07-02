@@ -213,7 +213,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_unavailable_reason"] as? String == "available")
     }
 
-    @Test func testSessionsListResolvesClaudeWorkflowContainerTranscript() throws {
+    @Test func testSessionsListRejectsAmbiguousClaudeWorkflowContainerTranscripts() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-sessions-list-claude-workflow-\(UUID().uuidString)", isDirectory: true)
@@ -225,7 +225,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let containerSessionId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
-        let siblingSessionId = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
+        let siblingSessionIds = ["bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb", "cccccccc-3333-3333-3333-cccccccccccc"]
         let projectDirName = repoDir.path
             .replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ".", with: "-")
@@ -234,11 +234,13 @@ extension CMUXCLIErrorOutputRegressionTests {
             .appendingPathComponent(projectDirName, isDirectory: true)
         let workflowContainerURL = projectDir.appendingPathComponent(containerSessionId, isDirectory: true)
         try FileManager.default.createDirectory(at: workflowContainerURL, withIntermediateDirectories: true)
-        try "{}\n".write(
-            to: projectDir.appendingPathComponent("\(siblingSessionId).jsonl", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
+        for siblingSessionId in siblingSessionIds {
+            try "{}\n".write(
+                to: projectDir.appendingPathComponent("\(siblingSessionId).jsonl", isDirectory: false),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
 
         let store: [String: Any] = [
             "version": 1,
@@ -287,10 +289,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         let sessions = try #require(object["sessions"] as? [[String: Any]])
         let session = try #require(sessions.first)
         #expect(session["session_id"] as? String == containerSessionId)
-        #expect(session["hook_record_restorable"] as? Bool == true)
-        #expect(session["fork_command_available"] as? Bool == true)
-        #expect(session["fork_supported"] as? Bool == true)
-        #expect(session["fork_unavailable_reason"] as? String == "available")
+        #expect(session["hook_record_restorable"] as? Bool == false)
+        #expect(session["fork_command_available"] as? Bool == false)
+        #expect(session["fork_supported"] as? Bool == false)
+        #expect(session["fork_unavailable_reason"] as? String == "record_marked_non_restorable")
     }
 
     @Test func testSessionsListIgnoresOutOfRangeStoredPID() throws {

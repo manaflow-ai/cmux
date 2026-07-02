@@ -386,6 +386,7 @@ public enum AgentLaunchSanitizer {
             }
 
             if !arg.hasPrefix("-") || arg == "-" {
+                if policy.preservePositionals { result.append(arg); index += 1; continue }
                 if let resumeSubcommand = policy.resumeSubcommand, arg == resumeSubcommand {
                     skippingResumePositionals = true
                     index += 1
@@ -399,7 +400,6 @@ public enum AgentLaunchSanitizer {
                 if policy.nonRestorableCommands.contains(arg) {
                     return nil
                 }
-                if policy.preservePositionals { result.append(arg); index += 1; continue }
                 if policy.preserveFirstPositional, !consumedFirstPositional {
                     result.append(arg)
                     consumedFirstPositional = true

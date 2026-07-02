@@ -78,10 +78,11 @@ struct AgentForkArgvTests {
                     "review",
                     "help",
                     "fork",
+                    "resume",
                     "--model",
                     "gpt-5"
                 ]
-            ) == ["/opt/bin/codex", "fork", "CHILD", "exec", "review", "help", "fork", "--model", "gpt-5"]
+            ) == ["/opt/bin/codex", "fork", "CHILD", "exec", "review", "help", "fork", "resume", "--model", "gpt-5"]
         )
     }
 
