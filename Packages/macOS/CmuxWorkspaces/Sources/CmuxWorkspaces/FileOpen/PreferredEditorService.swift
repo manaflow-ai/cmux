@@ -146,16 +146,21 @@ extension PreferredEditorService {
         guard var raw = fragment?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
             return nil
         }
-        if raw.first == "L" || raw.first == "l" {
-            raw.removeFirst()
-        }
+        // The fragment contract is exactly `L<line>[:<column>]` (see
+        // `TerminalFileReference.fileURL`). Fail closed on anything else rather
+        // than guessing a location: require the `L` marker.
+        guard raw.first == "L" || raw.first == "l" else { return nil }
+        raw.removeFirst()
         let parts = raw.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
         guard let linePart = parts.first,
               let line = Int(linePart),
               line > 0 else {
             return nil
         }
-        if parts.count == 2, let column = Int(parts[1]), column > 0 {
+        // A colon group must carry a positive-integer column; reject a missing
+        // or malformed column rather than opening at a guessed line-only.
+        if parts.count == 2 {
+            guard let column = Int(parts[1]), column > 0 else { return nil }
             return (line, column)
         }
         return (line, nil)
