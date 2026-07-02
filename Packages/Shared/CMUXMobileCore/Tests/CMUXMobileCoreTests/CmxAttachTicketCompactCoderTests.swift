@@ -165,6 +165,23 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(decoded.macUserID == "user@opaque-id")
 }
 
+@Test func compactDecodeKeepsLegacyOpaqueUserIDAsAccountID() throws {
+    // Older Macs stamped the compact grammar as `v == 1` while writing the
+    // opaque Stack user id (no `@`) into `u`, and the original decoder told an
+    // email from an id with an `@` probe. A phone on the new grammar must keep
+    // recovering that `u` as `macUserID`: routing it to `macUserEmail` makes
+    // the account preflight compare the signed-in email to an opaque id and
+    // reject a still-valid pairing before dialing.
+    let legacyUserIDPayload = """
+    {"v":1,"d":"mac-1","u":"user_mac_123","r":[{"k":"tailscale","e":{"h":"100.64.1.2","p":49831}}]}
+    """
+
+    let decoded = try compactCoder.decode(Data(legacyUserIDPayload.utf8))
+
+    #expect(decoded.macUserEmail == nil)
+    #expect(decoded.macUserID == "user_mac_123")
+}
+
 @Test func compactRoundTripsMacWidePairingTicketAndDropsEmptyFields() throws {
     // The shape the pairing window mints: Mac-wide (empty workspaceID), no
     // terminal scope.
