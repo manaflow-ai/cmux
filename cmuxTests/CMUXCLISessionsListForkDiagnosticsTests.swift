@@ -146,7 +146,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
     @Test func testSessionsListIgnoresUntrustedLaunchCaptureForStartupInput() throws {
         let hugeCodexHome = "/tmp/" + String(repeating: "codex-home-", count: 100)
-        let session = try sessionsListCodexDiagnosticSession(
+        let session = try sessionsListDiagnosticSession(
             launcher: "claudeTeams",
             executablePath: "/usr/local/bin/cmux",
             arguments: ["/usr/local/bin/cmux", "claude-teams"],
@@ -157,7 +157,7 @@ extension CMUXCLIErrorOutputRegressionTests {
     }
 
     @Test func testSessionsListCountsCodexWrapperRenderingForStartupInput() throws {
-        let session = try sessionsListCodexDiagnosticSession(
+        let session = try sessionsListDiagnosticSession(
             launcher: "codex",
             executablePath: "codex",
             arguments: ["codex", "--model", String(repeating: "x", count: 810)]
@@ -241,11 +241,9 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool == false)
     }
 
-    private func sessionsListCodexDiagnosticSession(
-        launcher: String,
-        executablePath: String,
-        arguments: [String],
-        environment: [String: String] = [:]
+    func sessionsListDiagnosticSession(
+        agent: String = "codex", launcher: String, executablePath: String, arguments: [String],
+        environment: [String: String] = [:], workingDirectory: String = "/tmp/cmux/debug"
     ) throws -> [String: Any] {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -261,27 +259,27 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "sessionId": sessionId,
                 "workspaceId": "33B0D372-292E-42BF-97B6-E37CCA79AB84",
                 "surfaceId": "A2AECAA9-EE1C-4999-B7A9-EE4BB4CDA5D8",
-                "cwd": "/tmp/cmux/debug",
+                "cwd": workingDirectory,
                 "startedAt": 1_781_996_800.0,
                 "updatedAt": 1_781_996_867.0,
                 "launchCommand": [
                     "launcher": launcher,
                     "executablePath": executablePath,
                     "arguments": arguments,
-                    "workingDirectory": "/tmp/cmux/debug",
+                    "workingDirectory": workingDirectory,
                     "environment": environment,
                     "source": "environment",
                 ],
             ]],
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        try data.write(to: stateDir.appendingPathComponent("\(agent)-hook-sessions.json"), options: .atomic)
 
         var processEnvironment = ProcessInfo.processInfo.environment
         for key in Array(processEnvironment.keys) where key.hasPrefix("CMUX_") { processEnvironment.removeValue(forKey: key) }
         processEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         processEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
-        let result = runProcess(executablePath: cliPath, arguments: ["sessions", "list", "--agent", "codex", "--session", sessionId, "--json"], environment: processEnvironment, timeout: 5)
+        let result = runProcess(executablePath: cliPath, arguments: ["sessions", "list", "--agent", agent, "--session", sessionId, "--json"], environment: processEnvironment, timeout: 5)
         #expect(result.status == 0, Comment(rawValue: result.stdout))
         let outputData = try #require(result.stdout.data(using: .utf8))
         let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
