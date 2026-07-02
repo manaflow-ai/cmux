@@ -836,6 +836,55 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testResolvedWorkspaceCommandActionResolvesWorkspaceActionCollidingWithNonWorkspaceCommandID() throws {
+        // Regression: `resolvedWorkspaceCommandAction` matched `loadedCommands` by generated
+        // command id first and early-returned nil when that command was not a workspace command.
+        // That shadowed a valid `workspaceCommand` action whose id collided with the plain
+        // command's generated id, making it unreachable for the sidebar extension API even
+        // though the action itself is a legitimate workspace command.
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // The action is keyed at the *plain* command's generated id, forcing the collision.
+        let plainCommand = CmuxCommandDefinition(name: "Build", command: "make")
+        let collidingActionID = plainCommand.id
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "actions": {
+            "\(collidingActionID)": { "type": "workspaceCommand", "commandName": "Deploy" }
+          },
+          "commands": [
+            { "name": "Build", "command": "make" },
+            { "name": "Deploy", "workspace": { "name": "Deploy", "cwd": "." } }
+          ]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.loadAll()
+
+        // The workspace-command action must remain reachable by its identifier even though a
+        // non-workspace command's generated id collides with it.
+        let action = try XCTUnwrap(store.resolvedWorkspaceCommandAction(identifier: collidingActionID))
+        XCTAssertEqual(action.workspaceCommandName, "Deploy")
+
+        // Fail-closed contract preserved: a plain (non-workspace) command is never resolvable
+        // as a workspace command by its own name.
+        XCTAssertNil(store.resolvedWorkspaceCommandAction(identifier: "Build"))
+        // The workspace command still resolves by name.
+        XCTAssertEqual(
+            store.resolvedWorkspaceCommandAction(identifier: "Deploy")?.workspaceCommandName,
+            "Deploy"
+        )
+    }
+
+    @MainActor
     func testConfigStoreReportsJSONCPreprocessingErrors() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
