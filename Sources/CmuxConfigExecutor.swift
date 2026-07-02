@@ -233,10 +233,12 @@ struct CmuxConfigExecutor {
             return true
         }
         // Callers that need a definitive synchronous accept/deny result (e.g. the
-        // sidebar extension command API) opt into a modal confirmation instead of
-        // a window sheet. A sheet's async callback returns `true` before the user
-        // responds, which would let the action report success even if the trust
-        // prompt is later cancelled.
+        // sidebar extension command API) opt into a synchronous confirmation via
+        // `runConfirmDialog` — which presents through the reliable
+        // `runCmuxModalAlert` presenter — instead of the async window sheet. The
+        // async sheet's callback returns `true` before the user responds, which
+        // would let the action report success even if the trust prompt is later
+        // cancelled.
         if let resolvedPresentingWindow, !forcesSynchronousConfirmation {
             presentConfirmDialog(
                 command: displayCommand,
@@ -257,7 +259,8 @@ struct CmuxConfigExecutor {
             command: displayCommand,
             displayTitle: displayTitle,
             descriptor: descriptor,
-            configPath: sourcePath
+            configPath: sourcePath,
+            presentingWindow: presentingWindow
         )
         if allowed {
             onAuthorized()
@@ -289,14 +292,25 @@ struct CmuxConfigExecutor {
         command: String,
         displayTitle: String?,
         descriptor: CmuxActionTrustDescriptor,
-        configPath: String
+        configPath: String,
+        presentingWindow: NSWindow?
     ) -> Bool {
         let alert = makeConfirmDialog(
             command: command,
             displayTitle: displayTitle,
             configPath: configPath
         )
-        return handleConfirmDialogResponse(alert.runModal(), descriptor: descriptor)
+        // Route through the shared reliable presenter rather than a bare
+        // `alert.runModal()`: when this synchronous path is taken from a
+        // menu/XPC-style context (the sidebar extension command API), a bare
+        // modal can silently no-op and return cancel without ever drawing the
+        // trust prompt. `runCmuxModalAlert` activates the app and attaches a
+        // sheet to the main cmux window, falling back to app-modal only when no
+        // host window exists.
+        return handleConfirmDialogResponse(
+            runCmuxModalAlert(alert, presentingWindow: presentingWindow),
+            descriptor: descriptor
+        )
     }
 
     private static func makeConfirmDialog(
@@ -516,7 +530,11 @@ struct CmuxConfigExecutor {
                     localized: "dialog.cmuxConfig.confirmRestart.cancel",
                     defaultValue: "Cancel"
                 ))
-                guard alert.runModal() == .alertFirstButtonReturn else {
+                // Reliable presentation matters here too: this recreate prompt is
+                // reachable synchronously from the sidebar extension command API
+                // (a menu/XPC-style context), where a bare `alert.runModal()` can
+                // silently no-op and return cancel without drawing the dialog.
+                guard runCmuxModalAlert(alert) == .alertFirstButtonReturn else {
                     tabManager.selectWorkspace(existing)
                     return false
                 }
