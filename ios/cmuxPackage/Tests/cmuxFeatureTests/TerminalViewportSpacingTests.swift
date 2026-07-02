@@ -49,7 +49,6 @@ private final class ViewportSpacingDelegate: NSObject, GhosttySurfaceViewDelegat
         reports.append(size)
         reportIDs[size] = reportID
         if let mac = autoEchoMacGrid {
-            surfaceView.markViewportReportConfirmed()
             surfaceView.applyConfirmedViewSize(
                 cols: min(size.columns, mac.cols),
                 rows: min(size.rows, mac.rows),
@@ -157,7 +156,6 @@ private final class ViewportSpacingHarness {
     /// the ID the view stamped on that report — exactly what the production
     /// coordinator hands back when the RPC for that report resolves.
     func echo(_ report: TerminalGridSize, macColumns: Int = .max, macRows: Int = .max) {
-        view.markViewportReportConfirmed()
         view.applyConfirmedViewSize(
             cols: min(report.columns, macColumns),
             rows: min(report.rows, macRows),
