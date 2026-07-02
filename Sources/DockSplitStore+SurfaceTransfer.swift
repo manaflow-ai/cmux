@@ -26,6 +26,20 @@ extension DockSplitStore {
         let browser = panel as? BrowserPanel
         let iconImageData = browser?.faviconPNGData
         let isLoading = browser?.isLoading ?? false
+        // The Dock has no cwd-report routing, so a preserved transfer's
+        // directory is frozen at Dock-entry time and goes stale if the
+        // terminal cds while docked. Prefer the live foreground process's
+        // actual cwd at detach time. Local panes only: a remote pane's
+        // foreground process is the local relay, not the remote shell.
+        let liveTerminalDirectory: String?
+        if preservedTransfer?.isRemoteTerminal != true,
+           let terminal = panel as? TerminalPanel,
+           let pid = terminal.surface.foregroundProcessID() {
+            liveTerminalDirectory = Workspace.processCurrentWorkingDirectory(pid: Int32(clamping: pid))
+        } else {
+            liveTerminalDirectory = nil
+        }
+        let detachedDirectory = liveTerminalDirectory ?? preservedTransfer?.directory
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
@@ -57,8 +71,10 @@ extension DockSplitStore {
             kind: kind,
             isLoading: isLoading,
             isPinned: false,
-            directory: preservedTransfer?.directory,
-            directoryDisplayLabel: preservedTransfer?.directoryDisplayLabel,
+            directory: detachedDirectory,
+            directoryDisplayLabel: detachedDirectory == preservedTransfer?.directory
+                ? preservedTransfer?.directoryDisplayLabel
+                : nil,
             ttyName: preservedTransfer?.ttyName,
             cachedTitle: panel.displayTitle,
             customTitle: preservedTransfer?.customTitle,
