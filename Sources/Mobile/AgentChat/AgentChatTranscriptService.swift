@@ -532,15 +532,6 @@ final class AgentChatTranscriptService {
         }
         codexTranscriptResolutionTasks[key.sessionID] = nil
         codexTranscriptResolutionKeys[key.sessionID] = nil
-        // If a hook recorded the authoritative transcript path while this
-        // fallback scan was in flight, that recorded path wins. The key match
-        // above only proves no *newer scan* was scheduled; it does not see a
-        // registry transcript-path update, so guard against overwriting a now-
-        // valid recorded path with this (possibly stale) scan result.
-        if let record = registry.record(sessionID: key.sessionID),
-           resolver.recordedTranscriptPath(for: record) != nil {
-            return
-        }
         applyDirectCodexTranscriptResolution(resolved, sessionID: key.sessionID)
     }
 
@@ -557,12 +548,18 @@ final class AgentChatTranscriptService {
               record.agentKind == .codex else {
             return
         }
+        // A hook may record the authoritative transcript path while an off-main
+        // fallback scan is still in flight. Once that recorded path exists on
+        // disk it wins: never overwrite it with this (possibly stale) scan
+        // result, and treat resolution as succeeded. Both `history(...)` and the
+        // scheduled wrapper funnel through here, so the guard lives on this
+        // shared path rather than being duplicated per caller.
+        if resolver.recordedTranscriptPath(for: record) != nil {
+            failedResolutions.remove(sessionID)
+            return
+        }
         guard let resolved else {
-            if resolver.recordedTranscriptPath(for: record) == nil {
-                failedResolutions.insert(sessionID)
-            } else {
-                failedResolutions.remove(sessionID)
-            }
+            failedResolutions.insert(sessionID)
             return
         }
         failedResolutions.remove(sessionID)
