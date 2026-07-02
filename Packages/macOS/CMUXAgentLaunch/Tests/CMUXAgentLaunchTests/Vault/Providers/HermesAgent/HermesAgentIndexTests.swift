@@ -323,6 +323,49 @@ struct HermesAgentIndexTests {
         #expect(HermesAgentIndex.canonicalCwd("   ") == nil)
     }
 
+    @Test("Tolerates an older state.db whose sessions table has no cwd column")
+    func toleratesLegacySchemaWithoutCwdColumn() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        // Legacy schema: the sessions table predates the cwd column.
+        try exec(dbURL, """
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          source TEXT NOT NULL,
+          model TEXT,
+          started_at REAL NOT NULL,
+          ended_at REAL,
+          title TEXT
+        );
+        CREATE TABLE messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          content TEXT,
+          tool_name TEXT,
+          tool_calls TEXT,
+          timestamp REAL NOT NULL
+        );
+        INSERT INTO sessions (id, source, model, started_at, title)
+        VALUES ('legacy', 'cli', 'm', 10, 'Legacy session');
+        """)
+
+        // Unscoped listing must still work (cwd resolves to nil, no error) — it did before cwd support.
+        let unscoped = HermesAgentIndex.loadSessions(needle: "", cwdFilter: nil, offset: 0, limit: 10, stateDBPath: dbURL.path)
+        #expect(unscoped.errors.isEmpty)
+        #expect(unscoped.sessions.map(\.sessionId) == ["legacy"])
+        #expect(unscoped.sessions.first?.cwd == nil)
+
+        // A cwd filter yields nothing (cannot filter without the column) and never errors.
+        let scoped = HermesAgentIndex.loadSessions(needle: "", cwdFilter: "/tmp/x", offset: 0, limit: 10, stateDBPath: dbURL.path)
+        #expect(scoped.errors.isEmpty)
+        #expect(scoped.sessions.isEmpty)
+
+        // The auto-resume lookup declines rather than throwing on the missing column.
+        #expect(HermesAgentIndex.latestSessionID(cwd: "/tmp/x", stateDBPath: dbURL.path) == nil)
+    }
+
     private func makeDirectory(_ url: URL, returningResolved: Bool = false) throws -> String {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return returningResolved ? url.resolvingSymlinksInPath().path : url.path

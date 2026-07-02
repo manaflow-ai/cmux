@@ -184,6 +184,7 @@
 598	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift
 596	cmuxTests/CmuxEventBusTests.swift
 594	cmuxTests/PortalTabDragRoutingTests.swift
+593	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Vault/Providers/HermesAgent/HermesAgentIndex.swift
 592	Sources/TextBoxSubmitActions.swift
 591	Packages/macOS/CmuxSettingsUI/Tests/CmuxSettingsUITests/DefaultsValueModelLifecycleTests.swift
 590	Sources/Panels/BrowserNavigationDelegate.swift
@@ -201,7 +202,6 @@
 572	Sources/Feed/FeedTextEditorDebugWindowController.swift
 567	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 567	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/GhosttyConfigDiscovery.swift
-563	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Vault/Providers/HermesAgent/HermesAgentIndex.swift
 563	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
 561	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift

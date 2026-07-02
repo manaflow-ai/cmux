@@ -187,6 +187,9 @@ public enum HermesAgentIndex {
         cwdCandidates: [String]
     ) throws -> String? {
         guard !cwdCandidates.isEmpty else { return nil }
+        // Older Hermes schemas lack the `cwd` column; without it there is no way to scope to a cwd,
+        // so decline to bind (a recoverable miss) rather than fail the query.
+        guard tableHasColumn(db, table: "sessions", column: "cwd") else { return nil }
         let placeholders = cwdCandidates.map { _ in "?" }.joined(separator: ", ")
         let sql = """
             SELECT s.id
@@ -284,8 +287,16 @@ public enum HermesAgentIndex {
         offset: Int,
         limit: Int
     ) throws -> HermesAgentIndexResult {
+        // Older Hermes schemas predate the `cwd` column. Without it we cannot honour a cwd filter,
+        // but an unscoped listing must still work — so select `NULL AS cwd` rather than referencing a
+        // missing column (which would fail prepare and break even unfiltered listing).
+        let hasCwdColumn = tableHasColumn(db, table: "sessions", column: "cwd")
+        if !cwdCandidates.isEmpty, !hasCwdColumn {
+            return HermesAgentIndexResult(sessions: [], errors: [])
+        }
         let trimmedNeedle = needle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let hasNeedle = !trimmedNeedle.isEmpty
+        let cwdColumn = hasCwdColumn ? "s.cwd" : "NULL AS cwd"
         var sql = """
             SELECT
               s.id,
@@ -302,7 +313,7 @@ public enum HermesAgentIndex {
                 ORDER BY m2.timestamp DESC, m2.id DESC
                 LIMIT 1
               ) AS preview,
-              s.cwd
+              \(cwdColumn)
             FROM sessions s
             LEFT JOIN messages m ON m.session_id = s.id
             WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
@@ -527,6 +538,25 @@ public enum HermesAgentIndex {
         }
         let count = Int(sqlite3_column_bytes(stmt, index))
         return String(data: Data(bytes: bytes, count: count), encoding: .utf8)
+    }
+
+    /// Whether `table` has a column named `column`. Used to stay compatible with older Hermes
+    /// `state.db` schemas that predate the `cwd` column (Hermes self-heals its schema on startup,
+    /// but a database not yet reopened by a cwd-aware Hermes still lacks it). `table` is a fixed
+    /// literal, not user input, so interpolating it into the `PRAGMA` is safe.
+    private static func tableHasColumn(_ db: OpaquePointer, table: String, column: String) -> Bool {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table))", -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if sqliteText(stmt, 1) == column {
+                return true
+            }
+        }
+        return false
     }
 
     private static func sqliteMessage(_ db: OpaquePointer?) -> String? {
