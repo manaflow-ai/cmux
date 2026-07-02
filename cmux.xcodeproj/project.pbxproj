@@ -286,6 +286,7 @@
 		B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */; };
 		B9000064A1B2C3D4E5F60719 /* CMUXCLI+Events.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000065A1B2C3D4E5F60719 /* CMUXCLI+Events.swift */; };
 		B9000046A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */; };
+		B9000091A1B2C3D4E5F60719 /* CMUXCLI+GitProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000090A1B2C3D4E5F60719 /* CMUXCLI+GitProcess.swift */; };
 		B9000061A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */; };
 		B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */; };
 		B9000071A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */; };
@@ -594,6 +595,7 @@
 		D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */; };
 		D7C6F5000000000000000000 /* GhosttyTitleChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C6F5000000000000000001 /* GhosttyTitleChange.swift */; };
 		D7C6F5010000000000000000 /* GhosttyTitleChangeSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */; };
+		FE001150 /* GitStatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001050 /* GitStatusProvider.swift */; };
 		FE002150 /* GitStatusProviderOptionalLocksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002050 /* GitStatusProviderOptionalLocksTests.swift */; };
 		3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */; };
 		3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */; };
@@ -1581,6 +1583,7 @@
 		B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DocsSettings.swift"; sourceTree = "<group>"; };
 		B9000065A1B2C3D4E5F60719 /* CMUXCLI+Events.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Events.swift"; sourceTree = "<group>"; };
 		B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ExecutableResolution.swift"; sourceTree = "<group>"; };
+		B9000090A1B2C3D4E5F60719 /* CMUXCLI+GitProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+GitProcess.swift"; sourceTree = "<group>"; };
 		B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+HermesAgentHooks.swift"; sourceTree = "<group>"; };
 		B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+InstallPreview.swift"; sourceTree = "<group>"; };
 		B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Memory.swift"; sourceTree = "<group>"; };
@@ -1849,6 +1852,7 @@
 		D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTextInputSupport.swift; sourceTree = "<group>"; };
 		D7C6F5000000000000000001 /* GhosttyTitleChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleChange.swift; sourceTree = "<group>"; };
 		D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleChangeSubscription.swift; sourceTree = "<group>"; };
+		FE001050 /* GitStatusProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusProvider.swift; sourceTree = "<group>"; };
 		FE002050 /* GitStatusProviderOptionalLocksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusProviderOptionalLocksTests.swift; sourceTree = "<group>"; };
 		3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchCoordinator.swift; sourceTree = "<group>"; };
 		3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchDocuments.swift; sourceTree = "<group>"; };
@@ -3389,6 +3393,7 @@
 				FE5996070000000000000001 /* FileExplorerSearchResultsTableView.swift */,
 				B37A0000000000000000000A /* FileExplorerState.swift */,
 				FE001001 /* FileExplorerStore.swift */,
+				FE001050 /* GitStatusProvider.swift */,
 				FE001004 /* FileExplorerTerminalPathInsertion.swift */,
 				FE001002 /* FileExplorerView.swift */,
 				FE003001 /* SessionIndexStore.swift */,
@@ -3487,6 +3492,7 @@
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
 				6379A0036379A0036379A003 /* SSHPTYResizeMonitor.swift */,
 				B9000030A1B2C3D4E5F60719 /* cmux_open.swift */,
+				B9000090A1B2C3D4E5F60719 /* CMUXCLI+GitProcess.swift */,
 				B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */,
 				D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */,
 				B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */,
@@ -4593,6 +4599,7 @@
 				D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */,
 				D7C6F5000000000000000000 /* GhosttyTitleChange.swift in Sources */,
 				D7C6F5010000000000000000 /* GhosttyTitleChangeSubscription.swift in Sources */,
+				FE001150 /* GitStatusProvider.swift in Sources */,
 					3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */,
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
 				3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
@@ -5042,6 +5049,7 @@
 				B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */,
 				B9000064A1B2C3D4E5F60719 /* CMUXCLI+Events.swift in Sources */,
 				B9000046A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift in Sources */,
+				B9000091A1B2C3D4E5F60719 /* CMUXCLI+GitProcess.swift in Sources */,
 				B9000061A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift in Sources */,
 				B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */,
 				B9000071A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift in Sources */,
