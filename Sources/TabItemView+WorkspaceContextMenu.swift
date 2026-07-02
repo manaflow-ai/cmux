@@ -142,7 +142,9 @@ extension TabItemView {
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
             let tabColorPalette = WorkspaceTabColorSettings.palette()
 
-            if workspaceSnapshot.customColorHex != nil {
+            // Gate on the MANUAL color, not the effective row color: an
+            // origin-tinted row with no manual color has nothing to clear.
+            if workspaceSnapshot.hasManualCustomColor {
                 Button {
                     applyTabColor(nil, targetIds: targetIds)
                 } label: {

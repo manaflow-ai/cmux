@@ -6,6 +6,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
+        let hasManualCustomColor: Bool
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         let taskStatus: WorkspaceTaskStatus?
@@ -24,6 +25,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: customColorHex,
+            hasManualCustomColor: hasManualCustomColor,
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity,
             taskStatus: taskStatus,
@@ -45,6 +47,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             customDescription: snapshot.customDescription,
             isPinned: snapshot.isPinned,
             customColorHex: snapshot.customColorHex,
+            hasManualCustomColor: snapshot.hasManualCustomColor,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
