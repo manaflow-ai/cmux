@@ -564,24 +564,6 @@ extension TextBoxInputContainer {
         return command
     }
 
-    func cycleSubmitAction() {
-        surface.owningWorkspace()?.clearStaleAgentPIDs(panelId: surface.id, refreshPorts: false)
-        guard Self.allowsSubmitActionSelection(
-            pendingProviderLaunchAction: pendingProviderLaunchAction,
-            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit
-        ) else {
-            return
-        }
-        guard let nextID = Self.nextCycledSubmitActionID(
-            defaultSubmitActionID: effectiveSubmitActionID,
-            submitActions: submitActions,
-            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit
-        ) else {
-            return
-        }
-        selectedSubmitActionID = nextID
-    }
-
     static func panelSubmitActionIDAfterSuccessfulSubmit(
         currentSubmitActionID: String,
         submittedAction: TextBoxSubmitAction
