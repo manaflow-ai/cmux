@@ -269,7 +269,7 @@ public final class SocketControlServer {
     /// The activation heal exists only for the case where *nothing* re-arms
     /// recovery (#6406), so it must stand down whenever this reports the server
     /// is already recovering. See
-    /// ``SocketListenerActivationRecoveryPolicy/rebindShouldProceed(capturedGeneration:currentGeneration:serverRecoveryPending:)``.
+    /// ``SocketListenerActivationRecoveryPolicy/rebindShouldProceed(capturedGeneration:currentGeneration:serverRecoveryPending:isTerminating:)``.
     public nonisolated var hasPendingAcceptRecovery: Bool {
         let snapshot = listenerStateSnapshot()
         if snapshot.pendingRearmGeneration != nil || snapshot.listenerReadSourceSuspended {

@@ -186,7 +186,7 @@ public struct SocketListenerActivationRecoveryPolicy: Sendable {
 
     /// Whether the activation heal may act on its rebind decision now.
     ///
-    /// Two independent conditions must both hold before the heal tears down and
+    /// Three independent conditions must all hold before the heal tears down and
     /// rebinds the listener:
     ///
     /// 1. The decision is still current — the accept-loop generation has not
@@ -202,20 +202,34 @@ public struct SocketListenerActivationRecoveryPolicy: Sendable {
     ///    pressure (e.g. `EMFILE`). The heal exists only for the case where
     ///    *nothing* re-arms recovery (#6406), so it defers whenever the server
     ///    reports recovery pending (`SocketControlServer.hasPendingAcceptRecovery`).
+    /// 3. The app is not tearing down. The `ping` probe runs off the main actor,
+    ///    so app termination or an updater relaunch can call
+    ///    `TerminalController.stop()` while it is in flight, resetting the
+    ///    accept-loop generation to 0 on purpose. A probe that captured 0 (or
+    ///    finished after the reset) would otherwise see `0 == 0`, pass the
+    ///    currency check with no recovery pending, and resurrect the very socket
+    ///    the termination path just stopped. Gating on `isTerminating` keeps the
+    ///    heal from recreating the listener after teardown (#6406 review,
+    ///    teardown race).
     ///
     /// - Parameters:
     ///   - capturedGeneration: Accept-loop generation sampled with the probe.
     ///   - currentGeneration: Accept-loop generation now, on the main actor.
     ///   - serverRecoveryPending: Whether the server has a delayed accept
     ///     recovery (parked rearm or suspended accept source) in progress.
-    /// - Returns: True only when the decision is current and no server recovery
-    ///   is pending, so the rebind may proceed.
+    ///   - isTerminating: Whether the app has begun terminating (quit or updater
+    ///     relaunch). When true the listener is being stopped deliberately, so
+    ///     the heal must never rebind.
+    /// - Returns: True only when the decision is current, no server recovery is
+    ///   pending, and the app is not terminating, so the rebind may proceed.
     public func rebindShouldProceed(
         capturedGeneration: UInt64,
         currentGeneration: UInt64,
-        serverRecoveryPending: Bool
+        serverRecoveryPending: Bool,
+        isTerminating: Bool
     ) -> Bool {
-        rebindDecisionIsCurrent(capturedGeneration: capturedGeneration, currentGeneration: currentGeneration)
+        guard !isTerminating else { return false }
+        return rebindDecisionIsCurrent(capturedGeneration: capturedGeneration, currentGeneration: currentGeneration)
             && !serverRecoveryPending
     }
 }

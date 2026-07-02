@@ -4068,7 +4068,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         socketListenerActivationCheckInFlight = false
         lastSocketListenerActivationCheck = Date()
         guard shouldRebind else { return }
-        // Two conditions must both hold before rebinding. First, if any recovery
+        // Three conditions must all hold before rebinding. First, if any recovery
         // path replaced the listener while our background ping was in flight, the
         // probed listener no longer exists and the decision is stale — the
         // authoritative accept-loop generation moves on every (re)start, host-
@@ -4077,20 +4077,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // rearm or a suspended accept source) the generation has *not* moved but
         // the server will restore the listener on its own; rebinding now would
         // cancel that scheduled recovery and reset the accept-failure streak,
-        // defeating the backoff under sustained resource pressure. Either way,
+        // defeating the backoff under sustained resource pressure. Third, if the
+        // app is tearing down (quit or updater relaunch) the termination path is
+        // stopping the listener on purpose and reset the generation to 0; a probe
+        // that captured 0 would see 0 == 0, pass the currency check, and resurrect
+        // the socket after teardown — so bail while terminating. Any of the three:
         // skip and let the next activation re-evaluate (#6406 review,
-        // activation/wake race + backoff preservation).
+        // activation/wake race + backoff preservation + teardown race).
         let currentGeneration = TerminalController.shared.activeListenerGeneration
         let serverRecoveryPending = TerminalController.shared.hasPendingAcceptRecovery
+        let isTerminating = isTerminatingApp
         guard socketListenerActivationRecoveryPolicy.rebindShouldProceed(
             capturedGeneration: capturedGeneration,
             currentGeneration: currentGeneration,
-            serverRecoveryPending: serverRecoveryPending
+            serverRecoveryPending: serverRecoveryPending,
+            isTerminating: isTerminating
         ) else {
-            let skipReason = socketListenerActivationRecoveryPolicy.rebindDecisionIsCurrent(
+            let skipReason: String
+            if isTerminating {
+                skipReason = "app_terminating"
+            } else if socketListenerActivationRecoveryPolicy.rebindDecisionIsCurrent(
                 capturedGeneration: capturedGeneration,
                 currentGeneration: currentGeneration
-            ) ? "recovery_pending" : "listener_restarted_during_probe"
+            ) {
+                skipReason = "recovery_pending"
+            } else {
+                skipReason = "listener_restarted_during_probe"
+            }
             sentryBreadcrumb("socket.listener.heal.skipped", category: "socket", data: [
                 "source": "app.didBecomeActive",
                 "reason": skipReason

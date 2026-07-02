@@ -162,12 +162,14 @@ import Testing
     /// rebind regardless of generation (#6406 review, backoff preservation).
     @Test func rebindProceedsOnlyWhenCurrentAndNoServerRecoveryPending() {
         let policy = SocketListenerActivationRecoveryPolicy()
-        // Current generation, no server recovery: the one case that proceeds.
+        // Current generation, no server recovery, not terminating: the one case
+        // that proceeds.
         #expect(
             policy.rebindShouldProceed(
                 capturedGeneration: 7,
                 currentGeneration: 7,
-                serverRecoveryPending: false
+                serverRecoveryPending: false,
+                isTerminating: false
             )
         )
         // Current generation but the server is mid-backoff: defer to it.
@@ -175,7 +177,8 @@ import Testing
             !policy.rebindShouldProceed(
                 capturedGeneration: 7,
                 currentGeneration: 7,
-                serverRecoveryPending: true
+                serverRecoveryPending: true,
+                isTerminating: false
             )
         )
         // Stale generation alone blocks the rebind even with no recovery pending.
@@ -183,7 +186,8 @@ import Testing
             !policy.rebindShouldProceed(
                 capturedGeneration: 7,
                 currentGeneration: 8,
-                serverRecoveryPending: false
+                serverRecoveryPending: false,
+                isTerminating: false
             )
         )
         // Both stale and recovering: still blocked.
@@ -191,7 +195,39 @@ import Testing
             !policy.rebindShouldProceed(
                 capturedGeneration: 7,
                 currentGeneration: 8,
-                serverRecoveryPending: true
+                serverRecoveryPending: true,
+                isTerminating: false
+            )
+        )
+    }
+
+    /// App teardown must block the rebind even when every other signal says
+    /// proceed. The `ping` probe runs off the main actor, so app termination or an
+    /// updater relaunch can run `TerminalController.stop()` mid-probe and reset
+    /// the accept-loop generation to 0 on purpose. A probe that captured 0 would
+    /// otherwise see `0 == 0`, pass the currency check with nothing pending, and
+    /// resurrect the socket the teardown path just stopped. `isTerminating` gates
+    /// that unconditionally (#6406 review, teardown race).
+    @Test func terminatingBlocksRebindEvenWhenOtherwiseCurrent() {
+        let policy = SocketListenerActivationRecoveryPolicy()
+        // The exact teardown race: generation reset to 0, probe also captured 0,
+        // nothing pending — the currency check passes, so only the terminating
+        // gate stops the resurrection.
+        #expect(
+            !policy.rebindShouldProceed(
+                capturedGeneration: 0,
+                currentGeneration: 0,
+                serverRecoveryPending: false,
+                isTerminating: true
+            )
+        )
+        // Terminating overrides an otherwise-proceeding decision at any generation.
+        #expect(
+            !policy.rebindShouldProceed(
+                capturedGeneration: 7,
+                currentGeneration: 7,
+                serverRecoveryPending: false,
+                isTerminating: true
             )
         )
     }
