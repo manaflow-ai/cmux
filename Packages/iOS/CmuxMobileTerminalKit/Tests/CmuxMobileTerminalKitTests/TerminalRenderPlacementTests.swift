@@ -81,6 +81,17 @@ struct TerminalRenderPlacementTests {
         #expect(!allowed)
     }
 
+    @Test("width-only pending viewport echo keeps vertical top anchoring")
+    func topGapCorrectionAllowsWidthOnlyPendingEcho() {
+        let allowed = placement.allowsLargeTopGapCorrection(
+            pinnedGrid: (cols: 80, rows: 24),
+            awaitingViewportEcho: (cols: 100, rows: 24),
+            naturalGrid: (cols: 100, rows: 24),
+            previousRenderAllowedTopGapCorrection: false
+        )
+        #expect(allowed)
+    }
+
     @Test("already top-corrected letterbox keeps top correction during relayout")
     func topGapCorrectionPreservesExistingIntentionalLetterbox() {
         let allowed = placement.allowsLargeTopGapCorrection(
