@@ -472,11 +472,14 @@ final class RemoteTmuxControlConnection {
         // connected — while reconnecting/ended there is no live stdin (the send would
         // silently drop); `reseedAfterReconnect` re-applies the stored size.
         lastClientSize = (columns, rows)
+        guard connectionState == .connected else { return }
         // The client height is now known — re-seed any pane whose seed was deferred
         // waiting for it (e.g. the first seed at mount, before the rendered size was
-        // reported).
+        // reported). Kept AFTER the connected guard: a re-seed issues capture-pane
+        // sends, which silently drop while reconnecting/ended (no live stdin, see
+        // above) and would leave the command-correlation FIFO stale. `reseedAfter
+        // reconnect` re-seeds on the reconnect path instead.
         reseedAllDeferredPanes()
-        guard connectionState == .connected else { return }
         // Coalesce the layout-settle oscillation into a single send: (re)arm a short
         // trailing timer; only the last size in a burst actually goes out. The fired
         // timer is also the "settled" edge that consumes the attach redraw kick.
@@ -1386,7 +1389,18 @@ final class RemoteTmuxControlConnection {
             // follows this in the command FIFO, so the wait is one reply.
             pendingPaneSeedRows[paneId] = lines
         case let .paneState(paneId):
-            guard let line = lines.first else { pendingPaneSeedRows[paneId] = nil; break }
+            guard let line = lines.first else {
+                // Empty .paneState: the state query returned no line (pane vanished, or a
+                // transient empty reply). Drop the stashed capture rows and release the
+                // seed-race bookkeeping so baseline/retries can't accumulate for an idle
+                // pane. Keep the pane in pendingGeometrySettleReseedPanes: unlike the
+                // command-error path (a dead pane), an empty reply may be transient, so a
+                // later geometry settle should still retry the seed.
+                pendingPaneSeedRows[paneId] = nil
+                paneSeedByteBaseline[paneId] = nil
+                paneSeedRetries[paneId] = nil
+                break
+            }
             // If live %output raced the seed round-trip (capture + state), the pane was
             // actively redrawing (e.g. a freshly-started shell still painting its first
             // prompt) so the captured grid + cursor are stale. Painting them strands
@@ -1517,6 +1531,10 @@ final class RemoteTmuxControlConnection {
         // refresh-client -C cmux drove, or a co-attached client resized): the seed
         // painted at the old height is stale, so re-queue the window's panes for a
         // re-capture. reseedDeferredPanes then re-captures those that now fit the surface.
+        // Every pane in the window is re-queued, including split (multi-pane) windows —
+        // those re-paint UNPADDED (the size-aware padding in `.paneState` is single-pane
+        // only), which is intentional: an idempotent, bounded re-capture keeps split panes
+        // faithful after a reflow. Single-pane windows additionally re-pad on settle.
         if let previousHeight, previousHeight != node.height {
             for paneId in node.paneIDsInOrder { pendingGeometrySettleReseedPanes.insert(paneId) }
         }
@@ -1533,13 +1551,17 @@ final class RemoteTmuxControlConnection {
 
     /// Re-capture panes queued for a geometry re-seed (surface unknown at mount, or a
     /// single-pane pane that was painted best-effort before reflowing to the surface)
-    /// once the pane fits the surface (`desired rows >= pane height`) — only then does
-    /// the padded seed render correctly. Gated on fit + removed from the set on fire; the
-    /// `.paneState` re-queue is height-change-gated, so a pinned pane can't storm.
+    /// once the window fits the surface (`desired rows >= window height`) — only then does
+    /// a single-pane padded seed render correctly. `windowHeight` is the whole window's
+    /// height (== the pane height only for a single-pane window); the padding gate itself
+    /// lives in `.paneState` under `isSinglePaneWindow`, so this coarse
+    /// window-fits-surface check just avoids re-capturing before the reflow lands. Gated
+    /// on fit + removed from the set on fire; the `.paneState` re-queue is
+    /// height-change-gated, so a pinned pane can't storm.
     private func reseedDeferredPanes(inWindow windowId: Int) {
         guard !pendingGeometrySettleReseedPanes.isEmpty,
               let surfaceRows = desiredSurfaceRows(),
-              let paneRows = windowsByID[windowId]?.height, surfaceRows >= paneRows else { return }
+              let windowHeight = windowsByID[windowId]?.height, surfaceRows >= windowHeight else { return }
         let toReseed = pendingGeometrySettleReseedPanes.intersection(
             Set(windowsByID[windowId]?.paneIDsInOrder ?? []))
         guard !toReseed.isEmpty else { return }
