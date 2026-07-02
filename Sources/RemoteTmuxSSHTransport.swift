@@ -479,9 +479,12 @@ actor RemoteTmuxSSHTransport {
             cancellation.cancel()
             outRead.cancel()
             errRead.cancel()
-            if error is CancellationError {
-                throw error
-            }
+            // The drains poll for readability on a fixed tick and observe cancellation
+            // within one tick, so awaiting them here is bounded even when a surviving
+            // descendant holds the pipe write end open. Awaiting proves both detached
+            // readers have exited before we return — the earlier CancellationError fast
+            // path threw immediately and abandoned them, which could leak two blocked
+            // read tasks per timed-out kill over the app's lifetime.
             _ = await outRead.value
             _ = await errRead.value
             throw error
@@ -490,15 +493,35 @@ actor RemoteTmuxSSHTransport {
 
     /// Reads a file descriptor to EOF, returning at most `maxBytes`.
     ///
-    /// Uses the raw `read(2)` so nothing non-`Sendable` crosses the task
-    /// boundary; the owning `Pipe` keeps `fd` open for the duration.
+    /// Waits for readability with `poll(2)` on a fixed tick, then reads. Polling
+    /// (rather than a bare blocking `read(2)`) keeps the detached drain task
+    /// cancellable even when a surviving descendant keeps the pipe's write end open
+    /// and no EOF or data ever arrives: `Task.cancel()` does not interrupt a blocking
+    /// read, and closing our read end is not a reliable wakeup. The tick bounds how
+    /// long a pending cancellation takes to observe. `O_NONBLOCK` is intentionally
+    /// not toggled — it lives on the shared open file description — so readiness is
+    /// gated by `poll` alone. Nothing non-`Sendable` crosses the task boundary; the
+    /// owning `Pipe` keeps `fd` open for the duration.
     private static func drain(fd: Int32, maxBytes: Int) -> Data {
         var data = Data()
         var remaining = max(0, maxBytes)
         let bufferSize = 65_536
         var buffer = [UInt8](repeating: 0, count: bufferSize)
+
         while true {
             if Task.isCancelled { break }
+
+            var descriptor = pollfd(fd: fd, events: Int16(POLLIN | POLLHUP | POLLERR), revents: 0)
+            let ready = poll(&descriptor, 1, 100)
+            if ready == 0 { continue } // tick elapsed with no event; re-check cancellation
+            if ready < 0 {
+                if errno == EINTR { continue }
+                break // poll error; return what we have
+            }
+            if (descriptor.revents & Int16(POLLNVAL)) != 0 {
+                break // fd was closed out from under us (e.g. by cancellation)
+            }
+
             let count = buffer.withUnsafeMutableBytes { ptr -> Int in
                 read(fd, ptr.baseAddress, bufferSize)
             }
@@ -509,11 +532,11 @@ actor RemoteTmuxSSHTransport {
                     remaining -= kept
                 }
             } else if count == 0 {
-                break // EOF
+                break // EOF: every write end is closed
             } else if errno == EINTR {
                 continue // interrupted, retry
             } else {
-                break // read error; return what we have
+                break // read error (e.g. our fd was closed); return what we have
             }
         }
         return data

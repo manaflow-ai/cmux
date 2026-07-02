@@ -36,6 +36,36 @@ import Testing
         }
     }
 
+    /// Verifies `killSessions` returns when the SSH process itself hangs holding the pipe.
+    ///
+    /// Unlike the descendant case, here the process never exits on its own, so the
+    /// hard timeout must terminate it and the poll-based pipe drains must observe
+    /// cancellation within a tick rather than parking in a blocking `read(2)` forever.
+    @Test func killSessionsReturnsWhenSSHItselfHangs() async throws {
+        let root = try temporaryDirectory(prefix: "remote-tmux-hung-ssh")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fakeSSH = root.appendingPathComponent("ssh")
+        try writeExecutable(
+            at: fakeSSH,
+            contents: """
+            #!/bin/sh
+            exec sleep 30
+            """
+        )
+
+        let transport = RemoteTmuxSSHTransport(
+            host: RemoteTmuxHost(destination: "user@example.test"),
+            sshExecutablePath: fakeSSH.path
+        )
+
+        try await expectCompletes(within: 1) {
+            await RemoteTmuxSSHTransport.killSessions(
+                [(transport: transport, target: "hung")],
+                timeout: .milliseconds(100)
+            )
+        }
+    }
+
     /// Creates a unique temporary directory for fake SSH executables.
     private func temporaryDirectory(prefix: String) throws -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
