@@ -806,6 +806,50 @@ struct FileExplorerStoreTests {
         #expect(Set(creationExclusions) == Set(mainExclusions).subtracting([gitPath]))
         #expect(creationExclusions.contains { $0.hasSuffix("/node_modules") })
     }
+
+    // A folder can be opened before it becomes a Git repository; when `git init`
+    // later creates `.git`, the bootstrap watcher installs the git-state watcher.
+    // That watcher only refreshes on *subsequent* `.git` changes, so installing it
+    // must itself kick off a status refresh — otherwise the badges stay empty until
+    // an unrelated change fires (the exact git-init-after-open regression).
+    @Test(.enabled(if: FileExplorerStoreTests.hasGit(), "git is required to create a repository fixture"))
+    func testGitStateWatcherInstallTriggersStatusRefresh() throws {
+        let repo = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-git-refresh-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try Self.runGit(["init"], in: repo)
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
+        defer { store.stopWatchersForTesting() }
+
+        // No refresh has been requested yet, so any in-flight refresh observed after
+        // the install must have been triggered by the install path itself.
+        #expect(!store.isGitStatusRefreshInFlightForTesting)
+
+        let installed = store.simulateGitRepositoryAppearedForTesting(rootPath: repo.path)
+        #expect(installed, "git-state watcher should install once .git exists")
+        #expect(
+            store.isGitStatusRefreshInFlightForTesting,
+            "installing the git-state watcher for a repo that appeared after open must eagerly refresh git status"
+        )
+    }
+
+    private nonisolated static func hasGit() -> Bool {
+        FileManager.default.isExecutableFile(atPath: "/usr/bin/git")
+    }
+
+    private nonisolated static func runGit(_ arguments: [String], in directory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        process.currentDirectoryURL = directory
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+    }
 }
 
 @MainActor

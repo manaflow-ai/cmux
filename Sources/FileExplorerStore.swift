@@ -1047,6 +1047,15 @@ final class FileExplorerStore: ObservableObject {
         // watcher) has done its job and must stop before it observes churn.
         if gitStateWatcher != nil {
             stopGitCreationWatcher()
+            // The git-state watcher only refreshes on *subsequent* `.git` changes.
+            // A repository that appeared after the folder was opened (`git init`)
+            // has already finished writing its initial metadata by the time this
+            // installs, so without an eager refresh the badges would stay empty
+            // until some unrelated change fired. The already-a-repo path gets the
+            // same eager refresh from `setRootPath`; `refreshGitStatus()` coalesces,
+            // so the redundant call from the main-watcher entrypoint (which just
+            // refreshed) collapses into a single `git status` process.
+            refreshGitStatus()
         }
     }
 
@@ -1217,6 +1226,25 @@ final class FileExplorerStore: ObservableObject {
     #if DEBUG
     func setProviderForTesting(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
         setProvider(newProvider, reloadIfAvailable: reloadIfAvailable)
+    }
+
+    /// Drives the shared "a repository appeared after the folder was opened" path:
+    /// points the store at `rootPath` as the watched directory (without starting the
+    /// FSEvents watchers) and runs the metadata-watcher install path exactly as the
+    /// bootstrap creation watcher would. Returns whether the git-state watcher was
+    /// installed, so tests can assert the install also kicks off a status refresh.
+    @discardableResult
+    func simulateGitRepositoryAppearedForTesting(rootPath: String) -> Bool {
+        self.rootPath = rootPath
+        directoryWatchPath = rootPath
+        installGitStateWatcherIfNeeded()
+        return gitStateWatcher != nil
+    }
+
+    var isGitStatusRefreshInFlightForTesting: Bool { isGitStatusRefreshInFlight }
+
+    func stopWatchersForTesting() {
+        stopDirectoryWatcher()
     }
     #endif
 
