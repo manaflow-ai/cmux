@@ -2774,12 +2774,18 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_COMMAND_FINISHED:
-            // The prompt returned (OSC 133). If mouse reporting is still active,
-            // the just-finished program (e.g. an SSH session/TUI killed while the
-            // Mac slept) left the tracking modes stuck, printing mouse movement
-            // at the prompt (issue #6668). Feed the DECRST disables into the
-            // parser, not the pty, so the shell prompt is undisturbed. Safe: this
-            // runs from the mailbox drain (renderer mutex not held).
+            // Fires only on the shell's OSC 133;D "command finished" mark, i.e.
+            // control is back at the interactive prompt (emitted from Ghostty's
+            // precmd hook). Mouse reporting still being active at that boundary
+            // means it is stuck: the just-finished program (e.g. an SSH
+            // session/TUI killed while the Mac slept) never sent its DECRST
+            // disables, so movement now prints at the prompt (issue #6668). A
+            // live full-screen app cannot trip this — an active TUI does not emit
+            // OSC 133;D mid-run, and tmux consumes OSC 133 rather than forwarding
+            // it, so a command finishing inside tmux never reaches this case.
+            // Feed the DECRST disables into the parser, not the pty, so the shell
+            // prompt is undisturbed. Safe: runs from the mailbox drain (renderer
+            // mutex not held).
             if let runtimeSurface = callbackContext?.runtimeSurface,
                let reset = TerminalMouseReportingReset(
                    mouseReportingActive: ghostty_surface_mouse_captured(runtimeSurface)
