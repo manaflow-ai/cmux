@@ -2194,6 +2194,9 @@ private struct NotificationsPopoverView: View {
                     .padding(.vertical, 1)
                     .background(Capsule().fill(cmuxAccentColor()))
             }
+
+            NotificationAgentCountsView()
+
             Spacer()
             Button(action: jumpToLatestUnread) {
                 HStack(spacing: 5) {
