@@ -39,8 +39,8 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
         #expect(params["prefer_tty"] == nil)
     }
 
-    @Test("unscoped notify is constrained to the owner workspace")
-    func unscopedNotifyTargetsOwnerWorkspace() throws {
+    @Test("unscoped notify is rejected before the local socket")
+    func unscopedNotifyIsRejected() throws {
         let workspaceID = UUID()
         let request = try jsonData([
             "id": "request-owner",
@@ -53,44 +53,44 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
 
         let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(request, ownerWorkspaceID: workspaceID)
 
-        guard case .forward(let forwarded) = validation else {
-            Issue.record("expected request to be forwarded")
+        guard case .reject(let response) = validation else {
+            Issue.record("expected request to be rejected")
             return
         }
-        let envelope = try jsonObject(forwarded)
-        #expect(envelope["method"] as? String == "notification.create")
-        let params = try #require(envelope["params"] as? [String: Any])
-        #expect(params["workspace_id"] as? String == workspaceID.uuidString)
-        #expect(params["surface_id"] == nil)
-        #expect(params["title"] as? String == "cmux")
-        #expect(params["body"] as? String == "done")
+        let envelope = try jsonObject(response)
+        #expect(envelope["id"] as? String == "request-owner")
+        #expect(envelope["ok"] as? Bool == false)
+        let error = try #require(envelope["error"] as? [String: Any])
+        #expect(error["code"] as? String == "invalid_params")
     }
 
-    @Test("notify targeting another workspace is rejected before the local socket")
-    func crossWorkspaceNotifyIsRejected() throws {
+    @Test("notify targeting another workspace is forwarded with its explicit target")
+    func crossWorkspaceNotifyUsesExplicitTarget() throws {
         let ownerWorkspaceID = UUID()
         let otherWorkspaceID = UUID()
+        let surfaceID = UUID()
         let request = try jsonData([
             "id": "request-2",
             "method": "notification.create_for_caller",
             "params": [
                 "preferred_workspace_id": otherWorkspaceID.uuidString,
-                "preferred_surface_id": UUID().uuidString,
+                "preferred_surface_id": surfaceID.uuidString,
                 "title": "cmux",
             ],
         ])
 
         let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(request, ownerWorkspaceID: ownerWorkspaceID)
 
-        guard case .reject(let response) = validation else {
-            Issue.record("expected request to be rejected")
+        guard case .forward(let forwarded) = validation else {
+            Issue.record("expected request to be forwarded")
             return
         }
-        let envelope = try jsonObject(response)
+        let envelope = try jsonObject(forwarded)
         #expect(envelope["id"] as? String == "request-2")
-        #expect(envelope["ok"] as? Bool == false)
-        let error = try #require(envelope["error"] as? [String: Any])
-        #expect(error["code"] as? String == "remote_cli_workspace_denied")
+        #expect(envelope["method"] as? String == "notification.create_for_target")
+        let params = try #require(envelope["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == otherWorkspaceID.uuidString)
+        #expect(params["surface_id"] as? String == surfaceID.uuidString)
     }
 
     @Test("non-notification methods are rejected before the local socket")

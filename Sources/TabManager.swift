@@ -5957,10 +5957,7 @@ extension TabManager {
     }
 
     private static func isCloudVMSessionRestoreWorkspace(_ snapshot: SessionWorkspaceSnapshot) -> Bool {
-        if isManagedCloudVMSessionRestoreWorkspace(snapshot) {
-            return true
-        }
-        return snapshot.customTitle == String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
+        isManagedCloudVMSessionRestoreWorkspace(snapshot)
     }
 
     private static func isManagedCloudVMSessionRestoreWorkspace(_ snapshot: SessionWorkspaceSnapshot) -> Bool {

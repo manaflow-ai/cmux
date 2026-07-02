@@ -174,7 +174,9 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     }
 
     private var proxyBrokerOwnerWorkspaceKeyComponent: String {
-        ownerWorkspaceID?.uuidString.lowercased() ?? ""
+        usesManagedCloudPersistentPTYIdentity
+            ? ""
+            : ownerWorkspaceID?.uuidString.lowercased() ?? ""
     }
 
     private func ownerWorkspaceMatchesForPersistentPTY(_ other: WorkspaceRemoteConfiguration) -> Bool {

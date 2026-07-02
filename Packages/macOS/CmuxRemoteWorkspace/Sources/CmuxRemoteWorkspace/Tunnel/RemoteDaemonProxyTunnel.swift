@@ -350,8 +350,8 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 ownerWorkspaceID: ownerWorkspaceID,
                 workspaceKey: "workspace_id",
                 surfaceKey: "surface_id",
-                requireWorkspace: false,
-                requireSurface: false
+                requireWorkspace: true,
+                requireSurface: true
             )
         default:
             return .reject(cloudCLIErrorResponse(
@@ -391,14 +391,6 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         } else {
             requestedWorkspaceID = ownerWorkspaceID
         }
-        guard requestedWorkspaceID == ownerWorkspaceID else {
-            return .reject(cloudCLIErrorResponse(
-                id: requestID,
-                code: "remote_cli_workspace_denied",
-                message: "Cloud CLI notification target does not match this workspace"
-            ))
-        }
-
         let surfaceRaw: String?
         if let raw = (params[surfaceKey] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
            !raw.isEmpty {
@@ -421,7 +413,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         }
 
         var forwardedParams: [String: Any] = [
-            "workspace_id": ownerWorkspaceID.uuidString,
+            "workspace_id": requestedWorkspaceID.uuidString,
         ]
         if let surfaceRaw {
             forwardedParams["surface_id"] = surfaceRaw
