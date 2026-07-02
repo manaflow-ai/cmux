@@ -385,6 +385,16 @@ struct OfflineNotesStoreTests {
     }
 
     @Test
+    func persistedFileByteCeilingRejectsOversizedFiles() {
+        // The load path refuses to read a file past the byte ceiling so a
+        // corrupt or hand-edited file can't balloon memory in
+        // `Data(contentsOf:)`/decode before the queue-size bounds run.
+        #expect(OfflineNotesStore.persistedFileIsReadable(byteCount: 0))
+        #expect(OfflineNotesStore.persistedFileIsReadable(byteCount: OfflineNotesStore.maxPersistedFileBytes))
+        #expect(!OfflineNotesStore.persistedFileIsReadable(byteCount: OfflineNotesStore.maxPersistedFileBytes + 1))
+    }
+
+    @Test
     func defaultFileURLIsScopedByBundleIdentifier() {
         let appSupport = tempFileURL().deletingLastPathComponent()
         // Production and a tagged side-by-side debug build must resolve to

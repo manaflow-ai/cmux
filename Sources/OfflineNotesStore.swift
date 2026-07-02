@@ -69,6 +69,11 @@ final class OfflineNotesStore {
     static let maxRetainedSentNotes = 100
     static let maxTotalNotes = 200
 
+    /// Hard ceiling on the persisted file the load path reads: the legitimate
+    /// worst case (``maxTotalNotes`` × ~4×``maxNoteLength`` bytes) is a few MB, so a
+    /// larger file is corrupt/hand-edited and is skipped before decode balloons memory.
+    static let maxPersistedFileBytes = 32 * 1024 * 1024
+
     /// `dispatcher` and `reachability` default to `nil` and are constructed in
     /// the body rather than as default arguments: their concrete types are
     /// `@MainActor`-isolated, and default-argument expressions are evaluated in a
@@ -304,12 +309,17 @@ final class OfflineNotesStore {
     /// Evicts the oldest already-sent notes beyond ``maxRetainedSentNotes`` so the
     /// queue stays bounded; pending/failed are preserved. Callers persist.
     private func pruneSentNotes() {
+        notes = Self.prunedSentNotes(notes)
+    }
+
+    /// Pure form of the sent-note eviction shared by the live mutation path
+    /// (``pruneSentNotes()``) and load-time bounding (``boundedForLoad(_:)``).
+    /// `notes` is capture-ordered, so the leading sent ids are the oldest — evicted first.
+    private static func prunedSentNotes(_ notes: [OfflineNote]) -> [OfflineNote] {
         let sentIDs = notes.filter { $0.status == .sent }.map(\.id)
-        guard sentIDs.count > Self.maxRetainedSentNotes else { return }
-        let evictCount = sentIDs.count - Self.maxRetainedSentNotes
-        // `notes` is in capture order, so the leading sent ids are the oldest.
-        let evicted = Set(sentIDs.prefix(evictCount))
-        notes.removeAll { evicted.contains($0.id) }
+        guard sentIDs.count > maxRetainedSentNotes else { return notes }
+        let evicted = Set(sentIDs.prefix(sentIDs.count - maxRetainedSentNotes))
+        return notes.filter { !evicted.contains($0.id) }
     }
 
     /// Maps a failure to a fixed message: only our own ``OfflineNoteDispatchError``
@@ -337,6 +347,17 @@ final class OfflineNotesStore {
             fixed.status = .pending
             return fixed
         }
+    }
+
+    /// Restores the queue's size bounds on load, mirroring the write path: evict
+    /// the oldest `.sent` notes beyond ``maxRetainedSentNotes``, then, if still over
+    /// ``maxTotalNotes``, keep the newest captures (array is capture-ordered). Without
+    /// this a corrupt/hand-edited file with more notes than the caps would put an
+    /// unbounded queue into the store — unbounded rows, O(n) scans, full-array rewrites.
+    private static func boundedForLoad(_ notes: [OfflineNote]) -> [OfflineNote] {
+        let pruned = prunedSentNotes(notes)
+        guard pruned.count > maxTotalNotes else { return pruned }
+        return Array(pruned.suffix(maxTotalNotes))
     }
 
     /// Enqueues a write of the current queue onto the serial ``writeQueue``. The
@@ -398,20 +419,38 @@ final class OfflineNotesStore {
         return String(text[..<end])
     }
 
+    /// Whether a persisted file of `byteCount` bytes is small enough to read on
+    /// load (see ``maxPersistedFileBytes``); pure so the ceiling is unit-testable.
+    static func persistedFileIsReadable(byteCount: Int) -> Bool {
+        byteCount <= maxPersistedFileBytes
+    }
+
     private static func load(fileURL: URL?) -> [OfflineNote] {
-        guard let fileURL,
-              let data = try? Data(contentsOf: fileURL),
+        guard let fileURL else { return [] }
+        // Skip a pathologically large file before reading it (a stat is far
+        // cheaper): decode of a corrupt/hand-edited file would balloon memory
+        // before the queue-size bounds below could trim it.
+        if let fileSize = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+           !persistedFileIsReadable(byteCount: fileSize) {
+#if DEBUG
+            cmuxDebugLog("offlineNotes.store.loadSkipped reason=fileTooLarge bytes=\(fileSize)")
+#endif
+            return []
+        }
+        guard let data = try? Data(contentsOf: fileURL),
               let decoded = try? makeDecoder().decode([OfflineNote].self, from: data) else {
             return []
         }
-        // Re-apply the length cap on load: a file written by an older build (or
+        // Re-apply the per-note length cap: a file written by an older build (or
         // hand-edited) could contain an over-long note, and we must not let it
         // reappear unbounded and then be re-encoded on every subsequent persist.
-        return decoded.map { note in
+        let capped = decoded.map { note -> OfflineNote in
             var note = note
             note.text = boundedNoteText(note.text)
             return note
         }
+        // Restore the queue-size bounds (see ``boundedForLoad(_:)``).
+        return boundedForLoad(capped)
     }
 
     nonisolated static func defaultFileURL(
