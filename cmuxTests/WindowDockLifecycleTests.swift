@@ -71,25 +71,46 @@ private extension DockSplitStore {
 /// See https://github.com/manaflow-ai/cmux/issues/7142.
 @Suite("Per-window Dock lifecycle", .serialized)
 struct WindowDockLifecycleTests {
+    @MainActor
+    private func withIsolatedAppDelegate(_ body: (AppDelegate) throws -> Void) rethrows {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer {
+            for context in Array(appDelegate.mainWindowContexts.values) {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            }
+            AppDelegate.shared = previousAppDelegate
+        }
+        try body(appDelegate)
+    }
+
     @Test("Each window gets its own independent Dock store")
     @MainActor
     func windowDocksAreIndependentPerWindow() throws {
-        let registry = WindowDockRegistry()
-        let firstWindowId = UUID()
-        let secondWindowId = UUID()
+        try withIsolatedAppDelegate { appDelegate in
+            let firstManager = TabManager(autoWelcomeIfNeeded: false)
+            let secondManager = TabManager(autoWelcomeIfNeeded: false)
+            let firstWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: firstManager)
+            let secondWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: secondManager)
+            defer {
+                firstManager.tabs.forEach { $0.teardownAllPanels() }
+                secondManager.tabs.forEach { $0.teardownAllPanels() }
+            }
 
-        let firstDock = registry.dock(forWindowId: firstWindowId)
-        let secondDock = registry.dock(forWindowId: secondWindowId)
+            let firstDock = appDelegate.windowDock(forWindowId: firstWindowId)
+            let secondDock = appDelegate.windowDock(forWindowId: secondWindowId)
 
-        #expect(firstDock !== secondDock)
-        #expect(firstDock.workspaceId == firstWindowId)
-        #expect(secondDock.workspaceId == secondWindowId)
-        #expect(firstDock.scope == .global)
-        #expect(registry.dock(forWindowId: firstWindowId) === firstDock)
-        #expect(registry.existingDock(forWindowId: firstWindowId) === firstDock)
-        #expect(registry.existingDock(forWindowId: secondWindowId) === secondDock)
-        #expect(registry.existingDock(forWindowId: UUID()) == nil)
-        #expect(Set(registry.allDocks.map(\.workspaceId)) == [firstWindowId, secondWindowId])
+            #expect(firstDock !== secondDock)
+            #expect(firstDock.workspaceId == firstWindowId)
+            #expect(secondDock.workspaceId == secondWindowId)
+            #expect(firstDock.scope == .global)
+            #expect(appDelegate.windowDock(forWindowId: firstWindowId) === firstDock)
+            #expect(appDelegate.existingWindowDock(forWindowId: firstWindowId) === firstDock)
+            #expect(appDelegate.existingWindowDock(forWindowId: secondWindowId) === secondDock)
+            #expect(appDelegate.existingWindowDock(forWindowId: UUID()) == nil)
+            #expect(Set(appDelegate.existingWindowDocks.map(\.workspaceId)) == [firstWindowId, secondWindowId])
+        }
     }
 
     @Test("Window Dock tears down with its window")
@@ -132,9 +153,11 @@ struct WindowDockLifecycleTests {
     @MainActor
     func runtimeCloseRoutesWindowDockTerminals() throws {
         let appDelegate = try #require(AppDelegate.shared)
-        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
-            appDelegate.teardownWindowDock(forWindowId: windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
         }
 
         let dock = appDelegate.windowDock(forWindowId: windowId)
@@ -154,18 +177,24 @@ struct WindowDockLifecycleTests {
     @Test("Triggering flash on a Dock panel does not change Dock focus")
     @MainActor
     func triggerFlashDoesNotChangeDockFocus() throws {
-        let registry = WindowDockRegistry()
-        let dock = registry.dock(forWindowId: UUID())
-        let focusedPanel = try dock.seedTestPanel()
-        let flashedPanel = try dock.seedTestPanel()
-        dock.focusPanel(focusedPanel.id)
+        try withIsolatedAppDelegate { appDelegate in
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let focusedPanel = try dock.seedTestPanel()
+            let flashedPanel = try dock.seedTestPanel()
+            dock.focusPanel(focusedPanel.id)
 
-        #expect(dock.focusedPanelId == focusedPanel.id)
-        dock.triggerFocusFlash(panelId: flashedPanel.id)
+            #expect(dock.focusedPanelId == focusedPanel.id)
+            dock.triggerFocusFlash(panelId: flashedPanel.id)
 
-        #expect(flashedPanel.flashCount == 1)
-        #expect(flashedPanel.focusCount == 0)
-        #expect(dock.focusedPanelId == focusedPanel.id)
+            #expect(flashedPanel.flashCount == 1)
+            #expect(flashedPanel.focusCount == 0)
+            #expect(dock.focusedPanelId == focusedPanel.id)
+        }
     }
 
     @Test("Moving a window's last main panel into its own Dock is rejected")
@@ -204,24 +233,30 @@ struct WindowDockLifecycleTests {
     @Test("Docks in two windows render simultaneously without render-host gating")
     @MainActor
     func windowDocksRenderSimultaneouslyInBothWindows() throws {
-        let registry = WindowDockRegistry()
-        let firstWindowId = UUID()
-        let secondWindowId = UUID()
+        try withIsolatedAppDelegate { appDelegate in
+            let firstManager = TabManager(autoWelcomeIfNeeded: false)
+            let secondManager = TabManager(autoWelcomeIfNeeded: false)
+            let firstWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: firstManager)
+            let secondWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: secondManager)
+            defer {
+                firstManager.tabs.forEach { $0.teardownAllPanels() }
+                secondManager.tabs.forEach { $0.teardownAllPanels() }
+            }
+            let firstDock = appDelegate.windowDock(forWindowId: firstWindowId)
+            let secondDock = appDelegate.windowDock(forWindowId: secondWindowId)
+            let firstPanel = try firstDock.seedTestPanel()
+            let secondPanel = try secondDock.seedTestPanel()
 
-        let firstDock = registry.dock(forWindowId: firstWindowId)
-        let secondDock = registry.dock(forWindowId: secondWindowId)
-        let firstPanel = try firstDock.seedTestPanel()
-        let secondPanel = try secondDock.seedTestPanel()
+            // Each window's Dock panel marks its own store visible independently —
+            // the retired single Global Dock had one render host, so a second host
+            // was gated behind an inactive placeholder instead of live content.
+            firstDock.setVisibleInUI(true, hostId: UUID())
+            secondDock.setVisibleInUI(true, hostId: UUID())
 
-        // Each window's Dock panel marks its own store visible independently —
-        // the retired single Global Dock had one render host, so a second host
-        // was gated behind an inactive placeholder instead of live content.
-        firstDock.setVisibleInUI(true, hostId: UUID())
-        secondDock.setVisibleInUI(true, hostId: UUID())
-
-        #expect(firstDock.isVisibleInUI)
-        #expect(secondDock.isVisibleInUI)
-        #expect(firstPanel.focusCount == 1)
-        #expect(secondPanel.focusCount == 1)
+            #expect(firstDock.isVisibleInUI)
+            #expect(secondDock.isVisibleInUI)
+            #expect(firstPanel.focusCount == 1)
+            #expect(secondPanel.focusCount == 1)
+        }
     }
 }
