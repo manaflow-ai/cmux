@@ -10,37 +10,6 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
-// lint:allow namespace-enum — file-local DEBUG input-trace logger on the off-limits typing-latency render path; type reshape deferred to the GhosttySurfaceView UI-god-object split wave.
-enum TerminalInputDebugLog {
-    private static let isEnabled = ProcessInfo.processInfo.environment["CMUX_INPUT_DEBUG"] == "1"
-    private static let logger = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.input")
-
-    static func log(_ message: String) {
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            return
-        }
-        #endif
-        guard isEnabled else { return }
-        logger.debug("input: \(message, privacy: .public)")
-    }
-
-    static func textSummary(_ text: String) -> String {
-        let summary = String(reflecting: text)
-        guard summary.count > 96 else { return summary }
-        return "\(summary.prefix(96))..."
-    }
-
-    static func dataSummary(_ data: Data) -> String {
-        let prefix = data.prefix(32)
-        let prefixData = Data(prefix)
-        let hex = prefix.map { String(format: "%02X", $0) }.joined(separator: " ")
-        let utf8 = String(data: prefixData, encoding: .utf8) ?? "<non-utf8>"
-        let suffix = data.count > prefix.count ? " ..." : ""
-        return "len=\(data.count) hex=\(hex)\(suffix) utf8=\(textSummary(utf8))"
-    }
-}
-
 @MainActor
 public protocol GhosttySurfaceViewDelegate: AnyObject {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data)
@@ -915,6 +884,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutBottomDock()
         syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
+
+    /// Test hook: geometry/spacing tests run in a scene-less xctest host where
+    /// a Metal present can never complete, so a real render dispatch stalls,
+    /// trips the render-pipeline stall recovery, and pauses geometry (and with
+    /// it the viewport reports under test). True skips the render dispatch
+    /// entirely; geometry (`set_size` + measure) never needs a present.
+    var debugSkipRenderDispatchForTesting = false
     #endif
 
     var currentGridSize: TerminalGridSize {
@@ -935,7 +911,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let inputProxy = TerminalInputTextView()
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
-            self.resetCursorBlink()
+            self.handleUserProducedInput()
             #if DEBUG
             self.lastInputTimestamp = CACurrentMediaTime()
             #endif
@@ -949,7 +925,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         inputProxy.onBackspace = { [weak self] in
             guard let self else { return }
-            self.resetCursorBlink()
+            self.handleUserProducedInput()
             // Send DEL (0x7F) directly to transport as raw byte.
             let data = Data([0x7F])
             TerminalInputDebugLog.log("surface.onBackspace data=\(TerminalInputDebugLog.dataSummary(data))")
@@ -957,12 +933,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         inputProxy.onEscapeSequence = { [weak self] data in
             guard let self else { return }
-            self.resetCursorBlink()
+            self.handleUserProducedInput()
             TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
         inputProxy.onPasteImage = { [weak self] data, format in
             guard let self else { return }
+            self.handleUserProducedInput()
             TerminalInputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
             self.delegate?.ghosttySurfaceView(self, didPasteImage: data, format: format)
         }
@@ -2553,17 +2530,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func scrollInitialOutputToBottomIfNeeded() {
-        guard shouldScrollInitialOutputToBottom, let surface else { return }
+        guard shouldScrollInitialOutputToBottom, surface != nil else { return }
         shouldScrollInitialOutputToBottom = false
-        // `ghostty_surface_binding_action` takes the same internal surface lock
-        // as `process_output`/`render_now`. This runs on the MAIN thread (inside
-        // the `processOutput` completion hop), so calling it inline would contend
-        // that lock against the off-main renderer/IO during a render storm and
-        // wedge main on libghostty's futex. Dispatch it on the serial surface
-        // queue like the absolute `set_font_size` push (see
-        // `applyPendingFontSizeIfNeeded`); enqueuing after any pending
-        // `process_output` also preserves ordering. The return was already
-        // discarded.
+        enqueueScrollToBottom()
+    }
+
+    /// Enqueues Ghostty's `scroll_to_bottom` binding action on the serial
+    /// surface queue. `ghostty_surface_binding_action` takes the same internal
+    /// surface lock as `process_output`/`render_now`. Callers run on the MAIN
+    /// thread, so calling it inline would contend that lock against the
+    /// off-main renderer/IO during a render storm and wedge main on
+    /// libghostty's futex. Dispatch it on the serial surface queue like the
+    /// absolute `set_font_size` push (see `applyPendingFontSizeIfNeeded`);
+    /// enqueuing after any pending `process_output` also preserves ordering.
+    /// The return is discarded.
+    func enqueueScrollToBottom() {
+        guard let surface else { return }
         let action = "scroll_to_bottom"
         outputQueue.async {
             action.withCString { pointer in
@@ -3011,6 +2993,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         cursorOverlayLayer?.isHidden = true
     }
 
+    /// Shared reaction to user-produced terminal input (typing, backspace,
+    /// escape sequences, paste): restart the cursor blink and optimistically
+    /// snap the local mirror to the bottom of scrollback. The mirror is
+    /// display-only — the Mac echoes input at the prompt — so a user who types
+    /// while scrolled up would otherwise keep looking at old scrollback and
+    /// read the terminal as frozen. Passive output never forces this jump;
+    /// only explicit user input does (plus the one-time initial-output scroll
+    /// in `scrollInitialOutputToBottomIfNeeded`).
+    private func handleUserProducedInput() {
+        resetCursorBlink()
+        enqueueScrollToBottom()
+    }
+
     /// Reset cursor to visible and restart blink cycle (call on user input).
     private func resetCursorBlink() {
         guard surface != nil else { return }
@@ -3178,6 +3173,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               !renderingSuspended,
               let surface,
               !isDismantled else { return }
+        #if DEBUG
+        if debugSkipRenderDispatchForTesting { return }
+        #endif
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
         if renderInFlight {
