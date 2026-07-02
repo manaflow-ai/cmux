@@ -1027,7 +1027,7 @@ final class FileExplorerContainerView: NSView {
         currentIsLoading = isLoading
         applyHidden(headerView, !hasContent && !hasStatus)
         updateSearchLayout()
-        let searchCanShow = isSearchVisible && canShowTree && !isLoading
+        let searchCanShow = shouldShowSearchUI
         let nextEmptyText = hasStatus
             ? normalizedStatus!
             : String(localized: "fileExplorer.empty", defaultValue: "No folder open")
@@ -1204,12 +1204,20 @@ final class FileExplorerContainerView: NSView {
         searchDebounceGeneration += 1
     }
 
+    /// Single source of truth for whether the search UI is currently shown. Both the
+    /// layout pass and the empty-state pass must read this so they cannot derive
+    /// contradictory visibility from the same cached state — the divergence class
+    /// this view already hit in #7090.
+    private var shouldShowSearchUI: Bool {
+        isSearchVisible && currentCanShowTree && !currentIsLoading
+    }
+
     private func updateSearchLayout() {
         // Derive `showSearch` from the shared cached state (updated by updateVisibility),
         // not per-caller defaults. If the focus/presentation re-entry paths assumed a
         // different loading state than the authoritative visibility pass, they disagreed
         // and toggled isHidden every SwiftUI pass — the macOS 26 100% CPU loop (#7090).
-        let showSearch = isSearchVisible && currentCanShowTree && !currentIsLoading
+        let showSearch = shouldShowSearchUI
         let nextSearchBarHeight = showSearch ? searchBarVisibleHeight : 0
 
         // Assigning isHidden/constraints unconditionally fires KVO even when unchanged,
