@@ -2870,6 +2870,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastRenderLayoutViewportHeight = nil
         lastRenderHasSourceLayoutViewport = false
         lastAppliedContentScale = 0
+        resetViewportReportStateForSurfaceReset()
 
         surfaceGeneration &+= 1
         outputQueueGeneration &+= 1
@@ -3316,6 +3317,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         awaitingViewportEcho = nil
         MobileDebugLog.anchormux("zoom.viewport.retry.exhausted latest=\(viewportReportID)")
         setNeedsGeometrySync(reassertNaturalSize: false)
+    }
+
+    private func resetViewportReportStateForSurfaceReset() {
+        lastReportedSize = nil
+        awaitingViewportEcho = nil
+        pendingViewportReport = nil
+        viewportReportSettleFrames = 0
+        viewportReportRetries = 0
+        viewportReportID &+= 1
+        MobileDebugLog.anchormux("zoom.viewport.reset latest=\(viewportReportID)")
     }
 
     public func applyViewSize(cols: Int, rows: Int) {
