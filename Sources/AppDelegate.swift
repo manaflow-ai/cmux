@@ -7174,6 +7174,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Creates a new LOCAL terminal workspace even in a remote-tmux mirror window.
+    /// Plain New Workspace (⌘N) in a mirror window spawns a remote tmux session on
+    /// the active tab's host; this is the explicit escape hatch to open local work
+    /// alongside mirrors — it skips the remote-routing branch and otherwise shares
+    /// the same window routing, placement, and naming.
+    @discardableResult
+    func performNewLocalWorkspaceAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        event: NSEvent? = nil,
+        debugSource: String = "newLocalWorkspace"
+    ) -> Bool {
+        performNewWorkspaceCreationAction(
+            initialSurface: .terminal,
+            preferredTabManager: preferredTabManager,
+            event: event,
+            debugSource: debugSource,
+            forceLocal: true
+        )
+    }
+
     /// Creates a new workspace whose initial surface is a browser pane in its
     /// default new-tab state with the address bar focused. Shares the window
     /// routing, placement, and naming semantics of `performNewWorkspaceAction`.
@@ -7272,7 +7292,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
-        createdWorkspaceHandler: ((Workspace) -> Void)? = nil
+        createdWorkspaceHandler: ((Workspace) -> Void)? = nil,
+        forceLocal: Bool = false
     ) -> Bool {
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
         let livePreferredContext: MainWindowContext? = {
@@ -7341,8 +7362,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // On a remote-tmux mirror workspace, a new terminal workspace means
         // "create a new tmux session on that workspace's host" — route it to the
         // remote and mirror it back instead of creating a local workspace. The
-        // browser variant always stays local.
+        // browser variant always stays local, and `forceLocal` (the "New Local
+        // Workspace" command) is the explicit escape hatch for opening local
+        // work alongside mirrors.
         if initialSurface == .terminal,
+           !forceLocal,
            let context,
            remoteTmuxController.handleNewWorkspaceRequested(in: context.tabManager) {
             return true
