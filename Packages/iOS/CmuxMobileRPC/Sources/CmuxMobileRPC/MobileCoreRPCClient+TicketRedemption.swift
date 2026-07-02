@@ -14,13 +14,29 @@ extension MobileCoreRPCClient {
         return ticketRef
     }
 
-    /// Merge a freshly `redeemed` ticket over the `scanned` QR ticket, preferring
-    /// redeemed fields and filling gaps from the scan, then stamping the resolved
-    /// `ticketRef`. Routes stay the scanned set (the redeem reply omits them).
+    /// Resolve one scope field (`workspaceID`/`terminalID`), keeping the scanned QR
+    /// scope authoritative. A non-empty scanned value always wins, so a redeemed
+    /// reply can only fill a field the scan left empty (the compact `v=3` grammar
+    /// always scans empty scope) and can never retarget the ticket to a *different*
+    /// non-empty scope than the QR the user actually scanned. Whitespace-only values
+    /// count as empty.
+    private static func scopeFieldPreferringScanned(scanned: String?, redeemed: String?) -> String? {
+        let scannedIsEmpty = scanned?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+        if !scannedIsEmpty {
+            return scanned
+        }
+        let redeemedIsEmpty = redeemed?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+        return redeemedIsEmpty ? scanned : redeemed
+    }
+
+    /// Merge a freshly `redeemed` ticket over the `scanned` QR ticket, then stamp the
+    /// resolved `ticketRef`. Routes stay the scanned set (the redeem reply omits them).
     ///
-    /// Empty or whitespace-only `workspaceID`/`terminalID` in the reply are treated
-    /// as gaps and fall back to the scanned scope, so a partial redeem response can
-    /// never widen the ticket past the workspace/terminal the QR was scoped to.
+    /// Scope (`workspaceID`/`terminalID`) is constrained to the scanned QR: a non-empty
+    /// scanned value is authoritative and the redeemed value only fills a scanned gap, so
+    /// a partial or mismatched redeem response can neither widen the ticket with empty
+    /// scope nor retarget it to a different workspace/terminal than was scanned. Non-scope
+    /// fields prefer the redeemed value and fall back to the scan.
     func redeemedTicket(
         _ redeemed: CmxAttachTicket,
         ticketRef: String,
@@ -28,10 +44,10 @@ extension MobileCoreRPCClient {
     ) throws -> CmxAttachTicket {
         try CmxAttachTicket(
             version: redeemed.version,
-            workspaceID: redeemed.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? scanned.workspaceID : redeemed.workspaceID,
-            terminalID: redeemed.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                ? redeemed.terminalID : scanned.terminalID,
+            workspaceID: Self.scopeFieldPreferringScanned(
+                scanned: scanned.workspaceID, redeemed: redeemed.workspaceID) ?? scanned.workspaceID,
+            terminalID: Self.scopeFieldPreferringScanned(
+                scanned: scanned.terminalID, redeemed: redeemed.terminalID),
             macDeviceID: redeemed.macDeviceID.isEmpty ? scanned.macDeviceID : redeemed.macDeviceID,
             macDisplayName: redeemed.macDisplayName ?? scanned.macDisplayName,
             macUserEmail: redeemed.macUserEmail ?? scanned.macUserEmail,
