@@ -500,6 +500,102 @@
           "default": 10,
           "description": "Maximum number of lines the rich terminal TextBox input can grow to before it scrolls."
         },
+        "textBoxDefaultSubmitAction": {
+          "type": "string",
+          "default": "text-entry",
+          "description": "Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs.",
+          "descriptionKey": "schemaDescriptions.terminal.textBoxDefaultSubmitAction"
+        },
+        "textBoxSubmitActions": {
+          "type": "array",
+          "default": [],
+          "description": "Configurable TextBox submit actions shown on the submit button, Shift-Tab cycle, and right-click menu.",
+          "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActions",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "title", "kind", "systemImage", "backgroundColorHex"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "description": "Stable action ID referenced by terminal.textBoxDefaultSubmitAction.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionId"
+              },
+              "title": {
+                "type": "string",
+                "description": "Menu label for this submit action.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionTitle"
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["textEntry", "commandTemplate"],
+                "description": "Whether this action submits plain Text Entry or expands a shell command template.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionKind"
+              },
+              "commandTemplate": {
+                "type": "string",
+                "description": "Shell command template for commandTemplate actions. Include {{prompt}} to shell-quote the prompt into the command.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionCommandTemplate"
+              },
+              "preservePromptAfterLaunch": {
+                "type": "boolean",
+                "description": "When true, launch commandTemplate without the prompt and keep the prompt in the TextBox for the active agent.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionPreservePromptAfterLaunch"
+              },
+              "systemImage": {
+                "type": "string",
+                "description": "Fallback SF Symbol name shown on the submit button.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionSystemImage"
+              },
+              "assetName": {
+                "type": "string",
+                "description": "Optional app asset catalog image name shown on the submit button.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionAssetName"
+              },
+              "imagePath": {
+                "type": "string",
+                "description": "Optional PNG or image file path shown on the submit button. Tilde is expanded.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionImagePath"
+              },
+              "backgroundColorHex": {
+                "type": "string",
+                "pattern": "^#?[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+                "description": "Action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionBackgroundColorHex"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "required": ["kind"],
+                  "properties": {
+                    "kind": { "const": "commandTemplate" }
+                  }
+                },
+                "then": {
+                  "required": ["commandTemplate"],
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "commandTemplate": {
+                          "type": "string",
+                          "pattern": "\\{\\{prompt\\}\\}"
+                        }
+                      }
+                    },
+                    {
+                      "required": ["preservePromptAfterLaunch"],
+                      "properties": {
+                        "preservePromptAfterLaunch": { "const": true }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
         "resumeCommands": {
           "type": "array",
           "default": [],
@@ -595,6 +691,12 @@
           "type": "boolean",
           "default": true,
           "description": "Flash the focused pane when requested."
+        },
+        "suppressOnlyFocusedSurface": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.suppressOnlyFocusedSurface",
+          "description": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
         },
         "sound": {
           "type": "string",
@@ -1039,6 +1141,12 @@
           "default": 300,
           "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
         },
+        "askWhereToSaveDownloads": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.browser.askWhereToSaveDownloads",
+          "description": "Show a save panel for browser downloads instead of saving directly to Downloads."
+        },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,
@@ -1250,12 +1358,14 @@
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
+              "newWorkspaceGroup",
               "groupSelectedWorkspaces",
               "toggleFocusedWorkspaceGroupCollapsed",
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
               "focusTextBoxInput",
+              "cycleTextBoxSubmitAction",
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
               "clearScreenKeepScrollback",

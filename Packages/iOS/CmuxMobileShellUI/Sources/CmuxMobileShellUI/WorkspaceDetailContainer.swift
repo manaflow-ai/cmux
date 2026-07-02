@@ -1,3 +1,4 @@
+import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -15,6 +16,7 @@ struct WorkspaceDetailContainer: View {
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let safeAreaContext: MobileTerminalSafeAreaContext
+    let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
 
     private var workspace: MobileWorkspacePreview? {
@@ -36,34 +38,70 @@ struct WorkspaceDetailContainer: View {
     }
 
     var body: some View {
-        if let workspace {
-            WorkspaceDetailView(
-                host: store.connectedHostName,
-                connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
-                workspace: workspace,
-                store: store,
-                createWorkspace: createWorkspace,
-                canCreateWorkspace: canCreateWorkspace,
-                createTerminal: { store.createTerminal(in: workspace.id) },
-                closeWorkspace: closeWorkspaceClosure,
-                reportTerminalViewport: store.reportTerminalViewport,
-                sendTerminalInput: store.sendTerminalRawInput,
-                safeAreaContext: safeAreaContext,
-                signOut: signOut
-            )
-            .onAppear {
-                if store.selectedWorkspaceID != workspace.id {
-                    store.selectedWorkspaceID = workspace.id
+        Group {
+            if let workspace {
+                WorkspaceDetailView(
+                    host: store.connectedHostName,
+                    connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
+                    workspace: workspace,
+                    store: store,
+                    createWorkspace: createWorkspace,
+                    canCreateWorkspace: canCreateWorkspace,
+                    createTerminal: { store.createTerminal(in: workspace.id) },
+                    closeWorkspace: closeWorkspaceClosure,
+                    reportTerminalViewport: store.reportTerminalViewport,
+                    sendTerminalInput: store.sendTerminalRawInput,
+                    safeAreaContext: safeAreaContext,
+                    backButtonConfiguration: backButtonConfiguration,
+                    signOut: signOut
+                )
+                .onAppear {
+                    #if DEBUG
+                    MobileDebugLog.anchormux(
+                        "toolbar.container.detailAppear requested=\(workspaceID?.rawValue ?? "nil") resolved=\(workspace.id.rawValue) selected=\(store.selectedWorkspaceID?.rawValue ?? "nil") terminals=\(workspace.terminals.count) back=\(backButtonConfiguration != nil)"
+                    )
+                    #endif
+                    if store.selectedWorkspaceID != workspace.id {
+                        store.selectedWorkspaceID = workspace.id
+                    }
                 }
+                #if DEBUG
+                .onDisappear {
+                    MobileDebugLog.anchormux(
+                        "toolbar.container.detailDisappear requested=\(workspaceID?.rawValue ?? "nil") resolved=\(workspace.id.rawValue) selected=\(store.selectedWorkspaceID?.rawValue ?? "nil")"
+                    )
+                }
+                #endif
+                .task(id: workspace.id) {
+                    await store.openWorkspace(workspace.id)
+                }
+            } else {
+                ContentUnavailableView(
+                    L10n.string("mobile.workspace.emptyTitle", defaultValue: "No Workspace"),
+                    systemImage: "rectangle.stack"
+                )
             }
-            .task(id: workspace.id) {
-                await store.openWorkspace(workspace.id)
-            }
-        } else {
-            ContentUnavailableView(
-                L10n.string("mobile.workspace.emptyTitle", defaultValue: "No Workspace"),
-                systemImage: "rectangle.stack"
-            )
         }
+        #if DEBUG
+        .onAppear {
+            MobileDebugLog.anchormux("toolbar.container.appear \(debugSignature)")
+        }
+        .onChange(of: debugSignature) { _, signature in
+            MobileDebugLog.anchormux("toolbar.container.change \(signature)")
+        }
+        #endif
     }
+
+    #if DEBUG
+    private var debugSignature: String {
+        [
+            "requested=\(workspaceID?.rawValue ?? "nil")",
+            "resolved=\(workspace?.id.rawValue ?? "nil")",
+            "selected=\(store.selectedWorkspaceID?.rawValue ?? "nil")",
+            "selectedTerminal=\(store.selectedTerminalID?.rawValue ?? "nil")",
+            "workspaces=\(store.workspaces.map(\.id.rawValue).joined(separator: ","))",
+            "back=\(backButtonConfiguration != nil)",
+        ].joined(separator: " ")
+    }
+    #endif
 }
