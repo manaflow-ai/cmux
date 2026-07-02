@@ -3691,22 +3691,47 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // Clear before the fetch; an event during the await re-sets it and
                 // we loop once more (the trailing refresh).
                 self.secondaryMacSubscriptions[macID]?.refreshPending = false
-                let previews = await self.fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
-                // Bail if the subscription was replaced/torn down across the await.
-                guard let current = self.secondaryMacSubscriptions[macID],
-                      current.client === client else { return }
-                if let previews {
-                    self.workspacesByMac[macID] = MacWorkspaceState(
-                        macDeviceID: macID,
-                        displayName: displayName,
-                        workspaces: previews,
-                        status: .connected,
-                        actionCapabilities: current.actionCapabilities
-                    )
-                }
+                guard await self.refreshSecondaryWorkspaceListNow(
+                    macID: macID,
+                    client: client,
+                    displayName: displayName
+                ) else { return }
             } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
             self.secondaryMacSubscriptions[macID]?.refreshTask = nil
         }
+    }
+
+    /// Re-fetch and apply one secondary Mac's authoritative workspace list.
+    ///
+    /// Returns `false` when the subscription was replaced or removed across the
+    /// await. Event-driven refresh uses that to stop its coalesced loop; mutation
+    /// refresh awaits this helper so post-close selection repair can consume
+    /// any pending autofocus suppression before the close action returns.
+    @discardableResult
+    private func refreshSecondaryWorkspaceListNow(
+        macID: String,
+        client: MobileCoreRPCClient,
+        displayName: String?
+    ) async -> Bool {
+        guard let subscription = secondaryMacSubscriptions[macID],
+              subscription.client === client else {
+            return false
+        }
+        let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
+        guard let current = secondaryMacSubscriptions[macID],
+              current.client === client else {
+            return false
+        }
+        if let previews {
+            workspacesByMac[macID] = MacWorkspaceState(
+                macDeviceID: macID,
+                displayName: displayName,
+                workspaces: previews,
+                status: .connected,
+                actionCapabilities: current.actionCapabilities
+            )
+        }
+        return true
     }
 
     /// Routing target for a workspace mutation (rename / pin / unread / close): the
@@ -3737,7 +3762,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if target.isForeground {
             await refreshWorkspaces()
         } else if let macID = target.macDeviceID, let sub = secondaryMacSubscriptions[macID] {
-            scheduleSecondaryRefresh(
+            await refreshSecondaryWorkspaceListNow(
                 macID: macID, client: sub.client, displayName: workspacesByMac[macID]?.displayName)
         }
     }
