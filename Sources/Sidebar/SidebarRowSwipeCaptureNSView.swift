@@ -155,8 +155,10 @@ final class SidebarRowSwipeCaptureNSView: NSView {
                 (.ended, 0, 0),
             ]
         case .release:
+            // Cancelled, not ended: reveal sequences sit past the commit
+            // threshold, and release must always snap back without committing.
             return [
-                (.ended, 0, 0),
+                (.cancelled, 0, 0),
             ]
         }
     }
