@@ -19,18 +19,18 @@ struct MobileHostPickerView: View {
             List {
                 Section {
                     if store.pairedMacs.isEmpty {
-                        Text(L10n.string("mobile.hostPicker.empty", defaultValue: "No paired Macs yet."))
+                        Text(L10n.string("mobile.hostPicker.empty", defaultValue: "No paired computers yet."))
                             .foregroundStyle(.secondary)
                     }
                     ForEach(store.pairedMacs) { mac in
                         macRow(mac)
                     }
                 } header: {
-                    Text(L10n.string("mobile.hostPicker.header", defaultValue: "Paired Macs"))
+                    Text(L10n.string("mobile.hostPicker.header", defaultValue: "Paired Computers"))
                 } footer: {
                     Text(L10n.string(
                         "mobile.hostPicker.footer",
-                        defaultValue: "Switch which Mac this device controls. Pairing another Mac keeps the others, so you can hop between them."
+                        defaultValue: "Switch which computer this device controls. Pairing another computer keeps the others, so you can hop between them."
                     ))
                 }
 
@@ -39,14 +39,14 @@ struct MobileHostPickerView: View {
                         showingScanner = true
                     } label: {
                         Label(
-                            L10n.string("mobile.hostPicker.addMac", defaultValue: "Pair Another Mac"),
+                            L10n.string("mobile.hostPicker.addMac", defaultValue: "Pair Another Computer"),
                             systemImage: "plus"
                         )
                     }
                     .accessibilityIdentifier("MobileHostPickerAddMac")
                 }
             }
-            .navigationTitle(L10n.string("mobile.hostPicker.title", defaultValue: "Switch Mac"))
+            .navigationTitle(L10n.string("mobile.hostPicker.title", defaultValue: "Switch Computer"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -127,7 +127,7 @@ struct MobileHostPickerView: View {
         .accessibilityIdentifier("MobileHostPickerRow-\(mac.macDeviceID)")
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
-                Task { await store.forgetMac(macDeviceID: mac.macDeviceID) }
+                Task { await store.forgetStoredMac(macDeviceID: mac.macDeviceID) }
             } label: {
                 Label(L10n.string("mobile.hostPicker.forget", defaultValue: "Forget"), systemImage: "trash")
             }
