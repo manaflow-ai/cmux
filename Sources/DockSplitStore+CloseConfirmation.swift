@@ -131,7 +131,7 @@ extension DockSplitStore {
     /// must resolve through the Dock owner rather than `tabManagerFor(tabId:)`.
     private func dockCloseConfirmationManager() -> TabManager? {
         guard let app = AppDelegate.shared else { return nil }
-        return app.dockReferenceTabManager(for: self) ?? app.tabManager
+        return app.dockReferenceTabManager(for: self)
     }
 
     func needsConfirmClose() -> Bool {
