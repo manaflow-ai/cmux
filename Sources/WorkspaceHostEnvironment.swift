@@ -35,6 +35,10 @@ import Foundation
 /// `hostEnvironment` matching a nil `AppDelegate.shared`) is byte-identical.
 @MainActor
 protocol WorkspaceHostEnvironment: AnyObject {
+    /// The process-lifetime app environment, used when a `Workspace` needs to
+    /// reach router-owned active-window operations.
+    var environment: AppEnvironment { get }
+
     /// The app's terminal-notification store (legacy
     /// `AppDelegate.shared?.notificationStore`). Optional because the store is a
     /// `weak` reference on the delegate that is only bound while a notification
@@ -54,6 +58,9 @@ protocol WorkspaceHostEnvironment: AnyObject {
     /// The DEBUG focus log (legacy `AppDelegate.shared?.focusLog`). Non-optional
     /// on the delegate; the optionality lives on the host-environment reference.
     var focusLog: FocusLogStore { get }
+
+    /// The app's window registry, which owns cross-window resolver lookups.
+    var windowRegistry: WindowRegistry { get }
 
     /// Resolves the tab manager owning the given workspace/tab id (legacy
     /// `AppDelegate.shared?.tabManagerFor(tabId:)`).

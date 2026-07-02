@@ -209,7 +209,7 @@ extension AppDelegate: WorkspaceCreationActionHosting {
         in windowToken: WindowID,
         anchorCwd: String?
     ) -> WorkspaceGroupNewPlacement? {
-        windowConfigStores.model(for: windowToken)?
+        windowContext(for: windowToken)?.configStore?
             .resolveWorkspaceGroupConfig(forCwd: anchorCwd)?
             .newWorkspacePlacement
     }

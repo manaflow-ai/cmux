@@ -20,7 +20,7 @@ extension TerminalController {
             }
             // The tab may belong to a different window — search all contexts.
             if let uuid = UUID(uuidString: tabArg.trimmingCharacters(in: .whitespacesAndNewlines)),
-               let otherManager = AppDelegate.shared?.tabManagerFor(tabId: uuid) {
+               let otherManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: uuid) {
                 return otherManager.tabs.first(where: { $0.id == uuid })
             }
             return nil
@@ -58,7 +58,7 @@ extension TerminalController {
         if let tab = tabManager?.tabs.first(where: { $0.id == id }) {
             return tab
         }
-        if let otherManager = AppDelegate.shared?.tabManagerFor(tabId: id) {
+        if let otherManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: id) {
             return otherManager.tabs.first(where: { $0.id == id })
         }
         return nil

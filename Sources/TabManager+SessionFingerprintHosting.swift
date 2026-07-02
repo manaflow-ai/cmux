@@ -7,7 +7,7 @@ import Foundation
 /// The deterministic hashing lives in `CmuxWorkspaces.SessionFingerprintService`
 /// over the `Sendable` `SessionWorkspaceFingerprintInput`. This conformance is
 /// the irreducible live-state read seam: it walks the per-window `tabs`,
-/// `workspaceGroups`, the app's `AppDelegate.shared.notificationStore`, and the
+/// `workspaceGroups`, the app environment's notification store, and the
 /// per-panel restorable-agent / surface-resume / text-box / hibernation state
 /// that are all app-target-owned, flattening each into the package value types.
 /// It reproduces the legacy `TabManager.sessionAutosaveFingerprint` read order
@@ -20,7 +20,7 @@ extension TabManager: SessionFingerprintHosting {
         resolveSurfaceResumeBinding: (_ workspaceId: UUID, _ panelId: UUID)
             -> SessionFingerprintSurfaceResumeBindingSnapshot?
     ) -> SessionWorkspaceFingerprintInput {
-        let notificationStore = AppDelegate.shared?.notificationStore
+        let notificationStore = appEnvironment?.notificationStore
 
         let groups = workspaceGroups.map { group in
             SessionFingerprintGroupSnapshot(

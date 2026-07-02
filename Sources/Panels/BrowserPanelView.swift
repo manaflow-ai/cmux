@@ -45,6 +45,7 @@ struct BrowserPanelView: View {
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.openWindow) private var openWindow
     @Environment(\.paneDropZone) private var paneDropZone
+    @Environment(\.appEnvironment) private var appEnvironment
     /// Held detector instance; the view detects and summarizes installed browsers
     /// through this rather than the former `BrowserInstalledBrowserDetector` static
     /// namespace.
@@ -332,8 +333,7 @@ struct BrowserPanelView: View {
     }
 
     private var owningWorkspace: Workspace? {
-        guard let app = AppDelegate.shared,
-              let manager = app.tabManagerFor(tabId: panel.workspaceId) else {
+        guard let manager = appEnvironment?.windowRegistry.tabManagerFor(tabId: panel.workspaceId) else {
             return nil
         }
         return manager.tabs.first(where: { $0.id == panel.workspaceId })
@@ -1339,6 +1339,7 @@ struct BrowserPanelView: View {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,
+                    appEnvironment: appEnvironment,
                     shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineDeveloperToolsHosting,
                     useLocalInlineHosting: useLocalInlineDeveloperToolsHosting,
                     shouldFocusWebView: isFocused && !addressBarFocused,
@@ -1522,8 +1523,7 @@ struct BrowserPanelView: View {
     }
 
     private func isPanelFocusedInModel() -> Bool {
-        guard let app = AppDelegate.shared,
-              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+        guard let manager = appEnvironment?.windowRegistry.tabManagerFor(tabId: panel.workspaceId),
               manager.selectedTabId == panel.workspaceId,
               let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else {
             return false
@@ -1588,9 +1588,9 @@ struct BrowserPanelView: View {
             return true
         }
 
-        if let manager = app.tabManagerFor(tabId: panel.workspaceId),
-           let windowId = app.windowId(for: manager),
-           let window = app.mainWindow(for: windowId),
+        if let manager = appEnvironment?.windowRegistry.tabManagerFor(tabId: panel.workspaceId),
+           let windowId = appEnvironment?.windowRegistry.windowId(for: manager),
+           let window = appEnvironment?.windowRegistry.mainWindow(for: windowId),
            app.isCommandPaletteVisible(for: window) {
             return true
         }
@@ -1610,9 +1610,8 @@ struct BrowserPanelView: View {
             return true
         }
 
-        guard let app = AppDelegate.shared,
-              let manager = app.tabManagerFor(tabId: panel.workspaceId),
-              let panelWindowId = app.windowId(for: manager) else {
+        guard let manager = appEnvironment?.windowRegistry.tabManagerFor(tabId: panel.workspaceId),
+              let panelWindowId = appEnvironment?.windowRegistry.windowId(for: manager) else {
             return false
         }
 
@@ -1621,7 +1620,7 @@ struct BrowserPanelView: View {
         }
 
         if let notificationWindow = notification.object as? NSWindow,
-           let panelWindow = app.mainWindow(for: panelWindowId) {
+           let panelWindow = appEnvironment?.windowRegistry.mainWindow(for: panelWindowId) {
             return notificationWindow === panelWindow
         }
         return false
@@ -1955,7 +1954,7 @@ struct BrowserPanelView: View {
         omnibarState.isUserEditing = false
         switch suggestion.kind {
         case .switchToTab(let tabId, let panelId, _, _):
-            AppDelegate.shared?.tabManager?.focusTab(tabId, surfaceId: panelId)
+            appEnvironment?.mainWindowRouter.activeTabManager?.focusTab(tabId, surfaceId: panelId)
         default:
             panel.navigateSmart(suggestion.completion)
         }
@@ -3191,6 +3190,11 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 struct WebViewRepresentable: NSViewRepresentable {
     let panel: BrowserPanel
     let paneId: PaneID
+    /// Threaded from `BrowserPanelView`'s `@Environment(\.appEnvironment)` at the
+    /// construction site: representable lifecycle callbacks run outside body
+    /// evaluation, so this is a stored dependency rather than an environment read.
+    /// Optional to preserve the legacy `AppDelegate.shared?` nil short-circuit.
+    let appEnvironment: AppEnvironment?
     let shouldAttachWebView: Bool
     let useLocalInlineHosting: Bool
     let shouldFocusWebView: Bool
@@ -5608,8 +5612,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {
-        guard let app = AppDelegate.shared,
-              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+        guard let manager = appEnvironment?.windowRegistry.tabManagerFor(tabId: panel.workspaceId),
               let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
               let paneId = workspace.paneId(forPanelId: panel.id) else {
             return nil

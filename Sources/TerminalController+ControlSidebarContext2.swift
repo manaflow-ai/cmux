@@ -17,8 +17,8 @@ extension TerminalController {
         branch: String,
         isDirty: Bool?
     ) {
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
@@ -56,8 +56,8 @@ extension TerminalController {
     }
 
     func controlSidebarScheduleScopedGitBranchClear(scope: ControlSidebarPanelScope) {
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
@@ -134,13 +134,13 @@ extension TerminalController {
         action: String,
         actionTarget: String?
     ) {
-        controlSidebarSchedulePanelMetadataMutation(target: target) { tab, surfaceId in
+        controlSidebarSchedulePanelMetadataMutation(target: target) { [weak self] tab, surfaceId in
             guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
 
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else { return }
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: tab.id) else { return }
             tabManager.handleWorkspacePullRequestCommandHint(
                 tabId: tab.id,
                 surfaceId: surfaceId,
@@ -191,8 +191,8 @@ extension TerminalController {
     }
 
     func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String) {
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
@@ -227,8 +227,8 @@ extension TerminalController {
         ) else {
             return
         }
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID) else { return }
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: scope.workspaceID) else { return }
             tabManager.updateSurfaceShellActivity(tabId: scope.workspaceID, surfaceId: scope.panelID, state: state)
         }
     }
@@ -250,8 +250,8 @@ extension TerminalController {
     }
 
     func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String) {
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }
@@ -290,8 +290,8 @@ extension TerminalController {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return
             }

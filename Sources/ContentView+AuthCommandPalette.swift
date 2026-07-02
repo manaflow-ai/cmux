@@ -21,7 +21,7 @@ extension ContentView {
 #if DEBUG
             cmuxDebugLog("palette.auth.signIn.invoke")
 #endif
-            guard let auth = AppDelegate.shared?.auth else {
+            guard let auth = appEnvironment?.auth else {
                 NSSound.beep()
                 return
             }
@@ -31,7 +31,7 @@ extension ContentView {
 #if DEBUG
             cmuxDebugLog("palette.auth.signOut.invoke")
 #endif
-            guard let auth = AppDelegate.shared?.auth else {
+            guard let auth = appEnvironment?.auth else {
                 NSSound.beep()
                 return
             }

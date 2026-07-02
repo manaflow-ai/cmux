@@ -406,7 +406,8 @@ extension TerminalNotificationStore {
     private func shouldDeliverQueuedNotification(_ notification: QueuedTerminalNotification) -> Bool {
         guard let appDelegate = AppDelegate.shared else { return false }
         guard let surfaceId = notification.key.surfaceId else {
-            let tabManager = appDelegate.tabManagerFor(tabId: notification.key.tabId) ?? appDelegate.tabManager
+            let tabManager = appDelegate.environment.windowRegistry.tabManagerFor(tabId: notification.key.tabId)
+                ?? appDelegate.environment.mainWindowRouter.activeTabManager
             return tabManager?.tabs.contains(where: { $0.id == notification.key.tabId }) == true
         }
 

@@ -54,7 +54,7 @@ extension TerminalController {
     #endif
 
     private func terminalPanel(surfaceID: UUID) -> TerminalPanel? {
-        guard let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceID),
+        guard let located = appEnvironment?.windowRegistry.locateSurface(surfaceId: surfaceID),
               let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
             return nil
         }

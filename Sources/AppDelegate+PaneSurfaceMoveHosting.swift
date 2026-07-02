@@ -18,7 +18,7 @@ import Foundation
 @MainActor
 extension AppDelegate: PaneSurfaceMoveHosting {
     func resolveSourceLocation(surfaceId: UUID) -> PaneSurfaceMoveSourceLocation? {
-        guard let located = locateSurface(surfaceId: surfaceId) else { return nil }
+        guard let located = windowRegistry.locateSurface(surfaceId: surfaceId) else { return nil }
         return PaneSurfaceMoveSourceLocation(
             windowId: located.windowId,
             workspaceId: located.workspaceId
@@ -166,7 +166,7 @@ extension AppDelegate: PaneSurfaceMoveHosting {
         if plan.focus {
             let destinationWindowId = plan.destinationWindowId
             if let destinationWindowId {
-                _ = focusMainWindow(windowId: destinationWindowId)
+                _ = environment.mainWindowRouter.focusMainWindow(windowId: destinationWindowId)
             }
             destinationManager.focusTab(plan.destinationWorkspaceId, surfaceId: panelId, suppressFlash: true)
             if let destinationWindowId {

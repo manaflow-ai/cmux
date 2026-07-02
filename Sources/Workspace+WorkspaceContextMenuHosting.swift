@@ -102,19 +102,19 @@ extension Workspace: WorkspaceContextMenuHosting {
     // MARK: Cross-workspace move (AppDelegate)
 
     func canMoveSurfaceToNewWorkspace(panelId: UUID) -> Bool {
-        AppDelegate.shared?.canMoveSurfaceToNewWorkspace(panelId: panelId) ?? false
+        hostEnvironment?.environment.mainWindowRouter.canMoveSurfaceToNewWorkspace(panelId: panelId) ?? false
     }
 
     func workspaceMoveTargets(forBonsplitTab tabId: TabID) -> [WorkspaceContextMoveTarget] {
-        guard let app = AppDelegate.shared else { return [] }
-        return app.workspaceMoveTargets(forBonsplitTab: tabId.uuid).map { target in
+        guard let mainWindowRouter = hostEnvironment?.environment.mainWindowRouter else { return [] }
+        return mainWindowRouter.workspaceMoveTargets(forBonsplitTab: tabId.uuid).map { target in
             WorkspaceContextMoveTarget(workspaceId: target.workspaceId, label: target.label)
         }
     }
 
     func moveSurfaceToNewWorkspace(panelId: UUID) -> Bool {
-        guard let app = AppDelegate.shared else { return false }
-        return app.moveSurfaceToNewWorkspace(
+        guard let mainWindowRouter = hostEnvironment?.environment.mainWindowRouter else { return false }
+        return mainWindowRouter.moveSurfaceToNewWorkspace(
             panelId: panelId,
             focus: true,
             focusWindow: false

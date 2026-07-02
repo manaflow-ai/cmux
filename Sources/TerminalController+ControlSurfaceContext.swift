@@ -182,7 +182,7 @@ extension TerminalController: ControlSurfaceContext {
             return .workspaceNotFound
         }
         if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
         if tabManager.selectedTabId != ws.id {

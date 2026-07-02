@@ -136,7 +136,7 @@ final class RemoteTmuxMirrorAttachCoordinator {
         try Task.checkCancellation()
 
         let windowId = appDelegate.createMainWindow(shouldActivate: activateWindow)
-        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+        guard let manager = appDelegate.environment.windowRegistry.tabManagerFor(windowId: windowId) else {
             throw RemoteTmuxError.unreachable("could not create window")
         }
         windowRegistry.bind(host: host, windowId: windowId)

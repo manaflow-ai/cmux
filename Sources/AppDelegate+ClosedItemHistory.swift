@@ -177,7 +177,7 @@ extension AppDelegate {
               let windowId = windowId(for: manager) else {
             return
         }
-        _ = focusMainWindow(windowId: windowId)
+        _ = environment.mainWindowRouter.focusMainWindow(windowId: windowId)
     }
 }
 

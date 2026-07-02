@@ -38,7 +38,8 @@ extension TerminalController {
             preferredWorkspaceId: preferredWorkspaceID,
             preferredSurfaceId: preferredSurfaceID,
             callerTTY: normalizedTTY,
-            preferTTY: preferTTY
+            preferTTY: preferTTY,
+            appEnvironment: appEnvironment
         ) else {
             return .workspaceNotFound
         }
@@ -57,12 +58,14 @@ extension TerminalController {
         preferredWorkspaceId: UUID?,
         preferredSurfaceId: UUID?,
         callerTTY: String?,
-        preferTTY: Bool
+        preferTTY: Bool,
+        appEnvironment: AppEnvironment?
     ) -> TerminalCallerNotificationTarget? {
         let managers = candidateManagers(
             fallback: fallback,
             preferredWorkspaceId: preferredWorkspaceId,
-            preferredSurfaceId: preferredSurfaceId
+            preferredSurfaceId: preferredSurfaceId,
+            appEnvironment: appEnvironment
         )
         let ttyTarget = callerTTY.flatMap { targetForTTY($0, tabManagers: managers) }
         if preferTTY, let ttyTarget { return ttyTarget }
@@ -93,7 +96,8 @@ extension TerminalController {
     private static func candidateManagers(
         fallback: TabManager,
         preferredWorkspaceId: UUID?,
-        preferredSurfaceId: UUID?
+        preferredSurfaceId: UUID?,
+        appEnvironment: AppEnvironment?
     ) -> [TabManager] {
         var managers: [TabManager] = []
         func append(_ manager: TabManager?) {
@@ -101,11 +105,13 @@ extension TerminalController {
             managers.append(manager)
         }
 
-        let app = AppDelegate.shared
-        if let preferredWorkspaceId { append(app?.tabManagerFor(tabId: preferredWorkspaceId)) }
-        if let preferredSurfaceId { append(app?.locateSurface(surfaceId: preferredSurfaceId)?.tabManager) }
+        let windowRegistry = appEnvironment?.windowRegistry
+        if let preferredWorkspaceId { append(windowRegistry?.tabManagerFor(tabId: preferredWorkspaceId)) }
+        if let preferredSurfaceId { append(windowRegistry?.locateSurface(surfaceId: preferredSurfaceId)?.tabManager) }
         append(fallback)
-        app?.listMainWindowSummaries().forEach { append(app?.tabManagerFor(windowId: $0.windowId)) }
+        windowRegistry?.listMainWindowSummaries().forEach {
+            append(windowRegistry?.tabManagerFor(windowId: $0.windowId))
+        }
         return managers
     }
 

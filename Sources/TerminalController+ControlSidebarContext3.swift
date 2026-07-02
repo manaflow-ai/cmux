@@ -108,12 +108,12 @@ extension TerminalController {
         // The byte-faithful twin of the file-private `v2RefreshKnownRefs()`
         // (which stays in `TerminalController.swift` for the v2 dispatch
         // pre-pass), minting into the same coordinator-owned registry.
-        guard let app = AppDelegate.shared else { return }
+        guard let windowRegistry = appEnvironment?.windowRegistry else { return }
 
-        let windows = app.listMainWindowSummaries()
+        let windows = windowRegistry.listMainWindowSummaries()
         for item in windows {
             _ = controlCommandCoordinator.ensureRef(kind: .window, uuid: item.windowId)
-            if let tm = app.tabManagerFor(windowId: item.windowId) {
+            if let tm = windowRegistry.tabManagerFor(windowId: item.windowId) {
                 for ws in tm.tabs {
                     _ = controlCommandCoordinator.ensureRef(kind: .workspace, uuid: ws.id)
                     for paneId in ws.bonsplitController.allPaneIds {

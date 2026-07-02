@@ -94,6 +94,16 @@ class TerminalController: MobileViewportSurfaceLimiting {
         compositionRootInstance = instance
     }
 
+    /// Weak reach path back to process-lifetime services while control-context
+    /// call sites migrate away from `AppDelegate.shared`.
+    private(set) weak var appEnvironment: AppEnvironment?
+
+    /// Attaches the composition-root environment. Nil reads through this
+    /// property preserve the optional short-circuit shape of `AppDelegate.shared?`.
+    func attachAppEnvironment(_ environment: AppEnvironment) {
+        appEnvironment = environment
+    }
+
     /// Pure replacement-policy transforms for sidebar status/metadata/git/PR/
     /// port projections plus directory normalization and explicit-socket-scope
     /// parsing. A `Sendable` value type owned by `CmuxSidebar`; the sidebar
@@ -246,7 +256,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
     )
 
     /// The worker-lane `remote.tmux.*` RPC handler (CmuxControlSocket), reaching
-    /// the `@MainActor` `RemoteTmuxController` (via `AppDelegate.shared`) and the
+    /// the `@MainActor` `RemoteTmuxController` (via ``appEnvironment``) and the
     /// `RemoteTmuxController.isEnabled` beta flag strictly through the
     /// ``ControlRemoteTmuxReading`` seam conformed by
     /// ``TerminalControllerRemoteTmuxReading``. The seam conformer holds no live
@@ -499,7 +509,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
     func v2MaybeFocusWindow(for tabManager: TabManager) {
         guard socketCommandAllowsInAppFocusMutations(),
               let windowId = v2ResolveWindowId(tabManager: tabManager) else { return }
-        _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+        _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
         setActiveTabManager(tabManager)
     }
 
@@ -1630,12 +1640,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
     // whose `controlWorkspaceEnv` witness reproduces the legacy `v2WorkspaceEnv`
     // pre-resolution refs refresh and so must reach this member.
     func v2RefreshKnownRefs() {
-        guard let app = AppDelegate.shared else { return }
+        guard let windowRegistry = appEnvironment?.windowRegistry else { return }
 
-        let windows = app.listMainWindowSummaries()
+        let windows = windowRegistry.listMainWindowSummaries()
         for item in windows {
             _ = v2EnsureHandleRef(kind: .window, uuid: item.windowId)
-            if let tm = app.tabManagerFor(windowId: item.windowId) {
+            if let tm = windowRegistry.tabManagerFor(windowId: item.windowId) {
                 for ws in tm.tabs {
                     _ = v2EnsureHandleRef(kind: .workspace, uuid: ws.id)
                     for paneId in ws.bonsplitController.allPaneIds {
@@ -1667,7 +1677,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // active window's TabManager.
         if v2HasNonNullParam(params, "window_id") {
             guard let windowId = v2UUID(params, "window_id") else { return nil }
-            return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
+            return v2MainSync { appEnvironment?.windowRegistry.tabManagerFor(windowId: windowId) }
         }
         if let groupId = v2UUID(params, "group_id") {
             if let tm = v2MainSync({ v2LocateTabManager(forGroupId: groupId) }) {
@@ -1675,14 +1685,14 @@ class TerminalController: MobileViewportSurfaceLimiting {
             }
         }
         if let wsId = v2UUID(params, "workspace_id") {
-            if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(tabId: wsId) }) {
+            if let tm = v2MainSync({ appEnvironment?.windowRegistry.tabManagerFor(tabId: wsId) }) {
                 return tm
             }
         }
         if let surfaceId = v2UUID(params, "surface_id")
             ?? v2UUID(params, "terminal_id")
             ?? v2UUID(params, "tab_id") {
-            if let tm = v2MainSync({ AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager }) {
+            if let tm = v2MainSync({ appEnvironment?.windowRegistry.locateSurface(surfaceId: surfaceId)?.tabManager }) {
                 return tm
             }
         }
@@ -1691,14 +1701,14 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 return tm
             }
         }
-        return v2MainSync { tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
+        return v2MainSync { tabManager ?? appEnvironment?.windowRegistry.currentScriptableMainWindow()?.tabManager }
     }
 
     @MainActor
     private func v2LocateTabManager(forGroupId groupId: UUID) -> TabManager? {
-        guard let app = AppDelegate.shared else { return nil }
-        for summary in app.listMainWindowSummaries() {
-            guard let tm = app.tabManagerFor(windowId: summary.windowId) else { continue }
+        guard let windowRegistry = appEnvironment?.windowRegistry else { return nil }
+        for summary in windowRegistry.listMainWindowSummaries() {
+            guard let tm = windowRegistry.tabManagerFor(windowId: summary.windowId) else { continue }
             if tm.workspaceGroups.contains(where: { $0.id == groupId }) {
                 return tm
             }
@@ -1716,34 +1726,34 @@ class TerminalController: MobileViewportSurfaceLimiting {
     func resolveTabManager(routing: ControlRoutingSelectors) -> TabManager? {
         if routing.hasWindowIDParam {
             guard let windowId = routing.windowID else { return nil }
-            return AppDelegate.shared?.tabManagerFor(windowId: windowId)
+            return appEnvironment?.windowRegistry.tabManagerFor(windowId: windowId)
         }
         if let groupId = routing.groupID,
            let tm = v2LocateTabManager(forGroupId: groupId) {
             return tm
         }
         if let workspaceId = routing.workspaceID,
-           let tm = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) {
+           let tm = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId) {
             return tm
         }
         if let surfaceId = routing.surfaceID,
-           let tm = AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager {
+           let tm = appEnvironment?.windowRegistry.locateSurface(surfaceId: surfaceId)?.tabManager {
             return tm
         }
         if let paneId = routing.paneID,
            let tm = v2LocatePane(paneId)?.tabManager {
             return tm
         }
-        return tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager
+        return tabManager ?? appEnvironment?.windowRegistry.currentScriptableMainWindow()?.tabManager
     }
 
     func v2ResolveWindowId(tabManager: TabManager?) -> UUID? {
         guard let tabManager else { return nil }
-        return v2MainSync { AppDelegate.shared?.windowId(for: tabManager) }
+        return v2MainSync { appEnvironment?.windowRegistry.windowId(for: tabManager) }
     }
 
     private func v2ResolveWorkspaceOwner(_ workspaceId: UUID) -> TabManager? {
-        v2MainSync { AppDelegate.shared?.tabManagerFor(tabId: workspaceId) }
+        v2MainSync { appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId) }
     }
 
     // MARK: - V2 Surface Methods
@@ -1866,7 +1876,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         case .userPromptSubmit:
             v2MainSync {
                 guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
-                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+                guard let tabManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId) else { return }
                 _ = tabManager.handlePromptSubmit(
                     workspaceId: workspaceId,
                     message: event.submittedPromptMessage,
@@ -1878,7 +1888,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             Task { @MainActor [weak self, rawWorkspaceId, assistantFinalMessage, iMessageModeEnabled] in
                 guard let self,
                       let workspaceId = self.v2UUIDAny(rawWorkspaceId) else { return }
-                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+                guard let tabManager = self.appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId) else { return }
                 _ = tabManager.handleAssistantFinalMessage(
                     workspaceId: workspaceId,
                     message: assistantFinalMessage,
@@ -2211,7 +2221,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             guard webView.url == nil,
                   !webView.isLoading,
                   webView.backForwardList.currentItem == nil else { return false }
-            guard let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceId),
+            guard let located = appEnvironment?.windowRegistry.locateSurface(surfaceId: surfaceId),
                   let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
                   let browserPanel = workspace.browserPanel(for: surfaceId),
                   let blankURL = URL(string: "about:blank") else {
@@ -3462,7 +3472,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             }
             // The tab may belong to a different window — search all contexts.
             if let uuid = UUID(uuidString: tabArg.trimmingCharacters(in: .whitespacesAndNewlines)),
-               let otherManager = AppDelegate.shared?.tabManagerFor(tabId: uuid) {
+               let otherManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: uuid) {
                 return otherManager.tabs.first(where: { $0.id == uuid })
             }
             return nil
@@ -3507,7 +3517,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         if let tab = tabManager?.tabs.first(where: { $0.id == id }) {
             return tab
         }
-        if let otherManager = AppDelegate.shared?.tabManagerFor(tabId: id) {
+        if let otherManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: id) {
             return otherManager.tabs.first(where: { $0.id == id })
         }
         return nil

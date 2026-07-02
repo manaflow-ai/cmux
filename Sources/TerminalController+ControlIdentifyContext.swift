@@ -48,7 +48,7 @@ extension TerminalController: ControlIdentifyContext {
         guard let fallbackTabManager = v2ResolveTabManager(params: foundationParams) else {
             return nil
         }
-        let callerTabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) ?? fallbackTabManager
+        let callerTabManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID) ?? fallbackTabManager
         guard let ws = callerTabManager.tabs.first(where: { $0.id == workspaceID }) else {
             return nil
         }

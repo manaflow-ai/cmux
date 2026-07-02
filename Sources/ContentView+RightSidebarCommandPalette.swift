@@ -153,7 +153,7 @@ extension ContentView {
             NSSound.beep()
             return
         }
-        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+        if appEnvironment?.mainWindowRouter.focusRightSidebarInActiveWindow(
             mode: mode,
             focusFirstItem: true,
             preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow

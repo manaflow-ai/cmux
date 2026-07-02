@@ -34,12 +34,12 @@ extension TerminalController {
                 data: nil
             )
         }
-        guard let app = AppDelegate.shared else {
+        guard let mainWindowRouter = appEnvironment?.mainWindowRouter else {
             return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
         }
 
         let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-        guard let result = app.moveSurfaceToNewWorkspace(
+        guard let result = mainWindowRouter.moveSurfaceToNewWorkspace(
             panelId: surfaceId,
             destinationManager: tabManager,
             title: v2String(params, "title"),
@@ -123,11 +123,13 @@ extension TerminalController {
 
         var result: V2CallResult = .err(code: "internal_error", message: SurfaceSplitOffMessage.moveSurfaceFailed, data: nil)
         v2MainSync {
-            guard let app = AppDelegate.shared else {
+            guard let appEnvironment = appEnvironment else {
                 result = .err(code: "unavailable", message: SurfaceSplitOffMessage.appDelegateUnavailable, data: nil)
                 return
             }
-            guard let located = app.locateSurface(surfaceId: surfaceId),
+            let windowRegistry = appEnvironment.windowRegistry
+            let mainWindowRouter = appEnvironment.mainWindowRouter
+            guard let located = windowRegistry.locateSurface(surfaceId: surfaceId),
                   let ws = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
                 result = .err(code: "not_found", message: SurfaceSplitOffMessage.surfaceNotFound, data: ["surface_id": surfaceId.uuidString])
                 return
@@ -171,7 +173,7 @@ extension TerminalController {
                 return
             }
             if focus {
-                _ = app.focusMainWindow(windowId: located.windowId)
+                _ = mainWindowRouter.focusMainWindow(windowId: located.windowId)
                 setActiveTabManager(located.tabManager)
                 located.tabManager.focusTab(ws.id, surfaceId: surfaceId, suppressFlash: true)
             } else if let previousFocusedPanelId, ws.panels[previousFocusedPanelId] != nil {

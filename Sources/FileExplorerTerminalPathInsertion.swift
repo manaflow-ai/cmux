@@ -80,10 +80,10 @@ enum FileExplorerTerminalPathInsertion {
         }
         if let window,
            let windowId = appDelegate.mainWindowId(from: window),
-           let terminalPanel = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace?.focusedTerminalPanel {
+           let terminalPanel = appDelegate.environment.windowRegistry.tabManagerFor(windowId: windowId)?.selectedWorkspace?.focusedTerminalPanel {
             return terminalPanel
         }
-        return appDelegate.tabManager?.selectedWorkspace?.focusedTerminalPanel
+        return appDelegate.environment.mainWindowRouter.activeTabManager?.selectedWorkspace?.focusedTerminalPanel
     }
 }
 

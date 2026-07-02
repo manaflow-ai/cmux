@@ -133,7 +133,7 @@ extension TerminalController {
             }
             if workspace == nil,
                let fallbackWorkspaceId,
-               let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: fallbackWorkspaceId),
+               let fallbackOwner = appEnvironment?.windowRegistry.tabManagerFor(tabId: fallbackWorkspaceId),
                let fallbackWorkspace = fallbackOwner.tabs.first(where: { $0.id == fallbackWorkspaceId }) {
                 owner = fallbackOwner
                 workspace = fallbackWorkspace
@@ -264,9 +264,9 @@ extension TerminalController {
         var targets: [ControlRemotePTYTarget] = []
         v2MainSync {
             v2RefreshKnownRefs()
-            guard let app = AppDelegate.shared else { return }
-            for summary in app.listMainWindowSummaries() {
-                guard let owner = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            guard let windowRegistry = appEnvironment?.windowRegistry else { return }
+            for summary in windowRegistry.listMainWindowSummaries() {
+                guard let owner = windowRegistry.tabManagerFor(windowId: summary.windowId) else { continue }
                 for workspace in owner.tabs where workspace.isRemoteWorkspace {
                     targets.append(
                         ControlRemotePTYTarget(

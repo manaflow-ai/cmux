@@ -178,7 +178,7 @@ extension AppDelegate {
             return
         }
 
-        _ = focusMainWindow(windowId: windowID)
+        _ = environment.mainWindowRouter.focusMainWindow(windowId: windowID)
         tabManager.selectTab(workspace)
         terminalControl.setActiveTabManager(tabManager)
 

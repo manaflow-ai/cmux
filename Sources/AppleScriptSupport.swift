@@ -83,7 +83,8 @@ extension NSApplication {
               let appDelegate = AppDelegate.shared else {
             return []
         }
-        return appDelegate.scriptableMainWindows().map { ScriptWindow(windowId: $0.windowId) }
+        return appDelegate.environment.windowRegistry.scriptableMainWindows()
+            .map { ScriptWindow(windowId: $0.windowId) }
     }
 
     @objc(frontWindow)
@@ -96,7 +97,7 @@ extension NSApplication {
         guard isAppleScriptEnabled,
               let windowId = UUID(uuidString: uniqueID),
               let appDelegate = AppDelegate.shared,
-              appDelegate.scriptableMainWindow(windowId: windowId) != nil else {
+              appDelegate.environment.windowRegistry.scriptableMainWindow(windowId: windowId) != nil else {
             return nil
         }
         return ScriptWindow(windowId: windowId)
@@ -109,7 +110,7 @@ extension NSApplication {
             return []
         }
 
-        return appDelegate.scriptableMainWindows()
+        return appDelegate.environment.windowRegistry.scriptableMainWindows()
             .flatMap { state in
                 state.tabManager.tabs.flatMap { workspace in
                     workspace.scriptingTerminalPanels().map {
@@ -127,7 +128,7 @@ extension NSApplication {
             return nil
         }
 
-        for state in appDelegate.scriptableMainWindows() {
+        for state in appDelegate.environment.windowRegistry.scriptableMainWindows() {
             for workspace in state.tabManager.tabs where workspace.terminalPanel(for: terminalId) != nil {
                 return ScriptTerminal(workspaceId: workspace.id, terminalId: terminalId)
             }
@@ -576,7 +577,7 @@ final class ScriptTerminal: NSObject {
         }
 
         if let app = AppDelegate.shared {
-            _ = app.focusScriptableMainWindow(windowId: state.windowId, bringToFront: true)
+            _ = app.environment.mainWindowRouter.focusScriptableWindow(windowId: state.windowId, bringToFront: true)
         }
         state.tabManager.selectWorkspace(workspace)
         workspace.focusPanel(terminalId)

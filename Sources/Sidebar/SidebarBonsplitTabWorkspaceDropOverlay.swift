@@ -4,6 +4,8 @@ import CmuxFoundation
 import SwiftUI
 
 struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
+    @Environment(\.appEnvironment) private var appEnvironment
+
     @MainActor
     final class TargetBridge {
         fileprivate weak var view: SidebarBonsplitTabWorkspaceDropView?
@@ -60,18 +62,18 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
         targetBridge.view = nsView
         nsView.targetBridge = targetBridge
         nsView.canPerformAction = { action, transfer in
-            guard let app = AppDelegate.shared else {
+            guard let appEnvironment else {
                 return false
             }
             switch action {
             case .existingWorkspace(let workspaceId):
-                if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+                if let source = appEnvironment.windowRegistry.locateBonsplitSurface(tabId: transfer.tab.id),
                    source.workspaceId == workspaceId {
                     return true
                 }
-                return app.canMoveBonsplitTab(tabId: transfer.tab.id, toWorkspace: workspaceId)
+                return appEnvironment.mainWindowRouter.canMoveBonsplitTab(tabId: transfer.tab.id, toWorkspace: workspaceId)
             case .newWorkspace:
-                return app.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id)
+                return appEnvironment.mainWindowRouter.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id)
             }
         }
         nsView.updateAutoscroll = updateAutoscroll

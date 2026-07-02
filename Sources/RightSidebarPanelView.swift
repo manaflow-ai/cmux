@@ -78,6 +78,7 @@ struct RightSidebarPanelView: View {
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
 
+    @Environment(\.appEnvironment) private var appEnvironment
     @State private var model = RightSidebarPanelModel()
     private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
@@ -163,7 +164,8 @@ struct RightSidebarPanelView: View {
         model.refreshModeAvailabilityAndFocusIfNeeded(
             fileExplorerState: fileExplorerState,
             dockRootDirectory: dockRootDirectory,
-            workspaceId: workspaceId
+            workspaceId: workspaceId,
+            mainWindowRouter: appEnvironment?.mainWindowRouter
         )
     }
 
@@ -187,7 +189,7 @@ struct RightSidebarPanelView: View {
                             modifierHoldHintsEnabled: showModifierHoldHints
                         )
                     ) {
-                        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                        if appEnvironment?.mainWindowRouter.focusRightSidebarInActiveWindow(
                             mode: mode,
                             focusFirstItem: true,
                             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow

@@ -11,8 +11,7 @@ import Observation
 /// view holds this via `@State`; reactive inputs (settings flags, the file
 /// explorer/session stores, the active workspace) stay on the view and are passed
 /// into each method at call time so behavior matches the previous inline reads
-/// exactly. App-side: `AppDelegate.shared` focus routing and `NSApp` key-window
-/// lookup remain here.
+/// exactly. App-side responder checks and `NSApp` key-window lookup remain here.
 @MainActor
 @Observable
 final class RightSidebarPanelModel {
@@ -76,7 +75,8 @@ final class RightSidebarPanelModel {
     func refreshModeAvailabilityAndFocusIfNeeded(
         fileExplorerState: FileExplorerState,
         dockRootDirectory: String?,
-        workspaceId: UUID?
+        workspaceId: UUID?,
+        mainWindowRouter: MainWindowRouter?
     ) {
         let previousMode = fileExplorerState.mode
         fileExplorerState.refreshModeAvailability()
@@ -93,7 +93,7 @@ final class RightSidebarPanelModel {
               fileExplorerState.isVisible,
               let window = NSApp.keyWindow ?? NSApp.mainWindow
         else { return }
-        _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+        _ = mainWindowRouter?.focusRightSidebarInActiveWindow(
             mode: fileExplorerState.mode,
             focusFirstItem: false,
             preferredWindow: window

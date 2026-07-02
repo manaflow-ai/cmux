@@ -21,7 +21,7 @@ extension ContentView {
 
     func moveFocusedPanelToNewWorkspace() -> Bool {
         guard let panelContext = focusedPanelContext else { return false }
-        return AppDelegate.shared?.moveSurfaceToNewWorkspace(
+        return appEnvironment?.mainWindowRouter.moveSurfaceToNewWorkspace(
             panelId: panelContext.panelId,
             focus: true,
             focusWindow: false
@@ -34,6 +34,7 @@ struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var dropIndicator: SidebarDropIndicator?
+    @Environment(\.appEnvironment) private var appEnvironment
 
     func makeNSView(context: Context) -> SidebarBonsplitTabNewWorkspaceDropView {
         return SidebarBonsplitTabNewWorkspaceDropView()
@@ -41,20 +42,19 @@ struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
 
     func updateNSView(_ nsView: SidebarBonsplitTabNewWorkspaceDropView, context: Context) {
         nsView.isValidTransfer = { transfer in
-            return AppDelegate.shared?.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id) ?? false
+            appEnvironment?.mainWindowRouter.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id) ?? false
         }
         nsView.setDropActive = { isActive in
             dropIndicator = isActive ? SidebarDropIndicator(tabId: nil, edge: .bottom) : nil
         }
         nsView.performMove = { transfer in
-            guard let app = AppDelegate.shared,
-                  let result = app.moveBonsplitTabToNewWorkspace(
-                    tabId: transfer.tab.id,
-                    destinationManager: tabManager,
-                    focus: true,
-                    focusWindow: true,
-                    placementOverride: .end
-                  ) else {
+            guard let result = appEnvironment?.mainWindowRouter.moveBonsplitTabToNewWorkspace(
+                tabId: transfer.tab.id,
+                destinationManager: tabManager,
+                focus: true,
+                focusWindow: true,
+                placementOverride: .end
+            ) else {
                 return false
             }
 

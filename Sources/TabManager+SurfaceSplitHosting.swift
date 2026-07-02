@@ -6,7 +6,7 @@ import Foundation
 /// notification-store effects the package ``SurfaceSplitCoordinator`` cannot own.
 ///
 /// `TabManager` owns the tab list, the selected-workspace id, the app-target
-/// Sentry breadcrumb trail, and the `AppDelegate.shared` notification-store —
+/// Sentry breadcrumb trail, and the environment notification-store reach path —
 /// all app-target state. The coordinator keeps the resolution/guard/creation
 /// orchestration; this conformance performs the exact app-coupled effects the
 /// legacy `createSplit`/`closeSurface` bodies inlined.
@@ -29,6 +29,6 @@ extension TabManager: SurfaceSplitHosting {
     }
 
     func clearNotifications(forWorkspaceId workspaceId: UUID, surfaceId: UUID) {
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: surfaceId)
+        appEnvironment?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: surfaceId)
     }
 }
