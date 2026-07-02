@@ -841,6 +841,13 @@ struct TitlebarControlsView: View {
         var id: String { action.rawValue }
     }
 
+    // `modifierKeyMonitor` uses `.commandOnly` activation, so the titlebar only
+    // ever surfaces Command-hold hints. Gating on the Command-hold setting is
+    // therefore the correct modifier-specific behavior — there is no
+    // Control-hold titlebar hint to preserve. (The `.commandOrControl` mode bar
+    // in RightSidebarPanelView instead feeds `activeModifierFlags` into
+    // `ShortcutHintTitlebarPolicy.modifierHoldHintsEnabled(...)` because it
+    // gates both modifiers.)
     private var modifierHoldHintsEnabled: Bool {
         showModifierHoldHints && showCommandHoldHints
     }
