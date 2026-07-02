@@ -444,6 +444,34 @@ struct WorkspaceCoordinatorTests {
         #expect(explicitGroupRange == (firstMemberIndex + 1)...(lastMemberIndex + 1))
     }
 
+    @Test
+    func groupedChildDraggedOverTopLevelTargetIsUnconstrainedWithoutPreresolvedScope() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child1, child2, outside]
+        _ = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+
+        // A grouped child dragged over a top-level (ungrouped) target is a
+        // promotion drag, not an in-group reorder. The app pre-resolves this
+        // via its sidebar snapshot and passes `usesTopLevelRows: true`, but the
+        // coordinator is public package API: direct callers that leave
+        // `usesTopLevelRows` at its default must still get `nil` (unconstrained)
+        // rather than an in-group range that would wrongly pin the promotion
+        // inside the group.
+        let range = reorder.sidebarReorderLegalInsertionRange(
+            forDraggedWorkspaceId: child1.id,
+            targetWorkspaceId: outside.id
+        )
+
+        #expect(range == nil)
+    }
+
     // MARK: Groups
 
     @Test
