@@ -1631,10 +1631,23 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func clearNotifications(
-        forTabId tabId: UUID,
-        surfaceId: UUID?,
+        forTabId requestedTabId: UUID,
+        surfaceId requestedSurfaceId: UUID?,
         discardQueuedNotifications: Bool = true
     ) {
+        // Resolve the clear target to the panel's current workspace, mirroring
+        // addNotification's delivery-time resolution. A terminal whose
+        // CMUX_WORKSPACE_ID went stale after its panel moved issues
+        // clear_notifications --tab=<old-workspace> --panel=<panel>; delivery
+        // already re-resolved the stored notification to the panel's current
+        // workspace, so without the same re-resolution here matches (which
+        // requires an exact tabId match) never hits it and the moved-panel
+        // notification is uncleareable from its own terminal. For a nil surface
+        // or an unresolvable panel this returns the requested workspace
+        // unchanged, so workspace-wide clears keep their existing behavior.
+        let target = resolveNotificationTarget(tabId: requestedTabId, surfaceId: requestedSurfaceId)
+        let tabId = target.tabId
+        let surfaceId = target.surfaceId
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId) }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false
         let hadRestoredWorkspaceUnread = surfaceId == nil && restoredUnreadWorkspaceIds.contains(tabId)
