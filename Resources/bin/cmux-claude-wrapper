@@ -560,6 +560,134 @@ clear_inherited_claude_auth_selection_env() {
     normalize_claude_config_dir
 }
 
+claude_interactive_entry_flag() {
+    case "$1" in
+        --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
+        --session-id|--session-id=*|--remote-control|--remote-control=*|\
+        --from-pr|--from-pr=*|--worktree|--worktree=*|-w|-w=*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_passthrough_option_flag() {
+    case "$1" in
+        --help|-h|--version|-v)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_builtin_command_name() {
+    case "$1" in
+        agents|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\
+        experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\
+        ultrareview|update|upgrade)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_command_like_invocation() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    case "$candidate" in
+        *[![:alnum:]_-]*)
+            return 1
+            ;;
+    esac
+    claude_builtin_command_name "$candidate"
+}
+
+should_inject_claude_hooks() {
+    (( $# == 0 )) && return 0
+
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --)
+                return 0
+                ;;
+            -*)
+                if claude_passthrough_option_flag "$arg"; then
+                    return 1
+                fi
+                if claude_interactive_entry_flag "$arg"; then
+                    return 0
+                fi
+                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            *)
+                if claude_command_like_invocation "$arg"; then
+                    return 1
+                fi
+                return 0
+                ;;
+        esac
+    done
+
+    return 0
+}
+
+should_prepare_claude_terminal_for_tui() {
+    (( $# == 0 )) && return 0
+
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --)
+                return 0
+                ;;
+            --help|-h|--version|-v|--print|--print=*|-p)
+                return 1
+                ;;
+            --resume|--resume=*|-r|--continue|-c|\
+            --session-id|--session-id=*|--remote-control|--remote-control=*|\
+            --from-pr|--from-pr=*|--worktree|--worktree=*|-w|-w=*)
+                return 0
+                ;;
+            -*)
+                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                ;;
+            *)
+                claude_command_like_invocation "$arg" && return 1
+                return 0
+                ;;
+        esac
+    done
+
+    return 0
+}
+
+prepare_claude_terminal_for_tui() {
+    [[ "$IN_CMUX" == "1" ]] || return 0
+    if [[ "${CMUX_CLAUDE_TERMINAL_PREPARED:-}" == "1" ]]; then
+        unset CMUX_CLAUDE_TERMINAL_PREPARED
+        return 0
+    fi
+    should_prepare_claude_terminal_for_tui "$@" || return 0
+    [[ -t 1 ]] || return 0
+    printf '\033[H\033[2J'
+}
+
 clear_inherited_claude_session_env() {
     unset CLAUDECODE
     unset CLAUDE_CODE
@@ -576,6 +704,12 @@ clear_inherited_claude_session_env() {
 IN_CMUX=0
 if [[ -n "$CMUX_SURFACE_ID" ]]; then
     IN_CMUX=1
+fi
+
+if [[ "${1:-}" == "__cmux-should-prepare-terminal-for-tui" ]]; then
+    shift
+    should_prepare_claude_terminal_for_tui "$@"
+    exit $?
 fi
 
 exec_real_claude_passthrough() {
@@ -745,86 +879,6 @@ encode_launch_argv() {
     } | base64 | tr -d '\n'
 }
 
-claude_interactive_entry_flag() {
-    case "$1" in
-        --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
-        --session-id|--session-id=*|--remote-control|--remote-control=*|\
-        --from-pr|--from-pr=*|--worktree|--worktree=*|-w|-w=*)
-            return 0
-            ;;
-    esac
-    return 1
-}
-
-claude_passthrough_option_flag() {
-    case "$1" in
-        --help|-h|--version|-v)
-            return 0
-            ;;
-    esac
-    return 1
-}
-
-claude_builtin_command_name() {
-    case "$1" in
-        agents|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\
-        experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\
-        ultrareview|update|upgrade)
-            return 0
-            ;;
-    esac
-    return 1
-}
-
-claude_command_like_invocation() {
-    local candidate="$1"
-    [[ -n "$candidate" ]] || return 1
-    case "$candidate" in
-        *[![:alnum:]_-]*)
-            return 1
-            ;;
-    esac
-    claude_builtin_command_name "$candidate"
-}
-
-should_inject_claude_hooks() {
-    (( $# == 0 )) && return 0
-
-    local arg
-    local skip_next=false
-    for arg in "$@"; do
-        if [[ "$skip_next" == true ]]; then
-            skip_next=false
-            continue
-        fi
-        case "$arg" in
-            --)
-                return 0
-                ;;
-            -*)
-                if claude_passthrough_option_flag "$arg"; then
-                    return 1
-                fi
-                if claude_interactive_entry_flag "$arg"; then
-                    return 0
-                fi
-                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
-                    skip_next=true
-                fi
-                continue
-                ;;
-            *)
-                if claude_command_like_invocation "$arg"; then
-                    return 1
-                fi
-                return 0
-                ;;
-        esac
-    done
-
-    return 0
-}
-
 if (( cmux_claude_wrapper_reexec_hops > 0 )); then
     # A previous wrapper pass already made the cmux launch decision and may have
     # injected --session-id/--settings. While resolving a finite shim chain,
@@ -840,7 +894,6 @@ if (( cmux_claude_wrapper_reexec_hops > 0 )); then
     install_cmux_node_options
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 fi
-
 # Only inject hooks for Claude session entrypoints. Command-like invocations
 # pass through so Claude subcommands do not receive session/hook flags.
 if ! should_inject_claude_hooks "$@"; then
@@ -1012,8 +1065,10 @@ process.stdout.write(JSON.stringify(acc));
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
+    prepare_claude_terminal_for_tui "$@"
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    prepare_claude_terminal_for_tui "$@"
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi

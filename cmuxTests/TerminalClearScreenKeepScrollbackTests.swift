@@ -117,6 +117,81 @@ struct TerminalClearScreenKeepScrollbackTests {
         )
     }
 
+    @Test
+    func claudeShimClearsPromptMarkedPrimaryScreenBeforeRedraw() throws {
+        let oldToken = "CMUX_CLAUDE_CLEAR_OLD_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let newToken = "CMUX_CLAUDE_CLEAR_NEW_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let doneMarker = "CMUX_CLAUDE_CLEAR_DONE_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-clear-\(UUID().uuidString)", isDirectory: true)
+        let bundleBin = root
+            .appendingPathComponent("cmux.app", isDirectory: true)
+            .appendingPathComponent("Contents/Resources/bin", isDirectory: true)
+        let tempRoot = root.appendingPathComponent("tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let wrapperURL = bundleBin.appendingPathComponent("cmux-claude-wrapper", isDirectory: false)
+        try #"""
+        #!/usr/bin/env bash
+        set -euo pipefail
+        if [[ "${1:-}" == "__cmux-should-prepare-terminal-for-tui" ]]; then
+            exit 0
+        fi
+        printf '\033[H'
+        printf 'OLD \#(oldToken) row 1\r\n'
+        printf 'OLD \#(oldToken) row 2\r\n'
+        printf 'OLD \#(oldToken) row 3\r\n'
+        printf 'OLD \#(oldToken) row 4\r\n'
+        printf 'OLD \#(oldToken) row 5'
+        printf '\033[H\033[2J'
+        printf 'NEW \#(newToken)\r\n\#(doneMarker)\r\n'
+        sleep 1
+        """#.write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapperURL.path)
+
+        let shim = try #require(
+            TerminalSurface.installClaudeCommandShimIfPossible(
+                wrapperURL: wrapperURL,
+                surfaceId: UUID(),
+                temporaryDirectory: tempRoot
+            ))
+
+        let runnerURL = root.appendingPathComponent("run-claude-clear-repro.sh", isDirectory: false)
+        try #"""
+        #!/usr/bin/env bash
+        set -euo pipefail
+        printf '\033[5;1H'
+        printf '\033]133;A;redraw=last;cl=line\a'
+        printf 'cmux-test-prompt claude'
+        printf '\033]133;B\a'
+        printf '\033]133;C\a'
+        exec \#(shellSingleQuoted(shim.executablePath))
+        """#.write(to: runnerURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: runnerURL.path)
+
+        let hosted = try makeHostedTerminalWindow(
+            initialCommand: "/bin/bash \(shellSingleQuoted(runnerURL.path))"
+        )
+        defer { hosted.window.orderOut(nil) }
+
+        guard hosted.surface.hasLiveSurface else { return }
+
+        let screenText = try waitForTerminalText(
+            from: hosted,
+            pointTag: GHOSTTY_POINT_SCREEN,
+            timeout: 5
+        ) { $0.contains(doneMarker) }
+
+        #expect(screenText.contains(newToken), "Claude redraw should produce the new frame")
+        #expect(
+            !screenText.contains(oldToken),
+            "Claude launch must clear prompt-marked primary-screen rows before the TUI paints; otherwise a later clear scrolls the stale frame into the screen buffer"
+        )
+    }
+
     // MARK: - Harness
 
     private func makeHostedTerminalWindow(initialCommand: String? = nil) throws -> HostedTerminalWindow {
@@ -158,16 +233,19 @@ struct TerminalClearScreenKeepScrollbackTests {
         )
     }
 
-    private func readTerminalText(from terminal: HostedTerminalWindow) throws -> String {
+    private func readTerminalText(
+        from terminal: HostedTerminalWindow,
+        pointTag: ghostty_point_tag_e = GHOSTTY_POINT_SURFACE
+    ) throws -> String {
         let runtimeSurface = try #require(terminal.surface.surface)
         let topLeft = ghostty_point_s(
-            tag: GHOSTTY_POINT_SURFACE,
+            tag: pointTag,
             coord: GHOSTTY_POINT_COORD_TOP_LEFT,
             x: 0,
             y: 0
         )
         let bottomRight = ghostty_point_s(
-            tag: GHOSTTY_POINT_SURFACE,
+            tag: pointTag,
             coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
             x: 0,
             y: 0
@@ -190,15 +268,16 @@ struct TerminalClearScreenKeepScrollbackTests {
 
     private func waitForTerminalText(
         from terminal: HostedTerminalWindow,
+        pointTag: ghostty_point_tag_e = GHOSTTY_POINT_SURFACE,
         timeout: TimeInterval = 5,
         matching predicate: (String) -> Bool
     ) throws -> String {
         let deadline = Date().addingTimeInterval(timeout)
-        var latest = try readTerminalText(from: terminal)
+        var latest = try readTerminalText(from: terminal, pointTag: pointTag)
         while Date() < deadline {
             if predicate(latest) { return latest }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-            latest = try readTerminalText(from: terminal)
+            latest = try readTerminalText(from: terminal, pointTag: pointTag)
         }
         return latest
     }
