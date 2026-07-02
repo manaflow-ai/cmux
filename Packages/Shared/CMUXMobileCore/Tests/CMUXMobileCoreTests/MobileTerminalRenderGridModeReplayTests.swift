@@ -137,7 +137,7 @@ import Testing
     // XTSAVE must snapshot the saved-mode bank while every listed mode still
     // holds its default (before the frame's captured modes are reapplied and
     // before content paints), replacing the saved-bank clear RIS used to do.
-    let firstBatch = try #require(vt.range(of: "\u{1B}[?1;4;5;6;7;8;9;12;25;40;45;47;66;67;69;1000;1002;1003s"))
+    let firstBatch = try #require(vt.range(of: "\u{1B}[?1;3;4;5;6;7;8;9;12;25;40;45;47;66;67;69;1000;1002;1003s"))
     let secondBatch = try #require(vt.range(
         of: "\u{1B}[?1004;1005;1006;1007;1015;1016;1035;1036;1039;1045;1047;1049;2004;2027;2031;2048s"
     ))
@@ -147,7 +147,7 @@ import Testing
     #expect(secondBatch.upperBound <= capturedPasteRestore.lowerBound)
     // The bank is written once, before paint; the post-paint baseline must not
     // re-save state that no longer holds defaults.
-    #expect(vt.components(separatedBy: "\u{1B}[?1;4;5;6;7;8;9;12;25;40;45;47;66;67;69;1000;1002;1003s").count - 1 == 1)
+    #expect(vt.components(separatedBy: "\u{1B}[?1;3;4;5;6;7;8;9;12;25;40;45;47;66;67;69;1000;1002;1003s").count - 1 == 1)
 }
 
 @Test func renderGridFullSnapshotResetsPrimaryCursorShapeBeforeAlternateEntry() throws {
@@ -197,4 +197,29 @@ import Testing
         lastSave.upperBound <= content.lowerBound,
         "the replayed cursor must not be recorded as the saved cursor after paint"
     )
+}
+
+@Test func renderGridFullSnapshotClearsDECCOLMWithoutResizing() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 11,
+        columns: 8,
+        rows: 1,
+        cursor: .init(row: 0, column: 0),
+        rowSpans: [.init(row: 0, column: 0, text: "grid")],
+        modes: [
+            .init(code: 3, ansi: false, on: true), // captured DECCOLM stays excluded
+        ]
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    // ?3l only after ?40l: with mode 40 off Ghostty clears the stored DECCOLM
+    // value without resizing, so the stale live/saved slot resets while the
+    // remote grid's geometry stays authoritative.
+    let allowToggle = try #require(vt.range(of: "\u{1B}[?40l"))
+    let deccolmClear = try #require(vt.range(of: "\u{1B}[?3l"))
+    let savedBank = try #require(vt.range(of: "\u{1B}[?1;3;4;"))
+    #expect(allowToggle.upperBound <= deccolmClear.lowerBound)
+    #expect(deccolmClear.upperBound <= savedBank.lowerBound)
+    #expect(!vt.contains("\u{1B}[?3h"), "captured DECCOLM must not be replayed as a resize")
 }

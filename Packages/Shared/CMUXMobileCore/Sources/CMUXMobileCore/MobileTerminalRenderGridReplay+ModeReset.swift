@@ -6,11 +6,15 @@ extension MobileTerminalRenderGridReplay {
     }
 
     func appendDefaultModeBaseline(to bytes: inout Data) {
+        // ?3l (DECCOLM) must follow ?40l: with mode 40 off Ghostty's deccolm
+        // clears the stored ?3 value and returns without resizing, which is
+        // the only safe way to reset the mode without fighting the remote
+        // grid's viewport policy.
         bytes.append(Data(
             (
                 "\u{1B}[2l\u{1B}[4l\u{1B}[12h\u{1B}[20l"
                 + "\u{1B}[?1l\u{1B}[?4l\u{1B}[?5l\u{1B}[?6l\u{1B}[?7h\u{1B}[?8l\u{1B}[?9l"
-                + "\u{1B}[?40l\u{1B}[?45l\u{1B}[?66l\u{1B}>\u{1B}[?67l\u{1B}[?69l"
+                + "\u{1B}[?40l\u{1B}[?3l\u{1B}[?45l\u{1B}[?66l\u{1B}>\u{1B}[?67l\u{1B}[?69l"
                 + "\u{1B}[?1000l\u{1B}[?1002l\u{1B}[?1003l\u{1B}[?1004l"
                 + "\u{1B}[?1005l\u{1B}[?1006l\u{1B}[?1007h\u{1B}[?1015l\u{1B}[?1016l"
                 + "\u{1B}[?1035h\u{1B}[?1036h\u{1B}[?1039l\u{1B}[?1045l\u{1B}[?2004l"
@@ -33,7 +37,7 @@ extension MobileTerminalRenderGridReplay {
         // 2026 is deliberately absent: it is held on for the synchronized
         // replay and must not be saved in that state.
         bytes.append(Data("\u{1B}[?12l\u{1B}[?25h".utf8))
-        bytes.append(Data("\u{1B}[?1;4;5;6;7;8;9;12;25;40;45;47;66;67;69;1000;1002;1003s".utf8))
+        bytes.append(Data("\u{1B}[?1;3;4;5;6;7;8;9;12;25;40;45;47;66;67;69;1000;1002;1003s".utf8))
         bytes.append(Data(
             "\u{1B}[?1004;1005;1006;1007;1015;1016;1035;1036;1039;1045;1047;1049;2004;2027;2031;2048s".utf8
         ))
