@@ -4676,6 +4676,91 @@
         }
       }
     },
+    "mobile.shortcuts.rows.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add rows to keep more buttons visible above the keyboard."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行を追加すると、キーボード上に表示できるボタンが増えます。"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.rows.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toolbar Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールバー行"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.rows.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.rows.movePicker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Row"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行へ移動"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.rows.rowTitleFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Row %d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d行目"
+          }
+        }
+      }
+    },
     "mobile.shortcuts.title": {
       "extractionState": "manual",
       "localizations": {

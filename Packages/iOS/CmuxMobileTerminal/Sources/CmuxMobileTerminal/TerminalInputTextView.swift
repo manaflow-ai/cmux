@@ -261,21 +261,27 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// flush-tight at its bottom while the TOP stays snug to the terminal's last
     /// row. It is part of ``dockedButtonRowHeight`` so the grid reservation, the
     /// surface frame, and the composer host all reserve the same total band; the
-    /// button row itself is pinned to the BOTTOM of that band minus this padding
+    /// row stack itself is pinned to the BOTTOM of that band minus this padding
     /// (see the docked bar's constraints), so the extra space lands below the
     /// controls.
     static let dockedBottomPadding: CGFloat = 8
-    /// Fixed height of the docked bar's button row band, reserved by the grid and
-    /// the composer host. It is the tallest control (the arrow nub,
-    /// ``dockedNubSize``) plus ``dockedBottomPadding`` below it. The controls are
-    /// pinned to the BOTTOM of this band (minus the padding) instead of the top:
-    /// when the surface-hosted container grows taller than this band (a
-    /// letterbox/resize pushes the rendered terminal's bottom up), the buttons stay
-    /// glued to the keyboard top and only the slack ABOVE them grows, so the
-    /// control row never rides up off the keyboard. In the composer host the frame
-    /// is exactly this height (no slack), so bottom-pinning is identical to
-    /// top-pinning there.
-    static let dockedButtonRowHeight: CGFloat = dockedNubSize + dockedBottomPadding
+    /// Vertical gap between configurable toolbar rows.
+    private static let dockedRowSpacing: CGFloat = 4
+    /// Height of the configurable row stack, excluding bottom padding.
+    static func dockedRowsHeight(rowCount: Int) -> CGFloat {
+        let rows = CGFloat(TerminalAccessoryConfiguration.clampedRowCount(rowCount))
+        return rows * dockedNubSize + max(0, rows - 1) * dockedRowSpacing
+    }
+    /// Height reserved by the grid and the composer host for the docked bar.
+    ///
+    /// It is the configured row stack (one to three rows) plus
+    /// ``dockedBottomPadding`` below it. The row stack is pinned to the BOTTOM of
+    /// this band (minus the padding): when the surface-hosted container grows
+    /// taller than the reserved band, the controls stay glued to the keyboard top
+    /// and only the slack ABOVE them grows.
+    static func dockedButtonRowHeight(rowCount: Int) -> CGFloat {
+        dockedRowsHeight(rowCount: rowCount) + dockedBottomPadding
+    }
     /// Minimum (not fixed) button width. Text buttons (Tab, Esc, ^C, ^D) size to
     /// their intrinsic content width and only floor here so they hug their label
     /// plus the comfortable inset; single-glyph modifiers/icons (⌃ ⌥ ⌘, the arrow
@@ -295,7 +301,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // Placeholder height until the host positions the bar via
         // `GhosttySurfaceView.bottomDockFrames()`; sized to the button-row strip so
         // the pre-layout frame matches the reserved grid height.
-        container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
+        container.frame = CGRect(
+            x: 0,
+            y: 0,
+            width: 0,
+            height: Self.dockedButtonRowHeight(rowCount: TerminalAccessoryConfiguration.shared.rowCount)
+        )
 
         let backgroundView = UIView()
         backgroundView.backgroundColor = Self.monokaiBarColor
@@ -311,23 +322,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         self.dismissButton = dismissButton
 
-        // Scrollable action buttons
-        let scrollView = UIScrollView()
-        scrollView.showsHorizontalScrollIndicator = false
-        scrollView.showsVerticalScrollIndicator = false
-        scrollView.alwaysBounceHorizontal = true
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        let stack = UIStackView()
-        stack.axis = .horizontal
-        // Tighter inter-button spacing so the keys read as a compact row.
-        stack.spacing = 4
-        stack.alignment = .center
-
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        accessoryStackView = stack
+        // Configurable action rows. Each row scrolls horizontally; the rows
+        // stack vertically so more buttons can stay visible above the keyboard.
+        let rowsStack = UIStackView()
+        rowsStack.axis = .vertical
+        rowsStack.spacing = Self.dockedRowSpacing
+        rowsStack.alignment = .fill
+        rowsStack.distribution = .fill
+        rowsStack.translatesAutoresizingMaskIntoConstraints = false
+        accessoryRowsStackView = rowsStack
         populateAccessoryActions()
-        scrollView.addSubview(stack)
 
         // Arrow nub for directional pad
         let nub = TerminalArrowNubView()
@@ -354,7 +358,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.addSubview(dismissButton)
         container.addSubview(nub)
         container.addSubview(composerButton)
-        container.addSubview(scrollView)
+        container.addSubview(rowsStack)
 
         let backgroundLeadingConstraint = backgroundView.leadingAnchor.constraint(equalTo: container.leadingAnchor)
         let backgroundTrailingConstraint = backgroundView.trailingAnchor.constraint(equalTo: container.trailingAnchor)
@@ -365,13 +369,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // The bar scrolls horizontally, so the right edge runs flush to the
         // screen (zero trailing inset). `updateAccessoryLayoutInsets` only adds a
         // safe-area inset when the surface itself does not reach the window edge.
-        let scrollTrailingConstraint = scrollView.trailingAnchor.constraint(
+        let scrollTrailingConstraint = rowsStack.trailingAnchor.constraint(
             equalTo: container.safeAreaLayoutGuide.trailingAnchor,
             constant: 0
         )
 
         // A short fixed-height strip pinned to the container's BOTTOM (minus
-        // ``dockedBottomPadding``) that holds the button row. The docked container
+        // ``dockedBottomPadding``) that holds the configured row stack. The docked container
         // can be TALLER than this strip, because the host
         // (`GhosttySurfaceView.bottomDockFrames`) anchors the bar's TOP to the
         // rendered terminal's bottom and its BOTTOM to the keyboard top, so a
@@ -381,8 +385,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // top-pin would let the controls ride UP off the keyboard whenever the
         // terminal was letterboxed. `dockedBottomPadding` lifts the strip off the
         // very bottom edge so the controls have breathing room.
-        let buttonRow = UILayoutGuide()
-        container.addLayoutGuide(buttonRow)
+        let buttonRows = UILayoutGuide()
+        let bottomButtonRow = UILayoutGuide()
+        container.addLayoutGuide(buttonRows)
+        container.addLayoutGuide(bottomButtonRow)
+        let buttonRowsHeightConstraint = buttonRows.heightAnchor.constraint(
+            equalToConstant: Self.dockedRowsHeight(rowCount: TerminalAccessoryConfiguration.shared.rowCount)
+        )
 
         NSLayoutConstraint.activate([
             backgroundLeadingConstraint,
@@ -393,24 +402,26 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // Bottom-pinned (minus the bottom padding) so the controls hug the
             // keyboard top no matter how tall the container grows; the strip itself
             // stays exactly the nub height.
-            buttonRow.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Self.dockedBottomPadding),
-            buttonRow.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            buttonRow.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            buttonRow.heightAnchor.constraint(equalToConstant: Self.dockedNubSize),
+            buttonRows.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Self.dockedBottomPadding),
+            buttonRows.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            buttonRows.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            buttonRowsHeightConstraint,
 
-            // Every control shares the strip's single centerline. The strip is sized
+            bottomButtonRow.bottomAnchor.constraint(equalTo: buttonRows.bottomAnchor),
+            bottomButtonRow.leadingAnchor.constraint(equalTo: buttonRows.leadingAnchor),
+            bottomButtonRow.trailingAnchor.constraint(equalTo: buttonRows.trailingAnchor),
+            bottomButtonRow.heightAnchor.constraint(equalToConstant: Self.dockedNubSize),
+
+            // The fixed controls share the bottom row's centerline. That row is sized
             // to the tallest control (the ``dockedNubSize`` nub), so centering keeps
-            // all three groups — keyboard button, nub, and the scrollable Ctrl/Esc/Tab
-            // row — on ONE horizontal line, hugging the keyboard top (the strip is
-            // bottom-pinned). (Top-pinning the directly-anchored controls instead
-            // would float them above the scroll row, which is centered inside its own
-            // scroll view.)
+            // the keyboard button, nub, composer, and bottom shortcut row aligned
+            // while any extra rows stack above them.
             dismissLeadingConstraint,
-            dismissButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
+            dismissButton.centerYAnchor.constraint(equalTo: bottomButtonRow.centerYAnchor),
             dismissButton.widthAnchor.constraint(equalToConstant: 32),
 
             nub.leadingAnchor.constraint(equalTo: dismissButton.trailingAnchor, constant: 6),
-            nub.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
+            nub.centerYAnchor.constraint(equalTo: bottomButtonRow.centerYAnchor),
             nub.widthAnchor.constraint(equalToConstant: Self.dockedNubSize),
             nub.heightAnchor.constraint(equalToConstant: Self.dockedNubSize),
 
@@ -420,30 +431,19 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // stack uses, so the bar reads identically to before — only now the
             // composer can never scroll away.
             composerButton.leadingAnchor.constraint(equalTo: nub.trailingAnchor, constant: 6),
-            composerButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
+            composerButton.centerYAnchor.constraint(equalTo: bottomButtonRow.centerYAnchor),
 
-            scrollView.leadingAnchor.constraint(equalTo: composerButton.trailingAnchor, constant: 4),
+            rowsStack.leadingAnchor.constraint(equalTo: composerButton.trailingAnchor, constant: 4),
             scrollTrailingConstraint,
-            scrollView.topAnchor.constraint(equalTo: buttonRow.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
-
-            // No vertical margin inside the scroll view: the stack fills the strip
-            // height so the glass capsules grow to the full section height. The
-            // bar's breathing room lives BELOW the strip (`dockedBottomPadding`),
-            // not as a margin that shrinks the buttons.
-            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            // Zero trailing content padding so the last button runs to the screen
-            // edge when scrolled to the end (the bar scrolls horizontally).
-            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+            rowsStack.topAnchor.constraint(equalTo: buttonRows.topAnchor),
+            rowsStack.bottomAnchor.constraint(equalTo: buttonRows.bottomAnchor),
         ])
 
         accessoryBackgroundLeadingConstraint = backgroundLeadingConstraint
         accessoryBackgroundTrailingConstraint = backgroundTrailingConstraint
         accessoryDismissLeadingConstraint = dismissLeadingConstraint
         accessoryScrollTrailingConstraint = scrollTrailingConstraint
+        accessoryRowsHeightConstraint = buttonRowsHeightConstraint
         // The cmux iOS app always drives a macOS cmux surface, so default the
         // accessory to Mac modifiers: retitle Ctrl/Alt to ⌃/⌥ and insert the ⌘
         // button. `updateModifierLabels(isMacRemote:)` can still switch this if a
@@ -461,7 +461,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// regardless of where the view is hosted.
     var toolbarView: UIView { terminalAccessoryToolbar }
 
-    private weak var accessoryStackView: UIStackView?
+    private weak var accessoryRowsStackView: UIStackView?
+    private var accessoryActionStackViews: [UIStackView] = []
+    private var accessoryRowsHeightConstraint: NSLayoutConstraint?
     private var isMacRemote = false
 
     #if DEBUG
@@ -474,7 +476,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// ``GhosttySurfaceView.composerDockProbeValue`` so it lands in the XCUITest
     /// failure message with no log plumbing.
     var accessoryLayoutDiagnostics: String {
-        let scroll = accessoryStackView?.superview as? UIScrollView
+        let scroll = accessoryActionStackViews.first?.superview as? UIScrollView
         let win = window
         let scrollOffsetX = scroll.map { Int($0.contentOffset.x) } ?? -1
         let scrollContentW = scroll.map { Int($0.contentSize.width) } ?? -1
@@ -505,25 +507,30 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // bar's leading inset, so the rightmost button hugs the screen edge.
         accessoryScrollTrailingConstraint?.constant = -rightInset
 
-        if accessoryStackView != nil {
+        if accessoryRowsStackView != nil {
             terminalAccessoryToolbar.setNeedsLayout()
             terminalAccessoryToolbar.layoutIfNeeded()
         }
     }
 
-    /// Build (or rebuild) the SCROLLABLE button row: the user's configured order
+    /// Build (or rebuild) the scrollable button rows: the user's configured rows
     /// (modifiers, zoom, paste, shortcuts, and custom actions all reorderable
-    /// together), followed by the fixed trailing HIDE and "customize" controls.
+    /// together), followed on the bottom row by the fixed trailing HIDE and
+    /// "customize" controls.
     /// The composer toggle is NOT here — it is pinned in the container outside
     /// the scroll view (see ``terminalAccessoryToolbar``). The ⌘ item is rendered
     /// only when driving a Mac remote. Safe to call repeatedly; it clears the
-    /// stack first.
+    /// row stack first.
     private func populateAccessoryActions() {
-        guard let stack = accessoryStackView else { return }
-        for view in stack.arrangedSubviews {
-            stack.removeArrangedSubview(view)
+        guard let rowsStack = accessoryRowsStackView else { return }
+        for view in rowsStack.arrangedSubviews {
+            rowsStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
+        accessoryActionStackViews.removeAll()
+
+        let configuration = TerminalAccessoryConfiguration.shared
+        updateAccessoryRowsHeight(rowCount: configuration.rowCount)
 
         // The composer toggle is NOT added here: it is pinned directly in the
         // container (see ``terminalAccessoryToolbar``), OUTSIDE this scrollable
@@ -532,24 +539,35 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // dependent), so a repopulate must not re-add or rebuild it.
         //
         // The user-configurable region: built-in shortcuts/modifiers/zoom/paste
-        // and custom actions, all in the user's saved order.
-        for item in TerminalAccessoryConfiguration.shared.enabledItems {
-            switch item {
-            case let .builtin(action):
-                // ⌘ only makes sense against a Mac remote; skip it otherwise
-                // (it stays in the saved order, just unrendered, so flipping the
-                // remote re-shows it in place).
-                if action == .command && !isMacRemote { continue }
-                stack.addArrangedSubview(makeAccessoryButton(for: action))
-            case let .custom(custom):
-                stack.addArrangedSubview(makeCustomAccessoryButton(for: custom))
+        // and custom actions, all in the user's saved rows and order.
+        let rowCount = max(1, configuration.rowCount)
+        let itemRows = configuration.enabledItemRows
+        for rowIndex in 0..<rowCount {
+            let (scrollView, stack) = makeAccessoryActionRow()
+            accessoryActionStackViews.append(stack)
+            let items = itemRows.indices.contains(rowIndex) ? itemRows[rowIndex] : []
+            for item in items {
+                switch item {
+                case let .builtin(action):
+                    // ⌘ only makes sense against a Mac remote; skip it otherwise
+                    // (it stays in the saved row/order, just unrendered, so
+                    // flipping the remote re-shows it in place).
+                    if action == .command && !isMacRemote { continue }
+                    stack.addArrangedSubview(makeAccessoryButton(for: action))
+                case let .custom(custom):
+                    stack.addArrangedSubview(makeCustomAccessoryButton(for: custom))
+                }
             }
+            if rowIndex == rowCount - 1 {
+                // The HIDE button, pinned just before "customize": temporarily
+                // hides the whole bottom chrome (toolbar + composer) until the
+                // next terminal tap.
+                stack.addArrangedSubview(makeHideChromeButton())
+                // The "customize" button pinned at the very end of the bar.
+                stack.addArrangedSubview(makeToolbarSettingsButton())
+            }
+            rowsStack.addArrangedSubview(scrollView)
         }
-        // The HIDE button, pinned just before "customize": temporarily hides the
-        // whole bottom chrome (toolbar + composer) until the next terminal tap.
-        stack.addArrangedSubview(makeHideChromeButton())
-        // The "customize" button pinned at the very end of the bar.
-        stack.addArrangedSubview(makeToolbarSettingsButton())
 
         // A modifier the user just hid (or ⌘ on a non-Mac remote) is no longer
         // rendered, so it would otherwise stay armed/sticky with no visible
@@ -558,12 +576,41 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         reconcileArmedModifierVisibility()
     }
 
+    private func makeAccessoryActionRow() -> (UIScrollView, UIStackView) {
+        let scrollView = UIScrollView()
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.alwaysBounceHorizontal = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.heightAnchor.constraint(equalToConstant: Self.dockedNubSize).isActive = true
+
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.spacing = 4
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+        ])
+        return (scrollView, stack)
+    }
+
+    private func updateAccessoryRowsHeight(rowCount: Int) {
+        accessoryRowsHeightConstraint?.constant = Self.dockedRowsHeight(rowCount: rowCount)
+    }
+
     /// Disarm the active modifier if its bar button is no longer rendered, so a
     /// hidden (or non-Mac-remote ⌘) modifier can never stay invisibly armed.
     private func reconcileArmedModifierVisibility() {
         guard let armed = modifierState.armedModifier,
               let action = Self.accessoryAction(for: armed) else { return }
-        let renderedActions = (accessoryStackView?.arrangedSubviews ?? []).compactMap { view -> TerminalInputAccessoryAction? in
+        let renderedActions = accessoryActionStackViews.flatMap(\.arrangedSubviews).compactMap { view -> TerminalInputAccessoryAction? in
             guard let button = view as? AccessoryActionButton,
                   case let .builtin(builtinAction) = button.item else { return nil }
             return builtinAction
@@ -587,7 +634,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     @objc private func handleAccessoryConfigurationChanged() {
         // Only rebuild once the bar exists; otherwise the lazy build picks up
         // the new configuration on first use.
-        guard accessoryStackView != nil else { return }
+        guard accessoryRowsStackView != nil else { return }
         populateAccessoryActions()
         applyModifierPresentation()
         terminalAccessoryToolbar.setNeedsLayout()
@@ -608,11 +655,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// button's armed/sticky style. Split out of ``updateModifierLabels(isMacRemote:)``
     /// so a configuration-driven rebuild can re-apply it without toggling the flag.
     private func applyModifierPresentation() {
-        guard let stack = accessoryStackView else { return }
         // Restyle every visible button for the current remote (built-in titles
         // depend on `isMacRemote`) and its armed/sticky state. Custom actions
         // never arm.
-        for case let button as AccessoryActionButton in stack.arrangedSubviews {
+        for case let button as AccessoryActionButton in accessoryActionStackViews.flatMap(\.arrangedSubviews) {
             let armed: Bool
             let sticky: Bool
             if case let .builtin(action) = button.item {
@@ -1179,8 +1225,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private func refreshAccessoryButtonStyles() {
-        guard let stack = accessoryStackView else { return }
-        for case let button as AccessoryActionButton in stack.arrangedSubviews {
+        for case let button as AccessoryActionButton in accessoryActionStackViews.flatMap(\.arrangedSubviews) {
             // Only built-in modifier keys arm; custom actions always render normal.
             let armed: Bool
             let sticky: Bool

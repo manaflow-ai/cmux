@@ -28,15 +28,56 @@ struct TerminalShortcutsSettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    ForEach(displayedItems) { item in
-                        row(for: item)
+                if scope == .terminal {
+                    Section {
+                        Stepper(
+                            value: rowCountBinding,
+                            in: TerminalAccessoryConfiguration.minimumRowCount...TerminalAccessoryConfiguration.maximumRowCount
+                        ) {
+                            HStack {
+                                Text(L10n.string("mobile.shortcuts.rows.label", defaultValue: "Rows"))
+                                Spacer()
+                                Text("\(configuration.rowCount)")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .accessibilityIdentifier("TerminalShortcutsRowCountStepper")
+                    } header: {
+                        Text(L10n.string("mobile.shortcuts.rows.header", defaultValue: "Toolbar Rows"))
+                    } footer: {
+                        Text(L10n.string(
+                            "mobile.shortcuts.rows.footer",
+                            defaultValue: "Add rows to keep more buttons visible above the keyboard."
+                        ))
                     }
-                    .onMove(perform: moveDisplayedItems)
-                } header: {
-                    Text(L10n.string("mobile.shortcuts.header", defaultValue: "Shortcut Buttons"))
-                } footer: {
-                    Text(scope.footer)
+
+                    ForEach(displayedRowSections) { rowSection in
+                        Section {
+                            ForEach(rowSection.items) { item in
+                                row(for: item, rowIndex: rowSection.index)
+                            }
+                            .onMove { offsets, destination in
+                                moveDisplayedItems(from: offsets, to: destination, inRow: rowSection.index)
+                            }
+                        } header: {
+                            Text(rowTitle(rowSection.index))
+                        } footer: {
+                            if rowSection.index == displayedRowSections.count - 1 {
+                                Text(scope.footer)
+                            }
+                        }
+                    }
+                } else {
+                    Section {
+                        ForEach(displayedItems) { item in
+                            row(for: item, rowIndex: nil)
+                        }
+                        .onMove(perform: moveDisplayedItems)
+                    } header: {
+                        Text(L10n.string("mobile.shortcuts.header", defaultValue: "Shortcut Buttons"))
+                    } footer: {
+                        Text(scope.footer)
+                    }
                 }
 
                 Section {
@@ -84,12 +125,28 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     @ViewBuilder
-    private func row(for item: ResolvedToolbarItem) -> some View {
-        Toggle(isOn: binding(for: item.id)) {
-            if item.isCustom {
-                Label(item.settingsDisplayName, systemImage: "character.cursor.ibeam")
-            } else {
-                Text(item.settingsDisplayName)
+    private func row(for item: ResolvedToolbarItem, rowIndex: Int?) -> some View {
+        HStack {
+            Toggle(isOn: binding(for: item.id)) {
+                if item.isCustom {
+                    Label(item.settingsDisplayName, systemImage: "character.cursor.ibeam")
+                } else {
+                    Text(item.settingsDisplayName)
+                }
+            }
+
+            if scope == .terminal, configuration.rowCount > 1 {
+                Picker(
+                    L10n.string("mobile.shortcuts.rows.movePicker", defaultValue: "Move to Row"),
+                    selection: rowBinding(for: item.id, fallback: rowIndex ?? 0)
+                ) {
+                    ForEach(0..<configuration.rowCount, id: \.self) { index in
+                        Text(rowTitle(index)).tag(index)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("TerminalShortcutRowPicker.\(item.id.storageKey)")
             }
         }
         .accessibilityIdentifier("TerminalShortcutToggle.\(item.id.storageKey)")
@@ -120,26 +177,67 @@ struct TerminalShortcutsSettingsView: View {
         )
     }
 
+    private var rowCountBinding: Binding<Int> {
+        Binding(
+            get: { configuration.rowCount },
+            set: { configuration.setRowCount($0) }
+        )
+    }
+
+    private func rowBinding(for id: ToolbarItemID, fallback: Int) -> Binding<Int> {
+        Binding(
+            get: { rowIndex(for: id) ?? fallback },
+            set: { configuration.moveItem(id, toRow: $0) }
+        )
+    }
+
     private var displayedItems: [ResolvedToolbarItem] {
         configuration.displayItems.filter(scope.includes)
     }
 
-    private func moveDisplayedItems(from offsets: IndexSet, to destination: Int) {
-        guard scope != .terminal else {
-            configuration.moveItems(from: offsets, to: destination)
-            return
-        }
+    private var displayedItemRows: [[ResolvedToolbarItem]] {
+        configuration.displayItemRows.map { row in row.filter(scope.includes) }
+    }
 
+    private var displayedRowSections: [TerminalShortcutRowSection] {
+        displayedItemRows.enumerated().map { index, items in
+            TerminalShortcutRowSection(
+                id: "terminal-shortcuts-row-\(index)",
+                index: index,
+                items: items
+            )
+        }
+    }
+
+    private func rowIndex(for id: ToolbarItemID) -> Int? {
+        configuration.displayRows.firstIndex { row in row.contains(id) }
+    }
+
+    private func rowTitle(_ rowIndex: Int) -> String {
+        String(
+            format: L10n.string("mobile.shortcuts.rows.rowTitleFormat", defaultValue: "Row %d"),
+            rowIndex + 1
+        )
+    }
+
+    private func moveDisplayedItems(from offsets: IndexSet, to destination: Int) {
+        // Agent-chat ("Shared Shortcuts") scope only: a single flat list whose items
+        // may be spread across several terminal rows. Reorder strictly *within* each
+        // item's current row (`limitedTo:`) so a drag never silently reshuffles the
+        // terminal row layout. A flat reorder cannot move one item across a
+        // fixed-length row boundary without either changing row lengths or cascading
+        // another item into a different row — the silent row scramble fixed for this
+        // path. Cross-row moves are intentionally routed through the Terminal
+        // Shortcuts per-item row picker (`moveItem(_:toRow:)`) instead.
         let visibleIDs = displayedItems.map(\.id)
         let visibleSet = Set(visibleIDs)
         var reorderedVisibleIDs = visibleIDs
         reorderedVisibleIDs.move(fromOffsets: offsets, toOffset: destination)
-        var visibleIterator = reorderedVisibleIDs.makeIterator()
-        let reorderedFullIDs = configuration.displayOrder.map { id in
-            guard visibleSet.contains(id) else { return id }
-            return visibleIterator.next() ?? id
-        }
-        configuration.reorderItems(reorderedFullIDs)
+        configuration.reorderItems(reorderedVisibleIDs, limitedTo: visibleSet)
+    }
+
+    private func moveDisplayedItems(from offsets: IndexSet, to destination: Int, inRow rowIndex: Int) {
+        configuration.moveItems(from: offsets, to: destination, inRow: rowIndex)
     }
 }
 #endif
