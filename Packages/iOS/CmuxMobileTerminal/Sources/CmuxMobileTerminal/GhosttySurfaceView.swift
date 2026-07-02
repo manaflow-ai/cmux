@@ -421,7 +421,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .claude:
             return Data("claude --dangerously-skip-permissions\r".utf8)
         case .codex:
-            return Data("codex --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=xhigh --search\r".utf8)
+            return Data("codex --yolo -c model_reasoning_effort=xhigh --search\r".utf8)
         case .home:
             return Data([0x1B, 0x5B, 0x48]) // ESC[H
         case .end:
