@@ -128,6 +128,57 @@ import Testing
         #expect(Self.resolvedPathsMatch(service.sessionRecord(sessionID: sessionID)?.transcriptPath, rollout))
     }
 
+    @MainActor
+    @Test("Direct Codex resolution keeps a hook-recorded path over a stale in-flight scan")
+    func codexDirectResolutionPreservesRecordedPathOverStaleScan() async throws {
+        let fm = FileManager.default
+        let home = Self.makeTemporaryHome("agentchat-resolver-codex-recorded-wins")
+        defer { try? fm.removeItem(at: home) }
+
+        let sessionID = "resumed-session-with-two-rollouts"
+        // The authoritative rollout a hook recorded for this session.
+        let authoritative = try Self.writeCodexRollout(home: home, sessionID: sessionID, day: 26)
+        // An older rollout for the same session id that an in-flight fallback
+        // scan could still return after the hook already recorded `authoritative`.
+        let stale = try Self.writeCodexRollout(
+            home: home,
+            sessionID: sessionID,
+            filenameSessionID: "older-rollout-name",
+            day: 25
+        )
+
+        let registry = AgentChatSessionRegistry()
+        _ = registry.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .sessionStart,
+                source: "codex",
+                receivedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        // A hook recorded the authoritative transcript path for the session.
+        registry.update(sessionID: sessionID) { record in
+            record.state = .ended
+            record.transcriptPath = authoritative.path
+        }
+
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            resolver: Self.codexResolver(home: home)
+        )
+
+        // A fallback scan that started before the hook fired now lands with a
+        // stale rollout for the same session id. It must not clobber the
+        // authoritative recorded path (the overwrite lived in
+        // `applyDirectCodexTranscriptResolution`, reachable from both
+        // `history(...)` and the scheduled resolution).
+        service.applyDirectCodexTranscriptResolution(stale.path, sessionID: sessionID)
+        await service.shutdown()
+
+        #expect(Self.resolvedPathsMatch(service.sessionRecord(sessionID: sessionID)?.transcriptPath, authoritative))
+        #expect(!Self.resolvedPathsMatch(service.sessionRecord(sessionID: sessionID)?.transcriptPath, stale))
+    }
+
     private static func codexRecord(sessionID: String) -> AgentChatSessionRecord {
         AgentChatSessionRecord(
             sessionID: sessionID,

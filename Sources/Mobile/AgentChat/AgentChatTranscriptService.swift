@@ -544,7 +544,15 @@ final class AgentChatTranscriptService {
         applyDirectCodexTranscriptResolution(resolved, sessionID: key.sessionID)
     }
 
-    private func applyDirectCodexTranscriptResolution(_ resolved: String?, sessionID: String) {
+    /// Applies a resolved Codex transcript path to the registry.
+    ///
+    /// `internal` (not `private`) so a regression test can drive the
+    /// recorded-path guard directly: the race it protects against — a hook
+    /// recording the authoritative path while an off-main fallback scan is in
+    /// flight — cannot be reproduced deterministically through `history(...)`
+    /// alone. Both real callers (`history(...)` and the scheduled resolution)
+    /// reach here only after awaiting that scan.
+    func applyDirectCodexTranscriptResolution(_ resolved: String?, sessionID: String) {
         guard let record = registry.record(sessionID: sessionID),
               record.agentKind == .codex else {
             return
