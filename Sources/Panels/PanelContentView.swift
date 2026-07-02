@@ -179,7 +179,8 @@ private struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
 
     var body: some View {
-        TimelineView(.periodic(from: panel.startedAt, by: 1)) { context in
+        let schedule: PeriodicTimelineSchedule = .periodic(from: panel.startedAt, by: 1)
+        TimelineView(schedule) { context in
             let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
             VStack(spacing: 14) {
                 switch panel.phase {
@@ -191,8 +192,7 @@ private struct CloudVMLoadingPanelView: View {
                         .foregroundStyle(.primary)
                     CloudVMLoadingStatusView(elapsedSeconds: elapsedSeconds)
                 case .failed(let message, let failedElapsedSeconds):
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .cmuxSymbolRasterSize(18)
+                    CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 18)
                         .foregroundStyle(.orange)
                     Text(String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Base unavailable"))
                         .cmuxFont(size: 14, weight: .semibold)
@@ -300,8 +300,7 @@ private struct CloudVMLoadingStatusRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: icon)
-                .cmuxSymbolRasterSize(12)
+            CmuxSystemSymbolImage(systemName: icon, pointSize: 12)
                 .foregroundStyle(isActive ? .secondary : .tertiary)
                 .frame(width: 14)
             Text(text)
