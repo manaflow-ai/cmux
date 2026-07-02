@@ -296,17 +296,18 @@ import Testing
     }
     #expect(barrierReplayRequested, "manual replay must create a replay barrier request")
 
+    let viewportPolicyCountBeforeAdvisory = collector.viewportPolicies.count
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
         seq: 5,
         text: "barrier-advisory",
         columns: 16
     ))
-    let advisorySuppressedByBarrier = try await pollUntil(attempts: 60) {
-        collector.viewportPolicies.count > 1
+    let advisoryDeliveredDuringBarrier = try await pollUntil(attempts: 60) {
+        collector.viewportPolicies.count > viewportPolicyCountBeforeAdvisory
     }
     #expect(
-        advisorySuppressedByBarrier == false,
+        advisoryDeliveredDuringBarrier == false,
         "advisory output is dropped while the replay barrier waits for the authoritative replay"
     )
 
