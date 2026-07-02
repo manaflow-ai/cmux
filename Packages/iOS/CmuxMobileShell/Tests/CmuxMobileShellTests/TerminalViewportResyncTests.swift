@@ -877,6 +877,9 @@ import Testing
     )
     #expect(store.reportedViewportSizesByTerminalKey[key]?.columns == 90)
     #expect(store.reportedViewportSizesByTerminalKey[key]?.rows == 33)
+    // The offline report must also consume a generation so the cached
+    // dimensions never ride a piggyback generationless after reconnect.
+    #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] != nil)
 }
 
 @MainActor

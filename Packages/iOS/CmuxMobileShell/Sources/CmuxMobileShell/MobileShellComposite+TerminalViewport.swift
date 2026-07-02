@@ -35,6 +35,12 @@ extension MobileShellComposite {
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceID),
             viewportSize: reportedGrid
         )
+        // Allocate the generation for offline reports too: the cached
+        // dimensions above must never ride a piggyback without a generation,
+        // or a reordered stale piggyback could overwrite a newer dedicated
+        // report after reconnect.
+        let requestGeneration = (viewportReportGenerationsBySurfaceID[surfaceID] ?? 0) + 1
+        viewportReportGenerationsBySurfaceID[surfaceID] = requestGeneration
         guard let client = remoteClient else { return nil }
         let previousReportedGrid = reportedTerminalViewportSizesBySurfaceID[surfaceID]
         let prearmedReplayBarrierToken = prearmTerminalViewportReplayBarrierIfNeeded(
@@ -42,8 +48,6 @@ extension MobileShellComposite {
             previousReportedGrid: previousReportedGrid,
             reportedGrid: reportedGrid
         )
-        let requestGeneration = (viewportReportGenerationsBySurfaceID[surfaceID] ?? 0) + 1
-        viewportReportGenerationsBySurfaceID[surfaceID] = requestGeneration
         do {
             let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
             let request = try MobileCoreRPCClient.requestData(
