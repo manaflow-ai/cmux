@@ -16,12 +16,12 @@ They are browsable and movable in cmux's **Notes** sidebar tab, and editing them
 on disk updates the sidebar live (it watches the filesystem). Your job is to read,
 write, edit, create, and organize these `.md` files using ordinary file tools.
 
-> **Beta gate.** Notes is a beta feature behind the "Notes" toggle in
-> Settings → Beta Features (`rightSidebar.beta.notes.enabled`). While it is off,
-> `$CMUX_WORKSPACE_NOTES_DIR` is not exported to new terminals, the Notes sidebar
-> tab is hidden, and every `cmux note …` command fails with `notes_disabled`.
-> If you hit that, tell the user to enable the Notes beta in cmux Settings
-> instead of retrying or writing files manually.
+> **Beta gate.** The Notes *sidebar tab* is a beta surface behind the "Notes"
+> toggle in Settings → Beta Features (`rightSidebar.beta.notes.enabled`). While
+> it is off, `$CMUX_WORKSPACE_NOTES_DIR` is not exported to new terminals and
+> the sidebar tab is hidden — but `cmux note …` commands and note files keep
+> working (use the fallback below to resolve the notes root). Only suggest
+> enabling the beta when the user wants the sidebar tree UI.
 
 ## 1. Find the notes root
 
