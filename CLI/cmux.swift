@@ -1191,6 +1191,7 @@ final class ClaudeHookSessionStore {
         surfaceId: String?,
         excludingSessionId: String?,
         onlyNewerThanExcludedSession: Bool = false,
+        requireRunningStatus: Bool = true,
         requireLiveProcess: Bool = false
     ) throws -> Bool {
         guard let normalizedWorkspace = normalizeOptional(workspaceId) else {
@@ -1207,7 +1208,7 @@ final class ClaudeHookSessionStore {
                 guard var record = state.sessions[sessionId] else { continue }
                 guard normalizeOptional(record.workspaceId) == normalizedWorkspace,
                       record.sessionId != excluded,
-                      record.runtimeStatus == .running else {
+                      (!requireRunningStatus || record.runtimeStatus == .running) else {
                     continue
                 }
                 if let normalizedSurface, normalizeOptional(record.surfaceId) != normalizedSurface {
@@ -1232,6 +1233,24 @@ final class ClaudeHookSessionStore {
 
             return foundRunningSession
         }
+    }
+
+    /// Any *live* session (process still alive) for `workspaceId` other than
+    /// `excludingSessionId`, regardless of runtime status. Unlike
+    /// `hasRunningSession`, an idle / needs-input / status-less sibling with a
+    /// live process still counts — that sibling still owns the workspace, so an
+    /// exiting session must not persist its title over it.
+    func hasOtherLiveSession(
+        workspaceId: String,
+        excludingSessionId: String?
+    ) throws -> Bool {
+        try hasRunningSession(
+            workspaceId: workspaceId,
+            surfaceId: nil,
+            excludingSessionId: excludingSessionId,
+            requireRunningStatus: false,
+            requireLiveProcess: true
+        )
     }
 
     private static func processExists(_ pid: Int?) -> Bool {

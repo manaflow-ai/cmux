@@ -122,12 +122,15 @@ extension CMUXCLI {
     /// Persists an exited agent session's last auto title onto its workspace,
     /// but only when no other live session still owns that workspace.
     ///
-    /// The running-session guard lives here, not at the call sites, so every
+    /// The live-session guard lives here, not at the call sites, so every
     /// lifecycle entrypoint (Claude and the generic/PI hooks) gets it: exit
     /// ordering across sibling panes is nondeterministic and `SessionEnd` /
     /// `isCurrent()` are per-surface (see issue #5908), so an exiting split can
     /// otherwise stamp its stale title over the workspace while a sibling
-    /// session in another surface is still running and owns the auto title.
+    /// session in another surface is still alive and owns the auto title. The
+    /// guard treats any sibling with a live process as owning the workspace,
+    /// not only actively-running ones — an idle / needs-input split is the
+    /// common case and still owns the title.
     func persistAgentSessionTitleAfterExit(
         _ normalizedTitle: String?,
         workspaceId: String,
@@ -138,14 +141,12 @@ extension CMUXCLI {
         telemetry: CLISocketSentryTelemetry
     ) {
         guard let title = normalizedTitle else { return }
-        let hasOtherRunningSession = (try? sessionStore.hasRunningSession(
+        let workspaceStillOwned = (try? sessionStore.hasOtherLiveSession(
             workspaceId: workspaceId,
-            surfaceId: nil,
-            excludingSessionId: excludingSessionId,
-            requireLiveProcess: true
+            excludingSessionId: excludingSessionId
         )) == true
-        guard !hasOtherRunningSession else {
-            telemetry.breadcrumb("\(telemetryKey).persist-title.other-session-running")
+        guard !workspaceStillOwned else {
+            telemetry.breadcrumb("\(telemetryKey).persist-title.other-session-live")
             return
         }
         guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
