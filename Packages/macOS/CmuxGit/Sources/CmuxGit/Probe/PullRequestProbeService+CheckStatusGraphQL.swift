@@ -2,10 +2,13 @@ import Foundation
 
 extension PullRequestProbeService {
     /// Fetches CI rollup states for the REST-fetched open PRs in one GraphQL call.
+    ///
+    /// The call runs on its own short-timeout session (``checkStatusProbeTimeout``)
+    /// so a slow or unavailable rollup can never gate the authoritative PR badge
+    /// refresh; on timeout it yields no statuses and callers keep neutral/cached CI.
     nonisolated func pullRequestCheckStatuses(
         repoSlug: String,
         pullRequests: [GitHubPullRequestProbeItem],
-        session: URLSession,
         authHeader: String?
     ) async -> [Int: PullRequestCheckStatus] {
         guard let authHeader, !authHeader.isEmpty else {
@@ -25,6 +28,14 @@ extension PullRequestProbeService {
                 name: ownerAndName.name
             )
         )
+
+        // Dedicated short-timeout session keeps this best-effort CI lookup off the
+        // critical path: it cannot delay the authoritative REST PR data (served on
+        // the shared, longer-timeout session) by more than `checkStatusProbeTimeout`.
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = Self.checkStatusProbeTimeout
+        configuration.timeoutIntervalForResource = Self.checkStatusProbeTimeout
+        let session = URLSession(configuration: configuration)
 
         guard let response = await performGraphQLRequest(
             session: session,

@@ -51,6 +51,13 @@ public struct PullRequestProbeService: Sendable {
     static let repoPageLimit = 2
     /// Per-request timeout for GitHub API calls and the `gh auth token` probe.
     static let probeTimeout: TimeInterval = 5.0
+    /// Per-request timeout for the best-effort CI rollup GraphQL call.
+    ///
+    /// Deliberately much shorter than ``probeTimeout``: CI status is optional UI
+    /// metadata layered on top of the authoritative REST PR data, so a slow or
+    /// unavailable rollup must never gate the PR badge refresh. On timeout the
+    /// fetch yields no statuses and PRs keep their neutral/cached CI glyph.
+    static let checkStatusProbeTimeout: TimeInterval = 3.0
     /// Merged PRs older than this no longer earn a badge.
     static let mergedBadgeStaleAfter: TimeInterval = 14 * 24 * 60 * 60
     /// How often a panel showing a terminal (merged/closed) PR is re-checked.

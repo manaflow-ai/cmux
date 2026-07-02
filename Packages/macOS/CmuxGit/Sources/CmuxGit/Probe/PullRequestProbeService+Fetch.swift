@@ -148,7 +148,6 @@ extension PullRequestProbeService {
         let checkStatuses = await pullRequestCheckStatuses(
             repoSlug: repoSlug,
             pullRequests: allPullRequests,
-            session: session,
             authHeader: authHeader
         )
         let pullRequestsWithCheckStatuses = Self.applyingCheckStatuses(
@@ -257,7 +256,6 @@ extension PullRequestProbeService {
         let lookupCheckStatuses = await pullRequestCheckStatuses(
             repoSlug: repoSlug,
             pullRequests: foundPullRequests,
-            session: session,
             authHeader: authHeader
         )
         return Self.foldingBranchLookupResults(
