@@ -10251,18 +10251,11 @@ final class Workspace: Identifiable, ObservableObject {
             self?.wakeLayoutFollowUpForStructuralEvent()
         }
 
-        // Intentionally NOT observing NSWindow.didUpdateNotification here. AppKit
-        // posts it on every event-loop iteration while the window is tracking
-        // (scroll, drag, mouse-move), so re-arming a layout-follow-up attempt from
-        // it pumped flushWorkspaceWindowLayouts() — a full-window relayout — on
-        // every scroll tick while any follow-up session was open. Convergence is
-        // instead driven by the self-rescheduling loop in
-        // attemptEventDrivenLayoutFollowUp() (which retries on progress and on
-        // stall, bounded by the follow-up timeout) plus the specific
-        // structural-event observers below; the window-update firehose only added
-        // a per-tick wake that coupled scrolling to a full-window relayout.
-        // See the scroll-lag investigation in
-        // https://github.com/manaflow-ai/cmux/issues/6790.
+        // Intentionally NOT observing NSWindow.didUpdateNotification: AppKit posts
+        // it on every event-loop tick during tracking (scroll, drag), which pumped
+        // flushWorkspaceWindowLayouts() per scroll tick while a session was open.
+        // Convergence comes from the self-rescheduling attempt loop plus the
+        // structural observers below (https://github.com/manaflow-ai/cmux/issues/6790).
         layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
             object: nil,
@@ -10339,14 +10332,11 @@ final class Workspace: Identifiable, ObservableObject {
         layoutFollowUpStalledAttemptCount = 0
     }
 
-    /// Wake the follow-up loop because a structural event (surface ready,
-    /// hosted view moved, portal visibility, first responder, panels change)
-    /// arrived. These events are edge-triggered (none fire per event-loop
-    /// tick), so it is safe to let them preempt a pending stall-backoff retry:
-    /// reset the backoff and reschedule immediately instead of waiting out up
-    /// to 0.25s (or, worst case, a retry scheduled past the follow-up timeout
-    /// that would never run). Mirrors the reset in
-    /// beginEventDrivenLayoutFollowUp.
+    /// Structural events (surface ready, hosted view moved, portal visibility,
+    /// first responder, panels change) are edge-triggered, so they preempt a
+    /// pending stall-backoff retry instead of being dropped by the
+    /// already-scheduled guard (worst case: a retry scheduled past the 2s
+    /// timeout never ran). Mirrors the reset in beginEventDrivenLayoutFollowUp.
     private func wakeLayoutFollowUpForStructuralEvent() {
         guard layoutFollowUpTimeoutWorkItem != nil else { return }
         layoutFollowUpStalledAttemptCount = 0
@@ -10546,17 +10536,11 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             layoutFollowUpStalledAttemptCount += 1
         }
-        // Keep retrying while work remains, including on stall. Previously a
-        // stalled attempt (no progress) stopped rescheduling and relied on an
-        // external wake — chiefly NSWindow.didUpdateNotification, which fired on
-        // every event-loop tick during tracking and coupled scrolling to a
-        // full-window relayout. With that observer removed, the loop self-drives
-        // at the stall backoff delay (layoutFollowUpBackoffDelay, capped 0.25s)
-        // and is bounded by the follow-up timeout (refreshLayoutFollowUpTimeout),
-        // so a stalled geometry/focus/reparent repair still converges without
-        // depending on high-frequency window updates. Structural events preempt
-        // this backoff (wakeLayoutFollowUpForStructuralEvent), so a late signal
-        // is handled immediately instead of waiting out the retry delay.
+        // Keep retrying while work remains, including on stall (backoff capped
+        // 0.25s, bounded by the follow-up timeout). Stalled repairs previously
+        // relied on the per-tick NSWindow.didUpdate wake removed above.
+        // Structural events preempt the backoff via
+        // wakeLayoutFollowUpForStructuralEvent.
         scheduleLayoutFollowUpAttempt()
     }
 
