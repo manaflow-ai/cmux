@@ -7209,10 +7209,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                     }
                 }
-                if accepted {
-                    self.rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
-                }
                 if accepted, let replaySeq {
+                    // Only a sequence-carrying acceptance re-bases the stale
+                    // floor; a seq-less tail leaves it for the ack restore.
+                    self.rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
                     self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
                 } else if !accepted {
                     self.clearTerminalReplayBarrierIfCurrent(
