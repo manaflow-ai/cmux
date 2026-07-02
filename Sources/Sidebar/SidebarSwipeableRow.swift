@@ -104,6 +104,11 @@ struct SidebarSwipeableRow<Content: View>: View {
 
             swipeActionIcon(for: action)
         }
+        // Unselected row cards have a transparent background, so a fill that
+        // spans the whole container would show through the card. Limit the
+        // fill to the revealed strip; the outer clipShape rounds its corners.
+        .frame(width: abs(offset))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment(for: action))
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title(for: action))
