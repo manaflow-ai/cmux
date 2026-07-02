@@ -779,6 +779,33 @@ struct FileExplorerStoreTests {
             Issue.record("gitMetadataDirectory blocked on a FIFO .git entry — regular-file guard missing")
         }
     }
+
+    @Test("git-creation bootstrap watcher excludes churn dirs but never .git itself")
+    func testGitCreationWatcherExclusionsOmitDotGit() {
+        // Any absolute path works — these are pure string builders. Both helpers
+        // apply the same `standardizedFileURL` normalization, so the `.git` entry
+        // compares equal without needing the directory to exist on disk.
+        let root = "/tmp/cmux-git-creation-\(UUID().uuidString)"
+        let mainExclusions = FileExplorerStore.recursiveWatcherExcludedPaths(under: root)
+        let creationExclusions = FileExplorerStore.gitCreationWatcherExcludedPaths(under: root)
+        let gitPath = FileExplorerStore.rootLevelGitPath(under: root)
+
+        // Premise: the main tree watcher excludes `.git`. That exclusion is exactly
+        // why `git init` (which writes only under `.git`) produces no main-watcher
+        // event, so the git-state watcher would never install on its own.
+        #expect(mainExclusions.contains(gitPath))
+
+        // The bootstrap watcher must NOT exclude `.git`, or it could never observe
+        // `.git`'s creation — reintroducing the "git init leaves status badges
+        // stale until an unrelated tree change" regression. If someone reuses
+        // `recursiveWatcherExcludedPaths` here (which excludes `.git`), this fails.
+        #expect(!creationExclusions.contains(gitPath))
+
+        // It keeps every *other* high-churn exclusion so it stays cheap while it
+        // waits on a folder that may never become a repository.
+        #expect(Set(creationExclusions) == Set(mainExclusions).subtracting([gitPath]))
+        #expect(creationExclusions.contains { $0.hasSuffix("/node_modules") })
+    }
 }
 
 @MainActor

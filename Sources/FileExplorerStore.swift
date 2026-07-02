@@ -765,6 +765,17 @@ final class FileExplorerStore: ObservableObject {
     private var gitStateWatcher: RecursivePathWatcher?
     private var gitStateWatchTask: Task<Void, Never>?
 
+    /// Short-lived bootstrap watcher used only while the opened folder is not yet
+    /// a Git repository. The main tree watcher excludes `.git`, so `git init` —
+    /// which writes only under `.git` — produces no main-watcher event, and the
+    /// git-state watcher would otherwise never be installed until an unrelated
+    /// working-tree change happened to fire. This watches the same root *without*
+    /// excluding `.git`, so `.git`'s creation is observed as an ordinary
+    /// descendant event; it installs the git-state watcher and then tears itself
+    /// down, so it never observes steady-state `.git` churn.
+    private var gitCreationWatcher: RecursivePathWatcher?
+    private var gitCreationWatchTask: Task<Void, Never>?
+
     /// Bumped whenever the explorer root or provider changes
     /// (``invalidateGitStatusRefresh()``). A `git status` fetch captures this at
     /// launch; a result whose generation no longer matches is dropped, so a
@@ -990,6 +1001,7 @@ final class FileExplorerStore: ObservableObject {
                 }
             }
             startGitStateWatcher(under: rootPath)
+            installGitCreationWatcherIfNeeded(under: rootPath)
         } else {
             stopDirectoryWatcher()
         }
@@ -1030,6 +1042,47 @@ final class FileExplorerStore: ObservableObject {
     private func installGitStateWatcherIfNeeded() {
         guard gitStateWatcher == nil, let watchPath = directoryWatchPath else { return }
         startGitStateWatcher(under: watchPath)
+        // Once the repository exists the git-state watcher owns `.git`, so the
+        // bootstrap creation watcher (whichever code path installed the metadata
+        // watcher) has done its job and must stop before it observes churn.
+        if gitStateWatcher != nil {
+            stopGitCreationWatcher()
+        }
+    }
+
+    /// Installs the ``gitCreationWatcher`` bootstrap watcher when the opened
+    /// folder is not yet a repository, so a later `git init` is observed even
+    /// though the main tree watcher excludes `.git`. Unlike the main watcher this
+    /// one does *not* exclude `.git`, so `.git`'s creation reaches its throttle;
+    /// its handler installs the git-state watcher and then tears the bootstrap
+    /// watcher down. A no-op once the repository exists (the git-state watcher is
+    /// already installed) or once a bootstrap watcher is already running.
+    private func installGitCreationWatcherIfNeeded(under rootPath: String) {
+        guard gitStateWatcher == nil, gitCreationWatcher == nil else { return }
+        guard let watcher = RecursivePathWatcher(
+            paths: [rootPath],
+            excludedPaths: Self.gitCreationWatcherExcludedPaths(under: rootPath)
+        ) else { return }
+        gitCreationWatcher = watcher
+        let events = watcher.events
+        gitCreationWatchTask = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self else { break }
+                self.installGitStateWatcherIfNeeded()
+                // `installGitStateWatcherIfNeeded()` stops this watcher once the
+                // metadata watcher is installed; break so the loop ends promptly
+                // even before the finished stream drains.
+                if self.gitStateWatcher != nil { break }
+            }
+        }
+    }
+
+    /// Cancels the bootstrap creation-watch consumer and drops the watcher; its
+    /// deinit tears down the filesystem stream synchronously. Idempotent.
+    private func stopGitCreationWatcher() {
+        gitCreationWatchTask?.cancel()
+        gitCreationWatchTask = nil
+        gitCreationWatcher = nil
     }
 
     /// Maximum bytes read from a non-directory `.git` entry. A real `gitdir:`
@@ -1146,6 +1199,7 @@ final class FileExplorerStore: ObservableObject {
         gitStateWatchTask?.cancel()
         gitStateWatchTask = nil
         gitStateWatcher = nil
+        stopGitCreationWatcher()
     }
 
     private func setProvider(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
@@ -1513,7 +1567,7 @@ final class FileExplorerStore: ObservableObject {
         return trimmed
     }
 
-    private static func recursiveWatcherExcludedPaths(under rootPath: String) -> [String] {
+    static func recursiveWatcherExcludedPaths(under rootPath: String) -> [String] {
         let rootURL = URL(fileURLWithPath: rootPath).standardizedFileURL
         let ignoredDirectoryNames = [
             ".build",
@@ -1528,6 +1582,26 @@ final class FileExplorerStore: ObservableObject {
         return ignoredDirectoryNames
             .map { rootURL.appendingPathComponent($0, isDirectory: true).path }
             .sorted()
+    }
+
+    /// The root-level `.git` path as the exclusion list represents it, so the two
+    /// stay in lockstep (same `standardizedFileURL` construction) and the filter
+    /// in ``gitCreationWatcherExcludedPaths(under:)`` matches exactly.
+    static func rootLevelGitPath(under rootPath: String) -> String {
+        URL(fileURLWithPath: rootPath)
+            .standardizedFileURL
+            .appendingPathComponent(".git", isDirectory: true)
+            .path
+    }
+
+    /// Exclusions for the ``gitCreationWatcher`` bootstrap watcher: the same
+    /// high-churn directories the main tree watcher ignores, *except* `.git`
+    /// itself — whose creation is precisely the event this watcher exists to
+    /// observe. Keeping the other exclusions means it stays cheap while it waits
+    /// for a folder that may never become a repository.
+    static func gitCreationWatcherExcludedPaths(under rootPath: String) -> [String] {
+        let gitPath = rootLevelGitPath(under: rootPath)
+        return recursiveWatcherExcludedPaths(under: rootPath).filter { $0 != gitPath }
     }
 
     private static func remotePreviewCacheURL(displayTarget: String, remotePath: String) -> URL {
@@ -1552,5 +1626,6 @@ final class FileExplorerStore: ObservableObject {
     deinit {
         cancelRemoteHomeResolution()
         directoryWatchTask?.cancel()
+        gitCreationWatchTask?.cancel()
     }
 }
