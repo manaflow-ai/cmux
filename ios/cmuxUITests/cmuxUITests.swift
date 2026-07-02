@@ -398,6 +398,7 @@ final class cmuxUITests: XCTestCase {
             context: "fresh no-agent workspace before delayed terminal"
         )
         assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
 
         RunLoop.current.run(until: Date().addingTimeInterval(2.5))
         assertWorkspaceToolbarVisible(
@@ -408,6 +409,7 @@ final class cmuxUITests: XCTestCase {
             context: "fresh no-agent workspace after delayed terminal appears"
         )
         assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
         assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
 
         tap(terminalDropdown, in: app)
@@ -433,6 +435,7 @@ final class cmuxUITests: XCTestCase {
             context: "created no-agent workspace before delayed terminal"
         )
         assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
 
         RunLoop.current.run(until: Date().addingTimeInterval(2.5))
         assertWorkspaceToolbarVisible(
@@ -443,6 +446,7 @@ final class cmuxUITests: XCTestCase {
             context: "created no-agent workspace after delayed terminal appears"
         )
         assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
         assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
 
         tap(terminalDropdown, in: app)
@@ -1976,6 +1980,21 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(
             app.buttons[identifier].exists,
             "Expected menu to exclude \(identifier).",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func assertToolbarOverflowButtonDoesNotExist(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let overflowButton = app.buttons["More"]
+        XCTAssertFalse(
+            overflowButton.exists && overflowButton.frame.minY < 140,
+            "Workspace detail toolbar must not collapse into SwiftUI's overflow button.",
             file: file,
             line: line
         )
