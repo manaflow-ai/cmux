@@ -415,6 +415,41 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceDetailToolbarSurvivesCreateWorkspaceDelayedTerminalLifecycle() throws {
+        let app = launchWorkspaceDetailCreateDelayedTerminalPreviewApp()
+        let initialTerminalDropdown = app.buttons["MobileTerminalDropdown"]
+        tap(initialTerminalDropdown, in: app)
+        tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
+
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "created no-agent workspace before delayed terminal"
+        )
+        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "created no-agent workspace after delayed terminal appears"
+        )
+        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
+
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
+    }
+
+    @MainActor
     func testTerminalDropdownScrollsLongTerminalList() async throws {
         let server = try MobileSyncMockHostServer(additionalMainTerminalCount: 24)
         let port = try await server.start()
@@ -1738,6 +1773,22 @@ final class cmuxUITests: XCTestCase {
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
         ])
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 8))
+        return app
+    }
+
+    @MainActor
+    private func launchWorkspaceDetailCreateDelayedTerminalPreviewApp() -> XCUIApplication {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ])
+        if !app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 4) {
+            let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+            XCTAssertTrue(row.waitForExistence(timeout: 8))
+            row.tap()
+        }
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
         return app
     }
 

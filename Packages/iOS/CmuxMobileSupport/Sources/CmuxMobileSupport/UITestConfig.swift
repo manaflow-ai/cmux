@@ -89,6 +89,7 @@ public struct UITestConfig {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] == "1"
             || workspaceDetailDelayedTerminalPreviewEnabled
+            || workspaceDetailCreateDelayedTerminalPreviewEnabled
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1")
         #else
         return false
@@ -103,6 +104,21 @@ public struct UITestConfig {
     public static var workspaceDetailDelayedTerminalPreviewEnabled: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the workspace detail create-workspace delayed-terminal lifecycle
+    /// preview is enabled.
+    ///
+    /// When `CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL=1`, the root
+    /// view renders a connected workspace shell opened to an existing workspace.
+    /// The actual new-workspace toolbar button creates a fresh workspace without
+    /// a terminal, then the preview injects that terminal after a delay. DEBUG-only.
+    public static var workspaceDetailCreateDelayedTerminalPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL"] == "1"
         #else
         return false
         #endif

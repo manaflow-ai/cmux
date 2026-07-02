@@ -49,7 +49,9 @@ public struct WorkspaceListLayoutPreviewView: View {
     ]
 
     public var body: some View {
-        if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
+        if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
+            WorkspaceDetailCreateDelayedTerminalPreviewView()
+        } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
             WorkspaceDetailDelayedTerminalPreviewView()
         } else {
             NavigationStack {
