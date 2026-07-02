@@ -84,6 +84,49 @@ struct FilePreviewTextEditorTextKitTests {
         }
     }
 
+    @Test("text preview editor handles chorded zoom key equivalents")
+    func editorHandlesChordedZoomKeyEquivalents() throws {
+        try withDefaultShortcutSettings {
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(
+                    first: ShortcutStroke(
+                        key: "k",
+                        command: false,
+                        shift: false,
+                        option: false,
+                        control: true,
+                        keyCode: UInt16(kVK_ANSI_K)
+                    ),
+                    second: ShortcutStroke(
+                        key: "=",
+                        command: true,
+                        shift: false,
+                        option: false,
+                        control: false,
+                        keyCode: UInt16(kVK_ANSI_Equal)
+                    )
+                ),
+                for: .browserZoomIn
+            )
+
+            let textView = SavingTextView.makeFilePreviewTextView()
+            let initialPointSize = try #require(textView.font?.pointSize)
+
+            let prefix = try #require(Self.keyEvent(
+                characters: "k",
+                modifierFlags: [.control],
+                keyCode: UInt16(kVK_ANSI_K)
+            ))
+            #expect(textView.performKeyEquivalent(with: prefix))
+            #expect(abs((textView.font?.pointSize ?? 0) - initialPointSize) < 0.01)
+
+            let suffix = try #require(Self.keyEvent(characters: "=", keyCode: UInt16(kVK_ANSI_Equal)))
+            #expect(textView.performKeyEquivalent(with: suffix))
+            let zoomedPointSize = try #require(textView.font?.pointSize)
+            #expect(zoomedPointSize > initialPointSize)
+        }
+    }
+
     private func withDefaultShortcutSettings(_ body: () throws -> Void) rethrows {
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-file-preview-text-zoom"
@@ -96,11 +139,15 @@ struct FilePreviewTextEditorTextKitTests {
         try body()
     }
 
-    private static func keyEvent(characters: String, keyCode: UInt16) -> NSEvent? {
+    private static func keyEvent(
+        characters: String,
+        modifierFlags: NSEvent.ModifierFlags = [.command],
+        keyCode: UInt16
+    ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [.command],
+            modifierFlags: modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: 0,
             context: nil,
