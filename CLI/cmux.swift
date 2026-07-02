@@ -724,7 +724,8 @@ final class ClaudeHookSessionStore {
         updateRuntimeStatus: Bool = false,
         markActive: Bool = false,
         turnId: String? = nil,
-        allowsNewSessionReplacement: Bool = false
+        allowsNewSessionReplacement: Bool = false,
+        preserveNewerActiveSession: Bool = false
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
@@ -780,10 +781,31 @@ final class ClaudeHookSessionStore {
                     allowsNewSessionReplacement: allowsNewSessionReplacement ? true : nil,
                     updatedAt: now
                 )
-                if let normalizedWorkspace = normalizeOptional(workspaceId) {
+                // When `preserveNewerActiveSession` is set, a late or duplicate
+                // SessionStart from an older session must not steal the active
+                // slot from a session that started more recently. Ordering
+                // mirrors `lookupCurrentSession`'s fallback (newest `startedAt`,
+                // tie-broken by larger `sessionId`) so the active slot stays
+                // consistent with the id-less hook resolution it feeds.
+                func canPromoteActiveSession(over existing: ClaudeHookActiveSessionRecord?) -> Bool {
+                    guard preserveNewerActiveSession,
+                          let existing,
+                          existing.sessionId != normalized,
+                          let existingRecord = state.sessions[existing.sessionId]
+                    else {
+                        return true
+                    }
+                    if record.startedAt != existingRecord.startedAt {
+                        return record.startedAt > existingRecord.startedAt
+                    }
+                    return normalized > existingRecord.sessionId
+                }
+                if let normalizedWorkspace = normalizeOptional(workspaceId),
+                   canPromoteActiveSession(over: state.activeSessionsByWorkspace[normalizedWorkspace]) {
                     state.activeSessionsByWorkspace[normalizedWorkspace] = activeRecord
                 }
-                if let normalizedSurface = normalizeOptional(surfaceId) {
+                if let normalizedSurface = normalizeOptional(surfaceId),
+                   canPromoteActiveSession(over: state.activeSessionsBySurface[normalizedSurface]) {
                     state.activeSessionsBySurface[normalizedSurface] = activeRecord
                 }
             }
@@ -29789,7 +29811,8 @@ export default CMUXSessionRestore;
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations,
-                        markActive: def.name == "gemini" && !suppressVisibleMutations
+                        markActive: def.name == "gemini" && !suppressVisibleMutations,
+                        preserveNewerActiveSession: true
                     )
                     acceptedSessionStart = true
                 }
