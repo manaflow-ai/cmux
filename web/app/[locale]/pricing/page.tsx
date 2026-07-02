@@ -101,6 +101,7 @@ export default function PricingPage() {
             name={t("pro.name")}
             price={t("pro.price")}
             period={t("perMonth")}
+            priceNote={t("pro.priceNote")}
           >
             <PrimaryLink href={PRO_CTA_URL}>{t("pro.cta")}</PrimaryLink>
             <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
@@ -274,11 +275,13 @@ function PlanCard({
   name,
   price,
   period,
+  priceNote,
   children,
 }: {
   name: string;
   price: string;
   period?: string;
+  priceNote?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -288,6 +291,9 @@ function PlanCard({
         <span className="text-3xl font-medium tracking-tight">{price}</span>
         {period ? <span className="text-sm text-muted">{period}</span> : null}
       </div>
+      {priceNote ? (
+        <p className="mt-1 text-xs text-muted">{priceNote}</p>
+      ) : null}
       <div className="mt-6">{children}</div>
     </div>
   );
