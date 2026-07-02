@@ -12164,7 +12164,21 @@ struct VerticalTabsSidebar: View {
         let sortedIds = tabManager.tabs.sorted { lhs, rhs in
             workspaceTagSortPrecedes(lhs, rhs, originalIndexes: originalIndexes)
         }.map(\.id)
+        // Sorting reorders the full workspace list, so the Shift-click anchor
+        // index (`lastSidebarSelectionIndex`) must be reconciled against the new
+        // order — otherwise the next Shift-click anchors from whichever
+        // workspace now occupies the stale index. Route through the same shared
+        // reorder-sync path as drag reordering.
+        let selectionBeforeReorder = selectedTabIds
+        let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
+            existingAnchorIndex: lastSidebarSelectionIndex,
+            liveWorkspaceIds: tabManager.tabs.map(\.id)
+        )
         _ = tabManager.reorderWorkspaces(orderedWorkspaceIds: sortedIds)
+        syncSidebarSelectionAfterWorkspaceReorder(
+            preserving: selectionBeforeReorder,
+            preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder
+        )
     }
 
     private func workspaceTagSortPrecedes(

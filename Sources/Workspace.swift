@@ -4478,11 +4478,23 @@ final class Workspace: Identifiable, ObservableObject {
     static let maxCustomTagCount = 64
     /// Upper bound on each stored tag's character length.
     static let maxCustomTagLength = 64
+    /// Upper bound on the raw scalars scanned into a single tag token from
+    /// editing text before `normalizedCustomTags` collapses whitespace and
+    /// truncates to `maxCustomTagLength`. Generous relative to the final cap so
+    /// realistic tags (which never carry hundreds of leading spaces) are
+    /// untouched, while a pathological single field — e.g. a multi-megabyte
+    /// paste with no delimiter — can't allocate or whitespace-split proportional
+    /// to its full length.
+    static let maxEditingTagTokenScanLength = maxCustomTagLength * 16
 
-    static func normalizedCustomTags(_ tags: [String]) -> [String] {
+    /// Normalizes an arbitrary sequence of raw tag strings into the stored form:
+    /// whitespace-collapsed, length- and count-bounded, deduplicated by folding
+    /// key. Accepts any `Sequence` so a lazy tokenizer can feed tokens on demand
+    /// and stop being pulled once `maxCustomTagCount` tags are collected.
+    static func normalizedCustomTags(_ tags: some Sequence<String>) -> [String] {
         var seenKeys = Set<String>()
         var normalizedTags: [String] = []
-        normalizedTags.reserveCapacity(min(tags.count, maxCustomTagCount))
+        normalizedTags.reserveCapacity(maxCustomTagCount)
 
         for tag in tags {
             // Bound count and per-tag length at the single normalization
@@ -4529,9 +4541,56 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     static func customTags(fromEditingText text: String) -> [String] {
+        // Tokenize lazily on `,`/`\n` and normalize through the shared choke
+        // point. Splitting eagerly with `components(separatedBy:)` would
+        // allocate an array proportional to the whole (untrusted) paste before
+        // any limit applies; the lazy tokenizer instead lets
+        // `normalizedCustomTags` stop pulling once it has `maxCustomTagCount`
+        // tags, and bounds each token's length so a single giant field can't
+        // blow up the per-token whitespace split either.
         normalizedCustomTags(
-            text.components(separatedBy: CharacterSet(charactersIn: ",\n"))
+            EditingTagTokenSequence(text: text, maxTokenScanLength: maxEditingTagTokenScanLength)
         )
+    }
+
+    /// Lazily splits editing text into raw tag tokens on `,`/`\n`, matching the
+    /// unicode-scalar semantics of `components(separatedBy: CharacterSet(...))`
+    /// while (a) yielding tokens on demand so a consumer can stop early and
+    /// (b) capping each token at `maxTokenScanLength` scalars. A token longer
+    /// than the cap is still scanned to its delimiter (single pass, O(1) extra
+    /// memory) but only its bounded prefix is materialized, so an unbounded
+    /// field can't allocate proportional to its full length. Empty tokens
+    /// between consecutive delimiters are preserved (the normalizer drops them).
+    private struct EditingTagTokenSequence: Sequence {
+        let text: String
+        let maxTokenScanLength: Int
+
+        func makeIterator() -> AnyIterator<String> {
+            let scalars = text.unicodeScalars
+            var index = scalars.startIndex
+            let end = scalars.endIndex
+            return AnyIterator {
+                // Once every scalar is consumed the iterator is exhausted. A
+                // token returned at a delimiter that is the final scalar leaves
+                // `index == end`, so the trailing empty segment is intentionally
+                // not emitted (the normalizer would drop it anyway).
+                guard index < end else { return nil }
+                var token = String.UnicodeScalarView()
+                var appended = 0
+                while index < end {
+                    let scalar = scalars[index]
+                    index = scalars.index(after: index)
+                    if scalar == "," || scalar == "\n" {
+                        return String(token)
+                    }
+                    if appended < maxTokenScanLength {
+                        token.append(scalar)
+                        appended += 1
+                    }
+                }
+                return String(token)
+            }
+        }
     }
 
     /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.

@@ -37,6 +37,33 @@ import Testing
         #expect(normalized.first?.count == Workspace.maxCustomTagLength)
     }
 
+    @Test func customTagsFromEditingTextCapsCountForManyCommaSeparatedTags() {
+        // The editing-text path tokenizes lazily, but a huge comma-separated
+        // paste must still be capped to the count limit (keeping the first N
+        // distinct tags in order) rather than materializing every token.
+        let text = (0..<(Workspace.maxCustomTagCount + 100))
+            .map { "tag\($0)" }
+            .joined(separator: ",")
+        let tags = Workspace.customTags(fromEditingText: text)
+
+        #expect(tags.count == Workspace.maxCustomTagCount)
+        #expect(tags.first == "tag0")
+        #expect(tags.last == "tag\(Workspace.maxCustomTagCount - 1)")
+    }
+
+    @Test func customTagsFromEditingTextBoundsGiantTokenAndResumesAfterDelimiter() {
+        // A single multi-megabyte field with no delimiter must be truncated to
+        // the length cap (never processed whole), and the tokenizer must still
+        // scan past the bounded prefix to the delimiter so the following tag is
+        // parsed. This exercises the incremental, length-bounded tokenizer.
+        let huge = String(repeating: "a", count: 2_000_000)
+        let tags = Workspace.customTags(fromEditingText: huge + ",Ready")
+
+        #expect(tags.count == 2)
+        #expect(tags.first?.count == Workspace.maxCustomTagLength)
+        #expect(tags.last == "Ready")
+    }
+
     @Test func customTagsMatchFilterCaseAndDiacriticInsensitively() {
         // The sidebar tag filter and the Shift-click range clamp both match
         // through this shared helper, so "In CI" must match a workspace tagged
