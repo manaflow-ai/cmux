@@ -6,7 +6,7 @@ extension WorkspaceDetailView {
         case createWorkspace
         case createTerminal
         case openBrowser
-        case openTextSheet
+        case openTextSheet(String?)
         case copyDebugLogs
         case openFeedbackComposer
     }
@@ -46,10 +46,10 @@ extension WorkspaceDetailView {
         case .openBrowser:
             openBrowserFromToolbar()
         #if canImport(UIKit)
-        case .openTextSheet:
-            openTextSheetFromMenu()
+        case .openTextSheet(let surfaceID):
+            openTextSheetFromMenu(surfaceID: surfaceID)
         #else
-        case .openTextSheet:
+        case .openTextSheet(_):
             break
         #endif
         #if canImport(UIKit) && DEBUG

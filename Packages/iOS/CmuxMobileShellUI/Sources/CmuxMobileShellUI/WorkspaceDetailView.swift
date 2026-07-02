@@ -429,7 +429,9 @@ struct WorkspaceDetailView: View {
             createTerminal: { queueTerminalPickerAction(.createTerminal) },
             openBrowser: { queueTerminalPickerAction(.openBrowser) },
             closeTerminal: closeTerminalFromPicker,
-            openTextSheet: activeBrowser == nil ? { queueTerminalPickerAction(.openTextSheet) } : nil,
+            openTextSheet: activeBrowser == nil ? {
+                queueTerminalPickerAction(.openTextSheet(selectedTerminal?.id.rawValue))
+            } : nil,
             copyDebugLogs: terminalPickerDebugCopyLogsAction,
             openFeedbackComposer: { queueTerminalPickerAction(.openFeedbackComposer) }
         )
@@ -451,8 +453,8 @@ struct WorkspaceDetailView: View {
 
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
-    func openTextSheetFromMenu() {
-        textSheetSurfaceID = selectedTerminal?.id.rawValue
+    func openTextSheetFromMenu(surfaceID: String?) {
+        textSheetSurfaceID = surfaceID
         isTextSheetPresented = true
     }
 
