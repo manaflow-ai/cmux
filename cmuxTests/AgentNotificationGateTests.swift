@@ -95,4 +95,13 @@ import Testing
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=") == nil)
         #expect(AgentNotificationMeta(meta: "c=value") == nil)
     }
+
+    @Test func metaRequiresExactCanonicalForm() {
+        // Only the CLI's exact two-field serialization parses; reordered,
+        // duplicated, or trailing fields stay part of the legacy body.
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;note") == nil)
+        #expect(AgentNotificationMeta(meta: "p=1;c=turn-complete") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;c=turn-complete;p=1") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;") == nil)
+    }
 }
