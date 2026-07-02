@@ -3944,11 +3944,11 @@ final class TabManagerBackgroundWorkspaceMountBoundTests: XCTestCase {
             manager.retainBackgroundWorkspaceMount(for: id)
         }
 
-        // 4 is a deliberately loose ceiling: it distinguishes a bounded mount set
-        // (a small constant) from the unbounded regression (== workspace count).
+        // Anchor to the production cap so any change to the limit is re-justified
+        // against this guard, not silently re-admitting O(all panes) growth (#7136).
         XCTAssertLessThanOrEqual(
             manager.mountedBackgroundWorkspaceLoadIds.count,
-            4,
+            TabManager.maxConcurrentBackgroundWorkspaceMounts,
             "Background-prime mounts must stay bounded regardless of how many " +
             "workspaces are eagerly loaded, so the single main-window view graph " +
             "never updates O(all panes) per frame (#7136)."
@@ -3967,7 +3967,7 @@ final class TabManagerBackgroundWorkspaceMountBoundTests: XCTestCase {
         }
 
         let mountedAfterBurst = manager.mountedBackgroundWorkspaceLoadIds
-        XCTAssertLessThanOrEqual(mountedAfterBurst.count, 4)
+        XCTAssertLessThanOrEqual(mountedAfterBurst.count, TabManager.maxConcurrentBackgroundWorkspaceMounts)
         XCTAssertFalse(mountedAfterBurst.isEmpty)
 
         guard let releasedId = mountedAfterBurst.first,
@@ -3985,7 +3985,7 @@ final class TabManagerBackgroundWorkspaceMountBoundTests: XCTestCase {
         )
         XCTAssertLessThanOrEqual(
             manager.mountedBackgroundWorkspaceLoadIds.count,
-            4,
+            TabManager.maxConcurrentBackgroundWorkspaceMounts,
             "The background-mount set must remain bounded after slot reuse (#7136)."
         )
     }
