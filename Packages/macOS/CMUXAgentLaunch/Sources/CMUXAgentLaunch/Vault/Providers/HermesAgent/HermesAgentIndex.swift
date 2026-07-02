@@ -12,6 +12,8 @@ public struct HermesAgentIndexedSession: Equatable, Sendable {
     public let model: String?
     public let modified: Date
     public let preview: String?
+    /// The session's recorded working directory (`sessions.cwd`), or nil when the row has none.
+    public let cwd: String?
 
     public init(
         sessionId: String,
@@ -19,7 +21,8 @@ public struct HermesAgentIndexedSession: Equatable, Sendable {
         title: String,
         model: String?,
         modified: Date,
-        preview: String?
+        preview: String?,
+        cwd: String? = nil
     ) {
         self.sessionId = sessionId
         self.source = source
@@ -27,6 +30,7 @@ public struct HermesAgentIndexedSession: Equatable, Sendable {
         self.model = model
         self.modified = modified
         self.preview = preview
+        self.cwd = cwd
     }
 }
 
@@ -297,7 +301,8 @@ public enum HermesAgentIndex {
                   AND COALESCE(m2.content, '') <> ''
                 ORDER BY m2.timestamp DESC, m2.id DESC
                 LIMIT 1
-              ) AS preview
+              ) AS preview,
+              s.cwd
             FROM sessions s
             LEFT JOIN messages m ON m.session_id = s.id
             WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
@@ -370,6 +375,7 @@ public enum HermesAgentIndex {
             let model = sqliteText(stmt, 3)
             let modified = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
             let preview = decodedContentText(sqliteText(stmt, 5))
+            let cwd = normalized(sqliteText(stmt, 6))
             let title = normalized(rawTitle) ?? firstLine(preview) ?? sessionId
             sessions.append(HermesAgentIndexedSession(
                 sessionId: sessionId,
@@ -377,7 +383,8 @@ public enum HermesAgentIndex {
                 title: title,
                 model: model,
                 modified: modified,
-                preview: preview
+                preview: preview,
+                cwd: cwd
             ))
             stepResult = sqlite3_step(stmt)
         }

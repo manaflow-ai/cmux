@@ -131,6 +131,8 @@ struct HermesAgentIndexTests {
         #expect(scoped.errors.isEmpty)
         // Only repo-a sessions, newest first; the globally-newest repo-b session must NOT leak in.
         #expect(scoped.sessions.map(\.sessionId) == ["a-new", "a-old"])
+        // The matched cwd is carried through so app-level SessionEntry classifies by folder.
+        #expect(scoped.sessions.allSatisfy { $0.cwd == repoA })
     }
 
     @Test("latestSessionID binds each cwd to its own single active session")
