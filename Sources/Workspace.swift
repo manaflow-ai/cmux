@@ -11844,6 +11844,12 @@ extension Workspace: BonsplitDelegate {
             if terminalPanel.isAgentHibernated, shouldResumeHibernatedAgent {
                 _ = resumeAgentHibernation(panelId: panelId, focus: false)
             } else if shouldResumeHibernatedAgent {
+                // Shared selection path for genuine user visits and the programmatic
+                // focus that session restore / Dock reattach also perform. Restore
+                // does not eager-launch a restored (non-hibernated) agent's resume
+                // here; the deferred resume waits for a real visit. This contract is
+                // covered by AgentSessionAutoResumeSwiftTests.assertNoAgentResumeLaunchOnRestore
+                // (paired with assertLazyAgentResumeArmedAfterFocus).
                 _ = requestRestoredAgentAutoResume(panelId: panelId)
             }
             AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
