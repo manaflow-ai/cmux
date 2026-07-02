@@ -1,10 +1,10 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34430	CLI/cmux.swift
-17978	Sources/AppDelegate.swift
+34660	CLI/cmux.swift
+17960	Sources/AppDelegate.swift
 16484	Sources/ContentView.swift
-14276	Sources/TerminalController.swift
+14258	Sources/TerminalController.swift
 13071	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12212	Sources/GhosttyTerminalView.swift
@@ -46,7 +46,7 @@
 2126	cmuxTests/CmuxConfigTests.swift
 2085	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2078	Sources/SessionPersistence.swift
-1976	Sources/KeyboardShortcutSettingsFileStore.swift
+1983	Sources/KeyboardShortcutSettingsFileStore.swift
 1944	Sources/RestorableAgentSession.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
@@ -92,7 +92,7 @@
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1002	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/PairedMacBackupTests.swift
 982	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
-953	cmuxTests/DockSocketLifecycleTests.swift
+974	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
 948	Sources/App/ShortcutRoutingSupport.swift
 947	Sources/TerminalNotificationPolicy.swift
@@ -100,13 +100,13 @@
 944	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 942	Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/WorkspaceMacSelectionTests.swift
 937	Sources/TextBoxMentionIndexStore.swift
+933	cmuxTests/DockSocketLifecycleTests.swift
 929	Sources/Panels/TerminalPanel.swift
-928	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 918	Sources/Panels/BrowserPopupWindowController.swift
 905	Sources/CmuxSSHURLRequest.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 885	cmuxTests/SidebarWorkspaceDropPlannerTests.swift
-881	Sources/DockSplitStore.swift
+879	Sources/DockSplitStore.swift
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 864	Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
@@ -216,7 +216,6 @@
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
-537	Sources/TerminalController+ControlSurfaceContext2.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 535	Sources/App/WorkspaceRuntimeSettings.swift
 532	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
@@ -231,6 +230,7 @@
 524	CLI/CMUXCLI+AutoNaming.swift
 524	Sources/TerminalPaneDropTargetView.swift
 522	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
+522	Sources/TerminalController+ControlSurfaceContext2.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
 519	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-two-column-cockpit-sidebar.swift
