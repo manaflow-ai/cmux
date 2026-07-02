@@ -29,17 +29,17 @@ extension MobileTerminalRenderGridReplay {
         // reset and default baseline. RIS cleared the saved bank outright;
         // without this, a mode XTSAVE'd by a previous program on the reused
         // surface would survive the replay and a later XTRESTORE (CSI ? Pm r)
-        // could resurrect it. The cursor modes ?12/?25 are forced to their
+        // could resurrect it. The cursor modes ?12/?25/?1048 are forced to their
         // Ghostty defaults first so their saved slots are deterministic; the
         // paint sequence and the final cursor restore adjust the live values
         // afterwards without touching the bank. Ghostty caps CSI parameters
         // at 24 per sequence, so the bank is overwritten in two batches.
         // 2026 is deliberately absent: it is held on for the synchronized
         // replay and must not be saved in that state.
-        bytes.append(Data("\u{1B}[?12l\u{1B}[?25h".utf8))
+        bytes.append(Data("\u{1B}[?12l\u{1B}[?25h\u{1B}[?1048l".utf8))
         bytes.append(Data("\u{1B}[?1;3;4;5;6;7;8;9;12;25;40;45;47;66;67;69;1000;1002;1003s".utf8))
         bytes.append(Data(
-            "\u{1B}[?1004;1005;1006;1007;1015;1016;1035;1036;1039;1045;1047;1049;2004;2027;2031;2048s".utf8
+            "\u{1B}[?1004;1005;1006;1007;1015;1016;1035;1036;1039;1045;1047;1048;1049;2004;2027;2031;2048s".utf8
         ))
     }
 
