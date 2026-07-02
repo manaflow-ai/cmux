@@ -793,6 +793,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
     private let agentChatTranscriptService = AgentChatTranscriptService()
+    /// Bridges the session registry to the sidebar `claude_code` row. Retained so its
+    /// `addRecordChangeObserver` registration stays alive for the app lifetime.
+    private var claudeSidebarStatusBridge: ClaudeSidebarStatusBridge?
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
     /// main window's `NSHostingView` itself, so it injects this into the
@@ -2040,6 +2043,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
+    /// Wires the registry -> sidebar bridge: it registers a record-change observer on the
+    /// registry (`addRecordChangeObserver`) and writes the `claude_code` row through
+    /// `TerminalController`'s control-sidebar seam — the SAME dict the CLI writes — so the two
+    /// arbitrate by last-writer-wins. The registry's own per-PID exit watcher drives `.ended`
+    /// (which clears the row), so no separate reaper is needed. Uses the single registry
+    /// (`agentChatTranscriptService.registry`); called once from `configure` before the service
+    /// starts, so the observer catches every edit.
+    private func wireClaudeSidebarStatusBridge() {
+        let registry = agentChatTranscriptService.registry
+        claudeSidebarStatusBridge = ClaudeSidebarStatusBridge(
+            registry: registry,
+            upsert: { target, entry in
+                TerminalController.shared.controlSidebarScheduleStatusUpsert(
+                    target: target,
+                    key: entry.key, value: entry.value, icon: entry.icon, color: entry.color,
+                    url: entry.url, priority: entry.priority,
+                    format: ControlSidebarMetadataFormat(rawValue: entry.format.rawValue) ?? .plain,
+                    panelID: nil, pid: nil)
+            },
+            clear: { target, key in
+                TerminalController.shared.controlSidebarScheduleStatusClear(target: target, key: key)
+            })
+    }
+
     func configure(
         tabManager: TabManager,
         notificationStore: TerminalNotificationStore,
@@ -2064,6 +2091,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
+        wireClaudeSidebarStatusBridge()
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()

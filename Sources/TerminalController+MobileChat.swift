@@ -81,8 +81,8 @@ extension TerminalController {
         // Observe-floor detection: kick a throttled, off-main process-table scan
         // so a live codex/claude launched through any indirection (a subrouter, a
         // wrapper) that fired no hook is still discovered. Fire-and-forget: a new
-        // detection creates a record that pushes itself to subscribers via
-        // onRecordChanged, so it lands without blocking this list pull.
+        // detection creates a record that pushes itself to record-change
+        // observers, so it lands without blocking this list pull.
         Task { await service.observeAgentProcesses() }
         guard let workspaceID else {
             // No filter: return all current-agent sessions across workspaces,

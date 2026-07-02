@@ -19,14 +19,30 @@ nonisolated struct ObservedAgentSession: Sendable {
 /// hook events and the on-disk hook session stores.
 @MainActor
 final class AgentChatSessionRegistry {
-    private var records: [String: AgentChatSessionRecord] = [:]
+    /// `internal` (not `private`) so the test target can seed records via `@testable`
+    /// (see AgentChatSessionRegistryTestSupport). Production code uses the mutation methods.
+    var records: [String: AgentChatSessionRecord] = [:]
     private var liveSessionIDBySurfaceID: [String: String] = [:]
     private let hookStore: AgentChatHookSessionStore
 
-    /// Called after a record mutation with the previous value (nil for a
-    /// brand-new record), so the owner derives state/descriptor deltas in
-    /// one place instead of hand-maintained flags.
-    var onRecordChanged: ((AgentChatSessionRecord, _ previous: AgentChatSessionRecord?) -> Void)?
+    /// Observers notified — synchronously, on the main actor — after every record
+    /// mutation, with the previous value (nil for a brand-new record). Replaces the
+    /// former single-owner `onRecordChanged` closure so multiple consumers (the
+    /// transcript service and the sidebar bridge) can subscribe without contending
+    /// for one slot.
+    private var recordChangeObservers: [(AgentChatSessionRecord, _ previous: AgentChatSessionRecord?) -> Void] = []
+
+    /// Register a consumer for record-change notifications. Observers are retained for
+    /// the registry's lifetime (no removal API — consumers are app-lifetime singletons).
+    func addRecordChangeObserver(_ observer: @escaping (AgentChatSessionRecord, AgentChatSessionRecord?) -> Void) {
+        recordChangeObservers.append(observer)
+    }
+
+    /// Fan a record change out to all observers. `internal` (not `private`) so the test
+    /// target can drive it via `@testable` — see AgentChatSessionRegistryTestSupport.
+    func notifyRecordChange(_ record: AgentChatSessionRecord, _ previous: AgentChatSessionRecord?) {
+        for observer in recordChangeObservers { observer(record, previous) }
+    }
 
     /// Per-session timestamp of the last hook-store file consult, bounding
     /// main-actor disk reads during tool storms.
@@ -193,7 +209,7 @@ final class AgentChatSessionRegistry {
                 records[session.sessionID] = record
                 syncProcessExitWatch(for: record)
                 updateLiveSessionIndex(previous: nil, current: record)
-                onRecordChanged?(record, nil)
+                notifyRecordChange(record, nil)
             } else {
                 update(sessionID: session.sessionID) { rec in
                     if rec.surfaceID == nil { rec.surfaceID = session.surfaceID }
@@ -430,7 +446,7 @@ final class AgentChatSessionRegistry {
         #endif
         syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: previous, current: record)
-        onRecordChanged?(record, previous)
+        notifyRecordChange(record, previous)
     }
 
     #if DEBUG
@@ -489,6 +505,10 @@ final class AgentChatSessionRegistry {
                 records[entry.sessionID] = record
                 syncProcessExitWatch(for: record)
                 updateLiveSessionIndex(previous: nil, current: record)
+                // Startup-seeded sessions are a registry transition like any
+                // other — emit so observers (transcript service, sidebar bridge)
+                // see them instead of only catching later mutations.
+                notifyRecordChange(record, nil)
             }
         }
     }
@@ -568,7 +588,7 @@ final class AgentChatSessionRegistry {
         records[sessionID] = record
         syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: previous, current: record)
-        onRecordChanged?(record, previous)
+        notifyRecordChange(record, previous)
         if shouldConsultStore {
             backfillBindingsFromStore(sessionID: sessionID, agentSource: event.source)
         }
@@ -637,7 +657,7 @@ final class AgentChatSessionRegistry {
         records[sessionID] = record
         syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: nil, current: record)
-        onRecordChanged?(record, nil)
+        notifyRecordChange(record, nil)
     }
 
     /// Reads one session's hook-store entry OFF the main actor and applies any
@@ -758,4 +778,5 @@ final class AgentChatSessionRegistry {
             return .ended
         }
     }
+
 }
