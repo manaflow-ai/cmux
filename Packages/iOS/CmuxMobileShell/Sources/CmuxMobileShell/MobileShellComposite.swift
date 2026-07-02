@@ -7047,8 +7047,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let effectiveGrid = MobileTerminalViewportSize(columns: grid.columns, rows: grid.rows)
             let previousGrid = effectiveViewportSizesBySurfaceID[surfaceID]
             effectiveViewportSizesBySurfaceID[surfaceID] = effectiveGrid
-            if let previousGrid,
-               previousGrid != effectiveGrid,
+            let shouldRequestReplay = previousGrid.map { $0 != effectiveGrid } ?? true
+            if shouldRequestReplay,
                hasTerminalOutputSink(surfaceID: surfaceID) {
                 let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
                 MobileDebugLog.anchormux(

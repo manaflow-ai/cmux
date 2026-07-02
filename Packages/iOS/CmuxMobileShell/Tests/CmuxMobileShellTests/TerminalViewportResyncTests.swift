@@ -21,6 +21,7 @@ import Testing
 
     await router.enqueueReplayTexts([
         "cold-replay",
+        "initial-viewport-replay",
         "viewport-resync-replay",
         "viewport-resync-follow-up",
     ])
@@ -30,18 +31,25 @@ import Testing
     #expect(String(data: coldReplayChunk.data, encoding: .utf8) == "cold-replay")
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
 
-    // The first viewport report after mount establishes the baseline geometry.
-    // The cold-attach replay already covers it, so it must not replay again.
+    // The first viewport report after mount establishes the effective geometry.
+    // A cold replay may have been captured at the Mac's old grid before the
+    // viewport acknowledgement applies, so the first acknowledged grid requests
+    // one authoritative replay.
+    let replayCountAfterColdAttach = await router.count(of: "mobile.terminal.replay")
     let baselineGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
     #expect(baselineGrid?.columns == 80)
     #expect(baselineGrid?.rows == 48)
-    let baselineReplayed = await router.waitForCount(
+    let initialViewportReplayRequested = await router.waitForCount(
         of: "mobile.terminal.replay",
-        atLeast: 2,
-        timeoutNanoseconds: 200_000_000,
-        recordIssueOnTimeout: false
+        atLeast: replayCountAfterColdAttach + 1
     )
-    #expect(!baselineReplayed, "the baseline viewport report must not trigger a replay")
+    #expect(
+        initialViewportReplayRequested,
+        "the first acknowledged viewport for an attached sink must request replay"
+    )
+    let initialViewportChunk = try #require(await iterator.next())
+    #expect(String(data: initialViewportChunk.data, encoding: .utf8) == "initial-viewport-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
     let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
 
     store.deliverTerminalBytes(Data("live-before-resize".utf8), surfaceID: surfaceID)
@@ -108,13 +116,16 @@ import Testing
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     let surfaceID = "live-terminal"
 
-    await router.enqueueReplayTexts(["cold-replay"])
+    await router.enqueueReplayTexts(["cold-replay", "initial-viewport-replay"])
     var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     let coldReplayChunk = try #require(await iterator.next())
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
 
     _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    #expect(String(data: initialViewportChunk.data, encoding: .utf8) == "initial-viewport-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
     let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
 
     // A same-size re-report (a geometry reassert, or a retried report after a
@@ -142,7 +153,7 @@ import Testing
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     let surfaceID = "live-terminal"
 
-    await router.enqueueReplayTexts(["cold-replay"])
+    await router.enqueueReplayTexts(["cold-replay", "latest-viewport-replay"])
     var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     let coldReplayChunk = try #require(await iterator.next())
@@ -158,6 +169,15 @@ import Testing
     let latestGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
     #expect(latestGrid?.columns == 80)
     #expect(latestGrid?.rows == 30)
+    let latestReplayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterColdAttach + 1
+    )
+    #expect(latestReplayRequested, "the latest first acknowledgement must request replay")
+    let latestReplayChunk = try #require(await iterator.next())
+    #expect(String(data: latestReplayChunk.data, encoding: .utf8) == "latest-viewport-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: latestReplayChunk.streamToken)
+    let replayCountAfterLatestAcknowledgement = await router.count(of: "mobile.terminal.replay")
 
     await router.releaseAllHeld()
     let staleGrid = await staleReport.value
@@ -166,7 +186,7 @@ import Testing
 
     let staleReplayRequested = await router.waitForCount(
         of: "mobile.terminal.replay",
-        atLeast: replayCountAfterColdAttach + 1,
+        atLeast: replayCountAfterLatestAcknowledgement + 1,
         timeoutNanoseconds: 200_000_000,
         recordIssueOnTimeout: false
     )
