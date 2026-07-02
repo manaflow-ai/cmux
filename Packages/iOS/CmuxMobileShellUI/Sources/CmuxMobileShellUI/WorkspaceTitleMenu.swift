@@ -9,23 +9,16 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
     @ViewBuilder let menuContent: () -> MenuContent
     @ViewBuilder let label: () -> Label
 
-    @ViewBuilder
     var body: some View {
-        if isEnabled {
-            Menu {
+        Menu {
+            if isEnabled {
                 menuContent()
-            } label: {
-                fittedLabel
             }
-            .accessibilityIdentifier("MobileWorkspaceTitleMenu")
-        } else {
-            Button {} label: {
-                fittedLabel
-            }
-                .allowsHitTesting(false)
-                .accessibilityRemoveTraits(.isButton)
-                .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+        } label: {
+            fittedLabel
         }
+        .allowsHitTesting(isEnabled)
+        .accessibilityIdentifier("MobileWorkspaceTitleMenu")
     }
 
     private var fittedLabel: some View {
