@@ -904,11 +904,15 @@ final class FileExplorerStore: ObservableObject {
     private let notificationCenter: NotificationCenter
     private var sortSettingsObserver: NSObjectProtocol?
 
+    private let gitStatusProvider: GitStatusProvider
+
     init(
         sortDefaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        gitStatusProvider: GitStatusProvider = GitStatusProvider()
     ) {
         self.notificationCenter = notificationCenter
+        self.gitStatusProvider = gitStatusProvider
         let sortSettings = FileExplorerSortSettings(defaults: sortDefaults, notificationCenter: notificationCenter)
         self.sortSettings = sortSettings
         self.sortOptions = sortSettings.resolvedOptions()
@@ -919,12 +923,6 @@ final class FileExplorerStore: ObservableObject {
         ) { [weak self] _ in
             self?.applySortOptionsFromDefaults()
         }
-    }
-
-    private let gitStatusProvider: GitStatusProvider
-
-    init(gitStatusProvider: GitStatusProvider = GitStatusProvider()) {
-        self.gitStatusProvider = gitStatusProvider
     }
 
     var displayRootPath: String {
