@@ -128,7 +128,7 @@ extension TerminalController {
                 guard let dock = AppDelegate.shared?.windowDock(for: tabManager) else { return nil }
                 return matches(dock) ? dock : nil
             }
-            if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: workspaceID) {
+            if let dock = AppDelegate.shared?.windowDockForRegisteredOwner(workspaceID) {
                 return matches(dock) ? dock : nil
             }
         }
@@ -177,7 +177,7 @@ extension TerminalController {
         if windowDockMismatchesExplicitDockSurfaceOrPane(routing, dock: dock) { return true }
         guard let workspaceID = routing.workspaceID,
               workspaceID != AppDelegate.windowDockAliasWorkspaceId,
-              AppDelegate.shared?.existingWindowDock(forWindowId: workspaceID) != nil else { return false }
+              AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceID) != nil else { return false }
         return workspaceID != dock.workspaceId
     }
 

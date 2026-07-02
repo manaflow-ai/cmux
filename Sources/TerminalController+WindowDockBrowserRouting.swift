@@ -32,7 +32,7 @@ extension TerminalController {
         if let err = v2RejectUnresolvedHandles(params, ["workspace_id", "window_id", "surface_id", "tab_id", "pane_id"]) {
             return (true, nil, err)
         }
-        let dockByOwner = requestedWorkspaceID.flatMap { AppDelegate.shared?.existingWindowDock(forWindowId: $0) }
+        let dockByOwner = requestedWorkspaceID.flatMap { AppDelegate.shared?.windowDockForRegisteredOwner($0) }
         // Explicit selectors that name two different windows' Docks fail closed
         // rather than silently acting on one of them. (The legacy alias pins no
         // specific Dock, so it never conflicts.)
@@ -112,7 +112,7 @@ extension TerminalController {
         ) {
             return (true, nil, err)
         }
-        let dockByOwner = requestedWorkspaceID.flatMap { AppDelegate.shared?.existingWindowDock(forWindowId: $0) }
+        let dockByOwner = requestedWorkspaceID.flatMap { AppDelegate.shared?.windowDockForRegisteredOwner($0) }
         // Explicit selectors that name two different windows' Docks fail closed
         // rather than silently acting on one of them. (The legacy alias pins no
         // specific Dock, so it never conflicts.)

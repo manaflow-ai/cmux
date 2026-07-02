@@ -51,10 +51,11 @@ extension AppDelegate {
     static let windowDockAliasWorkspaceId = UUID(uuidString: "D0CCD0CC-0000-4000-8000-000000000001")!
 
     /// Whether `id` routes to a per-window Dock: either the legacy alias or the
-    /// owner id (== window id) of a live window Dock.
+    /// owner id (== window id) of a registered main window, even if that window's
+    /// Dock store has not been lazily created yet.
     static func isWindowDockRoutingId(_ id: UUID) -> Bool {
         if id == windowDockAliasWorkspaceId { return true }
-        return AppDelegate.shared?.existingWindowDock(forWindowId: id) != nil
+        return AppDelegate.shared?.mainWindowContext(forWindowId: id) != nil
     }
 
     private func mainWindowContext(forWindowId windowId: UUID) -> MainWindowContext? {
@@ -68,6 +69,12 @@ extension AppDelegate {
             preconditionFailure("Window Dock requested for an unregistered main window")
         }
         return context.windowDockStore()
+    }
+
+    /// The Dock for a registered window-owner id, created on first access. `nil`
+    /// means `windowId` is not a live window-Dock owner.
+    func windowDockForRegisteredOwner(_ windowId: UUID) -> DockSplitStore? {
+        mainWindowContext(forWindowId: windowId)?.windowDockStore()
     }
 
     /// The Dock of `tabManager`'s window, created on first access for a live
@@ -88,13 +95,12 @@ extension AppDelegate {
         mainWindowContext(forWindowId: windowId)?.existingWindowDock()
     }
 
-    /// The `TabManager` owning the live window Dock whose owner id is `id`
-    /// (== its window id), or `nil` when `id` is not a live Dock owner. Lets
+    /// The `TabManager` owning the registered window Dock owner id `id`
+    /// (== its window id), or `nil` when `id` is not a live window. Lets
     /// tab-manager resolution route a Dock-scoped `workspace_id` to the owning
-    /// window instead of the caller's.
+    /// window before the Dock store itself has been created.
     func tabManagerForWindowDockOwner(_ id: UUID) -> TabManager? {
-        guard existingWindowDock(forWindowId: id) != nil else { return nil }
-        return tabManagerFor(windowId: id)
+        mainWindowContext(forWindowId: id)?.tabManager
     }
 
     /// The Dock of `tabManager`'s window if it already exists, without creating it.

@@ -189,6 +189,35 @@ struct WindowDockRoutingSocketTests {
             #expect(activeWorkspace._dockSplit?.containsPanel(dockSurfaceId) != true)
             #expect(dockWorkspace._dockSplit?.containsPanel(dockSurfaceId) != true)
 
+            // A registered window id is a Dock owner selector even before that
+            // window's Dock has been lazily created. Contradictory create
+            // routing fails closed and does not materialize the other Dock.
+            let activeDockPanelCountBeforeLazyConflict = activeWindowDock.panels.count
+            let lazyOwnerSurfaceCreateConflict = try v2Envelope(method: "surface.create", params: [
+                "placement": "dock",
+                "type": "terminal",
+                "window_id": activeWindowId.uuidString,
+                "workspace_id": dockWindowId.uuidString,
+            ])
+            #expect(lazyOwnerSurfaceCreateConflict["ok"] as? Bool == false)
+            let lazySurfaceCreateError = try #require(lazyOwnerSurfaceCreateConflict["error"] as? [String: Any])
+            #expect(lazySurfaceCreateError["code"] as? String == "invalid_params")
+            #expect(activeWindowDock.panels.count == activeDockPanelCountBeforeLazyConflict)
+            #expect(appDelegate.existingWindowDock(forWindowId: dockWindowId) == nil)
+
+            let lazyOwnerPaneCreateConflict = try v2Envelope(method: "pane.create", params: [
+                "placement": "dock",
+                "type": "terminal",
+                "direction": "right",
+                "window_id": activeWindowId.uuidString,
+                "workspace_id": dockWindowId.uuidString,
+            ])
+            #expect(lazyOwnerPaneCreateConflict["ok"] as? Bool == false)
+            let lazyPaneCreateError = try #require(lazyOwnerPaneCreateConflict["error"] as? [String: Any])
+            #expect(lazyPaneCreateError["code"] as? String == "invalid_params")
+            #expect(activeWindowDock.panels.count == activeDockPanelCountBeforeLazyConflict)
+            #expect(appDelegate.existingWindowDock(forWindowId: dockWindowId) == nil)
+
             // Seed the second window's own Dock so the focused close below has a
             // panel to act on in ITS window.
             let otherWindowDock = appDelegate.windowDock(forWindowId: dockWindowId)
