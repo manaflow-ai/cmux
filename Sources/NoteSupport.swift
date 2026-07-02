@@ -257,18 +257,24 @@ enum NoteSupport {
     /// List notes in the project's `.cmux/notes/` directory, sorted by
     /// mtime descending. Returns an empty array if the directory does not
     /// exist.
-    static func listNotes(forProjectRoot root: String) -> [NoteListEntry] {
+    ///
+    /// Bounded: the streaming enumerator materializes (stats + sorts) at most
+    /// `limit` entries, so this scan — reached from every note-store read via
+    /// the unindexed-note merge — stays cheap even if a project-controlled
+    /// `.cmux/notes` directory is huge. Beyond the cap, selection follows
+    /// filesystem order; the cap is far above any practical flat-note count.
+    static func listNotes(forProjectRoot root: String, limit: Int = 2000) -> [NoteListEntry] {
         let dir = notesDirectory(forProjectRoot: root)
-        let fs = FileManager.default
-        guard let entries = try? fs.contentsOfDirectory(
-            at: URL(fileURLWithPath: dir),
+        guard let enumerator = FileManager.default.enumerator(
+            at: URL(fileURLWithPath: dir, isDirectory: true),
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
         ) else {
             return []
         }
         var notes: [NoteListEntry] = []
-        for url in entries {
+        for case let url as URL in enumerator {
+            if notes.count >= limit { break }
             let path = url.path
             guard path.hasSuffix(".md") else { continue }
             let values = try? url.resourceValues(forKeys: [
