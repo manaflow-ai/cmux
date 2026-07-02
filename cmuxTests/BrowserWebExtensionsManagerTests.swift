@@ -1,0 +1,96 @@
+import Foundation
+import Testing
+import WebKit
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#else
+@testable import cmux
+#endif
+
+@MainActor
+struct BrowserWebExtensionsManagerTests {
+    private static func makeExtensionsRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-extensions-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private static func writeExtension(
+        named name: String,
+        in root: URL,
+        manifest: [String: Any]
+    ) throws -> URL {
+        let dir = root.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let data = try JSONSerialization.data(withJSONObject: manifest)
+        try data.write(to: dir.appendingPathComponent("manifest.json"))
+        return dir
+    }
+
+    private static let minimalManifest: [String: Any] = [
+        "manifest_version": 3,
+        "name": "cmux test extension",
+        "version": "1.0",
+        "description": "Test fixture",
+        "permissions": ["storage"],
+        "host_permissions": ["*://example.com/*"],
+        "content_scripts": [
+            [
+                "matches": ["*://example.com/*"],
+                "js": ["content.js"],
+            ]
+        ],
+    ]
+
+    @Test func candidateDiscoveryFindsDirectoriesAndZipsOnly() throws {
+        guard #available(macOS 15.4, *) else { return }
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try Self.writeExtension(named: "sample", in: root, manifest: Self.minimalManifest)
+        FileManager.default.createFile(atPath: root.appendingPathComponent("archive.zip").path, contents: Data())
+        FileManager.default.createFile(atPath: root.appendingPathComponent("notes.txt").path, contents: Data())
+        FileManager.default.createFile(atPath: root.appendingPathComponent(".DS_Store").path, contents: Data())
+
+        let names = BrowserWebExtensionsManager.candidateURLs(in: root).map(\.lastPathComponent)
+        #expect(names == ["archive.zip", "sample"])
+    }
+
+    @Test func loadsUnpackedExtensionAndGrantsRequestedPermissions() async throws {
+        guard #available(macOS 15.4, *) else { return }
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = try Self.writeExtension(named: "sample", in: root, manifest: Self.minimalManifest)
+        try "// no-op".write(to: dir.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
+
+        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        await manager.loadExtensions()
+
+        #expect(manager.loadErrors.isEmpty)
+        #expect(manager.loadedContexts.count == 1)
+        let context = try #require(manager.loadedContexts.first)
+        #expect(context.uniqueIdentifier == "cmux-browser-extension-sample")
+        #expect(context.currentPermissions.contains(.storage))
+        #expect(!context.grantedPermissionMatchPatterns.isEmpty)
+        #expect(manager.controller.extensionContexts.contains(context))
+    }
+
+    @Test func recordsErrorForInvalidManifestAndKeepsLoadingOthers() async throws {
+        guard #available(macOS 15.4, *) else { return }
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let broken = root.appendingPathComponent("broken", isDirectory: true)
+        try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: broken.appendingPathComponent("manifest.json"))
+        let dir = try Self.writeExtension(named: "sample", in: root, manifest: Self.minimalManifest)
+        try "// no-op".write(to: dir.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
+
+        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        await manager.loadExtensions()
+
+        #expect(manager.loadErrors.count == 1)
+        #expect(manager.loadErrors.first?.url.lastPathComponent == "broken")
+        #expect(manager.loadedContexts.count == 1)
+    }
+}

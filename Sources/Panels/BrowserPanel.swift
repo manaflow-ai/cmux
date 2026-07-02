@@ -3651,6 +3651,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
         configuration.websiteDataStore = websiteDataStore
+        // Safari Web Extensions installed under ~/.config/cmux/browser-extensions
+        // (macOS 15.4+; no-op when the directory is empty).
+        BrowserWebExtensionsSupport.attachIfNeeded(to: configuration)
         if configuration.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme) == nil {
             configuration.setURLSchemeHandler(
                 CmuxDiffViewerURLSchemeHandler.shared,
