@@ -1,3 +1,4 @@
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -847,6 +848,35 @@ import Testing
     store.deliverTerminalBytes(Data("live-after-rearm".utf8), surfaceID: surfaceID)
     let liveChunk = try #require(await iterator.next())
     #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-rearm")
+}
+
+@MainActor
+@Test func terminalViewportReportCachesGeometryWhileDisconnected() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let workspaceID = try #require(store.workspaces.first?.id)
+
+    // A geometry report while the Mac connection is down must still update
+    // the local dimension cache that replays and piggybacks size against;
+    // only the RPC is skipped.
+    store.remoteClient = nil
+    let offlineGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 90, rows: 33)
+    #expect(offlineGrid == nil)
+    let key = MobileTerminalViewportKey(
+        workspaceID: workspaceID,
+        terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+    )
+    #expect(store.reportedViewportSizesByTerminalKey[key]?.columns == 90)
+    #expect(store.reportedViewportSizesByTerminalKey[key]?.rows == 33)
 }
 
 @MainActor

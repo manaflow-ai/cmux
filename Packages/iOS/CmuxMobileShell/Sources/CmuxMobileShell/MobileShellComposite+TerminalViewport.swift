@@ -21,18 +21,21 @@ extension MobileShellComposite {
         rows: Int
     ) async -> (columns: Int, rows: Int)? {
         guard columns > 0, rows > 0,
-              let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return nil
         }
         let reportedGrid = MobileTerminalViewportSize(columns: columns, rows: rows)
-        // Track the natural size locally right away so the SwiftUI letterbox
-        // follows the reported grid instead of a stale viewport echo.
+        // Track the natural size locally right away — even while the Mac
+        // connection is still coming up — so cold-attach replays and
+        // input/replay piggybacks size against the latest phone grid and the
+        // SwiftUI letterbox follows the reported grid instead of a stale
+        // viewport echo. Only the RPC below is gated on the client.
         reportTerminalViewport(
             workspaceID: workspaceID,
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceID),
             viewportSize: reportedGrid
         )
+        guard let client = remoteClient else { return nil }
         let previousReportedGrid = reportedTerminalViewportSizesBySurfaceID[surfaceID]
         let prearmedReplayBarrierToken = prearmTerminalViewportReplayBarrierIfNeeded(
             surfaceID: surfaceID,
