@@ -157,11 +157,8 @@ jobs:
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    # Blacksmith, not the bare `macos-26` label (which our self-hosted fleet
-    # carries). iOS simulator XCTest runs inside the Simulator, not as a
-    # foregrounded Mac app, so the Blacksmith macOS foreground limitation that
-    # blocks macOS app-host XCTest does not apply here; this lane is verified
-    # green on blacksmith-6vcpu-macos-26.
+    # Keep iOS CI runner selection behind the repo variable so overflow can
+    # switch between paid macOS runner providers without a workflow edit.
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 35
     strategy:

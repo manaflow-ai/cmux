@@ -33,6 +33,10 @@ struct KeyboardDismissTap: UIViewRepresentable {
         uiView.excludedRegion = excludedRegion
     }
 
+    static func dismantleUIView(_ uiView: TapInstallerView, coordinator: ()) {
+        uiView.uninstallRecognizer()
+    }
+
     /// A non-interactive marker view that adds the recognizer to its window
     /// in `didMoveToWindow` — the only reliable "I'm in a window now" hook
     /// (relying on `updateUIView` timing missed the attach when no input
@@ -69,16 +73,16 @@ struct KeyboardDismissTap: UIViewRepresentable {
             // and dismisses the keyboard on every tap across other screens
             // that share the window.
             if window !== installedWindow {
-                installedWindow?.removeGestureRecognizer(recognizer)
-                installedWindow = nil
+                uninstallRecognizer()
             }
-            guard let window else { return }
+            guard installedWindow == nil, let window else { return }
             window.addGestureRecognizer(recognizer)
             installedWindow = window
         }
 
-        deinit {
+        func uninstallRecognizer() {
             installedWindow?.removeGestureRecognizer(recognizer)
+            installedWindow = nil
         }
 
         @objc private func handleTap() {

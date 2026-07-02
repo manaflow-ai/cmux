@@ -5,13 +5,14 @@ import Foundation
 ///
 /// Preference order: the hook store's recorded `transcriptPath`, then the
 /// agent-specific conventional location (claude: encoded-cwd project dir;
-/// codex: rollout filename containing the session id).
+/// codex: rollout whose confirmed session id matches exactly).
 struct AgentChatTranscriptResolver: Sendable {
     private let homeDirectory: URL
     /// Config-dir root for Claude (`$CLAUDE_CONFIG_DIR` or `~/.claude`).
     private let claudeConfigRoot: URL
     /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
     private let codexConfigRoot: URL
+    private let now: @Sendable () -> Date
 
     /// Creates a resolver.
     ///
@@ -27,11 +28,14 @@ struct AgentChatTranscriptResolver: Sendable {
     ///   - homeDirectory: Injectable home directory for tests.
     ///   - environment: Injectable environment for tests; defaults to the
     ///     process environment. Empty/whitespace override values are ignored.
+    ///   - now: Injectable clock for bounded Codex rollout scans.
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.homeDirectory = homeDirectory
+        self.now = now
         self.claudeConfigRoot = Self.configRoot(
             override: environment["CLAUDE_CONFIG_DIR"],
             default: homeDirectory.appendingPathComponent(".claude", isDirectory: true)
@@ -58,12 +62,8 @@ struct AgentChatTranscriptResolver: Sendable {
     ///   - record: The session's registry record.
     /// - Returns: An existing transcript path, or `nil` when none is found.
     func transcriptPath(for record: AgentChatSessionRecord) -> String? {
-        let fileManager = FileManager.default
-        if let recorded = record.transcriptPath {
-            let expanded = (recorded as NSString).expandingTildeInPath
-            if fileManager.fileExists(atPath: expanded) {
-                return expanded
-            }
+        if let recorded = recordedTranscriptPath(for: record) {
+            return recorded
         }
         switch record.agentKind {
         case .claude:
@@ -73,6 +73,17 @@ struct AgentChatTranscriptResolver: Sendable {
         case .other:
             return nil
         }
+    }
+
+    /// Returns the hook-recorded transcript path when it still exists.
+    ///
+    /// This is intentionally cheap enough for main-actor call sites; it does not
+    /// run any agent-specific fallback scan.
+    func recordedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
+        let fileManager = FileManager.default
+        guard let recorded = record.transcriptPath else { return nil }
+        let expanded = (recorded as NSString).expandingTildeInPath
+        return fileManager.fileExists(atPath: expanded) ? expanded : nil
     }
 
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {
@@ -92,20 +103,15 @@ struct AgentChatTranscriptResolver: Sendable {
     /// the session id.
     private func codexFallbackPath(sessionID: String) -> String? {
         let fileManager = FileManager.default
+        let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionID.isEmpty else { return nil }
         let root = codexConfigRoot
             .appendingPathComponent("sessions", isDirectory: true)
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-        let needle = sessionID.lowercased()
-        for case let url as URL in enumerator {
-            guard url.pathExtension == "jsonl" else { continue }
-            if url.lastPathComponent.lowercased().contains(needle) {
-                return url.path
-            }
-        }
-        return nil
+        return CodexTranscriptLocator().transcriptPath(
+            sessionID: normalizedSessionID,
+            sessionsURL: root,
+            fileManager: fileManager,
+            now: now()
+        )
     }
 }

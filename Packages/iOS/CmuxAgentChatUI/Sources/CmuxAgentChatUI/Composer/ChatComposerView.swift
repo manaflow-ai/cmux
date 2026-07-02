@@ -2,12 +2,10 @@ import CmuxAgentChat
 import CmuxMobileSupport
 import Foundation
 import SwiftUI
-
 #if os(iOS)
 import PhotosUI
 import UIKit
 #endif
-
 public struct ChatComposerView: View {
     private let agentState: ChatAgentState
     private let agentKind: ChatAgentKind
@@ -39,7 +37,6 @@ public struct ChatComposerView: View {
     private static let maxAttachmentDimension: CGFloat = 2048
     private static let jpegQuality: CGFloat = 0.85
     private static let hardStopWindow: TimeInterval = 2
-
     public init(
         agentState: ChatAgentState,
         agentKind: ChatAgentKind,
@@ -97,8 +94,9 @@ public struct ChatComposerView: View {
     }
 
     #if os(iOS)
-    @ViewBuilder
+    @MainActor @ViewBuilder
     private var composerSurface: some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer {
                 composerStack
@@ -106,10 +104,13 @@ public struct ChatComposerView: View {
         } else {
             composerStack
         }
+        #else
+        composerStack
+        #endif
     }
     #endif
 
-    private var composerStack: some View {
+    @MainActor private var composerStack: some View {
         VStack(spacing: 8) {
             if isEnded {
                 endedRow
@@ -166,7 +167,7 @@ public struct ChatComposerView: View {
 
     // MARK: - Field row
 
-    private var fieldRow: some View {
+    @MainActor private var fieldRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             #if os(iOS)
             attachButton
@@ -225,7 +226,7 @@ public struct ChatComposerView: View {
         agentState == .ended
     }
 
-    private var endedRow: some View {
+    @MainActor private var endedRow: some View {
         HStack(spacing: 12) {
             Text(
                 String(
@@ -254,7 +255,7 @@ public struct ChatComposerView: View {
 
     // MARK: - Send / stop button
 
-    @ViewBuilder
+    @MainActor @ViewBuilder
     private var sendButton: some View {
         if hasContent {
             Button(action: performSend) {
@@ -375,14 +376,13 @@ public struct ChatComposerView: View {
         isDraftFocused = true
     }
 
-    private var attachButton: some View {
-        PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
-            MobileComposerIconLabel(
-                systemImage: "paperclip",
-                foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
-                size: controlHeight
-            )
-        }
+    @MainActor private var attachButton: some View {
+        let label = MobileComposerIconLabel(
+            systemImage: "paperclip",
+            foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
+            size: controlHeight
+        )
+        return PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) { label }
         .buttonStyle(.plain)
         .accessibilityIdentifier("ChatComposerAttach")
         .accessibilityLabel(
@@ -398,7 +398,7 @@ public struct ChatComposerView: View {
         }
     }
 
-    private var micButton: some View {
+    @MainActor private var micButton: some View {
         let listening = dictation.state.isListening
         return MobileComposerIconButton(
             systemImage: "mic",
@@ -423,7 +423,7 @@ public struct ChatComposerView: View {
         }
     }
 
-    private var attachmentStrip: some View {
+    @MainActor private var attachmentStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(Array(attachments.enumerated()), id: \.element.id) { index, attachment in
@@ -449,7 +449,7 @@ public struct ChatComposerView: View {
         }
     }
 
-    private func removeButton(id: String, index: Int) -> some View {
+    @MainActor private func removeButton(id: String, index: Int) -> some View {
         Button {
             removeAttachment(id: id)
         } label: {
