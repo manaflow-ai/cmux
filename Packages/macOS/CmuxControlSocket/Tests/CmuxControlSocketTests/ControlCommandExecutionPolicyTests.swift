@@ -61,4 +61,27 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "system.top") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
     }
+
+    @Test func v1WorkerLaneIsPingOnlyAndMainThreadCallable() {
+        // `ping` is the dispatcher's former hard-coded worker fast path; it is
+        // a pure probe, so in-process main-thread callers may run it inline.
+        let policy = ControlCommandExecutionPolicy(forV1Command: "ping")
+        #expect(policy == .socketWorker(mainThreadCallable: true))
+        #expect(policy.runsOnSocketWorker)
+    }
+
+    @Test func v1CommandsDefaultToTheMainActor() {
+        for command in [
+            "send", "send_key", "report_pwd", "report_shell_state", "ports_kick",
+            "set_status", "list_workspaces", "right_sidebar", "focus_surface",
+            "help", "",
+            // The v2 namespace prefix rules (vm./remotes.) and v2 worker
+            // method names must not leak into v1 classification.
+            "vm.create", "remotes.list", "system.ping",
+        ] {
+            let policy = ControlCommandExecutionPolicy(forV1Command: command)
+            #expect(policy == .mainActor, "\(command)")
+            #expect(!policy.runsOnSocketWorker, "\(command)")
+        }
+    }
 }

@@ -1,6 +1,7 @@
-/// Where a v2 control command executes (was `SocketCommandExecutionPolicy` +
+/// Where a control command executes (was `SocketCommandExecutionPolicy` +
 /// the `socketWorkerV2Methods`/`mainThreadCallableSocketWorkerV2Methods`
-/// tables on `TerminalController`).
+/// tables on `TerminalController`). `init(forMethod:)` classifies v2 methods;
+/// `init(forV1Command:)` classifies v1 space-delimited commands.
 ///
 /// An isolation-intent value: the dispatcher consults it to decide whether a
 /// method runs on the main actor or stays on the socket-worker thread. The
@@ -30,6 +31,27 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
             || Self.socketWorkerMethods.contains(method) {
             self = .socketWorker(
                 mainThreadCallable: Self.mainThreadCallableSocketWorkerMethods.contains(method)
+            )
+        } else {
+            self = .mainActor
+        }
+    }
+
+    /// Classifies a v1 (space-delimited) command: the fixed worker-lane set
+    /// runs on the socket-worker thread; everything else runs on the main
+    /// actor.
+    ///
+    /// The v2 namespace prefix rules (`vm.`, `remotes.`) deliberately do not
+    /// apply here — they are v2 method namespaces, and a v1 token that happens
+    /// to contain a dot must not be routed off the main lane by accident.
+    ///
+    /// - Parameter command: The v1 command token, lowercased by the dispatcher
+    ///   (`processCommand` lowercases before dispatching, and this initializer
+    ///   expects the same normalization).
+    public init(forV1Command command: String) {
+        if Self.socketWorkerV1Commands.contains(command) {
+            self = .socketWorker(
+                mainThreadCallable: Self.mainThreadCallableSocketWorkerV1Commands.contains(command)
             )
         } else {
             self = .mainActor
@@ -171,5 +193,20 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     private static let mainThreadCallableSocketWorkerMethods: Set<String> = [
         "system.ping",
         "system.capabilities",
+    ]
+
+    /// v1 commands that run on the socket-worker thread instead of the main
+    /// actor. Only `ping` for now (the dispatcher's former hard-coded fast
+    /// path); the v1 telemetry commands migrate here tranche by tranche as
+    /// their worker-lane bodies land.
+    private static let socketWorkerV1Commands: Set<String> = [
+        "ping",
+    ]
+
+    /// Worker-lane v1 commands that are also safe to invoke from the main
+    /// thread (pure, non-blocking probes). Must be a subset of
+    /// ``socketWorkerV1Commands``.
+    private static let mainThreadCallableSocketWorkerV1Commands: Set<String> = [
+        "ping",
     ]
 }

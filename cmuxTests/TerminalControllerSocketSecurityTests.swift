@@ -712,6 +712,39 @@ final class TerminalControllerSocketSecurityTests {
         }
     }
 
+    @Test func testV1PingRunsOnWorkerLaneAndStaysMainThreadCallable() async throws {
+        let socketPath = makeSocketPath("v1-ping")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        // v1 `ping` sits on the worker lane
+        // (`ControlCommandExecutionPolicy(forV1Command:)`) but is
+        // mainThreadCallable, so in-process main-thread dispatch must answer
+        // inline instead of tripping the v1 invalid-dispatch guard.
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("ping"), "PONG")
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("PING"), "PONG")
+
+        // Worker-lane proof: this synchronous round-trip blocks the main
+        // thread in read() until the reply lands, so the reply can only
+        // arrive if the connection thread serves `ping` without a
+        // DispatchQueue.main.sync hop. A main-lane `ping` would deadlock here
+        // (main waits on the reply, the reply waits on main).
+        let responses = try sendCommands(["ping"], to: socketPath)
+        XCTAssertEqual(responses, ["PONG"])
+
+        // A main-lane v1 command still round-trips through the main hop. It
+        // must be sent off-main (async, like sendV2RequestAsync) so the main
+        // thread stays free to serve the command's DispatchQueue.main.sync.
+        let mainLane = try await sendV1CommandsAsync(["current_workspace"], to: socketPath)
+        XCTAssertEqual(mainLane.count, 1)
+        XCTAssertFalse(mainLane[0].isEmpty)
+    }
+
     private func assertHeartbeatResult(method: String, envelope: [String: Any], file: StaticString = #filePath, line: UInt = #line) throws {
         let result = try XCTUnwrap(envelope["result"] as? [String: Any], method, file: file, line: line)
         switch method {
@@ -1543,6 +1576,36 @@ final class TerminalControllerSocketSecurityTests {
                         to: socketPath
                     )
                     continuation.resume(returning: response)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// v1 twin of `sendV2Request`: one connection, newline-delimited v1
+    /// commands, one reply line each. Nonisolated so `sendV1CommandsAsync`
+    /// can run it on a global queue while the main actor stays free.
+    private nonisolated func sendV1Commands(_ commands: [String], to socketPath: String) throws -> [String] {
+        let fd = try connect(to: socketPath)
+        defer { Darwin.close(fd) }
+        var responses: [String] = []
+        for command in commands {
+            try writeLine(command, to: fd)
+            responses.append(try readLine(from: fd))
+        }
+        return responses
+    }
+
+    /// v1 twin of `sendV2RequestAsync`: main-lane v1 commands need the main
+    /// thread free for their `DispatchQueue.main.sync` hop, so the blocking
+    /// socket round-trip runs on a global queue and the main-actor test
+    /// awaits the result.
+    private func sendV1CommandsAsync(_ commands: [String], to socketPath: String) async throws -> [String] {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: try self.sendV1Commands(commands, to: socketPath))
                 } catch {
                     continuation.resume(throwing: error)
                 }
