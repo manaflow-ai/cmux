@@ -5369,6 +5369,7 @@ final class BrowserPanel: Panel, ObservableObject {
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()
         unfocus()
+        BrowserWindowPortalRegistry.detach(webView: webView)
         navigationDelegate?.cancelPendingAuthenticationPrompts()
         cancelPendingInteractiveBrowserPrompts(reason: "close", cancelAuthenticationPrompts: false)
         closeBackgroundPreloadHost(reason: "close")
