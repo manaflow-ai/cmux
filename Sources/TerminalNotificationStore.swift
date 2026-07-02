@@ -1088,11 +1088,20 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
-        effects: TerminalNotificationPolicyEffects,
+        effects rawEffects: TerminalNotificationPolicyEffects,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
         clickAction: TerminalNotificationClickAction?
     ) {
+        // Single convergence point for every notification: the no-hooks path, the
+        // hook-success envelope path, and the hook-failure path all funnel here.
+        // Clamp the effects for a muted workspace ("Mute Notifications" in the
+        // sidebar context menu) at this one seam so the banner, sound, command,
+        // pane flash, Dock badge, and reorder are all suppressed downstream
+        // regardless of which path produced these effects.
+        let effects = isWorkspaceNotificationsMuted(tabId: request.tabId)
+            ? rawEffects.suppressedForMutedWorkspace()
+            : rawEffects
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
             surfaceId: request.surfaceId
@@ -1234,6 +1243,22 @@ final class TerminalNotificationStore: ObservableObject {
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
+    }
+
+    /// Whether the workspace owning `tabId` currently has notifications muted.
+    /// Resolves the workspace through the same `AppDelegate` lookup chain as
+    /// ``shouldSuppressExternalDelivery(tabId:surfaceId:)`` so the mute is honored
+    /// from any window/context the notification can originate in.
+    ///
+    /// This is the single shared mute predicate: it backs the effects clamp in
+    /// ``applyNotification(request:effects:now:cooldownReservation:clickAction:)``
+    /// and is also called by `FeedCoordinator` so agent permission/plan/question
+    /// banners (which are delivered outside this store) honor the same mute.
+    func isWorkspaceNotificationsMuted(tabId: UUID) -> Bool {
+        let appDelegate = AppDelegate.shared
+        let context = appDelegate?.contextContainingTabId(tabId)
+        let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
+        return tabManager?.tabs.first(where: { $0.id == tabId })?.notificationsMuted ?? false
     }
 
     private func shouldSuppressExternalDelivery(tabId: UUID, surfaceId: UUID?) -> Bool {

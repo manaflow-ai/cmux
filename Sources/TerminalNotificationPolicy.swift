@@ -49,6 +49,23 @@ struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
         command = try container.decodeIfPresent(Bool.self, forKey: .command) ?? true
         paneFlash = try container.decodeIfPresent(Bool.self, forKey: .paneFlash) ?? true
     }
+
+    /// Returns a copy with every alerting effect suppressed, for a workspace that
+    /// has notifications muted via the sidebar context menu. `record` is preserved
+    /// so the notification still lands in history, but it is marked read
+    /// (`markUnread = false`, which also keeps the Dock badge dark since the badge
+    /// derives from unread state) and produces no desktop banner, sound, command,
+    /// pane flash, or workspace reorder.
+    func suppressedForMutedWorkspace() -> TerminalNotificationPolicyEffects {
+        var copy = self
+        copy.markUnread = false
+        copy.reorderWorkspace = false
+        copy.desktop = false
+        copy.sound = false
+        copy.command = false
+        copy.paneFlash = false
+        return copy
+    }
 }
 
 private struct TerminalNotificationPolicyEffectsPatch: Decodable {

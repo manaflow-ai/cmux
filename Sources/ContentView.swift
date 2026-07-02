@@ -10437,6 +10437,7 @@ struct VerticalTabsSidebar: View {
         let selectedRemoteContextMenuWorkspaceIds: [UUID]
         let allSelectedRemoteContextMenuTargetsConnecting: Bool
         let allSelectedRemoteContextMenuTargetsDisconnected: Bool
+        let allSelectedTargetsNotificationsMuted: Bool
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
@@ -10475,6 +10476,11 @@ struct VerticalTabsSidebar: View {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+        // Aggregate mute state of the whole selection, resolved once over
+        // `orderedSelectedTabs` so the context-menu label/action reflect every
+        // target (not just the anchor row) without an O(targets × workspaces) scan.
+        let allSelectedTargetsNotificationsMuted = !orderedSelectedTabs.isEmpty &&
+            orderedSelectedTabs.allSatisfy { $0.notificationsMuted }
         let workspaceGroups = tabManager.workspaceGroups
         let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
@@ -10512,6 +10518,7 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
+            allSelectedTargetsNotificationsMuted: allSelectedTargetsNotificationsMuted,
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
@@ -12346,6 +12353,9 @@ struct VerticalTabsSidebar: View {
         let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
             ? renderContext.allSelectedRemoteContextMenuTargetsDisconnected
             : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
+        let contextMenuNotificationsMuted = usesSelectedContextMenuTargets
+            ? renderContext.allSelectedTargetsNotificationsMuted
+            : tab.notificationsMuted
         let contextMenuPinTarget = WorkspaceActionDispatcher.Target(
             workspaceIds: contextMenuWorkspaceIds,
             anchorWorkspaceId: tab.id
@@ -12455,6 +12465,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             contextMenuPinState: contextMenuPinState,
+            contextMenuNotificationsMuted: contextMenuNotificationsMuted,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
             onContextMenuAppear: onContextMenuAppear,
@@ -13211,6 +13222,9 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsGitBranch: Bool
         let usesViewportAwarePath: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+        // Included so a mute toggle invalidates the cached row snapshot and the
+        // bell.slash glyph re-renders from the fresh `notificationsMuted` value.
+        let notificationsMuted: Bool
     }
 
     struct VerticalBranchDirectoryLine: Equatable {
@@ -13236,6 +13250,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let title: String
         let customDescription: String?
         let isPinned: Bool
+        let notificationsMuted: Bool
         let customColorHex: String?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
@@ -13286,6 +13301,7 @@ struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
+        lhs.contextMenuNotificationsMuted == rhs.contextMenuNotificationsMuted &&
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
@@ -13342,6 +13358,10 @@ struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
+    /// Aggregate mute state of the context-menu targets (the whole multi-selection,
+    /// or just this row): true only when every target workspace is muted. Drives
+    /// the Mute/Unmute label + action so they reflect the full selection.
+    let contextMenuNotificationsMuted: Bool
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
     /// Called from this row's contextMenu.onAppear so the parent can freeze
@@ -13680,7 +13700,8 @@ struct TabItemView: View, Equatable {
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             showsGitBranch: sidebarShowGitBranch,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
-            visibleAuxiliaryDetails: visibleAuxiliaryDetails
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails,
+            notificationsMuted: tab.notificationsMuted
         )
     }
 
@@ -13734,6 +13755,21 @@ struct TabItemView: View, Equatable {
                     CmuxSystemSymbolImage(magnified: "pin.fill", pointSize: scaledFontSize(9), weight: .semibold)
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
+                }
+
+                // Muted-workspace glyph: when "Mute Notifications" is on for this
+                // workspace, surface a small bell-slash on the row (styled like the
+                // pin indicator) so the silenced state is visible at a glance, not
+                // only via the context-menu label.
+                if workspaceSnapshot.notificationsMuted {
+                    let notificationsMutedTooltip = String(
+                        localized: "sidebar.notificationsMuted.tooltip",
+                        defaultValue: "Notifications muted"
+                    )
+                    CmuxSystemSymbolImage(magnified: "bell.slash.fill", pointSize: scaledFontSize(9), weight: .semibold)
+                        .foregroundColor(activeSecondaryColor(0.8))
+                        .safeHelp(notificationsMutedTooltip)
+                        .accessibilityLabel(notificationsMutedTooltip)
                 }
 
                 // Chrome-style media-activity glyphs: a noisy or capturing
@@ -14297,6 +14333,12 @@ struct TabItemView: View, Equatable {
             multi: String(localized: "contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
             single: String(localized: "contextMenu.clearLatestNotification", defaultValue: "Clear Latest Notification"),
             isMulti: isMulti)
+        let isNotificationsMuted = contextMenuNotificationsMuted
+        // Label text is count-independent (it never names the workspace), so a
+        // single key serves both single and multi selection.
+        let muteNotificationsLabel = isNotificationsMuted
+            ? String(localized: "contextMenu.unmuteWorkspaceNotifications", defaultValue: "Unmute Notifications")
+            : String(localized: "contextMenu.muteWorkspaceNotifications", defaultValue: "Mute Notifications")
         let copyWorkspaceIDLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.copyWorkspaceIDs", defaultValue: "Copy Workspace IDs"),
             single: String(localized: "contextMenu.copyWorkspaceID", defaultValue: "Copy Workspace ID"),
@@ -14511,6 +14553,11 @@ struct TabItemView: View, Equatable {
         }
         .disabled(!hasLatestNotifications(in: targetIds))
 
+        Button(muteNotificationsLabel) {
+            setNotificationsMuted(!isNotificationsMuted, for: targetIds)
+        }
+        .disabled(targetIds.isEmpty)
+
         Divider()
 
         Button(copyWorkspaceIDLabel) {
@@ -14702,6 +14749,13 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    /// Mutes or unmutes notifications for every workspace in `targetIds` through
+    /// the single TabManager mutation path, which performs one Set-keyed pass and
+    /// fires `objectWillChange` so the sidebar label + glyph refresh immediately.
+    private func setNotificationsMuted(_ muted: Bool, for targetIds: [UUID]) {
+        tabManager.setNotificationsMuted(muted, forWorkspaceIds: targetIds)
+    }
+
     private func hasLatestNotifications(in targetIds: [UUID]) -> Bool {
         targetIds.contains { notificationStore.latestNotification(forTabId: $0) != nil }
     }
@@ -14837,6 +14891,7 @@ struct TabItemView: View, Equatable {
             title: tab.title,
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
+            notificationsMuted: tab.notificationsMuted,
             customColorHex: tab.customColor,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
