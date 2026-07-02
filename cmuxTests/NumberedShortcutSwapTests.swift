@@ -8,6 +8,17 @@ import Testing
 
 @Suite("Numbered shortcut swap", .serialized)
 struct NumberedShortcutSwapTests {
+    @Test func workspaceAndSurfaceNumberedDefaultsUseSeparateModifierLanes() {
+        #expect(
+            KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultShortcut ==
+                StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+        )
+        #expect(
+            KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut ==
+                StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+        )
+    }
+
     @MainActor
     @Test func workspaceAndSurfaceShortcutsCanSwapModifierFamilies() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
@@ -31,7 +42,7 @@ struct NumberedShortcutSwapTests {
             currentShortcut: workspaceDefault
         ))
 
-        #expect(presentation.message == "This shortcut conflicts with Select Surface 1…9 (⌃1…9). Swap shortcuts?")
+        #expect(presentation.message == "This shortcut conflicts with Select Surface 1…9 (⌘1…9). Swap shortcuts?")
         #expect(presentation.swapButtonTitle == "Swap")
         #expect(presentation.canSwap)
         #expect(presentation.undoButtonTitle == "Undo")

@@ -101,7 +101,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             #expect(window.makeFirstResponder(unrelatedResponder))
             #expect(window.firstResponder === unrelatedResponder)
 
-            KeyboardShortcutSettings.clearShortcut(for: .selectSurfaceByNumber)
+            KeyboardShortcutSettings.clearShortcut(for: .selectWorkspaceByNumber)
 #if DEBUG
             appDelegate.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
 #endif
@@ -151,9 +151,9 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             #expect(appDelegate.tabManager === firstManager)
 
             let digitEvents: [(digit: Int, event: NSEvent)] = [
-                (1, try #require(makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: secondWindow.windowNumber))),
-                (2, try #require(makeKeyDownEvent(key: "2", keyCode: 19, windowNumber: secondWindow.windowNumber))),
-                (3, try #require(makeKeyDownEvent(key: "3", keyCode: 20, windowNumber: secondWindow.windowNumber)))
+                (1, try #require(makeKeyDownEvent(key: "1", modifiers: [.command], keyCode: 18, windowNumber: secondWindow.windowNumber))),
+                (2, try #require(makeKeyDownEvent(key: "2", modifiers: [.command], keyCode: 19, windowNumber: secondWindow.windowNumber))),
+                (3, try #require(makeKeyDownEvent(key: "3", modifiers: [.command], keyCode: 20, windowNumber: secondWindow.windowNumber)))
             ]
 
             try withTemporaryShortcut(action: .selectSurfaceByNumber) {
@@ -162,14 +162,14 @@ struct AppDelegateSurfaceShortcutRoutingTests {
 #if DEBUG
                         #expect(
                             appDelegate.debugHandleCustomShortcut(event: event),
-                            "Ctrl+\(digit) should be handled on cycle \(cycle)"
+                            "Cmd+\(digit) should be handled on cycle \(cycle)"
                         )
 #else
                         Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
                         #expect(
                             secondWorkspace.focusedPanelId == expectedSurfaceIds[digit - 1],
-                            "Ctrl+\(digit) should focus surface \(digit) in the event window on cycle \(cycle)"
+                            "Cmd+\(digit) should focus surface \(digit) in the event window on cycle \(cycle)"
                         )
                     }
                 }
@@ -313,6 +313,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let firstPanelId = try #require(workspace.focusedPanelId)
             let event = try #require(makeKeyDownEvent(
                 key: "2",
+                modifiers: [.command],
                 keyCode: 19,
                 windowNumber: window.windowNumber
             ))

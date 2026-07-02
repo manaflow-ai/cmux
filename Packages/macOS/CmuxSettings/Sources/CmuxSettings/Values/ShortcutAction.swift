@@ -218,9 +218,10 @@ extension ShortcutAction {
     /// ``selectSurfaceByNumber`` and ``selectWorkspaceByNumber`` are special:
     /// one binding (with the digit normalized to `"1"`) stands in for the
     /// entire `⌘1`–`⌘9` / `⌃1`–`⌃9` family. UI that displays the binding
-    /// should render it as `⌃1…9` (the range) rather than the literal
-    /// single-digit `⌃1`, and recording any digit `1`–`9` rebinds the whole
-    /// range. All other actions match a single concrete keystroke.
+    /// should render it as `⌘1…9` or `⌃1…9` (the range) rather than the
+    /// literal single-digit shortcut, and recording any digit `1`–`9`
+    /// rebinds the whole range. All other actions match a single concrete
+    /// keystroke.
     public var usesNumberedDigitMatching: Bool {
         switch self {
         case .selectSurfaceByNumber, .selectWorkspaceByNumber:
@@ -308,7 +309,7 @@ extension ShortcutAction {
     /// same stroke keeps firing outside that context. Conflict detection
     /// (``ShortcutWhenClause/bindingsCollide(_:lhsHasPriority:_:rhsHasPriority:)``)
     /// uses this to accept such priority-resolved pairs — e.g. the factory
-    /// default Select Surface `⌃1…9` alongside the sidebar's `⌃1…5` — instead of
+    /// default Select Workspace `⌃1…9` alongside the sidebar's `⌃1…5` — instead of
     /// rejecting them as colliding. Mirrors the app target's routing order in
     /// `handleCustomShortcut`; a drift test asserts the two stay aligned.
     public var hasPriorityShortcutRouting: Bool {
