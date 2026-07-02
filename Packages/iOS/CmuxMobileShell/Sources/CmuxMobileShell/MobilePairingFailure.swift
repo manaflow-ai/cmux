@@ -307,9 +307,11 @@ extension MobilePairingFailureCategory {
                     defaultValue: "Rebuild this app with production auth (ios/scripts/reload.sh --prod-auth), or pair with a dev-channel Mac signed in to the same account."
                 )
             }
+            // Reaches production users (TestFlight/App Store scanning a dev
+            // Mac's QR), so product terms only — no script paths or flags.
             return L10n.string(
                 "mobile.pairing.guidance.authEnvironment.devMac",
-                defaultValue: "Pair with a Mac running the release cmux app, or use a development-auth iPhone build (ios/scripts/reload.sh without --prod-auth) for dev Macs."
+                defaultValue: "Pair with a Mac running the release cmux app, or use a development-channel iPhone build for dev Macs."
             )
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(

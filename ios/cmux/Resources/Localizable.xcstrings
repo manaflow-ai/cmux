@@ -3254,13 +3254,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair with a Mac running the release cmux app, or use a development-auth iPhone build (ios/scripts/reload.sh without --prod-auth) for dev Macs."
+            "value": "Pair with a Mac running the release cmux app, or use a development-channel iPhone build for dev Macs."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リリース版の cmux アプリを実行している Mac とペアリングするか、開発用の Mac には開発用認証の iPhone ビルド（--prod-auth なしの ios/scripts/reload.sh）を使用してください。"
+            "value": "リリース版の cmux アプリを実行している Mac とペアリングするか、開発用の Mac には開発チャネルの iPhone ビルドを使用してください。"
           }
         }
       }
