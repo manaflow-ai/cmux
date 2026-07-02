@@ -8,6 +8,18 @@ import Foundation
 /// Whichever call wins the lock, the outcome still honors the caller's hard timeout:
 /// either the child never starts (`launch()` throws `CancellationError`), or it has
 /// already started and `cancel()` is guaranteed to observe it and terminate it.
+///
+/// Why a lock and not an actor (the repo's usual choice for mutable shared state):
+/// both coordination points are *synchronous* and cannot `await`. `launch()` runs
+/// inside `withCheckedThrowingContinuation`'s non-`async` body and `cancel()` runs
+/// inside `withTaskCancellationHandler`'s synchronous `onCancel`, and the enclosing
+/// `runProcess` is `nonisolated`/`@concurrent`, so there is no actor executor to hop
+/// to and no way to `await` actor-isolated state from either site. A deferred
+/// `Task { await … }` bridge (as in `AuthPhaseTimeoutRace`) does not help here: that
+/// pattern works because its race is decided by `async` tasks that can await the
+/// actor, whereas our launch/cancel decision must be made synchronously on both
+/// sides. A synchronous mutual-exclusion primitive is therefore the only race-free
+/// option; a lock is the minimal one.
 final class RemoteTmuxProcessCancellation: @unchecked Sendable {
     private let process: Process
     private let stdout: FileHandle
