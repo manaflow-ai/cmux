@@ -28,8 +28,9 @@ public struct MobileTerminalRenderGridReplay: Sendable {
     /// terminal, restores dynamic default colors, repaints scrollback and the
     /// visible viewport as a natural scrolling flow, restores the active screen
     /// (`?1049h` for the alternate screen), reapplies non-default DEC/ANSI
-    /// modes, and finally restores the cursor. A **delta** frame clears and
-    /// repaints only the changed viewport rows.
+    /// modes, and finally restores the cursor. A **delta** frame normalizes
+    /// coordinate-affecting modes, then clears and repaints only the changed
+    /// viewport rows using absolute producer row indexes.
     ///
     /// - Returns: The synthesized escape-sequence bytes.
     public func patchBytes() -> Data {
@@ -44,16 +45,13 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         patchBytes()
     }
 
-    /// DEC private mode codes that switch screens or save the cursor. The
-    /// active screen is restored explicitly via the frame's `activeScreen`, so
-    /// these are never replayed from `modes` (replaying them would
-    /// double-switch).
-    private let screenSwitchModeCodes: Set<Int> = [47, 1047, 1048, 1049]
-
     private func deltaPatchBytes() -> Data {
         var bytes = Data()
         let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
+        let autowrapMode = deltaReplayAutowrapMode()
+        if frame.cursor == nil { bytes.append(Data("\u{1B}[s".utf8)) }
+        bytes.append(deltaReplayModeNormalizationBytes())
         let rowsToClear = Set(frame.clearedRows).union(frame.rowSpans.map(\.row)).sorted()
         for row in rowsToClear {
             bytes.append(sgrBytes(for: defaultStyle))
@@ -70,6 +68,12 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             }
         }
         bytes.append(sgrBytes(for: defaultStyle))
+        // Current producers list autowrap in every delta frame, so a missing
+        // entry is a legacy-producer delta. Defaulting the restore to on is
+        // safe there: replay is the surface's only writer and each patch
+        // re-normalizes modes before painting.
+        bytes.append(modeBytes(autowrapMode ?? .init(code: MobileTerminalRenderGridFrame.ModeSetting.decAutowrapModeCode, ansi: false, on: true)))
+        if frame.cursor == nil { bytes.append(Data("\u{1B}[u".utf8)) }
         // A delta never hides the cursor while painting, so (unlike a full
         // snapshot) it leaves a nil cursor untouched instead of forcing it
         // visible.
@@ -78,7 +82,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             if cursor.visible {
                 bytes.append(Data("\u{1B}[?25h\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
             } else {
-                bytes.append(Data("\u{1B}[?25l".utf8))
+                bytes.append(Data("\u{1B}[?25l\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
             }
         }
         return bytes
@@ -150,15 +154,29 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             )
         }
 
-        // Reapply modes last so autowrap returns to its captured value
-        // (undoing the temporary `?7l`) and mouse/paste/app-key modes are live.
-        for mode in frame.modes where !screenSwitchModeCodes.contains(mode.code) {
+        // Reapply modes last so mouse/paste/app-key modes are live. Screen
+        // switches are handled by the replay wrapper to avoid duplicated toggles.
+        for mode in frame.modes where !isScreenSwitchPrivateMode(mode) {
             bytes.append(modeBytes(mode))
         }
 
         appendCursorRestore(&bytes)
         bytes.append(Data("\u{1B}[?2026l".utf8))
         return bytes
+    }
+
+    private func deltaReplayModeNormalizationBytes() -> Data {
+        // Disable origin mode so CUP row indexes target absolute viewport rows,
+        // and disable autowrap while painting so full-width spans cannot scroll
+        // a preserved scroll region.
+        Data((
+            "\u{1B}[?\(MobileTerminalRenderGridFrame.ModeSetting.decOriginModeCode)l" +
+            "\u{1B}[?\(MobileTerminalRenderGridFrame.ModeSetting.decAutowrapModeCode)l"
+        ).utf8)
+    }
+
+    private func deltaReplayAutowrapMode() -> MobileTerminalRenderGridFrame.ModeSetting? {
+        frame.modes.first(where: \.isDECAutowrapMode)
     }
 
     /// Append `lineCount` lines (rows `0..<lineCount` of `spans`) as a natural
@@ -376,6 +394,21 @@ public struct MobileTerminalRenderGridReplay: Sendable {
     private func modeBytes(_ mode: MobileTerminalRenderGridFrame.ModeSetting) -> Data {
         let prefix = mode.ansi ? "\u{1B}[" : "\u{1B}[?"
         return Data("\(prefix)\(mode.code)\(mode.on ? "h" : "l")".utf8)
+    }
+
+    private func isScreenSwitchPrivateMode(_ mode: MobileTerminalRenderGridFrame.ModeSetting) -> Bool {
+        guard !mode.ansi else { return false }
+        // Screen switches are represented by `activeScreen`; replay emits the
+        // owning switch once so mode-state restore cannot duplicate it.
+        switch mode.code {
+        case MobileTerminalRenderGridFrame.ModeSetting.decAlternateScreenCode,
+             MobileTerminalRenderGridFrame.ModeSetting.decAlternateScreenSaveCursorCode,
+             MobileTerminalRenderGridFrame.ModeSetting.decSaveRestoreCursorCode,
+             MobileTerminalRenderGridFrame.ModeSetting.decAlternateScreenSaveRestoreCursorCode:
+            return true
+        default:
+            return false
+        }
     }
 
     private func oscColorBytes(_ ps: Int, _ hex: String?) -> Data? {

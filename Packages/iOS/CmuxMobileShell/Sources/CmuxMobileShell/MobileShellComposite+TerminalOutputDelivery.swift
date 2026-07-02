@@ -83,6 +83,7 @@ extension MobileShellComposite {
             }
             if remoteClient != nil,
                terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == nil,
+               terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] == nil,
                !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
                !terminalReplayFailureRetryExhausted(surfaceID: surfaceID) {
                 MobileDebugLog.anchormux("terminal.output.replay_retry_after_drop surface=\(surfaceID)")
@@ -174,6 +175,7 @@ extension MobileShellComposite {
               terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
             guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {
+                terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
                 MobileDebugLog.anchormux("terminal.output.reset_barrier_active surface=\(surfaceID)")
                 return
             }
@@ -227,6 +229,17 @@ extension MobileShellComposite {
     /// Ask the Mac to replay the authoritative terminal state for a surface.
     public func terminalOutputNeedsReplay(surfaceID: String) {
         guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else { return }
+        if let pendingAckToken = terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID],
+           terminalReplayBarrierTokensBySurfaceID[surfaceID] == pendingAckToken {
+            // A pending viewport acknowledgement owns the next replay
+            // decision. Beginning a fresh barrier here would drop the pending
+            // token and let the acknowledgement dedupe its post-resize replay
+            // against this pre-resize request; record the reset as owed
+            // output so the acknowledgement's resolution replays instead.
+            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+            MobileDebugLog.anchormux("terminal.output.replay_deferred_viewport_ack surface=\(surfaceID)")
+            return
+        }
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_requested surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)

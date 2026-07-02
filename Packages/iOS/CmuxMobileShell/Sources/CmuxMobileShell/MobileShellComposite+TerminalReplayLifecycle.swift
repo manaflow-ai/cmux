@@ -67,6 +67,7 @@ extension MobileShellComposite {
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
         if !preservingFollowUpCount {
             terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
@@ -108,6 +109,13 @@ extension MobileShellComposite {
                 continue
             }
             guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil else { continue }
+            guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else {
+                // The pre-capability cold replay is already in flight.
+                // Beginning a barrier here would cancel it and discard its
+                // authoritative response, dropping the surface's first frame;
+                // let it land unbarriered instead.
+                continue
+            }
             let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
             requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
         }
@@ -134,6 +142,7 @@ extension MobileShellComposite {
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
