@@ -6189,6 +6189,57 @@
         }
       }
     },
+    "mobile.toolbar.editor.addKeyStep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Key Step"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キー手順を追加"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.addStepHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Step"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手順を追加"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.addTextStep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Text Step"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキスト手順を追加"
+          }
+        }
+      }
+    },
     "mobile.toolbar.editor.commandFooter": {
       "extractionState": "manual",
       "localizations": {
@@ -6240,6 +6291,23 @@
         }
       }
     },
+    "mobile.toolbar.editor.deleteStep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Step"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手順を削除"
+          }
+        }
+      }
+    },
     "mobile.toolbar.editor.editTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -6257,6 +6325,159 @@
         }
       }
     },
+    "mobile.toolbar.editor.keyComboFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends one modified terminal key, such as Shift-Tab or Option-Left."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift-Tab や Option-Left など、修飾キー付きのターミナルキーを1つ送信します。"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.keyComboHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key Combo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーコンボ"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.keyPicker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キー"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.macroFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs each step in order. Text steps type exactly what you enter; key steps send one key combo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各手順を順番に実行します。テキスト手順は入力した内容をそのまま入力し、キー手順はキーコンボを1つ送信します。"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.macroHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macro Steps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マクロ手順"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.modifier.control": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.modifier.option": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.modifier.shift": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.pressReturn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press Return"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Returnを押す"
+          }
+        }
+      }
+    },
     "mobile.toolbar.editor.runAfterTyping": {
       "extractionState": "manual",
       "localizations": {
@@ -6270,6 +6491,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "入力後に実行"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.stepHeaderFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step %d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手順 %d"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.stepKeyCombo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key Combo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーコンボ"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.stepText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキスト"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.stepType": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step Type"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手順の種類"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.textPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text to type"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力するテキスト"
           }
         }
       }
@@ -6321,6 +6627,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "ボタンのラベル"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.type.keyCombo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key Combo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーコンボ"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.type.macro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マクロ"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.type.text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキスト"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.typeHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action Type"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクションの種類"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.unsupportedCombo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This key combo is not supported yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このキーコンボはまだサポートされていません。"
           }
         }
       }
@@ -7562,6 +7953,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "下矢印"
+          }
+        }
+      }
+    },
+    "terminal.shortcut.name.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
           }
         }
       }
