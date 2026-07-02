@@ -230,6 +230,21 @@ class TabManager: ObservableObject {
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
 
+    /// Upper bound on how many background-prime workspaces may be force-mounted
+    /// into the single main-window SwiftUI GraphHost at once.
+    ///
+    /// `reconcileMountedWorkspaceIds` raises the mount cap by
+    /// `mountedBackgroundWorkspaceLoadIds.count`, so an unbounded set here would
+    /// let a burst of eagerly-loaded (unfocused) workspaces mount every one of
+    /// their pane subtrees simultaneously — making `GraphHost.flushTransactions()`
+    /// O(number-of-hosted-panes) per runloop tick and pinning the main thread at
+    /// 100%+ CPU (issue #7136). Background priming is processed serially (one
+    /// awaited workspace at a time via a single-flight `.task(id:)`), so a small
+    /// constant is sufficient; overflow workspaces still start their terminal
+    /// surface through the headless startup-window path, so priming is deferred,
+    /// never dropped.
+    static let maxConcurrentBackgroundWorkspaceMounts = 2
+
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     static var nextPortOrdinal: Int = 0
@@ -1256,6 +1271,12 @@ class TabManager: ObservableObject {
 
     func retainBackgroundWorkspaceMount(for workspaceId: UUID) {
         guard !mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
+        // Bound how many background-prime workspaces force-mount into the single
+        // main-window GraphHost at once. Without this the mounted set grows to
+        // O(all eagerly-loaded workspaces) and stalls the main thread (#7136).
+        // Refused workspaces still start their surface via the headless
+        // startup-window path, so priming is deferred to a free slot, not dropped.
+        guard mountedBackgroundWorkspaceLoadIds.count < Self.maxConcurrentBackgroundWorkspaceMounts else { return }
         var updated = mountedBackgroundWorkspaceLoadIds
         updated.insert(workspaceId)
         mountedBackgroundWorkspaceLoadIds = updated
