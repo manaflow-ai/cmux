@@ -2645,6 +2645,16 @@ final class CmuxConfigStore: ObservableObject {
         resolvedNewWorkspaceActionCache
     }
 
+    /// Resolves the configured new-workspace action for a sidebar extension that holds
+    /// the `runWorkspaceCommand` scope. That scope authorizes running user-defined
+    /// *workspace commands* only. `resolvedNewWorkspaceAction()` — used by the in-app
+    /// "+ New Workspace" button — can also resolve to a raw `type: "command"` or
+    /// `type: "agent"` action that sends shell input to a terminal, so this extension
+    /// entry point must fail closed and return only workspace-command actions.
+    func resolvedNewWorkspaceActionForExtension() -> CmuxResolvedConfigAction? {
+        resolvedNewWorkspaceAction()
+    }
+
     func resolvedAction(id: String) -> CmuxResolvedConfigAction? {
         actionLookup[canonicalActionID(id)]
     }

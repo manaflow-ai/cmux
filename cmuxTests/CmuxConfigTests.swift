@@ -1318,6 +1318,89 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 
+    @MainActor
+    func testResolvedNewWorkspaceActionForExtensionRejectsCommandAction() throws {
+        // Regression: a sidebar extension holding only the `runWorkspaceCommand` scope
+        // must NOT be able to invoke a raw `type: "command"` new-workspace action, which
+        // would send shell input to a terminal. `resolvedNewWorkspaceActionForExtension()`
+        // fails closed for anything that is not a user-defined workspace command, even
+        // though `resolvedNewWorkspaceAction()` (the in-app "+ New Workspace" button)
+        // intentionally still allows it.
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "actions": {
+            "start-codex": { "type": "command", "command": "codex" }
+          },
+          "ui": {
+            "newWorkspace": { "action": "start-codex" }
+          }
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        // The shared resolver still returns the raw command action (the in-app button).
+        let shared = try XCTUnwrap(store.resolvedNewWorkspaceAction())
+        XCTAssertEqual(shared.terminalCommand, "codex")
+        XCTAssertNil(shared.workspaceCommandName)
+        // The extension-scoped resolver fails closed and refuses the command action.
+        XCTAssertNil(store.resolvedNewWorkspaceActionForExtension())
+    }
+
+    @MainActor
+    func testResolvedNewWorkspaceActionForExtensionAllowsWorkspaceCommand() throws {
+        // A user-defined workspace command configured as the new-workspace action is
+        // runnable by an extension holding the `runWorkspaceCommand` scope.
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "actions": {
+            "worktree-dev": { "type": "workspaceCommand", "commandName": "Local Dev" }
+          },
+          "ui": {
+            "newWorkspace": { "action": "worktree-dev" }
+          },
+          "commands": [{
+            "name": "Local Dev",
+            "workspace": { "name": "Local", "cwd": "." }
+          }]
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let action = try XCTUnwrap(store.resolvedNewWorkspaceActionForExtension())
+        XCTAssertEqual(action.workspaceCommandName, "Local Dev")
+        XCTAssertNil(action.terminalCommand)
+    }
+
     func testDecodeActionsSurfaceTabBarButtonSupportsWorkspaceCommand() throws {
         let json = """
         {

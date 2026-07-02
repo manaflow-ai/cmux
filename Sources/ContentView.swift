@@ -11243,7 +11243,7 @@ struct VerticalTabsSidebar: View {
 
         case .invokeNewWorkspaceAction(let workingDirectory):
             let configContext = cmuxConfigStore.executionContext(startingFrom: workingDirectory)
-            guard let action = configContext.resolvedNewWorkspaceAction() else {
+            guard let action = configContext.resolvedNewWorkspaceActionForExtension() else {
                 return .rejected(String(
                     localized: "sidebar.extensions.action.newWorkspaceActionNotFound",
                     defaultValue: "New workspace action not configured"
