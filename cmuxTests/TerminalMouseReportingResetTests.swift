@@ -1,7 +1,4 @@
-import func XCTest.XCTAssertEqual
-import func XCTest.XCTAssertNil
-import func XCTest.XCTAssertTrue
-import class XCTest.XCTestCase
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -15,35 +12,34 @@ import class XCTest.XCTestCase
 /// would print mouse-movement escape sequences at the shell prompt. cmux clears
 /// the stuck modes when a command finishes while mouse reporting is still
 /// active.
-final class TerminalMouseReportingResetTests: XCTestCase {
-    func testReturnsDisableSequenceWhenMouseReportingStillActive() {
+@Suite("Terminal mouse reporting reset")
+struct TerminalMouseReportingResetTests {
+    @Test func returnsDisableSequenceWhenMouseReportingStillActive() {
         // A command finished but mouse reporting is still on -> the just-finished
         // program left it stuck, so cmux must emit the disable sequences.
-        XCTAssertEqual(
-            TerminalMouseReportingReset(mouseReportingActive: true).disableSequence,
-            TerminalMouseReportingReset.allMouseModesDisableSequence
+        #expect(
+            TerminalMouseReportingReset(mouseReportingActive: true).disableSequence
+                == TerminalMouseReportingReset.allMouseModesDisableSequence
         )
     }
 
-    func testReturnsNilWhenMouseReportingNotActive() {
+    @Test func returnsNilWhenMouseReportingNotActive() {
         // Nothing to clear when mouse reporting is already off; cmux must not
         // touch the terminal.
-        XCTAssertNil(
-            TerminalMouseReportingReset(mouseReportingActive: false).disableSequence
-        )
+        #expect(TerminalMouseReportingReset(mouseReportingActive: false).disableSequence == nil)
     }
 
-    func testDisableSequenceClearsEveryMouseTrackingAndEncodingMode() {
+    @Test func disableSequenceClearsEveryMouseTrackingAndEncodingMode() {
         let sequence = TerminalMouseReportingReset.allMouseModesDisableSequence
         // Every disable must be a DECRST ("\u{1b}[?<n>l").
         for mode in [9, 1000, 1001, 1002, 1003, 1005, 1006, 1015, 1016] {
-            XCTAssertTrue(
+            #expect(
                 sequence.contains("\u{1b}[?\(mode)l"),
                 "disableSequence is missing DECRST for mode \(mode)"
             )
         }
         // The any-event motion mode (1003) is the one that makes the terminal
         // report bare mouse movement, which is the exact issue #6668 symptom.
-        XCTAssertTrue(sequence.contains("\u{1b}[?1003l"))
+        #expect(sequence.contains("\u{1b}[?1003l"))
     }
 }
