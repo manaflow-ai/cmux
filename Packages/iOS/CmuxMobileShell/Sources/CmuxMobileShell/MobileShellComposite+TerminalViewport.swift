@@ -112,6 +112,10 @@ extension MobileShellComposite {
     /// Tell the Mac to drop this device's viewport pin for a surface (on
     /// detach). Fire-and-forget; the Mac also clears on connection close.
     public func clearTerminalViewport(surfaceID: String) {
+        // The generation entry deliberately outlives the surface: it is the
+        // monotonic fence that keeps a still-in-flight viewport report from
+        // applying after detach and blocks generation reuse across re-attach.
+        // Entries are per-connection; resetTerminalOutputTracking() wipes them.
         let clearGeneration = (viewportReportGenerationsBySurfaceID[surfaceID] ?? 0) + 1
         viewportReportGenerationsBySurfaceID[surfaceID] = clearGeneration
         reportedTerminalViewportSizesBySurfaceID.removeValue(forKey: surfaceID)

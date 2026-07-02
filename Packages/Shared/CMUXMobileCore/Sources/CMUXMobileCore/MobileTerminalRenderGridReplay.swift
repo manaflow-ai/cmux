@@ -68,6 +68,10 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             }
         }
         bytes.append(sgrBytes(for: defaultStyle))
+        // Current producers list autowrap in every delta frame, so a missing
+        // entry is a legacy-producer delta. Defaulting the restore to on is
+        // safe there: replay is the surface's only writer and each patch
+        // re-normalizes modes before painting.
         bytes.append(modeBytes(autowrapMode ?? .init(code: MobileTerminalRenderGridFrame.ModeSetting.decAutowrapModeCode, ansi: false, on: true)))
         if frame.cursor == nil { bytes.append(Data("\u{1B}[u".utf8)) }
         // A delta never hides the cursor while painting, so (unlike a full
