@@ -118,3 +118,34 @@ import Testing
     )
     #expect(alternateReset.upperBound <= content.lowerBound)
 }
+
+@Test func renderGridFullSnapshotOverwritesSavedModeBankAtDefaults() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 8,
+        columns: 8,
+        rows: 1,
+        cursor: .init(row: 0, column: 4),
+        rowSpans: [.init(row: 0, column: 0, text: "bank")],
+        modes: [
+            .init(code: 2004, ansi: false, on: true),
+        ]
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    let content = try #require(vt.range(of: "bank"))
+    // XTSAVE must snapshot the saved-mode bank while every listed mode still
+    // holds its default (before the frame's captured modes are reapplied and
+    // before content paints), replacing the saved-bank clear RIS used to do.
+    let firstBatch = try #require(vt.range(of: "\u{1B}[?1;4;5;6;7;8;9;40;45;47;66;67;69;1000;1002;1003s"))
+    let secondBatch = try #require(vt.range(
+        of: "\u{1B}[?1004;1005;1006;1007;1015;1016;1035;1036;1039;1045;1047;1049;2004;2027;2031;2048s"
+    ))
+    let capturedPasteRestore = try #require(vt.range(of: "\u{1B}[?2004h"))
+    #expect(firstBatch.upperBound <= secondBatch.lowerBound)
+    #expect(secondBatch.upperBound <= content.lowerBound)
+    #expect(secondBatch.upperBound <= capturedPasteRestore.lowerBound)
+    // The bank is written once, before paint; the post-paint baseline must not
+    // re-save state that no longer holds defaults.
+    #expect(vt.components(separatedBy: "\u{1B}[?1;4;5;6;7;8;9;40;45;47;66;67;69;1000;1002;1003s").count - 1 == 1)
+}

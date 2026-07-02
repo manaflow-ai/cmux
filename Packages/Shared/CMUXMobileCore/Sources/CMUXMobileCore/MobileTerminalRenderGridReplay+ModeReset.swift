@@ -19,6 +19,22 @@ extension MobileTerminalRenderGridReplay {
         ))
     }
 
+    func appendSavedModeBankReset(to bytes: inout Data) {
+        // XTSAVE (CSI ? Pm s) overwrites Ghostty's saved-mode slots with the
+        // current values, which are all defaults right after the structural
+        // reset and default baseline. RIS cleared the saved bank outright;
+        // without this, a mode XTSAVE'd by a previous program on the reused
+        // surface would survive the replay and a later XTRESTORE (CSI ? Pm r)
+        // could resurrect it. Ghostty caps CSI parameters at 24 per sequence,
+        // so the bank is overwritten in two batches. 2026 is deliberately
+        // absent: it is held on for the synchronized replay and must not be
+        // saved in that state.
+        bytes.append(Data("\u{1B}[?1;4;5;6;7;8;9;40;45;47;66;67;69;1000;1002;1003s".utf8))
+        bytes.append(Data(
+            "\u{1B}[?1004;1005;1006;1007;1015;1016;1035;1036;1039;1045;1047;1049;2004;2027;2031;2048s".utf8
+        ))
+    }
+
     func appendPrePaintModeRestores(to bytes: inout Data) {
         for mode in frame.modes where !mode.ansi && mode.code == 2027 {
             bytes.append(Data("\u{1B}[?2027\(mode.on ? "h" : "l")".utf8))

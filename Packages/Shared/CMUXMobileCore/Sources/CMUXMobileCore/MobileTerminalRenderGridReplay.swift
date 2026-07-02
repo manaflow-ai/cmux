@@ -104,6 +104,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         bytes.append(Data(semanticPromptReset.utf8))
         bytes.append(Data(screenStateReset.utf8))
         appendDefaultModeBaseline(to: &bytes)
+        appendSavedModeBankReset(to: &bytes)
         appendPrePaintModeRestores(to: &bytes)
 
         // Dynamic default colors (OSC 10/11/12). Nil frame values reset the
