@@ -263,6 +263,16 @@ struct AppDelegateRenameShortcutContextTests {
             appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
             #expect(dock.focusedPanelId == browserPanelId)
 
+            let renameTabPosted = ShortcutNotificationFlag()
+            let renameTabToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRenameTabRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                renameTabPosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(renameTabToken) }
+
             let browserReloadPosted = ShortcutNotificationFlag()
             let browserReloadToken = NotificationCenter.default.addObserver(
                 forName: .debugBrowserReloadShortcutInvoked,
@@ -286,6 +296,7 @@ struct AppDelegateRenameShortcutContextTests {
             Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
+            #expect(!renameTabPosted.wasPosted)
             #expect(browserReloadPosted.wasPosted)
         }
     }
