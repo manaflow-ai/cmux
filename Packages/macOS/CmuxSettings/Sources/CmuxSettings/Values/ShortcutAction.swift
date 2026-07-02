@@ -255,11 +255,32 @@ extension ShortcutAction {
         }
     }
 
+    /// Whether this action is delivered by a system-wide (global) Carbon
+    /// hotkey that fires even when cmux is not frontmost.
+    ///
+    /// The runtime can only register such a hotkey as a single stroke that
+    /// carries a primary modifier (command/option/control) — never a chord
+    /// and never a Shift-only combination. The Settings recorder mirrors
+    /// those constraints (`allowsChordShortcut` returns false, and the
+    /// recorder requires a primary modifier on the first stroke) so it never
+    /// persists a binding the app target's
+    /// `normalizedSystemWideHotkeyShortcutResult` rejects and Carbon then
+    /// silently drops, which would leave the action looking broken.
+    public var isSystemWideHotkey: Bool {
+        switch self {
+        case .showHideAllWindows, .globalSearch, .sendAppshot:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Whether this action supports a two-stroke shortcut chord.
     public var allowsChordShortcut: Bool {
         self != .fileExplorerOpenSelection
             && self != .fileExplorerOpenSelectionFinderAlias
             && self != .cycleTextBoxSubmitAction
+            && !isSystemWideHotkey
     }
 
     /// The action's built-in focus context expressed as a ``ShortcutWhenClause``,

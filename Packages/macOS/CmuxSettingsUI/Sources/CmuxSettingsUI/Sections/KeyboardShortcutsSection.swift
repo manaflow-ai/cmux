@@ -166,6 +166,15 @@ public struct KeyboardShortcutsSection: View {
                 )
             }
             if bareKeyRejected {
+                // System-wide hotkeys reject Shift-only bindings, so the
+                // generic "⌘ ⌥ ⌃ or ⇧" message would be misleading — surface
+                // the same primary-modifier message the app target uses.
+                if action.isSystemWideHotkey {
+                    return String(
+                        localized: "shortcut.recorder.error.systemWideHotkeyRequiresModifier",
+                        defaultValue: "System-wide hotkeys must include Command, Option, or Control."
+                    )
+                }
                 return String(
                     localized: "shortcut.recorder.error.bareKeyNotAllowed",
                     defaultValue: "Shortcuts must include ⌘ ⌥ ⌃ or ⇧"
@@ -212,6 +221,7 @@ public struct KeyboardShortcutsSection: View {
                     chordsEnabled: chordModeActions.contains(action.rawValue),
                     hasPendingRejection: bareKeyRejected || numberedDigitRejected,
                     firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
+                    firstStrokeRequiresPrimaryModifier: action.isSystemWideHotkey,
                     onStroke: { stroke in Task { await assign(stroke: stroke, to: action) } },
                     onChord: { chord in Task { await assignChord(chord, to: action) } },
                     onBareKeyRejected: { bareKeyRejections.insert(action.rawValue) }

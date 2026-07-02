@@ -12468,13 +12468,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
         KeyboardShortcutSettings.Action.allCases.filter { action in
-            // System-wide hotkeys are dispatched via Carbon RegisterEventHotKey
-            // and never routed through AppKit's local key handler. If a managed
-            // cmux.json entry somehow stores one as a chord, arming the prefix
-            // here would swallow the first stroke and leave the second one
-            // orphaned, breaking that keystroke for the focused terminal/browser
-            // input.
-            guard action != .showHideAllWindows && action != .globalSearch && action.allowsChordShortcut else { return false }
+            // System-wide hotkeys (Show/Hide, Global Search, Send Appshot) are
+            // dispatched via Carbon RegisterEventHotKey and never routed through
+            // AppKit's local key handler. If a managed cmux.json entry somehow
+            // stores one as a chord, arming the prefix here would swallow the
+            // first stroke and leave the second one orphaned, breaking that
+            // keystroke for the focused terminal/browser input.
+            guard !action.isSystemWideHotkey && action.allowsChordShortcut else { return false }
             guard !action.isBrowserContentShortcut else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
@@ -15484,8 +15484,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        action != .showHideAllWindows
-            && action != .globalSearch
+        // System-wide Carbon hotkeys (Show/Hide, Global Search, Send Appshot)
+        // have no AppKit menu item backing them, so they can never produce a
+        // stale menu key equivalent to suppress.
+        !action.isSystemWideHotkey
             && action != .clearScreenKeepScrollback
             && action != .fileExplorerOpenSelection
             && action != .fileExplorerOpenSelectionFinderAlias

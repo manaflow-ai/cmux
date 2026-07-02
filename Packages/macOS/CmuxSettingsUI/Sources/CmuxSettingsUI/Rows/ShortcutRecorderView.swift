@@ -34,6 +34,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
     private let chordsEnabled: Bool
     private let hasPendingRejection: Bool
     private let firstStrokeRequiresModifier: Bool
+    private let firstStrokeRequiresPrimaryModifier: Bool
 
     /// Creates a single-stroke recorder.
     ///
@@ -51,12 +52,14 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         placeholder: String = String(localized: "shortcut.unbound.displayValue", defaultValue: "None"),
         hasPendingRejection: Bool = false,
         firstStrokeRequiresModifier: Bool = true,
+        firstStrokeRequiresPrimaryModifier: Bool = false,
         onStroke: @escaping (ShortcutStroke) -> Void,
         onBareKeyRejected: (() -> Void)? = nil
     ) {
         self.placeholder = placeholder
         self.hasPendingRejection = hasPendingRejection
         self.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        self.firstStrokeRequiresPrimaryModifier = firstStrokeRequiresPrimaryModifier
         self.onStroke = onStroke
         self.onChord = nil
         self.onBareKeyRejected = onBareKeyRejected
@@ -78,6 +81,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         chordsEnabled: Bool,
         hasPendingRejection: Bool = false,
         firstStrokeRequiresModifier: Bool = true,
+        firstStrokeRequiresPrimaryModifier: Bool = false,
         onStroke: @escaping (ShortcutStroke) -> Void,
         onChord: @escaping (StoredShortcut) -> Void,
         onBareKeyRejected: (() -> Void)? = nil
@@ -85,6 +89,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         self.placeholder = placeholder
         self.hasPendingRejection = hasPendingRejection
         self.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        self.firstStrokeRequiresPrimaryModifier = firstStrokeRequiresPrimaryModifier
         self.onStroke = onStroke
         self.onChord = onChord
         self.onBareKeyRejected = onBareKeyRejected
@@ -96,6 +101,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         button.placeholder = placeholder
         button.chordsEnabled = chordsEnabled
         button.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        button.firstStrokeRequiresPrimaryModifier = firstStrokeRequiresPrimaryModifier
         button.onStroke = onStroke
         button.onChord = onChord
         button.onBareKeyRejected = onBareKeyRejected
@@ -107,6 +113,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
         nsView.placeholder = placeholder
         nsView.chordsEnabled = chordsEnabled
         nsView.firstStrokeRequiresModifier = firstStrokeRequiresModifier
+        nsView.firstStrokeRequiresPrimaryModifier = firstStrokeRequiresPrimaryModifier
         nsView.onStroke = onStroke
         nsView.onChord = onChord
         nsView.onBareKeyRejected = onBareKeyRejected
@@ -174,6 +181,15 @@ public final class RecorderHostButton: NSButton {
     /// bind a plain typing key as an app-level shortcut. Content-scoped actions
     /// that intentionally use bare keys may set this to `false`.
     public var firstStrokeRequiresModifier: Bool = true
+    /// Whether the first recorded stroke must include a *primary* modifier
+    /// (Command, Option, or Control) — Shift alone is not enough.
+    ///
+    /// Set for system-wide (global) Carbon hotkeys, whose runtime registration
+    /// requires a primary modifier. Shift-only combinations satisfy
+    /// ``firstStrokeRequiresModifier`` but the app target rejects them
+    /// (`normalizedSystemWideHotkeyShortcutResult`), so the recorder refuses to
+    /// commit them here rather than persisting a binding Carbon silently drops.
+    public var firstStrokeRequiresPrimaryModifier: Bool = false
     public var onStroke: ((ShortcutStroke) -> Void)?
     public var onChord: ((StoredShortcut) -> Void)?
     public var onBareKeyRejected: (() -> Void)?
@@ -358,6 +374,12 @@ public final class RecorderHostButton: NSButton {
             || event.modifierFlags.contains(.control)
             || event.modifierFlags.contains(.shift)
 
+        // A primary modifier excludes Shift: a system-wide Carbon hotkey needs
+        // Command, Option, or Control to register.
+        let hasPrimaryModifier = event.modifierFlags.contains(.command)
+            || event.modifierFlags.contains(.option)
+            || event.modifierFlags.contains(.control)
+
         let stroke = ShortcutStroke(
             key: chars.lowercased(),
             command: event.modifierFlags.contains(.command),
@@ -371,7 +393,17 @@ public final class RecorderHostButton: NSButton {
         // first stroke so users cannot accidentally bind a bare letter
         // as a global keyboard shortcut. The chord-pending second
         // stroke does not require a modifier (matching legacy).
-        if pendingFirst == nil, firstStrokeRequiresModifier, !hasModifier {
+        //
+        // System-wide (global) hotkeys additionally require a *primary*
+        // modifier (Command/Option/Control): a Shift-only combination passes
+        // the generic `hasModifier` check but the app target rejects it, so we
+        // refuse it here rather than persisting a binding Carbon cannot
+        // register. Both rejections share the `onBareKeyRejected` path; the
+        // banner message is chosen by the row from the action's system-wide
+        // flag.
+        if pendingFirst == nil,
+           (firstStrokeRequiresModifier && !hasModifier)
+               || (firstStrokeRequiresPrimaryModifier && !hasPrimaryModifier) {
             hasPendingRejection = true
             refreshTitle()
             onBareKeyRejected?()

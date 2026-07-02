@@ -616,6 +616,26 @@ enum KeyboardShortcutSettings {
             self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias && self != .cycleTextBoxSubmitAction
         }
 
+        /// Whether this action is delivered by a system-wide (global) Carbon
+        /// hotkey (`RegisterEventHotKey`) that fires even when cmux is not
+        /// frontmost.
+        ///
+        /// These actions are dispatched by `SystemWideHotkeyController`, never
+        /// by an AppKit menu key equivalent or the local key handler, so they
+        /// must be excluded from menu-backed and chord-prefix handling. Mirrors
+        /// the CmuxSettings package's `ShortcutAction.isSystemWideHotkey`; the
+        /// two enums are kept in sync so Settings never persists a binding the
+        /// runtime cannot register. `SystemWideHotkeyController.systemWideActions`
+        /// is the authoritative registration list for the same set.
+        var isSystemWideHotkey: Bool {
+            switch self {
+            case .showHideAllWindows, .globalSearch, .sendAppshot:
+                return true
+            default:
+                return false
+            }
+        }
+
         var isBrowserContentShortcut: Bool {
             switch self {
             case .diffViewerScrollDown,

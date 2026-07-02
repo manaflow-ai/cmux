@@ -2,7 +2,7 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34430	CLI/cmux.swift
-18045	Sources/AppDelegate.swift
+18047	Sources/AppDelegate.swift
 16484	Sources/ContentView.swift
 14232	Sources/TerminalController.swift
 13071	Sources/Workspace.swift
@@ -35,7 +35,7 @@
 3058	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift
-2618	Sources/KeyboardShortcutSettings.swift
+2638	Sources/KeyboardShortcutSettings.swift
 2563	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
@@ -166,10 +166,10 @@
 644	Packages/macOS/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 642	cmuxTests/RemoteTmuxControlParserTests.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
+637	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 635	cmuxUITests/RightSidebarChromeHeightUITests.swift
 632	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
-627	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 624	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTests.swift
 624	Sources/SettingsNavigation.swift
 620	cmuxTests/FinderFileDropRegressionTests.swift
