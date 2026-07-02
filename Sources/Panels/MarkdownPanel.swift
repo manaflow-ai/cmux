@@ -35,6 +35,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Whether TextEdit mode is saving to disk.
     @Published private(set) var isSaving: Bool = false
 
+    /// Whether the AppKit text finder is visible or queued to become visible.
+    @Published private(set) var isFindVisible: Bool = false
+
     /// The current view mode for this markdown panel. New panels default to preview.
     @Published private(set) var displayMode: MarkdownPanelDisplayMode = .preview
 
@@ -82,6 +85,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
     private var pendingSearchNeedle: String?
+    private var pendingTextFinderAction: NSTextFinder.Action?
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
@@ -235,6 +239,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         guard displayMode == .text else { return }
         _ = textView?.window?.makeFirstResponder(textView)
         applyPendingSearchNeedleIfPossible()
+        performPendingTextFinderActionIfPossible()
     }
 
     func unfocus() {
@@ -245,6 +250,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         isClosed = true
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
+        isFindVisible = false
+        pendingTextFinderAction = nil
         textView = nil
         stopWatching()
         if let typographyDefaultsObserver {
@@ -269,6 +276,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
+        performPendingTextFinderActionIfPossible()
     }
 
     func retryPendingFocus() {
@@ -418,6 +426,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         pendingSearchNeedle = nil
     }
 
+    @discardableResult
+    private func performPendingTextFinderActionIfPossible() -> Bool {
+        guard let action = pendingTextFinderAction else { return false }
+        return performTextFinderAction(action, queueIfNeeded: false)
+    }
+
     // MARK: - File watcher
 
     /// Watches ``filePath`` for changes via ``CmuxFileWatch/FileWatcher``, which
@@ -448,5 +462,79 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
         }
+    }
+}
+
+// MARK: - Find support
+
+extension MarkdownPanel: FindablePanel {
+    var hasSelectionForFind: Bool {
+        guard displayMode == .text else { return false }
+        return (textView?.selectedRange().length ?? 0) > 0
+    }
+
+    @discardableResult
+    func startFind() -> Bool {
+        if displayMode == .preview {
+            return switchToTextModeAndOpenFindInterface()
+        }
+        return performTextFinderAction(.showFindInterface)
+    }
+
+    func findNext() {
+        if displayMode == .preview {
+            _ = switchToTextModeAndOpenFindInterface()
+            return
+        }
+        _ = performTextFinderAction(.nextMatch)
+    }
+
+    func findPrevious() {
+        if displayMode == .preview {
+            _ = switchToTextModeAndOpenFindInterface()
+            return
+        }
+        _ = performTextFinderAction(.previousMatch)
+    }
+
+    func hideFind() {
+        guard displayMode == .text else { return }
+        _ = performTextFinderAction(.hideFindInterface)
+    }
+
+    func useSelectionForFind() {
+        guard hasSelectionForFind else { return }
+        _ = performTextFinderAction(.setSearchString)
+    }
+
+    @discardableResult
+    private func performTextFinderAction(
+        _ action: NSTextFinder.Action,
+        queueIfNeeded: Bool = true
+    ) -> Bool {
+        guard displayMode == .text else { return false }
+        guard let textView else {
+            if queueIfNeeded {
+                let queuedAction = action.queuedWithoutTextView
+                pendingTextFinderAction = queuedAction
+                isFindVisible = queuedAction.updatesFindVisibility(isFindVisible)
+                return true
+            }
+            return false
+        }
+        _ = textView.window?.makeFirstResponder(textView)
+        textView.performTextFinderAction(action.menuItemSender)
+        pendingTextFinderAction = nil
+        isFindVisible = action.updatesFindVisibility(isFindVisible)
+        return true
+    }
+
+    @discardableResult
+    private func switchToTextModeAndOpenFindInterface() -> Bool {
+        pendingTextFinderAction = .showFindInterface
+        isFindVisible = true
+        setDisplayMode(.text)
+        _ = performPendingTextFinderActionIfPossible()
+        return true
     }
 }
