@@ -9,10 +9,10 @@ private let mobileShellLog = Logger(
 )
 
 extension MobileShellComposite {
-    /// Privileged direct-to-agent feedback round-trip: export the structured
-    /// diagnostic log, package it with the supplied debug-log text, visible
-    /// terminal text, and an optional freeform note, and submit it to the paired
-    /// Mac's `dogfood.feedback.submit` sink so the existing watcher under
+    /// Privileged direct-to-agent feedback round-trip: package the supplied
+    /// debug-log text, visible terminal text, an optional freeform note, and — on
+    /// DEBUG builds only — the exported structured diagnostic log, then submit it to
+    /// the paired Mac's `dogfood.feedback.submit` sink so the existing watcher under
     /// `~/.cache/cmux-dogfood-feedback/` catches it.
     ///
     /// This is the privileged path of the Send Feedback feature: it is offered
@@ -20,8 +20,11 @@ extension MobileShellComposite {
     /// ``MobileFeedbackRoute/resolve(email:hasActiveMacConnection:hostSupportsAgentSink:)``), and is NOT
     /// `#if DEBUG`-gated, so it works on Release (beta/prod) builds for the team.
     ///
-    /// The structured log is exported here (the store owns ``diagnosticLog``);
-    /// the string snapshots are gathered by the caller on the UI layer, where the
+    /// The structured log (the store owns ``diagnosticLog``) is a process-wide
+    /// flight recorder that is never reset at the account boundary, so it is
+    /// exported into the bundle on DEBUG builds only; on Release the bundle omits it
+    /// to avoid a shared-device cross-account leak (see the body comment). The string
+    /// snapshots are gathered by the caller on the UI layer, where the
     /// `GhosttySurfaceView`/`MobileDebugLog` accessors live. Fire-and-forget; a
     /// transport failure is logged and surfaced via the returned `Bool`.
     ///
@@ -31,7 +34,8 @@ extension MobileShellComposite {
     ///   - terminalText: The visible terminal text (from `GhosttySurfaceView`).
     ///   - buildStamp: The build-identity stamp (build type + version + OS +
     ///     device) written into the bundle. Defaults to the diagnostic log's
-    ///     stamp when not supplied.
+    ///     stamp on DEBUG builds when not supplied, and to an empty string on
+    ///     Release (the sole caller always supplies a stamp).
     /// - Returns: `true` when the Mac acknowledged the bundle.
     @discardableResult
     public func submitPrivilegedAgentFeedback(
@@ -41,8 +45,24 @@ extension MobileShellComposite {
         buildStamp: String? = nil
     ) async -> Bool {
         guard let client = remoteClient else { return false }
+        // The structured `diagnosticLog` is a process-wide flight recorder created
+        // once in `AppCompositionRoot` and never reset at the account boundary. This
+        // feedback path is intentionally NOT `#if DEBUG`-gated (it ships to
+        // `@manaflow.ai` users on Release/TestFlight), so exporting the structured log
+        // here would let a later signed-in team user submit a bundle carrying the
+        // previous account's structured activity (connection/pairing/input/composer
+        // timing) on a shared device. Keep the structured export DEBUG-only for the
+        // dev dogfood round-trip; on Release the bundle carries only the freeform
+        // note, visible terminal text, and the string debug log. (This restores the
+        // pre-diagnostics-plumbing behavior: `diagnosticLog` was `nil` on Release, so
+        // this already exported empty `Data()` there.)
+        #if DEBUG
         let diagnosticBlob = await diagnosticLog?.export() ?? Data()
         let buildStamp = buildStamp ?? diagnosticLog?.buildStamp ?? ""
+        #else
+        let diagnosticBlob = Data()
+        let buildStamp = buildStamp ?? ""
+        #endif
         let clientID = clientID
         // Cap inputs and build the (potentially multi-MiB) combined blob +
         // base64 + JSON request OFF the main actor: the store is `@MainActor`, so
