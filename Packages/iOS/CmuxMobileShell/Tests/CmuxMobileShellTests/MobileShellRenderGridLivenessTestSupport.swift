@@ -46,6 +46,11 @@ struct LivenessTestRuntime: MobileSyncRuntime {
 
 // MARK: - Scripted host (router + transport)
 
+struct LivenessViewportReport: Sendable {
+    var columns: Int
+    var rows: Int
+}
+
 /// Scripts the Mac side of the persistent RPC connection: answers the
 /// connect-time `workspace.list`, the `mobile.host.status` capability and
 /// probe requests, `mobile.events.subscribe`, and replay/viewport calls.
@@ -237,7 +242,7 @@ actor LivenessHostRouter {
         }
     }
 
-    func response(method: String?, id: String?) async -> Data? {
+    func response(method: String?, id: String?, viewportReport: LivenessViewportReport? = nil) async -> Data? {
         switch method {
         case "workspace.list", "mobile.workspace.list":
             return try? Self.resultFrame(id: id, result: [
@@ -305,8 +310,18 @@ actor LivenessHostRouter {
             return try? Self.resultFrame(id: id, result: [
                 "data_b64": Data(text.utf8).base64EncodedString(),
             ])
-        case "mobile.events.unsubscribe", "mobile.terminal.viewport":
+        case "mobile.events.unsubscribe":
             return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.terminal.viewport":
+            // Mirror the Mac host: acknowledge the report with the effective
+            // shared grid. Echoing the reported viewport models a single
+            // attached device, whose report is always the effective minimum.
+            var result: [String: Any] = [:]
+            if let viewportReport {
+                result["columns"] = viewportReport.columns
+                result["rows"] = viewportReport.rows
+            }
+            return try? Self.resultFrame(id: id, result: result)
         case "terminal.input":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_seq": 100,
@@ -398,13 +413,22 @@ actor LivenessTransport: CmxByteTransport {
             let parsed = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
             let method = parsed?["method"] as? String
             let id = parsed?["id"] as? String
-            let topics = (parsed?["params"] as? [String: Any])?["topics"] as? [String]
+            let params = parsed?["params"] as? [String: Any]
+            let topics = params?["topics"] as? [String]
+            let viewportReport: LivenessViewportReport? = {
+                guard method == "mobile.terminal.viewport",
+                      let columns = (params?["viewport_columns"] as? NSNumber)?.intValue,
+                      let rows = (params?["viewport_rows"] as? NSNumber)?.intValue else {
+                    return nil
+                }
+                return LivenessViewportReport(columns: columns, rows: rows)
+            }()
             await router.record(method: method, topics: topics)
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
             Task { [router, weak self] in
-                guard let response = await router.response(method: method, id: id) else {
+                guard let response = await router.response(method: method, id: id, viewportReport: viewportReport) else {
                     return
                 }
                 await self?.deliver(response)

@@ -13710,6 +13710,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
+        let reportedGrid: (columns: Int, rows: Int)?
         if v2Bool(params, "clear") == true {
             if let clientID = v2String(params, "client_id") {
                 clearMobileViewportReport(
@@ -13718,15 +13719,24 @@ class TerminalController {
                     reason: "mobile.terminal.viewport.clear"
                 )
             }
+            reportedGrid = nil
         } else {
-            applyMobileViewportReport(params: params, terminalPanel: terminalPanel, sticky: true)
+            reportedGrid = applyMobileViewportReport(
+                params: params,
+                terminalPanel: terminalPanel,
+                sticky: true,
+                reason: "mobile.terminal.viewport"
+            )
         }
 
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": surfaceId.uuidString,
         ]
-        if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalViewport") {
+        if let reportedGrid {
+            payload["columns"] = reportedGrid.columns
+            payload["rows"] = reportedGrid.rows
+        } else if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalViewport") {
             let size = ghostty_surface_size(surface)
             payload["columns"] = max(Int(size.columns), 1)
             payload["rows"] = max(Int(size.rows), 1)
@@ -14022,12 +14032,13 @@ class TerminalController {
     private func applyMobileViewportReport(
         params: [String: Any],
         terminalPanel: TerminalPanel,
-        sticky: Bool = false
-    ) {
+        sticky: Bool = false,
+        reason: String = "mobile.terminal.input"
+    ) -> (columns: Int, rows: Int)? {
         guard let clientID = v2String(params, "client_id"),
               let rawColumns = v2Int(params, "viewport_columns"),
               let rawRows = v2Int(params, "viewport_rows") else {
-            return
+            return nil
         }
 
         let columns = min(max(rawColumns, 20), 300)
@@ -14048,13 +14059,14 @@ class TerminalController {
 
         guard let minColumns = reports.values.map(\.columns).min(),
               let minRows = reports.values.map(\.rows).min() else {
-            return
+            return nil
         }
         terminalPanel.surface.applyMobileViewportLimit(
             columns: minColumns,
             rows: minRows,
-            reason: "mobile.terminal.input"
+            reason: reason
         )
+        return (minColumns, minRows)
     }
 
     /// Remove a single client's viewport report for a surface (dedicated

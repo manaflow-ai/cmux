@@ -50,9 +50,10 @@ import Testing
     )
 
     #expect(String(data: frame.vtPatchBytes(), encoding: .utf8) ==
+        "\u{1B}[?6l\u{1B}[?7l" +
         "\u{1B}[0m\u{1B}[1;1H\u{1B}[2K" +
         "\u{1B}[1;1H\u{1B}[0mα🇰🇷B" +
-        "\u{1B}[0m"
+        "\u{1B}[0m\u{1B}[?7h"
     )
 }
 
@@ -70,9 +71,10 @@ import Testing
     )
 
     #expect(String(data: frame.vtPatchBytes(), encoding: .utf8) ==
+        "\u{1B}[?6l\u{1B}[?7l" +
         "\u{1B}[0m\u{1B}[1;1H\u{1B}[2K" +
         "\u{1B}[1;1H\u{1B}[0mA B" +
-        "\u{1B}[0m"
+        "\u{1B}[0m\u{1B}[?7h"
     )
 }
 
