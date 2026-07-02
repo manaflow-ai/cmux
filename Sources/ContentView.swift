@@ -13577,15 +13577,17 @@ struct TabItemView: View, Equatable {
     }
 
     private var activeCodingAgentTooltip: String {
+        // The count covers coding agents AND manual `cmux workspace loading`
+        // loaders, so the wording stays task-generic.
         if workspaceSnapshot.activeCodingAgentCount == 1 {
             return String(
                 localized: "sidebar.agentActivity.tooltip.one",
-                defaultValue: "1 running coding agent"
+                defaultValue: "Loading (1 active task)"
             )
         }
         let format = String(
             localized: "sidebar.agentActivity.tooltip.many",
-            defaultValue: "%lld running coding agents"
+            defaultValue: "Loading (%lld active tasks)"
         )
         return String.localizedStringWithFormat(format, Int64(workspaceSnapshot.activeCodingAgentCount))
     }
