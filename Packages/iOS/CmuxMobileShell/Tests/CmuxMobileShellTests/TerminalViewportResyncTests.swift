@@ -431,3 +431,36 @@ import Testing
     #expect(String(data: replayChunk.data, encoding: .utf8) == "retry-resize-replay")
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
 }
+
+@MainActor
+@Test func terminalViewportDetachKeepsGenerationTombstoneForStaleAcks() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "initial-viewport-replay"])
+    try await mountOutputAndReportViewport(store: store, router: router, surfaceID: surfaceID)
+
+    let clearSent = await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 2)
+    #expect(clearSent)
+    #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == 2)
+}
+
+@MainActor
+private func mountOutputAndReportViewport(
+    store: MobileShellComposite,
+    router: LivenessHostRouter,
+    surfaceID: String
+) async throws {
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == 1)
+}

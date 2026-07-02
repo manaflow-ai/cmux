@@ -13714,7 +13714,7 @@ class TerminalController {
             if let clientID = v2String(params, "client_id") {
                 reportedGrid = clearMobileViewportReport(
                     surfaceID: terminalPanel.id,
-                    clientID: clientID,
+                    clientID: clientID, generation: v2Int(params, "viewport_generation").flatMap { $0 >= 0 ? UInt64($0) : nil }, requireGeneration: true,
                     reason: "mobile.terminal.viewport.clear"
                 )
             } else {
@@ -14079,13 +14079,12 @@ class TerminalController {
     /// macOS border reflects only the devices still attached.
     private func clearMobileViewportReport(
         surfaceID: UUID,
-        clientID: String,
+        clientID: String, generation: UInt64? = nil, requireGeneration: Bool = false,
         reason: String
     ) -> (columns: Int, rows: Int)? {
-        guard var reports = mobileViewportReportsBySurfaceID[surfaceID],
-              reports.removeValue(forKey: clientID) != nil else {
-            return nil
-        }
+        guard var reports = mobileViewportReportsBySurfaceID[surfaceID], let existingReport = reports[clientID] else { return nil }
+        if requireGeneration, let existingGeneration = existingReport.generation, generation.map({ existingGeneration > $0 }) ?? true { return nil }
+        reports.removeValue(forKey: clientID)
         if reports.isEmpty {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()

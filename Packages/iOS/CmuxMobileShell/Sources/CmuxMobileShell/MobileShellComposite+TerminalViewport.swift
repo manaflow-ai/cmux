@@ -4,7 +4,7 @@ internal import CmuxMobileShellModel
 internal import Foundation
 internal import OSLog
 
-private let terminalViewportLog = Logger(
+nonisolated private let terminalViewportLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "mobile-shell"
 )
@@ -112,7 +112,8 @@ extension MobileShellComposite {
     /// Tell the Mac to drop this device's viewport pin for a surface (on
     /// detach). Fire-and-forget; the Mac also clears on connection close.
     public func clearTerminalViewport(surfaceID: String) {
-        viewportReportGenerationsBySurfaceID[surfaceID, default: 0] += 1
+        let clearGeneration = (viewportReportGenerationsBySurfaceID[surfaceID] ?? 0) + 1
+        viewportReportGenerationsBySurfaceID[surfaceID] = clearGeneration
         reportedTerminalViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         guard let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
@@ -128,6 +129,7 @@ extension MobileShellComposite {
                     "surface_id": surfaceID,
                     "client_id": id,
                     "clear": true,
+                    "viewport_generation": Int(clamping: clearGeneration),
                 ]
             )
             guard let request else { return }
