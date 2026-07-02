@@ -875,10 +875,13 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     /// so changing the sort key re-sorts the cached listing without a re-fetch.
     ///
     /// Access failures stay distinguishable from empty directories: an
-    /// unreadable or missing directory (`cd` fails or `.` is not readable), or
-    /// a host without a usable `stat`, exits non-zero so `runSSHCommand` raises
-    /// `sshCommandFailed`. A readable but genuinely empty directory produces no
-    /// `find` output and reaches the trailing `exit 0`, listing as empty.
+    /// unreadable or missing directory (`cd` fails or `.` is not readable), a
+    /// host without a usable `stat`, or a listing command that fails (`find`
+    /// lacks `-mindepth`/`-maxdepth`, an unsupported `stat` format, or a
+    /// per-entry error) exits non-zero via `|| exit 1` so `runSSHCommand` raises
+    /// `sshCommandFailed` instead of masking the failure as an empty listing. A
+    /// readable but genuinely empty directory makes `find` exit zero with no
+    /// output and reaches the trailing `exit 0`, listing as empty.
     static func remoteListingScript(path: String, showHidden: Bool) -> String {
         let escapedPath = shellSingleQuote(path)
         // Exclude dotfiles unless hidden entries are requested. `find` never
@@ -894,9 +897,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         cd \(escapedPath) 2>/dev/null || exit 1
         [ -r . ] || exit 1
         if stat -c %Y / >/dev/null 2>&1; then
-          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -c '%F\t%Y\t%W\t%n' {} + 2>/dev/null
+          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -c '%F\t%Y\t%W\t%n' {} + 2>/dev/null || exit 1
         elif stat -f %m / >/dev/null 2>&1; then
-          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -f '%HT\t%m\t%B\t%N' {} + 2>/dev/null
+          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -f '%HT\t%m\t%B\t%N' {} + 2>/dev/null || exit 1
         else
           exit 1
         fi
