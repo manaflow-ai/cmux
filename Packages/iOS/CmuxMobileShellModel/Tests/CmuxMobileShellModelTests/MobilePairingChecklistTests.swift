@@ -45,4 +45,33 @@ import Testing
         #expect(checklist.steps.map(\.status) == [.succeeded, .succeeded, .succeeded])
         #expect(checklist.hasFailure == false)
     }
+
+    @Test func trustFailurePreservesEarlierSuccessesWhenProvided() {
+        let checklist = MobilePairingChecklist.inProgress.applyingFailure(
+            .trust,
+            message: "This Mac is not trusted.",
+            guidance: "Approve the device on your Mac.",
+            succeededSteps: [.network, .authentication]
+        )
+
+        #expect(checklist.network.status == .succeeded)
+        #expect(checklist.authentication.status == .succeeded)
+        #expect(checklist.trust.status == .failed)
+        #expect(checklist.trust.message == "This Mac is not trusted.")
+        #expect(checklist.trust.guidance == "Approve the device on your Mac.")
+        #expect(checklist.hasFailure)
+    }
+
+    @Test func trustFailureWithoutKnownSuccessesResetsEarlierStepsToPending() {
+        let checklist = MobilePairingChecklist.inProgress.applyingFailure(
+            .trust,
+            message: "This Mac is not trusted."
+        )
+
+        #expect(checklist.network.status == .pending)
+        #expect(checklist.authentication.status == .pending)
+        #expect(checklist.trust.status == .failed)
+        #expect(checklist.trust.message == "This Mac is not trusted.")
+        #expect(checklist.hasFailure)
+    }
 }

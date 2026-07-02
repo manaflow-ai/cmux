@@ -21,11 +21,19 @@ public struct MobilePairingChecklist: Equatable, Sendable {
 
     /// Creates a pairing checklist from individual rows.
     ///
+    /// Private: each parameter must carry the matching `.step` and callers must
+    /// pass the rows in `network`/`authentication`/`trust` order, so a public
+    /// initializer would let external code trip the `precondition`s below (a
+    /// release-build crash) by mislabeling or reordering rows. Construct
+    /// checklists through the `idle`/`inProgress`/`succeeded` factories and the
+    /// `updating(_:)`/`applyingFailure(_:...)` transforms instead; the
+    /// preconditions remain an internal safety net for those callers.
+    ///
     /// - Parameters:
     ///   - network: The network reachability row.
     ///   - authentication: The account authentication row.
     ///   - trust: The trust row.
-    public init(
+    private init(
         network: MobilePairingStepSnapshot,
         authentication: MobilePairingStepSnapshot,
         trust: MobilePairingStepSnapshot

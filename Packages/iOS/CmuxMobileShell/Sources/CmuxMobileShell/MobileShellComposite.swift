@@ -949,24 +949,47 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingAttemptID = UUID()
     }
 
-    /// Stops background subscriptions and disconnects active transports before
-    /// the shell store is discarded.
-    public func shutdown() {
+    /// Cancels every background task and tears down active subscriptions and
+    /// transports. Shared by `shutdown()` (the reversible SwiftUI `onDisappear`
+    /// path) and `deinit` (final release).
+    ///
+    /// A `CMUXMobileShellStore` can be owned outside `CMUXMobileAppView`, where no
+    /// `onDisappear` ever fires `shutdown()`. `deinit` calls this so such a store
+    /// still releases its presence/network/terminal tasks and disconnects its
+    /// transport at release instead of leaking them past its lifetime — matching
+    /// the cleanup `main` performed inline in its isolated deinit.
+    ///
+    /// `stopTerminalRefreshPolling()` cancels the event-listener,
+    /// subscription-start, and render-grid-liveness watchdog work;
+    /// `cancelRemoteOperationTasks()` cancels the host-identity adoption,
+    /// subscription-refresh, workspace/terminal create, workspace-list refresh,
+    /// pull-to-refresh, and all in-flight terminal replay tasks. Together they
+    /// subsume the individual cancellations added on `main`.
+    private func cancelBackgroundWorkAndDisconnect() {
         presenceTask?.cancel()
         presenceTask = nil
         networkPathObservationTask?.cancel()
         networkPathObservationTask = nil
         networkPathObservationStarted = false
-        // `stopTerminalRefreshPolling()` cancels the event-listener,
-        // subscription-start, and render-grid-liveness watchdog work;
-        // `cancelRemoteOperationTasks()` cancels the host-identity adoption,
-        // subscription-refresh, workspace/terminal create, workspace-list
-        // refresh, pull-to-refresh, and all in-flight terminal replay tasks.
-        // Together they subsume the individual cancellations added on `main`.
         stopTerminalRefreshPolling()
         cancelRemoteOperationTasks()
         teardownSecondaryMacSubscriptions()
         replaceRemoteClient(with: nil)
+    }
+
+    /// Final-release safety net. The reversible `onDisappear` path calls
+    /// `shutdown()`, but a `CMUXMobileShellStore` owned outside
+    /// `CMUXMobileAppView` may simply be released without one. Mirror `main`'s
+    /// isolated deinit so background work and the transport are still torn down.
+    /// `isolated` so it can touch the `@MainActor` state it cancels.
+    isolated deinit {
+        cancelBackgroundWorkAndDisconnect()
+    }
+
+    /// Stops background subscriptions and disconnects active transports before
+    /// the shell store is discarded.
+    public func shutdown() {
+        cancelBackgroundWorkAndDisconnect()
         // `shutdown()` runs from the reversible SwiftUI `onDisappear`. If SwiftUI
         // reuses this view's identity and re-appears with the same `@State` store,
         // the reconnect-on-appear gate (`MobileRootAuthGate.shouldReconnectStoredMac`)
