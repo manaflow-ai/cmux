@@ -315,6 +315,47 @@ import Testing
         }
     }
 
+    @Test func persistAfterExitSkippedWhileAnotherAgentIsLiveInWorkspace() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                workspace.applyProcessTitle("project-directory")
+                // A *different* agent (e.g. Codex) is still live in this workspace;
+                // model it with the test process's own pid so it is genuinely alive.
+                workspace.agentPIDs = ["codex": ProcessInfo.processInfo.processIdentifier]
+
+                // The exiting Claude session (excluding_pid) must not stamp its
+                // title over the shared workspace while that sibling agent is alive.
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Exiting Claude title",
+                    "persist_after_exit": true,
+                    "excluding_pid": "1"
+                ])
+                #expect(envelope["ok"] as? Bool == true)
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == false)
+                #expect(result["workspace_owned_by_live_agent"] as? Bool == true)
+                #expect(workspace.customTitle == nil)
+                #expect(workspace.title == "project-directory")
+
+                // With only the exiting agent itself live (its own pid excluded),
+                // the persist proceeds — the guard is specific to *other* agents.
+                workspace.agentPIDs = ["claude": ProcessInfo.processInfo.processIdentifier]
+                let applied = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Exiting Claude title",
+                    "persist_after_exit": true,
+                    "excluding_pid": String(ProcessInfo.processInfo.processIdentifier)
+                ])
+                #expect(applied["ok"] as? Bool == true)
+                let appliedResult = try #require(applied["result"] as? [String: Any])
+                #expect(appliedResult["workspace_applied"] as? Bool == true)
+                #expect(appliedResult["workspace_owned_by_live_agent"] as? Bool == false)
+                #expect(workspace.customTitle == "Exiting Claude title")
+            }
+        }
+    }
+
     @Test func clearAutoTitleOnlyClearsAutoOwnedWorkspace() throws {
         try withAutoNamingSetting(false) {
             try withManager { _, workspace in
