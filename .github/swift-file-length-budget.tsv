@@ -5,7 +5,7 @@
 17978	Sources/AppDelegate.swift
 16487	Sources/ContentView.swift
 14224	Sources/TerminalController.swift
-13161	Sources/Workspace.swift
+13164	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12212	Sources/GhosttyTerminalView.swift
 11671	Sources/Panels/BrowserPanel.swift
@@ -85,7 +85,7 @@
 1110	Sources/AppDelegate+CmuxSSHURL.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
-1054	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
+1079	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 1044	cmuxTests/WorkspaceGroupTests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift

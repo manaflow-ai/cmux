@@ -7006,6 +7006,9 @@ final class Workspace: Identifiable, ObservableObject {
         if let sessionDirectory, trackedDirectory == sessionDirectory { return nil }
         for candidate in [liveForegroundProcessWorkingDirectory(panelId: panelId), sessionDirectory] {
             guard let candidate = Self.normalizedTerminalWorkingDirectory(candidate) else { continue }
+            if candidate == trackedDirectory, sessionDirectory != nil {
+                continue
+            }
             var candidateIsDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: candidate, isDirectory: &candidateIsDirectory),
                candidateIsDirectory.boolValue {

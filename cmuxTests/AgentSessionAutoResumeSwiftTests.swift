@@ -415,6 +415,31 @@ struct AgentSessionAutoResumeSwiftTests {
         }
     }
 
+    /// If libproc reports the same directory as the already-clobbered tracked
+    /// cwd, it is probably the resume launcher shell rather than the agent's
+    /// real cwd. Fall back to the recorded session directory instead.
+    @MainActor
+    @Test func splitFromResumedAgentPaneIgnoresLiveCwdMatchingClobberedTrackedCwd() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-split-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId, homeDir) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
+                projectDir: projectDir
+            )
+            restored.foregroundProcessWorkingDirectoryProvider = { _ in homeDir }
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == projectDir)
+        }
+    }
+
     /// While the tracked cwd still matches the restored session directory the
     /// #7155 rescue stays out of the way: the tracked value wins and the live
     /// process is never inspected, so healthy panes keep today's behavior.
