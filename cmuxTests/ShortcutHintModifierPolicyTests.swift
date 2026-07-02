@@ -102,6 +102,8 @@ struct ShortcutHintModifierHoldPolicyTests {
 
             #expect(settings.modifierHoldHintsEnabled)
             #expect(!settings.commandHoldHintsEnabled)
+            #expect(!settings.showHintsOnCommandHoldEnabled)
+            #expect(settings.showHintsOnControlHoldEnabled)
             #expect(!policy.shouldShowHints(for: [.command]))
             #expect(policy.shouldShowHints(for: [.control]))
             #expect(!policy.shouldShowCommandHints(for: [.command]))

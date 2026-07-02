@@ -1534,22 +1534,6 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertTrue(ShortcutHintDebugSettings(defaults: defaults).showHintsOnCommandHoldEnabled)
     }
 
-    func testShowHintsOnCommandHoldFollowsCommandHoldSetting() {
-        let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create defaults suite")
-            return
-        }
-
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(false, forKey: ShortcutHintDebugSettings.showCommandHoldHintsKey)
-
-        XCTAssertFalse(ShortcutHintDebugSettings(defaults: defaults).showHintsOnCommandHoldEnabled)
-        XCTAssertTrue(ShortcutHintDebugSettings(defaults: defaults).showHintsOnControlHoldEnabled)
-    }
-
     func testShowHintsOnControlHoldIsHardcodedEnabled() {
         let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
