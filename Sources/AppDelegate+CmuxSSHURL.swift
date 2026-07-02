@@ -208,7 +208,14 @@ struct TerminalDefaultFileOpenRequest: Equatable {
 
         self.fileURL = standardizedURL
         self.workingDirectory = standardizedURL.deletingLastPathComponent().path(percentEncoded: false)
-        self.initialInput = "\(Self.shellSingleQuoted(standardizedURL.path(percentEncoded: false)))\n"
+        // This command is delivered to Ghostty as inline `initial_input`, whose embedded
+        // parser corrupts every non-ASCII byte (UTF-8 misread as Latin-1) — so a raw CJK
+        // path would be mojibaked and the shell would report "no such file or directory".
+        // `TerminalStartupShellQuoting.singleQuoted` keeps ASCII paths single-quoted but
+        // ASCII-armors non-ASCII paths as `"$(printf '\NNN…')"`, which survives the
+        // transport unchanged and is reconstructed byte-for-byte by the shell.
+        // https://github.com/manaflow-ai/cmux/issues/7036
+        self.initialInput = "\(TerminalStartupShellQuoting.singleQuoted(standardizedURL.path(percentEncoded: false)))\n"
     }
 
     static func requests(from urls: [URL]) -> [TerminalDefaultFileOpenRequest] {
@@ -251,10 +258,6 @@ struct TerminalDefaultFileOpenRequest: Equatable {
         default:
             return false
         }
-    }
-
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }
 
