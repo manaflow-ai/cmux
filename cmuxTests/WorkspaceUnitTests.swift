@@ -2861,6 +2861,26 @@ final class WorkspaceCustomDescriptionTests: XCTestCase {
         XCTAssertNil(workspace.customDescription)
         XCTAssertFalse(workspace.hasCustomDescription)
     }
+
+    func testSidebarStatusPersistsThroughSessionSnapshotRestore() {
+        let source = Workspace()
+        source.setSidebarStatusId("done")
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertEqual(snapshot.sidebarStatusId, "done")
+        XCTAssertEqual(restored.sidebarStatusId, "done")
+    }
+
+    func testSetSidebarStatusDropsUnknownStatus() {
+        let workspace = Workspace()
+
+        workspace.setSidebarStatusId("ship-it")
+
+        XCTAssertNil(workspace.sidebarStatusId)
+    }
 }
 final class WorkspacePlacementSettingsTests: XCTestCase {
     func testCurrentPlacementDefaultsToAfterCurrentWhenUnset() {

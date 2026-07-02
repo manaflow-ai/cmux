@@ -4010,7 +4010,8 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color"
+            "set_color", "clear_color",
+            "set_sidebar_status", "clear_sidebar_status"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -4178,6 +4179,41 @@ class TerminalController {
             case "clear_color":
                 tabManager.setTabColor(tabId: workspace.id, color: nil)
                 finish(["color": NSNull()])
+
+            case "set_sidebar_status":
+                guard let statusRaw = v2String(params, "status_id") ?? v2String(params, "status"),
+                      let statusId = WorkspaceSidebarStatusCatalog.normalizedStatusId(statusRaw) else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid sidebar status", data: [
+                        "status_ids": WorkspaceSidebarStatusCatalog.statuses.map(\.id)
+                    ])
+                    return
+                }
+                guard let statusResult = WorkspaceActionDispatcher.setSidebarStatus(
+                    statusId,
+                    in: tabManager,
+                    target: .single(workspace.id)
+                ) else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                finish([
+                    "status_id": statusResult.statusId as Any,
+                    "changed_workspace_ids": statusResult.changedWorkspaceIds.map(\.uuidString)
+                ])
+
+            case "clear_sidebar_status":
+                guard let statusResult = WorkspaceActionDispatcher.setSidebarStatus(
+                    nil,
+                    in: tabManager,
+                    target: .single(workspace.id)
+                ) else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                finish([
+                    "status_id": NSNull(),
+                    "changed_workspace_ids": statusResult.changedWorkspaceIds.map(\.uuidString)
+                ])
 
             default:
                 result = .err(code: "invalid_params", message: "Unknown workspace action", data: [

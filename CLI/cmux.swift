@@ -6979,9 +6979,11 @@ struct CMUXCLI {
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
         let (colorOpt, rem3) = parseOption(rem2, name: "--color")
         let (descriptionOpt, rem4) = parseOption(rem3, name: "--description")
-        let (windowOpt, rem5) = parseOption(rem4, name: "--window")
+        let (statusOpt, rem5) = parseOption(rem4, name: "--status")
+        let (statusIdOpt, rem6) = parseOption(rem5, name: "--status-id")
+        let (windowOpt, rem7) = parseOption(rem6, name: "--window")
 
-        var positional = rem5
+        var positional = rem7
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -7029,6 +7031,13 @@ struct CMUXCLI {
             throw CLIError(message: "workspace-action set-description requires --description <text> (or trailing text)")
         }
 
+        let statusId = (
+            statusIdOpt ?? statusOpt ?? (action == "set_sidebar_status" ? (inferredPositional.isEmpty ? nil : inferredPositional) : nil)
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if action == "set_sidebar_status", (statusId?.isEmpty ?? true) {
+            throw CLIError(message: "workspace-action set-sidebar-status requires --status <open|active|done|blocked> (or trailing status)")
+        }
+
         var params: [String: Any] = ["action": action]
         if let windowHandle {
             params["window_id"] = windowHandle
@@ -7044,6 +7053,9 @@ struct CMUXCLI {
         }
         if let description, !description.isEmpty {
             params["description"] = description
+        }
+        if let statusId, !statusId.isEmpty {
+            params["status_id"] = statusId
         }
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
@@ -7062,6 +7074,13 @@ struct CMUXCLI {
         }
         if let color = payload["color"] as? String {
             summaryParts.append("color=\(color)")
+        }
+        if payload.keys.contains("status_id") {
+            if let statusId = payload["status_id"] as? String {
+                summaryParts.append("status=\(statusId)")
+            } else {
+                summaryParts.append("status=clear")
+            }
         }
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
@@ -14698,6 +14717,7 @@ struct CMUXCLI {
               close-others | close-above | close-below
               mark-read | mark-unread
               set-color | clear-color
+              set-sidebar-status | clear-sidebar-status
 
             Flags:
               --action <name>              Action name (required if not positional)
@@ -14706,6 +14726,7 @@ struct CMUXCLI {
               --title <text>               Title for rename
               --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
               --description <text>         Description for set-description
+              --status <id>                Status for set-sidebar-status: open, active, done, blocked
 
             Named colors:
               Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
@@ -14721,6 +14742,8 @@ struct CMUXCLI {
               cmux workspace-action --action set-description --description "Ship checklist"
               cmux workspace-action --action set-description $'Ship checklist\n- verify build\n- post notes'
               cmux workspace-action clear-color
+              cmux workspace-action --action set-sidebar-status --status active
+              cmux workspace-action clear-sidebar-status
             """
         case "tab-action":
             return """
@@ -34257,7 +34280,7 @@ export default CMUXSessionRestore;
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
           reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>] [--status <id>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]

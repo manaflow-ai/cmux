@@ -6340,6 +6340,14 @@ struct ContentView: View {
             }
         }
 
+        func workspaceStatusCommandTitle(_ status: WorkspaceSidebarStatus) -> String {
+            let format = String(
+                localized: "command.workspaceStatus.named",
+                defaultValue: "Workspace Status: %@"
+            )
+            return String(format: format, locale: .current, status.label)
+        }
+
         var contributions: [CommandPaletteCommandContribution] = []
 
         contributions.append(
@@ -6764,6 +6772,26 @@ struct ContentView: View {
                     title: constant(workspaceColorCommandTitle(entry.name)),
                     subtitle: workspaceSubtitle,
                     keywords: ["workspace", "color", "palette", entry.name.lowercased()],
+                    when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+                )
+            )
+        }
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.clearWorkspaceStatus",
+                title: constant(String(localized: "command.clearWorkspaceStatus.title", defaultValue: "Clear Workspace Status")),
+                subtitle: workspaceSubtitle,
+                keywords: ["workspace", "status", "clear", "reset"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        for status in WorkspaceSidebarStatusCatalog.statuses {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: commandPaletteWorkspaceStatusCommandID(status.id),
+                    title: constant(workspaceStatusCommandTitle(status)),
+                    subtitle: workspaceSubtitle,
+                    keywords: ["workspace", "status", status.id, status.label.lowercased()],
                     when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
                 )
             )
@@ -7515,6 +7543,10 @@ struct ContentView: View {
         return "palette.workspaceColor.\(String(hash, radix: 16))"
     }
 
+    private func commandPaletteWorkspaceStatusCommandID(_ statusId: String) -> String {
+        "palette.workspaceStatus.\(statusId)"
+    }
+
     private func commandPaletteExtensionSidebarCommandID(_ providerId: String) -> String {
         var hash: UInt64 = 1_469_598_103_934_665_603
         for byte in providerId.utf8 {
@@ -7835,6 +7867,30 @@ struct ContentView: View {
                     return
                 }
                 tabManager.applyWorkspacePaletteColor(named: entry.name, toWorkspaceIds: [workspace.id])
+            }
+        }
+        registry.register(commandId: "palette.clearWorkspaceStatus") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            WorkspaceActionDispatcher.setSidebarStatus(
+                nil,
+                in: tabManager,
+                target: .single(workspace.id)
+            )
+        }
+        for status in WorkspaceSidebarStatusCatalog.statuses {
+            registry.register(commandId: commandPaletteWorkspaceStatusCommandID(status.id)) {
+                guard let workspace = tabManager.selectedWorkspace else {
+                    NSSound.beep()
+                    return
+                }
+                WorkspaceActionDispatcher.setSidebarStatus(
+                    status.id,
+                    in: tabManager,
+                    target: .single(workspace.id)
+                )
             }
         }
         registry.register(commandId: "palette.nextWorkspace") {
@@ -13237,6 +13293,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
+        let sidebarStatus: WorkspaceSidebarStatus?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String
@@ -13771,6 +13828,18 @@ struct TabItemView: View, Equatable {
                         .foregroundColor(.green)
                         .safeHelp(cameraInUseTooltip)
                         .accessibilityLabel(cameraInUseTooltip)
+                }
+
+                if workspaceSnapshot.sidebarStatus != nil || rowInteractionState.isPointerHovering {
+                    SidebarWorkspaceStatusButton(
+                        status: workspaceSnapshot.sidebarStatus,
+                        isActive: usesInvertedActiveForeground,
+                        fallbackColor: activeSecondaryColor(0.7),
+                        fontScale: fontScale
+                    ) {
+                        cycleWorkspaceStatus()
+                    }
+                    .transition(.opacity)
                 }
 
                 Text(displayedTitle)
@@ -14419,6 +14488,27 @@ struct TabItemView: View, Equatable {
             }
         }
 
+        Menu(String(localized: "contextMenu.workspaceStatus", defaultValue: "Workspace Status")) {
+            Button {
+                applyWorkspaceStatus(nil, targetIds: targetIds)
+            } label: {
+                Label(String(localized: "contextMenu.clearWorkspaceStatus", defaultValue: "Clear Status"), systemImage: "xmark.circle")
+            }
+            .disabled(targetIds.isEmpty || !targetIds.contains { workspaceId in
+                tabManager.tabs.first { $0.id == workspaceId }?.sidebarStatusId != nil
+            })
+
+            Divider()
+
+            ForEach(WorkspaceSidebarStatusCatalog.statuses, id: \.id) { status in
+                Button {
+                    applyWorkspaceStatus(status.id, targetIds: targetIds)
+                } label: {
+                    Label(status.label, systemImage: status.systemImage)
+                }
+            }
+        }
+
         if let copyableSidebarSSHError = workspaceSnapshot.copyableSidebarSSHError {
             Divider()
 
@@ -14838,6 +14928,7 @@ struct TabItemView: View, Equatable {
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
             customColorHex: tab.customColor,
+            sidebarStatus: WorkspaceSidebarStatusCatalog.status(for: tab.sidebarStatusId),
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -15232,6 +15323,25 @@ struct TabItemView: View, Equatable {
         tabManager.applyWorkspaceColor(hex, toWorkspaceIds: targetIds)
     }
 
+    private func applyWorkspaceStatus(_ statusId: String?, targetIds: [UUID]) {
+        guard !targetIds.isEmpty else { return }
+        _ = WorkspaceActionDispatcher.setSidebarStatus(
+            statusId,
+            in: tabManager,
+            target: WorkspaceActionDispatcher.Target(workspaceIds: targetIds, anchorWorkspaceId: tab.id)
+        )
+        refreshWorkspaceSnapshot(force: true)
+    }
+
+    private func cycleWorkspaceStatus() {
+        let targetIds = selectedTabIds.contains(tab.id) ? contextMenuWorkspaceIds : [tab.id]
+        _ = WorkspaceActionDispatcher.cycleSidebarStatus(
+            in: tabManager,
+            target: WorkspaceActionDispatcher.Target(workspaceIds: targetIds, anchorWorkspaceId: tab.id)
+        )
+        refreshWorkspaceSnapshot(force: true)
+    }
+
     private func promptCustomColor(targetIds: [UUID]) {
         let alert = NSAlert()
         alert.messageText = String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
@@ -15402,6 +15512,48 @@ private extension String {
         guard truncated else { return self }
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "..." : trimmed + "..."
+    }
+}
+
+private struct SidebarWorkspaceStatusButton: View {
+    let status: WorkspaceSidebarStatus?
+    let isActive: Bool
+    let fallbackColor: Color
+    let fontScale: CGFloat
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            CmuxSystemSymbolImage(
+                magnified: status?.systemImage ?? "circle.dashed",
+                pointSize: 10 * fontScale,
+                weight: .semibold
+            )
+            .foregroundColor(iconColor)
+            .frame(width: max(14, 14 * fontScale), height: max(14, 14 * fontScale), alignment: .center)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .safeHelp(helpText)
+        .accessibilityLabel(helpText)
+    }
+
+    private var iconColor: Color {
+        guard let status, let color = Color(hex: status.colorHex) else {
+            return fallbackColor.opacity(0.65)
+        }
+        return isActive ? color.opacity(0.95) : color
+    }
+
+    private var helpText: String {
+        guard let status else {
+            return String(localized: "sidebar.workspaceStatus.set.tooltip", defaultValue: "Set Workspace Status")
+        }
+        let format = String(
+            localized: "sidebar.workspaceStatus.current.tooltip",
+            defaultValue: "Workspace Status: %@. Click to change."
+        )
+        return String(format: format, locale: .current, status.label)
     }
 }
 

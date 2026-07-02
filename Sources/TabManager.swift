@@ -1704,6 +1704,28 @@ class TabManager: ObservableObject {
         tab.setCustomColor(color)
     }
 
+    @discardableResult
+    func setWorkspaceSidebarStatus(tabId: UUID, statusId: String?) -> Bool {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        tab.setSidebarStatusId(statusId)
+        return true
+    }
+
+    @discardableResult
+    func applyWorkspaceSidebarStatus(_ statusId: String?, toWorkspaceIds workspaceIds: [UUID]) -> [UUID] {
+        guard !workspaceIds.isEmpty else { return [] }
+        var changedWorkspaceIds: [UUID] = []
+        let targetIds = Set(workspaceIds)
+        for tab in tabs where targetIds.contains(tab.id) {
+            let previous = tab.sidebarStatusId
+            tab.setSidebarStatusId(statusId)
+            if tab.sidebarStatusId != previous {
+                changedWorkspaceIds.append(tab.id)
+            }
+        }
+        return changedWorkspaceIds
+    }
+
     func applyWorkspaceColor(_ color: String?, toWorkspaceIds workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
         if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
@@ -5568,6 +5590,7 @@ extension TabManager {
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
+            hasher.combine(workspace.sidebarStatusId ?? "")
             hasher.combine(workspace.isPinned)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)

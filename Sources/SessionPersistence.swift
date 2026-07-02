@@ -1830,6 +1830,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
+    /// Manual sidebar status slot selected by the user. Optional so older
+    /// snapshots decode unchanged.
+    var sidebarStatusId: String? = nil
     var isPinned: Bool
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil
