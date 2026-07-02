@@ -21,6 +21,7 @@ struct PanelContentView: View {
     let customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
+    let workspaceDisplayName: String
     /// Explicit browser pane-ownership signal for hosts whose panels live outside
     /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
     var paneOwnershipOverride: Bool? = nil
@@ -52,6 +53,7 @@ struct PanelContentView: View {
                     appearance: appearance,
                     hasUnreadNotification: hasUnreadNotification,
                     terminalAgentContext: terminalAgentContext,
+                    workspaceDisplayName: workspaceDisplayName,
                     onFocus: onFocus,
                     onResumeAgentHibernation: onResumeAgentHibernation,
                     onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,

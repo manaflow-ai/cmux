@@ -47,6 +47,7 @@ private struct WorkspacePanelContentHostView: View {
             customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: hasUnreadNotification,
             terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+            workspaceDisplayName: workspace.customTitle ?? workspace.title,
             onFocus: onFocus,
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,

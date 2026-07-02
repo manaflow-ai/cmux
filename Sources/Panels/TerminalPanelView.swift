@@ -3,6 +3,7 @@ import Foundation
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxSettings
 import CmuxTestSupport
 import CmuxTerminal
 import CmuxFoundation
@@ -14,6 +15,18 @@ struct TerminalPanelView: View {
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+    @AppStorage(TerminalBadgeSettings.enabledKey)
+    private var badgeEnabled = TerminalBadgeSettings.defaultEnabled
+    @AppStorage(TerminalBadgeSettings.templateKey)
+    private var badgeTemplate = TerminalBadgeSettings.defaultTemplate
+    @AppStorage(TerminalBadgeSettings.positionKey)
+    private var badgePosition = TerminalBadgeSettings.defaultPosition
+    @AppStorage(TerminalBadgeSettings.opacityKey)
+    private var badgeOpacity = TerminalBadgeSettings.defaultOpacity
+    @AppStorage(TerminalBadgeSettings.fontSizeKey)
+    private var badgeFontSize = TerminalBadgeSettings.defaultFontSize
+    @AppStorage(TerminalBadgeSettings.colorHexKey)
+    private var badgeColorHex = TerminalBadgeSettings.defaultColorHex
     @State private var terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
     let paneId: PaneID
     let isFocused: Bool
@@ -23,6 +36,10 @@ struct TerminalPanelView: View {
     let appearance: PanelAppearance
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
+    /// Display title of the owning workspace, used for the `{workspace}` badge
+    /// token. Empty on surfaces (canvas, remote tmux mirrors) that do not carry
+    /// a workspace title, mirroring how ``terminalAgentContext`` is threaded.
+    let workspaceDisplayName: String
     let onFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
     let onAutoResumeAgentHibernation: () -> Void
@@ -60,6 +77,26 @@ struct TerminalPanelView: View {
         }
     }
 
+    /// The badge to render on this surface, resolved from the live badge
+    /// settings against the workspace and surface titles. `nil` when the badge
+    /// is disabled or its template resolves to empty text.
+    private var resolvedBadge: TerminalBadgeContent? {
+        guard badgeEnabled else { return nil }
+        let configuration = TerminalBadgeConfiguration(
+            template: badgeTemplate,
+            position: badgePosition,
+            opacity: badgeOpacity,
+            fontSize: badgeFontSize,
+            colorHex: badgeColorHex
+        )
+        let text = configuration.resolvedText(
+            workspace: workspaceDisplayName,
+            tab: panel.displayTitle
+        )
+        guard !text.isEmpty else { return nil }
+        return TerminalBadgeContent(text: text, configuration: configuration)
+    }
+
     private var terminalBody: some View {
         @Bindable var textBoxState = panel.textBoxState
 
@@ -77,6 +114,7 @@ struct TerminalPanelView: View {
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
                 searchState: panel.searchState,
+                badge: resolvedBadge,
                 reattachToken: panel.viewReattachToken,
                 onFocus: { _ in
                     panel.terminalDidBecomeFocused()
