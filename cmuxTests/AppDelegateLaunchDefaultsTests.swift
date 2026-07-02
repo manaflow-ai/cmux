@@ -11,6 +11,9 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct AppDelegateLaunchDefaultsTests {
+    /// Verifies that `applicationWillFinishLaunching` registers the AppKit
+    /// autofill heuristic default as `false` before AppKit starts its text-input
+    /// heuristics, guarding the macOS 26 respawn-loop fix.
     @Test func willFinishLaunchingRegistersAppKitAutoFillHeuristicDefaultOff() throws {
         let key = "NSAutoFillHeuristicControllerEnabled"
         let defaults = UserDefaults.standard
