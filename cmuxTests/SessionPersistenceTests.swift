@@ -2076,6 +2076,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    private func codexRetryWrappedForTest(_ command: String) -> String {
+        CodexResumeRetryShell().wrappedCommand(command, quote: shellQuotedForTest)
+    }
+
     /// The wrapper token as it appears inside a `/bin/sh -c '…'` wrapped command
     /// (its single quotes escaped by the POSIX `'\''` dance, without outer quotes).
     private func posixEscapedForTest(_ value: String) -> String {
@@ -2703,7 +2707,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && "
+                + codexRetryWrappedForTest("'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'")
         )
     }
 
@@ -2734,7 +2739,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ] && '/Users/lawrence/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '--yolo' '--model' 'gpt-5.4'"
+            "cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ] && "
+                + codexRetryWrappedForTest("'/Users/lawrence/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '--yolo' '--model' 'gpt-5.4'")
         )
     }
 
@@ -2766,7 +2772,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && "
+                + codexRetryWrappedForTest("'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'")
         )
     }
 
@@ -2798,8 +2805,80 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87952' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && "
+                + codexRetryWrappedForTest("'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87952' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'")
         )
+    }
+
+    func testCodexResumeCommandRetriesTransientStateDatabaseLock() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-resume-lock-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("repo with spaces", isDirectory: true)
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let attemptsURL = root.appendingPathComponent("attempts.txt", isDirectory: false)
+        let recordURL = root.appendingPathComponent("record.txt", isDirectory: false)
+        let fakeCodexURL = binDirectory.appendingPathComponent("codex fake", isDirectory: false)
+        try """
+        #!/bin/zsh
+        attempt=0
+        if [[ -r \(shellQuotedForTest(attemptsURL.path)) ]]; then
+          attempt="$(cat \(shellQuotedForTest(attemptsURL.path)))"
+        fi
+        attempt=$((attempt + 1))
+        print -r -- "$attempt" > \(shellQuotedForTest(attemptsURL.path))
+        if [[ "$attempt" -lt 3 ]]; then
+          print -u2 "Codex couldn't start because another Codex process is using its local data."
+          print -u2 "Technical details:"
+          print -u2 "  Location: /Users/example/.codex/state_5.sqlite"
+          print -u2 "  Cause: failed to initialize state runtime: error returned from database: (code: 5) database is locked"
+          exit 1
+        fi
+        printf 'attempt=%s\\ncwd=%s\\nargs=%s\\n' "$attempt" "$PWD" "$*" > \(shellQuotedForTest(recordURL.path))
+        """.write(to: fakeCodexURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCodexURL.path)
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: workingDirectory.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: fakeCodexURL.path,
+                arguments: [
+                    fakeCodexURL.path,
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: workingDirectory.path,
+                environment: ["CODEX_HOME": root.appendingPathComponent("codex home", isDirectory: true).path],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", resumeCommand]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderr = Pipe()
+        process.standardError = stderr
+        try runWithBoundedWait(process, shellDescription: "zsh codex resume retry")
+        let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0, stderrText)
+        XCTAssertEqual(
+            try String(contentsOf: attemptsURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+            "3"
+        )
+        let record = try String(contentsOf: recordURL, encoding: .utf8)
+        XCTAssertTrue(record.contains("cwd=\(workingDirectory.path)\n"), record)
+        XCTAssertTrue(record.contains("args=resume 019dad34-d218-7943-b81a-eddac5c87951 --model gpt-5.4\n"), record)
     }
 
     func testForkCommandsUseVerifiedAgentForkSyntaxAndPreserveContext() {
@@ -3066,19 +3145,23 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             codex.forkCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && "
+                + codexRetryWrappedForTest("'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'")
         )
         XCTAssertEqual(
             codexWithImage.forkCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019image-session' '--model' 'gpt-5.4'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && "
+                + codexRetryWrappedForTest("'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019image-session' '--model' 'gpt-5.4'")
         )
         XCTAssertEqual(
             codexFork.forkCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && "
+                + codexRetryWrappedForTest("'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search'")
         )
         XCTAssertEqual(
             codexTeams.forkCommand,
-            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' 'codex-teams-session' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "cd -- '/Users/example/repo' 2>/dev/null || [ ! -d '/Users/example/repo' ] && "
+                + codexRetryWrappedForTest("'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' 'codex-teams-session' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'")
         )
         XCTAssertEqual(
             directOpenCode.forkCommand,
@@ -3189,6 +3272,41 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             isRemoteContext: true
         )
         XCTAssertFalse(supportsFork)
+    }
+
+    // Regression: the Codex retry launcher (`/bin/zsh -lc '<multi-KB script>'`) must stay on local
+    // dispatch. A remote fork (`allowLauncherScript: false`) cannot ship a locally written launcher
+    // script and may not have `/bin/zsh`, and the wrapped command also blows past
+    // `maxInlineStartupInputBytes`, so wrapping it there returned nil and dropped the remote fork.
+    func testCodexRemoteForkStartupInputStaysInlineWithoutZshRetryLauncher() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/cmux/project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: "/Users/cmux/project",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        // Local dispatch can write a launcher script and is guaranteed /bin/zsh, so it still succeeds.
+        XCTAssertNotNil(snapshot.forkStartupInput(allowLauncherScript: true))
+        // Remote/inline dispatch stays a compact, zsh-independent command rather than nil.
+        let remoteInput = try XCTUnwrap(
+            snapshot.forkStartupInput(allowLauncherScript: false),
+            "remote codex fork must produce a compact inline command, not nil"
+        )
+        XCTAssertFalse(remoteInput.contains("/bin/zsh -lc"), remoteInput)
+        XCTAssertFalse(remoteInput.contains("_cmux_codex_retry_limit"), remoteInput)
+        XCTAssertTrue(remoteInput.contains("019dad34-d218-7943-b81a-eddac5c87951"), remoteInput)
     }
 
     func testOpenCodeForkSupportRemoteContextBypassesLocalProbe() async {
@@ -3968,7 +4086,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.arguments.first, "/usr/local/bin/codex")
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' 'codex-session-123' '--model' 'gpt-5.4' '--search'"
+            "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && "
+                + codexRetryWrappedForTest("'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' 'codex-session-123' '--model' 'gpt-5.4' '--search'")
         )
     }
 
@@ -5594,8 +5713,6 @@ extension SessionPersistenceTests {
             XCTAssertNil(restoredPanel.requestedWorkingDirectory)
             XCTAssertTrue(startupPayload.contains("codex resume session-duplicate-turn --yolo"), startupPayload)
             // The guard is the fish-safe, brace-free form (https://github.com/manaflow-ai/cmux/issues/6285):
-            // `cd -- '<dir>' 2>/dev/null || [ ! -d '<dir>' ] && <cmd>`.
-            XCTAssertFalse(startupPayload.contains("{ cd -- "), startupPayload)
             let guardStart = try XCTUnwrap(startupPayload.range(of: "cd -- "), startupPayload)
             let guardSuffix = String(startupPayload[guardStart.lowerBound...])
             let guardEnd = try XCTUnwrap(guardSuffix.range(of: "] &&")?.upperBound, guardSuffix)

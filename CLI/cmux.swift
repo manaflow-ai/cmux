@@ -27049,6 +27049,13 @@ struct CMUXCLI {
         var command = kind == "claude"
             ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: resumeCommandParts, quote: cliShellQuote)
             : resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        // Do NOT wrap codex in the `/bin/zsh -lc` retry launcher here: this command is stored/published
+        // as a surface resume binding and later reused for remote restoration via
+        // `remoteStartupInputWithLauncherScript(allowLauncherScript: false)`, where the launcher is
+        // intentionally skipped (remote hosts may lack `/bin/zsh`; the multi-KB script overflows the
+        // inline byte budget). The retry launcher is applied only on the local repair path
+        // (`SurfaceResumeCommandCanonicalizer.resolvedStartupCommand(repairPortableAgentExecutable: true)`),
+        // so the stored binding stays compact and portable.
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,

@@ -159,12 +159,8 @@ final class SessionIndexViewTests: XCTestCase {
         )
 
         let command = entry.resumeCommand ?? ""
-        // The codex resume now routes the codex executable through the cmux codex
-        // wrapper token and wraps the rendered command in `/bin/sh -c '…'` so a
-        // resumed codex session keeps its hooks (issue #5639). Assert the inner
-        // POSIX command preserves the sandbox-flag behavior of issue #5262.
-        XCTAssertTrue(command.hasPrefix("/bin/sh -c "), command)
-        let inner = Self.unwrapPortableShellCommand(command)
+        XCTAssertTrue(command.hasPrefix("/bin/zsh -lc "), command)
+        let inner = Self.unwrapPortableShellCommand(Self.unwrapRetryWrappedShellCommand(command))
         XCTAssertTrue(inner.hasPrefix(AgentResumeArgv.codexWrapperShellExecutableToken), inner)
         XCTAssertEqual(
             inner,
@@ -196,7 +192,8 @@ final class SessionIndexViewTests: XCTestCase {
         )
 
         let command = entry.resumeCommand ?? ""
-        let inner = Self.unwrapPortableShellCommand(command)
+        XCTAssertTrue(command.hasPrefix("/bin/zsh -lc "), command)
+        let inner = Self.unwrapPortableShellCommand(Self.unwrapRetryWrappedShellCommand(command))
         XCTAssertEqual(
             inner,
             "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-managed -a on-request"
@@ -223,7 +220,9 @@ final class SessionIndexViewTests: XCTestCase {
             )
         )
         XCTAssertEqual(
-            Self.unwrapPortableShellCommand(readOnly.resumeCommand ?? ""),
+            Self.unwrapPortableShellCommand(
+                Self.unwrapRetryWrappedShellCommand(readOnly.resumeCommand ?? "")
+            ),
             "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-ro -a untrusted -s read-only"
         )
 
@@ -239,9 +238,32 @@ final class SessionIndexViewTests: XCTestCase {
             )
         )
         XCTAssertEqual(
-            Self.unwrapPortableShellCommand(dangerFullAccess.resumeCommand ?? ""),
+            Self.unwrapPortableShellCommand(
+                Self.unwrapRetryWrappedShellCommand(dangerFullAccess.resumeCommand ?? "")
+            ),
             "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-dfa -m gpt-5.5 -a never -s danger-full-access"
         )
+    }
+
+    /// Reverses `CodexResumeRetryShell.wrappedCommand`, recovering the inner
+    /// launched command from the `/bin/zsh -lc '<retry script>'` wrapper. The
+    /// retry script runs the wrapped command as a single
+    /// `{ <command>; } 2>"$_cmux_codex_retry_pipe"` launch line, so we strip the
+    /// outer zsh quoting and then extract `<command>` from that line.
+    static func unwrapRetryWrappedShellCommand(_ command: String) -> String {
+        let prefix = "/bin/zsh -lc "
+        guard command.hasPrefix(prefix) else { return command }
+        var quoted = String(command.dropFirst(prefix.count))
+        guard quoted.hasPrefix("'"), quoted.hasSuffix("'") else { return quoted }
+        quoted = String(quoted.dropFirst().dropLast())
+        let script = quoted.replacingOccurrences(of: "'\\''", with: "'")
+        let launchSuffix = "; } 2>\"$_cmux_codex_retry_pipe\""
+        guard let suffixRange = script.range(of: launchSuffix) else { return script }
+        let beforeSuffix = script[..<suffixRange.lowerBound]
+        guard let braceRange = beforeSuffix.range(of: "{ ", options: .backwards) else {
+            return script
+        }
+        return String(beforeSuffix[braceRange.upperBound...])
     }
 
     /// Reverses `AgentResumeArgv.portableCodexResumeShellCommand`, recovering the

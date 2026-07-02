@@ -1,5 +1,6 @@
 import CmuxCore
 import AppKit
+import CMUXAgentLaunch
 import CmuxFoundation
 import CmuxTerminalCore
 import SwiftUI
@@ -5855,6 +5856,14 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         }
     }
 
+    private func codexRetryWrappedForTest(_ command: String) -> String {
+        CodexResumeRetryShell().wrappedCommand(command, quote: Self.shellSingleQuoted)
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     func testForkAgentConversationUsesWorkspaceDirectoryFallback() throws {
         let workspace = Workspace()
         workspace.currentDirectory = "/tmp/workspace fork repo"
@@ -5885,7 +5894,9 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/workspace fork repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
-            "cd -- '/tmp/workspace fork repo' 2>/dev/null || [ ! -d '/tmp/workspace fork repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "cd -- '/tmp/workspace fork repo' 2>/dev/null || [ ! -d '/tmp/workspace fork repo' ] && "
+                + codexRetryWrappedForTest("'/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'")
+                + "\n"
         )
     }
 
@@ -5986,7 +5997,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/fallback repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
-            "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && "
+                // Remote fork (allowLauncherScript: false): the `/bin/zsh -lc` retry launcher is
+                // local-only, so the remote command stays compact and unwrapped.
+                + "'/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'"
+                + "\n"
         )
     }
 
@@ -6209,7 +6224,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(launch.initialTerminalCommand, "ssh -tt cmux-macmini")
         XCTAssertEqual(
             launch.initialTerminalInput,
-            "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && "
+                // Remote fork (allowLauncherScript: false): the `/bin/zsh -lc` retry launcher is
+                // local-only, so the remote command stays compact and unwrapped.
+                + "'/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'"
+                + "\n"
         )
     }
 
@@ -6246,7 +6265,9 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.remoteConfiguration)
         XCTAssertEqual(
             launch.initialTerminalInput,
-            "cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ] && "
+                + codexRetryWrappedForTest("'/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'")
+                + "\n"
         )
     }
 

@@ -88,13 +88,33 @@ extension SurfaceResumeBindingSnapshot {
     }
 
     private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {
-        guard repairPortableAgentExecutable, isAgentHookBinding else {
-            return startupCommand
+        let command = if repairPortableAgentExecutable, isAgentHookBinding {
+            SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+                in: startupCommand,
+                kind: kind
+            )
+        } else {
+            startupCommand
         }
-        return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
-            in: startupCommand,
-            kind: kind
+        // Only wrap local startup paths in the `/bin/zsh -lc` retry launcher. `repairPortableAgentExecutable`
+        // is set exactly for the local agent-hook dispatch (where cmux repairs the executable to its wrapper
+        // shim and `/bin/zsh` is guaranteed); the remote path passes `false`, and remote hosts may not have
+        // `/bin/zsh`, so forcing the retry launcher there would break Codex resume for those hosts.
+        guard repairPortableAgentExecutable,
+              isAgentHookBinding,
+              kind?.trimmingCharacters(in: .whitespacesAndNewlines) == "codex" else {
+            return command
+        }
+        let commandWithoutCwdPrefix = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+            in: command,
+            previousWorkingDirectory: cwd,
+            workingDirectory: nil
         )
+        let wrappedCommand = CodexResumeRetryShell().wrappedCommand(
+            commandWithoutCwdPrefix,
+            quote: Self.shellSingleQuoted
+        )
+        return TerminalStartupWorkingDirectoryPrefix.prefix(wrappedCommand, workingDirectory: cwd)
     }
 }
 
