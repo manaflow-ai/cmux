@@ -3674,39 +3674,47 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// at most one extra scan after the in-flight one (not one scan, and one
     /// MainActor aggregate update, per event). Bounded — each fetch completes
     /// before the next starts, so there is no cancel/restart starvation.
+    @discardableResult
     private func scheduleSecondaryRefresh(
         macID: String,
         client: MobileCoreRPCClient,
         displayName: String?
-    ) {
+    ) -> Task<Void, Never>? {
         guard let subscription = secondaryMacSubscriptions[macID],
-              subscription.client === client else { return }
-        guard subscription.refreshTask == nil else {
+              subscription.client === client else { return nil }
+        if let refreshTask = subscription.refreshTask {
             subscription.refreshPending = true
-            return
+            return refreshTask
         }
-        subscription.refreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+        let refreshTask = Task { @MainActor [weak self, weak subscription] in
+            guard let self, let subscription else { return }
+            defer {
+                if self.secondaryMacSubscriptions[macID] === subscription {
+                    subscription.refreshTask = nil
+                }
+            }
             repeat {
                 // Clear before the fetch; an event during the await re-sets it and
                 // we loop once more (the trailing refresh).
-                self.secondaryMacSubscriptions[macID]?.refreshPending = false
+                subscription.refreshPending = false
                 guard await self.refreshSecondaryWorkspaceListNow(
                     macID: macID,
                     client: client,
                     displayName: displayName
                 ) else { return }
-            } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
-            self.secondaryMacSubscriptions[macID]?.refreshTask = nil
+            } while subscription.refreshPending
         }
+        subscription.refreshTask = refreshTask
+        return refreshTask
     }
 
     /// Re-fetch and apply one secondary Mac's authoritative workspace list.
     ///
     /// Returns `false` when the subscription was replaced or removed across the
     /// await. Event-driven refresh uses that to stop its coalesced loop; mutation
-    /// refresh awaits this helper so post-close selection repair can consume
-    /// any pending autofocus suppression before the close action returns.
+    /// refresh awaits the coalesced task that calls this helper so post-close
+    /// selection repair can consume any pending autofocus suppression before the
+    /// close action returns.
     @discardableResult
     private func refreshSecondaryWorkspaceListNow(
         macID: String,
@@ -3762,8 +3770,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if target.isForeground {
             await refreshWorkspaces()
         } else if let macID = target.macDeviceID, let sub = secondaryMacSubscriptions[macID] {
-            await refreshSecondaryWorkspaceListNow(
+            let refreshTask = scheduleSecondaryRefresh(
                 macID: macID, client: sub.client, displayName: workspacesByMac[macID]?.displayName)
+            if let refreshTask {
+                await refreshTask.value
+            }
         }
     }
 
