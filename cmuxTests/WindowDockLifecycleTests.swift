@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Foundation
 import Testing
 
@@ -88,6 +89,42 @@ struct WindowDockLifecycleTests {
         // no teardown owner); manager-based lookup fails closed instead.
         #expect(appDelegate.windowDock(for: manager) == nil)
         #expect(appDelegate.existingWindowDocks.isEmpty)
+    }
+
+    @Test("Moving a window's last main panel into its own Dock is rejected")
+    @MainActor
+    func lastPanelMoveIntoOwnWindowDockIsRejected() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(manager.tabs.first)
+        #expect(manager.tabs.count == 1)
+        #expect(workspace.panels.count == 1)
+        let panelId = try #require(workspace.panels.keys.first)
+        let bonsplitTabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+        let dock = appDelegate.windowDock(forWindowId: windowId)
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+
+        // Accepting the move would empty the window's only workspace, close the
+        // window, and tear down the destination Dock with the moved surface in
+        // it — so the move is rejected and the surface stays put.
+        let moved = appDelegate.moveSurfaceIntoDock(
+            sourceTabId: bonsplitTabId.uuid,
+            destinationDock: dock,
+            destination: .insert(targetPane: dockPane, targetIndex: nil)
+        )
+        #expect(!moved)
+        #expect(workspace.panels[panelId] != nil)
+        #expect(!dock.containsPanel(panelId))
+        #expect(appDelegate.existingWindowDock(forWindowId: windowId) === dock)
     }
 
     @Test("Docks in two windows render simultaneously without render-host gating")

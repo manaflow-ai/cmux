@@ -111,6 +111,20 @@ extension AppDelegate {
             return false
         }
 
+        // Same class of self-destruction for a window Dock: moving the LAST main
+        // panel of a window's ONLY workspace into that same window's Dock would
+        // close the emptied window (`cleanupEmptySourceWorkspaceAfterSurfaceMove`),
+        // and window close tears down its Dock — destroying the just-moved
+        // surface. A window with more workspaces is fine: only the emptied
+        // workspace closes and the Dock lives on.
+        if case .workspace(let sourceWindowId, let workspace, _, let manager) = source,
+           workspace.panels.count == 1,
+           manager.tabs.count == 1,
+           destinationDock.scope == .global,
+           destinationDock.workspaceId == sourceWindowId {
+            return false
+        }
+
         let target = resolveDockDropDestination(destination)
         guard destinationDock.containsPane(target.pane.id) else { return false }
 
