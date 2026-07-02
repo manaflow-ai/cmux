@@ -172,7 +172,12 @@ extension TerminalController: ControlSidebarContext {
             // Workspace-scoped: exactly one panel holds a manual key at a time,
             // so reasserting `on` after focus moves never duplicates the loader.
             _ = tab.clearAgentLifecycle(key: key, panelId: nil)
-            if let panelId = tab.focusedPanelId ?? tab.panels.keys.first {
+            // Bound distinct manual loaders per workspace so socket clients
+            // can't grow lifecycle-key state without limit.
+            let manualLoaderCount = tab.agentLifecycleStatesByPanelId.values.reduce(0) { partial, states in
+                partial + states.keys.reduce(0) { AgentHibernationLifecycleStatusKeys.isManualKey($1) ? $0 + 1 : $0 }
+            }
+            if manualLoaderCount < 32, let panelId = tab.focusedPanelId ?? tab.panels.keys.first {
                 tab.setAgentLifecycle(key: key, panelId: panelId, lifecycle: .running)
             }
         } else {

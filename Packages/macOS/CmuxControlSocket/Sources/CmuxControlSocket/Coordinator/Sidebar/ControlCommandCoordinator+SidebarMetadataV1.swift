@@ -306,6 +306,16 @@ extension ControlCommandCoordinator {
         guard key == "manual" || key.hasPrefix("manual:") else {
             return "ERROR: workspace_loading only accepts manual loader keys (manual or manual:<id>); use set_agent_lifecycle for agent keys"
         }
+        if key != "manual" {
+            // Mirror the CLI's --id validation on the wire boundary so raw
+            // socket clients can't grow lifecycle-key state with unbounded or
+            // unparseable ids.
+            let id = key.dropFirst("manual:".count)
+            let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+            guard !id.isEmpty, id.count <= 64, id.unicodeScalars.allSatisfy(allowed.contains) else {
+                return "ERROR: Invalid manual loader id; use 1-64 characters from letters, digits, '.', '_', '-'"
+            }
+        }
         let on: Bool
         switch parsed.positional[1].lowercased() {
         case "on", "running", "start", "show":
