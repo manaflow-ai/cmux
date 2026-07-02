@@ -20,11 +20,23 @@ extension CmuxNoteStore {
             resolved = URL(fileURLWithPath: joined).standardizedFileURL.path
         }
         let canonical = (resolved as NSString).resolvingSymlinksInPath
-        if canonical == notesRoot || canonical.hasPrefix(notesRoot + "/") {
-            return canonical
+        if canonical.hasPrefix(notesRoot + "/") {
+            // Inside the notes root the index can still alias cmux metadata
+            // (`index.json`, tree markers) or hidden/non-markdown files; note
+            // read/write/append/rm must only ever touch visible `.md` bodies.
+            // Anything else falls through to the confined-leaf fallback.
+            let relative = canonical.dropFirst(notesRoot.count + 1)
+                .split(separator: "/").map(String.init)
+            if !relative.isEmpty,
+               relative.allSatisfy({ !isDisallowedBodyComponent($0) }),
+               relative[relative.count - 1].lowercased().hasSuffix(".md") {
+                return canonical
+            }
         }
         let leaf = (bodyPath as NSString).lastPathComponent
-        let safeLeaf = (leaf.isEmpty || leaf == "." || leaf == "..") ? "untrusted-note.md" : leaf
+        let safeLeaf = (isDisallowedBodyComponent(leaf) || !leaf.lowercased().hasSuffix(".md"))
+            ? "untrusted-note.md"
+            : leaf
         // The confined leaf can itself be the committed symlink that caused
         // the escape (`notes/link.md -> /elsewhere`); returning it would hand
         // read/write/append the same link. Walk to the first name whose final
@@ -49,5 +61,19 @@ extension CmuxNoteStore {
 
     static func noteBodyPath(for note: CmuxNoteRecord, projectRoot: String) -> String {
         absoluteBodyPath(bodyPath: note.bodyPath, projectRoot: projectRoot)
+    }
+
+    /// Whether a project-controlled body path component may never be part of a
+    /// resolved note body: empty/relative/hidden names and cmux metadata (the
+    /// note index and the tree markers). Compared case-insensitively because
+    /// the default APFS volume is case-insensitive.
+    private static func isDisallowedBodyComponent(_ component: String) -> Bool {
+        if component.isEmpty || component == ".." || component.hasPrefix(".") {
+            return true
+        }
+        let lowered = component.lowercased()
+        return lowered == "index.json"
+            || lowered == NotesTreeStorage.workspaceMarkerName
+            || lowered == NotesTreeStorage.sessionMarkerName
     }
 }

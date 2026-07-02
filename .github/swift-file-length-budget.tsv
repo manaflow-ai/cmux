@@ -68,8 +68,8 @@
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1363	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
+1355	cmuxTests/NotesTreeStorageTests.swift
 1348	Sources/NotesTreeStore.swift
-1332	cmuxTests/NotesTreeStorageTests.swift
 1317	Sources/FileExplorerStore.swift
 1295	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift

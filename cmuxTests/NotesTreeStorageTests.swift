@@ -1125,6 +1125,29 @@ extension NotesTreeStore {
         #expect(resolved.hasPrefix(notesRoot + "/"))
     }
 
+    /// A project-controlled index must never alias a note body onto cmux
+    /// metadata or non-markdown files: the note index, tree markers, hidden
+    /// files, and non-`.md` paths all resolve to a confined markdown leaf so
+    /// note read/write/append/rm cannot corrupt or delete metadata.
+    @Test func bodyPathNeverResolvesToNotesMetadata() throws {
+        let notesDir = (projectRoot as NSString).appendingPathComponent(".cmux/notes")
+        try fm.createDirectory(atPath: notesDir, withIntermediateDirectories: true)
+        let notesRoot = ((notesDir as NSString).standardizingPath as NSString).resolvingSymlinksInPath
+        let metadataNames = ["index.json", "_workspace.json", "_session.json"]
+        let hostile = [
+            "notes/index.json", "notes/INDEX.json", "notes/_workspace.json",
+            "notes/ws/_session.json", "notes/.hidden.md", "notes/plain.txt", "notes",
+        ]
+        for bodyPath in hostile {
+            let resolved = CmuxNoteStore.absoluteBodyPath(bodyPath: bodyPath, projectRoot: projectRoot)
+            let leaf = (resolved as NSString).lastPathComponent
+            #expect(resolved.hasPrefix(notesRoot + "/"), "\(bodyPath) escaped confinement")
+            #expect(leaf.lowercased().hasSuffix(".md"), "\(bodyPath) resolved to non-markdown \(leaf)")
+            #expect(!leaf.hasPrefix("."), "\(bodyPath) resolved to hidden \(leaf)")
+            #expect(!metadataNames.contains(leaf.lowercased()), "\(bodyPath) resolved onto metadata \(leaf)")
+        }
+    }
+
     /// Symlinked children are never listed: a project-controlled link under
     /// the notes root must not let the tree traverse, open, or watch paths
     /// outside it.
