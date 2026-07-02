@@ -3,7 +3,7 @@ import Testing
 @preconcurrency import Sparkle
 @testable import CmuxUpdater
 
-/// Tests for the install watchdog's decision logic in ``UpdateController``.
+/// Tests for the install watchdog's decision logic in ``InstallWatchdog``.
 ///
 /// The watchdog exists to guarantee the user is never left staring at a silent "Update Available"
 /// pill after clicking Install: if the flow never reaches downloading/installing (or another
@@ -44,7 +44,7 @@ import Testing
     /// "Update Available" — the exact states the double-idle bug got stuck in.
     @Test func stalledOnlyForCheckingAndUpdateAvailable() {
         for state in everyState {
-            let stalled = UpdateController.installAttemptStalled(state)
+            let stalled = InstallWatchdog.installAttemptStalled(state)
             switch state {
             case .checking, .updateAvailable:
                 #expect(stalled, "\(state) should count as stalled")
@@ -58,7 +58,7 @@ import Testing
     /// disarm the watchdog; idle/permissionRequest/checking/updateAvailable do not.
     @Test func resolvedForProgressAndVisibleTerminals() {
         for state in everyState {
-            let resolved = UpdateController.installAttemptResolved(state)
+            let resolved = InstallWatchdog.installAttemptResolved(state)
             switch state {
             case .downloading, .extracting, .installing, .notFound, .error:
                 #expect(resolved, "\(state) should resolve/disarm the watchdog")
@@ -72,7 +72,7 @@ import Testing
     /// overlap, or arming and firing would race.
     @Test func stalledAndResolvedAreMutuallyExclusive() {
         for state in everyState {
-            #expect(!(UpdateController.installAttemptStalled(state) && UpdateController.installAttemptResolved(state)))
+            #expect(!(InstallWatchdog.installAttemptStalled(state) && InstallWatchdog.installAttemptResolved(state)))
         }
     }
 

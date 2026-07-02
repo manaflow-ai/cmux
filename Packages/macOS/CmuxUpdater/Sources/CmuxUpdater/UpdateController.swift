@@ -44,8 +44,7 @@ public final class UpdateController {
     private var recheckTask: Task<Void, Never>?
     /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
     /// flow never reaches downloading/installing (or another visible outcome). See ``attemptUpdate``.
-    private var installWatchdogTask: Task<Void, Never>?
-    private let installWatchdogTimeout: TimeInterval = UpdateTiming.installWatchdogTimeout
+    private let installWatchdog: InstallWatchdog
 
     // Readiness retry. Sparkle's `canCheckForUpdates` exposes no push signal usable under
     // Swift 6 strict concurrency (KVO on the @MainActor `SPUUpdater` "sends" a non-Sendable
@@ -101,6 +100,7 @@ public final class UpdateController {
             defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         }
 
+        self.installWatchdog = InstallWatchdog(clock: clock, timeout: UpdateTiming.installWatchdogTimeout)
         let model = UpdateStateModel()
         let driver = UpdateDriver(model: model, log: log, clock: clock, isDevLikeBundle: isDevLikeBundle)
         self.driver = driver
@@ -119,7 +119,7 @@ public final class UpdateController {
         backgroundProbeTask?.cancel()
         readyCheckTask?.cancel()
         recheckTask?.cancel()
-        installWatchdogTask?.cancel()
+        // installWatchdog cancels its own pending timer in its deinit (it is released with self).
     }
 
     // MARK: - Reaction stream
@@ -145,7 +145,11 @@ public final class UpdateController {
         if attemptCoordinator.isMonitoring {
             performAttemptAction(attemptCoordinator.handleStateChange(state))
         }
-        disarmInstallWatchdogIfResolved(state)
+        // Disarm the install watchdog the moment the flow progresses the install or shows a clear
+        // outcome, so a healthy install (or a real error / "no updates") never trips it.
+        if installWatchdog.isArmed, InstallWatchdog.installAttemptResolved(state) {
+            installWatchdog.disarm()
+        }
         scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
     }
 
@@ -163,41 +167,16 @@ public final class UpdateController {
             // The user committed to installing. Arm the watchdog so that if the flow never reaches
             // downloading/installing (or another visible outcome) it surfaces an error instead of
             // silently looping on "Update Available".
-            beginInstallWatchdog()
+            installWatchdog.arm { [weak self] in self?.fireInstallWatchdogIfStalled() }
         }
         performAttemptAction(action)
     }
 
-    // MARK: - Install watchdog
-
-    /// (Re)arms the install watchdog. Cancels any prior timer so repeated Install clicks reset the
-    /// countdown rather than stacking.
-    private func beginInstallWatchdog() {
-        installWatchdogTask?.cancel()
-        let timeout = installWatchdogTimeout
-        installWatchdogTask = Task { @MainActor [weak self] in
-            // Bounded, cancellable deadline via the injected clock.
-            try? await self?.clock.sleep(for: .seconds(timeout))
-            guard !Task.isCancelled, let self else { return }
-            self.fireInstallWatchdogIfStalled()
-        }
-    }
-
-    /// Cancels the watchdog once the flow reaches a state that either progresses the install or
-    /// communicates a clear outcome, so a healthy install (or a real error / "no updates") never
-    /// trips it. Called on every state change while an attempt is armed.
-    private func disarmInstallWatchdogIfResolved(_ state: UpdateState) {
-        guard installWatchdogTask != nil else { return }
-        guard Self.installAttemptResolved(state) else { return }
-        installWatchdogTask?.cancel()
-        installWatchdogTask = nil
-    }
-
     private func fireInstallWatchdogIfStalled() {
-        installWatchdogTask = nil
-        guard Self.installAttemptStalled(model.state) else { return }
+        installWatchdog.disarm()
+        guard InstallWatchdog.installAttemptStalled(model.state) else { return }
         attemptCoordinator.cancel()
-        log.append("install watchdog fired: update did not start within \(Int(installWatchdogTimeout))s")
+        log.append("install watchdog fired: update did not start within \(Int(installWatchdog.timeoutSeconds))s")
         let error = NSError(
             domain: UpdateStateModel.updateErrorDomain,
             code: UpdateStateModel.installDidNotStartCode,
@@ -216,30 +195,6 @@ public final class UpdateController {
             technicalDetails: "install attempt stalled without reaching download",
             feedURLString: driver.resolvedFeedURLString()
         )))
-    }
-
-    /// Whether `state`, observed when the install watchdog fires, means the install never got
-    /// going: the user asked to install but the flow is still merely checking or showing "Update
-    /// Available" with no download underway. `.idle`/`.permissionRequest` are treated as
-    /// not-stalled (the user dismissed, or a state cmux never surfaces), so no error is shown.
-    static func installAttemptStalled(_ state: UpdateState) -> Bool {
-        switch state {
-        case .checking, .updateAvailable:
-            return true
-        case .idle, .permissionRequest, .downloading, .extracting, .installing, .notFound, .error:
-            return false
-        }
-    }
-
-    /// Whether `state` resolves the attempt — either it is actively progressing the install or it
-    /// is a clearly-communicated terminal outcome — so the watchdog can be disarmed.
-    static func installAttemptResolved(_ state: UpdateState) -> Bool {
-        switch state {
-        case .downloading, .extracting, .installing, .notFound, .error:
-            return true
-        case .idle, .permissionRequest, .checking, .updateAvailable:
-            return false
-        }
     }
 
     private func performAttemptAction(_ action: AttemptUpdateCoordinator.Action) {
