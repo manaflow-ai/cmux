@@ -319,11 +319,20 @@ public final class UpdateController {
     }
 
     /// Whether the bounded readiness wait should keep polling for `canCheckForUpdates`, given the
-    /// model state observed at the top of each poll iteration. Stops the wait only when the model is
-    /// no longer the `.checking` pill (a user cancel idles it; see task #12).
+    /// model state observed at the top of each poll iteration.
+    ///
+    /// The wait is entered on behalf of a pending check and must keep polling for readiness for any
+    /// pending state — a `.checking` placeholder (a plain manual check or a transient-retry pill) or
+    /// the `.updateAvailable` prompt that `attemptUpdate()` re-resolves to the latest version
+    /// (issue #6366). It stops only when the model has returned to `.idle`, the signal that the user
+    /// cancelled the pending check (e.g. Cancel on the retry/checking pill idles the model), so
+    /// readiness arriving later does not resurrect a dismissed check. Aborting on every non-`.checking`
+    /// state instead stranded `attemptUpdate()`'s install whenever Sparkle was briefly not ready,
+    /// leaving the model `.updateAvailable` — not `.checking` — so no fresh check ran (autoreview
+    /// follow-up to issue #5632).
     static func readinessWaitShouldContinue(whileModelState state: UpdateState) -> Bool {
-        if case .checking = state { return true }
-        return false
+        if case .idle = state { return false }
+        return true
     }
 
     private func waitForReadinessThenCheck(preservingInstallIntent: Bool = false) {
