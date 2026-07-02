@@ -176888,6 +176888,57 @@
         }
       }
     },
+    "settings.betaFeatures.remoteTmuxOriginColors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host colors"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストの色"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leaves remote workspaces without an origin color until you enable it here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで、リモートワークスペースにオリジンカラーを表示しません。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tints each remote workspace's sidebar row and tab with a stable per-host color so servers are easy to tell apart. Your manual workspace color always wins."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各リモートワークスペースのサイドバー行とタブを、ホストごとに固定された色で色付けし、サーバーを見分けやすくします。手動で設定したワークスペースの色が常に優先されます。"
+          }
+        }
+      }
+    },
     "settings.betaFeatures.warning": {
       "extractionState": "manual",
       "localizations": {
