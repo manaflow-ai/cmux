@@ -61,8 +61,10 @@ enum NoteSupport {
     }
 
     /// Find the nearest ancestor directory of `cwd` that already contains
-    /// `.cmux/`. Falls back to `cwd` itself. Mirrors `findCmuxConfig` semantics
-    /// so notes share a project root with `cmux.json`.
+    /// `.cmux/` or a plain `cmux.json`. Falls back to `cwd` itself. Mirrors
+    /// `findCmuxConfig` semantics (which accepts `.cmux/cmux.json` and root
+    /// `cmux.json` alike) so notes share a project root with `cmux.json` even
+    /// in projects marked only by a root-level config file.
     static func projectRoot(forCwd cwd: String) -> String {
         let resolved = (cwd as NSString).standardizingPath
         var current = resolved
@@ -71,6 +73,9 @@ enum NoteSupport {
             let cmuxDir = (current as NSString).appendingPathComponent(".cmux")
             var isDir: ObjCBool = false
             if fs.fileExists(atPath: cmuxDir, isDirectory: &isDir), isDir.boolValue {
+                return current
+            }
+            if fs.fileExists(atPath: (current as NSString).appendingPathComponent("cmux.json")) {
                 return current
             }
             let parent = (current as NSString).deletingLastPathComponent
