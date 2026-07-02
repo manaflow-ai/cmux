@@ -23194,7 +23194,18 @@ struct CMUXCLI {
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
                 )
-                sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                // Only attribute the conversation subtitle when the emitting
+                // workspace is authoritatively known; a focused/first-workspace
+                // fallback here would stamp this turn onto whichever workspace is
+                // selected (https://github.com/manaflow-ai/cmux/issues/7132).
+                sendClaudeFeedTelemetry(
+                    workspaceId: Self.claudeFeedTelemetryWorkspaceId(
+                        resolvedWorkspaceId: workspaceId,
+                        mappedSessionWorkspaceId: mappedSession?.workspaceId,
+                        surfaceIsAuthoritative: resolvedSurface.isAuthoritative,
+                        callerWorkspaceArg: workspaceArg
+                    )
+                )
 
                 guard shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
@@ -23302,7 +23313,16 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            // See the `.stop` branch: never attribute the conversation subtitle to a
+            // focused/first-workspace fallback (#7132).
+            sendClaudeFeedTelemetry(
+                workspaceId: Self.claudeFeedTelemetryWorkspaceId(
+                    resolvedWorkspaceId: workspaceId,
+                    mappedSessionWorkspaceId: mappedSession?.workspaceId,
+                    surfaceIsAuthoritative: resolvedSurface.isAuthoritative,
+                    callerWorkspaceArg: workspaceArg
+                )
+            )
             let shouldApplyPromptSubmit =
                 shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
@@ -24008,6 +24028,33 @@ struct CMUXCLI {
             return ""
         }
         return " --panel=\(surfaceId)"
+    }
+
+    /// Workspace id to stamp on Claude `Stop` / `UserPromptSubmit` feed telemetry —
+    /// the value iMessage mode reads (`TerminalController.v2ApplyIMessageModeSideEffects`)
+    /// to attribute the sidebar conversation subtitle. Returns `nil` when the
+    /// workspace was resolved only from the focused/first-workspace fallback: the
+    /// hook has no mapped session, no authoritative surface (a TTY/PID binding, an
+    /// explicit `--surface`, or the mapped session's surface), and no caller
+    /// `CMUX_WORKSPACE_ID`/`--workspace`. In that case the emitting workspace is
+    /// unknown, so the turn must be dropped rather than recorded onto whichever
+    /// workspace happens to be selected — mirroring the surface-less notification
+    /// rule in #7133 and the `runGenericAgentHook` path, which already returns nil
+    /// instead of borrowing the focused workspace.
+    /// https://github.com/manaflow-ai/cmux/issues/7132
+    private static func claudeFeedTelemetryWorkspaceId(
+        resolvedWorkspaceId: String,
+        mappedSessionWorkspaceId: String?,
+        surfaceIsAuthoritative: Bool,
+        callerWorkspaceArg: String?
+    ) -> String? {
+        func isNonEmpty(_ value: String?) -> Bool {
+            (value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        }
+        let authoritative = isNonEmpty(mappedSessionWorkspaceId)
+            || surfaceIsAuthoritative
+            || isNonEmpty(callerWorkspaceArg)
+        return authoritative ? resolvedWorkspaceId : nil
     }
 
     private func resolvePreferredWorkspaceIdForClaudeHook(
