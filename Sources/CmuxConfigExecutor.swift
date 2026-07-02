@@ -20,7 +20,8 @@ struct CmuxConfigExecutor {
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
         if let workspace = command.workspace {
-            return authorizeProjectActionIfNeeded(
+            var commandDidRun = false
+            let authorized = authorizeProjectActionIfNeeded(
                 descriptor: workspaceTrustDescriptor(
                     command: command,
                     actionID: actionID ?? command.id,
@@ -43,8 +44,20 @@ struct CmuxConfigExecutor {
                     tabManager: tabManager,
                     baseCwd: baseCwd
                 ) else { return }
+                commandDidRun = true
                 onExecuted?()
             }
+            // When the caller forced synchronous confirmation (the sidebar
+            // extension command API), the authorization closure has already run
+            // by the time `authorizeProjectActionIfNeeded` returns, so we can
+            // report whether the workspace command actually ran rather than just
+            // whether trust was granted. This matters when `restart: .confirm`
+            // shows a recreate prompt and the user cancels it: authorization is
+            // granted but `executeWorkspaceCommand` returns false, so the action
+            // must not be reported as accepted. Other callers use the async trust
+            // sheet, where the closure has not run yet, and keep the legacy
+            // authorization result.
+            return forcesSynchronousConfirmation ? (authorized && commandDidRun) : authorized
         } else if let rawCommand = command.command {
             let targetTerminal = tabManager.selectedWorkspace?.focusedTerminalPanel
             guard let targetTerminal else { return false }
