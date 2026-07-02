@@ -6633,16 +6633,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if canRenderGridAdvancePendingSeq, terminalEventListenerTask != nil {
             let previousPendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID]
             let targetSeq = max(remoteSeq, pendingTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0)
-            if let previousPendingSeq,
-               targetSeq == previousPendingSeq,
-               pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID) != nil {
-                MobileDebugLog.anchormux(
-                    "sync.input_seq_replay_after_drop surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)"
-                )
-                requestTerminalReplay(surfaceID: surfaceID)
-                return
-            }
-            if let previousPendingSeq, previousPendingSeq != targetSeq {
+            if let previousPendingSeq {
+                guard targetSeq > previousPendingSeq else {
+                    if pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID) != nil {
+                        MobileDebugLog.anchormux(
+                            "sync.input_seq_replay_after_drop surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)"
+                        )
+                        requestTerminalReplay(surfaceID: surfaceID)
+                    }
+                    return
+                }
                 pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
             }
             pendingTerminalByteEndSeqBySurfaceID[surfaceID] = targetSeq

@@ -17,11 +17,33 @@ import Testing
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+    let subscribed = await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1)
+    #expect(subscribed, "connected render-grid transport must establish the event subscription")
+    let subscribeCountAfterMount = await router.count(of: "mobile.events.subscribe")
 
     await store.submitTerminalRawInput(Data("a".utf8), surfaceID: "live-terminal")
+    let firstInputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
+    #expect(firstInputSent)
+    let firstRefreshSent = await router.waitForCount(
+        of: "mobile.events.subscribe",
+        atLeast: subscribeCountAfterMount + 1
+    )
+    #expect(firstRefreshSent, "the first ahead-of-render-grid ACK should refresh the event subscription")
+    let subscribeCountAfterFirstAck = await router.count(of: "mobile.events.subscribe")
+
     await store.submitTerminalRawInput(Data("b".utf8), surfaceID: "live-terminal")
     let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 2 }
     #expect(inputSent)
+    let duplicateRefreshSent = await router.waitForCount(
+        of: "mobile.events.subscribe",
+        atLeast: subscribeCountAfterFirstAck + 1,
+        timeoutNanoseconds: 500_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(
+        !duplicateRefreshSent,
+        "duplicate ACKs for the same pending sequence must not enqueue another subscription refresh"
+    )
 
     let replayRequested = try await pollUntil(attempts: 50) {
         await router.count(of: "mobile.terminal.replay") > replayCountAfterMount
