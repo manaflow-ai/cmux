@@ -132,8 +132,8 @@ import Testing
         surfaceID: "live-terminal",
         seq: 98,
         text: "older-than-delivered",
-        full: false,
-        columns: 40
+        columns: 40,
+        full: false
     ))
     let staleFrameDelivered = try await pollUntil(attempts: 50) {
         collector.lines.contains { $0.contains("older-than-delivered") }
@@ -193,15 +193,15 @@ import Testing
     }
     #expect(!staleFrameDelivered)
 
-    try await router.enqueueReplayRenderGrids([
+    try await router.enqueueReplayRenderGridFrames([
         renderGridFrame(surfaceID: "live-terminal", seq: 100, text: "replayed-target"),
     ])
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
         seq: 100,
         text: "incomplete-target",
-        full: false,
-        columns: 40
+        columns: 40,
+        full: false
     ))
     let incompleteTargetDelivered = try await pollUntil(attempts: 50) {
         collector.lines.contains { $0.contains("incomplete-target") }
@@ -259,14 +259,14 @@ import Testing
         surfaceID: "live-terminal",
         seq: 100,
         text: "incomplete-while-replay",
-        full: false,
-        columns: 40
+        columns: 40,
+        full: false
     ))
     let incompleteTargetDelivered = try await pollUntil(attempts: 50) {
         collector.lines.contains { $0.contains("incomplete-while-replay") }
     }
     #expect(!incompleteTargetDelivered)
-    try await router.enqueueReplayRenderGrids([
+    try await router.enqueueReplayRenderGridFrames([
         renderGridFrame(surfaceID: "live-terminal", seq: 100, text: "replayed-after-repeat"),
     ])
     await router.releaseAllHeld()
@@ -299,7 +299,7 @@ import Testing
     let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
     #expect(inputSent)
 
-    try await router.enqueueReplayRenderGrids([
+    try await router.enqueueReplayRenderGridFrames([
         renderGridFrame(surfaceID: surfaceID, seq: 99, text: "stale-replay"),
         renderGridFrame(surfaceID: surfaceID, seq: 100, text: "fresh-replay"),
     ])
@@ -353,15 +353,15 @@ import Testing
         surfaceID: surfaceID,
         seq: 99,
         text: "dropped-event-delta",
-        full: false,
-        columns: 40
+        columns: 40,
+        full: false
     ))
     let droppedDeltaDelivered = try await pollUntil(attempts: 50) {
         collector.lines.contains { $0.contains("dropped-event-delta") }
     }
     #expect(!droppedDeltaDelivered)
 
-    try await router.enqueueReplayRenderGrids([
+    try await router.enqueueReplayRenderGridFrames([
         renderGridFrame(surfaceID: surfaceID, seq: 99, text: "stale-nonbarrier-replay"),
         renderGridFrame(surfaceID: surfaceID, seq: 100, text: "fresh-nonbarrier-replay"),
     ])
@@ -401,7 +401,7 @@ import Testing
     let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
     #expect(inputSent)
 
-    try await router.enqueueReplayRenderGrids([
+    try await router.enqueueReplayRenderGridFrames([
         renderGridFrame(surfaceID: surfaceID, seq: 97, text: "stale-replay-1"),
         renderGridFrame(surfaceID: surfaceID, seq: 98, text: "stale-replay-2"),
         renderGridFrame(surfaceID: surfaceID, seq: 99, text: "stale-replay-3"),
@@ -483,8 +483,8 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
             surfaceID: surfaceID,
             seq: deltaSeq,
             text: "delta-during-empty-replays",
-            full: false,
-            columns: 40
+            columns: 40,
+            full: false
         ))
         deltaSeq += 1
         _ = try await pollUntil(attempts: 50) {
@@ -507,8 +507,8 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
         surfaceID: surfaceID,
         seq: deltaSeq,
         text: "delta-after-empty-exhaustion",
-        full: false,
-        columns: 40
+        columns: 40,
+        full: false
     ))
     let replayAfterExhaustion = await router.waitForCount(
         of: "mobile.terminal.replay",

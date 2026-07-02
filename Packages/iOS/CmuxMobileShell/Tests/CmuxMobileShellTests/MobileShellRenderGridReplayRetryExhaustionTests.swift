@@ -38,11 +38,11 @@ import Testing
         surfaceID: surfaceID,
         seq: 99,
         text: "dropped-event-before-exhaustion",
-        full: false,
-        columns: 40
+        columns: 40,
+        full: false
     ))
 
-    try await router.enqueueReplayRenderGrids([
+    try await router.enqueueReplayRenderGridFrames([
         renderGridFrame(surfaceID: surfaceID, seq: 97, text: "stale-replay-1"),
         renderGridFrame(surfaceID: surfaceID, seq: 98, text: "stale-replay-2"),
         renderGridFrame(surfaceID: surfaceID, seq: 99, text: "stale-replay-3"),
@@ -63,8 +63,8 @@ import Testing
         surfaceID: surfaceID,
         seq: 100,
         text: "delta-after-exhaustion",
-        full: false,
-        columns: 40
+        columns: 40,
+        full: false
     ))
     let replayAfterExhaustion = await router.waitForCount(
         of: "mobile.terminal.replay",

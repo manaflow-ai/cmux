@@ -1,29 +1,29 @@
 import Foundation
 internal import CmuxMobileDiagnostics
 
+/// Retry accounting for the pending-input render-grid drop path, layered on
+/// the replay failure-retry counter owned by
+/// `MobileShellComposite+TerminalReplayLifecycle.swift` (which holds the
+/// barrier-token `prepareTerminalReplayFailureRetry` and the exhaustion
+/// check). This file adds the non-barrier variant used when a live-event
+/// replay comes back stale, the drop-path request gate, and the no-progress
+/// budget consumption that keeps that gate bounded.
 extension MobileShellComposite {
-    func prepareTerminalReplayFailureRetry(
-        surfaceID: String,
-        replayBarrierToken: UUID?
-    ) -> UUID? {
-        guard let replayBarrierToken,
-              hasTerminalOutputSink(surfaceID: surfaceID),
-              terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken else {
-            return nil
-        }
-        guard prepareTerminalReplayFailureRetry(surfaceID: surfaceID) else {
-            return nil
-        }
-        return replayBarrierToken
-    }
-
     func prepareNonBarrierTerminalReplayFailureRetry(surfaceID: String) -> Bool {
         guard remoteClient != nil else { return false }
-        return prepareTerminalReplayFailureRetry(surfaceID: surfaceID)
-    }
-
-    func terminalReplayFailureRetryExhausted(surfaceID: String) -> Bool {
-        (terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0) >= Self.maxTerminalReplayFailureRetries
+        guard hasTerminalOutputSink(surfaceID: surfaceID) else { return false }
+        let retryCount = terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0
+        guard retryCount < Self.maxTerminalReplayFailureRetries else {
+            MobileDebugLog.anchormux(
+                "CMUX_REPLAY retry_exhausted surface=\(surfaceID) attempts=\(retryCount)"
+            )
+            return false
+        }
+        terminalReplayFailureRetryCountsBySurfaceID[surfaceID] = retryCount + 1
+        MobileDebugLog.anchormux(
+            "CMUX_REPLAY retry_after_failure surface=\(surfaceID) attempt=\(retryCount + 1)"
+        )
+        return true
     }
 
     func requestTerminalReplayAfterDroppedRenderGrid(surfaceID: String, source: String) {
@@ -50,21 +50,5 @@ extension MobileShellComposite {
         MobileDebugLog.anchormux(
             "CMUX_REPLAY no_progress reason=\(reason) surface=\(surfaceID) attempt=\(retryCount + 1)"
         )
-    }
-
-    private func prepareTerminalReplayFailureRetry(surfaceID: String) -> Bool {
-        guard hasTerminalOutputSink(surfaceID: surfaceID) else { return false }
-        let retryCount = terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0
-        guard retryCount < Self.maxTerminalReplayFailureRetries else {
-            MobileDebugLog.anchormux(
-                "CMUX_REPLAY retry_exhausted surface=\(surfaceID) attempts=\(retryCount)"
-            )
-            return false
-        }
-        terminalReplayFailureRetryCountsBySurfaceID[surfaceID] = retryCount + 1
-        MobileDebugLog.anchormux(
-            "CMUX_REPLAY retry_after_failure surface=\(surfaceID) attempt=\(retryCount + 1)"
-        )
-        return true
     }
 }
