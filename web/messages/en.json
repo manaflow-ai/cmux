@@ -918,13 +918,13 @@
       "layoutItem1": "Pinned top-level rows (workspaces and groups).",
       "layoutItem2": "Unpinned top-level rows (workspaces and groups).",
       "creatingTitle": "Creating a group",
-      "creatingIntro": "A group is created in one of two ways: a keyboard shortcut or a workspace context menu. Both insert a fresh anchor workspace above the selection and move the selected workspaces into the group. Once a group exists, you manage it and add workspaces to it from the group header (see Managing a group below).",
-      "keyboardTitle": "From the keyboard ({shortcut})",
-      "keyboardDesc": "Select two or more workspaces in the sidebar, then press {shortcut}. A fresh anchor workspace is inserted above the selection and all selected workspaces become children. The group is auto-named Group 1, Group 2, and so on — rename it anytime via the header context menu.",
+      "creatingIntro": "A group is created from a keyboard shortcut or a sidebar context menu. Empty groups insert a fresh anchor workspace as the group header. Selection-based groups insert that anchor above the selection and move the selected workspaces into the group. Once a group exists, you manage it and add workspaces to it from the group header (see Managing a group below).",
+      "keyboardTitle": "From keyboard shortcuts",
+      "keyboardDesc": "Press ⌃⌘G to create a new empty workspace group. Select two or more workspaces in the sidebar, then press {shortcut} to group the selection. Both paths create a fresh anchor workspace and auto-name the group Group 1, Group 2, and so on. Rename it anytime via the header context menu.",
       "keyboardNote": "{shortcut} collides with React Grab's default. The group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and in browser or terminal contexts. Rebind it in Settings → Keyboard if you would rather the two not share a key.",
       "keyboardSingle": "Single-tab groups are not created from the shortcut. Use the workspace context menu New Group from Workspace entry for that.",
       "contextMenuTitle": "From a workspace context menu",
-      "contextMenuDesc": "Right-click any workspace in the sidebar and choose New Group from Workspace, or New Group from Selection when multiple workspaces are selected. This uses the same auto-naming behavior as the shortcut.",
+      "contextMenuDesc": "Right-click any workspace in the sidebar and choose New Empty Workspace Group, New Group from Workspace, or New Group from Selection when multiple workspaces are selected. The blank area below the sidebar list also offers New Empty Workspace Group. These paths use the same auto-naming behavior as the shortcuts.",
       "managingTitle": "Managing a group",
       "managingIntro": "Once a group exists, its header context menu and the + button on the header let you manage the group and add workspaces to it. Neither creates a new group.",
       "headerMenuTitle": "From the group header context menu",
@@ -1011,7 +1011,8 @@
         "browser": {
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
-          "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL."
+          "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
+          "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads."
         },
         "workspaceColors": {
           "autoColorFromCwd": "When enabled, new workspaces without an explicit tab color receive a deterministic color from their cwd or enclosing Git repository. Manual workspace colors still win."
@@ -2003,7 +2004,8 @@
   "afterSignIn": {
     "title": "Signed in to cmux",
     "body": "If cmux did not open automatically, use the button below.",
-    "button": "Return to cmux"
+    "button": "Return to cmux",
+    "switchAccountButton": "Use a different account"
   },
   "landing": {
     "bestTerminal": {
