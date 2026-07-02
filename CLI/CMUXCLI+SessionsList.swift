@@ -140,8 +140,15 @@ extension CMUXCLI {
             storePayload["session_count"] = store.sessions.count
             stores.append(storePayload)
 
-            for record in store.sessions.values {
-                guard sessionFilter == nil || record.sessionId.lowercased() == sessionFilter else { continue }
+            for rawRecord in store.sessions.values {
+                let record = spec.name == "claude"
+                    ? sessionsListResolvedClaudeWorkflowRecord(rawRecord, lookup: claudeTranscriptLookup)
+                    : rawRecord
+                let rawSessionId = rawRecord.sessionId.lowercased()
+                let resolvedSessionId = record.sessionId.lowercased()
+                guard sessionFilter == nil || rawSessionId == sessionFilter || resolvedSessionId == sessionFilter else {
+                    continue
+                }
                 guard workspaceFilter == nil || record.workspaceId.lowercased() == workspaceFilter else { continue }
                 guard surfaceFilter == nil || record.surfaceId.lowercased() == surfaceFilter else { continue }
                 if let cwdFilter {
@@ -161,6 +168,9 @@ extension CMUXCLI {
                     "updated_at": sessionsListTimestamp(record.updatedAt),
                     "updated_at_unix": record.updatedAt
                 ]
+                if rawRecord.sessionId != record.sessionId {
+                    payload["hook_session_id"] = rawRecord.sessionId
+                }
                 payload["cwd"] = record.cwd ?? NSNull()
                 payload["transcript_path"] = record.transcriptPath ?? NSNull()
                 payload["pid"] = record.pid ?? NSNull()
@@ -181,8 +191,8 @@ extension CMUXCLI {
 
                 let workspaceActive = store.activeSessionsByWorkspace[record.workspaceId]
                 let surfaceActive = store.activeSessionsBySurface[record.surfaceId]
-                payload["active_for_workspace"] = workspaceActive?.sessionId == record.sessionId
-                payload["active_for_surface"] = surfaceActive?.sessionId == record.sessionId
+                payload["active_for_workspace"] = workspaceActive?.sessionId == record.sessionId || workspaceActive?.sessionId == rawRecord.sessionId
+                payload["active_for_surface"] = surfaceActive?.sessionId == record.sessionId || surfaceActive?.sessionId == rawRecord.sessionId
                 payload["active_workspace_session_id"] = workspaceActive?.sessionId ?? NSNull()
                 payload["active_surface_session_id"] = surfaceActive?.sessionId ?? NSNull()
 
