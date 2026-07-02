@@ -1,7 +1,8 @@
-// Unified driver contract over each VM provider. No cloudrouter, no shared base class — just two
-// implementations behind an interface. Callers hold a `VMProvider` and never reach into specifics.
+// Unified driver contract over each VM provider. No cloudrouter, no shared base class — just
+// per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
+// into specifics.
 
-export type ProviderId = "e2b" | "freestyle";
+export type ProviderId = "e2b" | "freestyle" | "daytona";
 
 export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 

@@ -152,7 +152,7 @@ type ProviderFieldResult = { ok: true; provider?: ProviderId } | { ok: false; re
 function providerField(body: Record<string, unknown>): ProviderFieldResult {
   const value = stringField(body, "provider");
   if (!value) return { ok: true };
-  if (value === "e2b" || value === "freestyle") return { ok: true, provider: value };
+  if (value === "e2b" || value === "freestyle" || value === "daytona") return { ok: true, provider: value };
   return {
     ok: false,
     response: vmErrorResponse({

@@ -3,8 +3,9 @@ import { createHash, randomBytes } from "node:crypto";
 import WebSocket from "ws";
 import { Sandbox } from "e2b";
 import { Freestyle } from "freestyle";
+import { Daytona, type Sandbox as DaytonaSandbox } from "@daytonaio/sdk";
 
-type Provider = "e2b" | "freestyle";
+type Provider = "e2b" | "freestyle" | "daytona";
 type FreestyleVmRef = {
   exec(args: { command: string; timeoutMs?: number }): Promise<{
     stdout?: string | null;
@@ -14,8 +15,8 @@ type FreestyleVmRef = {
 };
 
 const provider = argValue("--provider") as Provider | undefined;
-if (provider !== "e2b" && provider !== "freestyle") {
-  throw new Error("--provider must be e2b or freestyle");
+if (provider !== "e2b" && provider !== "freestyle" && provider !== "daytona") {
+  throw new Error("--provider must be e2b, freestyle, or daytona");
 }
 
 const image = argValue("--image") ?? argValue("--template") ?? argValue("--snapshot");
@@ -30,7 +31,9 @@ const freestyleTimeoutMs = 15 * 60 * 1000;
 
 const result = provider === "e2b"
   ? await testE2B(image, keep)
-  : await testFreestyle(image, keep);
+  : provider === "freestyle"
+    ? await testFreestyle(image, keep)
+    : await testDaytona(image, keep);
 console.log(JSON.stringify(result, null, 2));
 
 function argValue(name: string): string | undefined {
@@ -188,6 +191,85 @@ async function testFreestyle(snapshotId: string, keep: boolean): Promise<Record<
   }
 }
 
+async function testDaytona(snapshot: string, keep: boolean): Promise<Record<string, unknown>> {
+  if (!process.env.DAYTONA_API_KEY) {
+    throw new Error("DAYTONA_API_KEY is required");
+  }
+  const daytona = new Daytona({
+    apiKey: process.env.DAYTONA_API_KEY,
+    apiUrl: process.env.DAYTONA_API_URL,
+  });
+  const sandbox = await daytona.create(
+    { snapshot, autoStopInterval: 0 },
+    { timeout: 10 * 60 },
+  );
+
+  try {
+    const preview = await sandbox.getPreviewLink(7777);
+    const previewToken = preview.token?.trim() ?? "";
+    const httpURL = preview.url.replace(/\/+$/, "");
+    const wsBase = httpURL.replace(/^https:/, "wss:");
+    const wsURL = `${wsBase}/terminal`;
+    const rpcURL = `${wsBase}/rpc`;
+    const headers = { "x-daytona-preview-token": previewToken };
+
+    const noPreviewAuth = await fetch(`${httpURL}/healthz`);
+    const previewAuth = await fetch(`${httpURL}/healthz`, { headers });
+    if (noPreviewAuth.status === 200) {
+      throw new Error("expected Daytona preview gate to reject healthz without x-daytona-preview-token");
+    }
+    if (previewAuth.status !== 200) {
+      throw new Error(`expected healthz with Daytona preview token to return 200, got ${previewAuth.status}`);
+    }
+    const service = await readDaytonaWebSocketService(sandbox);
+    if (!service.rpcLeasePath) {
+      throw new Error("Daytona cmuxd-ws service is missing --rpc-auth-lease-file; browser proxy cannot work");
+    }
+
+    await installLeaseDaytona(sandbox, service.ptyLeasePath, "wrong-daytona", "sess-dt", true);
+    const wrongCmuxToken = await websocketAuthShouldFail(wsURL, headers, "wrong-token", "sess-dt");
+    const leaseStillThere = await daytonaFileExists(sandbox, service.ptyLeasePath);
+    if (!leaseStillThere) throw new Error("wrong cmux token consumed Daytona lease");
+
+    const token = await installLeaseDaytona(sandbox, service.ptyLeasePath, "right-daytona", "sess-dt", true);
+    const terminalOutput = await websocketShellRoundTrip(wsURL, headers, token, "sess-dt");
+    const replay = await websocketAuthShouldFail(wsURL, headers, token, "sess-dt");
+
+    const rpcToken = await installLeaseDaytona(sandbox, service.rpcLeasePath, "rpc-daytona", "sess-rpc-dt", false);
+    const rpcHello = await websocketRPCHello(rpcURL, headers, rpcToken, "sess-rpc-dt");
+    const rpcHelloReplay = await websocketRPCHello(rpcURL, headers, rpcToken, "sess-rpc-dt");
+    const rpcProxyHealthz = await websocketRPCProxyHTTPRoundTrip(
+      rpcURL,
+      headers,
+      rpcToken,
+      "sess-rpc-dt",
+      "127.0.0.1",
+      7777,
+      "/healthz",
+    );
+
+    return {
+      provider: "daytona",
+      sandboxId: sandbox.id,
+      previewURL: httpURL,
+      ptyLeasePath: service.ptyLeasePath,
+      rpcLeasePath: service.rpcLeasePath,
+      previewGate: { withoutToken: noPreviewAuth.status, withToken: previewAuth.status },
+      wrongCmuxToken,
+      terminalOutput,
+      replay,
+      rpcHello,
+      rpcHelloReplay,
+      rpcProxyHealthz,
+      kept: keep,
+    };
+  } finally {
+    if (!keep) {
+      await sandbox.delete().catch(() => undefined);
+    }
+  }
+}
+
 function freestyleClient(timeoutMs = freestyleTimeoutMs): Freestyle {
   const longFetch: typeof fetch = (input, init) =>
     fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) });
@@ -241,6 +323,45 @@ async function installLeaseFreestyle(
     timeoutMs: 30_000,
   });
   return token;
+}
+
+async function installLeaseDaytona(
+  sandbox: DaytonaSandbox,
+  path: string,
+  label: string,
+  sessionId: string,
+  singleUse: boolean,
+): Promise<string> {
+  const { token, lease } = makeLease(label, sessionId, singleUse);
+  const encoded = Buffer.from(JSON.stringify(lease)).toString("base64");
+  await execDaytona(
+    sandbox,
+    `${ensurePrivateDirectoryCommand(path)} && printf '%s' '${encoded}' | base64 -d > ${shellQuote(path)} && chmod 600 ${shellQuote(path)}`,
+  );
+  return token;
+}
+
+async function readDaytonaWebSocketService(sandbox: DaytonaSandbox): Promise<{
+  ptyLeasePath: string;
+  rpcLeasePath: string | null;
+}> {
+  const result = await execDaytona(sandbox, "ps auxww | grep cmuxd-remote | grep -v grep || true");
+  const stdout = result.result ?? "";
+  return {
+    ptyLeasePath:
+      shellArgValue(stdout, "--auth-lease-file")
+      ?? (stdout.includes(legacyPtyLeasePath) ? legacyPtyLeasePath : ptyLeasePath),
+    rpcLeasePath: shellArgValue(stdout, "--rpc-auth-lease-file"),
+  };
+}
+
+async function daytonaFileExists(sandbox: DaytonaSandbox, path: string): Promise<boolean> {
+  const result = await execDaytona(sandbox, `test -f ${shellQuote(path)} && echo yes || echo no`);
+  return (result.result ?? "").trim() === "yes";
+}
+
+async function execDaytona(sandbox: DaytonaSandbox, command: string) {
+  return await sandbox.process.executeCommand(command, undefined, undefined, 30);
 }
 
 function makeLease(label: string, sessionId: string, singleUse: boolean): { token: string; lease: unknown } {

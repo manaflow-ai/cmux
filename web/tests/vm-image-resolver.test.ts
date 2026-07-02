@@ -5,6 +5,16 @@ import {
 } from "../services/vms/images/resolver";
 import { VmImageConfigError } from "../services/vms/errors";
 
+function captureImageConfigError(fn: () => unknown): VmImageConfigError {
+  try {
+    fn();
+  } catch (err) {
+    if (err instanceof VmImageConfigError) return err;
+    throw err;
+  }
+  throw new Error("expected VmImageConfigError to be thrown");
+}
+
 describe("VM image resolver", () => {
   test("uses manifest local defaults outside deployed runtimes", () => {
     expect(resolveVmImage("e2b", undefined, {})).toMatchObject({
@@ -20,6 +30,28 @@ describe("VM image resolver", () => {
     expect(imageUsesBakedFreestyleSignedAdmin("freestyle", "sh-b3jqa6o88qe6l738dw9z")).toBe(true);
   });
 
+  test("daytona has no local default until a validated snapshot lands in the manifest", () => {
+    expect(() => resolveVmImage("daytona", undefined, {})).toThrow(VmImageConfigError);
+    expect(captureImageConfigError(() => resolveVmImage("daytona", undefined, {}))).toMatchObject({
+      provider: "daytona",
+      envVar: "DAYTONA_SANDBOX_SNAPSHOT",
+      reason: "no local default image is recorded for daytona",
+    });
+  });
+
+  test("daytona local dev resolves DAYTONA_SANDBOX_SNAPSHOT even when unmanifested", () => {
+    expect(
+      resolveVmImage("daytona", undefined, {
+        DAYTONA_SANDBOX_SNAPSHOT: "cmuxd-ws-scratch",
+      }),
+    ).toMatchObject({
+      provider: "daytona",
+      image: "cmuxd-ws-scratch",
+      imageVersion: null,
+      manifestEntry: null,
+    });
+  });
+
   test("requires deployed env selectors", () => {
     expect(() =>
       resolveVmImage("freestyle", undefined, {
@@ -27,6 +59,15 @@ describe("VM image resolver", () => {
         VERCEL_ENV: "preview",
       }),
     ).toThrow(VmImageConfigError);
+    expect(captureImageConfigError(() =>
+      resolveVmImage("daytona", undefined, {
+        VERCEL: "1",
+        VERCEL_ENV: "preview",
+      }),
+    )).toMatchObject({
+      provider: "daytona",
+      reason: "DAYTONA_SANDBOX_SNAPSHOT is required in deployed environments",
+    });
   });
 
   test("rejects unknown deployed images", () => {

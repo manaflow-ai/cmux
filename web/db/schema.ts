@@ -11,7 +11,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["e2b", "freestyle"]);
+export const vmProvider = pgEnum("vm_provider", ["e2b", "freestyle", "daytona"]);
 
 export const vmStatus = pgEnum("vm_status", [
   "provisioning",

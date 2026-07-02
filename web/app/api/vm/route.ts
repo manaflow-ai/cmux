@@ -162,7 +162,7 @@ export async function POST(request: Request): Promise<Response> {
               details: { field: "provider" },
             });
           }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle") {
+          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona") {
             return vmErrorResponse({
               error: "vm_invalid_provider",
               status: 400,

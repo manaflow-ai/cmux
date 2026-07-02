@@ -38,6 +38,8 @@ export function providerImageEnvKey(provider: ProviderId): string {
       return "E2B_CMUXD_WS_TEMPLATE";
     case "freestyle":
       return "FREESTYLE_SANDBOX_SNAPSHOT";
+    case "daytona":
+      return "DAYTONA_SANDBOX_SNAPSHOT";
     default:
       return assertNever(provider);
   }

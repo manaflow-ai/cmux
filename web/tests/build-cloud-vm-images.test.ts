@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { Freestyle } from "freestyle";
 import {
   cloudAgentToolPackageSpecs,
   cloudImageSmokeTestCommands,
   cloudToolInstallCommands,
+  daytonaEntrypointCommands,
+  daytonaSnapshotImage,
   findFreestyleSnapshotByName,
   freestyleBaseDockerfileContent,
   freestyleRecoveryWindowStart,
@@ -155,6 +160,31 @@ describe("Cloud VM image build helpers", () => {
         process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED = previousPrivate;
       }
     }
+  });
+
+  test("Daytona image bakes the entrypoint supervisor for cmuxd-remote on 7777", () => {
+    // Image.addLocalFile validates the context file at construction time.
+    const daemonPath = path.join(tmpdir(), `cmuxd-remote-test-${process.pid}`);
+    writeFileSync(daemonPath, "stub");
+    const dockerfile = daytonaSnapshotImage(daemonPath).dockerfile;
+    expect(dockerfile).toContain("FROM ubuntu:24.04");
+    expect(dockerfile).toContain("/usr/local/bin/cmuxd-remote");
+    expect(dockerfile).toContain(
+      "cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /usr/local/bin/cmux-cloud-shell",
+    );
+    expect(dockerfile).toContain('ENTRYPOINT ["/usr/local/bin/cmux-daytona-entrypoint"]');
+    // Daytona attach is preview-URL WebSockets and even Daytona's own SSH gateway
+    // terminates in the runner daemon, so no sshd belongs in the image.
+    expect(dockerfile).not.toContain("openssh-server");
+    expect(dockerfile).not.toContain("sshd");
+  });
+
+  test("Daytona entrypoint restarts the daemon and keeps lease dir private", () => {
+    const script = daytonaEntrypointCommands().join("\n");
+    expect(script).toContain("mkdir -p /tmp/cmux");
+    expect(script).toContain("chmod 700 /tmp/cmux");
+    expect(script).toContain("while true; do");
+    expect(script).toContain("chmod 0755 /usr/local/bin/cmux-daytona-entrypoint");
   });
 
   test("snapshot recovery window tolerates provider clock skew", () => {

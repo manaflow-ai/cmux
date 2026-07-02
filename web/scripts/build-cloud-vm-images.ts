@@ -10,8 +10,9 @@ import {
   waitForURL,
 } from "e2b";
 import { Freestyle } from "freestyle";
+import { Daytona, Image } from "@daytonaio/sdk";
 
-type Target = "e2b" | "freestyle" | "all";
+type Target = "e2b" | "freestyle" | "daytona" | "all";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(__dirname, "..");
@@ -61,6 +62,11 @@ const FREESTYLE_SNAPSHOT_RECOVERY_CLOCK_SKEW_MS = positiveIntFromEnv(
   "CMUX_FREESTYLE_SNAPSHOT_RECOVERY_CLOCK_SKEW_MS",
   2 * 60 * 1000,
 );
+const DAYTONA_SNAPSHOT_CREATE_TIMEOUT_MS = positiveIntFromEnv(
+  "CMUX_DAYTONA_SNAPSHOT_CREATE_TIMEOUT_MS",
+  20 * 60 * 1000,
+);
+const DAYTONA_ENTRYPOINT_PATH = "/usr/local/bin/cmux-daytona-entrypoint";
 const CLOUD_AGENT_TOOLS = [
   {
     name: "claude",
@@ -112,8 +118,8 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
 
 async function main(): Promise<void> {
   const target = (argValue("--target") ?? "all") as Target;
-  if (!["e2b", "freestyle", "all"].includes(target)) {
-    throw new Error("--target must be e2b, freestyle, or all");
+  if (!["e2b", "freestyle", "daytona", "all"].includes(target)) {
+    throw new Error("--target must be e2b, freestyle, daytona, or all");
   }
   const tag = (argValue("--tag") ?? defaultTag()).trim();
   const skipCache = hasFlag("--skip-cache");
@@ -152,6 +158,11 @@ async function main(): Promise<void> {
     const freestyle = await buildFreestyleSnapshot(tag, binaryPath, skipCache, imageMetadata);
     output.freestyle = freestyle;
     (output.manifestEntries as unknown[]).push(freestyle.manifestEntry);
+  }
+  if (target === "daytona" || target === "all") {
+    const daytona = await buildDaytonaSnapshot(tag, binaryPath, skipCache, imageMetadata);
+    output.daytona = daytona;
+    (output.manifestEntries as unknown[]).push(daytona.manifestEntry);
   }
 
   console.log(JSON.stringify(output, null, 2));
@@ -287,6 +298,100 @@ async function buildFreestyleSnapshot(
       notes: imageNotes(metadata),
     },
   };
+}
+
+async function buildDaytonaSnapshot(
+  tag: string,
+  daemonPath: string,
+  skipCache: boolean,
+  metadata: ImageBuildMetadata,
+): Promise<Record<string, unknown>> {
+  if (!process.env.DAYTONA_API_KEY) {
+    throw new Error("DAYTONA_API_KEY is required to build the Daytona snapshot");
+  }
+  // Daytona has no skip-cache switch; the tag-unique snapshot name and discriminating
+  // RUN layers make cache reuse a per-layer Docker concern, same as a fresh docker build.
+  void skipCache;
+  const daytona = new Daytona({
+    apiKey: process.env.DAYTONA_API_KEY,
+    apiUrl: process.env.DAYTONA_API_URL,
+  });
+  const name = `cmuxd-ws-${tag}`;
+  const snapshot = await daytona.snapshot.create(
+    {
+      name,
+      image: daytonaSnapshotImage(daemonPath),
+      // Also registered on the snapshot record so sandboxes restart cmuxd-remote on
+      // every stop/start cycle without relying on the baked ENTRYPOINT alone.
+      entrypoint: [DAYTONA_ENTRYPOINT_PATH],
+    },
+    {
+      onLogs: (chunk) => process.stderr.write(chunk),
+      timeout: Math.ceil(DAYTONA_SNAPSHOT_CREATE_TIMEOUT_MS / 1000),
+    },
+  );
+  return {
+    name,
+    result: { snapshotId: snapshot.id, state: snapshot.state },
+    manifestEntry: {
+      provider: "daytona",
+      version: `daytona-${tag}`,
+      // Daytona sandboxes are created from snapshots by name, so the name is the image id.
+      imageId: name,
+      envVar: "DAYTONA_SANDBOX_SNAPSHOT",
+      defaultForLocalDev: false,
+      cmuxdRemoteCommit: metadata.cmuxdRemoteCommit,
+      builtAt: metadata.builtAt,
+      builderScriptVersion: metadata.builderScriptVersion,
+      agentToolResolvedVersions: metadata.agentToolResolvedVersions,
+      validationStatus: metadata.validationStatus,
+      notes: imageNotes(metadata),
+    },
+  };
+}
+
+/**
+ * Declarative Daytona image with the same payload as the E2B/Freestyle images: cloud shell
+ * packages, the cmux Linux user, agent tools, and cmuxd-remote on 7777 with lease files.
+ *
+ * No sshd is baked. cmux uses Daytona attach exclusively over preview-URL WebSockets, and even
+ * Daytona's own token SSH gateway terminates in the runner's injected daemon, not sandbox sshd,
+ * so an in-image sshd would be dead weight.
+ */
+export function daytonaSnapshotImage(daemonPath: string): Image {
+  return Image.base("ubuntu:24.04")
+    .env({ LANG: UTF8_LOCALE, LC_ALL: UTF8_LOCALE, LANGUAGE: UTF8_LOCALE })
+    .runCommands(
+      `apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${CLOUD_SHELL_PACKAGES.join(" ")} && rm -rf /var/lib/apt/lists/*`,
+    )
+    .addLocalFile(daemonPath, "/usr/local/bin/cmuxd-remote")
+    .runCommands(
+      "chmod 0755 /usr/local/bin/cmuxd-remote",
+      ...cloudToolInstallCommands(),
+      ...cloudRootSetupCommands(),
+      ...cloudShellProfileCommands(),
+      ...daytonaEntrypointCommands(),
+      ...cloudImageSmokeTestCommands(),
+    )
+    .entrypoint([DAYTONA_ENTRYPOINT_PATH]);
+}
+
+export function daytonaEntrypointCommands(): string[] {
+  // Daytona containers have no systemd; the entrypoint is the daemon supervisor. Daytona
+  // re-runs it on every sandbox start, which is what brings cmuxd-remote back after a
+  // stop/start (cmux pause/resume) cycle.
+  return [
+    `cat > ${DAYTONA_ENTRYPOINT_PATH} <<'CMUX_DAYTONA_ENTRYPOINT'
+#!/bin/sh
+mkdir -p /tmp/cmux
+chmod 700 /tmp/cmux
+while true; do
+  /usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /usr/local/bin/cmux-cloud-shell
+  sleep 2
+done
+CMUX_DAYTONA_ENTRYPOINT`,
+    `chmod 0755 ${DAYTONA_ENTRYPOINT_PATH}`,
+  ];
 }
 
 type FreestyleSnapshotRecord = {

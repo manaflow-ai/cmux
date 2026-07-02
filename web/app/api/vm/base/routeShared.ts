@@ -242,7 +242,7 @@ async function parseBaseRequest(
     }
   }
   const provider = typeof candidate.provider === "string" ? candidate.provider.trim() : undefined;
-  if (provider && provider !== "e2b" && provider !== "freestyle") {
+  if (provider && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona") {
     return {
       ok: false,
       response: vmErrorResponse({
