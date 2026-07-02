@@ -109,10 +109,6 @@ extension MobileShellComposite {
               workspace.terminals.contains(where: { $0.id == terminalID }) else {
             return
         }
-        // The Mac rejects closing a workspace's last surface; don't send a
-        // mutation that can only fail (the picker sheet also hides the delete
-        // affordance at one row, this guards the API path).
-        guard workspace.terminals.count > 1 else { return }
         var params = workspaceMutationParams(id: workspaceID)
         params["surface_id"] = terminalID.rawValue
         beginSelectedTerminalCloseAutoFocusSuppression(for: terminalID)

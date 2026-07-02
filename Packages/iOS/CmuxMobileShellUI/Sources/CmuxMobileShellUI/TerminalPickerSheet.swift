@@ -144,7 +144,7 @@ struct TerminalPickerSheet: View {
     }
 
     private var canDeleteTerminalRows: Bool {
-        canCloseTerminals && workspace.terminals.count > 1
+        canCloseTerminals
     }
 
     private var debugLogsAvailable: Bool {

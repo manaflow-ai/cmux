@@ -49,9 +49,11 @@ import Testing
         #expect(store.shouldAutoFocusTerminalSurface(terminalB.rawValue) == true)
     }
 
-    /// Closing a workspace's only terminal is not offered by the sheet and the
-    /// Mac rejects it anyway; the store must not even send the mutation.
-    @Test func closeTerminalKeepsLastRemainingTerminal() async throws {
+    /// iOS does not know the workspace's full panel count, so the host remains
+    /// authoritative for the last-surface rule. A one-terminal workspace may
+    /// still have another non-terminal surface; when it does not, the Mac
+    /// rejects the close and the refresh keeps the terminal.
+    @Test func closeTerminalLetsHostRejectLastRemainingSurface() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router)
         let terminalA = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA)
@@ -61,10 +63,13 @@ import Testing
             terminals: [MobileTerminalPreview(id: terminalA, name: "A")]
         )
         let workspaceID = MobileWorkspacePreview.ID(rawValue: RoutingHostRouter.workspaceID)
+        await router.setRejectTerminalClose(true)
 
         await store.closeTerminal(workspaceID: workspaceID, terminalID: terminalA)
 
-        #expect(await router.recordedTerminalCloses().isEmpty)
+        let closes = await router.recordedTerminalCloses()
+        #expect(closes.map(\.workspaceID) == [RoutingHostRouter.workspaceID])
+        #expect(closes.map(\.surfaceID) == [RoutingHostRouter.terminalA])
         #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalA])
     }
 
