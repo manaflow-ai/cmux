@@ -56,14 +56,14 @@
 1687	cmuxTests/MarkdownPanelTests.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1661	Sources/FileExplorerView.swift
-1659	Sources/FileExplorerStore.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1649	cmuxTests/TerminalControllerSocketSecurityTests.swift
+1640	Sources/FileExplorerStore.swift
 1581	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1500	cmuxUITests/MultiWindowNotificationsUITests.swift
 1499	cmuxTests/OmnibarAndToolsTests.swift
-1474	cmuxTests/FileExplorerStoreTests.swift
+1481	cmuxTests/FileExplorerStoreTests.swift
 1433	Sources/RemoteTmuxControlConnection.swift
 1420	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1384	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift

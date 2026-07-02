@@ -755,14 +755,14 @@ final class FileExplorerStore: ObservableObject {
     /// Watches the root directory recursively for filesystem changes (local only).
     private var directoryWatcher: RecursivePathWatcher?
     private var directoryWatchTask: Task<Void, Never>?
-    private var directoryWatchPath: String?
+    var directoryWatchPath: String?
 
     /// Watches the repository's `.git` metadata so status badges refresh after
     /// metadata-only changes (`git commit`, `git add`, `git reset`) that never
     /// touch the working tree — and so are excluded from the main tree watcher.
     /// Kept separate because those events must refresh git status without
     /// triggering a tree `reload()`.
-    private var gitStateWatcher: RecursivePathWatcher?
+    var gitStateWatcher: RecursivePathWatcher?
     private var gitStateWatchTask: Task<Void, Never>?
 
     /// Short-lived bootstrap watcher used only while the opened folder is not yet
@@ -788,7 +788,7 @@ final class FileExplorerStore: ObservableObject {
     /// sustained filesystem storm; without this guard each request would spawn
     /// another uncancelled `git status` process, letting slow fetches on a large
     /// repo pile up. Only read/written on the main actor.
-    private var isGitStatusRefreshInFlight = false
+    var isGitStatusRefreshInFlight = false
     /// Set when a refresh is requested while one is already in flight, so exactly
     /// one follow-up runs after the current fetch finishes (coalescing a burst of
     /// requests into a single trailing refresh rather than N concurrent ones).
@@ -1039,7 +1039,7 @@ final class FileExplorerStore: ObservableObject {
     /// instead this re-checks on the next working-tree event and starts watching
     /// metadata once `.git` exists. A no-op once the watcher is installed or
     /// while the folder still isn't a repository.
-    private func installGitStateWatcherIfNeeded() {
+    func installGitStateWatcherIfNeeded() {
         guard gitStateWatcher == nil, let watchPath = directoryWatchPath else { return }
         startGitStateWatcher(under: watchPath)
         // Once the repository exists the git-state watcher owns `.git`, so the
@@ -1200,7 +1200,7 @@ final class FileExplorerStore: ObservableObject {
 
     /// Cancels the directory-watch consumers and drops the watchers; each
     /// watcher's deinit tears down its filesystem stream synchronously.
-    private func stopDirectoryWatcher() {
+    func stopDirectoryWatcher() {
         directoryWatchTask?.cancel()
         directoryWatchTask = nil
         directoryWatcher = nil
@@ -1226,25 +1226,6 @@ final class FileExplorerStore: ObservableObject {
     #if DEBUG
     func setProviderForTesting(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
         setProvider(newProvider, reloadIfAvailable: reloadIfAvailable)
-    }
-
-    /// Drives the shared "a repository appeared after the folder was opened" path:
-    /// points the store at `rootPath` as the watched directory (without starting the
-    /// FSEvents watchers) and runs the metadata-watcher install path exactly as the
-    /// bootstrap creation watcher would. Returns whether the git-state watcher was
-    /// installed, so tests can assert the install also kicks off a status refresh.
-    @discardableResult
-    func simulateGitRepositoryAppearedForTesting(rootPath: String) -> Bool {
-        self.rootPath = rootPath
-        directoryWatchPath = rootPath
-        installGitStateWatcherIfNeeded()
-        return gitStateWatcher != nil
-    }
-
-    var isGitStatusRefreshInFlightForTesting: Bool { isGitStatusRefreshInFlight }
-
-    func stopWatchersForTesting() {
-        stopDirectoryWatcher()
     }
     #endif
 

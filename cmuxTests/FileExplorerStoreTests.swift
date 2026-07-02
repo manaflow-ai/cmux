@@ -848,17 +848,24 @@ struct FileExplorerStoreTests {
         try Self.runGit(["init"], in: repo)
 
         let store = FileExplorerStore()
-        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
-        defer { store.stopWatchersForTesting() }
+        defer { store.stopDirectoryWatcher() }
 
         // No refresh has been requested yet, so any in-flight refresh observed after
         // the install must have been triggered by the install path itself.
-        #expect(!store.isGitStatusRefreshInFlightForTesting)
+        #expect(!store.isGitStatusRefreshInFlight)
 
-        let installed = store.simulateGitRepositoryAppearedForTesting(rootPath: repo.path)
-        #expect(installed, "git-state watcher should install once .git exists")
+        // Drive the shared "a repository appeared after the folder was opened" path
+        // directly (reaching internal state via `@testable import`): point the store
+        // at the repo as its watched directory without starting real FSEvents
+        // watchers, then run the metadata-watcher install path exactly as the
+        // bootstrap creation watcher would once `.git` shows up.
+        store.rootPath = repo.path
+        store.directoryWatchPath = repo.path
+        store.installGitStateWatcherIfNeeded()
+
+        #expect(store.gitStateWatcher != nil, "git-state watcher should install once .git exists")
         #expect(
-            store.isGitStatusRefreshInFlightForTesting,
+            store.isGitStatusRefreshInFlight,
             "installing the git-state watcher for a repo that appeared after open must eagerly refresh git status"
         )
     }
