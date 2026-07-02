@@ -526,7 +526,10 @@ async function desktopScreenshot(display) {
         "Screen Recording permission for the terminal app; per-app capture via `app` does not."
     );
   } finally {
-    rm(path, { force: true }).catch(() => {});
+    // Await deletion: this file holds full-desktop pixels, and a client that
+    // closes the server right after receiving the image would let shutdown()
+    // exit the process before a fire-and-forget unlink ran, leaking it to tmp.
+    await rm(path, { force: true }).catch(() => {});
   }
 }
 
