@@ -1,4 +1,5 @@
 import XCTest
+import CmuxCommandPalette
 import CmuxSettings
 @testable import CmuxSettingsUI
 
@@ -212,6 +213,9 @@ final class KeyboardShortcutContextTests: XCTestCase {
             focusedFilePreviewTextEditor: true,
             rightSidebarFocused: false
         ))
+        var textPreviewPaletteContext = CommandPaletteContextSnapshot()
+        textPreviewPaletteContext.setBool(CommandPaletteContextKeys.panelIsFilePreviewTextEditor, true)
+        XCTAssertTrue(viewZoom.isAvailable(commandPaletteContext: textPreviewPaletteContext))
         XCTAssertFalse(markdown.overlaps(viewZoom))
         XCTAssertTrue(markdown.overlaps(markdown))
 

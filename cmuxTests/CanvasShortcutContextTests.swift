@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CmuxCanvasUI
 import CmuxSettings
 import Testing
@@ -269,6 +270,85 @@ struct CanvasShortcutRoutingFeedbackTests {
         }
     }
 
+    @Test func chordedViewZoomShortcutZoomsFocusedTextPreviewThroughAppRouter() throws {
+        try withIsolatedShortcutSettings {
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(
+                    first: ShortcutStroke(
+                        key: "k",
+                        command: false,
+                        shift: false,
+                        option: false,
+                        control: true,
+                        keyCode: UInt16(kVK_ANSI_K)
+                    ),
+                    second: ShortcutStroke(
+                        key: "=",
+                        command: true,
+                        shift: false,
+                        option: false,
+                        control: false,
+                        keyCode: UInt16(kVK_ANSI_Equal)
+                    )
+                ),
+                for: .browserZoomIn
+            )
+
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let fileURL = try temporaryTextFile(contents: "preview text")
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+            let panel = try #require(workspace.newFilePreviewSurface(
+                inPane: firstPane,
+                filePath: fileURL.path,
+                focus: true
+            ))
+
+            let textView = SavingTextView.makeFilePreviewTextView()
+            textView.frame = NSRect(x: 0, y: 0, width: 200, height: 120)
+            textView.string = "preview text"
+            textView.panel = panel
+            panel.attachTextView(textView)
+            window.contentView?.addSubview(textView)
+            defer { textView.removeFromSuperview() }
+            window.makeKeyAndOrderFront(nil)
+            #expect(window.makeFirstResponder(textView))
+            #expect(workspace.focusedPanelId == panel.id)
+            #expect(manager.focusedTextFilePreviewPanel === panel)
+
+            let initialPointSize = try #require(textView.font?.pointSize)
+            let prefix = try #require(makeKeyDownEvent(
+                key: "k",
+                modifiers: [.control],
+                keyCode: UInt16(kVK_ANSI_K),
+                windowNumber: window.windowNumber
+            ))
+            let suffix = try #require(makeKeyDownEvent(
+                key: "=",
+                modifiers: [.command],
+                keyCode: UInt16(kVK_ANSI_Equal),
+                windowNumber: window.windowNumber
+            ))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: prefix))
+            #expect(abs((textView.font?.pointSize ?? 0) - initialPointSize) < 0.01)
+            #expect(appDelegate.debugHandleCustomShortcut(event: suffix))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            let zoomedPointSize = try #require(textView.font?.pointSize)
+            #expect(zoomedPointSize > initialPointSize)
+        }
+    }
+
     private func makeKeyDownEvent(
         key: String,
         modifiers: NSEvent.ModifierFlags = [.control],
@@ -287,6 +367,14 @@ struct CanvasShortcutRoutingFeedbackTests {
             isARepeat: false,
             keyCode: keyCode
         )
+    }
+
+    private func temporaryTextFile(contents: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("txt")
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        return url
     }
 
     private func withTemporaryShortcut(action: KeyboardShortcutSettings.Action, _ body: () throws -> Void) rethrows {
