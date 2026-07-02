@@ -17,10 +17,17 @@ struct WorkspaceDetailContainer: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
+    @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
 
     private var workspace: MobileWorkspacePreview? {
         if let workspaceID {
-            return store.workspaces.first { $0.id == workspaceID } ?? store.selectedWorkspace
+            if let liveWorkspace = store.workspaces.first(where: { $0.id == workspaceID }) {
+                return liveWorkspace
+            }
+            if routeWorkspaceSnapshot?.id == workspaceID {
+                return routeWorkspaceSnapshot
+            }
+            return nil
         }
         return store.selectedWorkspace
     }
@@ -55,9 +62,13 @@ struct WorkspaceDetailContainer: View {
                     signOut: signOut
                 )
                 .onAppear {
+                    rememberRouteWorkspace(workspace)
                     if store.selectedWorkspaceID != workspace.id {
                         store.selectedWorkspaceID = workspace.id
                     }
+                }
+                .onChange(of: workspace) { _, workspace in
+                    rememberRouteWorkspace(workspace)
                 }
                 .task(id: workspace.id) {
                     await store.openWorkspace(workspace.id)
@@ -69,5 +80,10 @@ struct WorkspaceDetailContainer: View {
                 )
             }
         }
+    }
+
+    private func rememberRouteWorkspace(_ workspace: MobileWorkspacePreview) {
+        guard workspaceID == workspace.id else { return }
+        routeWorkspaceSnapshot = workspace
     }
 }
