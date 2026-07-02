@@ -24,7 +24,19 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
     case splitBrowser(workspaceID: UUID, surfaceID: UUID, direction: CmuxSidebarSplitDirection, url: String?)
     case toggleSurfaceZoom(workspaceID: UUID, surfaceID: UUID)
     case openURL(String)
+    /// Runs a user-defined workspace command from `cmux.json`, resolved by `name`.
+    ///
+    /// This is the wire form of
+    /// `CmuxSidebarHost.runWorkspaceCommand(named:workingDirectory:)`. The
+    /// extension never supplies shell text; a non-nil `workingDirectory` asks
+    /// CMUX to resolve the nearest local `cmux.json` for that path.
     case runWorkspaceCommand(name: String, workingDirectory: String?)
+    /// Runs the user's configured `ui.newWorkspace.action` from `cmux.json`.
+    ///
+    /// This is the wire form of
+    /// `CmuxSidebarHost.invokeNewWorkspaceAction(workingDirectory:)`. The
+    /// extension never supplies shell text; a non-nil `workingDirectory` asks
+    /// CMUX to resolve the nearest local `cmux.json` for that path.
     case invokeNewWorkspaceAction(workingDirectory: String?)
 
     public var requiredScopes: Set<CmuxExtensionActionScope> {
