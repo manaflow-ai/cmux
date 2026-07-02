@@ -318,6 +318,65 @@ scrollback-limit = 50000000
 split-divider-color = #3e4451
 working-directory = ~/code`}</CodeBlock>
 
+      <DocsHeading level={2} id="where-settings-live">{t("whereSettingsLive")}</DocsHeading>
+      <p>{t("whereSettingsLiveIntro")}</p>
+      <ul>
+        <li>
+          {t.rich("whereGhostty", {
+            ghostty: (chunks) => <code>{chunks}</code>,
+            surfaceTabBarFontSize: (chunks) => <code>{chunks}</code>,
+            sidebarFontSize: (chunks) => <code>{chunks}</code>,
+          })}
+        </li>
+        <li>
+          {t.rich("whereCmuxJson", {
+            cmuxJson: (chunks) => <code>{chunks}</code>,
+            uiSurfaceTabBarButtons: (chunks) => <code>{chunks}</code>,
+            uiNewWorkspaceAction: (chunks) => <code>{chunks}</code>,
+          })}
+        </li>
+        <li>
+          {t.rich("whereProjectCmuxJson", {
+            projectCmuxJson: (chunks) => <code>{chunks}</code>,
+            actions: (chunks) => <code>{chunks}</code>,
+            commands: (chunks) => <code>{chunks}</code>,
+          })}
+        </li>
+        <li>
+          {t.rich("whereDock", {
+            dockJson: (chunks) => <code>{chunks}</code>,
+          })}
+        </li>
+      </ul>
+
+      <DocsHeading level={2} id="tab-bar">{t("tabBar")}</DocsHeading>
+      <p>
+        {t.rich("tabBarDesc", {
+          ghostty: (chunks) => <code>{chunks}</code>,
+          cmuxJson: (chunks) => <code>{chunks}</code>,
+          buttons: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <CodeBlock title="~/.config/ghostty/config" lang="ini">{`surface-tab-bar-font-size = 12`}</CodeBlock>
+      <CodeBlock title="~/.config/cmux/cmux.json" lang="json">{`{
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        "cmux.newTerminal",
+        "cmux.newBrowser",
+        "cmux.splitRight",
+        "cmux.splitDown"
+      ]
+    }
+  }
+}`}</CodeBlock>
+      <p>
+        {t.rich("tabBarButtonsLink", {
+          link: (chunks) => <Link href="/docs/custom-commands#surface-tab-bar-buttons">{chunks}</Link>,
+          buttons: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+
       <DocsHeading level={2} id="cmux-json" className="scroll-mt-24">cmux.json</DocsHeading>
       <p>
         cmux keeps app-owned settings, shortcuts, actions, custom commands, and workspace layouts in{" "}
