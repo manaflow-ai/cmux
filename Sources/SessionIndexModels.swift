@@ -349,6 +349,7 @@ struct SessionEntry: Identifiable, Hashable {
             // wrapped in `/bin/sh -c '…'`; the `cd` guard stays outside in
             // `resumeCommandWithCwd`. https://github.com/manaflow-ai/cmux/issues/5639
             var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)"]
+            parts.append(AgentResumeArgv.codexUpdateCheckSuppressionOverride.joined(separator: " "))
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
             }

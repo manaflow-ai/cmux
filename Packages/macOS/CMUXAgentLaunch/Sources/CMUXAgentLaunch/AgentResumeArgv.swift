@@ -78,6 +78,38 @@ public struct AgentResumeArgv: Sendable, Equatable {
     public static let codexWrapperShellExecutableToken =
         "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
 
+    /// Per-invocation config override appended to every cmux-generated codex resume argv.
+    ///
+    /// codex's TUI shows a blocking "Update available!" picker at startup whenever no
+    /// initial prompt is passed — exactly the shape of `codex resume <id>` — so a cmux
+    /// relaunch that auto-restores codex sessions lands every pane on the update prompt
+    /// instead of the restored conversation, and the session appears "not restarted".
+    /// `-c key=value` is codex's per-process config override (a clap-global flag, valid
+    /// after subcommands), so this suppresses the startup update check for the restored
+    /// process only; `~/.codex/config.toml` and the user's own manual codex launches are
+    /// untouched. Injection is skipped when the captured launch arguments already set
+    /// `check_for_update_on_startup` (see ``codexResumeConfigOverrides(preserved:)``):
+    /// that keeps an explicit user choice authoritative and keeps restore-of-a-restore
+    /// idempotent, since the codex sanitizer policy preserves `-c key=value` pairs.
+    public static let codexUpdateCheckSuppressionOverride = ["-c", "check_for_update_on_startup=false"]
+
+    /// The override tokens to inject between `resume <id>` and the preserved launch
+    /// arguments: ``codexUpdateCheckSuppressionOverride`` unless `preserved` already
+    /// sets `check_for_update_on_startup` (either value).
+    static func codexResumeConfigOverrides(preserved: [String]) -> [String] {
+        for (index, argument) in preserved.enumerated() {
+            if argument == "-c" || argument == "--config",
+               index + 1 < preserved.count,
+               preserved[index + 1].hasPrefix("check_for_update_on_startup=") {
+                return []
+            }
+            if argument.hasPrefix("--config=check_for_update_on_startup=") {
+                return []
+            }
+        }
+        return codexUpdateCheckSuppressionOverride
+    }
+
     /// Wraps a rendered claude resume/fork command so it parses in any login shell.
     ///
     /// ``claudeWrapperShellExecutableToken`` is POSIX-only syntax, but the rendered
@@ -236,7 +268,10 @@ public struct AgentResumeArgv: Sendable, Equatable {
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-restore", args: tail) else {
                 return .resolved(nil)
             }
-            return .resolved([parts.executable, "codex-teams", "resume", sessionId] + preserved)
+            return .resolved(
+                [parts.executable, "codex-teams", "resume", sessionId]
+                    + Self.codexResumeConfigOverrides(preserved: preserved) + preserved
+            )
         case "omo":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
             var tail = parts.tail
@@ -272,7 +307,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
         case "codex":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-restore", args: parts.tail) else { return nil }
-            return [parts.executable, "resume", sessionId] + preserved
+            return [parts.executable, "resume", sessionId]
+                + Self.codexResumeConfigOverrides(preserved: preserved) + preserved
         case "grok":
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "pi":
