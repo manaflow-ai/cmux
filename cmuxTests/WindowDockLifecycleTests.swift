@@ -16,6 +16,7 @@ private final class WindowDockTestPanel: Panel, ObservableObject {
     let panelType: PanelType = .terminal
     let displayTitle = "Test Dock Panel"
     let displayIcon: String? = "terminal.fill"
+    var isDirty = false
 
     private(set) var closeCount = 0
     private(set) var focusCount = 0
@@ -172,6 +173,53 @@ struct WindowDockLifecycleTests {
 
         // Non-Dock surfaces fall through to the workspace close path untouched.
         #expect(!appDelegate.closeWindowDockRuntimeSurface(surfaceId: UUID(), force: true))
+    }
+
+    @Test("Window Dock close confirmation uses the owning window manager")
+    @MainActor
+    func windowDockCloseConfirmationUsesOwningWindowManager() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let activeManager = TabManager(autoWelcomeIfNeeded: false)
+        let dockManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = activeManager
+        let activeWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: activeManager)
+        let dockWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: dockManager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: activeWindowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: dockWindowId)
+            activeManager.tabs.forEach { $0.teardownAllPanels() }
+            dockManager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let dock = appDelegate.windowDock(forWindowId: dockWindowId)
+        let panel = WindowDockTestPanel()
+        panel.isDirty = true
+        try dock.seedTestPanel(panel)
+        let tabId = try #require(dock.surfaceId(forPanelId: panel.id))
+        let paneId = try #require(dock.paneId(forPanelId: panel.id))
+
+        var activeManagerPromptCount = 0
+        activeManager.confirmCloseHandler = { _, _, _ in
+            activeManagerPromptCount += 1
+            return false
+        }
+        var dockManagerPromptCount = 0
+        dockManager.confirmCloseHandler = { _, _, _ in
+            dockManagerPromptCount += 1
+            return false
+        }
+
+        #expect(!dock.splitTabBar(dock.bonsplitController, shouldCloseTab: tabId, inPane: paneId))
+        for _ in 0..<10 where dockManagerPromptCount == 0 {
+            await Task.yield()
+        }
+
+        #expect(dockManagerPromptCount == 1)
+        #expect(activeManagerPromptCount == 0)
+        #expect(dock.containsPanel(panel.id))
     }
 
     @Test("Triggering flash on a Dock panel does not change Dock focus")

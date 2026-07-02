@@ -44,7 +44,7 @@ extension DockSplitStore {
         }
         guard !pendingCloseConfirmDockTabIds.contains(tab.id) else { return false }
 
-        let confirmationManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) ?? AppDelegate.shared?.tabManager
+        let confirmationManager = dockCloseConfirmationManager()
         if confirmationManager?.isCloseConfirmationInFlight == true { return false }
 
         pendingCloseConfirmDockTabIds.insert(tab.id)
@@ -86,7 +86,7 @@ extension DockSplitStore {
 
         guard pendingCloseConfirmDockTabIds.isDisjoint(with: confirmableTabIds) else { return false }
 
-        let confirmationManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) ?? AppDelegate.shared?.tabManager
+        let confirmationManager = dockCloseConfirmationManager()
         if confirmationManager?.isCloseConfirmationInFlight == true { return false }
 
         pendingCloseConfirmDockTabIds.formUnion(confirmableTabIds)
@@ -124,6 +124,14 @@ extension DockSplitStore {
             return terminalPanel.needsConfirmClose()
         }
         return panel.isDirty
+    }
+
+    /// The manager that owns Dock close confirmation state and sheet
+    /// presentation. Window Docks use a window id as `workspaceId`, so they
+    /// must resolve through the Dock owner rather than `tabManagerFor(tabId:)`.
+    private func dockCloseConfirmationManager() -> TabManager? {
+        guard let app = AppDelegate.shared else { return nil }
+        return app.dockReferenceTabManager(for: self) ?? app.tabManager
     }
 
     func needsConfirmClose() -> Bool {
