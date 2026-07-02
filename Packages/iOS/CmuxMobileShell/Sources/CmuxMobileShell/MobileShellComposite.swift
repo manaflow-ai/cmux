@@ -686,7 +686,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
-    @ObservationIgnored private var macSwitchAttemptID: UUID?
+    @ObservationIgnored var macSwitchAttemptID: UUID?
     @ObservationIgnored private var macSwitchAttemptSignInGeneration: Int?
     @ObservationIgnored private var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
     @ObservationIgnored private var macSwitchRestoreBaseline: MobilePairedMac?
@@ -5353,15 +5353,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func isCurrentConnectionAttempt(_ generation: UUID) -> Bool {
         generation == connectionAttemptGeneration && isSignedIn
     }
-
-    /// Whether any foreground Mac switch attempt is currently in flight.
-    ///
-    /// `switchToMac` returns `false` both for a genuine connection failure and
-    /// for an attempt superseded by a newer switch (which leaves the newer
-    /// attempt's id in place). Reconnect UIs read this at result time to avoid
-    /// showing a "couldn't connect" alert for an attempt that merely lost the
-    /// race to a switch the user started elsewhere.
-    public var isMacSwitchInFlight: Bool { macSwitchAttemptID != nil }
 
     private func beginMacSwitchAttempt() -> UUID {
         let attemptID = UUID()
