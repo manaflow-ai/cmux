@@ -95,6 +95,8 @@
 		F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */; };
 		A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAB000000000000000001 /* AppearanceSettings.swift */; };
 		A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAA000000000000000001 /* AppearanceSettingsTests.swift */; };
+		2F0C05000000000000000014 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000013 /* AppEnvironment.swift */; };
+		2F0C05000000000000000016 /* AppEnvironmentKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000015 /* AppEnvironmentKey.swift */; };
 		AAFD0001000100010001000A /* AppFileDropTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFD0002000200020002000B /* AppFileDropTarget.swift */; };
 		D1320AA0D1320AA0D1320AA1 /* AppIconDockTilePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */; };
 		A1C04E00A1C04E00A1C04E01 /* AppIconRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C04E00A1C04E00A1C04E04 /* AppIconRuntime.swift */; };
@@ -1320,6 +1322,8 @@
 		F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingTests.swift; sourceTree = "<group>"; };
 		A11EAB000000000000000001 /* AppearanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettings.swift; sourceTree = "<group>"; };
 		A11EAA000000000000000001 /* AppearanceSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsTests.swift; sourceTree = "<group>"; };
+		2F0C05000000000000000013 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		2F0C05000000000000000015 /* AppEnvironmentKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironmentKey.swift; sourceTree = "<group>"; };
 		AAFD0002000200020002000B /* AppFileDropTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFileDropTarget.swift; sourceTree = "<group>"; };
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconDockTilePlugin.swift; sourceTree = "<group>"; };
@@ -3012,6 +3016,8 @@
 				2F0C05000000000000000001 /* MainWindowFocusController.swift */,
 				2F0C05000000000000000011 /* WindowContext.swift */,
 				2F0C05000000000000000021 /* WindowRegistry.swift */,
+				2F0C05000000000000000013 /* AppEnvironment.swift */,
+				2F0C05000000000000000015 /* AppEnvironmentKey.swift */,
 				A5001091 /* NotificationsPage.swift */,
 				D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */,
 				D1F0A00500000000000000E2 /* MacPresenceDecisionCache.swift */,
@@ -4127,6 +4133,8 @@
 				FE0DEB01 /* AppDelegateDebugTerminalActionsHosting.swift in Sources */,
 				D10014C2 /* AppDelegateMarkdownPanelSurfaceRouting.swift in Sources */,
 				A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */,
+				2F0C05000000000000000014 /* AppEnvironment.swift in Sources */,
+				2F0C05000000000000000016 /* AppEnvironmentKey.swift in Sources */,
 				AAFD0001000100010001000A /* AppFileDropTarget.swift in Sources */,
 				A1C04E00A1C04E00A1C04E01 /* AppIconRuntime.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,

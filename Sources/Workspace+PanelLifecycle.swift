@@ -370,7 +370,7 @@ extension Workspace {
             lastTerminalConfigInheritancePanelId = nil
         }
         if clearSurfaceNotifications {
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
+            hostEnvironment?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         }
 
         if requestTransferredRemoteCleanup, let transferredRemoteCleanupConfiguration {

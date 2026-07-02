@@ -106,6 +106,11 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     /// its `SidebarDragState` is wired to the shared registry without reaching
     /// the `AppDelegate.shared` singleton.
     @Environment(\.sidebarWorkspaceDragRegistry) private var sidebarWorkspaceDragRegistry
+    /// Process-lifetime services injected from the app composition root
+    /// (`AppDelegate.environment`); `nil` when no environment was injected,
+    /// matching the legacy `AppDelegate.shared?` optionality. Internal (not
+    /// `private`) so `ContentView` extensions in sibling files can read it.
+    @Environment(\.appEnvironment) var appEnvironment
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
@@ -772,7 +777,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         }
         .padding(.top, effectiveTitlebarPadding)
         .overlay(alignment: .top) {
-            if let guardrail = AppDelegate.shared?.paneMemoryGuardrail {
+            if let guardrail = appEnvironment?.paneMemoryGuardrail {
                 PaneMemoryGuardrailBanner(guardrail: guardrail, tabManager: tabManager)
             }
         }
@@ -2140,7 +2145,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         windowChrome.nativeTitlebarBackdropCoordinator.removeNativeTitlebarBackdrop(in: window)
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
-            AppDelegate.shared?.updateLog.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
+            appEnvironment?.updateLog.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
         }
 #endif
         let backdropResult = windowChrome.backdropController.apply(plan: backdropPlan, to: window)
@@ -3156,7 +3161,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
-        if let auth = AppDelegate.shared?.auth {
+        if let auth = appEnvironment?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.coordinator.isAuthenticated)
             snapshot.setBool(
                 CommandPaletteContextKeys.authWorking,
@@ -5214,14 +5219,14 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func stopInlineVSCodeServeWeb() {
-        AppDelegate.shared?.vscodeServeWebController.stop()
+        appEnvironment?.vscodeServeWebController.stop()
     }
 
     private func restartInlineVSCodeServeWeb() -> Bool {
         guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return false
         }
-        AppDelegate.shared?.vscodeServeWebController.restart(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+        appEnvironment?.vscodeServeWebController.restart(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
             if serveWebURL == nil {
                 NSSound.beep()
             }

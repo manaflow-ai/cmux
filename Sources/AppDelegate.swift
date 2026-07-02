@@ -35,6 +35,16 @@ import CmuxTestSupport
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment, ExternalOpenIntentHosting, WindowLifecycleHosting, AppMenuHosting {
     nonisolated(unsafe) static var shared: AppDelegate?
+    /// Process-lifetime service holder (Wave 1 of the `AppDelegate.shared`
+    /// de-singletonization). Owns the service objects whose lifetime is the whole
+    /// process; constructed once here at the composition root and injected into
+    /// the per-window SwiftUI tree via `.environment(\.appEnvironment, …)`. The
+    /// moved members keep their exact names/types/optionality/isolation, and
+    /// `AppDelegate` exposes a computed forwarder for each so the not-yet-migrated
+    /// `AppDelegate.shared.X` sites resolve to this same instance.
+    /// `nonisolated(unsafe)`: read from the `nonisolated` accessibility-swizzle
+    /// path (via the `accessibilityWindowCache` forwarder), mirroring `shared`.
+    nonisolated(unsafe) let environment: AppEnvironment
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
     /// The app-target composition owner for external programmatic control: the
@@ -90,21 +100,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     /// Owns the inline VS Code `serve-web` process lifecycle
     /// (``VSCodeServeWebController``, CmuxWorkspaces); composition-root owned so
-    /// the type no longer exposes a `static let shared`. The ContentView and
-    /// shortcut-routing call sites reach this same instance through
-    /// ``AppDelegate/shared``.
-    let vscodeServeWebController = VSCodeServeWebController()
+    /// the type no longer exposes a `static let shared`. Storage moved to
+    /// ``AppEnvironment``; this forwarder keeps the not-yet-migrated
+    /// `AppDelegate.shared.vscodeServeWebController` sites resolving to it.
+    /// `nonisolated` because the stored `let` it replaced was cross-actor
+    /// readable (ShortcutRoutingSupport's default-argument closure reads it
+    /// from a nonisolated context); the body performs that same immutable read
+    /// through the `nonisolated(unsafe)` `environment` reference.
+    nonisolated var vscodeServeWebController: VSCodeServeWebController { environment.vscodeServeWebController }
     #if DEBUG
-    /// DEBUG main-run-loop stall probe (CmuxTestSupport); composition-root owned,
-    /// injected behind ``RunLoopStallMonitoring`` to retire the former
-    /// `CmuxMainRunLoopStallMonitor.shared` singleton.
-    let runLoopStallMonitor: any RunLoopStallMonitoring = CmuxMainRunLoopStallMonitor()
-    /// DEBUG main-thread turn profiler (CmuxTestSupport); composition-root owned,
-    /// injected behind ``MainThreadTurnProfiling``. Installed as
-    /// `CmuxTypingTiming.turnProfiler` in `applicationDidFinishLaunching` so the
-    /// typing probe's `logDuration` forwards to this instance, retiring the former
-    /// `CmuxMainThreadTurnProfiler.shared` singleton.
-    let mainThreadTurnProfiler: any MainThreadTurnProfiling = CmuxMainThreadTurnProfiler()
+    /// DEBUG main-run-loop stall probe (CmuxTestSupport). Storage moved to
+    /// ``AppEnvironment``; forwarder preserved for not-yet-migrated sites.
+    var runLoopStallMonitor: any RunLoopStallMonitoring { environment.runLoopStallMonitor }
+    /// DEBUG main-thread turn profiler (CmuxTestSupport). Storage moved to
+    /// ``AppEnvironment``; forwarder preserved for not-yet-migrated sites.
+    var mainThreadTurnProfiler: any MainThreadTurnProfiling { environment.mainThreadTurnProfiler }
     #endif
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
@@ -215,8 +225,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return provider
     }
 
-    /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
-    let remoteTmuxController = RemoteTmuxController()
+    /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring. Storage moved to
+    /// ``AppEnvironment``; this forwarder keeps the not-yet-migrated
+    /// `AppDelegate.shared.remoteTmuxController` sites resolving to it.
+    var remoteTmuxController: RemoteTmuxController { environment.remoteTmuxController }
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -392,7 +404,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     )
 
     weak var tabManager: TabManager?
-    weak var notificationStore: TerminalNotificationStore?
+    /// The single `TerminalNotificationStore` (owned by the `cmuxApp`
+    /// `@StateObject`). Storage moved to ``AppEnvironment``, which holds it
+    /// weakly exactly as the former `weak var` here did; this get/set forwarder
+    /// keeps the not-yet-migrated `AppDelegate.shared.notificationStore` sites
+    /// (and the `configure(...)` write) resolving to it.
+    var notificationStore: TerminalNotificationStore? {
+        get { environment.notificationStore }
+        set { environment.notificationStore = newValue }
+    }
     weak var sidebarState: SidebarState?
 
     /// Notification jump/open navigation, extracted into `CmuxNotifications`.
@@ -553,24 +573,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // focused-mark state machine lives in `FocusedNotificationMarker` (behind
     // `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
-    private(set) var auth: MacAuthComposition?
+    /// Storage moved to ``AppEnvironment``; this read-only forwarder preserves
+    /// the former `private(set)` contract (the single write in `configure(...)`
+    /// assigns `environment.auth` directly).
+    var auth: MacAuthComposition? { environment.auth }
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
     private let agentChatTranscriptService = AgentChatTranscriptService()
-    /// Per-pane runaway-memory guardrail, constructed and wired at startup
-    /// (replaces the former `PaneMemoryGuardrail.shared` singleton). Held by the
-    /// composition root and read by `ContentView` for the warning banner.
-    let paneMemoryGuardrail = PaneMemoryGuardrailService(
-        sampleProvider: PaneMemorySampleProvider(),
-        settings: PaneMemoryGuardrailSettings()
-    )
+    /// Per-pane runaway-memory guardrail, wired at startup (replaces the former
+    /// `PaneMemoryGuardrail.shared` singleton) and read by `ContentView` for the
+    /// warning banner. Storage moved to ``AppEnvironment``; forwarder preserved
+    /// for not-yet-migrated sites.
+    var paneMemoryGuardrail: PaneMemoryGuardrailService { environment.paneMemoryGuardrail }
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
     /// main window's `NSHostingView` itself, so it injects this into the
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
-    /// observes inside the sidebar.
-    var settingsRuntime: SettingsRuntime?
+    /// observes inside the sidebar. Storage moved to ``AppEnvironment``; this
+    /// get/set forwarder keeps the not-yet-migrated
+    /// `AppDelegate.shared.settingsRuntime` sites (and the `configure(...)`
+    /// write) resolving to it.
+    var settingsRuntime: SettingsRuntime? {
+        get { environment.settingsRuntime }
+        set { environment.settingsRuntime = newValue }
+    }
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -678,8 +705,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
-    let updateLog = UpdateLogStore()
-    let focusLog = FocusLogStore()
+    /// Update-pill / Sparkle update log store. Storage moved to
+    /// ``AppEnvironment``; forwarder preserved for not-yet-migrated sites.
+    var updateLog: UpdateLogStore { environment.updateLog }
+    /// Keyboard-focus diagnostics log store. Storage moved to
+    /// ``AppEnvironment``; forwarder preserved for not-yet-migrated sites.
+    var focusLog: FocusLogStore { environment.focusLog }
     /// Process-wide identity of the workspace currently being sidebar-dragged in
     /// any window. Owned here (the composition root) and injected into every
     /// window's `SidebarDragState` so cross-window drops resolve a single drag.
@@ -690,9 +721,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `SidebarDragState`. Owned here (the composition root) and injected into the
     /// sidebar (via `\.sidebarDragStateRegistry`) and the
     /// `debug.sidebar.simulate_drag` reader (via the reader's constructor), so
-    /// neither reaches `AppDelegate.shared` for it.
-    // TODO(de-singletonize): move SidebarDragStateRegistry off AppDelegate when AppDelegate is decomposed.
-    let sidebarDragStateRegistry = SidebarDragStateRegistry()
+    /// neither reaches `AppDelegate.shared` for it. Storage moved to
+    /// ``AppEnvironment``; forwarder preserved for not-yet-migrated sites.
+    var sidebarDragStateRegistry: SidebarDragStateRegistry { environment.sidebarDragStateRegistry }
     var debugFocusedTerminalKeyRepairObserverForTesting: ((NSWindow, NSEvent, NSResponder?) -> Void)?
     #endif
     /// Owns the in-flight "join the next async-created workspace to this group"
@@ -1463,13 +1494,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         router: DeepLinkOpenPlanner(),
         host: self
     )
-    /// Accessibility window-hierarchy cache (CmuxWindowing); composition-root
-    /// owned. The `NSApplication` AX swizzle forwards to it behind
-    /// ``AccessibilityWindowCaching``.
-    /// `nonisolated(unsafe)`: the existential is non-Sendable, but it is only
-    /// touched from the main-actor AX swizzle path (callers hold it on main),
-    /// matching the other non-Sendable composition-root members (`shared`).
-    nonisolated(unsafe) let accessibilityWindowCache: any AccessibilityWindowCaching = AccessibilityWindowCache()
+    /// Accessibility window-hierarchy cache (CmuxWindowing). The `NSApplication`
+    /// AX swizzle forwards to it behind ``AccessibilityWindowCaching``. Storage
+    /// moved to ``AppEnvironment`` (still `nonisolated(unsafe)` there); this
+    /// `nonisolated` forwarder keeps the swizzle's `nonisolated` `@objc` read
+    /// path working, guarded by `Thread.isMainThread` at the call site exactly
+    /// as before.
+    nonisolated var accessibilityWindowCache: any AccessibilityWindowCaching { environment.accessibilityWindowCache }
     /// First-responder bypass guard (CmuxBrowserPanel); composition-root owned.
     /// The `NSWindow.makeFirstResponder` swizzle reads `isActive` and
     /// `BrowserPanel` wraps responder-churning devtools work in `withBypass(_:)`.
@@ -1612,6 +1643,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     override init() {
+        // Constructed here (a main-actor context) rather than as the stored
+        // default: the property is `nonisolated(unsafe)` so the accessibility
+        // swizzle can read through it, and a nonisolated default-value context
+        // may not call AppEnvironment's main-actor init.
+        self.environment = AppEnvironment()
         super.init()
         Self.shared = self
         // Inverts the surface registry's legacy AppDelegate.shared reach-up:
@@ -2180,7 +2216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // self-vivified lazy singleton.
         TaskManagerWindowController.installCompositionRootInstance(taskManagerWindowController)
         self.sidebarState = sidebarState
-        self.auth = auth
+        environment.auth = auth
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
@@ -6131,6 +6167,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // optional, so a nil runtime just leaves reads at their seeded
             // catalog default.
             .environment(\.settingsRuntime, settingsRuntime)
+            // Inject the composition-root-owned process-lifetime service holder
+            // (Wave 1 of the `AppDelegate.shared` de-singletonization) so views
+            // read process services via `@Environment(\.appEnvironment)` instead
+            // of the singleton. Nil-default key: a view rendered outside this
+            // injected scope short-circuits exactly like `AppDelegate.shared?`.
+            .environment(\.appEnvironment, environment)
             // Inject the composition-root-owned cross-window sidebar drag
             // registry so the sidebar's `SidebarDragState` wires to the shared
             // registry by injection instead of an `AppDelegate.shared` lookup.

@@ -297,7 +297,7 @@ struct cmuxApp: App {
                     )
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
-                        AppDelegate.shared?.updateLog.append("ui test: cmuxApp onAppear")
+                        appDelegate.environment.updateLog.append("ui test: cmuxApp onAppear")
                     }
 #endif
                     bootstrapMainWindowScene()
