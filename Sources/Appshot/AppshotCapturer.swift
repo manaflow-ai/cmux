@@ -20,11 +20,12 @@ enum AppshotCapturer {
     /// re-checked) and wedge every later appshot. Set process-wide via the
     /// system-wide AX element so every element's reads are bounded.
     private static let maxAccessibilityCallTimeout: Float = 1.0
-    /// Windows scanned when frame-matching the captured window. Each window costs
-    /// two AX reads (position + size), and a hostile app can report arbitrarily
-    /// many windows, so the scan is capped — realistic apps have far fewer. Past
-    /// this cap (or the walk deadline) the capture falls back to the focused
-    /// window rather than scan unboundedly.
+    /// Windows fetched and frame-matched against the captured window. Each window
+    /// costs two AX reads (position + size), and a hostile app can report
+    /// arbitrarily many windows, so the count is bounded at the IPC fetch itself
+    /// (not just the later scan) — realistic apps have far fewer. Past this cap
+    /// (or the walk deadline) the capture falls back to the focused window rather
+    /// than scan unboundedly.
     private static let maxWindowsToScan = 64
     /// How many artifact files (PNGs + text dumps) to retain on disk. Appshots
     /// are sensitive window captures triggered by a repeated global hotkey, so
@@ -189,17 +190,19 @@ enum AppshotCapturer {
     /// frames). The focused window is the most likely frontmost/captured window,
     /// so behavior never degrades below the previous version.
     private static func resolveTargetWindow(app: AXUIElement, matching targetBounds: CGRect?, deadline: Date) -> AXUIElement? {
-        let windows = copyElements(app, kAXWindowsAttribute)
+        // Cap the window array at the IPC boundary (see ``copyElements``): a
+        // buggy or hostile frontmost app can report arbitrarily many windows, so
+        // the count bound must apply before the array is materialized, not after.
+        let windows = copyElements(app, kAXWindowsAttribute, max: maxWindowsToScan)
         if let targetBounds, let windows {
-            // Bound the frame scan by count AND by the shared deadline: each
-            // window costs two AX reads, and a hostile app can report arbitrarily
-            // many windows, so an unbounded scan could exhaust the capture budget
-            // before the walk even starts. Scanning a prefix keeps `frames`
-            // index-aligned with `windows`, so a match still selects the right
-            // element; a partial scan simply falls back to the focused window.
+            // The frame scan is additionally bounded by the shared deadline: each
+            // window costs two AX reads, so slow IPC can't exhaust the capture
+            // budget before the walk even starts. `frames` stays index-aligned
+            // with `windows`, so a match still selects the right element; a
+            // partial scan simply falls back to the focused window.
             var frames: [CGRect?] = []
-            frames.reserveCapacity(min(windows.count, maxWindowsToScan))
-            for window in windows.prefix(maxWindowsToScan) {
+            frames.reserveCapacity(windows.count)
+            for window in windows {
                 guard Date() < deadline else { break }
                 frames.append(axWindowFrame(window))
             }
@@ -358,10 +361,16 @@ enum AppshotCapturer {
         return (value as! AXUIElement)
     }
 
-    private static func copyElements(_ element: AXUIElement, _ attribute: String) -> [AXUIElement]? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
-        return value as? [AXUIElement]
+    /// Fetches up to `max` elements of `attribute` via the counted AX array API,
+    /// so a buggy or hostile AX provider can't force cmux to materialize an
+    /// enormous array at the IPC boundary before any cap applies (mirrors
+    /// ``copyChildren``).
+    private static func copyElements(_ element: AXUIElement, _ attribute: String, max: Int) -> [AXUIElement]? {
+        guard max > 0 else { return [] }
+        var values: CFArray?
+        guard AXUIElementCopyAttributeValues(element, attribute as CFString, 0, max, &values) == .success
+        else { return nil }
+        return values as? [AXUIElement]
     }
 
     private static func copyInt(_ element: AXUIElement, _ attribute: String) -> Int? {
