@@ -29,7 +29,7 @@ struct WorkspaceDetailView: View {
     /// Close a terminal surface on the Mac. When `nil` (older Macs without the
     /// `terminal.close.v1` capability, or previews) terminal-row delete
     /// affordances are hidden from the picker sheet.
-    let closeTerminal: ((MobileTerminalPreview.ID) -> Void)?
+    let closeTerminal: ((MobileTerminalPreview.ID) async -> String?)?
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext

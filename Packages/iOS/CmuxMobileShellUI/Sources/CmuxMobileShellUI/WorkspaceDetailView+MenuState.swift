@@ -25,8 +25,9 @@ extension WorkspaceDetailView {
         #endif
     }
 
-    func closeTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
-        closeTerminal?(terminalID)
+    func closeTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) async -> String? {
+        guard let closeTerminal else { return nil }
+        return await closeTerminal(terminalID)
     }
 
     func queueTerminalPickerAction(_ action: TerminalPickerAction) {

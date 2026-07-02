@@ -12,12 +12,13 @@ struct TerminalPickerSheet: View {
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
     let openBrowser: () -> Void
-    let closeTerminal: (MobileTerminalPreview.ID) -> Void
+    let closeTerminal: (MobileTerminalPreview.ID) async -> String?
     let openTextSheet: (() -> Void)?
     let copyDebugLogs: (() -> Void)?
     let openFeedbackComposer: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    @State private var terminalCloseErrorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -35,6 +36,17 @@ struct TerminalPickerSheet: View {
                     }
                     .accessibilityIdentifier("MobileTerminalPickerDoneButton")
                 }
+            }
+            .alert(
+                L10n.string("mobile.terminal.closeFailed.title", defaultValue: "Couldn't Close Terminal"),
+                isPresented: Binding(
+                    get: { terminalCloseErrorMessage != nil },
+                    set: { if !$0 { terminalCloseErrorMessage = nil } }
+                )
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+            } message: {
+                Text(terminalCloseErrorMessage ?? "")
             }
         }
     }
@@ -57,7 +69,9 @@ struct TerminalPickerSheet: View {
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     if canDeleteTerminalRows {
                         Button(role: .destructive) {
-                            closeTerminal(terminal.id)
+                            Task { @MainActor in
+                                terminalCloseErrorMessage = await closeTerminal(terminal.id)
+                            }
                         } label: {
                             Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
                         }

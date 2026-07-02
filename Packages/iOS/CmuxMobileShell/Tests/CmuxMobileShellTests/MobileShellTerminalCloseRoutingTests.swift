@@ -209,9 +209,10 @@ import Testing
         store.selectedTerminalID = terminalA
         await router.setRejectTerminalClose(true)
 
-        await store.closeTerminal(workspaceID: workspaceID, terminalID: terminalA)
+        let failureMessage = await store.closeTerminal(workspaceID: workspaceID, terminalID: terminalA)
 
         #expect(await router.recordedTerminalCloses().count == 1)
+        #expect(failureMessage == "terminal.close rejected")
         #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalA, terminalB])
         #expect(store.selectedTerminalID == terminalA)
         #expect(store.shouldAutoFocusTerminalSurface(terminalA.rawValue) == true)

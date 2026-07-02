@@ -1,5 +1,6 @@
 internal import CmuxMobileRPC
 public import CmuxMobileShellModel
+internal import CmuxMobileSupport
 internal import Foundation
 internal import OSLog
 
@@ -100,20 +101,21 @@ extension MobileShellComposite {
     /// - Parameters:
     ///   - workspaceID: The workspace containing the terminal.
     ///   - terminalID: The terminal surface to close.
+    @discardableResult
     public func closeTerminal(
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
-    ) async {
-        guard workspaceActionCapabilities(for: workspaceID).supportsTerminalCloseActions else { return }
+    ) async -> String? {
+        guard workspaceActionCapabilities(for: workspaceID).supportsTerminalCloseActions else { return nil }
         guard let workspace = workspaces.first(where: { $0.id == workspaceID }),
               workspace.terminals.contains(where: { $0.id == terminalID }) else {
-            return
+            return nil
         }
         var params = workspaceMutationParams(id: workspaceID)
         params["surface_id"] = terminalID.rawValue
         beginSelectedTerminalCloseAutoFocusSuppression(for: terminalID)
         defer { endSelectedTerminalCloseAutoFocusSuppression(for: terminalID) }
-        await sendWorkspaceMutation(
+        return await sendWorkspaceMutation(
             method: "terminal.close",
             params: params,
             id: workspaceID,
@@ -125,12 +127,13 @@ extension MobileShellComposite {
         workspaces.first { $0.id == id }?.actionCapabilities ?? .none
     }
 
+    @discardableResult
     private func sendWorkspaceMutation(
         method: String,
         params: [String: Any],
         id: MobileWorkspacePreview.ID,
         actionName: String
-    ) async {
+    ) async -> String? {
         // Route the mutation to the Mac that actually OWNS this workspace. The
         // aggregated list can include rows from secondary Macs, whose connection is
         // not `remoteClient`; sending every mutation to the foreground client would
@@ -143,8 +146,12 @@ extension MobileShellComposite {
             // deliver. Snap the row back to the authoritative state instead of
             // misrouting to the foreground Mac.
             await refreshWorkspaces()
-            return
+            return L10n.string(
+                "mobile.workspace.mutationUnavailable",
+                defaultValue: "That Mac is unavailable. Reconnect it, then try again."
+            )
         }
+        var failureMessage: String?
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: method,
@@ -152,7 +159,8 @@ extension MobileShellComposite {
             )
             _ = try await client.sendRequest(request)
         } catch {
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            failureMessage = error.localizedDescription
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return failureMessage }
             // Only the foreground connection's health drives the foreground
             // unavailable/reconnect UI; a failed write to a secondary Mac must not
             // tear the foreground session down.
@@ -163,6 +171,7 @@ extension MobileShellComposite {
         }
         // Re-sync the authoritative list for the Mac we actually mutated.
         await refreshAfterWorkspaceMutation(target)
+        return failureMessage
     }
 
     private func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {
