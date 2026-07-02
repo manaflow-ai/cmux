@@ -4,6 +4,9 @@ import CmuxTerminalCore
 @testable import CmuxTerminal
 
 @Suite struct TerminalSurfaceSocketInputControlSequenceTests {
+    /// A DSR cursor-position query (`ESC[6n`) is consumed and answered by the
+    /// emulator, so it is routed to the terminal output parser as raw bytes. This
+    /// is the sequence #5763 needs the emulator to answer with a CPR.
     @Test func csiDeviceStatusReportQueryRoutesThroughTerminalParser() throws {
         let sequence = "\u{1B}[6n"
         let payload = try #require(singleTerminalBytePayload(for: sequence))
@@ -11,20 +14,26 @@ import CmuxTerminalCore
         #expect(payload == Data(sequence.utf8))
     }
 
-    @Test func csiCursorPositionReportRoutesThroughTerminalParser() throws {
-        let sequence = "\u{1B}[50;36R"
-        let payload = try #require(singleTerminalBytePayload(for: sequence))
+    /// A CPR *response* (`ESC[50;36R`) is a terminal-to-application reply, not a
+    /// query the emulator answers. It must *not* be routed to the terminal output
+    /// parser — otherwise the display parser swallows bytes the foreground program
+    /// is waiting for. It stays on the input path instead.
+    @Test func csiCursorPositionReportIsNotRoutedThroughTerminalParser() {
+        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}[50;36R")
 
-        #expect(payload == Data(sequence.utf8))
+        #expect(
+            !events.contains { if case .terminalBytes = $0 { return true } else { return false } },
+            "A CPR response must not be fed to the display parser; it is destined for the PTY program."
+        )
     }
 
     /// A function-key CSI (`ESC[15~`, F5) is interactive input for the foreground
     /// program, not a terminal report, so it is *not* routed to the terminal
-    /// output parser. Only cursor reports/queries (DSR `ESC[…n` / CPR `ESC[…R`) —
-    /// the sequences #5763 needs the emulator to answer — are parser-routed.
-    /// Routing every complete CSI there instead swallowed genuine input keys
-    /// (function keys, kitty-keyboard, mouse, arbitrary `terminal.input`) as
-    /// display-only control sequences, which never reached the PTY.
+    /// output parser. Only DSR queries (`ESC[5n` / `ESC[6n`) — the sequences #5763
+    /// needs the emulator to answer — are parser-routed. Routing every complete
+    /// CSI there instead swallowed genuine input keys (function keys,
+    /// kitty-keyboard, mouse, arbitrary `terminal.input`) as display-only control
+    /// sequences, which never reached the PTY.
     @Test func csiFunctionKeySequenceIsNotRoutedThroughTerminalParser() {
         let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}[15~")
 
@@ -34,12 +43,23 @@ import CmuxTerminalCore
         )
     }
 
-    /// The navigation keys cmux clients actually send over the socket (arrows,
-    /// home/end, page up/down) are re-issued as key events *before* the
-    /// control-sequence routing, so they reach the PTY through libghostty's
-    /// cursor-key encoding instead of being consumed by the terminal parser.
-    /// This guard is why routing complete CSI sequences to the parser does not
-    /// regress interactive navigation input.
+    /// A modified function key that shares the CPR `R` final (xterm Shift+F3 is
+    /// `ESC[1;2R`) is interactive input, not a cursor report, so it must not be
+    /// routed to the terminal output parser either — otherwise reverse-tab-style
+    /// modified F-keys would be swallowed like a CPR reply.
+    @Test func csiModifiedFunctionKeyIsNotRoutedThroughTerminalParser() {
+        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}[1;2R")
+
+        #expect(
+            !events.contains { if case .terminalBytes = $0 { return true } else { return false } },
+            "A modified function key ending in R must not be fed to the display parser as a CPR report."
+        )
+    }
+
+    /// The navigation keys cmux clients actually send (arrows, home/end, page
+    /// up/down) are re-issued as key events *before* the control-sequence routing,
+    /// so they reach the PTY through libghostty's cursor-key encoding instead of
+    /// being consumed by the terminal parser.
     @Test func navigationArrowRoutesAsKeyEventNotTerminalParser() throws {
         let key = try #require(singleKeyEvent(for: "\u{1B}[A"))
 
@@ -55,15 +75,11 @@ import CmuxTerminalCore
         #expect(key.label == "pageUp")
     }
 
-    /// Shift+Tab (`ESC[Z`, back-tab) is an *interactive key*, not a terminal
-    /// report, so it is re-issued as a Shift+Tab key event and reaches the PTY
-    /// through libghostty's key encoding (which emits `ESC[Z`) instead of being
-    /// consumed by the terminal parser as cursor-backward-tab (a display-only
-    /// move). It is the raw-bytes sibling of the `backtab` named key in
-    /// `pendingKeyEvent(for:)`, and the one interactive CSI the iOS client
-    /// actually sends over the socket (a hardware Shift+Tab and the on-screen
-    /// ⇧+Tab accessory), so routing it to the parser would swallow reverse-focus
-    /// in TUIs like Claude Code.
+    /// Shift+Tab (`ESC[Z`, back-tab) is re-issued as a Shift+Tab key event and
+    /// reaches the PTY through libghostty's key encoding (which emits `ESC[Z`)
+    /// instead of being consumed by the terminal parser as cursor-backward-tab. It
+    /// is the raw-bytes sibling of the `backtab` named key in `pendingKeyEvent(for:)`,
+    /// and the one interactive CSI the iOS client actually sends over the socket.
     @Test func shiftTabBackTabRoutesAsKeyEventNotTerminalParser() throws {
         let key = try #require(singleKeyEvent(for: "\u{1B}[Z"))
 
