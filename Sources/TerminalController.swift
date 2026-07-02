@@ -827,11 +827,15 @@ class TerminalController {
     }
 
     private nonisolated func passwordAuthRequiredResponse(for command: String) -> String {
-        let message = "Authentication required. Send auth <password> first."
+        // Both branches embed `passwordAuthRequiredResponseMarker` so the wire
+        // string always carries the substring the activation self-heal probe
+        // recognizes as "listener is alive" (SocketListenerActivationRecoveryPolicy).
+        let marker = SocketListenerActivationRecoveryPolicy.passwordAuthRequiredResponseMarker
+        let message = "\(marker). Send auth <password> first."
         guard command.hasPrefix("{"),
               let data = command.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return "ERROR: Authentication required — send auth <password> first"
+            return "ERROR: \(marker) — send auth <password> first"
         }
         let id = dict["id"]
         return v2Error(id: id, code: "auth_required", message: message)

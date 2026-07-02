@@ -53,13 +53,17 @@ import Testing
     }
 
     /// The crux of issue #6406: the in-memory health flags read clean, but a
-    /// missing or non-`PONG` ping means the socket is present yet refusing
-    /// connections, so the listener must be rebound rather than trusted.
+    /// refused probe (no line at all, an empty line, or an error the listener
+    /// could not have produced while serving `ping`) means the socket is present
+    /// yet refusing connections, so the listener must be rebound rather than
+    /// trusted. The password auth-required challenge is deliberately *not* one of
+    /// these — see ``healthyPasswordListenerAnsweringAuthChallengeIsServing``.
     @Test func healthyFlagsButRefusedPingForcesRebind() {
         let policy = SocketListenerActivationRecoveryPolicy()
         #expect(!policy.listenerIsServing(health: Self.healthy, pingResponse: nil))
         #expect(policy.shouldRebindListener(health: Self.healthy, pingResponse: nil))
         #expect(policy.shouldRebindListener(health: Self.healthy, pingResponse: ""))
+        #expect(policy.shouldRebindListener(health: Self.healthy, pingResponse: "   "))
         #expect(policy.shouldRebindListener(health: Self.healthy, pingResponse: "ERROR"))
     }
 
@@ -73,6 +77,11 @@ import Testing
         // The exact v1 wire string produced by
         // `TerminalController.passwordAuthRequiredResponse` for a plain `ping`.
         let v1Challenge = "ERROR: Authentication required — send auth <password> first"
+        #expect(
+            v1Challenge.contains(
+                SocketListenerActivationRecoveryPolicy.passwordAuthRequiredResponseMarker
+            )
+        )
         #expect(policy.listenerIsServing(health: Self.healthy, pingResponse: v1Challenge))
         #expect(!policy.shouldRebindListener(health: Self.healthy, pingResponse: v1Challenge))
 
@@ -80,6 +89,9 @@ import Testing
         let v2Challenge = #"{"id":1,"error":{"code":"auth_required","message":"Authentication required. Send auth <password> first."}}"#
         #expect(policy.listenerIsServing(health: Self.healthy, pingResponse: v2Challenge))
         #expect(!policy.shouldRebindListener(health: Self.healthy, pingResponse: v2Challenge))
+
+        // Surrounding whitespace on the wire must not defeat recognition.
+        #expect(policy.listenerIsServing(health: Self.healthy, pingResponse: "  \(v1Challenge)\n"))
     }
 
     @Test func downListenerForcesRebindRegardlessOfPing() {
@@ -88,5 +100,12 @@ import Testing
         #expect(policy.shouldRebindListener(health: Self.down, pingResponse: nil))
         // Even a stray PONG cannot rescue a listener the state machine reports down.
         #expect(policy.shouldRebindListener(health: Self.down, pingResponse: "PONG"))
+        // Nor can the auth-required challenge rescue a listener reported down.
+        #expect(
+            policy.shouldRebindListener(
+                health: Self.down,
+                pingResponse: "ERROR: Authentication required — send auth <password> first"
+            )
+        )
     }
 }
