@@ -48,6 +48,13 @@ extension MobileShellComposite {
         // converged grid; other callers restart the paced recovery.
         guard renderGridFrameFitsReportedViewport(frame, surfaceID: surfaceID) else {
             if bypassReplayBarrier, terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
+                // Withholding the replay response is itself dropped output:
+                // record it so the caller's not_delivered cleanup keeps the
+                // barrier alive (preserveDroppedOutput) for the scheduled
+                // retry, instead of releasing still-diverged live output.
+                terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+                terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] =
+                    (terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0) &+ 1
                 retryTerminalReplayForOversizedGrid(surfaceID: surfaceID)
             } else {
                 holdTerminalOutputForOversizedGrid(frame, surfaceID: surfaceID, source: "delivery")

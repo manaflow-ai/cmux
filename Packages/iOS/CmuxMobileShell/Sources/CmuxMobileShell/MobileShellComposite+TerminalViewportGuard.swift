@@ -86,11 +86,11 @@ extension MobileShellComposite {
                 )
             }
         }
-        guard terminalByteContinuationsBySurfaceID[surfaceID] != nil,
-              !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else {
-            return
-        }
+        guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else { return }
         if let existingToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
+            // The stream is already held. Leave an in-flight barrier replay
+            // alone; otherwise nudge the recovery along.
+            guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else { return }
             if terminalReplayFailureRetryExhausted(surfaceID: surfaceID) {
                 // The previous barrier exhausted its bounded replay retries
                 // while the producer stayed diverged. Restart it (which resets
@@ -108,6 +108,11 @@ extension MobileShellComposite {
             }
             return
         }
+        // No barrier yet: install one now, even when an unbarriered replay
+        // (e.g. the mount-time cold-attach replay) is in flight —
+        // `beginTerminalReplayBarrier` cancels it, and its response would carry
+        // the same diverged grid anyway. Without this, live bytes keep flowing
+        // under the diverged grid for the whole in-flight window.
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }

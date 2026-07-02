@@ -192,6 +192,165 @@ private func unsequencedTerminalBytesEventFrame(
 }
 
 @MainActor
+@Test func oversizedReplayResponseKeepsRecoveryBarrierUntilConvergence() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 0,
+        text: "pre-probe"
+    ))
+    let probeDelivered = try await pollUntil { collector.lines.contains { $0.contains("pre-probe") } }
+    #expect(probeDelivered, "raw bytes must flow before the oversized frame arrives")
+
+    _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    let replayBaseline = await router.count(of: "mobile.terminal.replay")
+
+    // The Mac has not re-applied the cap when the recovery replay resolves:
+    // the first replay response still carries the oversized grid. Only the
+    // bounded retry afterwards returns a fitting frame.
+    let stillOversized = try MobileTerminalRenderGridFrame(
+        surfaceID: "live-terminal",
+        stateSeq: 30,
+        columns: 90,
+        rows: 40,
+        full: true,
+        rowSpans: [
+            MobileTerminalRenderGridFrame.RowSpan(row: 0, column: 0, styleID: 0, text: "still-oversized"),
+        ]
+    )
+    let convergedFrames = try (0..<2).map { index in
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 40 + UInt64(index),
+            columns: 20,
+            rows: 6,
+            full: true,
+            rowSpans: [
+                MobileTerminalRenderGridFrame.RowSpan(row: 0, column: 0, styleID: 0, text: "converged"),
+            ]
+        )
+    }
+    await router.enqueueReplayRenderGridFrames([stillOversized] + convergedFrames)
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 20,
+        columns: 90,
+        rows: 40,
+        text: "oversized",
+        full: false
+    ))
+
+    // The recovery replay consumes the oversized response, then its bounded
+    // retry must fetch again until a fitting frame repaints the mirror.
+    let sawRetryReplay = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= replayBaseline + 2
+    }
+    #expect(
+        sawRetryReplay,
+        "an oversized replay response must keep the recovery barrier alive and retry, not release the held stream"
+    )
+    let convergedDelivered = try await pollUntil { collector.lines.contains { $0.contains("converged") } }
+    #expect(convergedDelivered, "the retried replay must repaint the mirror with the fitting frame")
+    #expect(
+        collector.lines.contains { $0.contains("still-oversized") } == false,
+        "an oversized replay response must never paint"
+    )
+
+    // Live bytes sent while the barrier was polling must never splice through.
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 9,
+        text: "SPLICE-BYTES"
+    ))
+    _ = try await pollUntil(attempts: 30) { collector.lines.contains { $0.contains("SPLICE-BYTES") } }
+    #expect(
+        collector.lines.contains { $0.contains("SPLICE-BYTES") } == false,
+        "bytes for the diverged grid must stay held across an oversized replay response"
+    )
+    collector.unmount()
+}
+
+@MainActor
+@Test func oversizedFrameDuringUnbarrieredReplayInstallsBarrier() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    // Park the mount-time cold-attach replay so it is still in flight (with no
+    // barrier) when the oversized frame arrives.
+    await router.holdNextReplayResponses(count: 1)
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let convergedFrames = try (0..<2).map { index in
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 40 + UInt64(index),
+            columns: 20,
+            rows: 6,
+            full: true,
+            rowSpans: [
+                MobileTerminalRenderGridFrame.RowSpan(row: 0, column: 0, styleID: 0, text: "converged"),
+            ]
+        )
+    }
+    await router.enqueueReplayRenderGridFrames(convergedFrames)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 20,
+        columns: 90,
+        rows: 40,
+        text: "oversized",
+        full: false
+    ))
+
+    // The oversized frame must take over the parked unbarriered replay with a
+    // real barrier, so bytes for the diverged grid are held immediately.
+    let sawBarrierReplay = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 2
+    }
+    #expect(
+        sawBarrierReplay,
+        "an oversized frame during an in-flight unbarriered replay must install a barrier and arm its replay"
+    )
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 0,
+        text: "SPLICE-BYTES"
+    ))
+    _ = try await pollUntil(attempts: 30) { collector.lines.contains { $0.contains("SPLICE-BYTES") } }
+    #expect(
+        collector.lines.contains { $0.contains("SPLICE-BYTES") } == false,
+        "bytes must be held even while the mount-time replay is still in flight"
+    )
+    let convergedDelivered = try await pollUntil { collector.lines.contains { $0.contains("converged") } }
+    #expect(convergedDelivered, "the barrier replay must repaint the mirror once the grid fits")
+
+    await router.releaseAllHeld()
+    collector.unmount()
+}
+
+@MainActor
 @Test func fittingRenderGridFramesKeepOutputFlowing() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
