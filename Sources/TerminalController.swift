@@ -13643,6 +13643,9 @@ class TerminalController {
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
+        guard case .value = mobileTerminalAliasUUID(params: params) else {
+            return .err(code: "invalid_params", message: "Missing or invalid terminal_id", data: nil)
+        }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
               resolved.workspace.terminalPanel(for: surfaceId) != nil else {

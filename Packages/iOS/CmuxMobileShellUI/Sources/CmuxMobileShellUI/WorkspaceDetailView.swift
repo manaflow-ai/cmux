@@ -423,12 +423,18 @@ struct WorkspaceDetailView: View {
                 openBrowser: { queueTerminalPickerAction(.openBrowser) },
                 closeTerminal: closeTerminalFromPicker,
                 openTextSheet: activeBrowser == nil ? { queueTerminalPickerAction(.openTextSheet) } : nil,
-                #if DEBUG
-                copyDebugLogs: { queueTerminalPickerAction(.copyDebugLogs) },
-                #endif
+                copyDebugLogs: terminalPickerDebugCopyLogsAction,
                 openFeedbackComposer: { queueTerminalPickerAction(.openFeedbackComposer) }
             )
         }
+    }
+
+    private var terminalPickerDebugCopyLogsAction: (() -> Void)? {
+        #if DEBUG
+        return { queueTerminalPickerAction(.copyDebugLogs) }
+        #else
+        return nil
+        #endif
     }
 
     #if canImport(UIKit)

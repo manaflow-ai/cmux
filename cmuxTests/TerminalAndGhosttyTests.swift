@@ -1445,6 +1445,34 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         }
     }
 
+    func testMobileTerminalCloseRejectsMissingTerminalIDBeforeImplicitFallback() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-missing-terminal",
+                method: "terminal.close",
+                params: ["workspace_id": workspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected terminal.close without a terminal id to fail")
+            return
+        }
+        XCTAssertEqual(error.code, "invalid_params")
+        XCTAssertNotNil(workspace.terminalPanel(for: panel.id))
+    }
+
     func testMobileWorkspaceListRejectsMissingScopedTargets() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()

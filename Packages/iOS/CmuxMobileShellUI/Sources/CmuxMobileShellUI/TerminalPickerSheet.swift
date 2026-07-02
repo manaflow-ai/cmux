@@ -14,9 +14,7 @@ struct TerminalPickerSheet: View {
     let openBrowser: () -> Void
     let closeTerminal: (MobileTerminalPreview.ID) -> Void
     let openTextSheet: (() -> Void)?
-    #if DEBUG
     let copyDebugLogs: (() -> Void)?
-    #endif
     let openFeedbackComposer: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
