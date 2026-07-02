@@ -962,7 +962,18 @@
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
-          "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。"
+          "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",
+          "textBoxDefaultSubmitAction": "新しいターミナルセッションで使う既定の TextBox 送信アクション ID です。通常の入力には text-entry、または設定済みアクション ID のいずれかを使います。",
+          "textBoxSubmitActions": "送信ボタン、Shift-Tab の切り替え、右クリックメニューに表示する設定可能な TextBox 送信アクションです。",
+          "textBoxSubmitActionId": "terminal.textBoxDefaultSubmitAction から参照される安定したアクション ID です。",
+          "textBoxSubmitActionTitle": "この送信アクションのメニュー表示名です。",
+          "textBoxSubmitActionKind": "このアクションが通常のテキスト入力として送信するか、シェルコマンドテンプレートを展開するかを指定します。",
+          "textBoxSubmitActionCommandTemplate": "commandTemplate アクション用のシェルコマンドテンプレートです。{{prompt}} を含めると、プロンプトをシェル用にクォートしてコマンドへ挿入します。",
+          "textBoxSubmitActionPreservePromptAfterLaunch": "true の場合、commandTemplate をプロンプトなしで起動し、アクティブなエージェント用にプロンプトを TextBox に残します。",
+          "textBoxSubmitActionSystemImage": "送信ボタンに表示するフォールバックの SF Symbol 名です。",
+          "textBoxSubmitActionAssetName": "送信ボタンに表示する任意のアプリ Asset Catalog 画像名です。",
+          "textBoxSubmitActionImagePath": "送信ボタンに表示する任意の PNG または画像ファイルパスです。チルダは展開されます。",
+          "textBoxSubmitActionBackgroundColorHex": "アクション色のメタデータを RGB または RGBA の 16 進数で指定します。送信ボタンの塗りは白のままで、有効状態と無効状態では不透明度だけが変わります。"
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "有効にすると、通知バナーはその対象がまさにフォーカス中のサーフェスである場合のみ自動的に取り下げられます。現在表示中のワークスペース内でフォーカスされていないサーフェス向けに配信されたバナーは、ワークスペースが表示されたときに取り消されるのではなく、そのサーフェスをフォーカスする（またはクリック／消去する）まで表示され続けます。オフの場合は従来のワークスペース表示時の取り下げ動作を維持します。"
@@ -1947,7 +1958,8 @@
   "afterSignIn": {
     "title": "cmux にサインインしました",
     "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
-    "button": "cmux に戻る"
+    "button": "cmux に戻る",
+    "switchAccountButton": "別のアカウントを使用"
   },
   "landing": {
     "bestTerminal": {
