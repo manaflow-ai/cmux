@@ -199,7 +199,7 @@ import Testing
 
     // MARK: - Capture-pane seed paint (scrollback clear)
 
-    @Test func capturePaneSeedClearsScrollbackBeforePaintingRows() {
+    @Test func capturePaneSeedClearsScrollbackBeforePaintingRows() throws {
         // The seed must home + clear the VISIBLE screen (ESC[2J) AND the scrollback
         // (ESC[3J) before writing the captured rows. The scrollback clear wipes any
         // zsh PROMPT_SP "%" partial-line marker that early live %output stranded in
@@ -209,7 +209,7 @@ import Testing
         let rows = ["row one", "row two", "➜  ~"]
         let d = RemoteTmuxControlMessageDecoding()
         // No padding when surfaceHeight/paneHeight are unknown (nil) — backward shape.
-        let seq = String(decoding: d.capturePaneSeedSequence(rows: rows, paneHeight: nil, surfaceHeight: nil), as: UTF8.self)
+        let seq = try #require(String(bytes: d.capturePaneSeedSequence(rows: rows, paneHeight: nil, surfaceHeight: nil), encoding: .utf8))
         // The exact, full sequence: home + clear screen (ESC[2J) + clear scrollback
         // (ESC[3J) — in that order, BEFORE the rows so the rows are preserved — then
         // the captured rows joined by CR LF with no trailing newline on the last row.
@@ -218,11 +218,11 @@ import Testing
         #expect(seq.hasPrefix("\u{1b}[H\u{1b}[2J\u{1b}[3J"))   // scrollback cleared, before rows
         #expect(seq.hasSuffix("row one\r\nrow two\r\n➜  ~"))    // rows preserved, joined by CR LF
         // Empty capture → exactly the clear prefix (no rows, no trailing CRLF).
-        #expect(String(decoding: d.capturePaneSeedSequence(rows: [], paneHeight: nil, surfaceHeight: nil),
-                       as: UTF8.self) == "\u{1b}[H\u{1b}[2J\u{1b}[3J")
+        #expect(String(bytes: d.capturePaneSeedSequence(rows: [], paneHeight: nil, surfaceHeight: nil),
+                       encoding: .utf8) == "\u{1b}[H\u{1b}[2J\u{1b}[3J")
         // Single row → prefix + the row, with NO trailing CRLF (cursor lands at its end).
-        #expect(String(decoding: d.capturePaneSeedSequence(rows: ["x"], paneHeight: nil, surfaceHeight: nil),
-                       as: UTF8.self) == "\u{1b}[H\u{1b}[2J\u{1b}[3J" + "x")
+        #expect(String(bytes: d.capturePaneSeedSequence(rows: ["x"], paneHeight: nil, surfaceHeight: nil),
+                       encoding: .utf8) == "\u{1b}[H\u{1b}[2J\u{1b}[3J" + "x")
     }
 
     /// The padding fix for "stacked prompts + misplaced cursor": when the mirror surface
@@ -230,31 +230,44 @@ import Testing
     /// padded with `surfaceHeight - paneHeight` blank rows so exactly the history rows
     /// scroll into scrollback and the visible rows land top-aligned (where the absolute
     /// cursor restore expects them).
-    @Test func capturePaneSeedPadsBlankRowsWhenSurfaceTallerThanPane() {
+    @Test func capturePaneSeedPadsBlankRowsWhenSurfaceTallerThanPane() throws {
         let d = RemoteTmuxControlMessageDecoding()
         // pane_height=2 visible; capture = 1 history + 2 visible = 3 rows; surface=5.
         // Pad 5-2=3 blanks → 6 logical rows; top 1 (history) scrolls off, visible tops out.
         let rows = ["hist", "vis0", "vis1"]
-        let seq = String(decoding: d.capturePaneSeedSequence(rows: rows, paneHeight: 2, surfaceHeight: 5), as: UTF8.self)
+        let seq = try #require(String(bytes: d.capturePaneSeedSequence(rows: rows, paneHeight: 2, surfaceHeight: 5), encoding: .utf8))
         #expect(seq == "\u{1b}[H\u{1b}[2J\u{1b}[3J" + "hist\r\nvis0\r\nvis1\r\n\r\n\r\n")
     }
 
     /// No padding when surface == pane (the already-correct case): overflow scroll
     /// already top-aligns the visible rows.
-    @Test func capturePaneSeedDoesNotPadWhenSurfaceEqualsPane() {
+    @Test func capturePaneSeedDoesNotPadWhenSurfaceEqualsPane() throws {
         let d = RemoteTmuxControlMessageDecoding()
         let rows = ["hist", "vis0", "vis1"]   // 1 history + 2 visible, pane_height=2
-        let seq = String(decoding: d.capturePaneSeedSequence(rows: rows, paneHeight: 2, surfaceHeight: 2), as: UTF8.self)
+        let seq = try #require(String(bytes: d.capturePaneSeedSequence(rows: rows, paneHeight: 2, surfaceHeight: 2), encoding: .utf8))
         #expect(seq == "\u{1b}[H\u{1b}[2J\u{1b}[3J" + "hist\r\nvis0\r\nvis1")
     }
 
     /// No padding when the surface is SHORTER than the pane (the caller defers the seed
     /// to a geometry-settle reseed instead; the decoder must not invent rows).
-    @Test func capturePaneSeedDoesNotPadWhenSurfaceShorterThanPane() {
+    @Test func capturePaneSeedDoesNotPadWhenSurfaceShorterThanPane() throws {
         let d = RemoteTmuxControlMessageDecoding()
         let rows = ["v0", "v1", "v2", "v3"]   // pane_height=4
-        let seq = String(decoding: d.capturePaneSeedSequence(rows: rows, paneHeight: 4, surfaceHeight: 2), as: UTF8.self)
+        let seq = try #require(String(bytes: d.capturePaneSeedSequence(rows: rows, paneHeight: 4, surfaceHeight: 2), encoding: .utf8))
         #expect(seq == "\u{1b}[H\u{1b}[2J\u{1b}[3J" + "v0\r\nv1\r\nv2\r\nv3")
+    }
+
+    /// No padding when the capture returned FEWER rows than the reported pane height, even
+    /// though the surface is taller — the `rows.count >= paneHeight` guard in
+    /// `capturePaneSeedSequence` protects against a bogus (over-)pad when the capture is
+    /// short (e.g. a pane that hasn't filled its height yet), so it paints unpadded.
+    @Test func capturePaneSeedDoesNotPadWhenCapturedRowsFewerThanPane() throws {
+        let d = RemoteTmuxControlMessageDecoding()
+        // pane_height=5, surface=8 (taller → would normally pad 3), but only 2 captured
+        // rows: rows.count(2) < paneHeight(5) fails the pad guard → no blank rows appended.
+        let rows = ["only", "two"]
+        let seq = try #require(String(bytes: d.capturePaneSeedSequence(rows: rows, paneHeight: 5, surfaceHeight: 8), encoding: .utf8))
+        #expect(seq == "\u{1b}[H\u{1b}[2J\u{1b}[3J" + "only\r\ntwo")
     }
 
     /// `paneHeight(from:)` extracts pane_height from the `.paneState` display-message line.
