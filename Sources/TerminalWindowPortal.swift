@@ -1085,9 +1085,7 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    /// Hide a portal entry without detaching it. Updates visibleInUI to false and
-    /// sets isHidden = true so subsequent synchronizeHostedView calls keep it hidden.
-    /// Used when a workspace is permanently unmounted (vs. transient bonsplit dismantles).
+    /// Hide a portal entry for permanent workspace unmounts without detaching it.
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = false
@@ -1102,19 +1100,24 @@ final class WindowTerminalPortal: NSObject {
     /// Update the visibleInUI flag on an existing entry without rebinding.
     /// Used when a deferred bind is pending — this ensures synchronizeHostedView
     /// won't hide a view that updateNSView has already marked as visible.
-    func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) {
-        guard var entry = entriesByHostedId[hostedId] else { return }
+    @discardableResult
+    func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) -> Bool {
+        let needsReattach = visibleInUI && hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
+        guard var entry = entriesByHostedId[hostedId] else { return needsReattach }
         entry.visibleInUI = visibleInUI
-        if !visibleInUI {
-            entry.transientRecoveryRetriesRemaining = 0
-        }
+        if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
         entriesByHostedId[hostedId] = entry
+        return needsReattach
     }
 
     func isHostedViewBoundToAnchor(withId hostedId: ObjectIdentifier, anchorView: NSView) -> Bool {
-        guard let entry = entriesByHostedId[hostedId],
-              let boundAnchor = entry.anchorView else { return false }
+        guard let entry = entriesByHostedId[hostedId], let boundAnchor = entry.anchorView else { return false }
         return boundAnchor === anchorView
+    }
+
+    func hostedViewNeedsPortalReattachForVisiblePresentation(withId hostedId: ObjectIdentifier) -> Bool {
+        guard let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView, let anchor = entry.anchorView else { return true }
+        return !entry.visibleInUI || anchor.window !== window || anchor.superview == nil || (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false) || hostedView.superview !== hostView || hostedView.window !== window
     }
 
     func bind(
@@ -2106,35 +2109,30 @@ enum TerminalWindowPortalRegistry {
 
     static func hideHostedView(_ hostedView: GhosttySurfaceScrollView) {
         let hostedId = ObjectIdentifier(hostedView)
-        guard let windowId = hostedToWindowId[hostedId],
-              let portal = portalsByWindowId[windowId] else { return }
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return }
         portal.hideEntry(forHostedId: hostedId)
     }
 
     /// Permanently detach a hosted terminal view from the window-level portal.
-    /// Use this when a terminal panel is actually closing (not transient SwiftUI dismantle).
     static func detach(hostedView: GhosttySurfaceScrollView) {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId.removeValue(forKey: hostedId) else { return }
         portalsByWindowId[windowId]?.detachHostedView(withId: hostedId)
     }
 
-    /// Update the visibleInUI flag on an existing portal entry without rebinding.
-    /// Called when a bind is deferred (host not yet in window) to prevent stale
-    /// portal syncs from hiding a view that is about to become visible.
-    static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) {
+    /// Update visibleInUI on an existing portal entry without rebinding.
+    @discardableResult
+    static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) -> Bool {
         let hostedId = ObjectIdentifier(hostedView)
-        guard let windowId = hostedToWindowId[hostedId],
-              let portal = portalsByWindowId[windowId] else { return }
-        portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return visibleInUI }
+        return portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
     }
 
     static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {
         let hostedId = ObjectIdentifier(hostedView)
         guard let window = anchorView.window else { return false }
         let windowId = ObjectIdentifier(window)
-        guard hostedToWindowId[hostedId] == windowId,
-              let portal = portalsByWindowId[windowId] else { return false }
+        guard hostedToWindowId[hostedId] == windowId, let portal = portalsByWindowId[windowId] else { return false }
         return portal.isHostedViewBoundToAnchor(withId: hostedId, anchorView: anchorView)
     }
 

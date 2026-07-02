@@ -737,13 +737,13 @@
       "layoutItem1": "Righe di primo livello fissate (workspace e gruppi).",
       "layoutItem2": "Righe di primo livello non fissate (workspace e gruppi).",
       "creatingTitle": "Creare un gruppo",
-      "creatingIntro": "Un gruppo si crea in uno di due modi: con una scorciatoia da tastiera o dal menu contestuale di un workspace. Entrambi inseriscono un nuovo workspace di ancoraggio sopra la selezione e spostano i workspace selezionati nel gruppo. Una volta creato il gruppo, lo gestisci e vi aggiungi workspace dall’intestazione del gruppo (vedi Gestire un gruppo più avanti).",
-      "keyboardTitle": "Dalla tastiera ({shortcut})",
-      "keyboardDesc": "Seleziona due o più workspace nella barra laterale, poi premi {shortcut}. Un nuovo workspace di ancoraggio viene inserito sopra la selezione e tutti i workspace selezionati diventano figli. Il gruppo viene nominato automaticamente Group 1, Group 2, e così via — rinominalo in qualsiasi momento tramite il menu contestuale dell'intestazione.",
+      "creatingIntro": "Un gruppo viene creato da una scorciatoia da tastiera o da un menu contestuale della barra laterale. I gruppi vuoti inseriscono una nuova area di lavoro ancora come intestazione del gruppo. I gruppi basati sulla selezione inseriscono quell’ancora sopra la selezione e spostano le aree di lavoro selezionate nel gruppo. Una volta creato il gruppo, puoi gestirlo e aggiungervi aree di lavoro dall’intestazione del gruppo (vedi Gestire un gruppo sotto).",
+      "keyboardTitle": "Dalle scorciatoie da tastiera",
+      "keyboardDesc": "Premi ⌃⌘G per creare un nuovo gruppo di aree di lavoro vuoto. Seleziona due o più aree di lavoro nella barra laterale, poi premi {shortcut} per raggruppare la selezione. Entrambi i percorsi creano una nuova area di lavoro ancora e assegnano automaticamente al gruppo nomi come Group 1, Group 2 e così via. Puoi rinominarlo in qualsiasi momento dal menu contestuale dell’intestazione.",
       "keyboardNote": "{shortcut} entra in conflitto con la combinazione predefinita di React Grab. Il gestore del gruppo consuma la combinazione solo quando c'è una multi-selezione esplicita di almeno due workspace nella barra laterale, quindi React Grab si attiva comunque in selezione singola e nei contesti del browser o del terminale. Riassegnalo in Impostazioni → Tastiera se preferisci che i due non condividano un tasto.",
       "keyboardSingle": "I gruppi a scheda singola non vengono creati dalla scorciatoia. A tale scopo, usa la voce Nuovo gruppo da quest’area di lavoro nel menu contestuale dell'area di lavoro.",
       "contextMenuTitle": "Da un menu contestuale del workspace",
-      "contextMenuDesc": "Fai clic con il tasto destro su qualsiasi area di lavoro nella barra laterale e scegli Nuovo gruppo da quest’area di lavoro, oppure Nuovo gruppo dalla selezione quando sono selezionate più aree di lavoro. Questo usa lo stesso comportamento di denominazione automatica della scorciatoia.",
+      "contextMenuDesc": "Fai clic destro su qualsiasi area di lavoro nella barra laterale e scegli Nuovo gruppo di aree di lavoro vuoto, Nuovo gruppo dall’area di lavoro o Nuovo gruppo dalla selezione quando sono selezionate più aree di lavoro. Anche l’area vuota sotto l’elenco della barra laterale offre Nuovo gruppo di aree di lavoro vuoto. Questi percorsi usano lo stesso comportamento di denominazione automatica delle scorciatoie.",
       "managingTitle": "Gestire un gruppo",
       "managingIntro": "Una volta creato il gruppo, il menu contestuale della sua intestazione e il pulsante + sull’intestazione ti permettono di gestire il gruppo e aggiungervi workspace. Nessuno dei due crea un nuovo gruppo.",
       "headerMenuTitle": "Dal menu contestuale dell'intestazione del gruppo",
@@ -1595,7 +1595,8 @@
   "afterSignIn": {
     "title": "Accesso a cmux effettuato",
     "body": "Se cmux non si è aperto automaticamente, usa il pulsante qui sotto.",
-    "button": "Torna a cmux"
+    "button": "Torna a cmux",
+    "switchAccountButton": "Usa un altro account"
   },
   "landing": {
     "bestTerminal": {

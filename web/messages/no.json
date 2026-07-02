@@ -737,13 +737,13 @@
       "layoutItem1": "Festede rader på øverste nivå (arbeidsområder og grupper).",
       "layoutItem2": "Ikke-festede rader på øverste nivå (arbeidsområder og grupper).",
       "creatingTitle": "Opprette en gruppe",
-      "creatingIntro": "En gruppe opprettes på en av to måter: med en hurtigtast eller en hurtigmeny for arbeidsområde. Begge setter inn et nytt anker-arbeidsområde over utvalget og flytter de valgte arbeidsområdene inn i gruppen. Når en gruppe finnes, administrerer du den og legger til arbeidsområder i den fra gruppeoverskriften (se Administrere en gruppe nedenfor).",
-      "keyboardTitle": "Fra tastaturet ({shortcut})",
-      "keyboardDesc": "Velg to eller flere arbeidsområder i sidefeltet, og trykk deretter {shortcut}. Et nytt ankerarbeidsområde settes inn over utvalget, og alle valgte arbeidsområder blir til underordnede. Gruppen navngis automatisk Group 1, Group 2 og så videre — gi den nytt navn når som helst via kontekstmenyen i overskriften.",
+      "creatingIntro": "En gruppe opprettes fra en tastatursnarvei eller en kontekstmeny i sidepanelet. Tomme grupper setter inn et nytt ankerarbeidsområde som gruppeoverskrift. Utvalgsbaserte grupper setter inn dette ankeret over utvalget og flytter de valgte arbeidsområdene inn i gruppen. Når gruppen finnes, administrerer du den og legger til arbeidsområder fra gruppeoverskriften (se Administrere en gruppe nedenfor).",
+      "keyboardTitle": "Fra tastatursnarveier",
+      "keyboardDesc": "Trykk ⌃⌘G for å opprette en ny tom arbeidsområdegruppe. Velg to eller flere arbeidsområder i sidepanelet, og trykk deretter {shortcut} for å gruppere utvalget. Begge veier oppretter et nytt ankerarbeidsområde og gir gruppen automatisk navn som Group 1, Group 2 og så videre. Gi den nytt navn når som helst fra kontekstmenyen i overskriften.",
       "keyboardNote": "{shortcut} kolliderer med React Grabs standard. Gruppebehandleren forbruker bare tastekombinasjonen når det finnes et eksplisitt flervalg på minst to arbeidsområder i sidefeltet, så React Grab utløses fortsatt ved enkeltvalg og i nettleser- eller terminalkontekster. Bind den om i Innstillinger → Tastatur dersom du heller ikke vil at de to skal dele en tast.",
       "keyboardSingle": "Grupper med én fane opprettes ikke fra snarveien. Bruk oppføringen New Group from Workspace i arbeidsområdets kontekstmeny for det.",
       "contextMenuTitle": "Fra en kontekstmeny for arbeidsområde",
-      "contextMenuDesc": "Høyreklikk på et hvilket som helst arbeidsområde i sidefeltet og velg New Group from Workspace, eller New Group from Selection når flere arbeidsområder er valgt. Dette bruker den samme automatiske navngivingen som snarveien.",
+      "contextMenuDesc": "Høyreklikk et arbeidsområde i sidepanelet og velg Ny tom arbeidsområdegruppe, Ny gruppe fra arbeidsområde eller Ny gruppe fra utvalg når flere arbeidsområder er valgt. Det tomme området under sidepanelisten tilbyr også Ny tom arbeidsområdegruppe. Disse veiene bruker samme automatiske navngiving som snarveiene.",
       "managingTitle": "Administrere en gruppe",
       "managingIntro": "Når en gruppe finnes, lar hurtigmenyen i overskriften og +-knappen på overskriften deg administrere gruppen og legge til arbeidsområder i den. Ingen av dem oppretter en ny gruppe.",
       "headerMenuTitle": "Fra kontekstmenyen for gruppeoverskriften",
@@ -1595,7 +1595,8 @@
   "afterSignIn": {
     "title": "Logget på cmux",
     "body": "Hvis cmux ikke åpnet automatisk, bruk knappen nedenfor.",
-    "button": "Gå tilbake til cmux"
+    "button": "Gå tilbake til cmux",
+    "switchAccountButton": "Bruk en annen konto"
   },
   "landing": {
     "bestTerminal": {
