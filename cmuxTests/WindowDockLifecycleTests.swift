@@ -178,49 +178,53 @@ struct WindowDockLifecycleTests {
     @Test("Window Dock close confirmation uses the owning window manager")
     @MainActor
     func windowDockCloseConfirmationUsesOwningWindowManager() async throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        let activeManager = TabManager(autoWelcomeIfNeeded: false)
-        let dockManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = activeManager
-        let activeWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: activeManager)
-        let dockWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: dockManager)
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: activeWindowId)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: dockWindowId)
-            activeManager.tabs.forEach { $0.teardownAllPanels() }
-            dockManager.tabs.forEach { $0.teardownAllPanels() }
-            AppDelegate.shared = previousAppDelegate
-        }
+        // Async body (yield loop below): gate against the other suites' async
+        // app-context tests so the swapped-in globals stay ours across awaits.
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let activeManager = TabManager(autoWelcomeIfNeeded: false)
+            let dockManager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = activeManager
+            let activeWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: activeManager)
+            let dockWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: dockManager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: activeWindowId)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: dockWindowId)
+                activeManager.tabs.forEach { $0.teardownAllPanels() }
+                dockManager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
 
-        let dock = appDelegate.windowDock(forWindowId: dockWindowId)
-        let panel = WindowDockTestPanel()
-        panel.isDirty = true
-        try dock.seedTestPanel(panel)
-        let tabId = try #require(dock.surfaceId(forPanelId: panel.id))
-        let paneId = try #require(dock.paneId(forPanelId: panel.id))
-        let tab = try #require(dock.bonsplitController.tabs(inPane: paneId).first { $0.id == tabId })
+            let dock = appDelegate.windowDock(forWindowId: dockWindowId)
+            let panel = WindowDockTestPanel()
+            panel.isDirty = true
+            try dock.seedTestPanel(panel)
+            let tabId = try #require(dock.surfaceId(forPanelId: panel.id))
+            let paneId = try #require(dock.paneId(forPanelId: panel.id))
+            let tab = try #require(dock.bonsplitController.tabs(inPane: paneId).first { $0.id == tabId })
 
-        var activeManagerPromptCount = 0
-        activeManager.confirmCloseHandler = { _, _, _ in
-            activeManagerPromptCount += 1
-            return false
-        }
-        var dockManagerPromptCount = 0
-        dockManager.confirmCloseHandler = { _, _, _ in
-            dockManagerPromptCount += 1
-            return false
-        }
+            var activeManagerPromptCount = 0
+            activeManager.confirmCloseHandler = { _, _, _ in
+                activeManagerPromptCount += 1
+                return false
+            }
+            var dockManagerPromptCount = 0
+            dockManager.confirmCloseHandler = { _, _, _ in
+                dockManagerPromptCount += 1
+                return false
+            }
 
-        #expect(!dock.splitTabBar(dock.bonsplitController, shouldCloseTab: tab, inPane: paneId))
-        for _ in 0..<10 where dockManagerPromptCount == 0 {
-            await Task.yield()
-        }
+            #expect(!dock.splitTabBar(dock.bonsplitController, shouldCloseTab: tab, inPane: paneId))
+            for _ in 0..<10 where dockManagerPromptCount == 0 {
+                await Task.yield()
+            }
 
-        #expect(dockManagerPromptCount == 1)
-        #expect(activeManagerPromptCount == 0)
-        #expect(dock.containsPanel(panel.id))
+            #expect(dockManagerPromptCount == 1)
+            #expect(activeManagerPromptCount == 0)
+            #expect(dock.containsPanel(panel.id))
+        }
     }
 
     @Test("Triggering flash on a Dock panel does not change Dock focus")

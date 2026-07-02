@@ -189,30 +189,35 @@ struct DockSocketLifecycleTests {
         fileExplorerState: FileExplorerState? = nil,
         _ body: (TabManager, Workspace, UUID) async throws -> Void
     ) async throws {
-        let previousAppDelegate = AppDelegate.shared
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let appDelegate = AppDelegate()
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = manager
-        if let fileExplorerState {
-            appDelegate.fileExplorerState = fileExplorerState
-        }
-        TerminalController.shared.setActiveTabManager(manager)
-        let windowId = appDelegate.registerMainWindowContextForTesting(
-            tabManager: manager,
-            fileExplorerState: fileExplorerState
-        )
-        defer {
-            TerminalController.shared.setActiveTabManager(previousManager)
-            // Unregistering the window context also tears down that window's Dock.
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            manager.tabs.forEach { $0.teardownAllPanels() }
-            AppDelegate.shared = previousAppDelegate
-        }
+        // Async body: gate against the other suites' async app-context tests
+        // (see AppContextSerialGate) so a mid-body suspension cannot observe
+        // another test's swapped-in globals.
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            if let fileExplorerState {
+                appDelegate.fileExplorerState = fileExplorerState
+            }
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowId = appDelegate.registerMainWindowContextForTesting(
+                tabManager: manager,
+                fileExplorerState: fileExplorerState
+            )
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                // Unregistering the window context also tears down that window's Dock.
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
 
-        let workspace = try #require(manager.tabs.first)
-        try await body(manager, workspace, windowId)
+            let workspace = try #require(manager.tabs.first)
+            try await body(manager, workspace, windowId)
+        }
     }
 
     @Test("surface.create validates placement before browser disabled handling")

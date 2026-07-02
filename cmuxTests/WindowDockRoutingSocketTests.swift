@@ -199,6 +199,10 @@ struct WindowDockRoutingSocketTests {
 #if DEBUG
         try await withDockEnabled {
             try await withBrowserEnabled {
+            // Async body (socket-worker round-trips below): gate against the
+            // other suites' async app-context tests so the swapped-in globals
+            // stay ours across awaits.
+            try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
             let appDelegate = AppDelegate()
@@ -312,6 +316,15 @@ struct WindowDockRoutingSocketTests {
             #expect(crossWindowNavigate["workspace_id"] as? String == dockWindowId.uuidString)
             #expect(crossWindowNavigate["window_id"] as? String == dockWindowId.uuidString)
             #expect(crossWindowNavigate["surface_id"] as? String == otherBrowserSurfaceId.uuidString)
+
+            // Everything below asserts caller-relative routing (the legacy
+            // alias resolves against "the caller's window"). The worker
+            // round-trip above suspended the main actor, where concurrently
+            // running suites can churn the shared controller's active manager
+            // through real window teardown, so restate this test's premise:
+            // the caller is the first window. The remainder of the test is
+            // synchronous, so the premise holds through those assertions.
+            TerminalController.shared.setActiveTabManager(activeManager)
 
             // The CLI injects the caller's main workspace_id even when the
             // user explicitly targets a Dock pane. A non-Dock workspace_id
@@ -487,6 +500,7 @@ struct WindowDockRoutingSocketTests {
             #expect(activeWindowDock.containsPanel(dockSurfaceId))
             #expect(dockWorkspace.panels.count == mainPanelCount)
             #expect(dockWorkspace.focusedPanelId == focusedMainPanel)
+            }
             }
         }
 #else
