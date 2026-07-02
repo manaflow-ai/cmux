@@ -159,6 +159,7 @@ extension Workspace {
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore()
@@ -1464,6 +1465,20 @@ extension Workspace {
                 } else {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
                 }
+                // Remember the session directory the auto-resume launcher targets
+                // for the run's lifetime so `updatePanelDirectory` can reject the
+                // spurious post-restore reports that would otherwise clobber the
+                // pane's tracked cwd while the resumed agent holds the foreground
+                // (#7155). Local panes only: a remote saved path can't be
+                // validated against the local disk, mirroring the guard above.
+                if restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput,
+                   restoredDirectoryIsLocalPath,
+                   let resumeSessionDirectory = savedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !resumeSessionDirectory.isEmpty {
+                    restoredResumeSessionWorkingDirectoriesByPanelId[terminalPanel.id] = resumeSessionDirectory
+                } else {
+                    restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
+                }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {
@@ -2600,6 +2615,18 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    /// The session directory each restored auto-resume launcher targets, kept for
+    /// the lifetime of the resumed run — unlike the one-shot #6617 report guard
+    /// above, which the first spurious report consumes. While a resumed agent
+    /// holds the pane's foreground the shell never reaches a prompt, so any later
+    /// live cwd report that diverges from this anchor is spurious and would
+    /// otherwise clobber the pane's tracked cwd (and the workspace
+    /// currentDirectory) on the surface default. Keeping it lets
+    /// ``updatePanelDirectory`` reject those reports so every cwd consumer stays
+    /// on the resumed session's directory (#7155). Internal so
+    /// `Workspace+PanelLifecycle` can clear it on panel close and the
+    /// detached-surface transfer can carry it across a workspace move.
+    var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable
         case awaitingAutoResumeCommand
@@ -4571,11 +4598,17 @@ final class Workspace: Identifiable, ObservableObject {
         displayLabel: String?,
         source: PanelDirectoryUpdateSource
     ) -> Bool {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         if source == .liveReport,
            shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
             return false
+        }
+        if source == .liveReport,
+           let repaired = repairedResumedAgentPaneDirectory(panelId: panelId, reportedDirectory: trimmed) {
+            // A spurious report during a resumed run: record ground truth instead
+            // of clobbering the pane (#7155).
+            trimmed = repaired
         }
         let directoryChanged = panelDirectories[panelId] != trimmed
         if directoryChanged { panelDirectories[panelId] = trimmed }
@@ -4631,6 +4664,84 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         return restoredDirectoryStillExists
+    }
+
+    /// The directory to record instead of a live cwd report while a restored
+    /// auto-resume agent still holds the pane's foreground, or nil to record the
+    /// report as-is (#7155).
+    ///
+    /// While that agent runs the shell never reaches a prompt, so it cannot
+    /// re-report the pane's real cwd. The one-shot #6617 guard above covers only
+    /// the first spurious post-restore report; any later report that diverges
+    /// from the session directory the launcher targeted is likewise spurious
+    /// (typically the surface default, home) and — left unguarded — would clobber
+    /// `panelDirectories`/`currentDirectory` for the rest of the run, so every
+    /// consumer (splits, new tabs, ``resolvedWorkingDirectory()``, the sidebar
+    /// project root, the tab bar) would inherit home.
+    ///
+    /// Rather than drop the report (which could lose a genuine cwd delivered just
+    /// before the prompt-idle signal clears the resumed state at agent exit), it
+    /// is *corrected* to ground truth: the live foreground process's actual cwd
+    /// via ``processCurrentWorkingDirectory(pid:)``. This makes the correction
+    /// race-free at exit — the returning shell's real cwd is read directly and,
+    /// when the report already matches it, the report is accepted unchanged — and
+    /// during the run it maps a spurious home report back to the agent's real
+    /// directory. The recorded session directory is the fallback when the live
+    /// cwd can't be read. Local panes only — a remote pane's paths can't be
+    /// validated locally. When neither ground-truth source yields an existing
+    /// directory the report is accepted (e.g. the session directory was deleted),
+    /// mirroring the #6617 deleted-directory semantics.
+    private func repairedResumedAgentPaneDirectory(
+        panelId: UUID,
+        reportedDirectory: String
+    ) -> String? {
+        guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return nil }
+        guard !isRemoteWorkspace, !isRemoteTerminalSurface(panelId) else { return nil }
+        let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
+            restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
+        )
+        if let liveDirectory = liveForegroundProcessWorkingDirectory(panelId: panelId) {
+            // Ground truth. A report that already matches it is genuine — accept
+            // it unchanged (this is the agent-exit case, order-independent).
+            if liveDirectory == reportedDirectory { return nil }
+            if Self.directoryExistsOnDisk(liveDirectory) { return liveDirectory }
+        }
+        if let sessionDirectory,
+           sessionDirectory != reportedDirectory,
+           Self.directoryExistsOnDisk(sessionDirectory) {
+            return sessionDirectory
+        }
+        return nil
+    }
+
+    /// The live working directory of the pane's foreground process (the resumed
+    /// agent, or the shell once it returns), or nil when unavailable.
+    private func liveForegroundProcessWorkingDirectory(panelId: UUID) -> String? {
+        guard let pid = terminalPanel(for: panelId)?.surface.foregroundProcessID() else { return nil }
+        return Workspace.processCurrentWorkingDirectory(pid: pid_t(clamping: pid))
+    }
+
+    nonisolated private static func directoryExistsOnDisk(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    /// The current working directory of `pid` via
+    /// `proc_pidinfo(PROC_PIDVNODEPATHINFO)`, or nil when the process is gone or
+    /// unreadable. `nonisolated static` — a pure libproc read with no actor
+    /// state — so it is directly unit-testable and callable off the main actor.
+    nonisolated static func processCurrentWorkingDirectory(pid: pid_t) -> String? {
+        guard pid > 0 else { return nil }
+        var info = proc_vnodepathinfo()
+        let expectedSize = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        let written = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, expectedSize)
+        guard written == expectedSize else { return nil }
+        let path = withUnsafeBytes(of: &info.pvi_cdir.vip_path) { raw -> String in
+            guard let base = raw.baseAddress else { return "" }
+            return String(cString: base.assumingMemoryBound(to: CChar.self))
+        }
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
@@ -4852,6 +4963,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
     }
 
     private func clearRestoredAgentResumeBinding(
@@ -5191,6 +5303,9 @@ final class Workspace: Identifiable, ObservableObject {
             validSurfaceIds.contains($0.key)
         }
         restoredAgentResumeStatesByPanelId = restoredAgentResumeStatesByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        restoredResumeSessionWorkingDirectoriesByPanelId = restoredResumeSessionWorkingDirectoriesByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         invalidatedRestoredAgentFingerprintsByPanelId = invalidatedRestoredAgentFingerprintsByPanelId.filter {
@@ -9424,11 +9539,21 @@ final class Workspace: Identifiable, ObservableObject {
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
             if let resumeState = detached.restorableAgentResumeState {
                 restoredAgentResumeStatesByPanelId[detached.panelId] = resumeState
+                // Carry the resume session directory with the resume state so the
+                // #7155 spurious-report guard keeps working after a workspace move
+                // (the moved pane's shell still can't reach a prompt).
+                if let resumeSessionDirectory = detached.restoredResumeSessionWorkingDirectory {
+                    restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = resumeSessionDirectory
+                } else {
+                    restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
+                }
             } else {
                 restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
+                restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
             }
         } else {
             restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
+            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
         }
         if let resumeBinding = detached.resumeBinding, !resumeBinding.isProcessDetected {
             surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
@@ -12267,6 +12392,7 @@ extension Workspace: BonsplitDelegate {
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectoriesByPanelId[panelId],
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
