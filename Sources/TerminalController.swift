@@ -138,11 +138,16 @@ class TerminalController {
     nonisolated let socketServer: SocketControlServer
     // Accepted-connection consumer; runs until process exit (singleton).
     private nonisolated let socketConnectionsTask: Task<Void, Never>
-    // Per-surface dedupe for high-frequency report_* socket telemetry. Main-
-    // isolated: after the 3c cutover its only callers are the @MainActor
-    // sidebar/surface seam conformances (the worker-thread fast path retired
-    // with the legacy dispatcher), so the former `nonisolated` is gone. The
-    // package type keeps its internal lock for its own tested contract.
+    // Per-surface dedupe for high-frequency report_* socket telemetry.
+    // Cross-thread contract (reintroduced by the tranche-B v1 worker lane):
+    // the nonisolated seam witness controlSidebarScheduleScopedShellState
+    // captures this on per-connection socket-worker threads and runs the
+    // compare-and-set inside the drained @MainActor bus closure, so the
+    // reference crosses threads even though the mutating calls land on main.
+    // The package type's Sendable conformance and internal lock are
+    // load-bearing for that contract (and for any future off-main caller) —
+    // do not downgrade its locking on the assumption that all callers are
+    // main-isolated.
     let socketFastPathState = SocketFastPathState()
     // Stateless sidebar-metadata/command argument parser (CmuxSidebar).
     // Pure transforms over the raw arg string; holds no state and reaches no
@@ -1018,11 +1023,47 @@ class TerminalController {
     /// returns its encoded response, or `nil` when the command sends no reply
     /// (`feed.push` without an id). The caller (the socket execution-policy
     /// dispatcher) has already parsed the line and checked the policy.
+    /// Worker-lane v2 methods whose body IS the shared main-actor dispatch
+    /// (`v2MainActorResponse`, i.e. known-ref refresh + coordinator + legacy
+    /// switch) behind a single `v2MainSync` hop, with response encoding on the
+    /// worker. Byte-identical to the main lane by construction; being on the
+    /// worker lane moves the policy wrapper, JSON bridging, and encode off the
+    /// main thread and keeps the connection thread (not the main queue) as
+    /// the place the command waits. The hop keeps each reply synchronous with
+    /// its effect — the deliberately-synchronous first relay
+    /// `surface.report_tty` (cmux-zsh-integration.zsh `_cmux_report_tty_once`)
+    /// must see the TTY registration applied before its reply so subsequent
+    /// `surface.ports_kick` scans resolve the surface.
+    private nonisolated static let socketWorkerCoordinatorHopMethods: Set<String> = [
+        "surface.report_pwd",
+        "surface.report_shell_state",
+        "surface.report_tty",
+        "surface.ports_kick",
+    ]
+
     private nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
         let request = V2SocketRequest(bridging: parsedRequest)
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
                 return v2Result(id: request.id, workspaceParamError)
+            }
+            if Self.socketWorkerCoordinatorHopMethods.contains(request.method) {
+                // Mirror processParsedV2Command's tail: one main hop for the
+                // command body, encode after the hop on this worker thread.
+                let outcome = v2MainSync {
+                    self.v2MainActorResponse(
+                        request: parsedRequest,
+                        id: request.id,
+                        method: request.method,
+                        params: request.params
+                    )
+                }
+                switch outcome {
+                case .callResult(let result):
+                    return Self.v2Encoder.response(id: parsedRequest.id, result)
+                case .encoded(let response):
+                    return response
+                }
             }
             if request.method == "feed.push", request.id == nil {
                 guard let waitTimeout = Self.feedPushWaitTimeoutSeconds(params: request.params) else {
@@ -1056,14 +1097,25 @@ class TerminalController {
         guard ControlCommandExecutionPolicy(forV1Command: cmd).runsOnSocketWorker else {
             return (false, nil)
         }
-        // `args` is unused until the first worker-lane v1 body that takes
-        // arguments migrates here; the parameter is part of the lane's
-        // signature contract with the dispatcher.
         return withSocketCommandPolicy(commandKey: cmd, isV2: false) {
             switch cmd {
             case "ping":
                 return (true, "PONG")
             default:
+                // The sidebar telemetry family: nonisolated coordinator bodies
+                // (parse/format on this worker thread, deferred mutations on
+                // the ordered TerminalMutationBus, at most one v2MainSync hop
+                // per command via controlSidebarOnMain). `self` is the
+                // coordinator's wired ControlCommandContext; it is passed
+                // explicitly because the coordinator's `context` property is
+                // main-actor-isolated.
+                if let response = controlCommandCoordinator.handleSidebarTelemetryV1(
+                    command: cmd,
+                    args: args,
+                    context: self
+                ) {
+                    return (true, response)
+                }
                 // A policy-listed v1 worker command MUST have a body here.
                 // Falling back to the main lane would silently diverge from
                 // the invalid_dispatch guard (which already rejected
@@ -1252,7 +1304,27 @@ class TerminalController {
         case let method where method.hasPrefix("remotes."):
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
         default:
-            return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
+#if !DEBUG
+            // debug.sidebar.simulate_drag stays policy-listed in Release but
+            // its worker case above is compiled out; the Release main lane
+            // answers method_not_found for debug verbs, so mirror that reply
+            // instead of the internal-error backstop below.
+            if request.method == "debug.sidebar.simulate_drag" {
+                return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
+            }
+#endif
+            // Only reachable when a method is added to the policy's
+            // socketWorkerMethods but omitted from both
+            // socketWorkerCoordinatorHopMethods and the explicit cases above
+            // (unknown methods classify .mainActor and never enter this
+            // lane). Mirror the v1 lane's loud always-handled invariant
+            // instead of handing clients a plausible-looking method_not_found
+            // on a silent policy/handler drift.
+            return v2Error(
+                id: request.id,
+                code: "internal_error",
+                message: "v2 worker method '\(request.method)' has no worker handler"
+            )
         }
     }
 

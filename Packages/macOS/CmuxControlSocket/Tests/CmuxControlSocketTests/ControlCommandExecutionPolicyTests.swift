@@ -62,7 +62,7 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
     }
 
-    @Test func v1WorkerLaneIsPingOnlyAndMainThreadCallable() {
+    @Test func v1PingRunsOnTheWorkerAndIsMainThreadCallable() {
         // `ping` is the dispatcher's former hard-coded worker fast path; it is
         // a pure probe, so in-process main-thread callers may run it inline.
         let policy = ControlCommandExecutionPolicy(forV1Command: "ping")
@@ -70,18 +70,100 @@ struct ControlCommandExecutionPolicyTests {
         #expect(policy.runsOnSocketWorker)
     }
 
+    @Test func v1SidebarTelemetryFamilyRunsOnTheWorkerAndIsMainThreadCallable() {
+        // The tranche-B telemetry family: parse/format on the worker, deferred
+        // mutations on the ordered bus, at most one v2MainSync hop per
+        // command. Every body is non-blocking end-to-end when run inline on
+        // the main thread, so in-process main-thread callers (and cmuxTests
+        // driving handleSocketLine on the main actor) stay callable.
+        for command in [
+            "set_status", "report_meta", "report_meta_block",
+            "clear_status", "clear_meta", "clear_meta_block",
+            "list_status", "list_meta", "list_meta_blocks",
+            "set_agent_pid", "set_agent_lifecycle", "agent_hibernation",
+            "clear_agent_pid",
+            "log", "clear_log", "list_log", "set_progress", "clear_progress",
+            "report_git_branch", "clear_git_branch",
+            "report_pr", "report_review", "clear_pr", "report_pr_action",
+            "report_ports", "clear_ports",
+            "report_pwd", "report_shell_state", "report_tty", "ports_kick",
+        ] {
+            let policy = ControlCommandExecutionPolicy(forV1Command: command)
+            #expect(policy == .socketWorker(mainThreadCallable: true), "\(command)")
+        }
+    }
+
+    @Test func v2SurfaceTelemetryTwinsRunOnTheWorkerAndAreMainThreadCallable() {
+        // The v2 twins of the report family share the same single-hop worker
+        // bodies (encode off-main), so they carry the same policy.
+        for method in [
+            "surface.report_pwd", "surface.report_shell_state",
+            "surface.report_tty", "surface.ports_kick",
+        ] {
+            let policy = ControlCommandExecutionPolicy(forMethod: method)
+            #expect(policy == .socketWorker(mainThreadCallable: true), "\(method)")
+        }
+    }
+
     @Test func v1CommandsDefaultToTheMainActor() {
         for command in [
-            "send", "send_key", "report_pwd", "report_shell_state", "ports_kick",
-            "set_status", "list_workspaces", "right_sidebar", "focus_surface",
+            "send", "send_key",
+            "list_workspaces", "right_sidebar", "focus_surface",
+            "sidebar_state", "reset_sidebar", "list_panes", "new_pane",
+            "notify", "notify_target", "list_notifications",
             "help", "",
             // The v2 namespace prefix rules (vm./remotes.) and v2 worker
             // method names must not leak into v1 classification.
             "vm.create", "remotes.list", "system.ping",
+            "surface.report_pwd",
         ] {
             let policy = ControlCommandExecutionPolicy(forV1Command: command)
             #expect(policy == .mainActor, "\(command)")
             #expect(!policy.runsOnSocketWorker, "\(command)")
         }
+    }
+
+    @Test func mainThreadCallableSetsAreSubsetsOfTheirWorkerLanes() {
+        // The callable refinement only exists for worker-lane members; a
+        // callable entry outside its lane would be dead policy.
+        #expect(
+            ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands
+                .isSubset(of: ControlCommandExecutionPolicy.socketWorkerV1Commands)
+        )
+        #expect(
+            ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerMethods
+                .isSubset(of: ControlCommandExecutionPolicy.socketWorkerMethods)
+        )
+    }
+
+    @Test func v1WorkerLaneSetsArePinnedExactly() {
+        // Exact-set pins so growing a lane is always a deliberate,
+        // test-visible decision: adding a v1 worker verb fails here until the
+        // author decides its mainThreadCallable flag (the callable set is an
+        // explicit enumeration, NOT an alias of the worker set — that keeps
+        // the v1 invalid_dispatch guard meaningful for future non-callable
+        // verbs). The app-side backstop for a policy-listed verb with no
+        // worker handler is the loud internal error in
+        // socketWorkerV1ResponseIfHandled / socketWorkerV2Response (the
+        // app-side hop set is not visible to this package, so lockstep with
+        // it is enforced at runtime by that error, not here).
+        let telemetry: Set<String> = [
+            "set_status", "report_meta", "report_meta_block",
+            "clear_status", "clear_meta", "clear_meta_block",
+            "list_status", "list_meta", "list_meta_blocks",
+            "set_agent_pid", "set_agent_lifecycle", "agent_hibernation",
+            "clear_agent_pid",
+            "log", "clear_log", "list_log", "set_progress", "clear_progress",
+            "report_git_branch", "clear_git_branch",
+            "report_pr", "report_review", "clear_pr", "report_pr_action",
+            "report_ports", "clear_ports",
+            "report_pwd", "report_shell_state", "report_tty", "ports_kick",
+        ]
+        #expect(ControlCommandExecutionPolicy.sidebarTelemetryV1Commands == telemetry)
+        let expectedWorker = telemetry.union(["ping"])
+        #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
+        // Every current member is deliberately main-thread callable
+        // (non-blocking inline: bus enqueues plus inline-collapsing hops).
+        #expect(ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands == expectedWorker)
     }
 }

@@ -12,7 +12,7 @@ import CmuxSidebar
 extension TerminalController {
     // MARK: - Git branch
 
-    func controlSidebarScheduleScopedGitBranchUpdate(
+    nonisolated func controlSidebarScheduleScopedGitBranchUpdate(
         scope: ControlSidebarPanelScope,
         branch: String,
         isDirty: Bool?
@@ -55,7 +55,7 @@ extension TerminalController {
         return true
     }
 
-    func controlSidebarScheduleScopedGitBranchClear(scope: ControlSidebarPanelScope) {
+    nonisolated func controlSidebarScheduleScopedGitBranchClear(scope: ControlSidebarPanelScope) {
         TerminalMutationBus.shared.enqueueMainActorMutation {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
@@ -78,11 +78,11 @@ extension TerminalController {
 
     // MARK: - Pull requests (panel metadata mutations)
 
-    func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool {
+    nonisolated func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool {
         SidebarPullRequestStatus(rawValue: raw) != nil
     }
 
-    func controlSidebarSchedulePanelPullRequestUpdate(
+    nonisolated func controlSidebarSchedulePanelPullRequestUpdate(
         target: ControlSidebarPanelMutationTarget,
         number: Int,
         label: String,
@@ -122,13 +122,13 @@ extension TerminalController {
         }
     }
 
-    func controlSidebarSchedulePanelPullRequestClear(target: ControlSidebarPanelMutationTarget) {
+    nonisolated func controlSidebarSchedulePanelPullRequestClear(target: ControlSidebarPanelMutationTarget) {
         controlSidebarSchedulePanelMetadataMutation(target: target) { tab, surfaceId in
             tab.clearPanelPullRequest(panelId: surfaceId)
         }
     }
 
-    func controlSidebarSchedulePanelPullRequestAction(
+    nonisolated func controlSidebarSchedulePanelPullRequestAction(
         target: ControlSidebarPanelMutationTarget,
         action: String,
         actionTarget: String?
@@ -189,7 +189,7 @@ extension TerminalController {
         return .done
     }
 
-    func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
+    nonisolated func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
         TerminalMutationBus.shared.enqueueMainActorMutation {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
@@ -229,19 +229,31 @@ extension TerminalController {
         }
     }
 
-    func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {
+    /// The dedupe compare-and-set runs at DRAIN time, inside the enqueued
+    /// main-actor closure, not at enqueue time on the worker: this witness is
+    /// called from per-connection socket-worker threads, and a gate taken
+    /// before the enqueue could record two connections' states for the same
+    /// surface in one order but enqueue them in the other, leaving the
+    /// applied model state disagreeing with the dedupe cache until the next
+    /// running/prompt cycle. Recording where the bus drains keeps record
+    /// order identical to apply order, as the serialized pre-worker-lane
+    /// path guaranteed. The shell integration's own _CMUX_SHELL_ACTIVITY_LAST
+    /// dedupe already rate-limits reports, so the extra enqueue per
+    /// duplicate is cheap.
+    nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {
         guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
-        guard socketFastPathState.shouldPublishShellActivity(
-            workspaceId: scope.workspaceID,
-            panelId: scope.panelID,
-            state: state.rawValue
-        ) else {
-            return
-        }
+        let fastPathState = socketFastPathState
         TerminalMutationBus.shared.enqueueMainActorMutation {
+            guard fastPathState.shouldPublishShellActivity(
+                workspaceId: scope.workspaceID,
+                panelId: scope.panelID,
+                state: state.rawValue
+            ) else {
+                return
+            }
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID) else { return }
             tabManager.updateSurfaceShellActivity(tabId: scope.workspaceID, surfaceId: scope.panelID, state: state)
         }
@@ -263,7 +275,7 @@ extension TerminalController {
         }
     }
 
-    func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String) {
+    nonisolated func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String) {
         TerminalMutationBus.shared.enqueueMainActorMutation {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
@@ -299,7 +311,7 @@ extension TerminalController {
         }
     }
 
-    func controlSidebarScheduleScopedPortsKick(scope: ControlSidebarPanelScope, reasonRawValue: String) {
+    nonisolated func controlSidebarScheduleScopedPortsKick(scope: ControlSidebarPanelScope, reasonRawValue: String) {
         guard let reason = PortScanKickReason(rawValue: reasonRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return

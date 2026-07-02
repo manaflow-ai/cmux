@@ -745,6 +745,57 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertFalse(mainLane[0].isEmpty)
     }
 
+    @Test func testV1SetStatusIsServicedOnWorkerLaneWhileMainThreadIsBlocked() throws {
+        let socketPath = makeSocketPath("v1-status-worker")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        // Worker-lane proof for a migrated telemetry verb (tranche B1): the
+        // scoped set_status path is parse + TerminalMutationBus enqueue with
+        // zero v2MainSync hops, so its reply must arrive while this test
+        // wedges the main thread in the semaphore wait below. The verb is
+        // mainThreadCallable, so the round-trip has to be sent from a
+        // background queue — an in-process main-thread send would run inline
+        // and prove nothing. A regression that reroutes the verb to the main
+        // lane (or adds a main hop to the scoped path) turns this into a
+        // bounded timeout failure, not a deadlock, because the sender thread
+        // just parks in read() until then.
+        let command = "set_status build ok --tab=\(workspace.id.uuidString)"
+        let replyArrived = DispatchSemaphore(value: 0)
+        let replyBox = WorkerLaneReplyBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            replyBox.store(Result { try self.sendV1Commands([command], to: socketPath) })
+            replyArrived.signal()
+        }
+
+        let waited = replyArrived.wait(timeout: .now() + 5)
+        XCTAssertEqual(
+            waited == .success,
+            true,
+            "set_status must be serviced on the socket-worker lane; its reply did not arrive while the main thread was blocked"
+        )
+        XCTAssertEqual(try replyBox.take(), ["OK"])
+
+        // The mutation is bus-deferred and the main thread has been held by
+        // this test since before the send, so the reply necessarily preceded
+        // the apply; drain and verify the deferred write lands.
+        XCTAssertNil(workspace.statusEntries["build"])
+        TerminalMutationBus.shared.drainForTesting()
+        XCTAssertEqual(workspace.statusEntries["build"]?.value, "ok")
+    }
+
     private func assertHeartbeatResult(method: String, envelope: [String: Any], file: StaticString = #filePath, line: UInt = #line) throws {
         let result = try XCTUnwrap(envelope["result"] as? [String: Any], method, file: file, line: line)
         switch method {
@@ -1708,5 +1759,30 @@ final class TerminalControllerSocketSecurityTests {
             code: Int(errno),
             userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
         )
+    }
+}
+
+/// Cross-thread reply capture for the worker-lane-while-main-blocked tests:
+/// the background sender stores exactly once before signaling its semaphore,
+/// and the main-actor test reads only after that signal. The lock makes the
+/// handoff explicit instead of relying on the semaphore's happens-before
+/// alone.
+private final class WorkerLaneReplyBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Result<[String], Error>?
+
+    func store(_ result: Result<[String], Error>) {
+        lock.lock()
+        self.result = result
+        lock.unlock()
+    }
+
+    func take() throws -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let result else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
+        }
+        return try result.get()
     }
 }

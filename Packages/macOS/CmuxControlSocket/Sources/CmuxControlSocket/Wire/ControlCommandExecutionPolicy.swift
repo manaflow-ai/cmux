@@ -65,7 +65,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     }
 
     /// Methods that run on the socket-worker thread instead of the main actor.
-    private static let socketWorkerMethods: Set<String> = [
+    /// Internal (not private) so the package tests can pin the exact set.
+    static let socketWorkerMethods: Set<String> = [
         "system.ping",
         "system.capabilities",
         "auth.status",
@@ -186,27 +187,132 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.addinitscript",
         "browser.addscript",
         "browser.addstyle",
+        // The v2 surface-telemetry twins of the v1 report family. Parse and
+        // response encoding run on the worker; each body crosses to the main
+        // actor exactly once (the resolution + write + ref minting hop), so
+        // the deliberately-synchronous first relay `surface.report_tty`
+        // (cmux-zsh-integration.zsh `_cmux_report_tty_once`) still returns
+        // only after the TTY registration is visible to later commands.
+        "surface.report_pwd",
+        "surface.report_shell_state",
+        "surface.report_tty",
+        "surface.ports_kick",
     ]
 
     /// Socket-worker methods that are also safe to invoke from the main
-    /// thread (pure, non-blocking probes).
-    private static let mainThreadCallableSocketWorkerMethods: Set<String> = [
+    /// thread. The invariant is deadlock-freedom, not zero cost: a member's
+    /// body must contain no semaphore or cross-thread wait (its `v2MainSync`
+    /// hops collapse to inline calls for a main-thread caller), but bounded
+    /// synchronous work may still run inline on the caller's thread, exactly
+    /// as the legacy main-lane dispatch did. `system.ping`/
+    /// `system.capabilities` are pure probes; the surface-telemetry twins are
+    /// one inline-collapsing hop each. Internal (not private) so the package
+    /// tests can pin the subset invariant.
+    static let mainThreadCallableSocketWorkerMethods: Set<String> = [
         "system.ping",
         "system.capabilities",
+        "surface.report_pwd",
+        "surface.report_shell_state",
+        "surface.report_tty",
+        "surface.ports_kick",
+    ]
+
+    /// The v1 sidebar telemetry family, whose worker-lane bodies
+    /// (`ControlCommandCoordinator.handleSidebarTelemetryV1`) parse/validate/
+    /// format on the worker and either enqueue their mutation on the ordered
+    /// `TerminalMutationBus` (zero main hops) or cross to the main actor for
+    /// one narrow resolution/read hop. Internal (not private) so the package
+    /// tests can pin the exact set.
+    static let sidebarTelemetryV1Commands: Set<String> = [
+        // Status / metadata entries (parse + bus enqueue; lists are one read hop).
+        "set_status",
+        "report_meta",
+        "report_meta_block",
+        "clear_status",
+        "clear_meta",
+        "clear_meta_block",
+        "list_status",
+        "list_meta",
+        "list_meta_blocks",
+        // Agent PID / lifecycle / hibernation.
+        "set_agent_pid",
+        "set_agent_lifecycle",
+        "agent_hibernation",
+        "clear_agent_pid",
+        // Log / progress.
+        "log",
+        "clear_log",
+        "list_log",
+        "set_progress",
+        "clear_progress",
+        // Reports (git branch / PR / ports / pwd / shell state / tty / kick).
+        "report_git_branch",
+        "clear_git_branch",
+        "report_pr",
+        "report_review",
+        "clear_pr",
+        "report_pr_action",
+        "report_ports",
+        "clear_ports",
+        "report_pwd",
+        "report_shell_state",
+        "report_tty",
+        "ports_kick",
     ]
 
     /// v1 commands that run on the socket-worker thread instead of the main
-    /// actor. Only `ping` for now (the dispatcher's former hard-coded fast
-    /// path); the v1 telemetry commands migrate here tranche by tranche as
-    /// their worker-lane bodies land.
-    private static let socketWorkerV1Commands: Set<String> = [
-        "ping",
-    ]
+    /// actor: `ping` (the dispatcher's former hard-coded fast path) plus the
+    /// sidebar telemetry family. Internal (not private) so the package tests
+    /// can pin the exact set.
+    static let socketWorkerV1Commands: Set<String> =
+        sidebarTelemetryV1Commands.union(["ping"])
 
     /// Worker-lane v1 commands that are also safe to invoke from the main
-    /// thread (pure, non-blocking probes). Must be a subset of
-    /// ``socketWorkerV1Commands``.
-    private static let mainThreadCallableSocketWorkerV1Commands: Set<String> = [
+    /// thread. Must be a subset of ``socketWorkerV1Commands``, and is
+    /// deliberately an EXPLICIT enumeration rather than an alias of the
+    /// worker set: a future worker-lane verb must opt in here, so the v1
+    /// invalid_dispatch guard stays meaningful by construction (the package
+    /// tests pin both sets exactly).
+    ///
+    /// The invariant a member promises is deadlock-freedom, not zero cost:
+    /// its body contains no semaphore or cross-thread wait — parse and bus
+    /// enqueues never block, and the narrow `v2MainSync` hops collapse to
+    /// inline calls on main — but bounded synchronous work still runs inline
+    /// on a main-thread caller (e.g. `set_agent_lifecycle`'s vault-registry
+    /// config-file read), exactly as the legacy main-lane dispatch did.
+    /// In-process main-thread callers and cmuxTests exercise these verbs via
+    /// `handleSocketLine` on the main actor.
+    static let mainThreadCallableSocketWorkerV1Commands: Set<String> = [
         "ping",
+        "set_status",
+        "report_meta",
+        "report_meta_block",
+        "clear_status",
+        "clear_meta",
+        "clear_meta_block",
+        "list_status",
+        "list_meta",
+        "list_meta_blocks",
+        "set_agent_pid",
+        "set_agent_lifecycle",
+        "agent_hibernation",
+        "clear_agent_pid",
+        "log",
+        "clear_log",
+        "list_log",
+        "set_progress",
+        "clear_progress",
+        "report_git_branch",
+        "clear_git_branch",
+        "report_pr",
+        "report_review",
+        "clear_pr",
+        "report_pr_action",
+        "report_ports",
+        "clear_ports",
+        "report_pwd",
+        "report_shell_state",
+        "report_tty",
+        "ports_kick",
     ]
 }

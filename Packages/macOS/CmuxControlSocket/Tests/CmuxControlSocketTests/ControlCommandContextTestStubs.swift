@@ -459,8 +459,8 @@ extension ControlSurfaceContext {
         expectedSource: String?
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
-    func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }
-    func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? { nil }
+    nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }
+    nonisolated func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? { nil }
 
     func controlSurfaceReportTTY(workspaceID: UUID, requestedSurfaceID: UUID?, ttyName: String)
         -> ControlSurfaceReportTTYResolution { .workspaceNotFound }
