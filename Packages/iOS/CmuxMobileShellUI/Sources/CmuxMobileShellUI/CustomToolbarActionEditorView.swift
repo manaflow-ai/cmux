@@ -152,12 +152,19 @@ struct CustomToolbarActionEditorView: View {
     }
 
     @ViewBuilder private var macroSection: some View {
-        ForEach(Array(macroSteps.enumerated()), id: \.element.id) { index, _ in
+        // Iterate over element bindings (keyed by `ToolbarMacroStepDraft.id`) rather
+        // than index-backed `$macroSteps[index]`. A row can delete itself, and an
+        // index captured in a binding goes stale the moment the array shrinks —
+        // SwiftUI can then re-read it during the Form diff and crash with an
+        // index-out-of-range. Element bindings stay valid across removals, and we
+        // delete/number by id looked up at render or action time.
+        ForEach($macroSteps) { $step in
+            let index = macroSteps.firstIndex { $0.id == step.id } ?? 0
             Section {
-                ToolbarMacroStepEditor(step: $macroSteps[index])
+                ToolbarMacroStepEditor(step: $step)
 
                 Button(role: .destructive) {
-                    macroSteps.remove(at: index)
+                    macroSteps.removeAll { $0.id == step.id }
                 } label: {
                     Label(
                         L10n.string("mobile.toolbar.editor.deleteStep", defaultValue: "Delete Step"),
