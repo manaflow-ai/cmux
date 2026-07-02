@@ -118,7 +118,7 @@ final class RemoteTmuxWindowMirror {
     @discardableResult
     func updateClientSize(contentSizePoints: CGSize) -> Bool {
         // Size tmux from the ACTUAL rendered leaf grids, summed through the layout
-        // tree — NOT from the outer content area
+        // tree with tmux's 1-cell pane separators — NOT from the outer content area
         // divided by cell size. The outer/cell math counts the local SwiftUI split
         // dividers as columns, so tmux ends up ~1 col wider than the ghostty surfaces
         // actually render; that width disagreement wraps zsh's PROMPT_SP "%" filler and
@@ -146,9 +146,14 @@ final class RemoteTmuxWindowMirror {
         }
     }
 
-    /// Folds per-leaf grid sizes through the tmux split tree: a horizontal split's
-    /// width is the sum of its children's widths (height = max child height); a vertical
-    /// split is the transpose (max width, summed heights). Returns `nil` if `leafGrid`
+    /// Folds per-leaf grid sizes through the tmux split tree exactly as tmux lays a
+    /// window out: a horizontal split's width is the sum of its children's widths plus
+    /// one separator column between each (height = max child height); a vertical split
+    /// is the transpose (max width, summed heights + one separator row between each).
+    /// The `+ (count - 1)` separator term is what makes the window size we report equal
+    /// the leaves' rendered widths PLUS tmux's own divider columns, so tmux then splits
+    /// that window back into per-pane widths that match each surface — the invariant that
+    /// keeps zsh's PROMPT_SP "%" filler from wrapping. Returns `nil` if `leafGrid`
     /// returns `nil` for any pane (its surface has no live grid yet), so the caller can
     /// retry. Pure over `(node, leafGrid)` — no live-surface access — so it's unit
     /// testable with stubbed leaf sizes.
@@ -167,7 +172,7 @@ final class RemoteTmuxWindowMirror {
                 totalCols += g.cols
                 maxRows = max(maxRows, g.rows)
             }
-            return (totalCols, maxRows)
+            return (totalCols + max(0, children.count - 1), maxRows)
         case let .vertical(children):
             var maxCols = 0
             var totalRows = 0
@@ -176,7 +181,7 @@ final class RemoteTmuxWindowMirror {
                 maxCols = max(maxCols, g.cols)
                 totalRows += g.rows
             }
-            return (maxCols, totalRows)
+            return (maxCols, totalRows + max(0, children.count - 1))
         }
     }
 
