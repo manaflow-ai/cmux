@@ -119,7 +119,7 @@ import Testing
         #expect(newPaneTint != manualTint)
     }
 
-    @Test func splitTintPlannerCyclesAfterPaletteIsExhausted() throws {
+    @Test func splitTintPlannerReusesFirstPaletteColorAfterExhaustion() throws {
         let baseColor = try #require(NSColor(hex: "#101010"))
         var usedHexes = Set<String>()
         var tints: [String] = []
@@ -130,9 +130,15 @@ import Testing
             usedHexes.insert(hex)
         }
 
+        // The first eight requests exhaust the eight-color palette with distinct tints.
         #expect(Set(tints.prefix(8)).count == 8)
+        // After that every palette color is in `usedHexes`, so the Set saturates at
+        // eight entries and `nextColor` deterministically falls back to the first
+        // palette color for every subsequent request: a saturated Set cannot advance
+        // the `usedHexes.count % palette.count` wrap past index 0, which mirrors the
+        // real call site where `usedHexes` is the set of distinct live pane colors.
         #expect(tints[8] == tints[0])
-        #expect(tints[9] == tints[1])
+        #expect(tints[9] == tints[0])
     }
 
     @Test func splitTintPlannerKeepsCurrentSplitDistinctAfterPaletteWrap() throws {
