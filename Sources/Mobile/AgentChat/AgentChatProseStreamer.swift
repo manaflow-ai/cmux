@@ -12,9 +12,9 @@ import Foundation
 /// instant the authoritative JSONL line lands (``authoritativeProseArrived``) or
 /// the turn ends (``turnEnded``), so it never duplicates a committed message.
 ///
-/// Gating keeps it off the keystroke hot path: a surface is only snapshotted
-/// while the feature flag is on, a chat client is subscribed, and a turn is
-/// actively streaming for that session. Idle sessions are never polled.
+/// It stays off the keystroke hot path: a surface is only snapshotted while a
+/// chat client is subscribed and a turn is actively streaming for that session.
+/// Idle sessions are never polled.
 @MainActor
 final class AgentChatProseStreamer {
     /// Per-session live-turn bookkeeping.
@@ -34,7 +34,6 @@ final class AgentChatProseStreamer {
 
     private let emit: @MainActor (ChatSessionEventFrame) -> Void
     private let snapshot: @MainActor (UUID) -> [String]?
-    private let isEnabled: @MainActor () -> Bool
     private let hasSubscribers: @MainActor () -> Bool
     private let now: @MainActor () -> Date
     private let pollInterval: Duration
@@ -46,7 +45,6 @@ final class AgentChatProseStreamer {
     ///   - emit: Publishes a wire frame to subscribed chat clients.
     ///   - snapshot: Maps a surface id to its rendered screen rows (top to
     ///     bottom), or `nil` when the surface is gone.
-    ///   - isEnabled: The live feature-flag read (default-off).
     ///   - hasSubscribers: Whether any chat client is currently listening.
     ///   - now: Clock seam for the preview message timestamp.
     ///   - pollInterval: Snapshot cadence while a turn streams.
@@ -54,7 +52,6 @@ final class AgentChatProseStreamer {
     init(
         emit: @escaping @MainActor (ChatSessionEventFrame) -> Void,
         snapshot: @escaping @MainActor (UUID) -> [String]?,
-        isEnabled: @escaping @MainActor () -> Bool = { AgentChatProseStreamingFlag.isEnabled },
         hasSubscribers: @escaping @MainActor () -> Bool,
         now: @escaping @MainActor () -> Date = { Date() },
         pollInterval: Duration = .milliseconds(150),
@@ -62,7 +59,6 @@ final class AgentChatProseStreamer {
     ) {
         self.emit = emit
         self.snapshot = snapshot
-        self.isEnabled = isEnabled
         self.hasSubscribers = hasSubscribers
         self.now = now
         self.pollInterval = pollInterval
@@ -118,7 +114,7 @@ final class AgentChatProseStreamer {
 
     private func emitPreviewIfChanged(sessionID: String) {
         guard let turn = turns[sessionID], !turn.settled else { return }
-        guard isEnabled(), hasSubscribers() else { return }
+        guard hasSubscribers() else { return }
         guard let lines = snapshot(turn.surfaceID) else { return }
         guard let prose = extractor.extract(lines: lines, agentKind: turn.agentKind) else { return }
         guard prose != turn.lastEmitted else { return }
