@@ -76,3 +76,56 @@ import Testing
     #expect(targetFrameDelivered, "the first frame at the pending input sequence must render immediately")
     collector.unmount()
 }
+
+@MainActor
+@Test func renderGridReplayBehindPendingInputRequestsBarrierRetryAfterDroppedOutput() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let surfaceID = "live-terminal"
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+
+    let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    let droppedOutputAccepted = store.deliverTerminalBytes(Data("live-during-barrier".utf8), surfaceID: surfaceID)
+    #expect(!droppedOutputAccepted)
+    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: surfaceID)
+    let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
+    #expect(inputSent)
+
+    try await router.enqueueReplayRenderGrids([
+        renderGridFrame(surfaceID: surfaceID, seq: 99, text: "stale-replay"),
+        renderGridFrame(surfaceID: surfaceID, seq: 100, text: "fresh-replay"),
+    ])
+    store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
+    let retryRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterMount + 2,
+        recordIssueOnTimeout: false
+    )
+    #expect(retryRequested, "a replay dropped behind pending input must request a replacement while the barrier is preserved")
+    let freshReplayDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("fresh-replay") }
+    }
+    #expect(freshReplayDelivered)
+    collector.unmount()
+}
+
+private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throws -> MobileTerminalRenderGridFrame {
+    try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: seq,
+        columns: 16,
+        rows: 4,
+        rowSpans: [
+            .init(row: 0, column: 0, text: text),
+        ]
+    )
+}

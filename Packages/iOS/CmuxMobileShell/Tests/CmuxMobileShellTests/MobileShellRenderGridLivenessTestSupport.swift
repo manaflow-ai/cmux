@@ -76,7 +76,7 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
-    private var replayTexts: [String] = []
+    private var replayPayloads: [[String: Any]] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0
     func record(method: String?, topics: [String]?) {
@@ -174,7 +174,11 @@ actor LivenessHostRouter {
     }
 
     func enqueueReplayTexts(_ texts: [String]) {
-        replayTexts.append(contentsOf: texts)
+        replayPayloads.append(contentsOf: texts.map { ["data_b64": Data($0.utf8).base64EncodedString()] })
+    }
+
+    func enqueueReplayRenderGrids(_ frames: [MobileTerminalRenderGridFrame]) throws {
+        replayPayloads.append(contentsOf: try frames.map { ["render_grid": try $0.jsonObject()] })
     }
 
     func failNextReplay(count: Int = 1) {
@@ -297,13 +301,10 @@ actor LivenessHostRouter {
                 emptyReplayResponsesRemaining -= 1
                 return try? Self.resultFrame(id: id, result: [:])
             }
-            guard !replayTexts.isEmpty else {
+            guard !replayPayloads.isEmpty else {
                 return try? Self.resultFrame(id: id, result: [:])
             }
-            let text = replayTexts.removeFirst()
-            return try? Self.resultFrame(id: id, result: [
-                "data_b64": Data(text.utf8).base64EncodedString(),
-            ])
+            return try? Self.resultFrame(id: id, result: replayPayloads.removeFirst())
         case "mobile.events.unsubscribe", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.input":

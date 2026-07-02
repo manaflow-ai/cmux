@@ -7210,6 +7210,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 if let renderGrid {
                     guard !self.shouldDropRenderGridBehindPendingInput(renderGrid, source: "replay") else {
+                        if let retryToken = self.prepareTerminalReplayFailureRetry(
+                            surfaceID: surfaceID,
+                            replayBarrierToken: replayBarrierTokenForRequest
+                        ) {
+                            self.clearTerminalReplayInFlightIfCurrent(
+                                surfaceID: surfaceID,
+                                requestID: replayRequestID
+                            )
+                            transferredInFlightToRetry = true
+                            self.requestTerminalReplay(
+                                surfaceID: surfaceID,
+                                replayBarrierToken: retryToken,
+                                coveredReplayBarrierDroppedOutputCount:
+                                    self.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
+                            )
+                            return
+                        }
                         self.clearTerminalReplayBarrierIfCurrent(
                             surfaceID: surfaceID,
                             token: replayBarrierTokenForRequest,
