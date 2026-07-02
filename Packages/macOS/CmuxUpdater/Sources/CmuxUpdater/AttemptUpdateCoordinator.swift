@@ -62,6 +62,22 @@ struct AttemptUpdateCoordinator {
         }
     }
 
+    /// Arm the coordinator to auto-confirm the update a freshly *restarted* retry check resolves,
+    /// entering ``Phase/awaitingResult`` directly rather than ``Phase/awaitingCheckRestart``.
+    ///
+    /// Used by the download-phase transient-retry re-arm (issue #5632). Unlike
+    /// ``requestInstallLatest(currentState:)`` — invoked while a stale pre-request `.updateAvailable`
+    /// prompt may still be on screen, which `awaitingCheckRestart` exists to ignore until a real
+    /// check restarts — this arm happens while the model is the retry's own `.checking` pill, so
+    /// there is no stale prompt to gate against. Entering `awaitingResult` directly means that if the
+    /// user cancels the retry before the check restarts (idling the model, e.g. during the
+    /// controller's readiness wait), the coordinator disarms via the `awaitingResult` idle → inactive
+    /// path instead of misreading the idle as check-restart progress — which would otherwise strand
+    /// it armed to silently auto-confirm a later, unrelated update.
+    mutating func armForConfirmedRetryCheck() {
+        phase = .awaitingResult
+    }
+
     /// Feed each ``UpdateState`` change observed after a request. Returns the action the controller
     /// should perform.
     mutating func handleStateChange(_ state: UpdateState) -> Action {

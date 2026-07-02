@@ -2,7 +2,7 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34660	CLI/cmux.swift
-17978	Sources/AppDelegate.swift
+17976	Sources/AppDelegate.swift
 16484	Sources/ContentView.swift
 14293	Sources/TerminalController.swift
 13071	Sources/Workspace.swift
@@ -24,7 +24,7 @@
 4487	Sources/Panels/FilePreviewPanel.swift
 4483	Sources/cmuxApp.swift
 4367	cmuxTests/BrowserPanelTests.swift
-4257	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
+4239	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 4121	Sources/BrowserWindowPortal.swift
 3934	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
@@ -92,6 +92,7 @@
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1002	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/PairedMacBackupTests.swift
 982	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
+974	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 953	cmuxTests/DockSocketLifecycleTests.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
 948	Sources/App/ShortcutRoutingSupport.swift
@@ -101,7 +102,6 @@
 942	Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/WorkspaceMacSelectionTests.swift
 937	Sources/TextBoxMentionIndexStore.swift
 929	Sources/Panels/TerminalPanel.swift
-974	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 918	Sources/Panels/BrowserPopupWindowController.swift
 905	Sources/CmuxSSHURLRequest.swift
 899	Sources/Panels/MarkdownWebRenderer.swift

@@ -14,9 +14,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let model: UpdateStateModel
     let log: any UpdateLogging
     private let clock: any UpdateClock
+    private let retryPolicy: UpdateRetryPolicy
     /// Whether the running build is a cmux DEV/staging build that is not on the public release
     /// train. When `true`, the driver must never surface the public appcast's update pill (see
-    /// ``UpdateController/isDevLikeBundleIdentifier(_:)``).
+    /// ``UpdateController/BundleReleaseChannel``).
     let isDevLikeBundle: Bool
     /// Host actions the driver delegates upward. Held weak; set by ``UpdateController``.
     weak var actionDelegate: (any UpdateActionDelegate)?
@@ -26,12 +27,25 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var lastCheckStart: Date?
     private var pendingCheckTransitionTask: Task<Void, Never>?
     private var checkTimeoutTask: Task<Void, Never>?
+    private var transientErrorRetryTask: Task<Void, Never>?
+    private var transientErrorRetryFailureCount = 0
+    private var shouldPreserveRetryStateForNextCheck = false
+    // True only for the synchronous window of the retry's delegate call, where the controller may
+    // re-enter `cancelPendingTransientErrorRetry` via `cancelActiveStateForNewCheck()`. Scopes the
+    // preserve-count suppression to that internal restart so a user cancel during the later
+    // readiness wait still idles the pill instead of no-oping (autoreview P2).
+    private var isRestartingTransientRetry = false
     private(set) var lastFeedURLString: String?
 
-    init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock, isDevLikeBundle: Bool = false) {
+    init(model: UpdateStateModel,
+         log: any UpdateLogging,
+         clock: any UpdateClock,
+         retryPolicy: UpdateRetryPolicy = UpdateRetryPolicy(),
+         isDevLikeBundle: Bool = false) {
         self.model = model
         self.log = log
         self.clock = clock
+        self.retryPolicy = retryPolicy
         self.isDevLikeBundle = isDevLikeBundle
         super.init()
     }
@@ -39,6 +53,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     deinit {
         pendingCheckTransitionTask?.cancel()
         checkTimeoutTask?.cancel()
+        transientErrorRetryTask?.cancel()
     }
 
     func show(_ request: SPUUpdatePermissionRequest,
@@ -79,6 +94,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showUpdateNotFoundWithError(_ error: any Error,
                                      acknowledgement: @escaping () -> Void) {
+        resetTransientErrorRetryState()
         log.append("show update not found: \(formatErrorForLog(error))")
         setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)))
     }
@@ -87,11 +103,15 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         log.append("show updater error: \(details)")
+        if scheduleTransientErrorRetryIfNeeded(for: error) {
+            acknowledgement()
+            return
+        }
         setState(.error(.init(
             error: error,
             retry: { [weak self] in
                 self?.model.setState(.idle)
-                self?.actionDelegate?.updaterRequestsRetryCheckForUpdates()
+                self?.actionDelegate?.updaterRequestsRetryCheckForUpdates(preservingInstallIntent: false)
             },
             dismiss: { [weak self] in
                 self?.model.setState(.idle)
@@ -133,6 +153,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func showDownloadDidStartExtractingUpdate() {
+        resetTransientErrorRetryState()
         log.append("show extraction started")
         setState(.extracting(.init(progress: 0)))
     }
@@ -158,6 +179,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
+        resetTransientErrorRetryState()
         log.append("show update installed (relaunched=\(relaunched))")
         setState(.idle)
         acknowledgement()
@@ -187,6 +209,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     // MARK: - State transition helpers
 
     private func beginChecking(cancel: @escaping () -> Void) {
+        transientErrorRetryTask?.cancel()
+        transientErrorRetryTask = nil
+        if shouldPreserveRetryStateForNextCheck {
+            shouldPreserveRetryStateForNextCheck = false
+        } else {
+            transientErrorRetryFailureCount = 0
+        }
         model.setOverrideState(nil)
         pendingCheckTransitionTask?.cancel()
         pendingCheckTransitionTask = nil
@@ -195,6 +224,77 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         lastCheckStart = Date()
         applyState(.checking(.init(cancel: cancel)))
         scheduleCheckTimeout()
+    }
+
+    private func scheduleTransientErrorRetryIfNeeded(for error: any Error) -> Bool {
+        guard actionDelegate != nil else { return false }
+        let nextFailureCount = transientErrorRetryFailureCount + 1
+        guard let retryDelay = retryPolicy.delay(afterFailureNumber: nextFailureCount, for: error) else {
+            if retryPolicy.isTransientDownloadError(error) {
+                log.append("transient update download error retries exhausted (\(transientErrorRetryFailureCount)/\(retryPolicy.maximumRetryCount))")
+            }
+            return false
+        }
+
+        let preservingInstallIntent = shouldPreserveInstallIntentForTransientRetry()
+        transientErrorRetryFailureCount = nextFailureCount
+        transientErrorRetryTask?.cancel()
+        log.append("transient update download error; retry \(nextFailureCount)/\(retryPolicy.maximumRetryCount) in \(String(format: "%.0f", retryDelay))s")
+        setState(.checking(.init(cancel: { [weak self] in
+            self?.cancelPendingTransientErrorRetry()
+        })))
+
+        transientErrorRetryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Bounded, cancellable retry backoff via the injected clock.
+            try? await self.clock.sleep(for: .seconds(retryDelay))
+            guard !Task.isCancelled else { return }
+            self.transientErrorRetryTask = nil
+            self.shouldPreserveRetryStateForNextCheck = true
+            // The delegate call synchronously drives the controller, which may tear down the current
+            // checking state via `cancelActiveStateForNewCheck()` and re-enter our cancel closure.
+            // Flag that re-entry so it preserves the failure count; clear it the instant the call
+            // returns so a subsequent user cancel (e.g. during the controller's readiness wait) is
+            // honored normally.
+            self.isRestartingTransientRetry = true
+            self.actionDelegate?.updaterRequestsRetryCheckForUpdates(preservingInstallIntent: preservingInstallIntent)
+            self.isRestartingTransientRetry = false
+        }
+        return true
+    }
+
+    private func shouldPreserveInstallIntentForTransientRetry() -> Bool {
+        switch model.state {
+        case .downloading, .extracting, .installing:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func cancelPendingTransientErrorRetry() {
+        transientErrorRetryTask?.cancel()
+        transientErrorRetryTask = nil
+        // Suppress the reset only for the *synchronous* internal restart: when the retry fires it calls
+        // the controller, which (on the ready path) tears down the checking state via
+        // `cancelActiveStateForNewCheck()` and re-enters this closure. `isRestartingTransientRetry` is
+        // true only for that synchronous window, so the escalating failure count survives the restart.
+        // A genuine user cancel — during the backoff sleep, or while the controller parks in its
+        // readiness-wait loop with the pill still `.checking` — sees the flag false and idles as usual,
+        // clearing the pending preserve so no stale count carries into a later manual check.
+        guard !isRestartingTransientRetry else { return }
+        transientErrorRetryFailureCount = 0
+        shouldPreserveRetryStateForNextCheck = false
+        if case .checking = model.state {
+            model.setState(.idle)
+        }
+    }
+
+    private func resetTransientErrorRetryState() {
+        transientErrorRetryTask?.cancel()
+        transientErrorRetryTask = nil
+        transientErrorRetryFailureCount = 0
+        shouldPreserveRetryStateForNextCheck = false
     }
 
     private func setStateAfterMinimumCheckDelay(_ newState: UpdateState) {
