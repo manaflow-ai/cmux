@@ -15,7 +15,9 @@ enum KeyboardShortcutBareStartCache {
 
         let resolvedKeys = Set(
             KeyboardShortcutSettings.Action.allCases.compactMap { action -> String? in
-                guard action != .showHideAllWindows else { return nil }
+                // System-wide Carbon hotkeys always carry a primary modifier and
+                // are dispatched globally, so they never begin a bare-key shortcut.
+                guard !action.isSystemWideHotkey else { return nil }
                 guard !action.isBrowserContentShortcut else { return nil }
                 guard action.participatesInAppWideBareStartRouting else { return nil }
                 return KeyboardShortcutSettings.shortcut(for: action).bareShortcutStartKey
