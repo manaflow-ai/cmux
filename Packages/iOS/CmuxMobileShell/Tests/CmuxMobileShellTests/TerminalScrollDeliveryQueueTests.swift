@@ -109,6 +109,25 @@ import Testing
     #expect(prefetchState.rowsToPrefetch(forScrollLines: 1) == 600)
 }
 
+@Test func terminalScrollGestureRoutingKeepsLegacyForwardingWhileScreenUnknown() {
+    var prefetchState = TerminalScrollbackPrefetchState(windowRows: 600, refreshDistanceRows: 10)
+
+    let delivery = TerminalScrollDelivery.forScrollGesture(
+        surfaceID: "surface",
+        activeScreen: nil,
+        lines: 2,
+        col: 1,
+        row: 1,
+        prefetchState: &prefetchState
+    )
+
+    // No render grid has reported the screen mode (cold attach, or a legacy
+    // raw-bytes host that never sends one): forward the delta so alt-screen
+    // TUIs never lose the wheel, and still prime the local window.
+    #expect(delivery?.lines == 2)
+    #expect(delivery?.maxScrollbackRows == 600)
+}
+
 @Test func terminalScrollGestureRoutingKeepsPrimaryScreenDeltasLocal() {
     var prefetchState = TerminalScrollbackPrefetchState(windowRows: 600, refreshDistanceRows: 10)
 

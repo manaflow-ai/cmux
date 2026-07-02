@@ -71,27 +71,44 @@ extension TerminalScrollDelivery {
     /// `delta_lines = 0` scrollback-window fetch when the prefetch state says
     /// the local history needs (re)priming or deepening. Alternate screen: the
     /// wheel must reach the real PTY, so the delta is forwarded unchanged.
+    ///
+    /// Unknown screen (`nil`): no render grid has reported the mode yet, which
+    /// covers the first moments after attach and, permanently, legacy raw-byte
+    /// hosts that never send render grids. Route the legacy way (forward the
+    /// delta AND request prefetch) so an alternate-screen TUI never loses the
+    /// wheel; once a grid arrives the mode is known and phone-owned routing
+    /// takes over.
     static func forScrollGesture(
         surfaceID: String,
-        activeScreen: MobileTerminalRenderGridFrame.Screen,
+        activeScreen: MobileTerminalRenderGridFrame.Screen?,
         lines: Double,
         col: Int,
         row: Int,
         prefetchState: inout TerminalScrollbackPrefetchState
     ) -> TerminalScrollDelivery? {
-        guard activeScreen == .primary else {
+        switch activeScreen {
+        case .alternate:
             return TerminalScrollDelivery(surfaceID: surfaceID, lines: lines, col: col, row: row)
+        case nil:
+            return TerminalScrollDelivery(
+                surfaceID: surfaceID,
+                lines: lines,
+                col: col,
+                row: row,
+                maxScrollbackRows: prefetchState.rowsToPrefetch(forScrollLines: lines)
+            )
+        case .primary:
+            guard let maxScrollbackRows = prefetchState.rowsToPrefetch(forScrollLines: lines) else {
+                return nil
+            }
+            return TerminalScrollDelivery(
+                surfaceID: surfaceID,
+                lines: 0,
+                col: col,
+                row: row,
+                maxScrollbackRows: maxScrollbackRows
+            )
         }
-        guard let maxScrollbackRows = prefetchState.rowsToPrefetch(forScrollLines: lines) else {
-            return nil
-        }
-        return TerminalScrollDelivery(
-            surfaceID: surfaceID,
-            lines: 0,
-            col: col,
-            row: row,
-            maxScrollbackRows: maxScrollbackRows
-        )
     }
 }
 

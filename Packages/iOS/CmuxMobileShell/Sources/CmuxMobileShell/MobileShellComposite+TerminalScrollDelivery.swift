@@ -33,7 +33,7 @@ extension MobileShellComposite {
             ?? TerminalScrollbackPrefetchState()
         let delivery = TerminalScrollDelivery.forScrollGesture(
             surfaceID: surfaceID,
-            activeScreen: terminalActiveScreenBySurfaceID[surfaceID] ?? .primary,
+            activeScreen: terminalActiveScreenBySurfaceID[surfaceID],
             lines: lines,
             col: col,
             row: row,
