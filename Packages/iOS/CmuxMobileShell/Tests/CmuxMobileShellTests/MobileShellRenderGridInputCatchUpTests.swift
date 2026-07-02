@@ -440,3 +440,82 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
         ]
     )
 }
+
+@MainActor
+@Test func renderGridEmptyReplayResponsesConsumeRetryBudgetForDroppedInputCatchUp() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let surfaceID = "live-terminal"
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let mountReplaySettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(mountReplaySettled)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+    let transport = try #require(box.get())
+
+    await store.submitTerminalRawInput(Data("a".utf8), surfaceID: surfaceID)
+    let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
+    #expect(inputSent)
+
+    // A delta behind the pending target arms the dropped-frame marker.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 98,
+        text: "armed-drop",
+        full: false
+    ))
+
+    // Each further delta re-arms a replay; the router answers every replay
+    // with an empty response (nothing enqueued), which makes no progress.
+    // The empty responses must consume the retry budget so the requests
+    // stop instead of looping once per delta forever.
+    var deltaSeq: UInt64 = 100
+    for _ in 0..<5 {
+        await transport.deliver(try renderGridEventFrame(
+            surfaceID: surfaceID,
+            seq: deltaSeq,
+            text: "delta-during-empty-replays",
+            full: false,
+            columns: 40
+        ))
+        deltaSeq += 1
+        _ = try await pollUntil(attempts: 50) {
+            !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+        }
+    }
+
+    let budgetSpent = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay")
+            >= replayCountAfterMount + MobileShellComposite.maxTerminalReplayFailureRetries
+    }
+    #expect(budgetSpent, "dropped deltas must re-arm replays until the retry budget runs out")
+    let replayCountAfterExhaustion = await router.count(of: "mobile.terminal.replay")
+    #expect(
+        replayCountAfterExhaustion <= replayCountAfterMount + MobileShellComposite.maxTerminalReplayFailureRetries,
+        "no-progress empty replay responses must consume the bounded retry budget"
+    )
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: deltaSeq,
+        text: "delta-after-empty-exhaustion",
+        full: false,
+        columns: 40
+    ))
+    let replayAfterExhaustion = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterExhaustion + 1,
+        timeoutNanoseconds: 500_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!replayAfterExhaustion, "exhausted retry budget must stop live-event replay requests")
+    collector.unmount()
+}

@@ -7194,6 +7194,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                    let deliveredSeq = self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID],
                    deliveredSeq > replaySeq {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)")
+                    self.consumeTerminalReplayFailureRetryAfterNoProgress(
+                        surfaceID: surfaceID,
+                        reason: "stale_sequence"
+                    )
                     self.clearTerminalReplayBarrierIfCurrent(
                         surfaceID: surfaceID,
                         token: replayBarrierTokenForRequest,
@@ -7271,9 +7275,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         }
                     }
                     self.terminalActiveScreenBySurfaceID[surfaceID] = renderGrid.activeScreen
-                    if let replaySeq {
-                        self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
-                    }
+                    // A delivered grid is progress even if the payload omitted
+                    // its sequence; fall back to the frame's own sequence so
+                    // the pending-input drop marker cannot outlive the replay.
+                    self.markTerminalBytesDelivered(
+                        surfaceID: surfaceID,
+                        endSeq: replaySeq ?? renderGrid.stateSeq
+                    )
                     return
                 }
                 guard let deliverBytes, !deliverBytes.isEmpty else {
@@ -7295,6 +7303,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         )
                         return
                     }
+                    self.consumeTerminalReplayFailureRetryAfterNoProgress(
+                        surfaceID: surfaceID,
+                        reason: "empty"
+                    )
                     self.clearTerminalReplayBarrierIfCurrent(
                         surfaceID: surfaceID,
                         token: replayBarrierTokenForRequest,
@@ -7318,7 +7330,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 if accepted, let replaySeq {
                     self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
-                } else if !accepted {
+                } else if accepted {
+                    self.consumeTerminalReplayFailureRetryAfterNoProgress(
+                        surfaceID: surfaceID,
+                        reason: "bytes_no_seq"
+                    )
+                } else {
                     self.clearTerminalReplayBarrierIfCurrent(
                         surfaceID: surfaceID,
                         token: replayBarrierTokenForRequest,
@@ -7373,6 +7390,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         coveredReplayBarrierDroppedOutputCount: coveredReplayBarrierDroppedOutputCountForRequest
                     )
                     return
+                }
+                if replayBarrierTokenForRequest == nil {
+                    self.consumeTerminalReplayFailureRetryAfterNoProgress(
+                        surfaceID: surfaceID,
+                        reason: "request_failed"
+                    )
                 }
                 self.preserveTerminalReplayBarrierIfCurrent(
                     surfaceID: surfaceID,

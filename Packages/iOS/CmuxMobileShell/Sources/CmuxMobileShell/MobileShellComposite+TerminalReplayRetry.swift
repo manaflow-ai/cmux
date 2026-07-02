@@ -36,6 +36,22 @@ extension MobileShellComposite {
         requestTerminalReplay(surfaceID: surfaceID)
     }
 
+    /// Consume one replay-failure attempt after a replay response made no
+    /// progress toward the pending input target (empty response, bytes without
+    /// a sequence, stale sequence, or a failed non-barrier request). Without
+    /// this, the live-event drop path would re-arm a replay per delta forever
+    /// against a host that keeps returning no-progress responses, since only
+    /// stale render-grid responses advance the retry counter.
+    func consumeTerminalReplayFailureRetryAfterNoProgress(surfaceID: String, reason: String) {
+        guard pendingTerminalInputDroppedRenderGridSurfaceIDs.contains(surfaceID) else { return }
+        let retryCount = terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0
+        guard retryCount < Self.maxTerminalReplayFailureRetries else { return }
+        terminalReplayFailureRetryCountsBySurfaceID[surfaceID] = retryCount + 1
+        MobileDebugLog.anchormux(
+            "CMUX_REPLAY no_progress reason=\(reason) surface=\(surfaceID) attempt=\(retryCount + 1)"
+        )
+    }
+
     private func prepareTerminalReplayFailureRetry(surfaceID: String) -> Bool {
         guard hasTerminalOutputSink(surfaceID: surfaceID) else { return false }
         let retryCount = terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0
