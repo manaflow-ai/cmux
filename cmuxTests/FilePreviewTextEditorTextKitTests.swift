@@ -127,6 +127,28 @@ struct FilePreviewTextEditorTextKitTests {
         }
     }
 
+    @Test("text preview editor honors configured zoom shortcut when clauses")
+    func editorHonorsConfiguredZoomShortcutWhenClauses() throws {
+        try withShortcutSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "when": {
+                  "browserZoomIn": "browserFocus"
+                }
+              }
+            }
+            """
+        ) {
+            let textView = SavingTextView.makeFilePreviewTextView()
+            let initialPointSize = try #require(textView.font?.pointSize)
+            let zoomIn = try #require(Self.keyEvent(characters: "=", keyCode: UInt16(kVK_ANSI_Equal)))
+
+            #expect(!textView.performKeyEquivalent(with: zoomIn))
+            #expect(abs((textView.font?.pointSize ?? 0) - initialPointSize) < 0.01)
+        }
+    }
+
     private func withDefaultShortcutSettings(_ body: () throws -> Void) rethrows {
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-file-preview-text-zoom"
@@ -135,6 +157,26 @@ struct FilePreviewTextEditorTextKitTests {
         defer {
             KeyboardShortcutSettings.resetAll()
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        }
+        try body()
+    }
+
+    private func withShortcutSettingsFile(_ contents: String, _ body: () throws -> Void) throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-preview-text-zoom-\(UUID().uuidString).json", isDirectory: false)
+        try contents.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        KeyboardShortcutSettings.resetAll()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: settingsFileURL)
         }
         try body()
     }

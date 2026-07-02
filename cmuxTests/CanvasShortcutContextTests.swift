@@ -97,6 +97,14 @@ struct CanvasShortcutContextTests {
         browserCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
         var markdownCanvasContext = ShortcutFocusState(browser: false, markdown: true, sidebar: false).context
         markdownCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
+        var filePreviewTextEditorCanvasContext = ShortcutFocusState(
+            browser: false,
+            markdown: false,
+            sidebar: false,
+            filePreviewTextEditor: true
+        ).context
+        filePreviewTextEditorCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
+        let browserActualSizeWhen = KeyboardShortcutSettings.effectiveWhenClause(for: .browserZoomReset)
 
         #expect(canvasActualSize == StoredShortcut(key: "0", command: true, shift: false, option: false, control: false))
         #expect(browserActualSize == canvasActualSize)
@@ -105,6 +113,8 @@ struct CanvasShortcutContextTests {
         #expect(canvasActualSizeWhen.evaluate(backgroundCanvasContext))
         #expect(!canvasActualSizeWhen.evaluate(browserCanvasContext))
         #expect(!canvasActualSizeWhen.evaluate(markdownCanvasContext))
+        #expect(!canvasActualSizeWhen.evaluate(filePreviewTextEditorCanvasContext))
+        #expect(browserActualSizeWhen.evaluate(filePreviewTextEditorCanvasContext))
         #expect(!KeyboardShortcutSettings.Action.browserZoomReset.conflicts(
             with: canvasActualSize,
             proposedAction: .canvasZoomReset,
@@ -219,6 +229,43 @@ struct CanvasShortcutRoutingFeedbackTests {
 #endif
 
             #expect(viewport.resetZoomCount == 1)
+        }
+    }
+
+    @Test func cmdZeroInCanvasDoesNotResetCanvasZoomWhenTextPreviewEditorIsFocused() throws {
+        try withTemporaryShortcut(action: .canvasZoomReset) {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let event = try #require(makeKeyDownEvent(
+                key: "0",
+                modifiers: [.command],
+                keyCode: 29,
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let viewport = CanvasRoutingViewportSpy()
+            workspace.canvasModel.viewport = viewport
+
+            let textView = SavingTextView.makeFilePreviewTextView()
+            textView.frame = NSRect(x: 0, y: 0, width: 200, height: 120)
+            window.contentView?.addSubview(textView)
+            defer { textView.removeFromSuperview() }
+            #expect(window.makeFirstResponder(textView))
+
+#if DEBUG
+            #expect(!appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(viewport.resetZoomCount == 0)
         }
     }
 

@@ -204,8 +204,15 @@ final class KeyboardShortcutContextTests: XCTestCase {
         // Markdown zoom and browser zoom share Cmd-=/-/0 but are mutually
         // exclusive (a panel can't be both), so they must NOT be treated as
         // conflicting bindings.
-        let browser = KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext
-        XCTAssertFalse(markdown.overlaps(browser))
+        let viewZoom = KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext
+        XCTAssertEqual(viewZoom, .browserOrFilePreviewTextEditor)
+        XCTAssertTrue(viewZoom.isAvailable(
+            focusedBrowserPanel: false,
+            focusedMarkdownPanel: false,
+            focusedFilePreviewTextEditor: true,
+            rightSidebarFocused: false
+        ))
+        XCTAssertFalse(markdown.overlaps(viewZoom))
         XCTAssertTrue(markdown.overlaps(markdown))
 
         // A focused markdown viewer is also a non-browser panel, so those two

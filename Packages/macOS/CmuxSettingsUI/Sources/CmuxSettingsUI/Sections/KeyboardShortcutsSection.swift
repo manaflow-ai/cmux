@@ -340,6 +340,17 @@ public struct KeyboardShortcutsSection: View {
                 localized: "shortcut.when.caption.browserFocus",
                 defaultValue: "Only while a browser pane is focused"
             )
+        case .atom(.filePreviewTextEditorFocus):
+            return String(
+                localized: "shortcut.when.caption.filePreviewTextEditorFocus",
+                defaultValue: "Only while a text file preview is focused"
+            )
+        case .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus)),
+             .or(.atom(.filePreviewTextEditorFocus), .atom(.browserFocus)):
+            return String(
+                localized: "shortcut.when.caption.browserOrFilePreviewTextEditorFocus",
+                defaultValue: "Only while a browser pane or text file preview is focused"
+            )
         case .atom(.markdownFocus):
             return String(
                 localized: "shortcut.when.caption.markdownFocus",

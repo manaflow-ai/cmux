@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 @MainActor
@@ -356,7 +357,8 @@ final class SavingTextView: NSTextView {
             pendingPreviewFontZoomShortcutChordPrefix = nil
             for action in Self.previewFontZoomShortcutActions {
                 let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-                guard shortcut.firstStroke == pendingPrefix,
+                guard previewFontZoomShortcutWhenClauseAllows(action: action, event: event),
+                      shortcut.firstStroke == pendingPrefix,
                       let secondStroke = shortcut.secondStroke,
                       secondStroke.matches(event: event) else { continue }
                 performPreviewFontZoomShortcutAction(action)
@@ -367,7 +369,8 @@ final class SavingTextView: NSTextView {
 
         for action in Self.previewFontZoomShortcutActions {
             let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-            guard !shortcut.isUnbound else { continue }
+            guard !shortcut.isUnbound,
+                  previewFontZoomShortcutWhenClauseAllows(action: action, event: event) else { continue }
             if shortcut.secondStroke != nil {
                 if shortcut.firstStroke.matches(event: event) {
                     pendingPreviewFontZoomShortcutChordPrefix = shortcut.firstStroke
@@ -381,6 +384,26 @@ final class SavingTextView: NSTextView {
             }
         }
         return false
+    }
+
+    private func previewFontZoomShortcutWhenClauseAllows(
+        action: KeyboardShortcutSettings.Action,
+        event: NSEvent
+    ) -> Bool {
+        if window != nil, let appDelegate = AppDelegate.shared {
+            return appDelegate.shortcutWhenClauseAllows(action: action, event: event)
+        }
+        return KeyboardShortcutSettings.effectiveWhenClause(for: action)
+            .evaluate(Self.filePreviewTextEditorShortcutContext)
+    }
+
+    private static var filePreviewTextEditorShortcutContext: ShortcutContext {
+        ShortcutFocusState(
+            browser: false,
+            markdown: false,
+            sidebar: false,
+            filePreviewTextEditor: true
+        ).context
     }
 
     private func performPreviewFontZoomShortcutAction(_ action: KeyboardShortcutSettings.Action) {
