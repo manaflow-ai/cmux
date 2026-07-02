@@ -3363,16 +3363,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// echo; the in-flight newer report's own echo is the one that settles the
     /// grid.
     public func applyConfirmedViewSize(cols: Int, rows: Int, reportID: UInt64) {
-        guard reportID == viewportReportID else {
-            MobileDebugLog.anchormux(
-                "zoom.viewport.staleEcho id=\(reportID) latest=\(viewportReportID) grid=\(cols)x\(rows)"
-            )
-            return
-        }
+        guard isCurrentViewportReport(reportID: reportID, cols: cols, rows: rows) else { return }
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: true)
     }
 
-    public func markViewportReportConfirmed() {
+    /// Clear pending viewport-echo state only when the daemon response matches
+    /// the latest local natural-grid report.
+    /// - Parameter reportID: The report stamp originally passed to the delegate.
+    /// - Returns: `true` when the report is current and pending state was confirmed.
+    @discardableResult
+    public func markViewportReportConfirmed(reportID: UInt64) -> Bool {
+        guard isCurrentViewportReport(reportID: reportID) else { return false }
+        markViewportReportConfirmed()
+        return true
+    }
+
+    private func isCurrentViewportReport(reportID: UInt64, cols: Int? = nil, rows: Int? = nil) -> Bool {
+        guard reportID == viewportReportID else {
+            let grid: String
+            if let cols, let rows {
+                grid = " grid=\(cols)x\(rows)"
+            } else {
+                grid = ""
+            }
+            MobileDebugLog.anchormux(
+                "zoom.viewport.staleEcho id=\(reportID) latest=\(viewportReportID)\(grid)"
+            )
+            return false
+        }
+        return true
+    }
+
+    private func markViewportReportConfirmed() {
         viewportReportRetries = 0
         guard awaitingViewportEcho != nil else { return }
         awaitingViewportEcho = nil

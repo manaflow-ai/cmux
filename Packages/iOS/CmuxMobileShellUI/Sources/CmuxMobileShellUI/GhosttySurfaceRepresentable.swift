@@ -165,13 +165,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         surfaceView.retryViewportReport()
                         return
                     }
-                    surfaceView.markViewportReportConfirmed()
                     if case .remoteGrid = self.activeViewportPolicy {
                         surfaceView.applyConfirmedViewSize(
                             cols: effectiveGrid.columns,
                             rows: effectiveGrid.rows,
                             reportID: report.id
                         )
+                    } else {
+                        surfaceView.markViewportReportConfirmed(reportID: report.id)
                     }
                 }
             )
