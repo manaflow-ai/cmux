@@ -77,14 +77,42 @@ def tracked_package_manifests(*, include_allowed_vendor: bool) -> dict[str, Path
     return manifests
 
 
-def package_graph(manifests: dict[str, Path]) -> dict[str, tuple[bool, list[str]]]:
+def tracked_package_manifests_at_ref(
+    ref: str,
+    *,
+    include_allowed_vendor: bool,
+) -> dict[str, Path]:
+    manifests: dict[str, Path] = {}
+    for manifest in git_stdout("ls-tree", "-r", "--name-only", ref).splitlines():
+        if Path(manifest).name != "Package.swift":
+            continue
+        if has_skipped_part(manifest):
+            continue
+        if not include_allowed_vendor and is_allowed_vendor_path(manifest):
+            continue
+        path = Path(manifest)
+        manifests[path.parent.as_posix()] = path
+    return manifests
+
+
+def package_graph(
+    manifests: dict[str, Path],
+    *,
+    ref: str | None = None,
+) -> dict[str, tuple[bool, list[str]]]:
     root_by_resolved_path = {
         manifest.parent.resolve(): root for root, manifest in manifests.items()
     }
     graph: dict[str, tuple[bool, list[str]]] = {}
 
     for root, manifest in manifests.items():
-        text = manifest.read_text(encoding="utf-8")
+        text = (
+            file_text_at(ref, manifest.as_posix())
+            if ref is not None
+            else manifest.read_text(encoding="utf-8")
+        )
+        if not text:
+            continue
         path_dependencies: list[str] = []
         has_url_dependency = False
         for dependency in PACKAGE_DEPENDENCY_RE.findall(text):
@@ -266,7 +294,13 @@ def main() -> int:
     changed_dependency_roots: set[str] = set()
 
     if merge_base is not None:
-        remote_memo: dict[str, bool] = {}
+        current_remote_memo: dict[str, bool] = {}
+        previous_manifests = tracked_package_manifests_at_ref(
+            merge_base,
+            include_allowed_vendor=True,
+        )
+        previous_graph = package_graph(previous_manifests, ref=merge_base)
+        previous_remote_memo: dict[str, bool] = {}
         for root, manifest in all_manifests.items():
             if manifest.as_posix() not in changed_files:
                 continue
@@ -278,10 +312,19 @@ def main() -> int:
             )
             if current_calls == previous_calls:
                 continue
+            # Local path-only dependency edits do not always change the resolved
+            # external pins. Require a matching Package.resolved diff only when
+            # the edited manifest's graph currently has, previously had, or
+            # directly changes a remote dependency.
             if (
-                root in cmux_manifests
-                or dependency_calls_include_url(current_calls + previous_calls)
-                or has_remote_dependency(root, graph, remote_memo, set())
+                dependency_calls_include_url(current_calls + previous_calls)
+                or has_remote_dependency(root, graph, current_remote_memo, set())
+                or has_remote_dependency(
+                    root,
+                    previous_graph,
+                    previous_remote_memo,
+                    set(),
+                )
             ):
                 changed_dependency_roots.add(root)
 

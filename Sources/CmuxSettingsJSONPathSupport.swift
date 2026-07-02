@@ -141,11 +141,17 @@ enum AppSettingsFileMapping {
 }
 
 enum NotificationSettingsFileMapping {
+    private static let notifications = NotificationsCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "dockBadge", defaultsKey: NotificationBadgeSettings.dockBadgeEnabledKey),
         .init(jsonKey: "showInMenuBar", defaultsKey: MenuBarExtraSettings.showInMenuBarKey),
         .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
         .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
+        .init(
+            jsonKey: "suppressOnlyFocusedSurface",
+            defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
+        ),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
@@ -288,6 +294,10 @@ enum BrowserSettingsFileMapping {
         .init(jsonKey: "showSearchSuggestions", defaultsKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey),
         .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey),
         .init(
+            jsonKey: "askWhereToSaveDownloads",
+            defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openTerminalLinksInCmuxBrowser",
             defaultsKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey
         ),
@@ -372,6 +382,7 @@ extension CmuxSettingsFileStore {
         "notifications.command",
         "notifications.hooks",
         "notifications.hooksMode",
+        "notifications.suppressOnlyFocusedSurface",
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
@@ -427,6 +438,7 @@ extension CmuxSettingsFileStore {
         "browser.theme",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
+        "browser.askWhereToSaveDownloads",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.hostsToOpenInEmbeddedBrowser",

@@ -737,13 +737,13 @@
       "layoutItem1": "Przypięte wiersze najwyższego poziomu (workspace'y i grupy).",
       "layoutItem2": "Nieprzypięte wiersze najwyższego poziomu (workspace'y i grupy).",
       "creatingTitle": "Tworzenie grupy",
-      "creatingIntro": "Grupę można utworzyć na jeden z dwóch sposobów: za pomocą skrótu klawiszowego lub menu kontekstowego workspace’u. Oba wstawiają nowy workspace kotwiczący nad zaznaczeniem i przenoszą zaznaczone workspace’y do grupy. Gdy grupa już istnieje, zarządzasz nią i dodajesz do niej workspace’y z nagłówka grupy (zobacz Zarządzanie grupą poniżej).",
-      "keyboardTitle": "Z klawiatury ({shortcut})",
-      "keyboardDesc": "Zaznacz dwa lub więcej workspace'ów w pasku bocznym, a następnie naciśnij {shortcut}. Nad zaznaczeniem zostaje wstawiony nowy kotwicowy workspace, a wszystkie zaznaczone workspace'y stają się jego elementami podrzędnymi. Grupa otrzymuje automatyczną nazwę Group 1, Group 2 i tak dalej — możesz ją zmienić w dowolnej chwili z menu kontekstowego nagłówka.",
+      "creatingIntro": "Grupę tworzy się ze skrótu klawiaturowego lub menu kontekstowego paska bocznego. Puste grupy wstawiają nową kotwiczną przestrzeń roboczą jako nagłówek grupy. Grupy oparte na zaznaczeniu wstawiają tę kotwicę nad zaznaczeniem i przenoszą wybrane przestrzenie robocze do grupy. Gdy grupa już istnieje, zarządzasz nią i dodajesz do niej przestrzenie robocze z nagłówka grupy (zobacz Zarządzanie grupą poniżej).",
+      "keyboardTitle": "Ze skrótów klawiaturowych",
+      "keyboardDesc": "Naciśnij ⌃⌘G, aby utworzyć nową pustą grupę przestrzeni roboczych. Zaznacz co najmniej dwie przestrzenie robocze na pasku bocznym, a następnie naciśnij {shortcut}, aby zgrupować zaznaczenie. Obie ścieżki tworzą nową kotwiczną przestrzeń roboczą i automatycznie nazywają grupę Group 1, Group 2 itd. Możesz zmienić nazwę w dowolnym momencie z menu kontekstowego nagłówka.",
       "keyboardNote": "{shortcut} koliduje z domyślnym skrótem React Grab. Obsługa grup wykorzystuje ten akord tylko wtedy, gdy w pasku bocznym istnieje jawne wielokrotne zaznaczenie co najmniej dwóch workspace'ów, więc React Grab nadal działa przy pojedynczym zaznaczeniu oraz w kontekście przeglądarki lub terminala. Zmień przypisanie w Ustawienia → Klawiatura, jeśli wolisz, aby te dwie funkcje nie współdzieliły klawisza.",
       "keyboardSingle": "Grupy jednokartowe nie są tworzone za pomocą skrótu. W tym celu użyj pozycji „Nowa grupa z przestrzeni” w menu kontekstowym przestrzeni roboczej.",
       "contextMenuTitle": "Z menu kontekstowego workspace'a",
-      "contextMenuDesc": "Kliknij prawym przyciskiem dowolną przestrzeń roboczą na pasku bocznym i wybierz „Nowa grupa z przestrzeni” lub „Nowa grupa z zaznaczenia”, gdy zaznaczono wiele przestrzeni roboczych. Wykorzystuje to to samo automatyczne nazewnictwo co skrót.",
+      "contextMenuDesc": "Kliknij prawym przyciskiem dowolną przestrzeń roboczą na pasku bocznym i wybierz Nowa pusta grupa przestrzeni roboczych, Nowa grupa z przestrzeni roboczej albo Nowa grupa z zaznaczenia, gdy zaznaczono wiele przestrzeni roboczych. Pusty obszar pod listą paska bocznego także oferuje Nowa pusta grupa przestrzeni roboczych. Te ścieżki używają tego samego automatycznego nazewnictwa co skróty.",
       "managingTitle": "Zarządzanie grupą",
       "managingIntro": "Gdy grupa już istnieje, menu kontekstowe jej nagłówka oraz przycisk + w nagłówku umożliwiają zarządzanie grupą i dodawanie do niej workspace’ów. Żadne z nich nie tworzy nowej grupy.",
       "headerMenuTitle": "Z menu kontekstowego nagłówka grupy",
@@ -819,6 +819,9 @@
           "scrollSpeed": "Mnożnik stosowany do przewijania kółkiem myszy i gładzikiem w terminalu. Wyższe wartości przewijają szybciej, niższe wolniej.",
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
           "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Gdy włączone, baner powiadomienia jest automatycznie wycofywany tylko wtedy, gdy jego Surface jest dokładnie tym Surface, który ma fokus. Baner dostarczony dla Surface bez fokusu w aktualnie widocznym workspace pozostaje wyświetlony, dopóki nie ustawisz fokusu na tym Surface (albo go nie klikniesz/odrzucisz), zamiast być wycofywany, gdy workspace stanie się widoczny. Wyłączone zachowuje dawne wycofywanie oparte na widoczności workspace."
         },
         "browser": {
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
@@ -1068,7 +1071,8 @@
       "closeWorkspaceDesc": "Zamknij workspace.",
       "splitCommands": "Polecenia podziału",
       "newSplitDesc": "Utwórz nowy dzielony panel. Kierunki: left, right, up, down.",
-      "listSurfacesDesc": "Wyświetl wszystkie surface'y w bieżącym workspace.",
+      "listPanelsDesc": "Wyświetl wszystkie surface'y w bieżącym workspace.",
+      "listPaneSurfacesDesc": "Wyświetl surface'y w aktywnym panelu.",
       "focusSurfaceDesc": "Ustaw fokus na konkretnym surface.",
       "inputCommands": "Polecenia wejścia",
       "sendDesc": "Wyślij tekst do fokusowanego terminala.",
@@ -1590,7 +1594,8 @@
   "afterSignIn": {
     "title": "Zalogowano do cmux",
     "body": "Jeśli cmux nie otworzył się automatycznie, użyj przycisku poniżej.",
-    "button": "Wróć do cmux"
+    "button": "Wróć do cmux",
+    "switchAccountButton": "Użyj innego konta"
   },
   "landing": {
     "bestTerminal": {

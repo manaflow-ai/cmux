@@ -1,5 +1,7 @@
+import Combine
 import Foundation
-import XCTest
+import Observation
+import Testing
 
 import CmuxSidebar
 
@@ -10,8 +12,8 @@ import CmuxSidebar
 #endif
 
 @MainActor
-final class WorkspaceSidebarObservationTests: XCTestCase {
-    func testSidebarObservationPublisherEmitsForLateStatusSubscriber() {
+struct WorkspaceSidebarObservationTests {
+    @Test func sidebarObservationPublisherEmitsForLateStatusSubscriber() {
         let workspace = Workspace()
         workspace.statusEntries["test_probe"] = SidebarStatusEntry(
             key: "test_probe",
@@ -27,14 +29,80 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         }
         defer { cancellable.cancel() }
 
-        XCTAssertGreaterThan(
-            publishCount,
-            0,
+        #expect(
+            publishCount > 0,
             "A sidebar row that subscribes after status metadata already exists must still refresh from the current workspace state."
         )
     }
 
-    func testSidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
+    @Test func agentRuntimeObservationChangesWhenAgentPIDMakesExistingStatusVisible() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF"
+        )
+        #expect(
+            !workspace.sidebarStatusEntriesInDisplayOrder().contains { $0.key == "codex" },
+            "Structured agent statuses stay hidden until a live agent runtime owns the status key."
+        )
+
+        let generationBeforeRecord = workspace.sidebarAgentRuntimeObservation.changeGeneration
+        var workspaceWillChangeCount = 0
+        let objectWillChangeCancellable = workspace.objectWillChange.sink {
+            workspaceWillChangeCount += 1
+        }
+        defer { objectWillChangeCancellable.cancel() }
+
+        workspace.recordAgentPID(
+            key: "codex.session-b",
+            pid: 12_345,
+            panelId: panelId,
+            refreshPorts: false
+        )
+
+        #expect(
+            workspace.sidebarStatusEntriesInDisplayOrder().contains { $0.key == "codex" },
+            "Recording the agent PID makes the existing Running status visible."
+        )
+        #expect(
+            workspace.sidebarAgentRuntimeObservation.changeGeneration > generationBeforeRecord,
+            "Agent PID ownership changes must notify the sidebar row runtime observation stream."
+        )
+        #expect(
+            workspaceWillChangeCount == 0,
+            "Agent PID ownership is sidebar presentation state and must not broadly invalidate Workspace observers."
+        )
+    }
+
+    @Test func terminalAgentContextDoesNotObserveAgentRuntimeMaps() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId])
+        let changeFlag = ObservationChangeFlag()
+
+        withObservationTracking {
+            _ = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+        } onChange: {
+            changeFlag.mark()
+        }
+
+        workspace.recordAgentPID(
+            key: "codex.session-c",
+            pid: 12_346,
+            panelId: panelId,
+            refreshPorts: false
+        )
+
+        #expect(
+            changeFlag.fired == false,
+            "Terminal content must not subscribe to sidebar-only agent runtime map churn."
+        )
+    }
+
+    @Test func sidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
         let workspace = Workspace()
         workspace.title = "Restored Workspace"
 
@@ -44,14 +112,13 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         }
         defer { cancellable.cancel() }
 
-        XCTAssertGreaterThan(
-            publishCount,
-            0,
+        #expect(
+            publishCount > 0,
             "A sidebar row that subscribes after immediate workspace fields already exist must still refresh from the current workspace state."
         )
     }
 
-    func testSidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
+    @Test func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -64,82 +131,59 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         workspace.remoteHeartbeatCount = 1
         workspace.remoteLastHeartbeatAt = Date()
 
-        XCTAssertEqual(
-            publishCount,
-            0,
+        #expect(
+            publishCount == 0,
             "Expected non-visible remote heartbeat updates to avoid invalidating sidebar rows"
         )
     }
 
-    func testSidebarObservationPublisherEmitsForAgentLifecycleChanges() throws {
+    @Test func agentLifecycleChangeBumpsRuntimeObservationGeneration() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-
-        var publishCount = 0
-        let cancellable = workspace.sidebarObservationPublisher.sink {
-            publishCount += 1
-        }
-        defer { cancellable.cancel() }
-        publishCount = 0
+        let panelId = try #require(workspace.focusedPanelId)
+        let before = workspace.sidebarAgentRuntimeObservation.changeGeneration
 
         workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
 
-        XCTAssertEqual(
-            publishCount,
-            1,
-            "Agent lifecycle changes must repaint the sidebar row so the active-agent spinner updates."
+        #expect(
+            workspace.sidebarAgentRuntimeObservation.changeGeneration > before,
+            "Agent lifecycle changes must notify sidebar rows so the loading spinner updates."
         )
     }
 
-    func testSidebarObservationPublisherIgnoresLifecycleChurnWithUnchangedRunningCount() throws {
+    @Test func redundantAgentLifecycleWriteDoesNotNotifySidebarRows() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        let before = workspace.sidebarAgentRuntimeObservation.changeGeneration
+
+        // Re-asserting the same lifecycle value must not churn row refreshes.
         workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
 
-        var publishCount = 0
-        let cancellable = workspace.sidebarObservationPublisher.sink {
-            publishCount += 1
-        }
-        defer { cancellable.cancel() }
-        publishCount = 0
-
-        // Non-running churn on another key leaves the visible running count at
-        // 1, so the row must not repaint (the observation state reduces to the
-        // count before removeDuplicates()).
-        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
-        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .needsInput)
-
-        XCTAssertEqual(
-            publishCount,
-            0,
-            "Lifecycle churn that leaves the running-agent count unchanged must not invalidate sidebar rows."
-        )
+        #expect(workspace.sidebarAgentRuntimeObservation.changeGeneration == before)
     }
 
-    func testClearAgentLifecycleWithNilPanelClearsKeySetOnSpecificPanel() throws {
+    @Test func clearAgentLifecycleWithNilPanelClearsKeySetOnSpecificPanel() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panelId = try #require(workspace.focusedPanelId)
         workspace.setAgentLifecycle(key: "manual", panelId: panelId, lifecycle: .running)
-        XCTAssertEqual(
+        #expect(
             SidebarAgentActivitySummary.activeCodingAgentCount(
                 statesByPanelId: workspace.agentLifecycleStatesByPanelId
-            ),
-            1
+            ) == 1
         )
 
         // The workspace-scoped `cmux workspace loading off` path clears with a
         // nil panel id; it must remove the key even though `on` targeted a
         // specific panel (the cross-surface off bug).
-        XCTAssertTrue(workspace.clearAgentLifecycle(key: "manual", panelId: nil))
-        XCTAssertEqual(
+        #expect(workspace.clearAgentLifecycle(key: "manual", panelId: nil))
+        #expect(
             SidebarAgentActivitySummary.activeCodingAgentCount(
                 statesByPanelId: workspace.agentLifecycleStatesByPanelId
-            ),
-            0
+            ) == 0
         )
     }
 
-    func testActiveCodingAgentCountOnlyCountsRunningAgents() {
+    @Test func activeCodingAgentCountOnlyCountsRunningAgents() {
         let firstPanelId = UUID()
         let secondPanelId = UUID()
 
@@ -157,6 +201,15 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(count, 2)
+        #expect(count == 2)
+    }
+}
+
+// Mutable flag captured by Observation's Sendable onChange closure in this test.
+private final class ObservationChangeFlag: @unchecked Sendable {
+    private(set) var fired = false
+
+    func mark() {
+        fired = true
     }
 }

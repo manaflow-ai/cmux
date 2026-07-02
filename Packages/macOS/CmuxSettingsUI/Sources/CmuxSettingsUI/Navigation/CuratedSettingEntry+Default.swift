@@ -209,6 +209,13 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .browser, id: "theme", title: "Browser Theme", synonyms: "browser.theme web page theme color scheme light dark system"),
             .init(section: .browser, id: "hidden-webview-discard", title: "Browser Memory Saver", synonyms: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
             .init(section: .browser, id: "hidden-webview-discard-delay", title: "Memory Saver Delay", synonyms: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
+            .init(
+                section: .browser,
+                id: "ask-where-to-save-downloads",
+                title: String(localized: "settings.browser.askWhereToSaveDownloads", defaultValue: "Ask Where to Save Downloads"),
+                detailText: String(localized: "settings.browser.askWhereToSaveDownloads.subtitle", defaultValue: "When off, browser downloads save directly to Downloads without a save panel."),
+                synonyms: String(localized: "settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail")
+            ),
             .init(section: .browser, id: "terminal-links", title: "Open Terminal Links in cmux Browser", synonyms: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
             .init(section: .browser, id: "intercept-open", title: "Intercept open http(s) in Terminal", synonyms: "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
             .init(section: .browser, id: "host-whitelist", title: "Hosts to Open in Embedded Browser", synonyms: "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),

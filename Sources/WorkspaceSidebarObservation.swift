@@ -2,12 +2,28 @@ import Combine
 import CmuxCore
 import Foundation
 import CmuxSidebar
+import SwiftUI
 
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]
 
     init(panels: [UUID: any Panel]) {
         panelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
+    }
+}
+
+extension View {
+    func sidebarAgentRuntimeObservation(
+        id: UUID,
+        model: WorkspaceSidebarAgentRuntimeObservationModel,
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: id) { @MainActor in
+            for await _ in model.changes() {
+                if Task.isCancelled { break }
+                onChange()
+            }
+        }
     }
 }
 
@@ -26,6 +42,7 @@ private struct SidebarObservationState: Equatable {
     let extensionSidebarProjectRootPath: String?
     let panels: SidebarPanelObservationState
     let panelDirectories: [UUID: String]
+    let panelDirectoryDisplayLabels: [UUID: String]
     let statusEntries: [String: SidebarStatusEntry]
     let metadataBlocks: [String: SidebarMetadataBlock]
     let logEntries: [SidebarLogEntry]
@@ -39,11 +56,6 @@ private struct SidebarObservationState: Equatable {
     let remoteConnectionDetail: String?
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
-    // Reduced to the visible running-agent count (not the full lifecycle map) so
-    // idle/needsInput/unknown churn that leaves the count unchanged does not
-    // invalidate sidebar rows via removeDuplicates(). See the sidebar hot-path
-    // rule in CLAUDE.md (issue #2586 class).
-    let activeCodingAgentCount: Int
     let browserMediaActivity: BrowserMediaActivity
 }
 
@@ -104,15 +116,14 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
-
         return Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts, agentLifecycleStatesPublisher)
-            .compactMap { [weak self] groupedFields, listeningPorts, agentLifecycleStates -> SidebarObservationState? in
+            .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
+            .compactMap { [weak self] groupedFields, listeningPorts, panelDirectoryDisplayLabels -> SidebarObservationState? in
                 guard let self else { return nil }
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
@@ -123,6 +134,7 @@ extension Workspace {
                     extensionSidebarProjectRootPath: workspaceFields.1,
                     panels: workspaceFields.2,
                     panelDirectories: workspaceFields.3,
+                    panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
                     statusEntries: metadataFields.0,
                     metadataBlocks: metadataFields.1,
                     logEntries: metadataFields.2,
@@ -136,9 +148,6 @@ extension Workspace {
                     remoteConnectionDetail: remoteFields.2,
                     activeRemoteTerminalSessionCount: remoteFields.3,
                     listeningPorts: listeningPorts,
-                    activeCodingAgentCount: SidebarAgentActivitySummary.activeCodingAgentCount(
-                        statesByPanelId: agentLifecycleStates
-                    ),
                     browserMediaActivity: self.browserMediaActivity
                 )
             }
