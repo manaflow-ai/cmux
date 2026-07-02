@@ -96,6 +96,8 @@ extension CmuxSettingsFileStore {
                     "autoTintSplitPanes": TerminalSplitPaneTintSettings.defaultAutoTintSplitPanes,
                     "showTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultShowOnNewTerminals,
                     "focusTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultFocusOnNewTerminals,
+                    "textBoxDefaultSubmitAction": TerminalTextBoxInputSettings.defaultSubmitActionID,
+                    "textBoxSubmitActions": textBoxSubmitActionTemplateValues(),
                     "agentHibernation": [
                         "enabled": AgentHibernationSettings.defaultEnabled,
                         "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),
@@ -228,6 +230,31 @@ extension CmuxSettingsFileStore {
                 ],
             ],
         ]
+    }
+
+    private static func textBoxSubmitActionTemplateValues() -> [[String: Any]] {
+        TextBoxSubmitAction.builtInActions.map { action in
+            var value: [String: Any] = [
+                "id": action.id,
+                "title": action.title,
+                "kind": action.kind.rawValue,
+                "systemImage": action.systemImage,
+                "backgroundColorHex": action.backgroundColorHex,
+            ]
+            if let commandTemplate = action.commandTemplate {
+                value["commandTemplate"] = commandTemplate
+            }
+            if let preservePromptAfterLaunch = action.preservePromptAfterLaunch {
+                value["preservePromptAfterLaunch"] = preservePromptAfterLaunch
+            }
+            if let imagePath = action.imagePath {
+                value["imagePath"] = imagePath
+            }
+            if let assetName = action.assetName {
+                value["assetName"] = assetName
+            }
+            return value
+        }
     }
 
     private static func shortcutTemplateValue(
