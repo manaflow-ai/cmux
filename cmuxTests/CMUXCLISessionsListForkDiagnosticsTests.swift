@@ -64,8 +64,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
         #expect(result.status == 0, Comment(rawValue: result.stdout))
-        let outputData = try #require(result.stdout.data(using: .utf8))
-        let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
+        let object = try #require(JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any])
         #expect(object["total_matches"] as? Int == 1)
         let sessions = try #require(object["sessions"] as? [[String: Any]])
         let session = try #require(sessions.first)
