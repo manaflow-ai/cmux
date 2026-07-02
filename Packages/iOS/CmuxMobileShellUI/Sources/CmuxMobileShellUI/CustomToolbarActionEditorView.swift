@@ -252,7 +252,7 @@ struct CustomToolbarActionEditorView: View {
 
     private func macroStepTitle(index: Int) -> String {
         let format = L10n.string("mobile.toolbar.editor.stepHeaderFormat", defaultValue: "Step %d")
-        return String(format: format, index)
+        return String.localizedStringWithFormat(format, index)
     }
 
     private func save() {
