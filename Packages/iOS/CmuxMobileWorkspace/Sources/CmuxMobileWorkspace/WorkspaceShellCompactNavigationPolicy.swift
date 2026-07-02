@@ -13,10 +13,10 @@ public struct WorkspaceShellCompactNavigationPolicy {
     /// - Parameters:
     ///   - currentPath: The current navigation path.
     ///   - selectedWorkspaceID: The newly selected workspace, or `nil` to clear.
-    /// - Returns: The path to apply. Stays empty when the user is at the root and
-    ///   keeps an existing detail route mounted through store-driven selection
-    ///   refreshes. Compact navigation is owned by explicit pushes and pops; a
-    ///   workspace-list refresh must not hand toolbar ownership back to the list.
+    /// - Returns: The path to apply. Stays empty when the user is at the root,
+    ///   clears when the authoritative selection clears, and retargets when the
+    ///   store selects a different workspace. Transient workspace-list omissions
+    ///   are handled by ``pathForVisibleWorkspaceIDsChange``.
     public static func pathForSelectionChange<ID: Hashable>(
         currentPath: [ID],
         selectedWorkspaceID: ID?,
@@ -25,7 +25,13 @@ public struct WorkspaceShellCompactNavigationPolicy {
         guard !currentPath.isEmpty else {
             return currentPath
         }
-        return currentPath
+        guard let selectedWorkspaceID else {
+            return []
+        }
+        guard currentPath.last != selectedWorkspaceID else {
+            return currentPath
+        }
+        return [selectedWorkspaceID]
     }
 
     /// Computes the navigation path when a workspace was just created, pushing it
