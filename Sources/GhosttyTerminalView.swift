@@ -426,11 +426,6 @@ class GhosttyApp {
     private static let appRegistryLock = NSLock()
     private static var appRegistry: [UInt: GhosttyApp] = [:]
     private static var initializingRuntimeApp: GhosttyApp?
-    private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
@@ -639,10 +634,10 @@ class GhosttyApp {
         }
         return UserDefaults.standard.bool(forKey: "cmuxDebugBG")
     }()
-    private let backgroundLogURL = GhosttyApp.resolveBackgroundLogURL()
-    private let backgroundLogStartUptime = ProcessInfo.processInfo.systemUptime
-    private let backgroundLogLock = NSLock()
-    private var backgroundLogSequence: UInt64 = 0
+    private let backgroundLogWriter = BackgroundLogWriter(
+        fileURL: GhosttyApp.resolveBackgroundLogURL(),
+        startUptime: ProcessInfo.processInfo.systemUptime
+    )
     private var appObservers: [NSObjectProtocol] = []
     private var bellAudioSound: NSSound?
     private var backgroundEventCounter: UInt64 = 0
@@ -929,9 +924,7 @@ class GhosttyApp {
                 // Close requests must be resolved by the callback's workspace/surface IDs only.
                 // If the mapping is already gone (duplicate/stale callback), ignore it.
                 if let callbackTabId,
-                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,
-                   let workspace = manager.tabs.first(where: { $0.id == callbackTabId }),
-                   workspace.panels[callbackSurfaceId] != nil {
+                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager {
                     if needsConfirmClose {
                         manager.closeRuntimeSurfaceWithConfirmation(
                             tabId: callbackTabId,
@@ -2741,9 +2734,7 @@ class GhosttyApp {
                 guard let app = AppDelegate.shared else { return }
                 if let callbackTabId,
                    let callbackSurfaceId,
-                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,
-                   let workspace = manager.tabs.first(where: { $0.id == callbackTabId }),
-                   workspace.panels[callbackSurfaceId] != nil {
+                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager {
                     manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId)
                 }
             }
@@ -3111,16 +3102,14 @@ class GhosttyApp {
                 return true
             }
             #endif
-            // Route local file URLs into cmux when the file-routing toggle is on.
-            // URL fragments/queries are stripped (the panel only needs the file
-            // path), so links emitted by tools like Claude Code (`foo.md#L42`)
-            // still route into the viewer. Anything else (toggle off, hosted
-            // file URL, remote workspace, unreadable file, split creation
-            // failure) falls through to the existing NSWorkspace path below so
-            // URL semantics are preserved.
-            let fileURLHost = target.url.host
-            if target.url.isFileURL,
-               fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost" {
+            // Route local file paths into cmux when the file-routing toggle is on.
+            // Explicit URL schemes (including file://) stay on the URL route so
+            // the OS owns non-web schemes, while bare paths like `foo.md#L42`
+            // still route into the viewer when eligible.
+            if TerminalOpenURLFileRoutingPolicy().shouldAttemptCmuxFileRouting(
+                rawOpenURLValue: trimmedUrlString,
+                target: target
+            ) {
                 let fileURL = target.url
                 let routed: Bool = performOnMain {
                     guard let termSurface = surfaceView.terminalSurface,
@@ -3287,31 +3276,17 @@ class GhosttyApp {
     }
 
     func logBackground(_ message: String) {
-        // Skip all work (string formatting and disk I/O) unless background logging is
-        // explicitly enabled via env/defaults. Without this guard, direct callers wrote
-        // to /tmp/cmux-bg.log on every theme/OSC color event even in normal runs.
+        // Skip all work (timing capture, string formatting, and disk I/O) unless
+        // background logging is explicitly enabled via env/defaults. Without this
+        // guard, direct callers wrote to /tmp/cmux-bg.log on every theme/OSC color
+        // event even in normal runs.
         guard backgroundLogEnabled else { return }
-        let timestamp = Self.backgroundLogTimestampFormatter.string(from: Date())
-        let uptimeMs = (ProcessInfo.processInfo.systemUptime - backgroundLogStartUptime) * 1000
-        let frame60 = Int((CACurrentMediaTime() * 60.0).rounded(.down))
-        let frame120 = Int((CACurrentMediaTime() * 120.0).rounded(.down))
-        let threadLabel = Thread.isMainThread ? "main" : "background"
-        backgroundLogLock.lock()
-        defer { backgroundLogLock.unlock() }
-        backgroundLogSequence &+= 1
-        let sequence = backgroundLogSequence
-        let line =
-            "\(timestamp) seq=\(sequence) t+\(String(format: "%.3f", uptimeMs))ms thread=\(threadLabel) frame60=\(frame60) frame120=\(frame120) cmux bg: \(message)\n"
-        if let data = line.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: backgroundLogURL.path) == false {
-                FileManager.default.createFile(atPath: backgroundLogURL.path, contents: nil)
-            }
-            if let handle = try? FileHandle(forWritingTo: backgroundLogURL) {
-                defer { try? handle.close() }
-                guard (try? handle.seekToEnd()) != nil else { return }
-                try? handle.write(contentsOf: data)
-            }
-        }
+        // The writer captures cheap timing values here and performs all string
+        // formatting + the file append on a dedicated serial queue against a single
+        // long-lived handle, so emitting a line never blocks the calling thread —
+        // frequently the main thread, inside SwiftUI appearance updates. See
+        // https://github.com/manaflow-ai/cmux/issues/5833.
+        backgroundLogWriter.log(message, isMainThread: Thread.isMainThread)
     }
 }
 

@@ -15,6 +15,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
         app.launchArguments += ["-workspacePresentationMode", "minimal"]
         app.launchArguments += ["-rightSidebar.beta.feed.enabled", "YES"]
+        app.launchArguments += ["-rightSidebar.beta.dock.enabled", "YES"]
         app.launch()
         defer { app.terminate() }
 
@@ -86,6 +87,19 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         XCTAssertEqual(feedSecondaryBarHeight, modeBarHeight, accuracy: 0.5, "Expected feed secondary bar to match the mode bar. geometry=\(feedGeometry)")
         XCTAssertEqual(actionableControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed Actionable pill to match mode button height. geometry=\(feedGeometry)")
         XCTAssertEqual(activityControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed All Activity pill to match mode button height. geometry=\(feedGeometry)")
+
+        let dockButton = app.buttons["RightSidebarModeButton.dock"]
+        XCTAssertTrue(dockButton.waitForExistence(timeout: 5))
+        dockButton.click()
+
+        let dockPanel = app.descendants(matching: .any)["DockPanel"].firstMatch
+        XCTAssertTrue(dockPanel.waitForExistence(timeout: 5), "Expected Dock panel to render after selecting Dock mode")
+        XCTAssertFalse(app.otherElements["DockScopeToggle"].exists, "Expected Dock scope switcher row to be removed")
+        XCTAssertFalse(app.buttons["DockScopeTab.workspace"].exists, "Expected Workspace Dock tab to be removed")
+        XCTAssertFalse(app.buttons["DockScopeTab.global"].exists, "Expected Global Dock tab to be removed")
+        XCTAssertFalse(app.buttons["New Dock Pane"].exists, "Expected Dock toolbar action row to be removed")
+        XCTAssertFalse(app.buttons["Open Dock Config"].exists, "Expected Dock toolbar action row to be removed")
+        XCTAssertFalse(app.buttons["Reload Dock"].exists, "Expected Dock toolbar action row to be removed")
     }
 
     func testMatchedTerminalBackgroundKeepsSidebarBackgroundsAndBordersUnified() {
