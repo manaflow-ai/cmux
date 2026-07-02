@@ -20,15 +20,19 @@ import Testing
     let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(frame.jsonObject())
     #expect(decoded == frame)
     // A full snapshot is restored as a synchronized, autowrap-off scrolling
-    // flow: reset supported state, clear, paint each viewport row
-    // (CHA-positioned spans), then restore the cursor.
+    // flow: reset supported state, apply default colors/style, clear, paint each
+    // viewport row (CHA-positioned spans), then restore the cursor.
     #expect(String(data: frame.vtReplacementBytes(), encoding: .utf8) ==
         "\u{1B}[?2026h\u{1B}[0$}\u{1B}[>m\u{1B}[r\u{1B}[?69l\u{1B}[?5W\u{1B}[?1049l" +
+        "\u{1B}]8;;\u{1B}\\" +
         "\u{1B}[1\"q\u{1B}[0\"q\u{1B}[999<u\u{1B}[0;1=u\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B" +
-        "\u{1B}[H\u{1B}[2J\u{1B}[3J\u{1B}[?1049h" +
-        "\u{1B}[1\"q\u{1B}[0\"q\u{1B}[999<u\u{1B}[0;1=u\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B" +
-        "\u{1B}[H\u{1B}[2J\u{1B}[?1049l\u{1B}[H" +
         "\u{1B}]110\u{1B}\\\u{1B}]111\u{1B}\\\u{1B}]112\u{1B}\\" +
+        "\u{1B}[0m" +
+        "\u{1B}[H\u{1B}[2J\u{1B}[3J\u{1B}[?1049h" +
+        "\u{1B}]8;;\u{1B}\\" +
+        "\u{1B}[1\"q\u{1B}[0\"q\u{1B}[999<u\u{1B}[0;1=u\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B" +
+        "\u{1B}[0m" +
+        "\u{1B}[H\u{1B}[2J\u{1B}[?1049l\u{1B}[H" +
         "\u{1B}[?7l\u{1B}[?25l\u{1B}[0m" +
         "\u{1B}[0m\u{1B}[1Galpha" +
         "\r\n\u{1B}[0m" +
