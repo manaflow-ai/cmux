@@ -12,7 +12,9 @@ extension BrowserPanel {
         configuration.websiteDataStore = websiteDataStore
         // Safari Web Extensions installed under ~/.config/cmux/browser-extensions
         // (macOS 15.4+; no-op when the directory is empty).
-        BrowserWebExtensionsSupport.attachIfNeeded(to: configuration)
+        if #available(macOS 15.4, *), let extensionsManager = BrowserWebExtensionsManager.shared {
+            configuration.webExtensionController = extensionsManager.controller
+        }
         if configuration.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme) == nil {
             configuration.setURLSchemeHandler(
                 CmuxDiffViewerURLSchemeHandler.shared,

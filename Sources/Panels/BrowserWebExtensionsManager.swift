@@ -1,18 +1,6 @@
 import Foundation
 import WebKit
 
-/// Availability shim so `BrowserPanel.configureWebViewConfiguration` (which must
-/// support macOS 14) can attach the shared web-extension controller with a single
-/// call. WKWebExtension requires macOS 15.4.
-@MainActor
-enum BrowserWebExtensionsSupport {
-    static func attachIfNeeded(to configuration: WKWebViewConfiguration) {
-        guard #available(macOS 15.4, *) else { return }
-        guard let manager = BrowserWebExtensionsManager.shared else { return }
-        configuration.webExtensionController = manager.controller
-    }
-}
-
 /// Loads Safari Web Extensions (WebExtension `manifest.json` bundles, the same
 /// format Safari and Chrome use) into every cmux browser webview.
 ///
