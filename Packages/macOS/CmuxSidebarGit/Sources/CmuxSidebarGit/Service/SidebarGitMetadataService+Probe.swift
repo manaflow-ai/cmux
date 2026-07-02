@@ -306,7 +306,8 @@ extension SidebarGitMetadataService {
         host.updatePanelDirectory(
             workspaceId: probeKey.workspaceId,
             panelId: probeKey.panelId,
-            directory: expectedDirectory
+            directory: expectedDirectory,
+            displayLabel: nil
         )
 
         if shouldTrackGitDirectory {
