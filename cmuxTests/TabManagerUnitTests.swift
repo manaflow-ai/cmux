@@ -1,4 +1,5 @@
 import XCTest
+import Testing
 import CmuxCore
 import AppKit
 import SwiftUI
@@ -3926,7 +3927,7 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
 }
 
 @MainActor
-final class TabManagerBackgroundWorkspaceMountBoundTests: XCTestCase {
+@Suite struct TabManagerBackgroundWorkspaceMountBoundTests {
     // Regression coverage for issue #7136: a burst of eagerly-loaded background
     // workspaces (e.g. dozens of scripted or auto-resumed agent workspaces) must
     // NOT all force-mount into the single main-window SwiftUI GraphHost. When they
@@ -3935,7 +3936,7 @@ final class TabManagerBackgroundWorkspaceMountBoundTests: XCTestCase {
     // background-load set that inflates `reconcileMountedWorkspaceIds`' mount cap
     // must therefore stay bounded to a small constant no matter how many
     // workspaces request a background prime.
-    func testBackgroundWorkspaceMountsStayBoundedUnderEagerLoadBurst() {
+    @Test func backgroundWorkspaceMountsStayBoundedUnderEagerLoadBurst() {
         let manager = TabManager()
 
         let workspaceIds = (0..<50).map { _ in UUID() }
@@ -3946,19 +3947,16 @@ final class TabManagerBackgroundWorkspaceMountBoundTests: XCTestCase {
 
         // Anchor to the production cap so any change to the limit is re-justified
         // against this guard, not silently re-admitting O(all panes) growth (#7136).
-        XCTAssertLessThanOrEqual(
-            manager.mountedBackgroundWorkspaceLoadIds.count,
-            TabManager.maxConcurrentBackgroundWorkspaceMounts,
-            "Background-prime mounts must stay bounded regardless of how many " +
-            "workspaces are eagerly loaded, so the single main-window view graph " +
-            "never updates O(all panes) per frame (#7136)."
+        #expect(
+            manager.mountedBackgroundWorkspaceLoadIds.count <= TabManager.maxConcurrentBackgroundWorkspaceMounts,
+            "Background-prime mounts must stay bounded regardless of how many workspaces are eagerly loaded (#7136)."
         )
     }
 
     // The bound must be a *concurrency* limit with reusable slots, not a lifetime
     // cap — otherwise background priming would stall permanently after the first
     // few workspaces. Releasing a retained mount must free a slot for another.
-    func testBackgroundWorkspaceMountSlotIsReusableAfterRelease() {
+    @Test func backgroundWorkspaceMountSlotIsReusableAfterRelease() {
         let manager = TabManager()
 
         let workspaceIds = (0..<10).map { _ in UUID() }
@@ -3967,25 +3965,24 @@ final class TabManagerBackgroundWorkspaceMountBoundTests: XCTestCase {
         }
 
         let mountedAfterBurst = manager.mountedBackgroundWorkspaceLoadIds
-        XCTAssertLessThanOrEqual(mountedAfterBurst.count, TabManager.maxConcurrentBackgroundWorkspaceMounts)
-        XCTAssertFalse(mountedAfterBurst.isEmpty)
+        #expect(mountedAfterBurst.count <= TabManager.maxConcurrentBackgroundWorkspaceMounts)
+        #expect(!mountedAfterBurst.isEmpty)
 
         guard let releasedId = mountedAfterBurst.first,
               let refusedId = workspaceIds.first(where: { !mountedAfterBurst.contains($0) }) else {
-            XCTFail("Expected at least one retained and one refused background mount")
+            Issue.record("Expected at least one retained and one refused background mount")
             return
         }
 
         manager.releaseBackgroundWorkspaceMount(for: releasedId)
         manager.retainBackgroundWorkspaceMount(for: refusedId)
 
-        XCTAssertTrue(
+        #expect(
             manager.mountedBackgroundWorkspaceLoadIds.contains(refusedId),
             "A freed background-mount slot must be reusable by another workspace (#7136)."
         )
-        XCTAssertLessThanOrEqual(
-            manager.mountedBackgroundWorkspaceLoadIds.count,
-            TabManager.maxConcurrentBackgroundWorkspaceMounts,
+        #expect(
+            manager.mountedBackgroundWorkspaceLoadIds.count <= TabManager.maxConcurrentBackgroundWorkspaceMounts,
             "The background-mount set must remain bounded after slot reuse (#7136)."
         )
     }
