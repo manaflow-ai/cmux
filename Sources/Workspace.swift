@@ -4602,13 +4602,19 @@ final class Workspace: Identifiable, ObservableObject {
         let previousStates = agentLifecycleStatesByPanelId
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         publishAgentLifecycleStatesIfNeeded(previousStates)
-        recordAgentLifecycleChange(panelId: targetPanelId)
+        // Manual loaders (`cmux workspace loading`) are cosmetic: they drive the
+        // sidebar spinner but must not record hibernation activity, or a manual
+        // toggle would delay hibernating an otherwise idle agent panel.
+        if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
+            recordAgentLifecycleChange(panelId: targetPanelId)
+        }
     }
 
     @discardableResult
     func clearAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
         var didClear = false
         let previousStates = agentLifecycleStatesByPanelId
+        let recordsHibernationActivity = !AgentHibernationLifecycleStatusKeys.isManualKey(key)
         let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleStatesByPanelId.keys)
         for panelId in panelIds {
             guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
@@ -4617,7 +4623,9 @@ final class Workspace: Identifiable, ObservableObject {
                 agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
             }
             didClear = true
-            recordAgentLifecycleChange(panelId: panelId)
+            if recordsHibernationActivity {
+                recordAgentLifecycleChange(panelId: panelId)
+            }
         }
         publishAgentLifecycleStatesIfNeeded(previousStates)
         return didClear
