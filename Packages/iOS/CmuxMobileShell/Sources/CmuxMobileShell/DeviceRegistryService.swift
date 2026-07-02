@@ -105,23 +105,37 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// needed" (registry unavailable, empty, or identical), letting callers skip
     /// a redundant store write and fall back to the locally persisted routes.
     ///
-    /// Per route KIND the registry is authoritative (its host/port replaces a
-    /// stale local host/port), but local routes of kinds the registry does NOT
-    /// carry are preserved rather than dropped. A registry row can lag the Mac's
-    /// current single-lane publish (observed in dogfood: a Mac switched to
-    /// cmuxRelay whose registry row still held only an old tailscale host/port);
-    /// wholesale replacement deleted the freshly-paired iroh route from the
-    /// store, so every later cold open dialed the dead TCP port and auto-connect
-    /// never recovered without re-pairing.
+    /// The registry is authoritative for HOST/PORT routes only (its fresher
+    /// host/port rescues a stale local one — the original purpose of this
+    /// refresh). PEER (iroh) routes are owned by attach tickets and live
+    /// presence pushes, both of which carry the Mac's CURRENT EndpointId; the
+    /// registry's copy is a snapshot that lags identity changes, so it never
+    /// overwrites or removes a local peer route here.
+    ///
+    /// Both failure modes were hit in dogfood before this shape:
+    /// - wholesale replacement: a Mac switched to the iroh-only cmuxRelay lane
+    ///   while its registry row still held only an old tailscale host/port; the
+    ///   refresh deleted the freshly-paired iroh route, and every later cold
+    ///   open dialed the dead TCP port.
+    /// - per-KIND authority: the registry's stale iroh route (an EndpointId the
+    ///   Mac had already rotated away from) overwrote the freshly-attached
+    ///   current one, so the very next cold open dialed a dead peer identity.
     public static func selectReconnectRoutes(
         local: [CmxAttachRoute],
         registry: [CmxAttachRoute]?
     ) -> [CmxAttachRoute]? {
         guard let registry, !registry.isEmpty else { return nil }
-        let registryKinds = Set(registry.map(\.kind))
-        let preservedLocal = local.filter { !registryKinds.contains($0.kind) }
-        let merged = registry + preservedLocal
-        guard merged != local else { return nil }
+        func isHostPort(_ route: CmxAttachRoute) -> Bool {
+            if case .hostPort = route.endpoint { return true }
+            return false
+        }
+        let registryHostPort = registry.filter(isHostPort)
+        let registryHostPortKinds = Set(registryHostPort.map(\.kind))
+        let preservedLocal = local.filter { route in
+            !isHostPort(route) || !registryHostPortKinds.contains(route.kind)
+        }
+        let merged = registryHostPort + preservedLocal
+        guard !merged.isEmpty, merged != local else { return nil }
         return merged
     }
 

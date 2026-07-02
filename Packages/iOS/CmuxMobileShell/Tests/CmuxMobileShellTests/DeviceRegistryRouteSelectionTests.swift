@@ -87,6 +87,45 @@ import Testing
         #expect(DeviceRegistryService.selectReconnectRoutes(local: local, registry: [tailscale]) == nil)
     }
 
+    @Test func staleRegistryIrohNeverOverwritesTheLocalIrohRoute() throws {
+        // The second dogfood failure mode: the Mac's iroh EndpointId rotated (dev
+        // rebuild re-signed the app, Keychain ACL rejected the old key) and the
+        // registry still served the OLD id. Under per-kind authority that stale
+        // peer route overwrote the freshly-attached current one and the next cold
+        // open dialed a dead identity. Peer routes are owned by attach/presence;
+        // the registry copy must be ignored.
+        let currentIroh = try irohRoute() // node-1, the freshly attached identity
+        let staleIroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(id: "stale-old-node", relayHint: nil, directAddrs: [], relayURL: nil),
+            priority: 20
+        )
+        let freshTailscale = try route(host: "100.9.9.9", port: 51999)
+        let selected = DeviceRegistryService.selectReconnectRoutes(
+            local: [currentIroh],
+            registry: [staleIroh, freshTailscale]
+        )
+        // Registry's host/port is adopted; its stale iroh is discarded; the
+        // local (current) iroh survives.
+        #expect(selected?.count == 2)
+        #expect(selected?.contains(currentIroh) == true)
+        #expect(selected?.contains(staleIroh) == false)
+    }
+
+    @Test func registryWithOnlyPeerRoutesIsANoOp() throws {
+        // A registry row carrying ONLY peer routes has nothing this refresh is
+        // authoritative for; never rewrite the store from it.
+        let local = [try route(host: "100.0.0.1", port: 51000), try irohRoute()]
+        let staleIroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(id: "stale-old-node", relayHint: nil, directAddrs: [], relayURL: nil),
+            priority: 20
+        )
+        #expect(DeviceRegistryService.selectReconnectRoutes(local: local, registry: [staleIroh]) == nil)
+    }
+
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
         let json = """
         {
