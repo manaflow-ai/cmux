@@ -127,6 +127,9 @@ jobs:
       - name: Validate cmux profiling support scripts
         run: ./tests/test_start_cmux_profiling.sh
 
+      - name: Validate bundled provider runtime guard
+        run: ./tests/test_bundled_provider_runtime_guard.sh
+
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
@@ -1379,6 +1382,8 @@ jobs:
       - name: Validate Release artifact slices
         run: |
           set -euo pipefail
+          ./scripts/verify-no-bundled-agent-runtimes.sh \
+            build-universal/Build/Products/Release/cmux.app
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
