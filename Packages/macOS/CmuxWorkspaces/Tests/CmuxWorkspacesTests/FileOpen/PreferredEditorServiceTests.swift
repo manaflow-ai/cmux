@@ -97,6 +97,46 @@ struct PreferredEditorServiceTests {
         #expect(opener.openedURLs.isEmpty)
     }
 
+    @Test func bareCommandFindsExecutableInFallbackSearchDirectory() async throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let fallbackBin = scratch.appendingPathComponent("fallback-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fallbackBin, withIntermediateDirectories: true)
+        let marker = scratch.appendingPathComponent("bare-command-received.txt")
+        let script = fallbackBin.appendingPathComponent("code")
+        try #"""
+        #!/bin/sh
+        printf %s "$1" > '\#(marker.path)'
+        """#.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: script.path
+        )
+
+        let opener = RecordingSystemOpener()
+        let service = PreferredEditorService(
+            editor: FixedEditor(resolvedCommand: "code"),
+            capture: UITestCaptureSink(environment: [:]),
+            systemOpener: opener,
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            fallbackSearchDirectories: [fallbackBin.path]
+        )
+        let targetPath = "/tmp/cmux preferred editor.json"
+
+        service.open(URL(fileURLWithPath: targetPath))
+
+        // Bounded wait for either the fake editor to receive the path or the
+        // current bug to fall back through the system opener.
+        for _ in 0..<200
+            where !FileManager.default.fileExists(atPath: marker.path)
+                && opener.openedURLs.isEmpty {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+
+        let received = try? String(contentsOf: marker, encoding: .utf8)
+        #expect(received == targetPath)
+        #expect(opener.openedURLs.isEmpty)
+    }
+
     @Test func failingCommandFallsBackToSystemOpen() async {
         let opener = RecordingSystemOpener()
         let service = PreferredEditorService(
