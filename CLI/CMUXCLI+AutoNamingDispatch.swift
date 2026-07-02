@@ -119,14 +119,35 @@ extension CMUXCLI {
         }
     }
 
+    /// Persists an exited agent session's last auto title onto its workspace,
+    /// but only when no other live session still owns that workspace.
+    ///
+    /// The running-session guard lives here, not at the call sites, so every
+    /// lifecycle entrypoint (Claude and the generic/PI hooks) gets it: exit
+    /// ordering across sibling panes is nondeterministic and `SessionEnd` /
+    /// `isCurrent()` are per-surface (see issue #5908), so an exiting split can
+    /// otherwise stamp its stale title over the workspace while a sibling
+    /// session in another surface is still running and owns the auto title.
     func persistAgentSessionTitleAfterExit(
         _ normalizedTitle: String?,
         workspaceId: String,
+        excludingSessionId: String,
+        sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
     ) {
         guard let title = normalizedTitle else { return }
+        let hasOtherRunningSession = (try? sessionStore.hasRunningSession(
+            workspaceId: workspaceId,
+            surfaceId: nil,
+            excludingSessionId: excludingSessionId,
+            requireLiveProcess: true
+        )) == true
+        guard !hasOtherRunningSession else {
+            telemetry.breadcrumb("\(telemetryKey).persist-title.other-session-running")
+            return
+        }
         guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
             "workspace_id": workspaceId,
             "title": title,

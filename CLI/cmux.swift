@@ -23624,6 +23624,8 @@ struct CMUXCLI {
                     persistAgentSessionTitleAfterExit(
                         agentSessionExitTitle(agent: "claude", record: consumedSession),
                         workspaceId: workspaceId,
+                        excludingSessionId: consumedSession.sessionId,
+                        sessionStore: sessionStore,
                         client: client,
                         telemetryKey: "claude-hook.session-end",
                         telemetry: telemetry
@@ -29408,15 +29410,15 @@ export default CMUXSessionRestore;
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
             } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
-                if !hasOtherRunningSession(workspaceId: consumed.workspaceId) {
-                    persistAgentSessionTitleAfterExit(
-                        agentSessionExitTitle(agent: def.name, record: consumed),
-                        workspaceId: consumed.workspaceId,
-                        client: client,
-                        telemetryKey: "\(def.name)-hook.session-end",
-                        telemetry: telemetry
-                    )
-                }
+                persistAgentSessionTitleAfterExit(
+                    agentSessionExitTitle(agent: def.name, record: consumed),
+                    workspaceId: consumed.workspaceId,
+                    excludingSessionId: sessionId,
+                    sessionStore: store,
+                    client: client,
+                    telemetryKey: "\(def.name)-hook.session-end",
+                    telemetry: telemetry
+                )
                 clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: consumed.workspaceId,
