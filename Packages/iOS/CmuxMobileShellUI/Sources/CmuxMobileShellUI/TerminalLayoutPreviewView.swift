@@ -143,7 +143,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
             ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TARGET_COLS"].flatMap(Int.init)
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
             guard feedContent, size.columns > 0, size.rows > 0 else { return }
 
             // Auto-fit the font so the terminal is exactly `targetCols` wide.

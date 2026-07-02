@@ -247,7 +247,7 @@ final class RemoteTmuxController {
             return nil
         } catch let error as RemoteTmuxError {
             if case .commandFailed(_, let stderr) = error,
-               RemoteTmuxSSHTransport.indicatesAuthRequired(stderr) {
+               RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr) {
                 return host.interactiveAuthInvocation()
             }
             throw error
@@ -259,7 +259,7 @@ final class RemoteTmuxController {
         result: RemoteTmuxCommandResult
     ) -> [String]? {
         guard !result.succeeded,
-              RemoteTmuxSSHTransport.indicatesAuthRequired(result.stderr) else {
+              RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(result.stderr) else {
             return nil
         }
         return host.interactiveAuthInvocation()
@@ -339,20 +339,20 @@ final class RemoteTmuxController {
         // prompt). A key/agent host — or one with an already-live master — succeeds
         // here and mirrors directly, with no interactive step, so it also works from
         // non-tty callers (scripts). A host that needs interactive auth fails here
-        // (BatchMode can't prompt); classify that and hand back the interactive
-        // `ssh` argv so the `cmux ssh-tmux` CLI authenticates in the user's terminal
-        // and retries — the retry then rides the now-open master. `transport.run()`
-        // creates the control-socket dir, so the returned auth `ssh` can open the
-        // master. No window has been created yet — nothing to tear down here. Both
-        // discovery calls (including the create-then-relist for an empty server) are
-        // inside the catch so an auth failure on any preflight/discovery command is
-        // classified uniformly.
+        // (BatchMode can't prompt); classify recoverable stderr via
+        // ``RemoteTmuxSSHTransport/indicatesInteractiveRetryWillHelp`` and hand back
+        // the interactive `ssh` argv so the `cmux ssh-tmux` CLI authenticates in the
+        // user's terminal and retries on the now-open master. `transport.run()` creates
+        // the control-socket dir, so the returned auth `ssh` can open the master. No
+        // window has been created yet — nothing to tear down here. Both discovery calls
+        // (including the create-then-relist for an empty server) are inside the catch so
+        // a recoverable failure on any preflight/discovery command is classified uniformly.
         let sessions: [RemoteTmuxSession]
         do {
             sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: true)
         } catch let error as RemoteTmuxError {
             if case .commandFailed(_, let stderr) = error,
-               RemoteTmuxSSHTransport.indicatesAuthRequired(stderr) {
+               RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr) {
                 return .authRequired(sshArgv: host.interactiveAuthInvocation())
             }
             throw error

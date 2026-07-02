@@ -921,10 +921,10 @@ class GhosttyApp {
 #endif
                     return
                 }
+                if app.closeWindowDockRuntimeSurface(surfaceId: callbackSurfaceId, force: !needsConfirmClose) { return }
                 // Close requests must be resolved by the callback's workspace/surface IDs only.
                 // If the mapping is already gone (duplicate/stale callback), ignore it.
-                if let callbackTabId,
-                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager {
+                if let callbackTabId, let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager {
                     if needsConfirmClose {
                         manager.closeRuntimeSurfaceWithConfirmation(
                             tabId: callbackTabId,
@@ -2732,8 +2732,8 @@ class GhosttyApp {
             // dispatching this action callback.
             DispatchQueue.main.async {
                 guard let app = AppDelegate.shared else { return }
-                if let callbackTabId,
-                   let callbackSurfaceId,
+                if let callbackSurfaceId, app.closeWindowDockRuntimeSurface(surfaceId: callbackSurfaceId, force: true) { return }
+                if let callbackTabId, let callbackSurfaceId,
                    let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager {
                     manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId)
                 }
@@ -3086,16 +3086,14 @@ class GhosttyApp {
                 return true
             }
             #endif
-            // Route local file URLs into cmux when the file-routing toggle is on.
-            // URL fragments/queries are stripped (the panel only needs the file
-            // path), so links emitted by tools like Claude Code (`foo.md#L42`)
-            // still route into the viewer. Anything else (toggle off, hosted
-            // file URL, remote workspace, unreadable file, split creation
-            // failure) falls through to the existing NSWorkspace path below so
-            // URL semantics are preserved.
-            let fileURLHost = target.url.host
-            if target.url.isFileURL,
-               fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost" {
+            // Route local file paths into cmux when the file-routing toggle is on.
+            // Explicit URL schemes (including file://) stay on the URL route so
+            // the OS owns non-web schemes, while bare paths like `foo.md#L42`
+            // still route into the viewer when eligible.
+            if TerminalOpenURLFileRoutingPolicy().shouldAttemptCmuxFileRouting(
+                rawOpenURLValue: trimmedUrlString,
+                target: target
+            ) {
                 let fileURL = target.url
                 let routed: Bool = performOnMain {
                     guard let termSurface = surfaceView.terminalSurface,
