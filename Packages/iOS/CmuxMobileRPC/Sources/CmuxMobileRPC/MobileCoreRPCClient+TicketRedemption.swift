@@ -14,6 +14,24 @@ extension MobileCoreRPCClient {
         return ticketRef
     }
 
+    /// Resolve one scope field (`workspaceID`/`terminalID`), keeping the scanned QR scope
+    /// authoritative. A non-empty scanned value always wins, so a redeemed reply can only
+    /// fill a field the scan left empty (the compact `v=3` grammar always scans empty scope)
+    /// and can never retarget the ticket to a *different* non-empty scope than the QR the
+    /// user actually scanned. Whitespace-only values count as empty.
+    ///
+    /// Kept as an instance method — not `static`, not a file-scope free func — so the pure
+    /// helper stays scoped to its owning type without tripping either the package-convention
+    /// free-function lint or the static-as-namespace policy.
+    private func scopeFieldPreferringScanned(scanned: String?, redeemed: String?) -> String? {
+        let scannedIsEmpty = scanned?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+        if !scannedIsEmpty {
+            return scanned
+        }
+        let redeemedIsEmpty = redeemed?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+        return redeemedIsEmpty ? scanned : redeemed
+    }
+
     /// Merge a freshly `redeemed` ticket over the `scanned` QR ticket, then stamp the
     /// resolved `ticketRef`. Routes stay the scanned set (the redeem reply omits them).
     ///
@@ -47,18 +65,4 @@ extension MobileCoreRPCClient {
             authToken: redeemed.authToken
         )
     }
-}
-
-/// Resolve one scope field (`workspaceID`/`terminalID`), keeping the scanned QR scope
-/// authoritative. A non-empty scanned value always wins, so a redeemed reply can only
-/// fill a field the scan left empty (the compact `v=3` grammar always scans empty scope)
-/// and can never retarget the ticket to a *different* non-empty scope than the QR the
-/// user actually scanned. Whitespace-only values count as empty.
-private func scopeFieldPreferringScanned(scanned: String?, redeemed: String?) -> String? {
-    let scannedIsEmpty = scanned?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
-    if !scannedIsEmpty {
-        return scanned
-    }
-    let redeemedIsEmpty = redeemed?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
-    return redeemedIsEmpty ? scanned : redeemed
 }
