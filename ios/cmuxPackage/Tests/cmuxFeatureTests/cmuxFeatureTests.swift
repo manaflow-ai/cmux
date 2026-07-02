@@ -2852,12 +2852,17 @@ private func terminalRenderGridStyledFrame(seq: UInt64, text: String) throws -> 
 
 private func rpcHostStatusFrame(
     renderGrid: Bool,
+    terminalBytes: Bool = true,
     macDeviceID: String? = nil,
     macDisplayName: String? = nil
 ) throws -> Data {
-    let capabilities = renderGrid
-        ? ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
-        : ["events.v1", "terminal.bytes.v1", "terminal.replay.v1"]
+    var capabilities = ["events.v1", "terminal.replay.v1"]
+    if terminalBytes {
+        capabilities.append("terminal.bytes.v1")
+    }
+    if renderGrid {
+        capabilities.append("terminal.render_grid.v1")
+    }
     var result: [String: Any] = [
         "terminal_fidelity": renderGrid ? "render_grid" : "ghostty_bytes",
         "capabilities": capabilities,
@@ -3413,7 +3418,7 @@ private actor TerminalRenderGridEventRouter: RequestAwareTransportRouter {
                 terminalID: "live-terminal"
             )
         case "mobile.host.status":
-            return try rpcHostStatusFrame(renderGrid: true)
+            return try rpcHostStatusFrame(renderGrid: true, terminalBytes: false)
         case "mobile.events.subscribe":
             return try rpcResultFrame(result: ["stream_id": "events"])
         case "mobile.terminal.replay":
