@@ -111,9 +111,9 @@ final class AgentChatTranscriptService {
         }
     }
 
-    /// Seeds the session registry from the on-disk hook stores. Call once
-    /// at app startup. Sessions are tracked only via the reliable hook-event
-    /// path thereafter; cmux does not detect agents that never fire a hook.
+    /// Seeds the session registry from the on-disk hook stores. Call once at
+    /// app startup. Hook events stay authoritative for state and transcripts;
+    /// observe-floor scans later add live agent presence even before hooks fire.
     func start() {
         Self.liveInstance = self
         // Apply resume re-binds buffered before the service was wired. The seed
@@ -201,11 +201,9 @@ final class AgentChatTranscriptService {
         await registry.observeAgentProcesses()
     }
 
-    /// Starts one observe-floor scan without blocking the caller. The iOS
-    /// session list registers for `chat.message` pushes before it seeds from
-    /// `mobile.chat.sessions`, so discovered sessions arrive as normal
-    /// `descriptorChanged` frames without turning every seed pull into a full
-    /// process-table walk.
+    /// Starts one observe-floor scan without blocking the caller. Use this for
+    /// proactive refreshes where a later `descriptorChanged` push is enough;
+    /// authoritative pull paths should call ``observeAgentProcesses()``.
     func scheduleAgentProcessObservation() {
         registry.scheduleAgentProcessObservation()
     }

@@ -55,6 +55,99 @@ struct AgentChatSessionRegistryObservationTests {
         #expect(session.workingDirectory == "/Users/example/project")
     }
 
+    @Test func mobileChatObserverDetectsBunHostedClaudeFromProcessDetails() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "b6fbc8e1-2c4b-4e51-a2b8-fd17c2ad59f0"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 102,
+                    name: "bun",
+                    path: "/Users/example/.bun/bin/bun",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 102),
+            includesProcessDetails: true
+        )
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 102 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "bun",
+                        "/Users/example/.bun/install/global/node_modules/@anthropic-ai/claude-code/cli.js",
+                    ],
+                    environment: [
+                        "CLAUDE_CODE_SESSION_ID": sessionID,
+                        "CMUX_AGENT_LAUNCH_CWD": "/Users/example/bun-project",
+                    ]
+                )
+            },
+            codexRolloutPath: { _ in nil }
+        )
+
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(session.sessionID == sessionID)
+        #expect(session.agentKind == .claude)
+        #expect(session.workspaceID == workspaceID.uuidString)
+        #expect(session.surfaceID == surfaceID.uuidString)
+        #expect(session.pid == 102)
+        #expect(session.workingDirectory == "/Users/example/bun-project")
+    }
+
+    @Test func mobileChatObserverDetectsVersionNumberClaudeLauncherFromPath() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "5a2df315-4e1a-401f-9a46-b0601872bd5d"
+        let launcherPath = "/Users/example/.local/share/claude/versions/2.1.140"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 103,
+                    name: "2.1.140",
+                    path: launcherPath,
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 103),
+            includesProcessDetails: true
+        )
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 103 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        launcherPath,
+                        "--resume",
+                        sessionID,
+                    ],
+                    environment: [
+                        "PWD": "/Users/example/versioned-project",
+                    ]
+                )
+            },
+            codexRolloutPath: { _ in nil }
+        )
+
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(session.sessionID == sessionID)
+        #expect(session.agentKind == .claude)
+        #expect(session.workspaceID == workspaceID.uuidString)
+        #expect(session.surfaceID == surfaceID.uuidString)
+        #expect(session.pid == 103)
+        #expect(session.workingDirectory == "/Users/example/versioned-project")
+    }
+
     @Test func mobileChatObserverCreatesPendingClaudeSessionForFreshIdlePrompt() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
