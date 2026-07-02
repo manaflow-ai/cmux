@@ -234,6 +234,16 @@ final class TerminalNotificationStore: ObservableObject {
         var unreadByTabSurface = Set<TabSurfaceKey>()
         var latestUnreadByTabId: [UUID: TerminalNotification] = [:]
         var latestByTabId: [UUID: TerminalNotification] = [:]
+        /// Notifications bucketed by the exact `(tabId, surfaceId)` key that
+        /// `notifications(forTabId:surfaceId:)` queries, so that accessor is an
+        /// O(1) dictionary lookup instead of an O(total notifications) filter.
+        /// The session autosave fingerprint and snapshot build call it once per
+        /// workspace plus once per panel, so the old filter was
+        /// O(workspaces × panels × notifications) on the main thread every 8s
+        /// (issue #5831). Each notification is bucketed under every key for
+        /// which `TerminalNotification.matches(tabId:surfaceId:)` is true, and
+        /// in original array order, so lookups are byte-identical to the filter.
+        var notificationsByTabSurface: [TabSurfaceKey: [TerminalNotification]] = [:]
     }
 
     static let shared = TerminalNotificationStore()
@@ -862,7 +872,12 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
-        notifications.filter { $0.matches(tabId: tabId, surfaceId: surfaceId) }
+        // O(1) lookup into the precomputed by-(tabId, surfaceId) bucket. The
+        // bucket is built in `buildIndexes` to be identical (same notifications,
+        // same order) to `notifications.filter { $0.matches(...) }`, but without
+        // the per-call full-array scan that made the autosave fingerprint
+        // O(workspaces × panels × notifications) on the main thread (issue #5831).
+        indexes.notificationsByTabSurface[TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)] ?? []
     }
 
     func clearLatestNotification(forTabId tabId: UUID) {
@@ -2021,6 +2036,26 @@ final class TerminalNotificationStore: ObservableObject {
     private static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {
         var indexes = NotificationIndexes()
         for notification in notifications {
+            // Bucket for O(1) notifications(forTabId:surfaceId:) lookups. This
+            // must mirror TerminalNotification.matches(tabId:surfaceId:) exactly
+            // and cover read + unread notifications (the accessor returns both).
+            // A nil-surface lookup matches only notifications with no surface AND
+            // no panel; a surface lookup matches either surfaceId or panelId.
+            let tabId = notification.tabId
+            if notification.surfaceId == nil, notification.panelId == nil {
+                indexes.notificationsByTabSurface[TabSurfaceKey(tabId: tabId, surfaceId: nil), default: []]
+                    .append(notification)
+            } else {
+                if let surfaceId = notification.surfaceId {
+                    indexes.notificationsByTabSurface[TabSurfaceKey(tabId: tabId, surfaceId: surfaceId), default: []]
+                        .append(notification)
+                }
+                if let panelId = notification.panelId, panelId != notification.surfaceId {
+                    indexes.notificationsByTabSurface[TabSurfaceKey(tabId: tabId, surfaceId: panelId), default: []]
+                        .append(notification)
+                }
+            }
+
             if indexes.latestByTabId[notification.tabId] == nil {
                 indexes.latestByTabId[notification.tabId] = notification
             }
