@@ -1035,11 +1035,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         isSignedIn = false
+        // Blank the host before the `.disconnected` transition so the diagnostics
+        // `conn.state` event that connectionState.didSet records cannot carry the
+        // previous account's host across sign-out on a shared device.
+        connectedHostName = ""
         connectionState = .disconnected
         macConnectionStatus = .unavailable
-        connectedHostName = ""
         pairingCode = ""
         clearPairingVersionWarning()
+        // Clear the diagnostics report inputs at the account boundary so a shared
+        // device never lets the next user's Share Diagnostics surface the previous
+        // account's connection failure or event history. `lastConnectionError` is
+        // deliberately retained when the visible `connectionError` clears (see its
+        // didSet), so sign-out must null it explicitly; the event-log actor is wiped
+        // via clear(). The transition events recorded above carry no host (see the
+        // connectedHostName reset), so their ordering against this clear cannot leak.
+        lastConnectionError = nil
+        if let diagnosticsEventLog {
+            Task { await diagnosticsEventLog.clear() }
+        }
         // Wipe every saved draft so the next account never sees the previous
         // user's unsent text. Guard the in-memory clear (and the selection resets
         // below) so the per-terminal draft hooks do not write partial state into a
