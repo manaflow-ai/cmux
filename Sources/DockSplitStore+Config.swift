@@ -8,7 +8,7 @@ extension DockSplitStore {
     ///
     /// - `.workspace`: only the project `.cmux/dock.json` (searched upward from
     ///   `rootDirectory`); no global fallback, so the Workspace Dock stays
-    ///   distinct from the Global Dock. Empty when there is no project config.
+    ///   distinct from the window Dock. Empty when there is no project config.
     /// - `.global`: only `~/.config/cmux/dock.json` with a home base directory.
     ///
     /// `scope` defaults to `.workspace` to preserve existing call sites/tests.
