@@ -10,7 +10,7 @@ import Testing
 
 /// Unit tests for the pure appshot logic: the single-line prompt formatting, the
 /// 60-second recency routing decision, and the frame-match window-binding
-/// selection (`AppshotCapturer.indexOfFrame`) that keeps the screenshot and the
+/// selection (`AppshotCapturer.uniqueIndexOfFrame`) that keeps the screenshot and the
 /// Accessibility text on the same window. The live capture around it
 /// (ScreenCaptureKit + Accessibility IPC) and `AppshotController`'s delivery of
 /// each route — including the `.noRecentTarget` fallback to the active agent (the
@@ -184,43 +184,47 @@ import Testing
         #expect(route == .append(workspaceId: workspace, panelId: panel))
     }
 
-    // MARK: - window binding (indexOfFrame)
+    // MARK: - window binding (uniqueIndexOfFrame)
 
-    @Test func indexOfFrameMatchesTheExactCapturedWindow() {
+    @Test func uniqueIndexOfFrameMatchesTheExactCapturedWindow() {
         let target = CGRect(x: 100, y: 200, width: 800, height: 600)
         let frames: [CGRect?] = [
             CGRect(x: 0, y: 0, width: 400, height: 300),
             target,
         ]
-        #expect(AppshotCapturer.indexOfFrame(matching: target, in: frames) == 1)
+        #expect(AppshotCapturer.uniqueIndexOfFrame(matching: target, in: frames) == 1)
     }
 
-    @Test func indexOfFrameMatchesWithinSubPointTolerance() {
+    @Test func uniqueIndexOfFrameMatchesWithinSubPointTolerance() {
         // CGWindowList bounds and AX position/size can differ by a fraction of a
         // point; a small tolerance still binds to the same window.
         let target = CGRect(x: 100, y: 200, width: 800, height: 600)
         let nearlyEqual = CGRect(x: 101, y: 199, width: 799, height: 602)
-        #expect(AppshotCapturer.indexOfFrame(matching: target, in: [nearlyEqual]) == 0)
+        #expect(AppshotCapturer.uniqueIndexOfFrame(matching: target, in: [nearlyEqual]) == 0)
     }
 
-    @Test func indexOfFrameRejectsADifferentWindowOfTheSameApp() {
+    @Test func uniqueIndexOfFrameRejectsADifferentWindowOfTheSameApp() {
         // A sibling window tiled beside the target must not be mistaken for it.
         let target = CGRect(x: 100, y: 200, width: 800, height: 600)
         let sibling = CGRect(x: 900, y: 200, width: 800, height: 600)
-        #expect(AppshotCapturer.indexOfFrame(matching: target, in: [sibling]) == nil)
+        #expect(AppshotCapturer.uniqueIndexOfFrame(matching: target, in: [sibling]) == nil)
     }
 
-    @Test func indexOfFrameSkipsUnreadableFramesAndReturnsNilWhenNoneMatch() {
+    @Test func uniqueIndexOfFrameSkipsUnreadableFramesAndReturnsNilWhenNoneMatch() {
         // Unreadable AX frames (nil) are skipped; no match means the caller falls
         // back to the focused/first-window heuristic.
         let target = CGRect(x: 100, y: 200, width: 800, height: 600)
         let frames: [CGRect?] = [nil, CGRect(x: 0, y: 0, width: 10, height: 10), nil]
-        #expect(AppshotCapturer.indexOfFrame(matching: target, in: frames) == nil)
+        #expect(AppshotCapturer.uniqueIndexOfFrame(matching: target, in: frames) == nil)
     }
 
-    @Test func indexOfFrameReturnsFirstMatchWhenSeveralQualify() {
+    @Test func uniqueIndexOfFrameReturnsNilWhenSeveralFramesMatch() {
+        // Two windows with identical frames can't be disambiguated by frame alone
+        // (AX window order need not match the captured front-to-back order), so
+        // the selection is nil and the caller falls back to the focused window
+        // rather than attach text from the wrong window.
         let target = CGRect(x: 100, y: 200, width: 800, height: 600)
         let frames: [CGRect?] = [nil, target, target]
-        #expect(AppshotCapturer.indexOfFrame(matching: target, in: frames) == 1)
+        #expect(AppshotCapturer.uniqueIndexOfFrame(matching: target, in: frames) == nil)
     }
 }

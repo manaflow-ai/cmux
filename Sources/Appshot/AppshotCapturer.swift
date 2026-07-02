@@ -165,31 +165,46 @@ enum AppshotCapturer {
     /// instead: CGWindowList bounds and AX `kAXPosition`/`kAXSize` are both in
     /// top-left-origin global screen points.
     ///
-    /// Falls back to the prior focused-window / first-window heuristic when no
-    /// frame matches (bounds unavailable, window resized/closed mid-capture, or a
-    /// coordinate-space mismatch), so behavior never degrades below the previous
-    /// version — the worst case is the same drift that could occur before.
+    /// The frame match is used only when it is *unique*. Two windows with
+    /// identical frames (perfectly stacked or duplicate windows) can't be told
+    /// apart by frame alone, and AX window order need not match the captured
+    /// front-to-back order — so a non-unique match must not guess a window.
+    ///
+    /// Falls back to the prior focused-window / first-window heuristic when the
+    /// frame match is absent or ambiguous (bounds unavailable, window
+    /// resized/closed mid-capture, a coordinate-space mismatch, or identical
+    /// frames). The focused window is the most likely frontmost/captured window,
+    /// so behavior never degrades below the previous version.
     private static func resolveTargetWindow(app: AXUIElement, matching targetBounds: CGRect?) -> AXUIElement? {
         let windows = copyElements(app, kAXWindowsAttribute)
         if let targetBounds, let windows,
-           let index = indexOfFrame(matching: targetBounds, in: windows.map(axWindowFrame)) {
+           let index = uniqueIndexOfFrame(matching: targetBounds, in: windows.map(axWindowFrame)) {
             return windows[index]
         }
         if let focused = copyElement(app, kAXFocusedWindowAttribute) { return focused }
         return windows?.first
     }
 
-    /// Index of the first frame within `tolerance` points of `target` on all four
-    /// edges, or `nil` when none match. Pure and total so the window-binding
-    /// selection can be unit-tested without live AX state.
-    static func indexOfFrame(matching target: CGRect, in frames: [CGRect?], tolerance: CGFloat = 2) -> Int? {
-        frames.firstIndex { frame in
-            guard let frame else { return false }
-            return abs(frame.origin.x - target.origin.x) <= tolerance
-                && abs(frame.origin.y - target.origin.y) <= tolerance
-                && abs(frame.size.width - target.size.width) <= tolerance
-                && abs(frame.size.height - target.size.height) <= tolerance
+    /// Index of the window whose frame *uniquely* matches `target` within
+    /// `tolerance` points on all four edges, or `nil` when zero — or more than
+    /// one — frame matches. A non-unique match (identical or overlapping frames)
+    /// can't be disambiguated by frame alone, so the caller falls back to the
+    /// focused-window heuristic rather than attach the wrong window's text. Pure
+    /// and total so the window-binding selection can be unit-tested without live
+    /// AX state.
+    static func uniqueIndexOfFrame(matching target: CGRect, in frames: [CGRect?], tolerance: CGFloat = 2) -> Int? {
+        var match: Int?
+        for (index, frame) in frames.enumerated() {
+            guard let frame,
+                  abs(frame.origin.x - target.origin.x) <= tolerance,
+                  abs(frame.origin.y - target.origin.y) <= tolerance,
+                  abs(frame.size.width - target.size.width) <= tolerance,
+                  abs(frame.size.height - target.size.height) <= tolerance
+            else { continue }
+            if match != nil { return nil }  // ambiguous: two windows share this frame
+            match = index
         }
+        return match
     }
 
     /// Reads an AX window's frame (top-left-origin global screen points) from its
