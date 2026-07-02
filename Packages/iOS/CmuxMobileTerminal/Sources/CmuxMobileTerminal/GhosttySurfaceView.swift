@@ -797,6 +797,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "scrollTotal=\(debugLastScrollbar?.total ?? -1)", "scrollOffset=\(debugLastScrollbar?.offset ?? -1)",
             "scrollLen=\(debugLastScrollbar?.len ?? -1)", "scrollAtBottom=\(debugScrollbarAtBottomForTesting ? 1 : 0)",
             "staleViewportObserved=\(debugBottomViewportMismatchObserved ? 1 : 0)",
+            // Keyboard-guide tracking: the sampled live keyboard top edge, the
+            // dock's actual bottom edge, and whether the per-frame tracker is
+            // active. A UI test polling mid-animation asserts
+            // |toolbarMaxY - guideTop| stays ~0 while kbTracking=1 — the
+            // "terminal edge rides the real keyboard, not a curve replay"
+            // contract. -1 when no sample is available.
+            "kbTracking=\(keyboardDockTracking != nil ? 1 : 0)",
+            "kbGuideTop=\(sampledKeyboardGuideTop().map { Int($0.rounded()) } ?? -1)",
+            "toolbarMaxY=\(dockedToolbar.map { Int($0.frame.maxY.rounded()) } ?? -1)",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
     }
@@ -872,8 +881,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastRenderLayoutViewportHeight: CGFloat?
     private var lastRenderHasSourceLayoutViewport = false
     private var viewportCoordinator = TerminalViewportCoordinator()
-    private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
-    private var keyboardHeightAnimationID = 0
+    /// Invisible autolayout child pinned to `keyboardLayoutGuide.topAnchor`.
+    /// UIKit lays it out inside the real keyboard animation transaction, so its
+    /// presentation layer is the keyboard's true animated top edge — the ground
+    /// truth the bottom dock and render layer are frame-set from each display
+    /// link tick (see ``trackKeyboardDockPerFrame()``).
+    private let keyboardGuideAnchor = UIView()
+    /// Non-nil while the dock is following the sampled keyboard guide (a
+    /// notification-driven transition or a self-armed interactive dismissal).
+    private var keyboardDockTracking: KeyboardDockTracking?
+    /// The occupancy sampled on the last applied tracking tick, fed into
+    /// ``viewportSnapshot()`` so every layout consumer sees the same live edge.
+    private var lastSampledBottomOccupancy: CGFloat?
+    /// Debug/preview seams drive `keyboardHeight` synthetically; live guide
+    /// samples would immediately fight them, so they suspend tracking.
+    private var keyboardLiveTrackingSuspended = false
+    #if DEBUG
+    /// Test seam: overrides the keyboard-guide top-edge sample so tests can
+    /// script an exact per-frame keyboard trajectory without a real keyboard.
+    var debugKeyboardGuideTopSamplerForTesting: (() -> CGFloat?)?
+    #endif
 
     #if DEBUG
     struct DebugGeometrySnapshot {
@@ -908,8 +935,46 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
     }
 
+    struct DebugKeyboardDockState {
+        let isTracking: Bool
+        let liveOccupancy: CGFloat?
+        let sampledGuideTop: CGFloat?
+        let toolbarFrame: CGRect?
+        let composerFrame: CGRect
+        let fallbackFrame: CGRect
+        let targetViewportHeight: CGFloat
+        let liveViewportHeight: CGFloat
+        let keyboardHeight: CGFloat
+    }
+
+    /// Test seam: the current keyboard-dock tracking state plus the frames the
+    /// tracking loop owns, so tests can assert the dock and viewport sit exactly
+    /// on a scripted keyboard sample.
+    func debugKeyboardDockStateForTesting() -> DebugKeyboardDockState {
+        DebugKeyboardDockState(
+            isTracking: keyboardDockTracking != nil,
+            liveOccupancy: lastSampledBottomOccupancy,
+            sampledGuideTop: sampledKeyboardGuideTop(),
+            toolbarFrame: dockedToolbar?.frame,
+            composerFrame: composerContainer.frame,
+            fallbackFrame: snapshotFallbackView.frame,
+            targetViewportHeight: targetTerminalViewportHeight,
+            liveViewportHeight: viewportSnapshot().liveViewportRect.height,
+            keyboardHeight: keyboardHeight
+        )
+    }
+
+    /// Test seam: run exactly one keyboard-dock tracking tick (what the display
+    /// link does each frame), so tests can step a scripted keyboard trajectory
+    /// deterministically.
+    func debugAdvanceKeyboardDockTrackingForTesting() {
+        trackKeyboardDockPerFrame()
+    }
+
     func setKeyboardHeightForTesting(_ height: CGFloat) {
-        stopKeyboardHeightAnimation()
+        keyboardLiveTrackingSuspended = true
+        keyboardDockTracking = nil
+        lastSampledBottomOccupancy = nil
         keyboardHeight = max(0, height)
         layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
@@ -1057,6 +1122,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         installPersistentToolbar()
         installComposerContainer()
+        installKeyboardGuideAnchor()
         initializeSurface()
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
@@ -1136,6 +1202,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `willResignActive` and `didEnterBackground`.
     private func suspendRendering() {
         renderingSuspended = true
+        // The display link is about to stop, so an in-flight keyboard tracking
+        // window would never tick again; snap it to the target layout now.
+        if keyboardDockTracking != nil {
+            finishKeyboardDockTracking()
+        }
         skipPendingVisibleSnapshot()
         skipPendingCopyableTextRead()
         stopDisplayLink()
@@ -1269,52 +1340,136 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // reclaims the keyboard's space (minus the now-reserved safe area + toolbar +
         // composer band).
         updateDockedToolbarVisibility()
-        startKeyboardHeightAnimation(to: overlap, transition: transition)
-    }
-
-    private func startKeyboardHeightAnimation(
-        to targetHeight: CGFloat,
-        transition: MobileKeyboardTransition
-    ) {
-        stopKeyboardHeightAnimation()
-        let clampedTarget = max(0, targetHeight)
-        guard transition.duration > 0, abs(clampedTarget - keyboardHeight) > 0.5 else {
-            applyKeyboardHeight(clampedTarget)
-            if clampedTarget == 0 {
-                scheduleKeyboardHideHeightResync()
-            }
-            return
-        }
-
-        keyboardHeightAnimationID &+= 1
-        let animationID = keyboardHeightAnimationID
-        keyboardHeightAnimation = TerminalKeyboardHeightAnimation(id: animationID)
-        startDisplayLink()
-        transition.animate {
-            self.applyKeyboardHeight(clampedTarget)
-            self.layoutIfNeeded()
-        } completion: { _ in
-            guard self.keyboardHeightAnimationID == animationID else { return }
-            self.finishKeyboardHeightAnimation(targetHeight: clampedTarget)
-        }
-    }
-
-    private func stopKeyboardHeightAnimation() {
-        keyboardHeightAnimationID &+= 1
-        keyboardHeightAnimation = nil
-    }
-
-    private func finishKeyboardHeightAnimation(targetHeight: CGFloat) {
-        stopKeyboardHeightAnimation()
-        applyKeyboardHeight(targetHeight)
-        if targetHeight == 0 {
+        // Begin ground-truth tracking BEFORE applying the target height: seeding
+        // the live sample with the keyboard's current (pre-animation) guide
+        // position keeps the dock exactly where it is this frame; the display
+        // link then walks it along UIKit's real keyboard animation.
+        beginKeyboardDockTracking(expectedDuration: transition.duration)
+        applyKeyboardHeight(max(0, overlap))
+        if keyboardDockTracking == nil, keyboardHeight == 0 {
+            // No live tracking possible (off-window / suppressed): the height
+            // applied instantly, so run the hide resync now, as before.
             scheduleKeyboardHideHeightResync()
         }
     }
 
-    private func advanceKeyboardHeightAnimation() {
-        guard keyboardHeightAnimation != nil else { return }
-        layoutRenderedTerminalForCurrentViewport()
+    /// Ground-truth keyboard tracking (replaces the old duration/curve replay).
+    ///
+    /// `keyboardGuideAnchor` is constrained to `keyboardLayoutGuide.topAnchor`,
+    /// so UIKit moves it inside the actual keyboard animation transaction — the
+    /// same private spring the keyboard itself runs, including interactive
+    /// dismiss, which posts no notifications while the finger drags. Every
+    /// display-link frame while a transition is live, ``trackKeyboardDockPerFrame()``
+    /// samples the anchor's presentation layer and frame-sets the whole bottom
+    /// dock (toolbar + composer band) and the render layer from that one sample,
+    /// so the terminal edge cannot diverge from the keyboard by construction.
+    /// The old path animated the dock with `UIView.animate` using the
+    /// notification's duration + curve — a REPLAY that drifted from UIKit's
+    /// keyboard spring mid-flight and missed interactive dismissal entirely.
+    private struct KeyboardDockTracking {
+        /// Hard stop for the tracking window. Normally tracking ends when the
+        /// sampled occupancy converges on the target; the deadline covers a
+        /// guide that never converges (e.g. a floating-keyboard frame the
+        /// notification math resolved differently), snapping to target math.
+        let deadline: CFTimeInterval
+    }
+
+    private func beginKeyboardDockTracking(expectedDuration: TimeInterval) {
+        guard !keyboardLiveTrackingSuspended,
+              window != nil,
+              !renderingSuspended,
+              sampledKeyboardGuideTop() != nil else {
+            // No trustworthy live signal (off-window, suspended, pre-layout,
+            // or a debug seam owns the height): fall back to the instant
+            // apply, exactly like the old zero-duration path.
+            keyboardDockTracking = nil
+            lastSampledBottomOccupancy = nil
+            return
+        }
+        keyboardDockTracking = KeyboardDockTracking(
+            deadline: CACurrentMediaTime() + max(expectedDuration, 0.25) + 0.75
+        )
+        lastSampledBottomOccupancy = currentSampledBottomOccupancy()
+        startDisplayLink()
+    }
+
+    /// The keyboard guide anchor's live top edge in this view's bounds, from its
+    /// presentation layer while UIKit animates it (nil when it can't be trusted:
+    /// off-window, pre-layout, or a debug override says so).
+    private func sampledKeyboardGuideTop() -> CGFloat? {
+        #if DEBUG
+        if let sampler = debugKeyboardGuideTopSamplerForTesting {
+            return sampler()
+        }
+        #endif
+        guard window != nil, bounds.height > 1 else { return nil }
+        let anchorLayer = keyboardGuideAnchor.layer
+        let frame = (anchorLayer.presentation() ?? anchorLayer).frame
+        // Zero/near-zero minY means the guide has not produced a real layout
+        // yet (the guide top can never legitimately reach the view top: it
+        // bottoms out at the keyboard's tallest, well below y=0).
+        guard frame.minY > 0.5 else { return nil }
+        return frame.minY
+    }
+
+    private func currentSampledBottomOccupancy() -> CGFloat? {
+        guard let top = sampledKeyboardGuideTop() else { return nil }
+        return TerminalLetterboxGeometry.sampledBottomOccupancy(
+            keyboardGuideTopY: top,
+            boundsHeight: bounds.height
+        )
+    }
+
+    /// One tracking step per display-link frame: sample the guide, re-seat the
+    /// dock + render layer at the sampled position, and settle when the sample
+    /// converges on the target occupancy. Also SELF-ARMS when the guide moves
+    /// with no notification-driven window active — that is interactive keyboard
+    /// dismissal, which only reports a frame change when the drag ends.
+    private func trackKeyboardDockPerFrame() {
+        guard !keyboardLiveTrackingSuspended, !chromeHidden,
+              let liveOccupancy = currentSampledBottomOccupancy() else { return }
+        let targetOccupancy = keyboardOccupancyInBounds
+        let converged = abs(liveOccupancy - targetOccupancy) <= 0.25
+        if keyboardDockTracking == nil {
+            guard !converged else { return }
+            // Guide moved without a notification window (interactive dismiss).
+            keyboardDockTracking = KeyboardDockTracking(
+                deadline: CACurrentMediaTime() + 2.0
+            )
+        }
+        let now = CACurrentMediaTime()
+        if converged || now > keyboardDockTracking!.deadline {
+            finishKeyboardDockTracking()
+            return
+        }
+        if lastSampledBottomOccupancy.map({ abs($0 - liveOccupancy) > 0.05 }) ?? true {
+            lastSampledBottomOccupancy = liveOccupancy
+            applyDockLayoutForCurrentViewport()
+            // A moving sample means UIKit is still driving the guide (a long
+            // interactive drag outlives any fixed deadline), so keep the window
+            // open. A STALLED unconverged sample stops extending and expires,
+            // snapping the dock to target math.
+            if keyboardDockTracking!.deadline < now + 1.0 {
+                keyboardDockTracking = KeyboardDockTracking(deadline: now + 1.0)
+            }
+        }
+    }
+
+    private func finishKeyboardDockTracking() {
+        keyboardDockTracking = nil
+        lastSampledBottomOccupancy = nil
+        applyDockLayoutForCurrentViewport()
+        if keyboardHeight == 0 {
+            scheduleKeyboardHideHeightResync()
+        }
+    }
+
+    /// Re-seat everything that rides the keyboard edge from one snapshot (which
+    /// carries the live sampled occupancy while tracking is active).
+    private func applyDockLayoutForCurrentViewport() {
+        let snapshot = viewportSnapshot()
+        layoutBottomDock(using: snapshot)
+        layoutRenderedTerminalForCurrentViewport(using: snapshot)
         layoutZoomOverlay()
     }
 
@@ -1352,7 +1507,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the software keyboard. Drives the exact same geometry path as a real
     /// keyboard. Used only by the terminal-layout preview harness.
     public func debugSetKeyboardHeightForLayoutPreview(_ height: CGFloat) {
-        stopKeyboardHeightAnimation()
+        // Live guide samples would immediately fight a synthetic keyboard
+        // height (the real guide rests on the safe area), so suspend tracking
+        // while one is active. Clearing the synthetic height (0) re-enables
+        // ground-truth tracking so the preview harness can also exercise a REAL
+        // simulator keyboard.
+        keyboardLiveTrackingSuspended = height > 0
+        keyboardDockTracking = nil
+        lastSampledBottomOccupancy = nil
         keyboardVisible = height > 0
         inputProxy.setKeyboardShown(keyboardVisible)
         keyboardHeight = max(0, height)
@@ -1373,6 +1535,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         zoomOverlayLastInteraction = CACurrentMediaTime() + 3600
     }
     #endif
+
+    /// Pin the invisible keyboard anchor to `keyboardLayoutGuide.topAnchor`.
+    ///
+    /// The guide's top edge rests on the bottom safe-area edge while the
+    /// keyboard is down and rides the keyboard's real top while it moves, and
+    /// UIKit lays out guide-constrained views inside the keyboard's own
+    /// animation transaction. The anchor's presentation layer is therefore the
+    /// keyboard's true animated position — what ``trackKeyboardDockPerFrame()``
+    /// samples. The anchor renders nothing (clear, non-interactive) and the
+    /// rest of the view stays manually frame-laid-out.
+    private func installKeyboardGuideAnchor() {
+        keyboardGuideAnchor.isUserInteractionEnabled = false
+        keyboardGuideAnchor.backgroundColor = .clear
+        keyboardGuideAnchor.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(keyboardGuideAnchor)
+        NSLayoutConstraint.activate([
+            keyboardGuideAnchor.topAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor),
+            keyboardGuideAnchor.leadingAnchor.constraint(equalTo: leadingAnchor),
+            keyboardGuideAnchor.trailingAnchor.constraint(equalTo: trailingAnchor),
+            keyboardGuideAnchor.heightAnchor.constraint(equalToConstant: 1),
+        ])
+    }
 
     /// Dock the accessory bar as a persistent bottom toolbar. Frame-positioned
     /// (not `keyboardLayoutGuide`-pinned) so it uses the exact same bottom
@@ -1466,7 +1650,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             chromeHidden: chromeHidden,
             chromeVisible: dockedToolbarShouldBeVisible && dockedToolbar?.isHidden == false,
             toolbarFrame: dockedToolbar?.frame,
-            toolbarPresentationFrame: dockedToolbar?.layer.presentation()?.frame
+            toolbarPresentationFrame: dockedToolbar?.layer.presentation()?.frame,
+            liveBottomOccupancy: keyboardDockTracking != nil ? lastSampledBottomOccupancy : nil
         ))
     }
 
@@ -2192,7 +2377,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     deinit {
-        stopKeyboardHeightAnimation()
         disposeSurface()
     }
 
@@ -2635,7 +2819,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = nil
         needsAnotherRender = false
         resignInput()
-        stopKeyboardHeightAnimation()
+        // Detached views get no more display-link ticks; drop any live tracking
+        // window so re-attach starts from clean target-math layout.
+        keyboardDockTracking = nil
+        lastSampledBottomOccupancy = nil
         stopDisplayLink()
         setFocus(false)
         #if DEBUG
@@ -3084,7 +3271,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 zoomSettleFrames = frames
             }
         }
-        advanceKeyboardHeightAnimation()
+        trackKeyboardDockPerFrame()
         // Apply geometry at most once per frame. Every trigger (resize, zoom,
         // keyboard, effective-grid pin) only marks `needsGeometrySync`, so a
         // fast pinch can no longer drive a synchronous per-event storm of

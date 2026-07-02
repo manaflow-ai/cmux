@@ -289,4 +289,31 @@ struct TerminalLetterboxGeometryTests {
         )
         #expect(clamped == CGSize(width: 402, height: 700))
     }
+
+    @Test("sampled occupancy converts a live guide top edge into bottom occupancy")
+    func sampledOccupancyContract() {
+        // Keyboard resting DOWN: the guide top sits on the bottom safe-area
+        // edge, so the sampled occupancy equals the safe-area reservation —
+        // the same value keyboardOccupancy(0, inset) produces. This identity is
+        // what lets one sampled value drive both steady states and every frame
+        // of the transition between them.
+        #expect(
+            TerminalLetterboxGeometry.sampledBottomOccupancy(keyboardGuideTopY: 810, boundsHeight: 844)
+                == TerminalLetterboxGeometry.keyboardOccupancy(keyboardHeight: 0, bottomSafeAreaInset: 34)
+        )
+        // Keyboard fully UP: guide top = keyboard top.
+        #expect(TerminalLetterboxGeometry.sampledBottomOccupancy(keyboardGuideTopY: 508, boundsHeight: 844) == 336)
+        // Mid-animation sample.
+        #expect(TerminalLetterboxGeometry.sampledBottomOccupancy(keyboardGuideTopY: 700, boundsHeight: 844) == 144)
+    }
+
+    @Test("sampled occupancy clamps out-of-bounds guide samples")
+    func sampledOccupancyClamps() {
+        // Guide below the view (detached / mid-rotation): never negative.
+        #expect(TerminalLetterboxGeometry.sampledBottomOccupancy(keyboardGuideTopY: 900, boundsHeight: 844) == 0)
+        // Guide above the view top: never more than the full bounds.
+        #expect(TerminalLetterboxGeometry.sampledBottomOccupancy(keyboardGuideTopY: -50, boundsHeight: 844) == 844)
+        // Degenerate bounds cannot produce a reservation.
+        #expect(TerminalLetterboxGeometry.sampledBottomOccupancy(keyboardGuideTopY: 100, boundsHeight: 0) == 0)
+    }
 }

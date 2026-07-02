@@ -28,7 +28,12 @@ struct TerminalViewportCoordinator {
             chromeHidden: inputs.chromeHidden
         )
 
-        let bottomEdge = max(0, inputs.chromeHidden ? bounds.height : bounds.height - occupancy)
+        // Dock frames follow the LIVE keyboard edge while it moves (the sampled
+        // guide position), and the target occupancy at steady state. The grid
+        // reservation below stays on the target so the PTY resizes exactly once
+        // per keyboard change while the chrome glides.
+        let dockOccupancy = inputs.chromeHidden ? 0 : (inputs.liveBottomOccupancy ?? occupancy)
+        let bottomEdge = max(0, inputs.chromeHidden ? bounds.height : bounds.height - dockOccupancy)
         let effectiveComposerHeight = inputs.chromeHidden ? 0 : inputs.composerBandHeight
         let composerTop = bottomEdge - effectiveComposerHeight
         let composerY = max(0, composerTop)
@@ -57,7 +62,8 @@ struct TerminalViewportCoordinator {
         let liveViewportHeight = liveViewportHeight(
             inputs: inputs,
             boundsHeight: bounds.height,
-            fallbackHeight: layoutViewport.height
+            fallbackHeight: layoutViewport.height,
+            liveToolbarTop: inputs.liveBottomOccupancy != nil ? toolbarFrame.minY : nil
         )
         return TerminalViewportSnapshot(
             bounds: bounds,
@@ -78,10 +84,19 @@ struct TerminalViewportCoordinator {
     private func liveViewportHeight(
         inputs: TerminalViewportInputs,
         boundsHeight: CGFloat,
-        fallbackHeight: CGFloat
+        fallbackHeight: CGFloat,
+        liveToolbarTop: CGFloat?
     ) -> CGFloat {
-        guard inputs.chromeVisible,
-              let frame = inputs.toolbarPresentationFrame ?? inputs.toolbarFrame,
+        guard inputs.chromeVisible else { return fallbackHeight }
+        // Keyboard in motion: the toolbar frame just computed from the sampled
+        // guide occupancy IS the live dock position (the dock is frame-set from
+        // it this same tick), so the render viewport bottom sits exactly on it.
+        if let liveToolbarTop {
+            return min(max(1, liveToolbarTop), max(1, boundsHeight))
+        }
+        // Non-keyboard dock animations (HIDE/show, composer close) still move
+        // the toolbar with UIView.animate, so follow its presentation frame.
+        guard let frame = inputs.toolbarPresentationFrame ?? inputs.toolbarFrame,
               !frame.isNull,
               !frame.isEmpty else {
             return fallbackHeight
