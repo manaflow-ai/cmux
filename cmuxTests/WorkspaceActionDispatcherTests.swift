@@ -114,8 +114,8 @@ struct WorkspaceActionDispatcherTests {
         #expect(plan.orderedWorkspaceIds == [first.id, second.id])
         #expect(plan.firstWorkspaceId == first.id)
         #expect(!plan.focusFirstMove)
-        #expect(plan.followUpMoves.map(\.workspaceId) == [second.id])
-        #expect(plan.followUpMoves.map(\.focus) == [true])
+        #expect(plan.followUpMoves.map({ $0.workspaceId }) == [second.id])
+        #expect(plan.followUpMoves.map({ $0.focus }) == [true])
     }
 
     @Test
@@ -130,7 +130,7 @@ struct WorkspaceActionDispatcherTests {
         #expect(plan.orderedWorkspaceIds == [first.id, second.id, third.id])
         #expect(plan.firstWorkspaceId == first.id)
         #expect(!plan.focusFirstMove)
-        #expect(plan.followUpMoves.map(\.workspaceId) == [second.id, third.id])
-        #expect(plan.followUpMoves.map(\.focus) == [false, true])
+        #expect(plan.followUpMoves.map({ $0.workspaceId }) == [second.id, third.id])
+        #expect(plan.followUpMoves.map({ $0.focus }) == [false, true])
     }
 }
