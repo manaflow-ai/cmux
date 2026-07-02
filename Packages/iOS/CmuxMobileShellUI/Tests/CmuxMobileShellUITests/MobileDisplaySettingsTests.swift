@@ -40,6 +40,20 @@ import Testing
         #expect(MobileDisplaySettings(defaults: defaults).workspacePreviewLineCount == 1)
     }
 
+    @Test func compactWorkspaceListDefaultsToOffWithoutAWrite() throws {
+        let defaults = try makeDefaults("compactDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(settings.compactWorkspaceList == false)
+        #expect(defaults.object(forKey: "cmux.mobile.compactWorkspaceList") == nil)
+    }
+
+    @Test func compactWorkspaceListPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("compactPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.compactWorkspaceList = true
+        #expect(MobileDisplaySettings(defaults: defaults).compactWorkspaceList == true)
+    }
+
     @Test func debugLayoutSettingsDefaultWithoutAWrite() throws {
         let defaults = try makeDefaults("debugLayoutDefaults")
         let settings = MobileDisplaySettings(defaults: defaults)

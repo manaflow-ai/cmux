@@ -52,6 +52,7 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 - Notifications forward to the phone only while you are away from the Mac (#5912); push tap deep-links to the right workspace once it can be navigated to (#5927); cross-device dismiss-sync with an authoritative unread badge (#5916).
 - Sign-out is local-first and works offline; revocation is best-effort and bounded (#5776).
 - Workspace list: groups, unread dots, last-activity previews, shared Unread filter (#5726).
+- Compact Workspace List toggle in Settings > Display: name-only rows with the unread dot, one line tall; swipe and hold actions unchanged (#7169).
 - Watchdog fix: render-grid liveness probes before teardown, fixing a false-fire replay loop (#5869).
 - Dogfood focus: hit the composer (send + drafts), View as Text, pair a Mac via the new QR, lock the phone and confirm a forwarded notification taps through to the right workspace, sign out with airplane mode on.
 

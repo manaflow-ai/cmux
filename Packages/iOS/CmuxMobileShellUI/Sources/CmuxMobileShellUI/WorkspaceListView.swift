@@ -21,6 +21,8 @@ struct WorkspaceListView: View {
     /// single line. Passed in as a value snapshot so no `@Observable` store
     /// crosses the `List` boundary.
     let wrapWorkspaceTitles: Bool
+    /// Compact (name-only) row presentation ("Compact Workspace List" setting).
+    var compactList: Bool = false
     /// How many lines each row's activity preview shows (1 or 2). Passed in as
     /// a value snapshot so no `@Observable` store crosses the `List` boundary.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
@@ -523,6 +525,7 @@ struct WorkspaceListView: View {
             isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
             navigationStyle: navigationStyle,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
+            isCompact: compactList,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
             profilePictureLeftShift: profilePictureLeftShift,
@@ -537,7 +540,7 @@ struct WorkspaceListView: View {
                 confirmCloseWorkspace()
             } : nil
         )
-        .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
+        .listRowInsets(EdgeInsets(top: compactList ? 2 : 4, leading: indented ? 32 : 12, bottom: compactList ? 2 : 4, trailing: 12))
         .listRowSeparator(.hidden)
     }
 

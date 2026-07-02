@@ -21,6 +21,7 @@ public final class MobileDisplaySettings {
     // `init` and the write-through in `didSet` are safe nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
+    private static let compactWorkspaceListKey = "cmux.mobile.compactWorkspaceList"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
@@ -48,6 +49,14 @@ public final class MobileDisplaySettings {
     /// this writes through to the injected ``UserDefaults``.
     public var wrapWorkspaceTitles: Bool {
         didSet { defaults.set(wrapWorkspaceTitles, forKey: Self.wrapWorkspaceTitlesKey) }
+    }
+
+    /// Whether the workspace list uses the compact presentation: each row is
+    /// just the unread dot and the workspace name (no avatar, preview, or
+    /// timestamp), so many more workspaces fit on screen. Defaults to `false`.
+    /// Mutating this writes through to the injected ``UserDefaults``.
+    public var compactWorkspaceList: Bool {
+        didSet { defaults.set(compactWorkspaceList, forKey: Self.compactWorkspaceListKey) }
     }
 
     /// How many lines a workspace row's activity preview shows (1 or 2).
@@ -99,6 +108,7 @@ public final class MobileDisplaySettings {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
+        self.compactWorkspaceList = defaults.bool(forKey: Self.compactWorkspaceListKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount
