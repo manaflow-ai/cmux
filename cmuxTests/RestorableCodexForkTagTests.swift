@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,7 +7,8 @@ import XCTest
 @testable import cmux
 #endif
 
-final class RestorableCodexForkTagTests: XCTestCase {
+struct RestorableCodexForkTagTests {
+    @Test
     func testRestoredCodexForkPreservesPromptTagsWhenForkedAgain() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -50,14 +51,14 @@ final class RestorableCodexForkTagTests: XCTestCase {
             ]
         )
 
-        let snapshot = try XCTUnwrap(
+        let snapshot = try #require(
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: workspaceId, panelId: panelId)
         )
-        let fork = try XCTUnwrap(snapshot.forkCommand)
-        XCTAssertTrue(
+        let fork = try #require(snapshot.forkCommand)
+        #expect(
             fork.contains("'fork' '\(sessionId)' 'tag-one' 'tag two' '--model' 'gpt-5'"),
-            "forking a restored forked session must preserve every prompt tag; got: \(fork)"
+            Comment(rawValue: "forking a restored forked session must preserve every prompt tag; got: \(fork)")
         )
     }
 

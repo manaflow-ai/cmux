@@ -77,11 +77,67 @@ public enum AgentLaunchSanitizer {
     }
 
     public static func preservedArguments(kind: String, args: [String]) -> [String]? {
+        func preserveCodexFork(_ preservePromptTags: Bool) -> [String]? {
+            func dropForkPositionals(_ args: [String], forkCommand: CodexForkCommand) -> [String] {
+                var result: [String] = []
+                var index = 0
+                var skippedSession = false
+
+                while index < args.count {
+                    let arg = args[index]
+                    if arg == "--" { break }
+                    if index == forkCommand.forkIndex { index += 1; continue }
+                    if index == forkCommand.sessionIndex { skippedSession = true; index += 1; continue }
+                    if !arg.hasPrefix("-") || arg == "-" {
+                        if skippedSession && preservePromptTags { result.append(arg) }
+                        index += 1
+                        continue
+                    }
+
+                    let width = optionWidth(args, index: index, policy: codexPolicy)
+                    let end = min(args.count, index + width)
+                    if codexPolicy.variadicOptions.contains(arg),
+                       forkCommand.forkIndex > index,
+                       forkCommand.forkIndex < end {
+                        if forkCommand.forkIndex > index + 1 {
+                            result.append(contentsOf: args[index..<forkCommand.forkIndex])
+                        }
+                        index = forkCommand.forkIndex
+                        continue
+                    }
+                    if codexPolicy.variadicOptions.contains(arg),
+                       forkCommand.sessionIndex > index,
+                       forkCommand.sessionIndex < end {
+                        if forkCommand.sessionIndex > index + 1 {
+                            result.append(contentsOf: args[index..<forkCommand.sessionIndex])
+                        }
+                        index = forkCommand.sessionIndex
+                        continue
+                    }
+                    result.append(contentsOf: args[index..<end])
+                    index += width
+                }
+
+                return result
+            }
+
+            var tail = args; var preservePositionals = false
+            if let forkCommand = codexForkCommand(in: tail) {
+                tail = dropForkPositionals(tail, forkCommand: forkCommand); preservePositionals = preservePromptTags
+            }
+            var policy = codexPolicy; policy.preservePositionals = preservePositionals
+            if preservePositionals {
+                policy.nonRestorableCommands = []
+            }
+            return preserveOptions(tail, policy: policy)
+        }
         switch kind {
         case "claude":
             return preserveOptions(args, policy: claudePolicy)
         case "codex":
             return preserveOptions(args, policy: codexPolicy)
+        case "codex-fork-replay": return preserveCodexFork(true)
+        case "codex-fork-restore": return preserveCodexFork(false)
         case "grok":
             return preserveOptions(args, policy: grokPolicy)
         case "pi", "omp":
@@ -202,15 +258,6 @@ public enum AgentLaunchSanitizer {
         }
         return false
     }
-    public static func preservedCodexForkArguments(args: [String], preservePromptTags: Bool = false) -> [String]? {
-        var tail = args
-        if let forkCommand = codexForkCommand(in: tail) {
-            tail = dropCodexForkPositionals(tail, forkCommand: forkCommand)
-        }
-        var policy = codexPolicy; policy.preservePositionals = preservePromptTags
-        return preserveOptions(tail, policy: policy)
-    }
-
     public static func removingSavedWorkingDirectoryOptions(
         from args: [String],
         workingDirectory: String?
@@ -250,7 +297,7 @@ public enum AgentLaunchSanitizer {
 
     private static func preservedCodexLaunchArguments(args: [String]) -> [String]? {
         if codexForkCommand(in: args) != nil {
-            return preservedCodexForkArguments(args: args)
+            return preservedArguments(kind: "codex-fork-restore", args: args)
         }
         return preservedArguments(kind: "codex", args: args)
     }
@@ -387,54 +434,6 @@ public enum AgentLaunchSanitizer {
             guard let consumedPromptBoundary = consumePromptBoundaryOption(arg, args: args, index: &index, width: width, policy: policy, result: &result) else { return nil }
             if consumedPromptBoundary { continue }
             result.append(contentsOf: args[index..<min(args.count, index + width)])
-            index += width
-        }
-
-        return result
-    }
-
-    private static func dropCodexForkPositionals(_ args: [String], forkCommand: CodexForkCommand) -> [String] {
-        var result: [String] = []
-        var index = 0
-        var skippedSession = false
-
-        while index < args.count {
-            let arg = args[index]
-            if arg == "--" {
-                break
-            }
-            if index == forkCommand.forkIndex {
-                index += 1
-                continue
-            }
-            if index == forkCommand.sessionIndex { skippedSession = true; index += 1; continue }
-            if !arg.hasPrefix("-") || arg == "-" {
-                if skippedSession { result.append(arg) }
-                index += 1
-                continue
-            }
-
-            let width = optionWidth(args, index: index, policy: codexPolicy)
-            let end = min(args.count, index + width)
-            if codexPolicy.variadicOptions.contains(arg),
-               forkCommand.forkIndex > index,
-               forkCommand.forkIndex < end {
-                if forkCommand.forkIndex > index + 1 {
-                    result.append(contentsOf: args[index..<forkCommand.forkIndex])
-                }
-                index = forkCommand.forkIndex
-                continue
-            }
-            if codexPolicy.variadicOptions.contains(arg),
-               forkCommand.sessionIndex > index,
-               forkCommand.sessionIndex < end {
-                if forkCommand.sessionIndex > index + 1 {
-                    result.append(contentsOf: args[index..<forkCommand.sessionIndex])
-                }
-                index = forkCommand.sessionIndex
-                continue
-            }
-            result.append(contentsOf: args[index..<end])
             index += width
         }
 

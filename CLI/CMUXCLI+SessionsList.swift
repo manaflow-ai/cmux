@@ -114,6 +114,7 @@ extension CMUXCLI {
         let surfaceFilter = sessionsListNormalizedIDRef(surfaceRaw)?.lowercased()
         let cwdFilter = sessionsListNormalized(cwdRaw)?.lowercased()
         var codexIndexes: [String: CodexSessionListIndex] = [:]
+        let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: homeDirectory)
         var entries: [SessionListEntry] = []
         var stores: [[String: Any]] = []
 
@@ -173,7 +174,7 @@ extension CMUXCLI {
                     sessionsListForkDiagnostics(
                         agent: spec.name,
                         record: record,
-                        homeDirectory: homeDirectory
+                        claudeTranscriptLookup: claudeTranscriptLookup
                     ),
                     uniquingKeysWith: { _, new in new }
                 )

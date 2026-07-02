@@ -2,19 +2,175 @@ import Foundation
 import CMUXAgentLaunch
 import Darwin
 
+final class SessionsListClaudeTranscriptLookupCache {
+    private let homeDirectory: String
+    private var defaultRoots: [String]?
+    private var projectDirsByConfigRoot: [String: [String]] = [:]
+    private var transcriptPathByProjectRootAndSession: [String: String] = [:]
+    private var missingTranscriptPathByProjectRootAndSession: Set<String> = []
+    private var transcriptPathByConfigRootAndSession: [String: String] = [:]
+    private var missingTranscriptPathByConfigRootAndSession: Set<String> = []
+
+    init(homeDirectory: String) {
+        self.homeDirectory = homeDirectory
+    }
+
+    func configRoots(record: ClaudeHookSessionRecord) -> [String] {
+        if let configured = normalized(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) {
+            return [
+                ClaudeConfigDirectoryPath.preferredPath(
+                    expandedPath(configured),
+                    fileManager: .default,
+                    homeDirectory: homeDirectory
+                ),
+            ]
+        }
+
+        if let defaultRoots { return defaultRoots }
+
+        var roots: [String] = []
+        var seen: Set<String> = []
+        func appendRoot(_ path: String) {
+            let standardized = (path as NSString).standardizingPath
+            guard seen.insert(standardized).inserted else { return }
+            roots.append(standardized)
+        }
+
+        let accountRoot = (homeDirectory as NSString).appendingPathComponent(".codex-accounts/claude")
+        if directoryExists(atPath: accountRoot),
+           let accountDirs = try? FileManager.default.contentsOfDirectory(atPath: accountRoot) {
+            for accountDir in accountDirs.sorted() {
+                appendRoot((accountRoot as NSString).appendingPathComponent(accountDir))
+            }
+        }
+        appendRoot((homeDirectory as NSString).appendingPathComponent(".claude"))
+        appendRoot(
+            ClaudeConfigDirectoryPath.preferredPath(
+                (homeDirectory as NSString).appendingPathComponent(".subrouter/codex/claude"),
+                fileManager: .default,
+                homeDirectory: homeDirectory
+            )
+        )
+
+        defaultRoots = roots
+        return roots
+    }
+
+    func transcriptPath(configRoot: String, projectDirName: String, sessionId: String) -> String? {
+        let standardizedRoot = (configRoot as NSString).standardizingPath
+        let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
+        let projectRoot = ((projectsRoot as NSString).appendingPathComponent(projectDirName) as NSString)
+            .standardizingPath
+        let key = cacheKey(projectRoot, sessionId)
+        if let cached = transcriptPathByProjectRootAndSession[key] { return cached }
+        if missingTranscriptPathByProjectRootAndSession.contains(key) { return nil }
+
+        let path = transcriptPath(inProjectRoot: projectRoot, sessionId: sessionId)
+        if let path {
+            transcriptPathByProjectRootAndSession[key] = path
+        } else {
+            missingTranscriptPathByProjectRootAndSession.insert(key)
+        }
+        return path
+    }
+
+    func transcriptPathInAnyProject(configRoot: String, sessionId: String) -> String? {
+        let standardizedRoot = (configRoot as NSString).standardizingPath
+        let key = cacheKey(standardizedRoot, sessionId)
+        if let cached = transcriptPathByConfigRootAndSession[key] { return cached }
+        if missingTranscriptPathByConfigRootAndSession.contains(key) { return nil }
+
+        for projectDir in projectDirs(configRoot: standardizedRoot) {
+            if let path = transcriptPath(
+                configRoot: standardizedRoot,
+                projectDirName: projectDir,
+                sessionId: sessionId
+            ) {
+                transcriptPathByConfigRootAndSession[key] = path
+                return path
+            }
+        }
+        missingTranscriptPathByConfigRootAndSession.insert(key)
+        return nil
+    }
+
+    private func projectDirs(configRoot: String) -> [String] {
+        let standardizedRoot = (configRoot as NSString).standardizingPath
+        if let cached = projectDirsByConfigRoot[standardizedRoot] { return cached }
+        let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
+        guard directoryExists(atPath: projectsRoot),
+              let projectDirs = try? FileManager.default.contentsOfDirectory(atPath: projectsRoot) else {
+            projectDirsByConfigRoot[standardizedRoot] = []
+            return []
+        }
+        projectDirsByConfigRoot[standardizedRoot] = projectDirs
+        return projectDirs
+    }
+
+    private func transcriptPath(inProjectRoot projectRoot: String, sessionId: String) -> String? {
+        guard directoryExists(atPath: projectRoot) else { return nil }
+        let directPath = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
+        if regularNonEmptyFileExists(atPath: directPath) { return directPath }
+
+        let nestedMessagesPath = (((projectRoot as NSString)
+            .appendingPathComponent(sessionId) as NSString)
+            .appendingPathComponent("messages") as NSString)
+            .appendingPathComponent("\(sessionId).jsonl")
+        if regularNonEmptyFileExists(atPath: nestedMessagesPath) { return nestedMessagesPath }
+        return nil
+    }
+
+    private func regularNonEmptyFileExists(atPath path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? NSNumber else {
+            return false
+        }
+        return size.intValue > 0
+    }
+
+    private func directoryExists(atPath path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func expandedPath(_ value: String) -> String {
+        (value as NSString).expandingTildeInPath
+    }
+
+    private func cacheKey(_ prefix: String, _ sessionId: String) -> String {
+        prefix + "\u{0}" + sessionId
+    }
+}
+
 extension CMUXCLI {
     func sessionsListForkDiagnostics(
         agent: String,
         record: ClaudeHookSessionRecord,
-        homeDirectory: String
+        claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
     ) -> [String: Any] {
         let storedPIDExists = sessionsListStoredPIDExists(record.pid)
         let hookRecordRestorable = sessionsListHookRecordRestorable(
             agent: agent,
             record: record,
-            homeDirectory: homeDirectory
+            claudeTranscriptLookup: claudeTranscriptLookup
         )
-        let forkArguments = hookRecordRestorable ? sessionsListForkArguments(agent: agent, record: record) : nil
+        let trustedLaunchCommand = sessionsListTrustedLaunchCommand(agent: agent, record: record)
+        let forkArguments = hookRecordRestorable ? sessionsListForkArguments(
+            agent: agent,
+            record: record,
+            launchCommand: trustedLaunchCommand
+        ) : nil
         let forkCommandAvailable = forkArguments != nil
         let support = sessionsListForkSupport(
             agent: agent,
@@ -24,7 +180,12 @@ extension CMUXCLI {
         )
         let forkSupported = support.supported
         let forkStartupInputAvailable = forkArguments.map {
-            sessionsListForkStartupInputAvailable(arguments: $0, agent: agent, record: record)
+            sessionsListForkStartupInputAvailable(
+                arguments: $0,
+                agent: agent,
+                record: record,
+                launchCommand: trustedLaunchCommand
+            )
         } ?? false
         let unavailableReason: String
         if forkSupported {
@@ -43,16 +204,74 @@ extension CMUXCLI {
             "fork_unavailable_reason": unavailableReason,
             "fork_startup_input_available": forkStartupInputAvailable,
             "hook_record_restorable": hookRecordRestorable,
-            "stale_pid_blocks_restore_in_0_64_17": hookRecordRestorable && record.pid != nil,
+            "stale_pid_blocks_restore_in_0_64_17": sessionsListStalePIDBlocksRestoreIn06417(
+                agent: agent,
+                record: record,
+                hookRecordRestorable: hookRecordRestorable
+            ),
         ]
         diagnostics["stored_pid_exists"] = storedPIDExists ?? NSNull()
         return diagnostics
     }
 
+    private func sessionsListStalePIDBlocksRestoreIn06417(
+        agent: String,
+        record: ClaudeHookSessionRecord,
+        hookRecordRestorable: Bool
+    ) -> Bool {
+        guard hookRecordRestorable, let pid = record.pid else { return false }
+        return !sessionsListStoredPIDStillMatchesLaunch(agent: agent, record: record, pid: pid)
+    }
+
+    private func sessionsListStoredPIDStillMatchesLaunch(
+        agent: String,
+        record: ClaudeHookSessionRecord,
+        pid: Int
+    ) -> Bool {
+        guard let process = sessionsListProcessIdentity(for: pid),
+              sessionsListProcessStartTimeMatchesRecord(process.startTime, record: record) else {
+            return false
+        }
+        let literalCaseInsensitive: String.CompareOptions = [.caseInsensitive, .literal]
+        guard let recordedExecutable = sessionsListRecordedExecutableBasename(record),
+              let liveExecutable = sessionsListProcessExecutableBasename(process) else {
+            return true
+        }
+        if liveExecutable.compare(recordedExecutable, options: literalCaseInsensitive) == .orderedSame {
+            return true
+        }
+        guard agent == "claude" else { return false }
+        let liveBase = liveExecutable.lowercased()
+        guard liveBase == "node" || liveBase == "bun" else { return false }
+        return process.arguments.dropFirst().contains { argument in
+            let lowered = argument.lowercased()
+            return sessionsListExecutableBasename(argument).compare("claude", options: literalCaseInsensitive) == .orderedSame
+                || lowered.contains("/.claude/")
+                || lowered.contains("/claude/versions/")
+        }
+    }
+
+    private func sessionsListProcessExecutableBasename(_ process: SessionsListProcessIdentity) -> String? {
+        if let executablePath = sessionsListNormalized(process.executablePath) {
+            return sessionsListExecutableBasename(executablePath)
+        }
+        return process.arguments.first.map(sessionsListExecutableBasename)
+    }
+
+    private func sessionsListRecordedExecutableBasename(_ record: ClaudeHookSessionRecord) -> String? {
+        let executable = sessionsListNormalized(record.launchCommand?.executablePath)
+            ?? record.launchCommand?.arguments.first.flatMap(sessionsListNormalized)
+        return executable.map(sessionsListExecutableBasename)
+    }
+
+    private func sessionsListExecutableBasename(_ value: String) -> String {
+        (value as NSString).lastPathComponent
+    }
+
     private func sessionsListHookRecordRestorable(
         agent: String,
         record: ClaudeHookSessionRecord,
-        homeDirectory: String
+        claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
     ) -> Bool {
         guard agent == "claude" else {
             return record.isRestorable != false
@@ -63,8 +282,7 @@ extension CMUXCLI {
            ) {
             return true
         }
-        return sessionsListClaudeTranscriptExists(record: record, homeDirectory: homeDirectory)
-            || record.isRestorable != false
+        return sessionsListClaudeTranscriptExists(record: record, lookup: claudeTranscriptLookup)
     }
 
     private func sessionsListRegularNonEmptyFileExists(atPath path: String) -> Bool {
@@ -80,122 +298,29 @@ extension CMUXCLI {
 
     private func sessionsListClaudeTranscriptExists(
         record: ClaudeHookSessionRecord,
-        homeDirectory: String
+        lookup: SessionsListClaudeTranscriptLookupCache
     ) -> Bool {
         guard sessionsListClaudeSessionIdIsSafeFilename(record.sessionId) else {
             return false
         }
-        let roots = sessionsListClaudeConfigRoots(record: record, homeDirectory: homeDirectory)
+        let roots = lookup.configRoots(record: record)
         guard !roots.isEmpty else { return false }
 
         let cwd = sessionsListNormalized(record.cwd) ?? sessionsListNormalized(record.launchCommand?.workingDirectory)
         for root in roots {
             if let cwd,
-               sessionsListClaudeTranscriptPath(
+               lookup.transcriptPath(
                    configRoot: root,
                    projectDirName: sessionsListEncodeClaudeProjectDir(cwd),
                    sessionId: record.sessionId
                ) != nil {
                 return true
             }
-            if sessionsListClaudeTranscriptPathInAnyProject(configRoot: root, sessionId: record.sessionId) != nil {
+            if lookup.transcriptPathInAnyProject(configRoot: root, sessionId: record.sessionId) != nil {
                 return true
             }
         }
         return false
-    }
-
-    private func sessionsListClaudeConfigRoots(
-        record: ClaudeHookSessionRecord,
-        homeDirectory: String
-    ) -> [String] {
-        if let configured = sessionsListNormalized(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) {
-            return [
-                ClaudeConfigDirectoryPath.preferredPath(
-                    sessionsListExpandedPath(configured),
-                    fileManager: .default,
-                    homeDirectory: homeDirectory
-                ),
-            ]
-        }
-
-        var roots: [String] = []
-        var seen: Set<String> = []
-        func appendRoot(_ path: String) {
-            let standardized = (path as NSString).standardizingPath
-            guard seen.insert(standardized).inserted else { return }
-            roots.append(standardized)
-        }
-
-        let accountRoot = (homeDirectory as NSString).appendingPathComponent(".codex-accounts/claude")
-        if sessionsListDirectoryExists(atPath: accountRoot),
-           let accountDirs = try? FileManager.default.contentsOfDirectory(atPath: accountRoot) {
-            for accountDir in accountDirs.sorted() {
-                appendRoot((accountRoot as NSString).appendingPathComponent(accountDir))
-            }
-        }
-        appendRoot((homeDirectory as NSString).appendingPathComponent(".claude"))
-        appendRoot(
-            ClaudeConfigDirectoryPath.preferredPath(
-                (homeDirectory as NSString).appendingPathComponent(".subrouter/codex/claude"),
-                fileManager: .default,
-                homeDirectory: homeDirectory
-            )
-        )
-        return roots
-    }
-
-    private func sessionsListClaudeTranscriptPath(
-        configRoot: String,
-        projectDirName: String,
-        sessionId: String
-    ) -> String? {
-        let projectsRoot = ((configRoot as NSString).standardizingPath as NSString)
-            .appendingPathComponent("projects")
-        let projectRoot = ((projectsRoot as NSString).appendingPathComponent(projectDirName) as NSString)
-            .standardizingPath
-        return sessionsListClaudeTranscriptPath(inProjectRoot: projectRoot, sessionId: sessionId)
-    }
-
-    private func sessionsListClaudeTranscriptPathInAnyProject(
-        configRoot: String,
-        sessionId: String
-    ) -> String? {
-        let projectsRoot = (((configRoot as NSString).standardizingPath as NSString)
-            .appendingPathComponent("projects") as NSString)
-            .standardizingPath
-        guard sessionsListDirectoryExists(atPath: projectsRoot),
-              let projectDirs = try? FileManager.default.contentsOfDirectory(atPath: projectsRoot) else {
-            return nil
-        }
-        for projectDir in projectDirs {
-            if let path = sessionsListClaudeTranscriptPath(
-                configRoot: configRoot,
-                projectDirName: projectDir,
-                sessionId: sessionId
-            ) {
-                return path
-            }
-        }
-        return nil
-    }
-
-    private func sessionsListClaudeTranscriptPath(inProjectRoot projectRoot: String, sessionId: String) -> String? {
-        guard sessionsListDirectoryExists(atPath: projectRoot) else { return nil }
-
-        let directPath = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
-        if sessionsListRegularNonEmptyFileExists(atPath: directPath) {
-            return directPath
-        }
-
-        let nestedMessagesPath = (((projectRoot as NSString)
-            .appendingPathComponent(sessionId) as NSString)
-            .appendingPathComponent("messages") as NSString)
-            .appendingPathComponent("\(sessionId).jsonl")
-        if sessionsListRegularNonEmptyFileExists(atPath: nestedMessagesPath) {
-            return nestedMessagesPath
-        }
-        return nil
     }
 
     private func sessionsListClaudeSessionIdIsSafeFilename(_ sessionId: String) -> Bool {
@@ -241,9 +366,6 @@ extension CMUXCLI {
            !FileManager.default.isExecutableFile(atPath: executable) {
             return (false, "opencode_executable_missing")
         }
-        if sessionsListOpenCodeVersionProbeSupportsFork(record) {
-            return (true, "available")
-        }
         return (false, "opencode_version_unverified")
     }
 
@@ -265,102 +387,19 @@ extension CMUXCLI {
         return record.launchCommand?.arguments.first.flatMap(sessionsListNormalized)
     }
 
-    private func sessionsListOpenCodeVersionProbeSupportsFork(_ record: ClaudeHookSessionRecord) -> Bool {
-        guard let executable = sessionsListOpenCodeProbeExecutable(record) else {
-            return false
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [executable, "--version"]
-        process.environment = sessionsListOpenCodeProbeEnvironment(record)
-        if let workingDirectory = sessionsListNormalized(record.launchCommand?.workingDirectory ?? record.cwd),
-           sessionsListDirectoryExists(atPath: workingDirectory) {
-            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
-        }
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        do {
-            try process.run()
-        } catch {
-            return false
-        }
-        guard ((try? waitForProcessExit(process, timeout: 2.0)) ?? false) else {
-            process.terminate()
-            _ = try? waitForProcessExit(process, timeout: 0.5)
-            return false
-        }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else {
-            return false
-        }
-        return sessionsListOpenCodeVersionSupportsFork(output)
-    }
-
-    private func sessionsListOpenCodeProbeEnvironment(_ record: ClaudeHookSessionRecord) -> [String: String] {
-        let safeBaseKeys = ["HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "TMPDIR", "USER"]
-        var environment: [String: String] = [:]
-        let baseEnvironment = ProcessInfo.processInfo.environment
-        for key in safeBaseKeys {
-            if let value = baseEnvironment[key],
-               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                environment[key] = value
-            }
-        }
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(
-            from: record.launchCommand?.environment ?? [:]
-        )
-        for (key, value) in selectedEnvironment {
-            environment[key] = value
-        }
-        if let path = record.launchCommand?.environment?["PATH"],
-           !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            environment["PATH"] = path
-        } else if environment["PATH"] == nil {
-            environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        }
-        return environment
-    }
-
-    private func sessionsListOpenCodeVersionSupportsFork(_ output: String) -> Bool {
-        guard let version = sessionsListFirstSemanticVersion(in: output) else {
-            return false
-        }
-        return version >= (1, 14, 50)
-    }
-
-    private func sessionsListFirstSemanticVersion(in output: String) -> (Int, Int, Int)? {
-        let pattern = #"\b(\d+)\.(\d+)\.(\d+)\b"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(
-                  in: output,
-                  range: NSRange(output.startIndex..<output.endIndex, in: output)
-              ),
-              match.numberOfRanges == 4,
-              let majorRange = Range(match.range(at: 1), in: output),
-              let minorRange = Range(match.range(at: 2), in: output),
-              let patchRange = Range(match.range(at: 3), in: output),
-              let major = Int(output[majorRange]),
-              let minor = Int(output[minorRange]),
-              let patch = Int(output[patchRange]) else {
-            return nil
-        }
-        return (major, minor, patch)
-    }
-
     private func sessionsListForkArguments(
         agent: String,
-        record: ClaudeHookSessionRecord
+        record: ClaudeHookSessionRecord,
+        launchCommand: AgentHookLaunchCommandRecord?
     ) -> [String]? {
         let normalizedSessionId = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedSessionId.isEmpty else { return nil }
         let forkArgv = AgentForkArgv()
         switch forkArgv.launcherResolution(
-            launcher: record.launchCommand?.launcher,
+            launcher: launchCommand?.launcher,
             sessionId: normalizedSessionId,
-            executablePath: record.launchCommand?.executablePath,
-            arguments: record.launchCommand?.arguments ?? []
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
         ) {
         case .resolved(let argv):
             return argv
@@ -368,62 +407,10 @@ extension CMUXCLI {
             return forkArgv.builtInKind(
                 kind: agent,
                 sessionId: normalizedSessionId,
-                executablePath: record.launchCommand?.executablePath,
-                arguments: record.launchCommand?.arguments ?? []
+                executablePath: launchCommand?.executablePath,
+                arguments: launchCommand?.arguments ?? []
             )
         }
-    }
-
-    private func sessionsListForkStartupInputAvailable(
-        arguments: [String],
-        agent: String,
-        record: ClaudeHookSessionRecord
-    ) -> Bool {
-        let command = sessionsListForkShellCommand(arguments: arguments, agent: agent, record: record)
-        return (command + "\n").utf8.count <= 900
-    }
-
-    private func sessionsListForkShellCommand(
-        arguments: [String],
-        agent: String,
-        record: ClaudeHookSessionRecord
-    ) -> String {
-        var commandParts: [String] = []
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(
-            from: record.launchCommand?.environment ?? [:],
-            kind: agent
-        )
-        if !selectedEnvironment.isEmpty {
-            commandParts.append("env")
-            for key in selectedEnvironment.keys.sorted() {
-                guard let value = selectedEnvironment[key] else { continue }
-                commandParts.append("\(key)=\(value)")
-            }
-        }
-        commandParts.append(contentsOf: arguments)
-
-        let workingDirectory = sessionsListNormalized(record.launchCommand?.workingDirectory ?? record.cwd)
-        let sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
-            from: commandParts,
-            workingDirectory: workingDirectory
-        )
-        let shellCommand = agent == "claude"
-            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
-                parts: sanitizedCommandParts,
-                quote: sessionsListShellSingleQuoted
-            )
-            : sanitizedCommandParts.map(sessionsListShellSingleQuoted).joined(separator: " ")
-        return sessionsListWorkingDirectoryPrefixed(shellCommand, workingDirectory: workingDirectory)
-    }
-
-    private func sessionsListWorkingDirectoryPrefixed(_ command: String, workingDirectory: String?) -> String {
-        guard let workingDirectory else { return command }
-        let quoted = sessionsListShellSingleQuoted(workingDirectory)
-        return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && \(command)"
-    }
-
-    private func sessionsListShellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func sessionsListStoredPIDExists(_ pid: Int?) -> Bool? {

@@ -63,6 +63,64 @@ struct AgentForkArgvTests {
         )
     }
 
+    @Test("Codex fork captures preserve command-shaped prompt tags")
+    func codexForkCapturesPreserveCommandShapedPromptTags() {
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "codex",
+                sessionId: "CHILD",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "fork",
+                    "019ef275-74e3-7777-9773-9dcb118ed5ad",
+                    "exec",
+                    "review",
+                    "help",
+                    "fork",
+                    "--model",
+                    "gpt-5"
+                ]
+            ) == ["/opt/bin/codex", "fork", "CHILD", "exec", "review", "help", "fork", "--model", "gpt-5"]
+        )
+    }
+
+    @Test("Codex normal prompt captures do not replay prompts when forked")
+    func codexNormalPromptCapturesDoNotReplayPrompts() {
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "codex",
+                sessionId: "CHILD",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "--model",
+                    "gpt-5",
+                    "initial prompt should not replay",
+                ]
+            ) == ["/opt/bin/codex", "fork", "CHILD", "--model", "gpt-5"]
+        )
+    }
+
+    @Test("Codex fork captures preserve options after prompt tags")
+    func codexForkCapturesPreserveOptionsAfterPromptTags() {
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "codex",
+                sessionId: "CHILD",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "fork",
+                    "019ef275-74e3-7777-9773-9dcb118ed5ad",
+                    "tag-one",
+                    "--sandbox",
+                    "danger-full-access",
+                ]
+            ) == ["/opt/bin/codex", "fork", "CHILD", "tag-one", "--sandbox", "danger-full-access"]
+        )
+    }
+
     @Test("cmux wrapper launchers use fork verbs")
     func launcherWrappersUseForkVerbs() {
         #expect(
