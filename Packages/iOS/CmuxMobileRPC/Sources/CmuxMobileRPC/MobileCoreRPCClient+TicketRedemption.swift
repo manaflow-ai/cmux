@@ -17,6 +17,10 @@ extension MobileCoreRPCClient {
     /// Merge a freshly `redeemed` ticket over the `scanned` QR ticket, preferring
     /// redeemed fields and filling gaps from the scan, then stamping the resolved
     /// `ticketRef`. Routes stay the scanned set (the redeem reply omits them).
+    ///
+    /// Empty or whitespace-only `workspaceID`/`terminalID` in the reply are treated
+    /// as gaps and fall back to the scanned scope, so a partial redeem response can
+    /// never widen the ticket past the workspace/terminal the QR was scoped to.
     func redeemedTicket(
         _ redeemed: CmxAttachTicket,
         ticketRef: String,
@@ -24,8 +28,10 @@ extension MobileCoreRPCClient {
     ) throws -> CmxAttachTicket {
         try CmxAttachTicket(
             version: redeemed.version,
-            workspaceID: redeemed.workspaceID,
-            terminalID: redeemed.terminalID,
+            workspaceID: redeemed.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? scanned.workspaceID : redeemed.workspaceID,
+            terminalID: redeemed.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? redeemed.terminalID : scanned.terminalID,
             macDeviceID: redeemed.macDeviceID.isEmpty ? scanned.macDeviceID : redeemed.macDeviceID,
             macDisplayName: redeemed.macDisplayName ?? scanned.macDisplayName,
             macUserEmail: redeemed.macUserEmail ?? scanned.macUserEmail,
