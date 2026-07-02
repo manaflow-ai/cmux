@@ -101,9 +101,10 @@ extension TerminalController {
     /// disagreement returns `nil` so the caller fails closed rather than acting
     /// on a Dock the caller did not name. (The alias agrees by construction:
     /// an explicit `window_id` already selected `tabManager`.) An explicit
-    /// owner id likewise wins over surface/pane containment; a mismatched
-    /// routed surface/pane then fails the downstream `containsPanel`/
-    /// `containsPane` guards.
+    /// owner id likewise wins over surface/pane containment, but only when any
+    /// explicit Dock surface/pane selector does not name a different window
+    /// Dock. Contradictory Dock selectors fail closed here because read-style
+    /// callers do not all perform later `containsPanel`/`containsPane` guards.
     ///
     /// A NON-Dock `workspace_id` deliberately does NOT conflict with Dock
     /// surface/pane containment here (unlike the browser resolvers'
@@ -115,7 +116,8 @@ extension TerminalController {
     /// specific selector, matching the retired Global Dock's semantics.
     func windowDockForRouting(_ routing: ControlRoutingSelectors, tabManager: TabManager) -> DockSplitStore? {
         func matches(_ dock: DockSplitStore) -> Bool {
-            !windowDockMismatchesExplicitWindow(routing, dock: dock)
+            !windowDockMismatchesExplicitWindow(routing, dock: dock) &&
+                !windowDockMismatchesExplicitDockSurfaceOrPane(routing, dock: dock)
         }
         if let workspaceID = routing.workspaceID {
             if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
@@ -143,12 +145,31 @@ extension TerminalController {
         return dock.workspaceId != requestedWindowID
     }
 
+    /// Whether a routed surface or pane explicitly belongs to another window
+    /// Dock. Non-Dock surface/pane ids are not conflicts here: the CLI can
+    /// inject a main-workspace `workspace_id` beside a globally unique Dock
+    /// surface id, and the surface/pane id remains the more specific selector.
+    func windowDockMismatchesExplicitDockSurfaceOrPane(_ routing: ControlRoutingSelectors, dock: DockSplitStore) -> Bool {
+        if let surfaceID = routing.surfaceID,
+           let containingDock = windowDockContainingPanel(surfaceID),
+           containingDock !== dock {
+            return true
+        }
+        if let paneID = routing.paneID,
+           let containingDock = windowDockContainingPane(paneID),
+           containingDock !== dock {
+            return true
+        }
+        return false
+    }
+
     /// Whether the routing explicitly names a DIFFERENT window Dock than
     /// `dock` — via `window_id` or a Dock-owner `workspace_id`. Used by the
     /// surface-containment paths that bypass `windowDockForRouting`; a
     /// non-Dock `workspace_id` never conflicts (see `windowDockForRouting`).
     func windowDockMismatchesExplicitSelectors(_ routing: ControlRoutingSelectors, dock: DockSplitStore) -> Bool {
         if windowDockMismatchesExplicitWindow(routing, dock: dock) { return true }
+        if windowDockMismatchesExplicitDockSurfaceOrPane(routing, dock: dock) { return true }
         guard let workspaceID = routing.workspaceID,
               workspaceID != AppDelegate.windowDockAliasWorkspaceId,
               AppDelegate.shared?.existingWindowDock(forWindowId: workspaceID) != nil else { return false }

@@ -221,6 +221,19 @@ struct WindowDockRoutingSocketTests {
             let conflictError = try #require(conflictEnvelope["error"] as? [String: Any])
             #expect(conflictError["code"] as? String == "invalid_params")
 
+            // Read-style Dock commands share the same fail-closed selector
+            // semantics; they do not have later surface/pane containment guards.
+            let readSurfaceConflict = try v2Envelope(method: "surface.list", params: [
+                "workspace_id": activeWindowId.uuidString,
+                "surface_id": otherDockSurfaceId.uuidString,
+            ])
+            #expect(readSurfaceConflict["ok"] as? Bool == false)
+            let readPaneConflict = try v2Envelope(method: "pane.list", params: [
+                "workspace_id": activeWindowId.uuidString,
+                "pane_id": otherPane.id.uuidString,
+            ])
+            #expect(readPaneConflict["ok"] as? Bool == false)
+
             // A workspace_id naming a NON-Dock scope contradicts a Dock surface
             // selector the same way.
             let workspaceScopeConflict = try v2Envelope(method: "browser.tab.list", params: [
