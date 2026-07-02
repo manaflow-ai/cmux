@@ -442,11 +442,9 @@ struct WorkspaceDetailView: View {
 
         #if canImport(UIKit)
         Section {
-            // Only while the terminal pane is showing: in browser mode the
-            // terminal surface is dismantled (nothing to capture) and the
-            // sheet modifier lives on `detailContent`, so the armed flag
-            // would pop the sheet later when the browser closes.
-            if activeBrowser == nil {
+            // Only while the terminal pane is showing: browser and chat modes
+            // do not mount a terminal surface for text capture.
+            if activeBrowser == nil && !isChatMode {
                 Button(action: openTextSheetFromMenu) {
                     Label(
                         L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
