@@ -80,73 +80,96 @@ extension MobileShellComposite {
     }
 
     /// Output authored for a producer grid this phone cannot render faithfully
-    /// was withheld: pace a recovery attempt — re-assert the viewport report so
-    /// the Mac re-caps the shared grid, and hold the surface's output behind a
-    /// replay barrier until a fitting replay repaints it.
+    /// was withheld: hold the surface's output behind a replay barrier until a
+    /// fitting replay repaints it, and (paced) re-assert the viewport report so
+    /// the Mac re-caps the shared grid.
+    ///
+    /// Only the spammable recovery actions are paced (the report RPC and
+    /// replay restarts/nudges). Barrier installation and withheld-output
+    /// recording are never paced: a diverged producer with no active barrier
+    /// must hold the stream immediately, or raw bytes splice rows during the
+    /// pacing window (e.g. a second divergence right after a replay-driven
+    /// convergence, which leaves the pacing timestamp warm).
     func holdTerminalOutputForOversizedGrid(
         columns: Int,
         rows: Int,
         surfaceID: String,
         source: String
     ) {
+        let hasSink = terminalByteContinuationsBySurfaceID[surfaceID] != nil
         let now = Date()
+        if hasSink, terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil {
+            // Install the barrier now, even when an unbarriered replay (e.g.
+            // the mount-time cold-attach replay) is in flight —
+            // `beginTerminalReplayBarrier` cancels it, and its response would
+            // carry the same diverged grid anyway. The withheld frame is
+            // recorded after the barrier reset so empty/not-delivered replay
+            // responses keep the recovery alive.
+            let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+            recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
+            requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+            oversizedTerminalGridRecoveryLastAttemptsBySurfaceID[surfaceID] = now
+            logOversizedGridHold(columns: columns, rows: rows, surfaceID: surfaceID, source: source)
+            reassertReportedViewport(surfaceID: surfaceID)
+            return
+        }
+        if hasSink {
+            // The withheld output must register on the live barrier so an
+            // empty or not-delivered replay response preserves/retries the
+            // recovery instead of releasing the still-diverged stream.
+            recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
+        }
         if let lastAttempt = oversizedTerminalGridRecoveryLastAttemptsBySurfaceID[surfaceID],
            now.timeIntervalSince(lastAttempt) < Self.oversizedTerminalGridRecoveryInterval {
             return
         }
         oversizedTerminalGridRecoveryLastAttemptsBySurfaceID[surfaceID] = now
+        logOversizedGridHold(columns: columns, rows: rows, surfaceID: surfaceID, source: source)
+        reassertReportedViewport(surfaceID: surfaceID)
+        // Leave an in-flight barrier replay alone; otherwise nudge the
+        // recovery along.
+        guard hasSink, !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else { return }
+        if terminalReplayFailureRetryExhausted(surfaceID: surfaceID) {
+            // The previous barrier exhausted its bounded replay retries while
+            // the producer stayed diverged. Restart it (which resets the retry
+            // budget) at the recovery pace so convergence keeps being attempted
+            // instead of wedging a permanently held stream.
+            let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+            recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
+            requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+        } else if let existingToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
+            requestTerminalReplay(
+                surfaceID: surfaceID,
+                replayBarrierToken: existingToken,
+                coveredReplayBarrierDroppedOutputCount:
+                    terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
+            )
+        }
+    }
+
+    private func logOversizedGridHold(
+        columns: Int,
+        rows: Int,
+        surfaceID: String,
+        source: String
+    ) {
         let reported = reportedTerminalViewportGridsBySurfaceID[surfaceID]
         MobileDebugLog.anchormux(
             "terminal.output.oversized_grid source=\(source) surface=\(surfaceID) " +
                 "frame=\(columns)x\(rows) " +
                 "reported=\(reported.map { "\($0.columns)x\($0.rows)" } ?? "nil")"
         )
-        if let reported {
-            Task { @MainActor [weak self] in
-                _ = await self?.updateTerminalViewport(
-                    surfaceID: surfaceID,
-                    columns: reported.columns,
-                    rows: reported.rows
-                )
-            }
+    }
+
+    private func reassertReportedViewport(surfaceID: String) {
+        guard let reported = reportedTerminalViewportGridsBySurfaceID[surfaceID] else { return }
+        Task { @MainActor [weak self] in
+            _ = await self?.updateTerminalViewport(
+                surfaceID: surfaceID,
+                columns: reported.columns,
+                rows: reported.rows
+            )
         }
-        guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else { return }
-        if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
-            // The withheld output must register on the live barrier so an
-            // empty or not-delivered replay response preserves/retries the
-            // recovery instead of releasing the still-diverged stream.
-            recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
-            // Leave an in-flight barrier replay alone; otherwise nudge the
-            // recovery along.
-            guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else { return }
-            if terminalReplayFailureRetryExhausted(surfaceID: surfaceID) {
-                // The previous barrier exhausted its bounded replay retries
-                // while the producer stayed diverged. Restart it (which resets
-                // the retry budget) at the recovery pace so convergence keeps
-                // being attempted instead of wedging a permanently held stream.
-                let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
-                recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
-                requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
-            } else if let existingToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
-                requestTerminalReplay(
-                    surfaceID: surfaceID,
-                    replayBarrierToken: existingToken,
-                    coveredReplayBarrierDroppedOutputCount:
-                        terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
-                )
-            }
-            return
-        }
-        // No barrier yet: install one now, even when an unbarriered replay
-        // (e.g. the mount-time cold-attach replay) is in flight —
-        // `beginTerminalReplayBarrier` cancels it, and its response would carry
-        // the same diverged grid anyway. Without this, live bytes keep flowing
-        // under the diverged grid for the whole in-flight window. The withheld
-        // frame is recorded after the barrier reset so empty/not-delivered
-        // replay responses keep the recovery alive.
-        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
-        recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
-        requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
 
     /// A replay response still carries an oversized grid (the Mac has not

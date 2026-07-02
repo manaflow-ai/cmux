@@ -583,6 +583,92 @@ private func unsequencedTerminalBytesEventFrame(
 }
 
 @MainActor
+@Test func rapidRedivergenceAfterReplayConvergenceReinstallsBarrier() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 0,
+        text: "pre-probe"
+    ))
+    let probeDelivered = try await pollUntil { collector.lines.contains { $0.contains("pre-probe") } }
+    #expect(probeDelivered, "raw bytes must flow before the oversized frame arrives")
+
+    _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    let replayBaseline = await router.count(of: "mobile.terminal.replay")
+
+    let convergedFrames = try (0..<3).map { index in
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 40 + UInt64(index),
+            columns: 20,
+            rows: 6,
+            full: true,
+            rowSpans: [
+                MobileTerminalRenderGridFrame.RowSpan(row: 0, column: 0, styleID: 0, text: "converged"),
+            ]
+        )
+    }
+    await router.enqueueReplayRenderGridFrames(convergedFrames)
+
+    // First divergence converges via the replay path (which does not run the
+    // live fitting-frame ingest), leaving the recovery pacing timestamp warm.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 20,
+        columns: 90,
+        rows: 40,
+        text: "oversized",
+        full: false
+    ))
+    let firstConverged = try await pollUntil { collector.lines.contains { $0.contains("converged") } }
+    #expect(firstConverged, "the first recovery must repaint the mirror")
+
+    // The Mac diverges again within the pacing interval. The barrier must be
+    // reinstalled immediately — pacing may skip the report/replay spam, never
+    // the hold.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 50,
+        columns: 90,
+        rows: 40,
+        text: "oversized-again",
+        full: false
+    ))
+    let sawSecondRecoveryReplay = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= replayBaseline + 2
+    }
+    #expect(
+        sawSecondRecoveryReplay,
+        "a second divergence within the pacing interval must reinstall the barrier and arm its replay"
+    )
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 9,
+        text: "SPLICE-BYTES"
+    ))
+    _ = try await pollUntil(attempts: 30) { collector.lines.contains { $0.contains("SPLICE-BYTES") } }
+    #expect(
+        collector.lines.contains { $0.contains("SPLICE-BYTES") } == false,
+        "bytes for a rapid re-divergence must be held even while the recovery pacing is warm"
+    )
+    #expect(
+        collector.lines.contains { $0.contains("oversized-again") } == false,
+        "the re-diverged frame must never paint"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func fittingRenderGridFramesKeepOutputFlowing() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
