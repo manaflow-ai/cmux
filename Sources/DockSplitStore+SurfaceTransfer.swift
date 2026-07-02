@@ -54,6 +54,7 @@ extension DockSplitStore {
             isLoading: isLoading,
             isPinned: false,
             directory: nil,
+            directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: nil,
             customTitle: nil,
@@ -113,13 +114,18 @@ extension DockSplitStore {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
-        applyVisibility(to: panel)
-        recordExplicitPanelCreation()
-        if focus {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(newTabId)
-            applyDockSelection(tabId: newTabId, inPane: paneId)
-            panel.focus()
+        withCoalescedTerminalViewReattach {
+            applyVisibility(to: panel)
+            if let terminal = panel as? TerminalPanel {
+                requestTerminalViewReattach(terminal)
+            }
+            recordExplicitPanelCreation()
+            if focus {
+                bonsplitController.focusPane(paneId)
+                bonsplitController.selectTab(newTabId)
+                applyDockSelection(tabId: newTabId, inPane: paneId)
+                panel.focus()
+            }
         }
         return detached.panelId
     }
