@@ -182,9 +182,3 @@ struct AccessibilityWindowCacheTests {
         #expect(buildCount == 2, "Expected NSWindow.willCloseNotification to invalidate the cache")
     }
 }
-
-private final class HelpTagWindow: NSWindow {
-    override func accessibilityRole() -> NSAccessibility.Role? {
-        .helpTag
-    }
-}
