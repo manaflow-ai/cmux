@@ -14,21 +14,6 @@ extension MobileCoreRPCClient {
         return ticketRef
     }
 
-    /// Resolve one scope field (`workspaceID`/`terminalID`), keeping the scanned QR
-    /// scope authoritative. A non-empty scanned value always wins, so a redeemed
-    /// reply can only fill a field the scan left empty (the compact `v=3` grammar
-    /// always scans empty scope) and can never retarget the ticket to a *different*
-    /// non-empty scope than the QR the user actually scanned. Whitespace-only values
-    /// count as empty.
-    private static func scopeFieldPreferringScanned(scanned: String?, redeemed: String?) -> String? {
-        let scannedIsEmpty = scanned?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
-        if !scannedIsEmpty {
-            return scanned
-        }
-        let redeemedIsEmpty = redeemed?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
-        return redeemedIsEmpty ? scanned : redeemed
-    }
-
     /// Merge a freshly `redeemed` ticket over the `scanned` QR ticket, then stamp the
     /// resolved `ticketRef`. Routes stay the scanned set (the redeem reply omits them).
     ///
@@ -44,9 +29,9 @@ extension MobileCoreRPCClient {
     ) throws -> CmxAttachTicket {
         try CmxAttachTicket(
             version: redeemed.version,
-            workspaceID: Self.scopeFieldPreferringScanned(
+            workspaceID: scopeFieldPreferringScanned(
                 scanned: scanned.workspaceID, redeemed: redeemed.workspaceID) ?? scanned.workspaceID,
-            terminalID: Self.scopeFieldPreferringScanned(
+            terminalID: scopeFieldPreferringScanned(
                 scanned: scanned.terminalID, redeemed: redeemed.terminalID),
             macDeviceID: redeemed.macDeviceID.isEmpty ? scanned.macDeviceID : redeemed.macDeviceID,
             macDisplayName: redeemed.macDisplayName ?? scanned.macDisplayName,
@@ -62,4 +47,18 @@ extension MobileCoreRPCClient {
             authToken: redeemed.authToken
         )
     }
+}
+
+/// Resolve one scope field (`workspaceID`/`terminalID`), keeping the scanned QR scope
+/// authoritative. A non-empty scanned value always wins, so a redeemed reply can only
+/// fill a field the scan left empty (the compact `v=3` grammar always scans empty scope)
+/// and can never retarget the ticket to a *different* non-empty scope than the QR the
+/// user actually scanned. Whitespace-only values count as empty.
+private func scopeFieldPreferringScanned(scanned: String?, redeemed: String?) -> String? {
+    let scannedIsEmpty = scanned?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+    if !scannedIsEmpty {
+        return scanned
+    }
+    let redeemedIsEmpty = redeemed?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+    return redeemedIsEmpty ? scanned : redeemed
 }
