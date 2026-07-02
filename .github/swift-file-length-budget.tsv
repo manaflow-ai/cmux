@@ -133,10 +133,10 @@
 762	Packages/iOS/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
 761	Sources/Mobile/AgentChat/AgentChatSessionRegistry.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
+755	Sources/Panels/MarkdownPanel.swift
 754	Sources/TerminalController+ControlWorkspaceContext.swift
 752	Sources/TerminalController+Notes.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
-747	Sources/Panels/MarkdownPanel.swift
 739	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 738	Packages/macOS/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 724	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift

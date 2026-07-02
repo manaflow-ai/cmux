@@ -435,6 +435,14 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
             self.typographyDefaultsObserver = nil
         }
+        if let relocationObserver {
+            NotificationCenter.default.removeObserver(relocationObserver)
+            self.relocationObserver = nil
+        }
+        if let retitleObserver {
+            NotificationCenter.default.removeObserver(retitleObserver)
+            self.retitleObserver = nil
+        }
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
