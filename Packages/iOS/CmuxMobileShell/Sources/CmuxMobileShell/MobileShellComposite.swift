@@ -553,10 +553,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// keyboard, while push-notification navigation (``selectTerminal(_:)``) is
     /// intentionally left out of the set and allowed to autofocus.
     private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
-    /// Set while a chrome-initiated selected-terminal close is awaiting the
-    /// authoritative refresh. If that refresh repairs selection to a replacement
-    /// terminal, the replacement must mount without stealing the keyboard.
-    @ObservationIgnored private var suppressAutoFocusOnNextTerminalRepair = false
+    /// Chrome-initiated selected-terminal closes awaiting their authoritative
+    /// refresh. If a refresh repairs selection away from one of these terminals,
+    /// the replacement must mount without stealing the keyboard.
+    @ObservationIgnored private var terminalCloseRepairSuppressionTerminalIDs: Set<MobileTerminalPreview.ID> = []
 
     let runtime: (any MobileSyncRuntime)?
     let pairedMacStore: (any MobilePairedMacStoring)?
@@ -4148,11 +4148,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the visible surface, so they leave autofocus behavior unchanged.
     func beginSelectedTerminalCloseAutoFocusSuppression(for terminalID: MobileTerminalPreview.ID) {
         guard selectedTerminalID == terminalID else { return }
-        suppressAutoFocusOnNextTerminalRepair = true
+        terminalCloseRepairSuppressionTerminalIDs.insert(terminalID)
     }
 
-    func endSelectedTerminalCloseAutoFocusSuppression() {
-        suppressAutoFocusOnNextTerminalRepair = false
+    func endSelectedTerminalCloseAutoFocusSuppression(for terminalID: MobileTerminalPreview.ID) {
+        terminalCloseRepairSuppressionTerminalIDs.remove(terminalID)
     }
 
     /// Whether the surface for `terminalID` may grab the keyboard on its next
@@ -5653,15 +5653,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             selectedTerminalID = nil
             return
         }
+        let previousSelectedTerminalID = selectedTerminalID
         if let selectedTerminalID,
            let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
            selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
             return
         }
         let repairedTerminalID = selectedWorkspace.preferredTerminal?.id
-        if suppressAutoFocusOnNextTerminalRepair {
+        if let previousSelectedTerminalID,
+           terminalCloseRepairSuppressionTerminalIDs.remove(previousSelectedTerminalID) != nil {
             suppressTerminalAutoFocusOnNextAttach(for: repairedTerminalID)
-            suppressAutoFocusOnNextTerminalRepair = false
         }
         selectedTerminalID = repairedTerminalID
     }

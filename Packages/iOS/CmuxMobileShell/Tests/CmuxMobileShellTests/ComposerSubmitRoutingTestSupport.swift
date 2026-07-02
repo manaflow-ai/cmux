@@ -44,7 +44,11 @@ actor RoutingHostRouter {
     private(set) var pastes: [PasteRecord] = []
     private(set) var terminalCloses: [(workspaceID: String, surfaceID: String)] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
+    private var terminalIDs = [Self.terminalA, Self.terminalB]
     private var closedTerminalIDs: Set<String> = []
+    private var terminalCloseRequestCount = 0
+    private var heldTerminalCloseRequestNumbers: Set<Int> = []
+    private var heldTerminalCloseContinuations: [CheckedContinuation<Void, Never>] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
     private var holdFirstPasteImage = false
@@ -56,6 +60,12 @@ actor RoutingHostRouter {
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
     static let terminalB = "term-route-b"
+    static let terminalC = "term-route-c"
+
+    /// Configure the workspace-list fixture's terminals. Defaults to A/B.
+    func setTerminalIDs(_ terminalIDs: [String]) {
+        self.terminalIDs = terminalIDs
+    }
 
     /// Reject every terminal.paste_image with an error frame, modeling a host
     /// that cannot accept the image (the composer must keep the attachment).
@@ -96,6 +106,25 @@ actor RoutingHostRouter {
         rejectTerminalClose = reject
     }
 
+    /// Hold the Nth terminal.close response (1-based) until explicitly released.
+    func holdTerminalCloseRequest(number: Int) {
+        heldTerminalCloseRequestNumbers.insert(number)
+    }
+
+    func releaseNextHeldTerminalClose() {
+        guard !heldTerminalCloseContinuations.isEmpty else { return }
+        heldTerminalCloseContinuations.removeFirst().resume()
+    }
+
+    func releaseAllHeldTerminalCloses() {
+        heldTerminalCloseRequestNumbers.removeAll()
+        let continuations = heldTerminalCloseContinuations
+        heldTerminalCloseContinuations = []
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
     func recordedTerminalCloses() -> [(workspaceID: String, surfaceID: String)] { terminalCloses }
@@ -119,24 +148,16 @@ actor RoutingHostRouter {
         let id = info.id
         switch method {
         case "workspace.list", "mobile.workspace.list":
-            let terminals = [
-                [
-                    "id": Self.terminalA,
-                    "title": "A",
+            let focusedTerminalID = terminalIDs.first { !closedTerminalIDs.contains($0) }
+            let terminals: [[String: Any]] = terminalIDs.enumerated().compactMap { index, terminalID in
+                guard !closedTerminalIDs.contains(terminalID) else { return nil }
+                return [
+                    "id": terminalID,
+                    "title": String(Character(UnicodeScalar(65 + index)!)),
                     "current_directory": "/tmp/route",
                     "is_ready": true,
-                    "is_focused": !closedTerminalIDs.contains(Self.terminalA),
-                ],
-                [
-                    "id": Self.terminalB,
-                    "title": "B",
-                    "current_directory": "/tmp/route",
-                    "is_ready": true,
-                    "is_focused": closedTerminalIDs.contains(Self.terminalA),
-                ],
-            ].filter { terminal in
-                guard let id = terminal["id"] as? String else { return true }
-                return !closedTerminalIDs.contains(id)
+                    "is_focused": terminalID == focusedTerminalID,
+                ]
             }
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": [
@@ -184,7 +205,14 @@ actor RoutingHostRouter {
         case "terminal.close":
             let workspaceID = info.workspaceID ?? ""
             let surfaceID = info.surfaceID ?? ""
+            terminalCloseRequestCount += 1
+            let requestNumber = terminalCloseRequestCount
             terminalCloses.append((workspaceID: workspaceID, surfaceID: surfaceID))
+            if heldTerminalCloseRequestNumbers.remove(requestNumber) != nil {
+                await withCheckedContinuation { continuation in
+                    heldTerminalCloseContinuations.append(continuation)
+                }
+            }
             if rejectTerminalClose {
                 return try? Self.errorFrame(id: id, message: "terminal.close rejected")
             }

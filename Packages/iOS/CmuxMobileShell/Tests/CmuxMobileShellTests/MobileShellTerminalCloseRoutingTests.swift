@@ -27,6 +27,57 @@ import Testing
         #expect(store.shouldAutoFocusTerminalSurface(terminalB.rawValue) == true)
     }
 
+    /// Overlapping selected-terminal closes must not share one global
+    /// suppression bit. If close A completes while close B is still in flight,
+    /// A's cleanup must not disarm B's pending selection-repair suppression.
+    @Test func overlappingSelectedTerminalClosesKeepRepairSuppressionScoped() async throws {
+        let router = RoutingHostRouter()
+        await router.setTerminalIDs([
+            RoutingHostRouter.terminalA,
+            RoutingHostRouter.terminalB,
+            RoutingHostRouter.terminalC,
+        ])
+        await router.holdTerminalCloseRequest(number: 1)
+        await router.holdTerminalCloseRequest(number: 2)
+        defer {
+            Task { await router.releaseAllHeldTerminalCloses() }
+        }
+        let store = try await makeRoutingConnectedStore(router: router)
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: RoutingHostRouter.workspaceID)
+        let terminalA = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA)
+        let terminalB = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalB)
+        let terminalC = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalC)
+        seedTerminalCloseWorkspace(
+            on: store,
+            supportsTerminalClose: true,
+            terminals: [
+                MobileTerminalPreview(id: terminalA, name: "A"),
+                MobileTerminalPreview(id: terminalB, name: "B"),
+                MobileTerminalPreview(id: terminalC, name: "C"),
+            ]
+        )
+        store.selectedWorkspaceID = workspaceID
+        store.selectedTerminalID = terminalA
+
+        let closeA = Task { await store.closeTerminal(workspaceID: workspaceID, terminalID: terminalA) }
+        try #require(await pollUntil { await router.recordedTerminalCloses().count >= 1 })
+
+        store.selectedTerminalID = terminalB
+        let closeB = Task { await store.closeTerminal(workspaceID: workspaceID, terminalID: terminalB) }
+        try #require(await pollUntil { await router.recordedTerminalCloses().count >= 2 })
+
+        await router.releaseNextHeldTerminalClose()
+        await closeA.value
+        #expect(store.selectedTerminalID == terminalB)
+        #expect(store.shouldAutoFocusTerminalSurface(terminalC.rawValue))
+
+        await router.releaseNextHeldTerminalClose()
+        await closeB.value
+        #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalC])
+        #expect(store.selectedTerminalID == terminalC)
+        #expect(store.shouldAutoFocusTerminalSurface(terminalC.rawValue) == false)
+    }
+
     /// A rejected close must not desync the list: the post-mutation refresh keeps
     /// iOS on the Mac's authoritative state.
     @Test func closeTerminalRestoresRowWhenMacRejectsClose() async throws {
