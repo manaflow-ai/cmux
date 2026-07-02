@@ -49,7 +49,10 @@ final class MobileBottomScrollStressCoordinator: NSObject, GhosttySurfaceViewDel
         _ = await waitUntil(timeoutNanoseconds: 2_000_000_000) {
             view.isBottomScrollStressAtBottom
         }
-        let initialTargetHeight = probeInt("targetViewportHeight", in: view.composerDockProbeValue) ?? Int(view.bounds.height)
+        guard let initialTargetHeight = probeInt("targetViewportHeight", in: view.composerDockProbeValue) else {
+            view.setBottomScrollStressPhase("timeout")
+            return
+        }
 
         let composer = UIView()
         composer.backgroundColor = .clear
@@ -71,9 +74,10 @@ final class MobileBottomScrollStressCoordinator: NSObject, GhosttySurfaceViewDel
                   let scrollAtBottom = self.probeInt("scrollAtBottom", in: probe) else {
                 return false
             }
+            let renderBottom = renderMinY + renderHeight
             return target <= initialTargetHeight - 100
                 && renderHeight <= target + 1
-                && renderMinY <= 1
+                && abs(renderBottom - target) <= 1
                 && scrollAtBottom == 1
         }) else {
             view.setBottomScrollStressPhase("timeout")
