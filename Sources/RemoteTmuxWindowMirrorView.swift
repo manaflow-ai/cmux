@@ -30,6 +30,14 @@ struct RemoteTmuxWindowMirrorView: View {
             // matches the on-screen grid.
             .onAppear { scheduleClientSize(geo.size) }
             .onChange(of: geo.size) { _, newSize in scheduleClientSize(newSize) }
+            // The size we report to tmux now depends on the pane COUNT — each split
+            // adds a separator column/row to the summed grid — so a split/close must
+            // re-push it. But a split changes `mirror.layout` without changing the
+            // outer tab area, so onChange(geo.size) never fires for it. Re-arm on the
+            // layout itself; otherwise the new pane keeps the pre-split size and the
+            // "%" strands again. (onAppear covers the 1→N mount into the mirror; this
+            // covers N→N±1 splits/closes within an already-mounted mirror.)
+            .onChange(of: mirror.layout) { _, _ in scheduleClientSize(geo.size) }
             .onDisappear { sizingRetryTask?.cancel() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
