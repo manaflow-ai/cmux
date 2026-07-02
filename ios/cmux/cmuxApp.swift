@@ -12,31 +12,27 @@ struct cmuxApp: App {
     /// The de-singletonized composition root: built once, injected down.
     @MainActor
     private static let root: AppCompositionRoot = {
-        // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
-        // the simulator and on DEBUG device builds so on-device XCUITests can
-        // attach to an in-runner mock host; release device builds keep only
-        // real transports.
-        // `debugLoopback` (127.0.0.1) is the Network.framework lane; iroh is the
-        // dial-by-EndpointId lane (plans/feat-ios-iroh/DESIGN.md). iroh is
-        // registered on simulator + DEBUG only for now; it stays inert until a
-        // Mac publishes an iroh route (PR 4), at which point `preferredRoute`
-        // picks it over tailscale on these builds.
+        // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac over the
+        // Network.framework lane. Enable it on the simulator and on DEBUG
+        // device builds so on-device XCUITests can attach to an in-runner mock
+        // host; release device builds keep only real transports.
         #if targetEnvironment(simulator) || DEBUG
         let networkKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
-        let irohEnabled = true
         #else
         let networkKinds: [CmxAttachTransportKind] = [.tailscale]
-        let irohEnabled = false
         #endif
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: networkKinds)
         var registrations = networkKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
         }
-        if irohEnabled {
-            registrations.append(
-                CmxRouteTransportFactoryRegistration(kind: .iroh, factory: CmxIrohByteTransportFactory())
-            )
-        }
+        // iroh (dial-by-EndpointId, plans/feat-ios-iroh/DESIGN.md) registers on
+        // EVERY build: the Mac's default transport mode is cmuxRelay, which
+        // publishes an iroh-only route, so a release phone that cannot dial
+        // iroh could not pair with a default-configured Mac at all. Inert when
+        // no scanned/stored route carries the kind.
+        registrations.append(
+            CmxRouteTransportFactoryRegistration(kind: .iroh, factory: CmxIrohByteTransportFactory())
+        )
         let transportFactory: CmxRouteTransportFactory
         do {
             transportFactory = try CmxRouteTransportFactory(registrations)

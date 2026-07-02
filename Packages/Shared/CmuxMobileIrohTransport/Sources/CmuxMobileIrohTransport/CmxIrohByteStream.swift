@@ -12,6 +12,16 @@ internal import CmuxIrohFFI
 /// calls run on a concurrent queue so an indefinite `receive()` never stalls a
 /// concurrent `close()`, which the registry-backed handle forces to return.
 public actor CmxIrohByteStream {
+    /// Upper bound on one `send`. Unlike `receive` (which legitimately waits
+    /// indefinitely for the peer's next frame and is unblocked by `close`), a
+    /// write only stalls when the peer stopped draining QUIC flow control — a
+    /// peer gone for this long is effectively dead. Without a bound, the Mac
+    /// host's `sendResponse` awaits forever, its response task pins the
+    /// connection registered with idle timeout suppressed, and enough stalled
+    /// peers wedge every mobile-host slot. On timeout the FFI returns an error,
+    /// the send throws, and both ends' callers close the connection.
+    private static let sendTimeoutMs: UInt64 = 30_000
+
     private var connection: OpaquePointer?
     private let maximumReceiveLength: Int
     private var didClose = false
@@ -82,7 +92,7 @@ public actor CmxIrohByteStream {
                         connectionBox.value,
                         bytePointer.baseAddress,
                         bytePointer.count,
-                        0,
+                        Self.sendTimeoutMs,
                         kindPtr,
                         errBuf,
                         cap
