@@ -55,6 +55,21 @@ import CmuxTerminalCore
         #expect(key.label == "pageUp")
     }
 
+    /// Shift+Tab (`ESC[Z`, back-tab) is an *interactive key*, not a terminal
+    /// report, so it is re-issued as a Shift+Tab key event and reaches the PTY
+    /// through libghostty's key encoding (which emits `ESC[Z`) instead of being
+    /// consumed by the terminal parser as cursor-backward-tab (a display-only
+    /// move). It is the raw-bytes sibling of the `backtab` named key in
+    /// `pendingKeyEvent(for:)`, and the one interactive CSI the iOS client
+    /// actually sends over the socket (a hardware Shift+Tab and the on-screen
+    /// ⇧+Tab accessory), so routing it to the parser would swallow reverse-focus
+    /// in TUIs like Claude Code.
+    @Test func shiftTabBackTabRoutesAsKeyEventNotTerminalParser() throws {
+        let key = try #require(singleKeyEvent(for: "\u{1B}[Z"))
+
+        #expect(key.label == "backTab")
+    }
+
     private func singleTerminalBytePayload(for text: String) -> Data? {
         let events = TerminalSurface.parsedSocketInputEvents(for: text)
         guard events.count == 1 else { return nil }

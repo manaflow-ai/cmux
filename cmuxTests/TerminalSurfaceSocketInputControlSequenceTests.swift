@@ -98,4 +98,32 @@ struct TerminalSurfaceSocketInputControlSequenceTests {
         #expect(pending.inputTextItems == 0)
         #expect(pending.pasteTextItems == 0)
     }
+
+    /// Verifies Shift+Tab (`ESC[Z`, back-tab) is re-issued as a single key event
+    /// rather than routed to the terminal output parser, so reverse-tab reaches
+    /// the PTY (libghostty encodes `ESC[Z`) instead of being consumed as a
+    /// display-only cursor-backward-tab move. This is the one interactive CSI key
+    /// the iOS client actually sends over the socket — a hardware Shift+Tab and
+    /// the on-screen ⇧+Tab accessory both forward `ESC[Z` through
+    /// `terminal.input` — so it must not be swallowed like the report/function-key
+    /// CSI above (TUIs such as Claude Code use back-tab for reverse-focus).
+    @Test
+    func coldSocketInputRoutesShiftTabAsKeyEvent() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        #expect(panel.surface.sendInput("\u{1B}[Z"))
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        #expect(
+            pending.keyEvents == 1,
+            "Shift+Tab must stay a single key event so libghostty encodes ESC[Z for the PTY."
+        )
+        #expect(
+            pending.processOutputItems == 0,
+            "Shift+Tab must not be routed to the terminal output parser (which would consume it as cursor-backward-tab)."
+        )
+        #expect(pending.inputTextItems == 0)
+        #expect(pending.pasteTextItems == 0)
+    }
 }
