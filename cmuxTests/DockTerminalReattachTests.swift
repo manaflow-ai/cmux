@@ -218,9 +218,9 @@ extension DockSocketLifecycleTests {
         #expect(panel.viewReattachToken == reattachTokenBefore + 1)
     }
 
-    @Test("Dock transfer preserves resumed-agent cwd rescue metadata")
+    @Test("Dock transfer drops transient resumed-agent cwd rescue state")
     @MainActor
-    func dockTransferPreservesResumedAgentCwdRescueMetadata() throws {
+    func dockTransferDropsTransientResumedAgentCwdRescueState() throws {
         let sourceWorkspaceId = UUID()
         let panel = DockTransferTestPanel()
         let store = DockSplitStore(
@@ -272,8 +272,8 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.panelId == panel.id)
         #expect(roundTripped.directory == trackedDirectory)
         #expect(roundTripped.restorableAgent?.sessionId == sessionId)
-        #expect(roundTripped.restorableAgentResumeState == .autoResumeCommandRunning)
-        #expect(roundTripped.restoredResumeSessionWorkingDirectory == sessionDirectory)
+        #expect(roundTripped.restorableAgentResumeState == nil)
+        #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.resumeBinding?.checkpointId == sessionId)
     }
 

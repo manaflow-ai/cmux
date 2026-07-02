@@ -4644,6 +4644,9 @@ final class Workspace: Identifiable, ObservableObject {
         restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         var restoredDirectoryIsDirectory: ObjCBool = false
         let restoredDirectoryStillExists = FileManager.default.fileExists(atPath: restoredDirectory, isDirectory: &restoredDirectoryIsDirectory) && restoredDirectoryIsDirectory.boolValue
+        if !restoredDirectoryStillExists {
+            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        }
 #if DEBUG
         cmuxDebugLog(
             "session.restore.cwdReport.\(restoredDirectoryStillExists ? "ignoredOnce" : "accepted") " +

@@ -561,6 +561,36 @@ struct AgentSessionAutoResumeSwiftTests {
         }
     }
 
+    @MainActor
+    @Test func splitFromResumedAgentPaneIgnoresRecreatedDeletedSessionDirectory() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-split-resume-deleted-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId) = try restoreWorkspaceWithAutoResumedClaudeAgent(
+                savedDirectory: projectDir
+            )
+            try FileManager.default.removeItem(atPath: projectDir)
+            let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeDir)
+            try #require(restored.panelDirectories[restoredPanelId] == homeDir)
+            #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
+
+            try FileManager.default.createDirectory(atPath: projectDir, withIntermediateDirectories: true)
+            restored.foregroundProcessWorkingDirectoryProvider = { _ in homeDir }
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == homeDir)
+        }
+    }
+
     /// Once the resumed agent exits (the pane's shell reaches a prompt again)
     /// the pane leaves the resumed state: inheritance returns to the tracked
     /// cwd and the live process is no longer inspected — the recovery the

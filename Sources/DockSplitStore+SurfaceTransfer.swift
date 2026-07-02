@@ -99,7 +99,7 @@ extension DockSplitStore {
         }
 
         panels[detached.panelId] = panel
-        detachedSurfaceTransfersByPanelId[detached.panelId] = detached
+        detachedSurfaceTransfersByPanelId[detached.panelId] = detached.withoutTransientRestoredAgentResumeState()
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,

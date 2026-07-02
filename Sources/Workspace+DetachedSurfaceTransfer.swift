@@ -40,6 +40,38 @@ extension Workspace {
         let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
 
+        func withoutTransientRestoredAgentResumeState() -> Self {
+            let keepsResumeState = restorableAgentResumeState == .manualResumeAvailable
+            return Self(
+                sourceWorkspaceId: sourceWorkspaceId,
+                panelId: panelId,
+                panel: panel,
+                title: title,
+                icon: icon,
+                iconImageData: iconImageData,
+                kind: kind,
+                isLoading: isLoading,
+                isPinned: isPinned,
+                directory: directory,
+                directoryDisplayLabel: directoryDisplayLabel,
+                ttyName: ttyName,
+                cachedTitle: cachedTitle,
+                customTitle: customTitle,
+                customTitleSource: customTitleSource,
+                manuallyUnread: manuallyUnread,
+                restoredUnreadIndicator: restoredUnreadIndicator,
+                restorableAgent: restorableAgent,
+                restorableAgentResumeState: keepsResumeState ? restorableAgentResumeState : nil,
+                restoredResumeSessionWorkingDirectory: keepsResumeState ? restoredResumeSessionWorkingDirectory : nil,
+                resumeBinding: resumeBinding,
+                agentRuntime: agentRuntime,
+                isRemoteTerminal: isRemoteTerminal,
+                remoteRelayPort: remoteRelayPort,
+                remotePTYSessionID: remotePTYSessionID,
+                remoteCleanupConfiguration: remoteCleanupConfiguration
+            )
+        }
+
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
             Self(
                 sourceWorkspaceId: sourceWorkspaceId,
