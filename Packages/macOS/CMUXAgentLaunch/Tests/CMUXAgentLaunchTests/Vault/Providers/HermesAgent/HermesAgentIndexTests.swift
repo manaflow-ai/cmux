@@ -102,6 +102,41 @@ struct HermesAgentIndexTests {
         #expect(turns[1].content.contains("pwd"))
     }
 
+    @Test("cwd-scoped loadSessions returns the newest matching cli/tui session, newest first")
+    func loadSessionsCwdFilterReturnsNewestMatchingSession() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+
+        let repoA = try makeDirectory(root.appendingPathComponent("repo-a", isDirectory: true))
+        let repoB = try makeDirectory(root.appendingPathComponent("repo-b", isDirectory: true))
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, cwd, title)
+        VALUES
+          ('a-old', 'cli', 'model-a', 10, '\(repoA)', 'A old'),
+          ('a-new', 'tui', 'model-b', 30, '\(repoA)', 'A new'),
+          ('b-newest', 'cli', 'model-c', 99, '\(repoB)', 'B newest');
+        """)
+
+        let scoped = HermesAgentIndex.loadSessions(
+            needle: "",
+            cwdFilter: repoA,
+            offset: 0,
+            limit: 10,
+            stateDBPath: dbURL.path
+        )
+
+        #expect(scoped.errors.isEmpty)
+        // Only repo-a sessions, newest first; the globally-newest repo-b session must NOT leak in.
+        #expect(scoped.sessions.map(\.sessionId) == ["a-new", "a-old"])
+    }
+
+    private func makeDirectory(_ url: URL, returningResolved: Bool = false) throws -> String {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return returningResolved ? url.resolvingSymlinksInPath().path : url.path
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hermes-index-\(UUID().uuidString)", isDirectory: true)
@@ -129,6 +164,9 @@ struct HermesAgentIndexTests {
           cache_read_tokens INTEGER DEFAULT 0,
           cache_write_tokens INTEGER DEFAULT 0,
           reasoning_tokens INTEGER DEFAULT 0,
+          cwd TEXT,
+          git_branch TEXT,
+          git_repo_root TEXT,
           billing_provider TEXT,
           billing_base_url TEXT,
           billing_mode TEXT,

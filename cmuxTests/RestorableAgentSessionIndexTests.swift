@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import Foundation
+import SQLite3
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -980,6 +981,192 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             record["transcriptPath"] = transcriptPath
         }
         return record
+    }
+
+    // MARK: - Hermes Agent state.db auto-resume — https://github.com/manaflow-ai/cmux/issues/7042
+
+    func testHermesProcessDetectedSnapshotResumesFromStateDB() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        try Self.writeHermesStateDB(at: stateDB, rows: [
+            (id: "hermes-old", source: "cli", startedAt: 10, cwd: repo.path),
+            (id: "hermes-current", source: "tui", startedAt: 40, cwd: repo.path),
+        ])
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path, fileManager: fm)
+        let process = CmuxTopProcessInfo(
+            pid: 7042,
+            parentPID: 1,
+            name: "hermes",
+            path: "/usr/local/bin/hermes",
+            ttyDevice: nil,
+            cmuxWorkspaceID: workspaceId,
+            cmuxSurfaceID: panelId,
+            cmuxAttributionReason: "cmux-test",
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processId == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["hermes", "--tui", "--model", "hermes-4"],
+                    environment: [
+                        "HERMES_HOME": hermesHome.path,
+                        "CMUX_AGENT_LAUNCH_CWD": repo.path,
+                    ]
+                )
+            }
+        )
+
+        // Before #7042 hermes had no built-in registration, so the pane recorded no snapshot at all.
+        XCTAssertEqual(detectedSnapshots.count, 1)
+        let detected = try XCTUnwrap(
+            detectedSnapshots.values.first,
+            "Hermes pane should record a resume snapshot; it was absent (the bug in #7042)"
+        )
+        XCTAssertEqual(detected.snapshot.kind.rawValue, "hermes-agent")
+        // The newest cli/tui session for this cwd, read from state.db (not the older one).
+        XCTAssertEqual(detected.snapshot.sessionId, "hermes-current")
+
+        let command = try XCTUnwrap(detected.snapshot.resumeCommand)
+        XCTAssertTrue(command.contains("--resume"), command)
+        XCTAssertTrue(command.contains("hermes-current"), command)
+        // The captured --tui/--model launch flags are replayed so a TUI session resumes in the TUI.
+        XCTAssertTrue(command.contains("--tui"), command)
+        XCTAssertTrue(command.contains("--model"), command)
+        XCTAssertTrue(command.contains("hermes-4"), command)
+    }
+
+    func testHermesProcessInUnknownCwdRecordsNoSnapshot() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-nomatch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        // The only session belongs to a different cwd, so this pane must not cross-bind to it.
+        try Self.writeHermesStateDB(at: stateDB, rows: [
+            (id: "other-cwd-session", source: "cli", startedAt: 40, cwd: root.appendingPathComponent("elsewhere").path),
+        ])
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path, fileManager: fm)
+        let process = CmuxTopProcessInfo(
+            pid: 7043,
+            parentPID: 1,
+            name: "hermes",
+            path: "/usr/local/bin/hermes",
+            ttyDevice: nil,
+            cmuxWorkspaceID: workspaceId,
+            cmuxSurfaceID: panelId,
+            cmuxAttributionReason: "cmux-test",
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processId == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["hermes"],
+                    environment: [
+                        "HERMES_HOME": hermesHome.path,
+                        "CMUX_AGENT_LAUNCH_CWD": root.appendingPathComponent("repo").path,
+                    ]
+                )
+            }
+        )
+
+        XCTAssertTrue(detectedSnapshots.isEmpty, "A recoverable miss must beat cross-binding another cwd's session")
+    }
+
+    private enum HermesStateDBTestError: Error { case open, sql(String) }
+
+    private static func writeHermesStateDB(
+        at url: URL,
+        rows: [(id: String, source: String, startedAt: Double, cwd: String?)]
+    ) throws {
+        var db: OpaquePointer?
+        guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            throw HermesStateDBTestError.open
+        }
+        defer { sqlite3_close(db) }
+        try execHermesSQL(db, """
+            CREATE TABLE sessions (
+              id TEXT PRIMARY KEY,
+              source TEXT NOT NULL,
+              model TEXT,
+              started_at REAL NOT NULL,
+              ended_at REAL,
+              cwd TEXT,
+              title TEXT
+            );
+            CREATE TABLE messages (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL,
+              role TEXT NOT NULL,
+              content TEXT,
+              tool_name TEXT,
+              tool_calls TEXT,
+              timestamp REAL NOT NULL
+            );
+            """)
+        for row in rows {
+            let cwdLiteral = row.cwd.map { "'\($0)'" } ?? "NULL"
+            try execHermesSQL(db, """
+                INSERT INTO sessions (id, source, model, started_at, cwd)
+                VALUES ('\(row.id)', '\(row.source)', 'model', \(row.startedAt), \(cwdLiteral));
+                """)
+        }
+    }
+
+    private static func execHermesSQL(_ db: OpaquePointer, _ sql: String) throws {
+        var error: UnsafeMutablePointer<Int8>?
+        guard sqlite3_exec(db, sql, nil, nil, &error) == SQLITE_OK else {
+            let message = error.map { String(cString: $0) } ?? "exec failed"
+            sqlite3_free(error)
+            throw HermesStateDBTestError.sql(message)
+        }
     }
 
     // A drifted hook record for an arbitrary (non-Claude) agent: the recorded runtime cwd differs
