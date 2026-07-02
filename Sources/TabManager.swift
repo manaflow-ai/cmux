@@ -770,7 +770,7 @@ class TabManager: ObservableObject {
         if let panel = selectedTerminalPanel {
             let hadExistingSearch = panel.searchState != nil
             panel.hostedView.preparePanelFocusIntentForActivation(.findField)
-            let recovery = recoveredFindSearch(
+            let recovery = FindSearchRecovery.resolve(
                 startsNewSearchSession: !hadExistingSearch,
                 lastNeedle: panel.surface.lastSearchNeedle
             )

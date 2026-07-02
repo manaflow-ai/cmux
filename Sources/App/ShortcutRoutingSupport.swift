@@ -531,19 +531,19 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
 struct FindSearchRecovery: Equatable {
     var needle: String
     var selectAll: Bool
-}
 
-func recoveredFindSearch(
-    startsNewSearchSession: Bool,
-    lastNeedle: String,
-    defaults: UserDefaults = .standard
-) -> FindSearchRecovery {
-    let key = AppCatalogSection().findRestoresLastSearch
-    let restoresLastSearch = defaults.object(forKey: key.userDefaultsKey) as? Bool ?? key.defaultValue
-    guard startsNewSearchSession, restoresLastSearch, !lastNeedle.isEmpty else {
-        return FindSearchRecovery(needle: "", selectAll: false)
+    static func resolve(
+        startsNewSearchSession: Bool,
+        lastNeedle: String,
+        defaults: UserDefaults = .standard
+    ) -> FindSearchRecovery {
+        let key = AppCatalogSection().findRestoresLastSearch
+        let restoresLastSearch = defaults.object(forKey: key.userDefaultsKey) as? Bool ?? key.defaultValue
+        guard startsNewSearchSession, restoresLastSearch, !lastNeedle.isEmpty else {
+            return FindSearchRecovery(needle: "", selectAll: false)
+        }
+        return FindSearchRecovery(needle: lastNeedle, selectAll: true)
     }
-    return FindSearchRecovery(needle: lastNeedle, selectAll: true)
 }
 
 // Main-actor isolated: TerminalSurface.searchState carries the legacy

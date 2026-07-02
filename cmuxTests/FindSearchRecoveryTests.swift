@@ -22,7 +22,7 @@ struct FindSearchRecoveryTests {
     @Test("New find session restores the last needle by default")
     func newSessionRestoresLastNeedleByDefault() throws {
         try withIsolatedDefaults { defaults in
-            let recovery = recoveredFindSearch(
+            let recovery = FindSearchRecovery.resolve(
                 startsNewSearchSession: true,
                 lastNeedle: "needle",
                 defaults: defaults
@@ -35,7 +35,7 @@ struct FindSearchRecoveryTests {
     func newSessionOpensEmptyWhenRestoreDisabled() throws {
         try withIsolatedDefaults { defaults in
             defaults.set(false, forKey: Self.settingKey.userDefaultsKey)
-            let recovery = recoveredFindSearch(
+            let recovery = FindSearchRecovery.resolve(
                 startsNewSearchSession: true,
                 lastNeedle: "needle",
                 defaults: defaults
@@ -48,7 +48,7 @@ struct FindSearchRecoveryTests {
     func explicitlyEnabledRestoreRecoversLastNeedle() throws {
         try withIsolatedDefaults { defaults in
             defaults.set(true, forKey: Self.settingKey.userDefaultsKey)
-            let recovery = recoveredFindSearch(
+            let recovery = FindSearchRecovery.resolve(
                 startsNewSearchSession: true,
                 lastNeedle: "needle",
                 defaults: defaults
@@ -61,7 +61,7 @@ struct FindSearchRecoveryTests {
     func refocusNeverInjectsRecoveredNeedle(restoreEnabled: Bool) throws {
         try withIsolatedDefaults { defaults in
             defaults.set(restoreEnabled, forKey: Self.settingKey.userDefaultsKey)
-            let recovery = recoveredFindSearch(
+            let recovery = FindSearchRecovery.resolve(
                 startsNewSearchSession: false,
                 lastNeedle: "needle",
                 defaults: defaults
@@ -73,7 +73,7 @@ struct FindSearchRecoveryTests {
     @Test("An empty last needle never requests select-all")
     func emptyLastNeedleNeverRequestsSelectAll() throws {
         try withIsolatedDefaults { defaults in
-            let recovery = recoveredFindSearch(
+            let recovery = FindSearchRecovery.resolve(
                 startsNewSearchSession: true,
                 lastNeedle: "",
                 defaults: defaults
