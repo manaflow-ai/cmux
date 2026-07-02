@@ -595,13 +595,13 @@ public final class ChatConversationStore {
                 }
             }
             if didChange { reproject() }
-        case .stateChanged(let state):
-            agentState = state
+        case .stateChanged(let state): guard agentState != .ended else { return }; agentState = state
             if case .idle = state {} else { didFlushThisIdleWindow = false }
         case .descriptorChanged(let descriptor):
-            self.descriptor = descriptor
-            agentState = descriptor.state
-            if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
+            guard descriptor.version > self.descriptor.version || (descriptor.version == self.descriptor.version && agentState != .ended) else { return }; self.descriptor = descriptor
+            agentState = descriptor.state; if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
+        case .sessionRemoved(let version):
+            guard version == Int.max || version >= descriptor.version else { return }; if version != Int.max { self.descriptor.version = max(descriptor.version, version) }; agentState = .ended
         case .terminalBlocks(let blocks):
             // Upsert by id: a new id appends to the order; an existing id
             // replaces in place (output grew / command finished). Whole-block

@@ -58,12 +58,8 @@ struct AgentChatTranscriptResolver: Sendable {
     ///   - record: The session's registry record.
     /// - Returns: An existing transcript path, or `nil` when none is found.
     func transcriptPath(for record: AgentChatSessionRecord) -> String? {
-        let fileManager = FileManager.default
-        if let recorded = record.transcriptPath {
-            let expanded = (recorded as NSString).expandingTildeInPath
-            if fileManager.fileExists(atPath: expanded) {
-                return expanded
-            }
+        if let recorded = recordedTranscriptPath(for: record) {
+            return recorded
         }
         switch record.agentKind {
         case .claude:
@@ -73,6 +69,28 @@ struct AgentChatTranscriptResolver: Sendable {
         case .other:
             return nil
         }
+    }
+
+    /// Resolves only paths that are cheap to check from the main-actor mobile
+    /// session list path. Codex's fallback scans the full sessions tree, so it is
+    /// intentionally excluded here and remains available only when opening a
+    /// transcript.
+    func boundedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
+        if let recorded = recordedTranscriptPath(for: record) {
+            return recorded
+        }
+        switch record.agentKind {
+        case .claude:
+            return claudeFallbackPath(record: record)
+        case .codex, .other:
+            return nil
+        }
+    }
+
+    private func recordedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
+        guard let recorded = record.transcriptPath else { return nil }
+        let expanded = (recorded as NSString).expandingTildeInPath
+        return FileManager.default.fileExists(atPath: expanded) ? expanded : nil
     }
 
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {

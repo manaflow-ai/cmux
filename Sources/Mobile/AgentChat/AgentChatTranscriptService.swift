@@ -43,6 +43,9 @@ final class AgentChatTranscriptService {
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
         }
+        registry.onRecordRemoved = { [weak self] record in
+            self?.handleRecordRemoval(record)
+        }
         self.proseStreamer = AgentChatProseStreamer(
             emit: { [weak self] frame in self?.emit(frame: frame) },
             snapshot: { surfaceID in Self.screenRows(surfaceID: surfaceID) },
@@ -192,10 +195,19 @@ final class AgentChatTranscriptService {
 
     /// Observe-floor detection: discover live codex/claude sessions from the
     /// process table (no hooks required) and fold them into the registry.
-    /// Throttled; intended to run on the iOS list pull so a fresh detection
-    /// appears the moment the GUI asks for the list.
+    /// Awaitable for tests/debug paths that need the updated registry before
+    /// proceeding.
     func observeAgentProcesses() async {
         await registry.observeAgentProcesses()
+    }
+
+    /// Starts one observe-floor scan without blocking the caller. The iOS
+    /// session list registers for `chat.message` pushes before it seeds from
+    /// `mobile.chat.sessions`, so discovered sessions arrive as normal
+    /// `descriptorChanged` frames without turning every seed pull into a full
+    /// process-table walk.
+    func scheduleAgentProcessObservation() {
+        registry.scheduleAgentProcessObservation()
     }
 
     /// The registry record for a session (send path needs the terminal
@@ -205,6 +217,13 @@ final class AgentChatTranscriptService {
     /// - Returns: The record, or `nil` when unknown.
     func sessionRecord(sessionID: String) -> AgentChatSessionRecord? {
         registry.record(sessionID: sessionID)
+    }
+
+    /// Whether an ended session can still serve history without expensive
+    /// fallback scans. Live sessions stay visible before their JSONL exists;
+    /// ended sessions with missing JSONL only open to an unrecoverable error.
+    func hasBoundedReadableTranscript(_ record: AgentChatSessionRecord) -> Bool {
+        resolver.boundedTranscriptPath(for: record) != nil
     }
 
     /// Re-adopts one session's terminal bindings from the hook store; see
@@ -421,6 +440,16 @@ final class AgentChatTranscriptService {
         if Self.descriptorChangedMeaningfully(previous: previous, current: record) {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .descriptorChanged(record.descriptor)))
         }
+    }
+
+    private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
+        proseStreamer.turnEnded(sessionID: record.sessionID)
+        if let tailer = tailers.removeValue(forKey: record.sessionID) {
+            Task { await tailer.stop() }
+        }
+        failedResolutions.remove(record.sessionID)
+        guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
+        emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
     }
 
     private static func descriptorChangedMeaningfully(

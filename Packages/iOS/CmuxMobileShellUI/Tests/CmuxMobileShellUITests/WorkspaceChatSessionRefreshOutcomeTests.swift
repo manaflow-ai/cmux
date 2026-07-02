@@ -3,13 +3,17 @@ import Testing
 @testable import CmuxMobileShellUI
 
 @Suite struct WorkspaceChatSessionRefreshOutcomeTests {
-    private func descriptor(_ id: String) -> ChatSessionDescriptor {
+    private func descriptor(
+        _ id: String,
+        terminalID: String? = "terminal",
+        state: ChatAgentState = .idle
+    ) -> ChatSessionDescriptor {
         ChatSessionDescriptor(
             id: id,
             agentKind: .claude,
             workspaceID: "workspace",
-            terminalID: "terminal",
-            state: .idle
+            terminalID: terminalID,
+            state: state
         )
     }
 
@@ -31,5 +35,67 @@ import Testing
 
         #expect(result == fresh)
         #expect(outcome.canInvalidateSelection)
+    }
+
+    @Test func staleWorkspaceDescriptorForSelectedTerminalRequestsAuthoritativePull() {
+        let frame = ChatSessionEventFrame(
+            sessionID: "session-1",
+            event: .descriptorChanged(ChatSessionDescriptor(
+                id: "session-1",
+                agentKind: .claude,
+                workspaceID: "stale-workspace",
+                terminalID: "terminal",
+                state: .idle
+            ))
+        )
+
+        #expect(frame.shouldPullAuthoritativeSnapshotForIgnoredWorkspaceFrame(
+            workspaceID: "workspace",
+            selectedTerminalID: "terminal",
+            cachedChatToggleTerminalID: nil
+        ))
+    }
+
+    @Test func ignoredDescriptorForOtherTerminalDoesNotPull() {
+        let frame = ChatSessionEventFrame(
+            sessionID: "session-1",
+            event: .descriptorChanged(ChatSessionDescriptor(
+                id: "session-1",
+                agentKind: .claude,
+                workspaceID: "other-workspace",
+                terminalID: "other-terminal",
+                state: .idle
+            ))
+        )
+
+        #expect(!frame.shouldPullAuthoritativeSnapshotForIgnoredWorkspaceFrame(
+            workspaceID: "workspace",
+            selectedTerminalID: "terminal",
+            cachedChatToggleTerminalID: nil
+        ))
+    }
+
+    @Test func removedPinnedAliasMigratesToLiveSessionOnCachedTerminal() {
+        let sessions = [
+            descriptor("real-session", terminalID: "terminal", state: .idle),
+            descriptor("other-session", terminalID: "other-terminal", state: .idle),
+        ]
+
+        #expect(sessions.replacementSessionIDForPinnedChat(
+            pinnedID: "pending-claude-terminal",
+            cachedTerminalID: "terminal"
+        ) == "real-session")
+    }
+
+    @Test func livePinnedSessionDoesNotMigrate() {
+        let sessions = [
+            descriptor("pending-claude-terminal", terminalID: "terminal", state: .idle),
+            descriptor("real-session", terminalID: "terminal", state: .idle),
+        ]
+
+        #expect(sessions.replacementSessionIDForPinnedChat(
+            pinnedID: "pending-claude-terminal",
+            cachedTerminalID: "terminal"
+        ) == nil)
     }
 }

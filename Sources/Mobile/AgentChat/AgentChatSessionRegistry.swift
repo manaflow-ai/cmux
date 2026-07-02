@@ -4,14 +4,16 @@ import Foundation
 
 /// A coding-agent session discovered by observing the process table, with no
 /// dependency on hooks firing. Identity (and, for codex, the transcript path)
-/// comes from the agent's own argv or open transcript file, so a session
-/// launched through any indirection (a subrouter, a wrapper) is still found.
+/// comes from the agent's own argv, environment, or open transcript file, so a
+/// session launched through any indirection (a subrouter, a wrapper) is still
+/// found.
 nonisolated struct ObservedAgentSession: Sendable {
     let sessionID: String
     let agentKind: ChatAgentKind
     let surfaceID: String
     let workspaceID: String?
     let pid: Int
+    let workingDirectory: String?
     let transcriptPath: String?
 }
 
@@ -27,7 +29,7 @@ final class AgentChatSessionRegistry {
     /// brand-new record), so the owner derives state/descriptor deltas in
     /// one place instead of hand-maintained flags.
     var onRecordChanged: ((AgentChatSessionRecord, _ previous: AgentChatSessionRecord?) -> Void)?
-
+    var onRecordRemoved: ((AgentChatSessionRecord) -> Void)?
     /// Per-session timestamp of the last hook-store file consult, bounding
     /// main-actor disk reads during tool storms.
     private var hookStoreConsultedAt: [String: Date] = [:]
@@ -117,24 +119,37 @@ final class AgentChatSessionRegistry {
     /// process tree under the surface, never from a single recorded pid that may
     /// be a launcher. Nonisolated and snapshot-based so it runs off the main
     /// actor; callers hop back to the main actor to apply the result. The
-    /// classifier matches by process basename, so only the real agent binary
-    /// matches (a `node …/codex` shim is named `node` and does not).
+    /// classifier is shared with observe-floor detection, so argv-hosted agents
+    /// (`node …/claude-code`, `npx …/codex`) rebind the same way they are first
+    /// discovered.
     private nonisolated static func liveAgentPID(surfaceID: String, kind: ChatAgentKind) -> Int? {
-        guard let surfaceUUID = UUID(uuidString: surfaceID) else { return nil }
         let snapshot = CmuxTopProcessSnapshot.capture(
             includeProcessDetails: true,
             includeCMUXScope: true
         )
+        return liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID,
+            kind: kind,
+            processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
+        )
+    }
+
+    nonisolated static func liveAgentPID(
+        in snapshot: CmuxTopProcessSnapshot,
+        surfaceID: String,
+        kind: ChatAgentKind,
+        processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?
+    ) -> Int? {
+        guard let surfaceUUID = UUID(uuidString: surfaceID) else { return nil }
         let rootPIDs = snapshot.pids(forCMUXSurfaceID: surfaceUUID)
         guard !rootPIDs.isEmpty else { return nil }
         let wantedID = kind.sourceName
         for pid in snapshot.expandedPIDs(rootPIDs: rootPIDs).sorted() {
             guard let info = snapshot.process(pid: pid),
-                  let def = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-                      processName: info.name,
-                      processPath: info.path,
-                      arguments: [],
-                      environment: [:]
+                  let def = codingAgentDefinition(
+                      for: info,
+                      processArgumentsAndEnvironment: processArgumentsAndEnvironment
                   ),
                   def.id == wantedID else { continue }
             return pid
@@ -142,47 +157,35 @@ final class AgentChatSessionRegistry {
         return nil
     }
 
-    // MARK: Observe-floor detection (process tree)
-
-    /// Off-main scan + main-actor apply: discover live codex/claude sessions by
-    /// observing the process table, with no dependency on hooks firing. Resolves
-    /// identity from the agent's own state (codex: the rollout file it holds
-    /// open; claude: its `--session-id`/`--resume` argv), so a session launched
-    /// through any indirection (a subrouter, a wrapper) is still found and bound.
-    /// Throttled; safe to call coarsely (e.g. on the iOS list pull). The snapshot
-    /// is captured off the main actor.
-    private var observeThrottle: Date?
-    func observeAgentProcesses() async {
-        let now = Date()
-        if let last = observeThrottle, now.timeIntervalSince(last) < 2.0 { return }
-        observeThrottle = now
-        let observed = await Task.detached { Self.scanObservedAgentSessions() }.value
-        applyObservedSessions(observed)
-    }
+    var observeInFlight: (id: UUID, task: Task<Void, Never>)?
+    var observeLastStartedAt: Date?
+    static let observeThrottleInterval: TimeInterval = 2
 
     /// Folds detections in: create a record for any session not already known
     /// (state `.idle`, from cmux's own observation), and backfill a missing
     /// binding (surface / workspace / transcript / pid) on an existing one.
     /// Observation only ADDS presence and bindings; it never downgrades
     /// hook-derived state.
-    private func applyObservedSessions(_ observed: [ObservedAgentSession]) {
+    func applyObservedSessions(_ observed: [ObservedAgentSession]) {
         let now = Date()
         for session in observed {
+            let canonicalSessionID = canonicalClaudeSessionID(incomingSessionID: session.sessionID, source: session.agentKind.sourceName, surfaceID: session.surfaceID)
+            let targetSessionID = observedClaudeSessionID(canonicalSessionID: canonicalSessionID, observed: session)
             #if DEBUG
             cmuxDebugLog(
-                "agentChat.detect session=\(session.sessionID.prefix(8)) kind=\(session.agentKind.sourceName) "
+                "agentChat.detect session=\(targetSessionID.prefix(8)) kind=\(session.agentKind.sourceName) "
                 + "surface=\(session.surfaceID.prefix(8)) pid=\(session.pid) "
                 + "transcript=\(session.transcriptPath != nil ? "fd" : "argv-only") "
-                + "\(records[session.sessionID] == nil ? "new" : "bind-existing")"
+                + "\(records[targetSessionID] == nil ? "new" : "bind-existing")"
             )
             #endif
-            if records[session.sessionID] == nil {
+            if records[targetSessionID] == nil {
                 var record = AgentChatSessionRecord(
-                    sessionID: session.sessionID,
+                    sessionID: targetSessionID,
                     agentKind: session.agentKind,
                     workspaceID: session.workspaceID,
                     surfaceID: session.surfaceID,
-                    workingDirectory: nil,
+                    workingDirectory: session.workingDirectory,
                     transcriptPath: session.transcriptPath,
                     state: .idle,
                     lastActivityAt: now,
@@ -190,131 +193,30 @@ final class AgentChatSessionRegistry {
                     pid: session.pid
                 )
                 stampVersion(&record)
-                records[session.sessionID] = record
+                records[targetSessionID] = record
                 syncProcessExitWatch(for: record)
                 updateLiveSessionIndex(previous: nil, current: record)
                 onRecordChanged?(record, nil)
             } else {
-                update(sessionID: session.sessionID) { rec in
+                guard let current = records[targetSessionID] else { continue }
+                if reviveEndedObservedSessionIfNeeded(current: current, observed: session, now: now) {
+                    continue
+                }
+                let needsBackfill = current.surfaceID == nil
+                    || (current.workspaceID == nil && session.workspaceID != nil)
+                    || (current.workingDirectory == nil && session.workingDirectory != nil)
+                    || (current.transcriptPath == nil && session.transcriptPath != nil)
+                    || current.pid == nil
+                guard needsBackfill else { continue }
+                update(sessionID: targetSessionID) { rec in
                     if rec.surfaceID == nil { rec.surfaceID = session.surfaceID }
                     if rec.workspaceID == nil { rec.workspaceID = session.workspaceID }
+                    if rec.workingDirectory == nil { rec.workingDirectory = session.workingDirectory }
                     if rec.transcriptPath == nil { rec.transcriptPath = session.transcriptPath }
                     if rec.pid == nil { rec.pid = session.pid }
                 }
             }
         }
-    }
-
-    /// Off-main: one entry per distinct live codex/claude session under any cmux
-    /// surface, identity resolved without hooks.
-    private nonisolated static func scanObservedAgentSessions() -> [ObservedAgentSession] {
-        let snapshot = CmuxTopProcessSnapshot.capture(
-            includeProcessDetails: true,
-            includeCMUXScope: true
-        )
-        var result: [ObservedAgentSession] = []
-        var seen = Set<String>()
-        for process in snapshot.cmuxScopedProcesses() {
-            guard let surfaceID = process.cmuxSurfaceID,
-                  let def = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-                      processName: process.name,
-                      processPath: process.path,
-                      arguments: [],
-                      environment: [:]
-                  ),
-                  def.id == "codex" || def.id == "claude" else { continue }
-            var sessionID: String?
-            var transcriptPath: String?
-            if def.id == "codex", let rollout = openCodexRolloutPath(pid: process.pid) {
-                transcriptPath = rollout
-                sessionID = firstUUIDLike(in: (rollout as NSString).lastPathComponent)
-            }
-            if sessionID == nil,
-               let argv = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid)?.arguments {
-                sessionID = sessionIDFromArguments(argv)
-            }
-            guard let resolved = sessionID, !seen.contains(resolved) else { continue }
-            seen.insert(resolved)
-            result.append(ObservedAgentSession(
-                sessionID: resolved,
-                agentKind: ChatAgentKind(source: def.id),
-                surfaceID: surfaceID.uuidString,
-                workspaceID: process.cmuxWorkspaceID?.uuidString,
-                pid: process.pid,
-                transcriptPath: transcriptPath
-            ))
-        }
-        return result
-    }
-
-    /// libproc: the path of a `~/.codex/sessions/**/rollout-*.jsonl` the process
-    /// holds open (codex keeps its rollout open for writing), or nil.
-    private nonisolated static func openCodexRolloutPath(pid: Int) -> String? {
-        let listSize = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, nil, 0)
-        guard listSize > 0 else { return nil }
-        let count = Int(listSize) / MemoryLayout<proc_fdinfo>.stride
-        guard count > 0 else { return nil }
-        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: count)
-        let used = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, &fds, listSize)
-        guard used > 0 else { return nil }
-        let actual = Int(used) / MemoryLayout<proc_fdinfo>.stride
-        for index in 0..<min(actual, fds.count) {
-            guard fds[index].proc_fdtype == UInt32(PROX_FDTYPE_VNODE) else { continue }
-            var info = vnode_fdinfowithpath()
-            let size = proc_pidfdinfo(
-                pid_t(pid),
-                fds[index].proc_fd,
-                PROC_PIDFDVNODEPATHINFO,
-                &info,
-                Int32(MemoryLayout<vnode_fdinfowithpath>.size)
-            )
-            guard size > 0 else { continue }
-            let path = withUnsafeBytes(of: &info.pvip.vip_path) { raw -> String in
-                guard let base = raw.baseAddress else { return "" }
-                return String(cString: base.assumingMemoryBound(to: CChar.self))
-            }
-            if path.hasSuffix(".jsonl"), path.contains("/.codex/sessions/") {
-                return path
-            }
-        }
-        return nil
-    }
-
-    /// Extracts a session id from an agent's argv (`--session-id <id>`,
-    /// `--session-id=<id>`, `--resume <id>`, `--resume=<id>`).
-    private nonisolated static func sessionIDFromArguments(_ arguments: [String]) -> String? {
-        var index = 0
-        while index < arguments.count {
-            let arg = arguments[index]
-            if arg == "--session-id" || arg == "--resume", index + 1 < arguments.count,
-               let id = firstUUIDLike(in: arguments[index + 1]) {
-                return id
-            }
-            if arg.hasPrefix("--session-id="),
-               let id = firstUUIDLike(in: String(arg.dropFirst("--session-id=".count))) {
-                return id
-            }
-            if arg.hasPrefix("--resume="),
-               let id = firstUUIDLike(in: String(arg.dropFirst("--resume=".count))) {
-                return id
-            }
-            index += 1
-        }
-        return nil
-    }
-
-    private nonisolated static let uuidLikeRegex = try? NSRegularExpression(
-        pattern: "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-    )
-
-    /// The first UUID-shaped substring (matches both standard UUIDs and codex's
-    /// UUIDv7 rollout ids), or nil.
-    private nonisolated static func firstUUIDLike(in string: String) -> String? {
-        guard let regex = uuidLikeRegex else { return nil }
-        let range = NSRange(string.startIndex..., in: string)
-        guard let match = regex.firstMatch(in: string, options: [], range: range),
-              let matchRange = Range(match.range, in: string) else { return nil }
-        return String(string[matchRange])
     }
 
     /// The watched agent process exited. Before ending the session, verify
@@ -395,10 +297,10 @@ final class AgentChatSessionRegistry {
     func refreshBindingsFromHookStore(sessionID: String) async -> AgentChatSessionRecord? {
         guard let record = records[sessionID] else { return nil }
         let store = hookStore
-        let source = record.agentKind.sourceName
+        let source = record.agentKind.sourceName, lookupSessionID = record.hookStoreLookupSessionID
         // Whole-file JSON read+parse off the main actor.
         let entry = await Task.detached(priority: .utility) {
-            store.entry(agentSource: source, sessionID: sessionID)
+            store.entry(agentSource: source, sessionID: lookupSessionID)
         }.value
         guard let entry else { return records[sessionID] }
         update(sessionID: sessionID) { $0.adoptBindings(from: entry, includingPID: false) }
@@ -471,10 +373,26 @@ final class AgentChatSessionRegistry {
         for (source, entries) in parsed {
             let kind = ChatAgentKind(source: source)
             for entry in entries {
-                guard records[entry.sessionID] == nil else { continue }
+                let sessionID = canonicalClaudeSessionID(
+                    incomingSessionID: entry.sessionID,
+                    source: source,
+                    surfaceID: entry.surfaceID
+                )
+                if let current = records[sessionID] {
+                    var candidate = current
+                    candidate.adoptBindings(from: entry, includingPID: false)
+                    guard candidate.surfaceID != current.surfaceID
+                        || candidate.workspaceID != current.workspaceID
+                        || candidate.transcriptPath != current.transcriptPath
+                        || candidate.workingDirectory != current.workingDirectory || candidate.hookStoreSessionID != current.hookStoreSessionID else { continue }
+                    update(sessionID: sessionID) { record in
+                        record.adoptBindings(from: entry, includingPID: false)
+                    }
+                    continue
+                }
                 let alive = entry.pid.map { kill(pid_t($0), 0) == 0 } ?? false
                 var record = AgentChatSessionRecord(
-                    sessionID: entry.sessionID,
+                    sessionID: sessionID,
                     agentKind: kind,
                     workspaceID: entry.workspaceID,
                     surfaceID: entry.surfaceID,
@@ -485,8 +403,9 @@ final class AgentChatSessionRegistry {
                     title: nil,
                     pid: entry.pid
                 )
+                record.rememberHookStoreSessionID(entry.sessionID)
                 stampVersion(&record)
-                records[entry.sessionID] = record
+                records[sessionID] = record
                 syncProcessExitWatch(for: record)
                 updateLiveSessionIndex(previous: nil, current: record)
             }
@@ -500,7 +419,12 @@ final class AgentChatSessionRegistry {
     /// - Returns: The up-to-date record.
     @discardableResult
     func noteHookEvent(_ event: WorkstreamEvent) -> AgentChatSessionRecord {
-        let sessionID = Self.normalizedSessionID(event.sessionId, source: event.source)
+        let hookSessionID = Self.normalizedSessionID(event.sessionId, source: event.source)
+        let sessionID = canonicalClaudeSessionID(
+            incomingSessionID: hookSessionID,
+            source: event.source,
+            surfaceID: event.surfaceId
+        )
         let kind = ChatAgentKind(source: event.source)
         #if DEBUG
         cmuxDebugLog(
@@ -523,6 +447,7 @@ final class AgentChatSessionRegistry {
             title: nil,
             pid: nil
         )
+        record.rememberHookStoreSessionID(hookSessionID)
         if event.hookEventName == .sessionStart {
             // A resumed session (claude --resume reuses session ids) runs
             // under a NEW process; the old pid would make the liveness
@@ -570,9 +495,80 @@ final class AgentChatSessionRegistry {
         updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
         if shouldConsultStore {
-            backfillBindingsFromStore(sessionID: sessionID, agentSource: event.source)
+            backfillBindingsFromStore(
+                sessionID: sessionID,
+                lookupSessionID: hookSessionID,
+                agentSource: event.source
+            )
         }
         return record
+    }
+
+    private func canonicalClaudeSessionID(
+        incomingSessionID: String,
+        source: String,
+        surfaceID: String?
+    ) -> String {
+        guard source == "claude",
+              let surfaceID else {
+            return incomingSessionID
+        }
+        if Self.isPendingClaudeSessionID(incomingSessionID) {
+            return liveClaudeSessionID(surfaceID: surfaceID, pending: false, excluding: incomingSessionID)
+                ?? incomingSessionID
+        }
+        if records[incomingSessionID] != nil {
+            removeLivePendingClaudeAliases(surfaceID: surfaceID, excluding: incomingSessionID)
+            return incomingSessionID
+        }
+        if let pendingID = liveClaudeSessionID(surfaceID: surfaceID, pending: true, excluding: incomingSessionID) {
+            return pendingID
+        }
+        return incomingSessionID
+    }
+
+    private func liveClaudeSessionID(
+        surfaceID: String,
+        pending: Bool,
+        excluding excludedSessionID: String?
+    ) -> String? {
+        records.values
+            .filter { record in
+                record.sessionID != excludedSessionID
+                    && record.agentKind == .claude
+                    && record.surfaceID == surfaceID
+                    && record.state != .ended
+                    && Self.isPendingClaudeSessionID(record.sessionID) == pending
+            }
+            .max(by: { $0.lastActivityAt < $1.lastActivityAt })?
+            .sessionID
+    }
+
+    private func removeLivePendingClaudeAliases(surfaceID: String, excluding excludedSessionID: String?) {
+        let aliases = records.values
+            .filter { record in
+                record.sessionID != excludedSessionID
+                    && record.agentKind == .claude
+                    && record.surfaceID == surfaceID
+                    && record.state != .ended
+                    && Self.isPendingClaudeSessionID(record.sessionID)
+            }
+            .map(\.sessionID)
+        guard !aliases.isEmpty else { return }
+        for alias in aliases {
+            guard var record = records.removeValue(forKey: alias) else { continue }
+            stampVersion(&record)
+            exitWatchers[alias]?.source.cancel()
+            exitWatchers[alias] = nil
+            hookStoreConsultedAt.removeValue(forKey: alias)
+            updateLiveSessionIndex(previous: record, current: nil)
+            onRecordRemoved?(record)
+        }
+        if let indexed = liveSessionIDBySurfaceID[surfaceID],
+           aliases.contains(indexed) {
+            liveSessionIDBySurfaceID.removeValue(forKey: surfaceID)
+            rebuildLiveSessionIndex(surfaceID: surfaceID)
+        }
     }
 
     /// Records, from cmux's own authority, that it is resuming `rawSessionID`
@@ -646,11 +642,15 @@ final class AgentChatSessionRegistry {
     /// re-tails and pushes if the transcript path just became known. Filling
     /// only nil fields keeps the live event authoritative over the lagging
     /// store.
-    private func backfillBindingsFromStore(sessionID: String, agentSource: String) {
+    private func backfillBindingsFromStore(
+        sessionID: String,
+        lookupSessionID: String,
+        agentSource: String
+    ) {
         let store = hookStore
         Task { [weak self] in
             let entry = await Task.detached(priority: .utility) {
-                store.entry(agentSource: agentSource, sessionID: sessionID)
+                store.entry(agentSource: agentSource, sessionID: lookupSessionID)
             }.value
             guard let self, let entry else { return }
             self.applyStoreBackfill(sessionID: sessionID, entry: entry)
@@ -668,7 +668,7 @@ final class AgentChatSessionRegistry {
             || candidate.workspaceID != current.workspaceID
             || candidate.transcriptPath != current.transcriptPath
             || candidate.workingDirectory != current.workingDirectory
-            || candidate.pid != current.pid else { return }
+            || candidate.pid != current.pid || candidate.hookStoreSessionID != current.hookStoreSessionID else { return }
         update(sessionID: sessionID) { record in
             record.adoptBindings(from: entry, includingPID: record.pid == nil)
         }
@@ -676,7 +676,7 @@ final class AgentChatSessionRegistry {
 
     private func updateLiveSessionIndex(
         previous: AgentChatSessionRecord?,
-        current: AgentChatSessionRecord
+        current: AgentChatSessionRecord?
     ) {
         let previousSurfaceID = Self.liveSurfaceID(previous)
         let currentSurfaceID = Self.liveSurfaceID(current)
@@ -686,7 +686,7 @@ final class AgentChatSessionRegistry {
             liveSessionIDBySurfaceID.removeValue(forKey: previousSurfaceID)
             rebuildLiveSessionIndex(surfaceID: previousSurfaceID)
         }
-        guard let currentSurfaceID else { return }
+        guard let current, let currentSurfaceID else { return }
         guard let indexedSessionID = liveSessionIDBySurfaceID[currentSurfaceID],
               let indexed = records[indexedSessionID],
               indexed.surfaceID == currentSurfaceID,
