@@ -1255,9 +1255,16 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
                 .snapshot(workspaceId: ws, panelId: panel)
         )
         let fork = try XCTUnwrap(snapshot.forkCommand)
-        XCTAssertTrue(
-            fork.contains("codex-teams") && fork.contains("fork") && fork.contains(sid),
-            "codexTeams capture must keep routing fork through the cmux wrapper; got: \(fork)"
+        // The retry launcher single-quote-escapes the inner fork argv (`'…'` -> `'\''…'\''`),
+        // so the verbatim `'codex-teams' 'fork' '<sid>'` substring no longer appears. Assert the
+        // three tokens still appear in this exact order to catch a reordered/reworded fork assembly.
+        let teamsRange = try XCTUnwrap(fork.range(of: "codex-teams"), fork)
+        let forkVerbRange = try XCTUnwrap(
+            fork.range(of: "fork", range: teamsRange.upperBound..<fork.endIndex), fork
+        )
+        XCTAssertNotNil(
+            fork.range(of: sid, range: forkVerbRange.upperBound..<fork.endIndex),
+            "codexTeams capture must route fork through the cmux wrapper as codex-teams -> fork -> \(sid); got: \(fork)"
         )
     }
 

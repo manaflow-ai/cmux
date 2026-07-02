@@ -96,7 +96,12 @@ extension SurfaceResumeBindingSnapshot {
         } else {
             startupCommand
         }
-        guard isAgentHookBinding,
+        // Only wrap local startup paths in the `/bin/zsh -lc` retry launcher. `repairPortableAgentExecutable`
+        // is set exactly for the local agent-hook dispatch (where cmux repairs the executable to its wrapper
+        // shim and `/bin/zsh` is guaranteed); the remote path passes `false`, and remote hosts may not have
+        // `/bin/zsh`, so forcing the retry launcher there would break Codex resume for those hosts.
+        guard repairPortableAgentExecutable,
+              isAgentHookBinding,
               kind?.trimmingCharacters(in: .whitespacesAndNewlines) == "codex" else {
             return command
         }
