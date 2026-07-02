@@ -548,6 +548,13 @@ reconcile_claude_config_dir_for_resume() {
     done
 }
 
+reconcile_claude_config_dir_for_resume_unless_preserved() {
+    should_preserve_claude_auth_selection_key "CLAUDE_CONFIG_DIR" && return 0
+    local resume_session_id
+    resume_session_id="$(extract_claude_resume_session_id "$@" || true)"
+    reconcile_claude_config_dir_for_resume "$resume_session_id"
+}
+
 clear_inherited_claude_auth_selection_env() {
     if [[ "${IN_CMUX:-0}" == "1" ]]; then
         local key
@@ -597,7 +604,7 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     fi
     clear_inherited_claude_auth_selection_env
     if [[ "$IN_CMUX" == "1" ]]; then
-        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+        reconcile_claude_config_dir_for_resume_unless_preserved "$@"
     fi
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
@@ -611,7 +618,7 @@ if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
     fi
     clear_inherited_claude_auth_selection_env
     if [[ "$IN_CMUX" == "1" ]]; then
-        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+        reconcile_claude_config_dir_for_resume_unless_preserved "$@"
     fi
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec_real_claude_passthrough "$@"
@@ -863,7 +870,9 @@ fi
 # For an explicit `--resume <id>`, point CLAUDE_CONFIG_DIR at the config root that
 # actually holds the transcript so an inherited/foreign config dir cannot turn the
 # resume into "No conversation found". https://github.com/manaflow-ai/cmux/issues/6194
-reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+# Account managers such as `sr claude` can intentionally pin CLAUDE_CONFIG_DIR to
+# a different auth/profile root and ask cmux to preserve it.
+reconcile_claude_config_dir_for_resume_unless_preserved "$@"
 
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
