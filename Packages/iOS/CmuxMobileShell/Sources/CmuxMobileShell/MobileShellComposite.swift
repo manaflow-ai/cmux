@@ -6896,7 +6896,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Hold the surface's output and drive the Mac back to a capped grid
         // instead of painting the divergence.
         guard renderGridFrameFitsReportedViewport(renderGrid, surfaceID: renderGrid.surfaceID) else {
-            holdTerminalOutputForOversizedGrid(renderGrid, surfaceID: renderGrid.surfaceID, source: source)
+            holdTerminalOutputForOversizedGrid(
+                columns: renderGrid.columns,
+                rows: renderGrid.rows,
+                surfaceID: renderGrid.surfaceID,
+                source: source
+            )
             return
         }
         clearOversizedTerminalGridRecovery(surfaceID: renderGrid.surfaceID)
@@ -7296,6 +7301,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         token: replayBarrierTokenForRequest,
                         reason: "empty"
                     )
+                    return
+                }
+                // A snapshot/raw-tail fallback authored for a producer grid
+                // larger than this phone's viewport splices rows exactly like
+                // an oversized render-grid frame (issue #7202). Withhold it and
+                // keep the barrier's bounded retries polling for a fitting
+                // replay instead of painting the divergence.
+                if let macColumns = payload?.columns,
+                   let macRows = payload?.rows,
+                   !self.producerGridFitsReportedViewport(
+                       columns: macColumns,
+                       rows: macRows,
+                       surfaceID: surfaceID
+                   ) {
+                    MobileDebugLog.anchormux(
+                        "CMUX_REPLAY oversized_fallback surface=\(surfaceID) macGrid=\(macColumns)x\(macRows)"
+                    )
+                    if replayBarrierTokenForRequest != nil {
+                        self.recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
+                        self.retryTerminalReplayForOversizedGrid(surfaceID: surfaceID)
+                    } else {
+                        self.holdTerminalOutputForOversizedGrid(
+                            columns: macColumns,
+                            rows: macRows,
+                            surfaceID: surfaceID,
+                            source: "replay_fallback"
+                        )
+                    }
                     return
                 }
                 let accepted = self.deliverTerminalBytes(

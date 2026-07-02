@@ -41,6 +41,20 @@ extension MobileShellComposite {
         _ frame: MobileTerminalRenderGridFrame,
         surfaceID: String
     ) -> Bool {
+        producerGridFitsReportedViewport(
+            columns: frame.columns,
+            rows: frame.rows,
+            surfaceID: surfaceID
+        )
+    }
+
+    /// Whether a producer grid fits the viewport this phone last reported for
+    /// `surfaceID`. Grids are trusted until a first report exists.
+    func producerGridFitsReportedViewport(
+        columns: Int,
+        rows: Int,
+        surfaceID: String
+    ) -> Bool {
         guard let reported = reportedTerminalViewportGridsBySurfaceID[surfaceID] else {
             return true
         }
@@ -52,16 +66,26 @@ extension MobileShellComposite {
             max(reported.rows, Self.macMobileViewportRowsRange.lowerBound),
             Self.macMobileViewportRowsRange.upperBound
         )
-        return frame.columns <= columnsLimit && frame.rows <= rowsLimit
+        return columns <= columnsLimit && rows <= rowsLimit
     }
 
-    /// A live or prefetched frame arrived for a producer grid this phone
-    /// cannot render faithfully: pace a recovery attempt — re-assert the
-    /// viewport report so the Mac re-caps the shared grid, and hold the
-    /// surface's output behind a replay barrier until a fitting replay
-    /// repaints it.
+    /// Record withheld output on the surface's active replay barrier so the
+    /// barrier survives not-delivered/empty replay responses (they preserve or
+    /// retry only when dropped output is present) and the eventual barrier
+    /// clear schedules a follow-up repaint.
+    func recordWithheldOutputForReplayBarrier(surfaceID: String) {
+        terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+        terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] =
+            (terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0) &+ 1
+    }
+
+    /// Output authored for a producer grid this phone cannot render faithfully
+    /// was withheld: pace a recovery attempt — re-assert the viewport report so
+    /// the Mac re-caps the shared grid, and hold the surface's output behind a
+    /// replay barrier until a fitting replay repaints it.
     func holdTerminalOutputForOversizedGrid(
-        _ frame: MobileTerminalRenderGridFrame,
+        columns: Int,
+        rows: Int,
         surfaceID: String,
         source: String
     ) {
@@ -74,7 +98,7 @@ extension MobileShellComposite {
         let reported = reportedTerminalViewportGridsBySurfaceID[surfaceID]
         MobileDebugLog.anchormux(
             "terminal.output.oversized_grid source=\(source) surface=\(surfaceID) " +
-                "frame=\(frame.columns)x\(frame.rows) " +
+                "frame=\(columns)x\(rows) " +
                 "reported=\(reported.map { "\($0.columns)x\($0.rows)" } ?? "nil")"
         )
         if let reported {
@@ -87,9 +111,13 @@ extension MobileShellComposite {
             }
         }
         guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else { return }
-        if let existingToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
-            // The stream is already held. Leave an in-flight barrier replay
-            // alone; otherwise nudge the recovery along.
+        if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
+            // The withheld output must register on the live barrier so an
+            // empty or not-delivered replay response preserves/retries the
+            // recovery instead of releasing the still-diverged stream.
+            recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
+            // Leave an in-flight barrier replay alone; otherwise nudge the
+            // recovery along.
             guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else { return }
             if terminalReplayFailureRetryExhausted(surfaceID: surfaceID) {
                 // The previous barrier exhausted its bounded replay retries
@@ -97,8 +125,9 @@ extension MobileShellComposite {
                 // the retry budget) at the recovery pace so convergence keeps
                 // being attempted instead of wedging a permanently held stream.
                 let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+                recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
                 requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
-            } else {
+            } else if let existingToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
                 requestTerminalReplay(
                     surfaceID: surfaceID,
                     replayBarrierToken: existingToken,
@@ -112,8 +141,11 @@ extension MobileShellComposite {
         // (e.g. the mount-time cold-attach replay) is in flight —
         // `beginTerminalReplayBarrier` cancels it, and its response would carry
         // the same diverged grid anyway. Without this, live bytes keep flowing
-        // under the diverged grid for the whole in-flight window.
+        // under the diverged grid for the whole in-flight window. The withheld
+        // frame is recorded after the barrier reset so empty/not-delivered
+        // replay responses keep the recovery alive.
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+        recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
 

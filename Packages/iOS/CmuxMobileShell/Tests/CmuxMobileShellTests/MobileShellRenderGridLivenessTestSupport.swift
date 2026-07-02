@@ -78,6 +78,7 @@ actor LivenessHostRouter {
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
     private var replayTexts: [String] = []
     private var replayRenderGridFrames: [MobileTerminalRenderGridFrame] = []
+    private var replayRawTails: [(text: String, columns: Int, rows: Int)] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0
 
@@ -184,6 +185,13 @@ actor LivenessHostRouter {
     /// render-grid payload (e.g. after the Mac re-applied a viewport cap).
     func enqueueReplayRenderGridFrames(_ frames: [MobileTerminalRenderGridFrame]) {
         replayRenderGridFrames.append(contentsOf: frames)
+    }
+
+    /// Queue a raw byte-tail replay response carrying an explicit Mac grid,
+    /// modeling an older host (or a failed render-grid export) that falls back
+    /// to `data_b64` while the surface grid is still uncapped.
+    func enqueueReplayRawTail(text: String, columns: Int, rows: Int) {
+        replayRawTails.append((text: text, columns: columns, rows: rows))
     }
 
     func failNextReplay(count: Int = 1) {
@@ -305,6 +313,17 @@ actor LivenessHostRouter {
             if emptyReplayResponsesRemaining > 0 {
                 emptyReplayResponsesRemaining -= 1
                 return try? Self.resultFrame(id: id, result: [:])
+            }
+            if !replayRawTails.isEmpty {
+                let tail = replayRawTails.removeFirst()
+                return try? Self.resultFrame(id: id, result: [
+                    "workspace_id": "live-workspace",
+                    "surface_id": "live-terminal",
+                    "seq": 30,
+                    "columns": tail.columns,
+                    "rows": tail.rows,
+                    "data_b64": Data(tail.text.utf8).base64EncodedString(),
+                ])
             }
             if !replayRenderGridFrames.isEmpty {
                 let frame = replayRenderGridFrames.removeFirst()

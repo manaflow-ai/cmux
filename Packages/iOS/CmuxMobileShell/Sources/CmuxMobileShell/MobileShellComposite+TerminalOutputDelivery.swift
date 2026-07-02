@@ -52,12 +52,15 @@ extension MobileShellComposite {
                 // record it so the caller's not_delivered cleanup keeps the
                 // barrier alive (preserveDroppedOutput) for the scheduled
                 // retry, instead of releasing still-diverged live output.
-                terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
-                terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] =
-                    (terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0) &+ 1
+                recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
                 retryTerminalReplayForOversizedGrid(surfaceID: surfaceID)
             } else {
-                holdTerminalOutputForOversizedGrid(frame, surfaceID: surfaceID, source: "delivery")
+                holdTerminalOutputForOversizedGrid(
+                    columns: frame.columns,
+                    rows: frame.rows,
+                    surfaceID: surfaceID,
+                    source: "delivery"
+                )
             }
             return false
         }
