@@ -396,6 +396,25 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
+    private func restoreResumedRestorableAgentOnlyWorkspaceWithClobberedTrackedCwd(
+        projectDir: String
+    ) throws -> (workspace: Workspace, panelId: UUID, homeDirectory: String) {
+        let (restored, restoredPanelId) = try restoreWorkspaceWithAutoResumedRestorableClaudeAgentOnly(
+            savedDirectory: projectDir
+        )
+        try #require(
+            restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning
+        )
+
+        let homeDir = try clobberResumedAgentTrackedCwd(
+            restored,
+            panelId: restoredPanelId,
+            projectDir: projectDir
+        )
+        return (restored, restoredPanelId, homeDir)
+    }
+
+    @MainActor
     private func clobberResumedAgentTrackedCwd(
         _ restored: Workspace,
         panelId restoredPanelId: UUID,
@@ -423,6 +442,43 @@ struct AgentSessionAutoResumeSwiftTests {
             .path
         try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         return path
+    }
+
+    @MainActor
+    @Test func splitAfterSecondRestoreOfClobberedRestorableAgentPaneUsesAgentCwd() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-second-restore-resume-project")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, _, homeDir) = try restoreResumedRestorableAgentOnlyWorkspaceWithClobberedTrackedCwd(
+                projectDir: projectDir
+            )
+            let clobberedSnapshot = restored.sessionSnapshot(includeScrollback: false)
+            let clobberedTerminal = try #require(clobberedSnapshot.panels.first?.terminal)
+            #expect(clobberedTerminal.workingDirectory == homeDir)
+            #expect(clobberedTerminal.agent?.workingDirectory == projectDir)
+            #expect(clobberedTerminal.resumeBinding == nil)
+
+            let secondRestore = Workspace()
+            secondRestore.restoreSessionSnapshot(clobberedSnapshot)
+            let secondRestoredPanelId = try #require(secondRestore.focusedPanelId)
+            try #require(
+                secondRestore.restoredAgentResumeStatesByPanelId[secondRestoredPanelId] == .autoResumeCommandRunning
+            )
+            #expect(
+                secondRestore.restoredResumeSessionWorkingDirectoriesByPanelId[secondRestoredPanelId] == projectDir
+            )
+            secondRestore.foregroundProcessWorkingDirectoryProvider = { _ in nil }
+
+            let split = try #require(secondRestore.newTerminalSplit(
+                from: secondRestoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == projectDir)
+        }
     }
 
     /// The #7155 rescue prefers the live foreground process's actual cwd
@@ -711,6 +767,51 @@ struct AgentSessionAutoResumeSwiftTests {
         // Restore replays the persisted directory onto the workspace and panel.
         #expect(restored.currentDirectory == savedDirectory)
         #expect(restored.panelDirectories[restoredPanelId] == savedDirectory)
+
+        return (restored, restoredPanelId)
+    }
+
+    /// Builds a workspace whose focused terminal hosts an auto-resumable
+    /// restorable Claude session rooted at `savedDirectory` without an
+    /// agent-hook binding, snapshots it, and restores it into a fresh workspace.
+    @MainActor
+    private func restoreWorkspaceWithAutoResumedRestorableClaudeAgentOnly(
+        savedDirectory: String
+    ) throws -> (workspace: Workspace, panelId: UUID) {
+        let sessionId = "claude-restorable-only-resume-\(UUID().uuidString)"
+        let source = Workspace()
+        source.currentDirectory = savedDirectory
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.updatePanelDirectory(panelId: sourcePanelId, directory: savedDirectory)
+
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: savedDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude", "--resume", sessionId],
+                workingDirectory: savedDirectory,
+                environment: [:],
+                capturedAt: 1_777_777_777,
+                source: "process"
+            )
+        )
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(agent, panelId: sourcePanelId)
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == savedDirectory)
+        #expect(snapshot.panels.first?.terminal?.resumeBinding == nil)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restored.focusedPanelId)
+
+        #expect(restored.currentDirectory == savedDirectory)
+        #expect(restored.panelDirectories[restoredPanelId] == savedDirectory)
+        #expect(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding == nil)
 
         return (restored, restoredPanelId)
     }

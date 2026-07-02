@@ -1229,6 +1229,14 @@ extension Workspace {
                 ?? snapshot.terminal?.workingDirectory
                 ?? restorableAgent?.workingDirectory
                 ?? snapshot.directory
+            // A persisted terminal cwd can already be the stray fallback cwd
+            // from a prior auto-resume restore; the transient rescue/guard must
+            // remember where the resume launcher actually sends the agent.
+            let resumeSessionWorkingDirectory =
+                effectiveResumeBindingForStartup?.cwd
+                ?? restorableAgent?.workingDirectory
+                ?? restorableAgent?.launchCommand?.workingDirectory
+                ?? savedWorkingDirectory
             let workingDirectory = savedWorkingDirectory
                 ?? currentDirectory
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
@@ -1442,7 +1450,7 @@ extension Workspace {
             if startupHandlesWorkingDirectory,
                localWorkingDirectory == nil,
                restoredDirectoryIsLocalPath,
-               let guardedWorkingDirectory = savedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               let guardedWorkingDirectory = resumeSessionWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !guardedWorkingDirectory.isEmpty {
                 restoredGuardedWorkingDirectoriesByPanelId[terminalPanel.id] = guardedWorkingDirectory
             } else {
@@ -1491,7 +1499,7 @@ extension Workspace {
             // inheritance can rescue it (#7155).
             if restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput,
                restoredDirectoryIsLocalPath,
-               let resumeSessionDirectory = savedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               let resumeSessionDirectory = resumeSessionWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !resumeSessionDirectory.isEmpty {
                 restoredResumeSessionWorkingDirectoriesByPanelId[terminalPanel.id] = resumeSessionDirectory
             } else {
