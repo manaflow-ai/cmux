@@ -472,7 +472,7 @@ final class AgentChatSessionRegistry {
             let kind = ChatAgentKind(source: source)
             for entry in entries {
                 guard records[entry.sessionID] == nil else { continue }
-                let alive = entry.pid.map { kill(pid_t($0), 0) == 0 } ?? false
+                let alive = entry.pid.map { kill(pid_t($0), 0) == 0 || errno != ESRCH } ?? false
                 var record = AgentChatSessionRecord(
                     sessionID: entry.sessionID,
                     agentKind: kind,
