@@ -94,6 +94,20 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone streaming-chat preview is enabled.
+    ///
+    /// When `CMUX_UITEST_STREAMING_CHAT_PREVIEW=1`, the root view renders a
+    /// self-playing agent chat that drives the real conversation store with live
+    /// `streamingProse` events, so the incremental streaming preview can be
+    /// recorded on the simulator without sign-in or Mac pairing. DEBUG-only.
+    public static var streamingChatPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_STREAMING_CHAT_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone agent-chat preview is enabled.
     ///
     /// When `CMUX_UITEST_AGENT_CHAT_PREVIEW=1`, the root view renders the
