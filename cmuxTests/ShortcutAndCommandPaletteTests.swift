@@ -995,7 +995,7 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         }
     }
 
-    func testCommandAndControlHintsAreEnabledByDefault() {
+    func testCommandAndControlHintsAreHardcodedEnabled() {
         withDefaultsSuite { defaults in
             XCTAssertTrue(ShortcutHintModifierPolicy(defaults: defaults).shouldShowHints(for: [.command]))
             XCTAssertTrue(ShortcutHintModifierPolicy(defaults: defaults).shouldShowHints(for: [.control]))
@@ -1521,7 +1521,7 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         )
     }
 
-    func testShowHintsOnCommandHoldIsEnabledByDefault() {
+    func testShowHintsOnCommandHoldIsHardcodedEnabled() {
         let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create defaults suite")
