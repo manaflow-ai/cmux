@@ -46,6 +46,16 @@ extension MarkdownPanel {
     var canUseSelectionForFind: Bool {
         switch displayMode {
         case .preview:
+            // WKWebView exposes no *synchronous* selection API — reading the
+            // current selection requires an async `evaluateJavaScript` — but
+            // this property feeds synchronous menu validation for the
+            // "Use Selection for Find" (Cmd+E) item. So use first-responder as
+            // the synchronous proxy: when the preview web view is focused we
+            // defer the selection decision to WebKit, which owns the selection
+            // and no-ops gracefully when it is empty at Cmd+E time. This mirrors
+            // how AppKit delegates selection-based edit actions to a focused web
+            // view. The `.text` branch below can check the real selection only
+            // because NSTextView reports `selectedRange()` synchronously.
             guard let webView = rendererSession.webView else { return false }
             return webView.window?.firstResponder === webView
         case .text:
