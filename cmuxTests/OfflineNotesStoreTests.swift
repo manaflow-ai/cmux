@@ -330,6 +330,41 @@ struct OfflineNotesStoreTests {
     }
 
     @Test
+    func defaultFileURLIsScopedByBundleIdentifier() {
+        let appSupport = tempFileURL().deletingLastPathComponent()
+        // Production and a tagged side-by-side debug build must resolve to
+        // distinct queue files; a shared file would let the two processes clobber
+        // each other's notes (last-writer-wins JSON rewrites) and expose one
+        // variant's queued text in another.
+        let prod = OfflineNotesStore.defaultFileURL(
+            bundleIdentifier: "com.cmuxterm.app",
+            appSupportDirectory: appSupport,
+            isRunningUnderAutomatedTests: false
+        )
+        let tagged = OfflineNotesStore.defaultFileURL(
+            bundleIdentifier: "com.cmuxterm.app.dev.my-tag",
+            appSupportDirectory: appSupport,
+            isRunningUnderAutomatedTests: false
+        )
+        #expect(prod?.lastPathComponent == "offline-notes-com.cmuxterm.app.json")
+        #expect(tagged?.lastPathComponent == "offline-notes-com.cmuxterm.app.dev.my-tag.json")
+        #expect(prod != tagged)
+    }
+
+    @Test
+    func defaultFileURLSanitizesUnsafeBundleIdentifierCharacters() {
+        let appSupport = tempFileURL().deletingLastPathComponent()
+        // Path-hostile characters must be replaced so the filename stays a single
+        // valid path component (no stray directory separators).
+        let url = OfflineNotesStore.defaultFileURL(
+            bundleIdentifier: "com/cmux app:weird",
+            appSupportDirectory: appSupport,
+            isRunningUnderAutomatedTests: false
+        )
+        #expect(url?.lastPathComponent == "offline-notes-com_cmux_app_weird.json")
+    }
+
+    @Test
     func cliArgumentParsesNotesMode() {
         #expect(RightSidebarMode.from(cliArgument: "notes") == .notes)
         #expect(RightSidebarMode.from(cliArgument: "NOTES") == .notes)

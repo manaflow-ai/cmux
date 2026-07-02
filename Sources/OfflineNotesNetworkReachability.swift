@@ -5,7 +5,9 @@ import Network
 /// running app.
 @MainActor
 final class OfflineNotesNetworkReachability: OfflineNotesReachabilityMonitoring {
-    private let monitor = NWPathMonitor()
+    // `var`, not `let`: an `NWPathMonitor` cannot be restarted after `cancel()`,
+    // so a `stop()`/`start()` cycle must swap in a fresh monitor (see ``stop()``).
+    private var monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.cmux.offline-notes.reachability")
     private var started = false
     private var hasDeliveredInitial = false
@@ -34,6 +36,13 @@ final class OfflineNotesNetworkReachability: OfflineNotesReachabilityMonitoring 
     }
 
     func stop() {
+        guard started else { return }
         monitor.cancel()
+        // `cancel()` is terminal for an `NWPathMonitor`; reset our state and swap
+        // in a fresh monitor so a later `start()` actually resumes monitoring
+        // instead of no-op'ing on the `started` guard.
+        started = false
+        hasDeliveredInitial = false
+        monitor = NWPathMonitor()
     }
 }

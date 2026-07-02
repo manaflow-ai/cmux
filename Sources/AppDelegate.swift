@@ -1470,8 +1470,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isRunningUnderXCTest, RightSidebarBetaFeatureSettings.isNotesEnabled() {
             // Start the offline-notes queue at launch (when the beta is enabled)
             // so pending notes are delivered once connectivity is available even
-            // if the Notes sidebar is never opened this session.
-            OfflineNotesStore.shared.start()
+            // if the Notes sidebar is never opened this session. Deferred to the
+            // next run-loop turn: `start()` lazily instantiates the store, which
+            // reads and decodes the queue file synchronously, so keeping it off the
+            // immediate launch path preserves window/bootstrap responsiveness. The
+            // terminate-time flush is gated on `hasInstance`, so nothing is lost if
+            // the app quits before this runs (no note could have been captured yet).
+            DispatchQueue.main.async {
+                OfflineNotesStore.shared.start()
+            }
         }
         NSApp.servicesProvider = self
 

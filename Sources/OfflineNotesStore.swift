@@ -415,6 +415,7 @@ final class OfflineNotesStore {
     }
 
     nonisolated static func defaultFileURL(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         appSupportDirectory: URL? = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -422,9 +423,23 @@ final class OfflineNotesStore {
         isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
     ) -> URL? {
         guard !isRunningUnderAutomatedTests, let appSupportDirectory else { return nil }
+        // Scope the queue file by bundle identifier so production, staging, and
+        // tagged side-by-side debug builds never share one file. Each variant is a
+        // separate process with its own store and serial write queue; a shared file
+        // would make concurrent captures last-writer-wins (dropping the other app's
+        // notes) and expose one variant's queued note text in another. Mirrors
+        // ``ClosedItemHistory`` and the session-restore persistence pattern.
+        let bundleId = (bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? bundleIdentifier!
+            : "com.cmuxterm.app"
+        let safeBundleId = bundleId.replacingOccurrences(
+            of: "[^A-Za-z0-9._-]",
+            with: "_",
+            options: .regularExpression
+        )
         return appSupportDirectory
             .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("offline-notes.json", isDirectory: false)
+            .appendingPathComponent("offline-notes-\(safeBundleId).json", isDirectory: false)
     }
 
     // Encoders/decoders are created fresh per call: `JSONEncoder`/`JSONDecoder`
