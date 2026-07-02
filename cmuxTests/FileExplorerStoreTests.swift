@@ -125,6 +125,28 @@ private enum GitMetadataProbeOutcome: Sendable {
     case timedOut
 }
 
+/// Guards the single legal `resume` of a checked continuation shared by a detached
+/// probe thread and a timeout that race to settle it. Whichever fires first wins; the
+/// loser's `resume` is dropped. `@unchecked Sendable` because `settled` is only ever
+/// read or written under `lock`, and the stored continuation is resumed exactly once.
+private final class SingleResume<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var settled = false
+    private let continuation: CheckedContinuation<Value, Never>
+
+    init(_ continuation: CheckedContinuation<Value, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ value: Value) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !settled else { return }
+        settled = true
+        continuation.resume(returning: value)
+    }
+}
+
 /// The store's `@Published` state is driven by unstructured `Task { ... }` calls that
 /// hop to `@MainActor`. Pinning the test class to `@MainActor` keeps observations on
 /// the same actor as the mutations, so reads see a consistent snapshot.
@@ -759,17 +781,22 @@ struct FileExplorerStoreTests {
         let gitPath = root.appendingPathComponent(".git").path
         try #require(mkfifo(gitPath, 0o600) == 0)
 
-        // Race resolution against a timeout so a regression fails cleanly here rather
-        // than blocking forever on the FIFO's open().
-        let outcome = await withTaskGroup(of: GitMetadataProbeOutcome.self) { group in
-            group.addTask { .completed(FileExplorerStore.gitMetadataDirectory(under: root.path)) }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                return .timedOut
+        // Race the resolver against a timeout so a regression fails cleanly here rather
+        // than blocking forever on the FIFO's open(). The probe runs on a *detached*
+        // thread, not a structured child: `withTaskGroup` cannot return from its scope
+        // until every child finishes, and `cancelAll()` cannot interrupt a synchronous
+        // `open()`, so a regressed blocking open would wedge the group (and CI) instead
+        // of reaching the `.timedOut` assertion below. A detached thread can simply be
+        // abandoned — on timeout it stays parked in `open()` and is leaked, which is
+        // harmless because the test has already failed and the process is torn down.
+        let outcome: GitMetadataProbeOutcome = await withCheckedContinuation { continuation in
+            let race = SingleResume(continuation)
+            Thread.detachNewThread {
+                race.resume(.completed(FileExplorerStore.gitMetadataDirectory(under: root.path)))
             }
-            let first = await group.next() ?? .timedOut
-            group.cancelAll()
-            return first
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) {
+                race.resume(.timedOut)
+            }
         }
 
         switch outcome {

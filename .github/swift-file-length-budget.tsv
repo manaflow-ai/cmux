@@ -63,7 +63,7 @@
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1500	cmuxUITests/MultiWindowNotificationsUITests.swift
 1499	cmuxTests/OmnibarAndToolsTests.swift
-1447	cmuxTests/FileExplorerStoreTests.swift
+1474	cmuxTests/FileExplorerStoreTests.swift
 1433	Sources/RemoteTmuxControlConnection.swift
 1420	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1384	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
