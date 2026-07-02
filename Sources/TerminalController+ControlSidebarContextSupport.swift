@@ -99,6 +99,50 @@ extension TerminalController {
         }
     }
 
+    func controlSidebarResolvePanelScopedMutationTab(
+        target: ControlSidebarTabTarget,
+        panelID: UUID?
+    ) -> Workspace? {
+        let preferredTab = controlSidebarResolveMutationTab(target)
+        guard let panelID else { return preferredTab }
+        if let preferredTab, preferredTab.panels[panelID] != nil {
+            return preferredTab
+        }
+        return AppDelegate.shared?.workspaceContainingPanel(
+            panelId: panelID,
+            preferredWorkspaceId: controlSidebarPreferredWorkspaceID(
+                for: target,
+                resolvedTab: preferredTab
+            )
+        )?.workspace
+    }
+
+    func controlSidebarSchedulePanelScopedMutation(
+        target: ControlSidebarTabTarget,
+        panelID: UUID?,
+        mutation: @escaping (TerminalController, Workspace) -> Void
+    ) {
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let self,
+                  let tab = self.controlSidebarResolvePanelScopedMutationTab(target: target, panelID: panelID) else {
+                return
+            }
+            mutation(self, tab)
+        }
+    }
+
+    private func controlSidebarPreferredWorkspaceID(
+        for target: ControlSidebarTabTarget,
+        resolvedTab: Workspace?
+    ) -> UUID? {
+        switch target {
+        case .workspace(let tabID):
+            return tabID
+        case .selected, .index:
+            return resolvedTab?.id
+        }
+    }
+
     /// The enqueue halves of the deleted file-private
     /// `schedulePanelMetadataMutation(args:options:missingPanelUsage:mutation:)`
     /// (the parse-level head moved into the coordinator's

@@ -37,7 +37,7 @@ public protocol ControlSidebarContext: AnyObject {
     )
 
     /// Enqueues the `clear_status`/`clear_meta` removal mutation.
-    func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String)
+    func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String, panelID: UUID?)
 
     /// Enqueues the `set_agent_pid` record mutation.
     func controlSidebarScheduleAgentPIDRecord(

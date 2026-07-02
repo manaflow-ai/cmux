@@ -10309,13 +10309,13 @@ class TerminalController {
           clear_notifications [--tab=X] [--panel=ID] - Clear notifications (all, per-tab, or per-panel)
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
-          set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
+          set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID] - Set a status entry
           set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] - Report coding-agent lifecycle for hibernation
           agent_hibernation <on|off> - Enable or disable Agent Hibernation
-          report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
+          report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
-          clear_status <key> [--tab=X] - Remove a status entry
-          clear_meta <key> [--tab=X] - Remove sidebar metadata entry
+          clear_status <key> [--tab=X] [--panel=ID] - Remove a status entry
+          clear_meta <key> [--tab=X] [--panel=ID] - Remove sidebar metadata entry
           clear_meta_block <key> [--tab=X] - Remove sidebar markdown block
           list_status [--tab=X]   - List all status entries
           list_meta [--tab=X]     - List sidebar metadata entries
