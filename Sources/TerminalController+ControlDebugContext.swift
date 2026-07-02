@@ -256,7 +256,7 @@ extension TerminalController: ControlDebugContext {
     ) -> Bool {
         let targetWindow: NSWindow?
         if let windowID {
-            guard let window = AppDelegate.shared?.mainWindow(for: windowID) else {
+            guard let window = appEnvironment?.windowRegistry.mainWindow(for: windowID) else {
                 return false
             }
             targetWindow = window
@@ -306,7 +306,7 @@ extension TerminalController: ControlDebugContext {
     func controlDebugCommandPaletteRenameInputSelection(
         windowID: UUID
     ) -> ControlDebugRenameInputSelectionResolution {
-        guard let window = AppDelegate.shared?.mainWindow(for: windowID) else {
+        guard let window = appEnvironment?.windowRegistry.mainWindow(for: windowID) else {
             return .windowNotFound
         }
         guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else {
@@ -378,7 +378,7 @@ extension TerminalController: ControlDebugContext {
         }
         let preferredWindow: NSWindow?
         if let windowID {
-            preferredWindow = AppDelegate.shared?.mainWindow(for: windowID)
+            preferredWindow = appEnvironment?.windowRegistry.mainWindow(for: windowID)
             guard preferredWindow != nil else {
                 return .windowNotFound
             }
@@ -637,8 +637,8 @@ extension TerminalController: ControlDebugContext {
             // scoped to the intended window even when NSApp.keyWindow is stale.
             let targetWindow: NSWindow? = {
                 if let activeTabManager = self.tabManager,
-                   let windowId = AppDelegate.shared?.windowId(for: activeTabManager),
-                   let window = AppDelegate.shared?.mainWindow(for: windowId) {
+                   let windowId = appEnvironment?.windowRegistry.windowId(for: activeTabManager),
+                   let window = appEnvironment?.windowRegistry.mainWindow(for: windowId) {
                     return window
                 }
                 return NSApp.keyWindow
@@ -693,7 +693,7 @@ extension TerminalController: ControlDebugContext {
 
     func activateApp() -> String {
         v2MainSync {
-            _ = AppDelegate.shared?.activateMainWindowFromSocket()
+            _ = appEnvironment?.mainWindowRouter.activateFromSocket()
         }
         return "OK"
     }

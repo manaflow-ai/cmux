@@ -30,8 +30,8 @@ extension TerminalController: ControlSystemContext {
         var workspaceFound = (workspaceFilter == nil)
         var windowFound = (requestedWindowID == nil)
 
-        if let app = AppDelegate.shared {
-            let summaries = app.listMainWindowSummaries()
+        if let windowRegistry = appEnvironment?.windowRegistry {
+            let summaries = windowRegistry.listMainWindowSummaries()
             let defaultWindowId = requestedWindowID ?? focusedWindowID ?? summaries.first?.windowId
 
             for (windowIndex, summary) in summaries.enumerated() {
@@ -39,7 +39,7 @@ extension TerminalController: ControlSystemContext {
                     continue
                 }
                 windowFound = true
-                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                guard let manager = windowRegistry.tabManagerFor(windowId: summary.windowId) else { continue }
 
                 if let workspaceFilter {
                     guard let workspaceIndex = manager.tabs.firstIndex(where: { $0.id == workspaceFilter }) else {
@@ -245,10 +245,12 @@ extension TerminalController: ControlSystemContext {
 
     func controlFeedbackOpen(workspaceID: UUID?, windowID: UUID?, requestedActivate: Bool) {
         let shouldActivate = v2FocusAllowed(requested: requestedActivate)
+        let windowRegistry = appEnvironment?.windowRegistry
+        let mainWindowRouter = appEnvironment?.mainWindowRouter
         DispatchQueue.main.async {
             let targetWindow: NSWindow?
-            if let windowID, let app = AppDelegate.shared {
-                targetWindow = app.mainWindow(for: windowID)
+            if let windowID {
+                targetWindow = windowRegistry?.mainWindow(for: windowID)
             } else if let workspaceID, let app = AppDelegate.shared {
                 targetWindow = app.mainWindowContainingWorkspace(workspaceID)
             } else {
@@ -257,7 +259,7 @@ extension TerminalController: ControlSystemContext {
 
             if shouldActivate {
                 if let targetWindow {
-                    _ = AppDelegate.shared?.focusWindowForAppActivation(targetWindow, reason: .feedback)
+                    _ = mainWindowRouter?.focusWindowForAppActivation(targetWindow, reason: .feedback)
                 } else {
                     // The legacy body also passed .activateIgnoringOtherApps; the
                     // option is deprecated and documented as a no-op on macOS 14+
@@ -290,7 +292,7 @@ extension TerminalController: ControlSystemContext {
         }
         return ControlExtensionSidebarSnapshot(
             sequence: sequence,
-            windowID: AppDelegate.shared?.windowId(for: tabManager),
+            windowID: appEnvironment?.windowRegistry.windowId(for: tabManager),
             selectedWorkspaceID: selectedWorkspaceId,
             workspaces: workspaces
         )

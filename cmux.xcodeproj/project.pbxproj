@@ -566,6 +566,7 @@
 		2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000001 /* MainWindowFocusController.swift */; };
 		B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000006 /* MainWindowFocusTypes.swift */; };
 		A5C0FF01 /* MainWindowRegistrationSlices.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0FF02 /* MainWindowRegistrationSlices.swift */; };
+		2F0C05000000000000000024 /* MainWindowRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000023 /* MainWindowRouter.swift */; };
 		A6D1F0300000000000000002 /* MainWindowVisibilityController+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */; };
 		2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C06000000000000000001 /* MainWindowVisibilityController.swift */; };
 		17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */; };
@@ -1736,6 +1737,7 @@
 		2F0C05000000000000000001 /* MainWindowFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusController.swift; sourceTree = "<group>"; };
 		B37A00000000000000000006 /* MainWindowFocusTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusTypes.swift; sourceTree = "<group>"; };
 		A5C0FF02 /* MainWindowRegistrationSlices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowRegistrationSlices.swift; sourceTree = "<group>"; };
+		2F0C05000000000000000023 /* MainWindowRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowRouter.swift; sourceTree = "<group>"; };
 		A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/MainWindowVisibilityController+Lifecycle.swift"; sourceTree = "<group>"; };
 		2F0C06000000000000000001 /* MainWindowVisibilityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibilityController.swift; sourceTree = "<group>"; };
 		17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibilityControllerTests.swift; sourceTree = "<group>"; };
@@ -3014,6 +3016,7 @@
 				C10D00020000000000000002 /* CloudVMActionLauncher.swift */,
 				B37A00000000000000000006 /* MainWindowFocusTypes.swift */,
 				2F0C05000000000000000001 /* MainWindowFocusController.swift */,
+				2F0C05000000000000000023 /* MainWindowRouter.swift */,
 				2F0C05000000000000000011 /* WindowContext.swift */,
 				2F0C05000000000000000021 /* WindowRegistry.swift */,
 				2F0C05000000000000000013 /* AppEnvironment.swift */,
@@ -4378,6 +4381,7 @@
 				2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */,
 				B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
 				A5C0FF01 /* MainWindowRegistrationSlices.swift in Sources */,
+				2F0C05000000000000000024 /* MainWindowRouter.swift in Sources */,
 				A6D1F0300000000000000002 /* MainWindowVisibilityController+Lifecycle.swift in Sources */,
 				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
 				D5E40A01D5E40A01D5E40A01 /* ManagedDefaultSideEffectApplier.swift in Sources */,

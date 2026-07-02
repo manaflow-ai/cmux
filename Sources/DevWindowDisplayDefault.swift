@@ -75,7 +75,7 @@ enum DevWindowDisplayDefault {
     @MainActor
     static func applyToNewWindow(_ window: NSWindow) {
         guard let app = AppDelegate.shared,
-              let runtime = app.settingsRuntime else { return }
+              let runtime = app.environment.settingsRuntime else { return }
         // Prefer the settings value; fall back to the legacy file so an existing
         // pre-migration default still places the very first window before the
         // async one-time migration has committed to cmux.json.

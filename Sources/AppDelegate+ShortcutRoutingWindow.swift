@@ -35,22 +35,7 @@ extension AppDelegate {
     }
 
     func activeTabManagerForCommands(preferredWindow: NSWindow? = nil) -> TabManager? {
-        if let context = contextForMainWindow(preferredWindow) {
-            return context.tabManager
-        }
-        if let context = contextForMainWindow(shortcutRoutingKeyWindow) {
-            return context.tabManager
-        }
-        if let context = contextForMainWindow(NSApp.mainWindow) {
-            return context.tabManager
-        }
-        if let activeManager = tabManager,
-           let activeContext = liveMainWindowContext(for: activeManager) {
-            return activeContext.tabManager
-        }
-        return registeredMainWindows.first { context in
-            resolvedWindow(for: context) != nil
-        }?.tabManager
+        environment.mainWindowRouter.activeTabManagerForCommands(preferredWindow: preferredWindow)
     }
 
     func repairFocusedTerminalKeyboardRoutingIfNeeded(
@@ -70,12 +55,4 @@ extension AppDelegate {
         )
     }
 
-    private func liveMainWindowContext(for tabManager: TabManager) -> RegisteredMainWindow? {
-        for context in Array(registeredMainWindows) where context.tabManager === tabManager {
-            if resolvedWindow(for: context) != nil {
-                return context
-            }
-        }
-        return nil
-    }
 }

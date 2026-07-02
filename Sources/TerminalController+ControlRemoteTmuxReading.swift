@@ -12,7 +12,7 @@ import Foundation
 ///
 /// `ControlRemoteTmuxWorker` is in a package that must not import the app
 /// target, where the `remote.tmux.*` commands reach the `@MainActor`
-/// `RemoteTmuxController` (via `AppDelegate.shared`) and the
+/// `RemoteTmuxController` (via `TerminalController.shared.appEnvironment`) and the
 /// `RemoteTmuxController.isEnabled` beta flag. ``ControlRemoteTmuxReading``
 /// inverts that: the package owns the protocol, ``TerminalControllerRemoteTmuxReading``
 /// conforms it, hopping to the main actor inside each member to fetch the
@@ -45,7 +45,7 @@ extension TerminalController {
 
 /// Conforms ``ControlRemoteTmuxReading`` with no live `TerminalController` state:
 /// the bodies reach only `RemoteTmuxController.isEnabled` (a static
-/// UserDefaults read) and `AppDelegate.shared?.remoteTmuxController`, so the
+/// UserDefaults read) and `TerminalController.shared.appEnvironment?.remoteTmuxController`, so the
 /// conformer is a plain `Sendable` value.
 ///
 /// Each member hops to the `@MainActor` to fetch the controller and call its
@@ -59,7 +59,7 @@ struct TerminalControllerRemoteTmuxReading: ControlRemoteTmuxReading {
     }
 
     func listSessions(host: ControlRemoteTmuxHost) async throws -> [ControlRemoteTmuxSession] {
-        guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController }) else {
+        guard let controller = await MainActor.run(body: { TerminalController.shared.appEnvironment?.remoteTmuxController }) else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
         let sessions = try await controller.listSessions(host: Self.host(host))
@@ -79,7 +79,7 @@ struct TerminalControllerRemoteTmuxReading: ControlRemoteTmuxReading {
         sessionName: String,
         createIfMissing: Bool
     ) async throws -> [String]? {
-        guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController }) else {
+        guard let controller = await MainActor.run(body: { TerminalController.shared.appEnvironment?.remoteTmuxController }) else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
         return try await controller.attachControlStreamWhenReady(
@@ -90,7 +90,7 @@ struct TerminalControllerRemoteTmuxReading: ControlRemoteTmuxReading {
     }
 
     func mirrorHost(host: ControlRemoteTmuxHost) async throws {
-        guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController }) else {
+        guard let controller = await MainActor.run(body: { TerminalController.shared.appEnvironment?.remoteTmuxController }) else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
         try await controller.mirrorHost(host: Self.host(host))
@@ -100,7 +100,7 @@ struct TerminalControllerRemoteTmuxReading: ControlRemoteTmuxReading {
         host: ControlRemoteTmuxHost,
         activateWindow: Bool
     ) async throws -> ControlRemoteTmuxAttachOutcome {
-        guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController }) else {
+        guard let controller = await MainActor.run(body: { TerminalController.shared.appEnvironment?.remoteTmuxController }) else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
         let outcome = try await controller.mirrorHostInNewWindow(
@@ -117,7 +117,7 @@ struct TerminalControllerRemoteTmuxReading: ControlRemoteTmuxReading {
 
     func detach(host: ControlRemoteTmuxHost, sessionName: String) async throws {
         try await MainActor.run {
-            guard let controller = AppDelegate.shared?.remoteTmuxController else {
+            guard let controller = TerminalController.shared.appEnvironment?.remoteTmuxController else {
                 throw RemoteTmuxError.unreachable("app not ready")
             }
             controller.detach(host: Self.host(host), sessionName: sessionName)
@@ -129,7 +129,7 @@ struct TerminalControllerRemoteTmuxReading: ControlRemoteTmuxReading {
         sessionName: String
     ) async -> ControlRemoteTmuxStateSnapshot? {
         let snapshot: RemoteTmuxControlConnection.Snapshot? = await MainActor.run {
-            AppDelegate.shared?.remoteTmuxController
+            TerminalController.shared.appEnvironment?.remoteTmuxController
                 .connection(host: Self.host(host), sessionName: sessionName)?
                 .snapshot()
         }

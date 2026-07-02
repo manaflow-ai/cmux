@@ -582,7 +582,7 @@ private extension FeedCoordinator {
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let workspaceID = event.workspaceId.flatMap(UUID.init(uuidString:))
-        let context = workspaceID.flatMap { appDelegate?.contextContainingTabId($0) }
+        let context = workspaceID.flatMap { appDelegate?.environment.windowRegistry.contextContainingTabId($0) }
             ?? appDelegate?.firstContextWithConfigStore()
         let configStore = context.flatMap { appDelegate?.configStore(for: $0) }
         let workspace = workspaceID.flatMap { id in

@@ -70,8 +70,8 @@ extension TabManager: WorkspaceCommandHosting {
     // MARK: Cross-window move
 
     func windowMoveTargets() -> [WorkspaceCommandWindowTarget] {
-        let referenceWindowId = AppDelegate.shared?.windowId(for: self)
-        let targets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
+        let referenceWindowId = appEnvironment?.windowRegistry.windowId(for: self)
+        let targets = appEnvironment?.mainWindowRouter.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
         return targets.map {
             WorkspaceCommandWindowTarget(
                 windowId: $0.windowId,
@@ -82,11 +82,11 @@ extension TabManager: WorkspaceCommandHosting {
     }
 
     func moveWorkspace(_ workspaceId: UUID, toWindow windowId: UUID) {
-        _ = AppDelegate.shared?.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: true)
+        _ = appEnvironment?.mainWindowRouter.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: true)
     }
 
     func moveWorkspaceToNewWindow(_ workspaceId: UUID) {
-        _ = AppDelegate.shared?.moveWorkspaceToNewWindow(workspaceId: workspaceId, focus: true)
+        _ = appEnvironment?.mainWindowRouter.moveWorkspaceToNewWindow(workspaceId: workspaceId, focus: true)
     }
 
     // MARK: Notification store

@@ -218,13 +218,13 @@ struct SidebarTabItemActions {
     }
 
     func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
-        guard let app = AppDelegate.shared else { return }
+        guard let router = tabManager.appEnvironment?.mainWindowRouter else { return }
         let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
         guard !orderedWorkspaceIds.isEmpty else { return }
 
         for (index, workspaceId) in orderedWorkspaceIds.enumerated() {
             let shouldFocus = index == orderedWorkspaceIds.count - 1
-            _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: shouldFocus)
+            _ = router.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: shouldFocus)
         }
 
         selectedTabIds.subtract(orderedWorkspaceIds)
@@ -232,21 +232,21 @@ struct SidebarTabItemActions {
     }
 
     func moveWorkspacesToNewWindow(_ workspaceIds: [UUID]) {
-        guard let app = AppDelegate.shared else { return }
+        guard let router = tabManager.appEnvironment?.mainWindowRouter else { return }
         let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
         guard let firstWorkspaceId = orderedWorkspaceIds.first else { return }
 
         let shouldFocusImmediately = orderedWorkspaceIds.count == 1
-        guard let newWindowId = app.moveWorkspaceToNewWindow(workspaceId: firstWorkspaceId, focus: shouldFocusImmediately) else {
+        guard let newWindowId = router.moveWorkspaceToNewWindow(workspaceId: firstWorkspaceId, focus: shouldFocusImmediately) else {
             return
         }
 
         if orderedWorkspaceIds.count > 1 {
             for workspaceId in orderedWorkspaceIds.dropFirst() {
-                _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: newWindowId, focus: false)
+                _ = router.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: newWindowId, focus: false)
             }
             if let finalWorkspaceId = orderedWorkspaceIds.last {
-                _ = app.moveWorkspaceToWindow(workspaceId: finalWorkspaceId, windowId: newWindowId, focus: true)
+                _ = router.moveWorkspaceToWindow(workspaceId: finalWorkspaceId, windowId: newWindowId, focus: true)
             }
         }
 

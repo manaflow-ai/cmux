@@ -42,7 +42,7 @@ extension TabManager: AgentPIDLivenessSweepHosting {
             PortScanner.shared.refreshAgentPorts(workspaceId: tab.id, agentPIDs: remainingAgentPIDs)
             // Also clear stale notifications (e.g. "Doing well, thanks!")
             // left behind when Claude was killed without SessionEnd firing.
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
+            appEnvironment?.notificationStore?.clearNotifications(forTabId: tab.id)
         }
     }
 }

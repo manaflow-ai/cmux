@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private(set) lazy var terminalControl: TerminalController = {
         let instance = TerminalController.shared
         TerminalController.installCompositionRootInstance(instance)
+        instance.attachAppEnvironment(environment)
         return instance
     }()
 
@@ -403,7 +404,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         legacyDefaultsKeys: legacyPersistedWindowGeometryDefaultsKeys
     )
 
-    weak var tabManager: TabManager?
+    var tabManager: TabManager? {
+        get { environment.mainWindowRouter.activeTabManager }
+        set { environment.mainWindowRouter.activeTabManager = newValue }
+    }
     /// The single `TerminalNotificationStore` (owned by the `cmuxApp`
     /// `@StateObject`). Storage moved to ``AppEnvironment``, which holds it
     /// weakly exactly as the former `weak var` here did; this get/set forwarder
@@ -413,7 +417,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         get { environment.notificationStore }
         set { environment.notificationStore = newValue }
     }
-    weak var sidebarState: SidebarState?
+    var sidebarState: SidebarState? {
+        get { environment.mainWindowRouter.activeSidebarState }
+        set { environment.mainWindowRouter.activeSidebarState = newValue }
+    }
 
     /// Notification jump/open navigation, extracted into `CmuxNotifications`.
     /// `AppDelegate` is the composition root: it conforms to every seam (see
@@ -581,11 +588,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
     private let agentChatTranscriptService = AgentChatTranscriptService()
-    /// Per-pane runaway-memory guardrail, wired at startup (replaces the former
-    /// `PaneMemoryGuardrail.shared` singleton) and read by `ContentView` for the
-    /// warning banner. Storage moved to ``AppEnvironment``; forwarder preserved
-    /// for not-yet-migrated sites.
-    var paneMemoryGuardrail: PaneMemoryGuardrailService { environment.paneMemoryGuardrail }
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
     /// main window's `NSHostingView` itself, so it injects this into the
@@ -598,9 +600,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         get { environment.settingsRuntime }
         set { environment.settingsRuntime = newValue }
     }
-    weak var fileExplorerState: FileExplorerState?
+    var fileExplorerState: FileExplorerState? {
+        get { environment.mainWindowRouter.activeFileExplorerState }
+        set { environment.mainWindowRouter.activeFileExplorerState = newValue }
+    }
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
-    weak var sidebarSelectionState: SidebarSelectionState?
+    var sidebarSelectionState: SidebarSelectionState? {
+        get { environment.mainWindowRouter.activeSidebarSelectionState }
+        set { environment.mainWindowRouter.activeSidebarSelectionState = newValue }
+    }
     /// Owns the keyboard-shortcut event decode (layout-character resolution and
     /// numbered-digit/character normalization) in the `CmuxShortcuts` package.
     /// The per-keystroke dispatch stays app-side and reaches the decode through
@@ -705,9 +713,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
-    /// Update-pill / Sparkle update log store. Storage moved to
-    /// ``AppEnvironment``; forwarder preserved for not-yet-migrated sites.
-    var updateLog: UpdateLogStore { environment.updateLog }
     /// Keyboard-focus diagnostics log store. Storage moved to
     /// ``AppEnvironment``; forwarder preserved for not-yet-migrated sites.
     var focusLog: FocusLogStore { environment.focusLog }
@@ -732,8 +737,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// static `pending` registry, so the watcher state no longer lives on this
     /// singleton.
     let workspaceGroupJoinCoordinator = WorkspaceGroupJoinCoordinator()
-    private lazy var updateController = UpdateController(log: updateLog)
-    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
+    private lazy var updateController = UpdateController(log: environment.updateLog)
+    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: environment.updateLog, settingsRuntime: settingsRuntime)
     private let windowDecorationsController = WindowDecorationsController()
     private let systemWideHotkeyController = SystemWideHotkeyController()
     /// Owns the menu-bar status item lifecycle and application-presentation
@@ -956,15 +961,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `windowFileExplorerStates`). Each main `NSWindow` now has one
     /// ``WindowContext`` holding all six slices; this registry is the single
     /// strong owner + lookup the window-lifecycle seam and the per-window
-    /// config/sidebar/file-explorer accessors resolve through. The cross-window
-    /// resolver family (`tabManagerFor`, `locateSurface`, …) is unchanged: it
-    /// iterates `registeredMainWindows` (funnelling through
-    /// `resolveRegisteredWindow`, which reads this registry) plus the
-    /// `recoverableMainWindowRoutes()` pass. A passive index: it does NOT
+    /// config/sidebar/file-explorer accessors resolve through. Storage moved to
+    /// ``AppEnvironment``; this forwarder keeps the not-yet-migrated
+    /// `AppDelegate.windowRegistry` sites resolving to the same instance. The
+    /// cross-window resolver family now lives on the registry and AppDelegate
+    /// keeps thin compatibility forwarders. A passive index: it does NOT
     /// subscribe to the single-consumer `windowCoordinator.windowClosed` stream;
     /// slice removal is driven by the one `removeWindowModelSlices` teardown
     /// funnel.
-    let windowRegistry = WindowRegistry()
+    var windowRegistry: WindowRegistry { environment.windowRegistry }
 
     /// The ``WindowContext`` for `id`, or `nil` if no window is registered under
     /// `id`. The single forwarder the seam methods and config/sidebar accessors
@@ -1318,19 +1323,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// owns window↔id identity and the single window-closed stream.
     var windowCoordinator: any WindowManaging { windowLifecycle.windowCoordinator }
 
-    /// Ordered ``WindowID``-keyed ledger of recoverable main-window routes,
-    /// peeled out of the rejected `MainWindowContext` aggregate (owner ruling
-    /// 2026-06-18: per-window state is domain-owned and `WindowID`-keyed). This
-    /// is the constructor-held replacement for the legacy
-    /// `objc_getAssociatedObject` association that hid a `MainWindowRouteLedger`
-    /// class on the `AppDelegate` singleton: ``RecoverableWindowRouteLedger``
-    /// owns the bookkeeping (the `[WindowID: route]` storage, the monotonic order
-    /// issued per remembered route, and the most-recently-remembered-first sort),
-    /// while the app-side methods in `AppDelegate+RecoverableMainWindowRoutes`
-    /// keep the route-resolution logic that reaches into app-target
-    /// window/tab/surface state.
-    let recoverableMainWindowRouteLedger = RecoverableWindowRouteLedger<RecoverableMainWindowRoute>()
-
     /// The per-window ``SidebarSelectionState`` for `context`, resolved through
     /// the window's ``WindowContext`` in ``windowRegistry``. `registerMainWindow`
     /// always seeds the slice before the context is reachable, so a live context
@@ -1649,6 +1641,161 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // may not call AppEnvironment's main-actor init.
         self.environment = AppEnvironment()
         super.init()
+        windowRegistry.configureHostSeams(
+            WindowRegistryHostSeams(
+                registeredMainWindows: { [weak self] in
+                    self?.registeredMainWindows ?? []
+                },
+                registeredMainWindowForManager: { [weak self] tabManager in
+                    self?.registeredMainWindow(forManager: tabManager)
+                },
+                registeredMainWindowForWindowId: { [weak self] windowId in
+                    self?.registeredMainWindow(forWindowId: windowId)
+                },
+                contextForMainTerminalWindow: { [weak self] window, reindex in
+                    self?.contextForMainTerminalWindow(window, reindex: reindex)
+                },
+                mainWindowIdFromWindow: { [weak self] window in
+                    self?.mainWindowId(from: window)
+                },
+                windowForMainWindowId: { [weak self] windowId in
+                    self?.windowForMainWindowId(windowId)
+                }
+            )
+        )
+        // Built as a mutable local so the DEBUG-only seams can be assigned in a
+        // statement-level `#if DEBUG` block below: `#if` cannot split an
+        // argument list, so the conditional closures stay out of the init call.
+        var routerSeams = MainWindowRouterHostSeams(
+                shortcutRoutingKeyWindow: { [weak self] in
+                    self?.shortcutRoutingKeyWindow
+                },
+                contextForMainWindow: { [weak self] window in
+                    self?.contextForMainWindow(window)
+                },
+                registeredMainWindows: { [weak self] in
+                    self?.registeredMainWindows ?? []
+                },
+                registeredMainWindowForManager: { [weak self] tabManager in
+                    self?.registeredMainWindow(forManager: tabManager)
+                },
+                resolvedWindow: { [weak self] context in
+                    self?.resolvedWindow(for: context)
+                },
+                windowForMainWindowId: { [weak self] windowId in
+                    self?.windowForMainWindowId(windowId)
+                },
+                setActiveMainWindow: { [weak self] window in
+                    self?.setActiveMainWindow(window)
+                },
+                discardOrphanedMainWindowContext: { [weak self] context in
+                    self?.discardOrphanedMainWindowContext(context)
+                },
+                focusMainWindow: { [weak self] windowId in
+                    self?.windowLifecycle.focusMainWindow(windowId: windowId) ?? false
+                },
+                closeMainWindow: { [weak self] windowId, recordHistory in
+                    self?.windowLifecycle.closeMainWindow(windowId: windowId, recordHistory: recordHistory) ?? false
+                },
+                discardMainWindowWithoutClosedHistory: { [weak self] windowId in
+                    self?.discardMainWindowWithoutClosedHistory(windowId: windowId)
+                },
+                closeWindowContainingTabId: { [weak self] tabId, recordHistory in
+                    self?.closeMainWindowContainingTabId(tabId, recordHistory: recordHistory)
+                },
+                createMainWindow: { [weak self] in
+                    self?.createMainWindow()
+                },
+                focusForInWindowCommand: { [weak self] window, reason in
+                    self?.mainWindowVisibilityController.focusForInWindowCommand(window, reason: reason)
+                },
+                setActiveTerminalControlTabManager: { [weak self] tabManager in
+                    self?.terminalControl.setActiveTabManager(tabManager)
+                },
+                reassertCrossWindowSurfaceMoveFocus: { [weak self] destinationWindowId, sourceWindowId, destinationWorkspaceId, destinationPanelId, destinationManager in
+                    self?.reassertCrossWindowSurfaceMoveFocusIfNeeded(
+                        destinationWindowId: destinationWindowId,
+                        sourceWindowId: sourceWindowId,
+                        destinationWorkspaceId: destinationWorkspaceId,
+                        destinationPanelId: destinationPanelId,
+                        destinationManager: destinationManager
+                    )
+                },
+                paneSurfaceMoveTargets: { [weak self] summaries, excludingWorkspaceId in
+                    self?.paneSurfaceMove.moveTargets(for: summaries, excludingWorkspaceId: excludingWorkspaceId) ?? []
+                },
+                bringToFront: { [weak self] window in
+                    self?.bringToFront(window)
+                },
+                showMainWindowFromMenuBar: { [weak self] in
+                    self?.showMainWindowFromMenuBar()
+                },
+                activateMainWindowFromSocket: { [weak self] in
+                    self?.activateMainWindowFromSocket() ?? false
+                },
+                focusWindowForAppActivation: { [weak self] window, reason in
+                    self?.focusWindowForAppActivation(window, reason: reason) ?? false
+                },
+                preferredWindowForSettingsPresentation: { [weak self] in
+                    self?.preferredMainWindowForSettingsPresentation()
+                },
+                performNewWorkspaceAction: { [weak self] preferredTabManager, event, debugSource in
+                    self?.performNewWorkspaceAction(
+                        tabManager: preferredTabManager,
+                        event: event,
+                        debugSource: debugSource
+                    ) ?? false
+                },
+                performNewBrowserWorkspaceAction: { [weak self] preferredTabManager, event, debugSource in
+                    self?.performNewBrowserWorkspaceAction(
+                        tabManager: preferredTabManager,
+                        event: event,
+                        debugSource: debugSource
+                    ) ?? false
+                },
+                performCloudVMAction: { [weak self] preferredTabManager, preferredWindow, debugSource, onCompletion in
+                    self?.performCloudVMAction(
+                        tabManager: preferredTabManager,
+                        preferredWindow: preferredWindow,
+                        debugSource: debugSource,
+                        onCompletion: onCompletion
+                    ) ?? false
+                },
+                showNewWorkspaceContextMenu: { [weak self] anchorView, event, debugSource in
+                    self?.showNewWorkspaceContextMenu(
+                        anchorView: anchorView,
+                        event: event,
+                        debugSource: debugSource
+                    ) ?? false
+                },
+                showOpenFolderInInlineVSCodePanel: { [weak self] preferredTabManager in
+                    self?.showOpenFolderInInlineVSCodePanel(tabManager: preferredTabManager)
+                },
+                showFocusHistoryContextMenu: { [weak self] anchorView, event, direction, showFullHistory, debugSource in
+                    self?.showFocusHistoryContextMenu(
+                        anchorView: anchorView,
+                        event: event,
+                        direction: direction,
+                        showFullHistory: showFullHistory,
+                        debugSource: debugSource
+                    ) ?? false
+                }
+        )
+#if DEBUG
+        routerSeams.debugManagerToken = { [weak self] manager in
+            self?.debugManagerToken(manager) ?? "nil"
+        }
+        routerSeams.debugWindowToken = { [weak self] window in
+            self?.debugWindowToken(window) ?? "nil"
+        }
+        routerSeams.debugContextToken = { [weak self] context in
+            self?.debugContextToken(context) ?? "nil"
+        }
+        routerSeams.debugRouteSnapshot = { [weak self] event in
+            self?.debugShortcutRouteSnapshot(event: event) ?? ""
+        }
+#endif
+        environment.mainWindowRouter.configureHostSeams(routerSeams)
         Self.shared = self
         // Inverts the surface registry's legacy AppDelegate.shared reach-up:
         // the registry asks this delegate (via MainWindowRouteRetiring) to
@@ -2215,7 +2362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // command palette) resolves to this same injected instance instead of a
         // self-vivified lazy singleton.
         TaskManagerWindowController.installCompositionRootInstance(taskManagerWindowController)
-        self.sidebarState = sidebarState
+        environment.mainWindowRouter.activeSidebarState = sidebarState
         environment.auth = auth
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
@@ -2261,7 +2408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// (sidebar badge + dismissible banner with a kill action) before a single
     /// leaking pane can OOM-suspend the whole app (issue #6313).
     private func startPaneMemoryGuardrailIfNeeded(notificationStore: TerminalNotificationStore) {
-        let guardrail = paneMemoryGuardrail
+        let guardrail = environment.paneMemoryGuardrail
         guardrail.paneProvider = { [weak self] in
             self?.paneMemoryGuardrailDescriptors() ?? []
         }
@@ -3300,111 +3447,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     typealias WorkspaceMoveTarget = CmuxWorkspaces.WorkspaceMoveTarget
 
     func windowMoveTargets(referenceWindowId: UUID?) -> [WindowMoveTarget] {
-        let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
-        let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
-        return orderedSummaries.compactMap { summary in
-            guard tabManagerFor(windowId: summary.windowId) != nil else { return nil }
-            let label = labels[summary.windowId] ?? "Window"
-            return WindowMoveTarget(
-                windowId: summary.windowId,
-                label: label,
-                isCurrentWindow: summary.windowId == referenceWindowId
-            )
-        }
+        environment.mainWindowRouter.windowMoveTargets(referenceWindowId: referenceWindowId)
     }
 
     func workspaceMoveTargets(excludingWorkspaceId: UUID? = nil, referenceWindowId: UUID?) -> [WorkspaceMoveTarget] {
-        // App-side: resolve the window ordering + localized labels (window-domain,
-        // app-bundle concerns), project each window's live workspaces into the
-        // Sendable summary, then let ``PaneSurfaceMoveCoordinator`` own the
-        // exclusion filter + ``WorkspaceMoveTarget`` projection (the loop the god
-        // kept inline).
-        let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
-        let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
-
-        let summaries: [PaneSurfaceMoveWindowSummary] = orderedSummaries.compactMap { summary in
-            guard let manager = tabManagerFor(windowId: summary.windowId) else { return nil }
-            return PaneSurfaceMoveWindowSummary(
-                windowId: summary.windowId,
-                windowLabel: labels[summary.windowId] ?? "Window",
-                isCurrentWindow: summary.windowId == referenceWindowId,
-                workspaces: manager.tabs.map { workspace in
-                    PaneSurfaceMoveWindowSummary.Workspace(
-                        workspaceId: workspace.id,
-                        title: workspaceDisplayName(workspace)
-                    )
-                }
-            )
-        }
-
-        return paneSurfaceMove.moveTargets(for: summaries, excludingWorkspaceId: excludingWorkspaceId)
+        environment.mainWindowRouter.workspaceMoveTargets(
+            excludingWorkspaceId: excludingWorkspaceId,
+            referenceWindowId: referenceWindowId
+        )
     }
 
     @discardableResult
     func moveWorkspaceToWindow(workspaceId: UUID, windowId: UUID, atIndex: Int? = nil, focus: Bool = true) -> Bool {
-        guard let sourceManager = tabManagerFor(tabId: workspaceId),
-              let destinationManager = tabManagerFor(windowId: windowId) else {
-            return false
-        }
-
-        if sourceManager === destinationManager {
-            if focus {
-                destinationManager.focusTab(workspaceId, suppressFlash: true)
-                _ = focusMainWindow(windowId: windowId)
-                terminalControl.setActiveTabManager(destinationManager)
-            }
-            return true
-        }
-
-        guard let workspace = sourceManager.detachWorkspace(tabId: workspaceId) else { return false }
-        destinationManager.attachWorkspace(workspace, at: atIndex, select: focus)
-
-        if focus {
-            _ = focusMainWindow(windowId: windowId)
-            terminalControl.setActiveTabManager(destinationManager)
-        }
-        return true
+        environment.mainWindowRouter.moveWorkspaceToWindow(
+            workspaceId: workspaceId,
+            windowId: windowId,
+            atIndex: atIndex,
+            focus: focus
+        )
     }
 
     @discardableResult
     func moveWorkspaceToNewWindow(workspaceId: UUID, focus: Bool = true) -> UUID? {
-        let windowId = createMainWindow()
-        guard let destinationManager = tabManagerFor(windowId: windowId) else { return nil }
-        let bootstrapWorkspaceId = destinationManager.tabs.first?.id
-
-        guard moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: focus) else {
-            _ = closeMainWindow(windowId: windowId, recordHistory: false)
-            return nil
-        }
-
-        // Remove the bootstrap workspace from the new window once the moved workspace arrives.
-        if let bootstrapWorkspaceId,
-           bootstrapWorkspaceId != workspaceId,
-           let bootstrapWorkspace = destinationManager.tabs.first(where: { $0.id == bootstrapWorkspaceId }),
-           destinationManager.tabs.count > 1 {
-            destinationManager.closeWorkspace(bootstrapWorkspace, recordHistory: false)
-        }
-        return windowId
+        environment.mainWindowRouter.moveWorkspaceToNewWindow(workspaceId: workspaceId, focus: focus)
     }
 
     func locateBonsplitSurface(tabId: UUID) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
-        let bonsplitTabId = TabID(uuid: tabId)
-        for context in registeredMainWindows {
-            for workspace in context.tabManager.tabs {
-                if let panelId = workspace.panelIdFromSurfaceId(bonsplitTabId) {
-                    return (context.windowId, workspace.id, panelId, context.tabManager)
-                }
-            }
-        }
-        for route in recoverableMainWindowRoutes() {
-            guard let manager = route.tabManager else { continue }
-            for workspace in manager.tabs {
-                if let panelId = workspace.panelIdFromSurfaceId(bonsplitTabId) {
-                    return (route.windowId, workspace.id, panelId, manager)
-                }
-            }
-        }
-        return nil
+        windowRegistry.locateBonsplitSurface(tabId: tabId)
     }
 
     /// Moves the surface `panelId` into `targetWorkspaceId` at the resolved
@@ -3465,15 +3534,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func focusScriptableMainWindow(windowId: UUID, bringToFront shouldBringToFront: Bool) -> Bool {
-        guard let state = scriptableMainWindow(windowId: windowId),
-              let window = state.window else {
-            return false
-        }
-        setActiveMainWindow(window)
-        if shouldBringToFront {
-            bringToFront(window)
-        }
-        return true
+        environment.mainWindowRouter.focusScriptableWindow(
+            windowId: windowId,
+            bringToFront: shouldBringToFront
+        )
     }
 
     @discardableResult
@@ -3864,25 +3928,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    func locateSurface(surfaceId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager)? {
-        for ctx in registeredMainWindows {
-            for ws in ctx.tabManager.tabs {
-                if ws.panels[surfaceId] != nil, ws.surfaceIdFromPanelId(surfaceId) != nil {
-                    return (ctx.windowId, ws.id, ctx.tabManager)
-                }
-            }
-        }
-        for route in recoverableMainWindowRoutes() {
-            guard let manager = route.tabManager else { continue }
-            for ws in manager.tabs {
-                if ws.panels[surfaceId] != nil, ws.surfaceIdFromPanelId(surfaceId) != nil {
-                    return (route.windowId, ws.id, manager)
-                }
-            }
-        }
-        return nil
-    }
-
     /// Resolve the workspace that currently owns a panel/surface ID.
     /// Prefer the provided workspace when available, then fall back to global lookup.
     func workspaceContainingPanel(
@@ -3897,7 +3942,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return (workspace, manager)
         }
 
-        if let located = locateSurface(surfaceId: panelId),
+        if let located = windowRegistry.locateSurface(surfaceId: panelId),
            let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
            workspace.panels[panelId] != nil,
            workspace.surfaceIdFromPanelId(panelId) != nil {
@@ -4015,13 +4060,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowLifecycle.focusMainWindow(windowId: windowId)
     }
 
-    /// Closes the main window for `windowId`, suppressing closed-window history
-    /// when `recordHistory` is false. Forwards to ``windowLifecycle``, which owns
-    /// the suppression set; the `performClose` stays an app-side witness.
-    func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
-        windowLifecycle.closeMainWindow(windowId: windowId, recordHistory: recordHistory)
-    }
-
     /// Discards the main window for `windowId` without recording closed-window
     /// history. Forwards to ``windowLifecycle``; the `close` stays an app-side
     /// witness.
@@ -4069,30 +4107,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowLifecycle.closeWindowWithConfirmation(window)
     }
 
-    private func orderedMainWindowSummaries(referenceWindowId: UUID?) -> [MainWindowSummary] {
-        // App-side: read the live NSWindow/TabManager state into the Sendable
-        // summaries, then defer the pure ordering to ``CmuxWindowing``.
-        listMainWindowSummaries().orderedByReference(referenceWindowId: referenceWindowId)
-    }
-
-    private func windowLabelsById(orderedSummaries: [MainWindowSummary], referenceWindowId: UUID?) -> [UUID: String] {
-        var labels: [UUID: String] = [:]
-        for (index, summary) in orderedSummaries.enumerated() {
-            if summary.windowId == referenceWindowId {
-                labels[summary.windowId] = String(localized: "menu.currentWindow", defaultValue: "Current Window")
-            } else {
-                let number = index + 1
-                labels[summary.windowId] = String(localized: "menu.windowNumber", defaultValue: "Window \(number)")
-            }
-        }
-        return labels
-    }
-
-    private func workspaceDisplayName(_ workspace: Workspace) -> String {
-        let trimmed = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : trimmed
-    }
-
     func rollbackDetachedSurface(
         _ detached: Workspace.DetachedSurfaceTransfer,
         to workspace: Workspace,
@@ -4100,15 +4114,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sourceIndex: Int?,
         focus: Bool
     ) {
-        let rollbackPane = sourcePane.flatMap { pane in
-            workspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
-        } ?? workspace.bonsplitController.focusedPaneId
-            ?? workspace.bonsplitController.allPaneIds.first
-        guard let rollbackPane else { return }
-        _ = workspace.attachDetachedSurface(
+        environment.mainWindowRouter.rollbackDetachedSurface(
             detached,
-            inPane: rollbackPane,
-            atIndex: sourceIndex,
+            to: workspace,
+            sourcePane: sourcePane,
+            sourceIndex: sourceIndex,
             focus: focus
         )
     }
@@ -4301,9 +4311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func allMainWindowTabManagersForDebug() -> [TabManager] {
-        Array(registeredMainWindows).compactMap { context in
-            resolvedWindow(for: context) == nil ? nil : context.tabManager
-        }
+        environment.mainWindowRouter.allMainWindowTabManagersForDebug()
     }
 #if DEBUG
     func debugManagerToken(_ manager: TabManager?) -> String {
@@ -4419,58 +4427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// This keeps menu/shortcut actions window-scoped even if the cached `tabManager` drifts.
     @discardableResult
     func synchronizeActiveMainWindowContext(preferredWindow: NSWindow? = nil) -> TabManager? {
-        let (context, source): (RegisteredMainWindow?, String) = {
-            if let preferredWindow,
-               let context = contextForMainWindow(preferredWindow) {
-                return (context, "preferredWindow")
-            }
-            if let context = contextForMainWindow(shortcutRoutingKeyWindow) {
-                return (context, "keyWindow")
-            }
-            if let context = contextForMainWindow(NSApp.mainWindow) {
-                return (context, "mainWindow")
-            }
-            if let activeManager = tabManager,
-               let activeContext = registeredMainWindow(forManager: activeManager) {
-                return (activeContext, "activeManager")
-            }
-            return (registeredMainWindows.first, "firstContextFallback")
-        }()
-
-#if DEBUG
-        let beforeManagerToken = debugManagerToken(tabManager)
-        cmuxDebugLog(
-            "shortcut.sync.pre source=\(source) preferred={\(debugWindowToken(preferredWindow))} chosen={\(debugContextToken(context))} \(debugShortcutRouteSnapshot())"
-        )
-#endif
-        guard let context else { return tabManager }
-        let alreadyActive =
-            tabManager === context.tabManager
-            && sidebarState === sidebarState(for: context)
-            && sidebarSelectionState === sidebarSelectionState(for: context)
-        if alreadyActive {
-#if DEBUG
-            cmuxDebugLog(
-                "shortcut.sync.post source=\(source) beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) chosen={\(debugContextToken(context))} nochange=1 \(debugShortcutRouteSnapshot())"
-            )
-#endif
-            return context.tabManager
-        }
-        if let window = context.window ?? windowForMainWindowId(context.windowId) {
-            setActiveMainWindow(window)
-        } else {
-            tabManager = context.tabManager
-            sidebarState = sidebarState(for: context)
-            sidebarSelectionState = sidebarSelectionState(for: context)
-            fileExplorerState = fileExplorerState(for: context)
-            terminalControl.setActiveTabManager(context.tabManager)
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "shortcut.sync.post source=\(source) beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) chosen={\(debugContextToken(context))} \(debugShortcutRouteSnapshot())"
-        )
-#endif
-        return context.tabManager
+        environment.mainWindowRouter.synchronizeActiveWindowContext(preferredWindow: preferredWindow)
     }
 
     private struct FocusedTerminalShortcutContext {
@@ -4555,21 +4512,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func preferredRegisteredMainWindowContext(preferredWindow: NSWindow? = nil) -> RegisteredMainWindow? {
-        if let preferredWindow,
-           let context = contextForMainWindow(preferredWindow) {
-            return context
-        }
-        if let context = contextForMainWindow(shortcutRoutingKeyWindow) {
-            return context
-        }
-        if let context = contextForMainWindow(NSApp.mainWindow) {
-            return context
-        }
-        if let activeManager = tabManager,
-           let activeContext = registeredMainWindow(forManager: activeManager) {
-            return activeContext
-        }
-        return registeredMainWindows.first
+        environment.mainWindowRouter.preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
     }
 
     private func activateMainWindowContextForShortcutEvent(_ event: NSEvent) {
@@ -4589,92 +4532,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func toggleSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
-        func toggle(_ context: RegisteredMainWindow) -> Bool {
-            guard let window = resolvedWindow(for: context) else {
-                discardOrphanedMainWindowContext(context)
-                return false
-            }
-            setActiveMainWindow(window)
-            sidebarState(for: context).toggle()
-            return true
-        }
-
-        if let preferredWindow,
-           let preferredContext = contextForMainTerminalWindow(preferredWindow),
-           toggle(preferredContext) {
-            return true
-        }
-        if let keyWindow = shortcutRoutingKeyWindow,
-           let keyContext = contextForMainTerminalWindow(keyWindow),
-           toggle(keyContext) {
-            return true
-        }
-        if let mainWindow = NSApp.mainWindow,
-           let mainContext = contextForMainTerminalWindow(mainWindow),
-           toggle(mainContext) {
-            return true
-        }
-        if let activeManager = tabManager,
-           let activeContext = registeredMainWindow(forManager: activeManager),
-           toggle(activeContext) {
-            return true
-        }
-        for fallbackContext in Array(registeredMainWindows) where toggle(fallbackContext) {
-            return true
-        }
-        return false
+        environment.mainWindowRouter.toggleSidebarInActiveWindow(preferredWindow: preferredWindow)
     }
 
     @discardableResult
     func toggleRightSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
-        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
-            if let fileExplorerState {
-                fileExplorerState.toggle()
-                return true
-            }
-            return false
-        }
-
-        let window = context.window ?? windowForMainWindowId(context.windowId)
-        if let window {
-            setActiveMainWindow(window)
-        }
-
-        guard let state = fileExplorerState(for: context) ?? fileExplorerState else {
-            return false
-        }
-        let wasVisible = state.isVisible
-        state.toggle()
-        if wasVisible && !state.isVisible {
-            _ = context.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
-        }
-        return true
+        environment.mainWindowRouter.toggleRightSidebarInActiveWindow(preferredWindow: preferredWindow)
     }
 
     @discardableResult
     func closeRightSidebarInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
-        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
-            guard let fileExplorerState else {
-                return false
-            }
-            fileExplorerState.setVisible(false)
-            return true
-        }
-
-        let window = context.window ?? windowForMainWindowId(context.windowId)
-        if let window {
-            setActiveMainWindow(window)
-        }
-
-        guard let state = fileExplorerState(for: context) ?? fileExplorerState else {
-            return false
-        }
-        let wasVisible = state.isVisible
-        state.setVisible(false)
-        if wasVisible && !state.isVisible {
-            _ = context.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
-        }
-        return true
+        environment.mainWindowRouter.closeRightSidebarInActiveWindow(preferredWindow: preferredWindow)
     }
 
     @discardableResult
@@ -4806,44 +4674,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focusFirstItem: Bool = true,
         preferredWindow: NSWindow? = nil
     ) -> Bool {
-        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
-
-        guard let context else {
-#if DEBUG
-            dlog(
-                "rs.focus.app.abort reason=noContext preferred={\(debugWindowToken(preferredWindow))} " +
-                "\(debugShortcutRouteSnapshot())"
-            )
-#endif
-            return false
-        }
-        let window = context.window ?? windowForMainWindowId(context.windowId)
-#if DEBUG
-        let beforeResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        let beforeState = fileExplorerState(for: context) ?? fileExplorerState
-        dlog(
-            "rs.focus.app.begin preferred={\(debugWindowToken(preferredWindow))} " +
-            "context={\(debugContextToken(context))} targetWin={\(debugWindowToken(window))} " +
-            "visible=\((beforeState?.isVisible ?? false) ? 1 : 0) mode=\(beforeState?.mode.rawValue ?? "nil") " +
-            "fr=\(beforeResponder)"
-        )
-#endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarFocus)
-        }
-        let result = context.keyboardFocusCoordinator.focusRightSidebar(
+        environment.mainWindowRouter.focusRightSidebarInActiveWindow(
             mode: requestedMode,
-            focusFirstItem: focusFirstItem
+            focusFirstItem: focusFirstItem,
+            preferredWindow: preferredWindow
         )
-#if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
-            "rs.focus.app.end requested=1 result=\(result ? 1 : 0) " +
-            "mode=\(requestedMode?.rawValue ?? (fileExplorerState(for: context)?.mode.rawValue ?? "nil")) " +
-            "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
-        )
-#endif
-        return result
     }
 
 #if DEBUG
@@ -4859,178 +4694,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         visible: Bool,
         activeMode: String?
     ) {
-        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
-        let window = context.flatMap { $0.window ?? windowForMainWindowId($0.windowId) }
-        if let window {
-            if !window.isKeyWindow {
-                if !NSApp.isActive {
-                    NSRunningApplication.current.activate(options: [.activateAllWindows])
-                }
-                window.makeKeyAndOrderFront(nil)
-            }
-            setActiveMainWindow(window)
-        }
-
-        guard let state = context.flatMap({ fileExplorerState(for: $0) }) ?? fileExplorerState else {
-            return (
-                revealed: false,
-                focusApplied: false,
-                contextFound: context != nil,
-                stateFound: false,
-                visible: false,
-                activeMode: nil
-            )
-        }
-
-        if state.mode != mode {
-            state.mode = mode
-        }
-        state.setVisible(true)
-
-        let focusApplied = context?.keyboardFocusCoordinator.focusRightSidebar(
+        environment.mainWindowRouter.debugRevealRightSidebarInActiveWindow(
             mode: mode,
-            focusFirstItem: focusFirstItem
-        ) ?? false
-
-        return (
-            revealed: state.isVisible && state.mode == mode,
-            focusApplied: focusApplied,
-            contextFound: context != nil,
-            stateFound: true,
-            visible: state.isVisible,
-            activeMode: state.mode.rawValue
+            focusFirstItem: focusFirstItem,
+            preferredWindow: preferredWindow
         )
     }
 #endif
 
     @discardableResult
     func focusFileSearchInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
-        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
-
-        guard let context else {
-#if DEBUG
-            dlog(
-                "file.search.focus.app.abort reason=noContext preferred={\(debugWindowToken(preferredWindow))} " +
-                "\(debugShortcutRouteSnapshot())"
-            )
-#endif
-            return false
-        }
-        let window = context.window ?? windowForMainWindowId(context.windowId)
-#if DEBUG
-        let beforeResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
-            "file.search.focus.app.begin preferred={\(debugWindowToken(preferredWindow))} " +
-            "context={\(debugContextToken(context))} targetWin={\(debugWindowToken(window))} " +
-            "fr=\(beforeResponder)"
-        )
-#endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .fileSearchFocus)
-        }
-        let result = context.keyboardFocusCoordinator.focusFileSearch()
-#if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
-            "file.search.focus.app.end result=\(result ? 1 : 0) " +
-            "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
-        )
-#endif
-        return result
+        environment.mainWindowRouter.focusFileSearchInActiveWindow(preferredWindow: preferredWindow)
     }
 
     @discardableResult
     func performFindShortcutInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
-        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
-
-        guard let context else {
-#if DEBUG
-            dlog(
-                "find.shortcut.app.abort reason=noContext preferred={\(debugWindowToken(preferredWindow))} " +
-                "\(debugShortcutRouteSnapshot())"
-            )
-#endif
-            return false
-        }
-        let window = context.window ?? windowForMainWindowId(context.windowId)
-#if DEBUG
-        let beforeResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
-            "find.shortcut.app.begin preferred={\(debugWindowToken(preferredWindow))} " +
-            "context={\(debugContextToken(context))} targetWin={\(debugWindowToken(window))} " +
-            "fr=\(beforeResponder)"
-        )
-#endif
-        let target = context.keyboardFocusCoordinator.findShortcutTarget(
-            currentResponder: window?.firstResponder
-        )
-        guard target != .none else {
-#if DEBUG
-            dlog(
-                "find.shortcut.app.end target=\(target) result=0 " +
-                "targetWin={\(debugWindowToken(window))} fr=\(beforeResponder)"
-            )
-#endif
-            return false
-        }
-
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
-        }
-
-        let result: Bool
-        switch target {
-        case .rightSidebarFileSearch:
-            result = context.keyboardFocusCoordinator.focusFileSearch()
-        case .mainPanelFind:
-            result = context.tabManager.startSearch()
-        case .none:
-            return false
-        }
-#if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
-            "find.shortcut.app.end target=\(target) result=\(result ? 1 : 0) " +
-            "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
-        )
-#endif
-        return result
+        environment.mainWindowRouter.performFindInActiveWindow(preferredWindow: preferredWindow)
     }
 
     @discardableResult
     func toggleRightSidebarKeyboardFocusInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
-        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
-
-        guard let context else {
-#if DEBUG
-            dlog(
-                "rs.focus.toggle.abort reason=noContext preferred={\(debugWindowToken(preferredWindow))} " +
-                "\(debugShortcutRouteSnapshot())"
-            )
-#endif
-            return false
-        }
-        let window = context.window ?? windowForMainWindowId(context.windowId)
-#if DEBUG
-        let beforeResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
-            "rs.focus.toggle.begin preferred={\(debugWindowToken(preferredWindow))} " +
-            "context={\(debugContextToken(context))} targetWin={\(debugWindowToken(window))} " +
-            "fr=\(beforeResponder)"
-        )
-#endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarToggle)
-        }
-        let result = context.keyboardFocusCoordinator.toggleRightSidebarOrTerminalFocus()
-#if DEBUG
-        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
-            "rs.focus.toggle.end result=\(result ? 1 : 0) " +
-            "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
-        )
-#endif
-        return result
+        environment.mainWindowRouter.toggleRightSidebarKeyboardFocusInActiveWindow(preferredWindow: preferredWindow)
     }
 
     func sidebarVisibility(windowId: UUID) -> Bool? {
@@ -6021,7 +5705,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let alreadyActive =
             tabManager === context.tabManager
-            && sidebarState === sidebarState(for: context)
+            && environment.mainWindowRouter.activeSidebarState === sidebarState(for: context)
             && sidebarSelectionState === sidebarSelectionState(for: context)
         if alreadyActive { return true }
 
@@ -6029,7 +5713,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         } else {
             tabManager = context.tabManager
-            sidebarState = sidebarState(for: context)
+            environment.mainWindowRouter.activeSidebarState = sidebarState(for: context)
             sidebarSelectionState = sidebarSelectionState(for: context)
             fileExplorerState = fileExplorerState(for: context)
             terminalControl.setActiveTabManager(context.tabManager)
@@ -6092,6 +5776,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             closedItemHistory: closedItemHistory
         )
+        tabManager.attachAppEnvironment(environment)
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
             let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
@@ -6723,7 +6408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func copyUpdateLogs(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(updateLog.clipboardPayload(), forType: .string)
+        pasteboard.setString(environment.updateLog.clipboardPayload(), forType: .string)
     }
     @objc func copyFocusLogs(_ sender: Any?) {
         let logText = focusLog.snapshot()
@@ -10677,38 +10362,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Repoints the app's active-window pointers at `context` (or clears them
-    /// when `nil`). The ``WindowLifecycleHosting`` active-pointer witness the
-    /// coordinator drives during teardown; these god-type writes stay app-side.
+    /// when `nil`). The ``WindowLifecycleHosting`` witness stays on AppDelegate;
+    /// active mirror storage lives on ``MainWindowRouter``.
     func repointActiveMainWindow(to context: RegisteredMainWindow?) {
-        guard let context else {
-            tabManager = nil
-            sidebarState = nil
-            sidebarSelectionState = nil
-            fileExplorerState = nil
-            terminalControl.setActiveTabManager(nil)
-            return
-        }
-        tabManager = context.tabManager
-        sidebarState = sidebarState(for: context)
-        sidebarSelectionState = sidebarSelectionState(for: context)
-        fileExplorerState = fileExplorerState(for: context)
-        terminalControl.setActiveTabManager(context.tabManager)
+        environment.mainWindowRouter.repointActiveWindow(to: context)
     }
 
-    /// Activates `context` for a key `window`, capturing the before-state debug
-    /// token and emitting the `mainWindow.active` log around the active-pointer
-    /// repoint. The ``WindowLifecycleHosting`` witness that keeps the debug
-    /// ordering app-side; the coordinator resolves the context and calls here.
+    /// Activates `context` for a key `window`. The ``WindowLifecycleHosting``
+    /// witness stays on AppDelegate while the router preserves the legacy debug
+    /// logging order around the active-pointer repoint.
     func setActiveMainWindowContext(_ context: RegisteredMainWindow, keyWindow window: NSWindow) {
-#if DEBUG
-        let beforeManagerToken = debugManagerToken(tabManager)
-#endif
-        repointActiveMainWindow(to: context)
-#if DEBUG
-        cmuxDebugLog(
-            "mainWindow.active window={\(debugWindowToken(window))} context={\(debugContextToken(context))} beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) \(debugShortcutRouteSnapshot())"
-        )
-#endif
+        environment.mainWindowRouter.setActiveWindowContext(context, keyWindow: window)
     }
 
     /// Makes `window` the active main window. Forwards to ``windowLifecycle``,
@@ -10865,21 +10529,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return MainTerminalWindowIdentifier.matches(rawIdentifier: raw)
     }
 
-    private func workspaceForMainActor(tabId: UUID) -> Workspace? {
-        tabManagerFor(tabId: tabId)?.tabs.first(where: { $0.id == tabId })
-    }
-
     /// Returns the `Workspace` that owns `tabId`, if any.
     @MainActor
     func workspaceFor(tabId: UUID) -> Workspace? {
-        workspaceForMainActor(tabId: tabId)
+        windowRegistry.workspaceFor(tabId: tabId)
     }
 
     func closeMainWindowContainingTabId(_ tabId: UUID, recordHistory: Bool = true) {
 #if DEBUG
         closeMainWindowContainingTabIdObserverForTesting?(tabId, recordHistory)
 #endif
-        guard let context = contextContainingTabId(tabId) else { return }
+        guard let context = windowRegistry.contextContainingTabId(tabId) else { return }
         let expectedIdentifier = MainTerminalWindowIdentifier(forWindowId: context.windowId).expectedIdentifier
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         if !recordHistory {
@@ -10957,9 +10617,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Behavior is byte-identical to the previous inlined branches.
 
     /// Resolves the registered window context that owns `tabId`, boxed for the
-    /// open-routing seam. Mirrors `contextContainingTabId(_:)`, resolving once.
+    /// open-routing seam. Mirrors the window-registry lookup, resolving once.
     func openRoutingContextToken(forTabId tabId: UUID) -> AnyObject? {
-        guard let context = contextContainingTabId(tabId) else { return nil }
+        guard let context = windowRegistry.contextContainingTabId(tabId) else { return nil }
         return RegisteredMainWindowToken(context)
     }
 
@@ -11198,7 +10858,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     func tabTitle(for tabId: UUID) -> String? {
-        if let context = contextContainingTabId(tabId) {
+        if let context = windowRegistry.contextContainingTabId(tabId) {
             return context.tabManager.tabs.first(where: { $0.id == tabId })?.title
         }
         return tabManager?.tabs.first(where: { $0.id == tabId })?.title
@@ -12520,39 +12180,19 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     }
 
     var updateLogPath: String {
-        updateLog.logPath()
+        environment.updateLog.logPath()
     }
 }
 
 // MARK: - Window display placement (`window.display` / `window.displays`)
 
 extension AppDelegate {
-    /// Move a single main window onto the display matched by `query`, preserving
-    /// its size. Returns the resolved display name, or nil when the window or the
-    /// display can't be resolved. Resolves the window here (AppDelegate owns the
-    /// window registry) and forwards the screen match + reposition to the lifted
-    /// ``CmuxWindowing`` helpers.
-    @discardableResult
-    func moveMainWindow(windowId: UUID, toDisplayMatching query: String) -> String? {
-        guard let window = windowForMainWindowId(windowId),
-              let screen = NSScreen.cmuxScreen(matching: query) else { return nil }
-        window.cmuxRepositionPreservingSize(onto: screen)
-        return screen.localizedName
-    }
-
     /// Move every main window onto the display matched by `query`, preserving
     /// sizes. Returns the resolved display name and the moved window ids, or nil
-    /// when the display can't be resolved. Resolves windows here and forwards the
-    /// screen match + reposition to the lifted ``CmuxWindowing`` helpers.
+    /// when the display can't be resolved. Compatibility forwarder to
+    /// ``MainWindowRouter``.
     func moveAllMainWindows(toDisplayMatching query: String) -> (display: String, windowIds: [UUID])? {
-        guard let screen = NSScreen.cmuxScreen(matching: query) else { return nil }
-        var moved: [UUID] = []
-        for summary in listMainWindowSummaries() {
-            guard let window = windowForMainWindowId(summary.windowId) else { continue }
-            window.cmuxRepositionPreservingSize(onto: screen)
-            moved.append(summary.windowId)
-        }
-        return (screen.localizedName, moved)
+        environment.mainWindowRouter.moveAllWindows(toDisplayMatching: query)
     }
 }
 
@@ -12634,21 +12274,21 @@ extension AppDelegate: UITestRecorderInstalling {
 // stay here and the scaffold (CmuxTestSupport) owns the gates + schedule.
 extension AppDelegate: StartupUITestScaffoldDriving {
     func applyUpdateTestSupport() {
-        UpdateTestSupport(model: updateController.model, log: updateLog).applyIfNeeded()
+        UpdateTestSupport(model: updateController.model, log: environment.updateLog).applyIfNeeded()
     }
 
     func logUpdateTestEnvironment(trigger: String, feed: String) {
-        updateLog.append("ui test env: trigger=\(trigger) feed=\(feed)")
+        environment.updateLog.append("ui test env: trigger=\(trigger) feed=\(feed)")
     }
 
     func logTriggerUpdateCheckDetected() {
-        updateLog.append("ui test trigger update check detected")
+        environment.updateLog.append("ui test trigger update check detected")
     }
 
     func performTriggerUpdateCheck() {
         let windowIds = NSApp.windows.map { $0.identifier?.rawValue ?? "<nil>" }
-        updateLog.append("ui test windows: count=\(NSApp.windows.count) ids=\(windowIds.joined(separator: ","))")
-        if UpdateTestSupport(model: updateController.model, log: updateLog).performMockFeedCheckIfNeeded() {
+        environment.updateLog.append("ui test windows: count=\(NSApp.windows.count) ids=\(windowIds.joined(separator: ","))")
+        if UpdateTestSupport(model: updateController.model, log: environment.updateLog).performMockFeedCheckIfNeeded() {
             return
         }
         checkForUpdates(nil)

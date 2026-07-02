@@ -47,6 +47,15 @@ class TabManager {
     /// Stable identifier of the owning macOS window. Used only for opt-in title
     /// templates that expose a WM-matchable per-window token.
     var windowId: UUID?
+    /// Weak reach path back to process-lifetime services while call sites migrate
+    /// away from `AppDelegate.shared`.
+    private(set) weak var appEnvironment: AppEnvironment?
+
+    /// Attaches the composition-root environment. Nil reads through this
+    /// property preserve the optional short-circuit shape of `AppDelegate.shared?`.
+    func attachAppEnvironment(_ environment: AppEnvironment) {
+        appEnvironment = environment
+    }
 
     // Wave-4 sub-model (TabManager decomposition): the workspace list, the
     // sidebar group sections, and the selected-workspace id storage live in
@@ -1409,7 +1418,7 @@ class TabManager {
         // but only when the write landed (an `.auto` write rejected over a
         // user-set title must not desync the remote session name).
         if applied, tabs[index].isRemoteTmuxMirror {
-            AppDelegate.shared?.remoteTmuxController.handleMirrorWorkspaceRenamed(
+            appEnvironment?.remoteTmuxController.handleMirrorWorkspaceRenamed(
                 workspaceId: tabId, title: title
             )
         }
@@ -1870,7 +1879,7 @@ class TabManager {
     }
 
     func killRemoteTmuxMirror(_ tab: Workspace) {
-        AppDelegate.shared?.remoteTmuxController.handleWorkspaceClosed(workspaceId: tab.id)
+        appEnvironment?.remoteTmuxController.handleWorkspaceClosed(workspaceId: tab.id)
     }
 
     func isRestorableInSessionSnapshot(_ tab: Workspace) -> Bool {
@@ -1889,7 +1898,7 @@ class TabManager {
         )
         closedItemHistory.push(.workspace(ClosedWorkspaceHistoryEntry(
             workspaceId: tab.id,
-            windowId: AppDelegate.shared?.windowId(for: self),
+            windowId: appEnvironment?.windowRegistry.windowId(for: self),
             workspaceIndex: index,
             snapshot: snapshot
         )))
@@ -1912,7 +1921,7 @@ class TabManager {
     }
 
     func clearNotifications(workspaceId: UUID) {
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId)
+        appEnvironment?.notificationStore?.clearNotifications(forTabId: workspaceId)
     }
 
     func teardownAllPanels(_ tab: Workspace) {
@@ -1966,8 +1975,8 @@ class TabManager {
     }
 
     func markRemoteTmuxKillOnWindowClose() {
-        guard let windowId = AppDelegate.shared?.windowId(for: self) else { return }
-        AppDelegate.shared?.remoteTmuxController.markKillSessionsOnWindowClose(windowId: windowId)
+        guard let windowId = appEnvironment?.windowRegistry.windowId(for: self) else { return }
+        appEnvironment?.remoteTmuxController.markKillSessionsOnWindowClose(windowId: windowId)
     }
 
     @discardableResult
@@ -1976,8 +1985,8 @@ class TabManager {
             window.performClose(nil)
             return true
         }
-        if AppDelegate.shared != nil {
-            AppDelegate.shared?.closeMainWindowContainingTabId(workspaceId)
+        if let router = appEnvironment?.mainWindowRouter {
+            router.closeWindowContaining(tabId: workspaceId)
             return true
         }
         return false
@@ -2023,9 +2032,9 @@ class TabManager {
 
     @discardableResult
     func closeWindowForLastChildExit(workspaceId: UUID) -> Bool {
-        guard let app = AppDelegate.shared else { return false }
-        app.notificationStore?.clearNotifications(forTabId: workspaceId)
-        app.closeMainWindowContainingTabId(workspaceId, recordHistory: false)
+        guard let appEnvironment else { return false }
+        appEnvironment.notificationStore?.clearNotifications(forTabId: workspaceId)
+        appEnvironment.mainWindowRouter.closeWindowContaining(tabId: workspaceId, recordHistory: false)
         return true
     }
 
@@ -2282,7 +2291,7 @@ class TabManager {
         }
 
         _ = tab.closePanel(surfaceId, force: true)
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: surfaceId)
+        appEnvironment?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: surfaceId)
     }
 
     /// Runtime close requests from Ghostty without confirmation (e.g. child-exit).
@@ -2309,7 +2318,7 @@ class TabManager {
             "surface=\(surfaceId.uuidString.prefix(5)) closed=\(closed ? 1 : 0) panelsAfter=\(tab.panels.count)"
         )
 #endif
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: surfaceId)
+        appEnvironment?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: surfaceId)
     }
 
     /// Close a panel because its child process exited (e.g. the user hit Ctrl+D).
@@ -4275,7 +4284,7 @@ extension TabManager {
         // Session restore replaces the bootstrap workspace objects with freshly
         // restored ones. Tear the old graph down after the atomic swap so late
         // panel/socket callbacks cannot keep mutating hidden pre-restore state.
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        appEnvironment?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.teardownAllPanels()
         workspace.teardownRemoteConnection()
         workspace.owningTabManager = nil

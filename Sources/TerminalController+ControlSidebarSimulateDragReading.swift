@@ -89,7 +89,7 @@ struct TerminalControllerSidebarSimulateDragReading: ControlSidebarSimulateDragR
             // Scope to the requested window. owner.tabManager is the controller's
             // primary tabManager; in multi-window runs that's the wrong list for
             // a window_id other than the primary.
-            guard let windowTabManager = AppDelegate.shared?.tabManagerFor(windowId: windowId) else {
+            guard let windowTabManager = owner.appEnvironment?.windowRegistry.tabManagerFor(windowId: windowId) else {
                 return .error(
                     code: "not_found",
                     message: "No TabManager for window_id",

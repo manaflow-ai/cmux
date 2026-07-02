@@ -122,19 +122,23 @@ extension TerminalController: MobileWorkspaceListRPCHost {
     }
 
     var mobileWorkspaceListKeyWindowSelectedWorkspaceID: UUID? {
-        AppDelegate.shared?.currentScriptableMainWindow()?.tabManager.selectedTabId
+        appEnvironment?.windowRegistry.currentScriptableMainWindow()?.tabManager.selectedTabId
     }
 
     var mobileWorkspaceListAppAvailable: Bool {
-        AppDelegate.shared != nil
+        // Keyed on the same source the sibling witnesses read
+        // (mobileWorkspaceListMainWindowSummaries/TabManager/NotificationStore all
+        // resolve through appEnvironment), so the availability gate can never
+        // disagree with the data reads.
+        appEnvironment != nil
     }
 
     func mobileWorkspaceListMainWindowSummaries() -> [MainWindowSummary] {
-        AppDelegate.shared?.listMainWindowSummaries() ?? []
+        appEnvironment?.windowRegistry.listMainWindowSummaries() ?? []
     }
 
     func mobileWorkspaceListTabManager(windowId: UUID) -> TabManager? {
-        AppDelegate.shared?.tabManagerFor(windowId: windowId)
+        appEnvironment?.windowRegistry.tabManagerFor(windowId: windowId)
     }
 
     func mobileWorkspaceListMainSync<T>(_ body: @MainActor () -> T) -> T {
@@ -162,7 +166,7 @@ extension TerminalController: MobileWorkspaceListRPCHost {
     }
 
     var mobileWorkspaceListNotificationStore: TerminalNotificationStore? {
-        AppDelegate.shared?.notificationStore
+        appEnvironment?.notificationStore
     }
 
     var mobileWorkspaceListCloseBlockedMessage: String {

@@ -24,9 +24,9 @@ extension TerminalController {
         index: Int,
         selected: Bool
     ) -> ControlSystemTopWorkspaceNode? {
-        guard let app = AppDelegate.shared else { return nil }
-        for summary in app.listMainWindowSummaries() {
-            guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+        guard let windowRegistry = appEnvironment?.windowRegistry else { return nil }
+        for summary in windowRegistry.listMainWindowSummaries() {
+            guard let manager = windowRegistry.tabManagerFor(windowId: summary.windowId) else { continue }
             if let workspace = manager.tabs.first(where: { $0.id == workspaceID }) {
                 return systemTopWorkspaceNode(workspace: workspace, index: index, selected: selected)
             }

@@ -222,7 +222,7 @@ extension TerminalController {
             guard let requestedSurfaceId = inputs.requestedSurfaceID else {
                 return .surfaceNotFoundForID(nil)
             }
-            guard let located = AppDelegate.shared?.locateSurface(surfaceId: requestedSurfaceId),
+            guard let located = appEnvironment?.windowRegistry.locateSurface(surfaceId: requestedSurfaceId),
                   let locatedWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
                 return .surfaceNotFoundForID(requestedSurfaceId)
             }

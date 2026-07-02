@@ -3,12 +3,12 @@ import CmuxSidebarUI
 import Foundation
 
 /// App-side adapter conforming the hovered window's `TabManager` plus the
-/// `AppDelegate.shared` cross-window routing to the package
+/// `TabManager` environment cross-window routing to the package
 /// ``SidebarTabReorderHosting`` seam that ``SidebarTabDropDelegate`` (now in
 /// `CmuxSidebarUI`) reads.
 ///
 /// Destination reads/mutations forward to the injected `tabManager`; source and
-/// window-routing operations forward to `AppDelegate.shared.tabManagerFor(tabId:)`
+/// window-routing operations forward to `tabManager.appEnvironment`'s registry
 /// / `moveWorkspaceToWindow(...)`, matching the legacy delegate's direct
 /// `AppDelegate.shared` lookups. Constructed per drop delegate at the sidebar
 /// call sites, so it holds no shared state of its own.
@@ -20,6 +20,8 @@ final class SidebarTabReorderHost: SidebarTabReorderHosting {
     init(tabManager: TabManager) {
         self.tabManager = tabManager
     }
+
+    private var appEnvironment: AppEnvironment? { tabManager.appEnvironment }
 
     var destinationTabIds: [UUID] { tabManager.tabs.map(\.id) }
 
@@ -99,42 +101,45 @@ final class SidebarTabReorderHost: SidebarTabReorderHosting {
     }
 
     func isGroupAnchorInSourceWindow(_ draggedTabId: UUID) -> Bool {
-        guard let sourceManager = AppDelegate.shared?.tabManagerFor(tabId: draggedTabId) else {
+        guard let sourceManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: draggedTabId) else {
             return false
         }
         return sourceManager.workspaceGroups.contains { $0.anchorWorkspaceId == draggedTabId }
     }
 
     func foreignTabIsPinned(_ id: UUID) -> Bool {
-        AppDelegate.shared?
+        appEnvironment?
+            .windowRegistry
             .tabManagerFor(tabId: id)?
             .tabs.first { $0.id == id }?.isPinned ?? false
     }
 
     func destinationWindowId() -> UUID? {
-        AppDelegate.shared?.windowId(for: tabManager)
+        appEnvironment?.windowRegistry.windowId(for: tabManager)
     }
 
     func sourceWindowExists(forTab draggedTabId: UUID) -> Bool {
-        AppDelegate.shared?.tabManagerFor(tabId: draggedTabId) != nil
+        appEnvironment?.windowRegistry.tabManagerFor(tabId: draggedTabId) != nil
     }
 
     func sourceSelectedWorkspaceIds(forTab draggedTabId: UUID) -> Set<UUID> {
-        AppDelegate.shared?.tabManagerFor(tabId: draggedTabId)?.sidebarSelectedWorkspaceIds ?? []
+        appEnvironment?.windowRegistry.tabManagerFor(tabId: draggedTabId)?.sidebarSelectedWorkspaceIds ?? []
     }
 
     func sourceWorkspaceIds(forTab draggedTabId: UUID, matching selection: Set<UUID>) -> [UUID] {
-        AppDelegate.shared?
+        appEnvironment?
+            .windowRegistry
             .tabManagerFor(tabId: draggedTabId)?
             .tabs.filter { selection.contains($0.id) }.map(\.id) ?? []
     }
 
     func sourceGroupAnchorIds(forTab draggedTabId: UUID) -> Set<UUID> {
-        Set(AppDelegate.shared?.tabManagerFor(tabId: draggedTabId)?.workspaceGroups.map(\.anchorWorkspaceId) ?? [])
+        Set(appEnvironment?.windowRegistry.tabManagerFor(tabId: draggedTabId)?.workspaceGroups.map(\.anchorWorkspaceId) ?? [])
     }
 
     func sourceTabIsPinned(forTab draggedTabId: UUID, workspaceId: UUID) -> Bool {
-        AppDelegate.shared?
+        appEnvironment?
+            .windowRegistry
             .tabManagerFor(tabId: draggedTabId)?
             .tabs.first { $0.id == workspaceId }?.isPinned ?? false
     }
@@ -146,7 +151,7 @@ final class SidebarTabReorderHost: SidebarTabReorderHosting {
         atIndex: Int?,
         focus: Bool
     ) -> Bool {
-        AppDelegate.shared?.moveWorkspaceToWindow(
+        appEnvironment?.mainWindowRouter.moveWorkspaceToWindow(
             workspaceId: workspaceId,
             windowId: windowId,
             atIndex: atIndex,
@@ -157,7 +162,7 @@ final class SidebarTabReorderHost: SidebarTabReorderHosting {
 
 /// Bonsplit-tab drop seam: forwards the package
 /// ``SidebarBonsplitTabDropHosting`` reads/mutations to the bonsplit
-/// tab-transfer pasteboard plus `AppDelegate.shared` surface lookup and
+/// tab-transfer pasteboard plus environment surface lookup and
 /// bonsplit-tab move, matching the legacy `SidebarBonsplitTabDropDelegate`'s
 /// direct `AppDelegate.shared`/`BonsplitTabTransferPasteboard` use.
 extension SidebarTabReorderHost: SidebarBonsplitTabDropHosting {
@@ -168,7 +173,7 @@ extension SidebarTabReorderHost: SidebarBonsplitTabDropHosting {
     }
 
     func bonsplitSurfaceWorkspaceId(forTab tabId: UUID) -> UUID? {
-        AppDelegate.shared?.locateBonsplitSurface(tabId: tabId)?.workspaceId
+        appEnvironment?.windowRegistry.locateBonsplitSurface(tabId: tabId)?.workspaceId
     }
 
     @discardableResult

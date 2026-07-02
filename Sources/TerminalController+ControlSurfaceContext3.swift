@@ -19,8 +19,8 @@ extension TerminalController {
     /// coordinator owns the routing precedence and branch; these witnesses keep
     /// every live window/workspace/pane lookup and Bonsplit mutation app-side.
     func controlSurfaceMoveLocateSource(surfaceID: UUID) -> ControlSurfaceMoveSourceResolution {
-        guard let app = AppDelegate.shared else { return .appUnavailable }
-        guard let source = app.locateSurface(surfaceId: surfaceID),
+        guard let windowRegistry = appEnvironment?.windowRegistry else { return .appUnavailable }
+        guard let source = windowRegistry.locateSurface(surfaceId: surfaceID),
               let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }) else {
             return .surfaceNotFound
         }
@@ -39,8 +39,7 @@ extension TerminalController {
     }
 
     func controlSurfaceMoveLocateAnchor(surfaceID: UUID) -> ControlSurfaceMoveAnchorSnapshot? {
-        guard let app = AppDelegate.shared,
-              let anchor = app.locateSurface(surfaceId: surfaceID),
+        guard let anchor = appEnvironment?.windowRegistry.locateSurface(surfaceId: surfaceID),
               let anchorWorkspace = anchor.tabManager.tabs.first(where: { $0.id == anchor.workspaceId }),
               let anchorPane = anchorWorkspace.paneId(forPanelId: surfaceID),
               let anchorIndex = anchorWorkspace.indexInPane(forPanelId: surfaceID) else {
@@ -64,22 +63,21 @@ extension TerminalController {
     }
 
     func controlSurfaceMoveLocateWorkspace(workspaceID: UUID) -> ControlSurfaceMoveWorkspaceSnapshot? {
-        guard let app = AppDelegate.shared,
-              let tabManager = app.tabManagerFor(tabId: workspaceID),
+        guard let tabManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID),
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             return nil
         }
         let destinationPane = workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first
         return ControlSurfaceMoveWorkspaceSnapshot(
-            windowID: app.windowId(for: tabManager),
+            windowID: appEnvironment?.windowRegistry.windowId(for: tabManager),
             workspaceID: workspace.id,
             destinationPaneID: destinationPane?.id
         )
     }
 
     func controlSurfaceMoveLocateWindow(windowID: UUID) -> ControlSurfaceMoveWindowResolution {
-        guard let app = AppDelegate.shared, let tabManager = app.tabManagerFor(windowId: windowID) else {
+        guard let tabManager = appEnvironment?.windowRegistry.tabManagerFor(windowId: windowID) else {
             return .windowNotFound
         }
         guard let selectedWorkspaceId = tabManager.selectedTabId,
@@ -99,8 +97,7 @@ extension TerminalController {
         requestedFocus: Bool
     ) -> Bool {
         let focus = v2FocusAllowed(requested: requestedFocus)
-        guard let app = AppDelegate.shared,
-              let tabManager = app.tabManagerFor(tabId: workspaceID),
+        guard let tabManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID),
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }),
               let destinationPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == destinationPaneID }) else {
             return false
@@ -120,10 +117,10 @@ extension TerminalController {
         requestedFocus: Bool
     ) -> ControlSurfaceMoveTransferOutcome {
         let focus = v2FocusAllowed(requested: requestedFocus)
-        guard let app = AppDelegate.shared,
-              let sourceTabManager = app.tabManagerFor(tabId: sourceWorkspaceID),
+        guard let windowRegistry = appEnvironment?.windowRegistry,
+              let sourceTabManager = windowRegistry.tabManagerFor(tabId: sourceWorkspaceID),
               let sourceWorkspace = sourceTabManager.tabs.first(where: { $0.id == sourceWorkspaceID }),
-              let targetTabManager = app.tabManagerFor(tabId: targetWorkspaceID),
+              let targetTabManager = windowRegistry.tabManagerFor(tabId: targetWorkspaceID),
               let targetWorkspace = targetTabManager.tabs.first(where: { $0.id == targetWorkspaceID }),
               let destinationPane = targetWorkspace.bonsplitController.allPaneIds.first(where: { $0.id == destinationPaneID }) else {
             return .detachFailed
@@ -147,7 +144,7 @@ extension TerminalController {
         }
 
         if focus {
-            _ = app.focusMainWindow(windowId: targetWindowID)
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: targetWindowID)
             setActiveTabManager(targetTabManager)
             targetTabManager.selectWorkspace(targetWorkspace)
         }
@@ -163,8 +160,7 @@ extension TerminalController {
         requestedFocus: Bool
     ) -> ControlSurfaceReorderResolution {
         let focus = v2FocusAllowed(requested: requestedFocus)
-        guard let app = AppDelegate.shared,
-              let located = app.locateSurface(surfaceId: surfaceID),
+        guard let located = appEnvironment?.windowRegistry.locateSurface(surfaceId: surfaceID),
               let ws = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
               let sourcePane = ws.paneId(forPanelId: surfaceID) else {
             return .surfaceNotFound(surfaceID)
@@ -470,7 +466,7 @@ extension TerminalController {
     /// target rather than moving into the control-plane package. The
     /// table-construction logic now lives in the app-side
     /// `TerminalDebugTableBuilder`; this witness still owns the
-    /// `AppDelegate.shared` guard (so a `nil` payload maps to the legacy
+    /// `appEnvironment` guard (so a `nil` payload maps to the legacy
     /// `unavailable` error when `AppDelegate` is gone), the `v2MainSync`
     /// hop, and the Foundation→`JSONValue` wire bridge. The legacy method
     /// ignored its params, so the seam takes none. The builder receives the two
@@ -479,9 +475,9 @@ extension TerminalController {
         var payload: [String: Any]?
 
         v2MainSync {
-            guard let app = AppDelegate.shared else { return }
+            guard let windowRegistry = appEnvironment?.windowRegistry else { return }
             let builder = TerminalDebugTableBuilder(
-                windows: app.scriptableMainWindows(),
+                windows: windowRegistry.scriptableMainWindows(),
                 surfaces: GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces(),
                 orderedPanels: { self.orderedPanels(in: $0) },
                 makeRef: { self.v2Ref(kind: $0, uuid: $1) }

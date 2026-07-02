@@ -140,6 +140,7 @@ private struct FeedListView: View {
     let isLoadingOlderItems: Bool
     let onLoadOlderItems: () -> Void
 
+    @Environment(\.appEnvironment) private var appEnvironment
     @State private var focusSnapshot = FeedFocusSnapshot()
     @State private var scrollRequest: FeedScrollRequest?
     @State private var scrollRequestSequence = 0
@@ -437,7 +438,7 @@ private struct FeedListView: View {
         guard let targetId = preferredFocusItemId(in: snapshots) else {
             let window = activeFeedWindow()
             if focusHost {
-                _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                _ = appEnvironment?.mainWindowRouter.focusRightSidebarInActiveWindow(
                     mode: .feed,
                     focusFirstItem: false,
                     preferredWindow: window

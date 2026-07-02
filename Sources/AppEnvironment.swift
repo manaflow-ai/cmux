@@ -89,6 +89,13 @@ final class AppEnvironment {
     /// (`var` optional), matching the former `AppDelegate.settingsRuntime`.
     var settingsRuntime: SettingsRuntime?
 
+    /// Process-wide cross-window registry and recoverable-route owner. AppDelegate
+    /// keeps a computed forwarder while resolver call sites migrate.
+    let windowRegistry: WindowRegistry
+
+    /// Active/key-main-window router for command, sidebar, and move actions.
+    let mainWindowRouter: MainWindowRouter
+
     /// Update-pill / Sparkle update log store; composition-root owned.
     let updateLog = UpdateLogStore()
 
@@ -122,5 +129,9 @@ final class AppEnvironment {
     let mainThreadTurnProfiler: any MainThreadTurnProfiling = CmuxMainThreadTurnProfiler()
     #endif
 
-    init() {}
+    init() {
+        let windowRegistry = WindowRegistry()
+        self.windowRegistry = windowRegistry
+        self.mainWindowRouter = MainWindowRouter(windowRegistry: windowRegistry)
+    }
 }

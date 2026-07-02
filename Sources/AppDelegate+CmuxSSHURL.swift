@@ -320,7 +320,7 @@ extension AppDelegate {
 
         prepareForExplicitOpenIntentAtStartup()
         setActiveMainWindow(window)
-        _ = focusMainWindow(windowId: context.windowId)
+        _ = environment.mainWindowRouter.focusMainWindow(windowId: context.windowId)
         context.tabManager.focusTab(
             workspaceId,
             surfaceId: targetPanelId,

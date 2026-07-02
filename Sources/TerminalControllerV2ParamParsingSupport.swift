@@ -119,10 +119,10 @@ extension TerminalController {
     }
 
     func v2LocatePane(_ paneUUID: UUID) -> (windowId: UUID, tabManager: TabManager, workspace: Workspace, paneId: PaneID)? {
-        guard let app = AppDelegate.shared else { return nil }
-        let windows = app.listMainWindowSummaries()
+        guard let windowRegistry = appEnvironment?.windowRegistry else { return nil }
+        let windows = windowRegistry.listMainWindowSummaries()
         for item in windows {
-            guard let tm = app.tabManagerFor(windowId: item.windowId) else { continue }
+            guard let tm = windowRegistry.tabManagerFor(windowId: item.windowId) else { continue }
             for ws in tm.tabs {
                 if let paneId = ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID }) {
                     return (item.windowId, tm, ws, paneId)

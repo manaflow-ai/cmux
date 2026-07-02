@@ -68,7 +68,7 @@ extension TerminalController: ControlWorkspaceContext {
             }
             return ws.controlWorkspaceSummary
         }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(windowID: windowId, workspaces: summaries, selectedIndex: selectedIndex)
     }
 
@@ -83,7 +83,7 @@ extension TerminalController: ControlWorkspaceContext {
         // still answered .ok with "workspace": null.
         let workspace = tabManager.tabs.first(where: { $0.id == workspaceId })
         let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId })
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(
             windowID: windowId,
             workspaceID: workspaceId,
@@ -120,9 +120,9 @@ extension TerminalController: ControlWorkspaceContext {
         }
         // If this workspace belongs to another window, bring it forward so focus
         // is visible.
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         if let windowId {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
         tabManager.selectWorkspace(ws)
@@ -136,7 +136,7 @@ extension TerminalController: ControlWorkspaceContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         guard let ws = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound
         }
@@ -152,10 +152,10 @@ extension TerminalController: ControlWorkspaceContext {
         windowID: UUID,
         focusRequested: Bool
     ) -> ControlWorkspaceMoveToWindowResolution {
-        guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) else {
+        guard let srcTM = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID) else {
             return .workspaceNotFound
         }
-        guard let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowID) else {
+        guard let dstTM = appEnvironment?.windowRegistry.tabManagerFor(windowId: windowID) else {
             return .windowNotFound
         }
         guard let ws = srcTM.detachWorkspace(tabId: workspaceID) else {
@@ -164,7 +164,7 @@ extension TerminalController: ControlWorkspaceContext {
         let focus = v2FocusAllowed(requested: focusRequested)
         dstTM.attachWorkspace(ws, select: focus)
         if focus {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowID)
             setActiveTabManager(dstTM)
         }
         return .resolved
@@ -202,7 +202,7 @@ extension TerminalController: ControlWorkspaceContext {
         if !dryRun {
             _ = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: plan.toIndex)
         }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(
             windowID: windowId,
             plan: ControlWorkspaceReorderPlanItem(
@@ -224,7 +224,7 @@ extension TerminalController: ControlWorkspaceContext {
         let result = tabManager.reorderWorkspaces(orderedWorkspaceIds: workspaceIDs, dryRun: dryRun)
         switch result {
         case .success(let planned):
-            let windowId = AppDelegate.shared?.windowId(for: tabManager)
+            let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
             let plans = planned.map {
                 ControlWorkspaceReorderPlanItem(
                     workspaceID: $0.workspaceId,
@@ -251,7 +251,7 @@ extension TerminalController: ControlWorkspaceContext {
             return resolveTabManager(routing: routing)
         }
         for workspaceId in workspaceIDs {
-            if let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) {
+            if let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId) {
                 return owner
             }
         }
@@ -265,7 +265,7 @@ extension TerminalController: ControlWorkspaceContext {
         workspaceID: UUID,
         message: String?
     ) -> ControlWorkspacePromptSubmitResolution {
-        guard let tabManager = (AppDelegate.shared?.tabManagerFor(tabId: workspaceID))
+        guard let tabManager = (appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID))
             ?? resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
@@ -278,7 +278,7 @@ extension TerminalController: ControlWorkspaceContext {
             return .notFound
         }
         let preview = tabManager.tabs.first(where: { $0.id == workspaceID })?.latestSubmittedMessage
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(
             windowID: windowId,
             iMessageModeEnabled: iMessageModeEnabled,
@@ -301,7 +301,7 @@ extension TerminalController: ControlWorkspaceContext {
             return .notFound
         }
         tabManager.setCustomTitle(tabId: workspaceID, title: title)
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(windowID: windowId)
     }
 
@@ -312,13 +312,13 @@ extension TerminalController: ControlWorkspaceContext {
             return .tabManagerUnavailable
         }
         guard tabManager.selectedTabId != nil else { return .notFound }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+        if let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager) {
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
         tabManager.selectNextTab()
         guard let workspaceId = tabManager.selectedTabId else { return .notFound }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(workspaceID: workspaceId, windowID: windowId)
     }
 
@@ -327,13 +327,13 @@ extension TerminalController: ControlWorkspaceContext {
             return .tabManagerUnavailable
         }
         guard tabManager.selectedTabId != nil else { return .notFound }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+        if let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager) {
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
         tabManager.selectPreviousTab()
         guard let workspaceId = tabManager.selectedTabId else { return .notFound }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(workspaceID: workspaceId, windowID: windowId)
     }
 
@@ -342,13 +342,13 @@ extension TerminalController: ControlWorkspaceContext {
             return .tabManagerUnavailable
         }
         guard let before = tabManager.selectedTabId else { return .notFound }
-        if let windowId = AppDelegate.shared?.windowId(for: tabManager) {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+        if let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager) {
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
         tabManager.navigateBack()
         guard let after = tabManager.selectedTabId, after != before else { return .notFound }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(workspaceID: after, windowID: windowId)
     }
 
@@ -488,7 +488,7 @@ extension TerminalController: ControlWorkspaceContext {
         guard let workspace = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .notFound
         }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
@@ -510,12 +510,12 @@ extension TerminalController: ControlWorkspaceContext {
         workspaceID: UUID,
         clearConfiguration: Bool
     ) -> ControlWorkspaceRemoteResolution {
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+        guard let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
         workspace.disconnectRemoteConnection(clearConfiguration: clearConfiguration)
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
@@ -527,7 +527,7 @@ extension TerminalController: ControlWorkspaceContext {
         workspaceID: UUID,
         surfaceID: UUID?
     ) -> ControlWorkspaceRemoteResolution {
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+        guard let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
@@ -536,7 +536,7 @@ extension TerminalController: ControlWorkspaceContext {
         }
         workspace.reconnectRemoteConnection(surfaceId: surfaceID)
         notifyRemotePTYControllerAvailabilityChanged()
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
@@ -548,13 +548,13 @@ extension TerminalController: ControlWorkspaceContext {
         workspaceID: UUID,
         foregroundAuthToken: String?
     ) -> ControlWorkspaceRemoteResolution {
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+        guard let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
         workspace.notifyRemoteForegroundAuthenticationReady(token: foregroundAuthToken)
         notifyRemotePTYControllerAvailabilityChanged()
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
@@ -563,11 +563,11 @@ extension TerminalController: ControlWorkspaceContext {
     }
 
     func controlWorkspaceRemoteStatus(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+        guard let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
@@ -645,7 +645,7 @@ extension TerminalController: ControlWorkspaceContext {
         )
 #endif
 
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+        guard let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId),
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
             return .err(code: "not_found", message: "Workspace not found", data: .object([
                 "workspace_id": .string(workspaceId.uuidString),
@@ -656,7 +656,7 @@ extension TerminalController: ControlWorkspaceContext {
         workspace.configureRemoteConnection(config, autoConnect: parsed.autoConnect)
         notifyRemotePTYControllerAvailabilityChanged()
 
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .ok(.object([
             "window_id": controlCommandCoordinator.windowIDValue(windowId),
             "window_ref": controlCommandCoordinator.windowRefValue(windowId),
@@ -675,14 +675,14 @@ extension TerminalController: ControlWorkspaceContext {
             panelId: surfaceId,
             preferredWorkspaceId: workspaceId
         )
-        let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
+        let fallbackOwner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId)
         let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
         guard let owner = located?.tabManager ?? fallbackOwner,
               let workspace = located?.workspace ?? fallbackWorkspace else {
             return .notFound
         }
         let outcome = workspace.markRemotePTYAttachEnded(surfaceId: surfaceId, sessionID: sessionID)
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
@@ -697,12 +697,12 @@ extension TerminalController: ControlWorkspaceContext {
         surfaceID surfaceId: UUID,
         relayPort: Int
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
-        guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+        guard let owner = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId),
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
             return .notFound
         }
         workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
-        let windowId = AppDelegate.shared?.windowId(for: owner)
+        let windowId = appEnvironment?.windowRegistry.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
@@ -982,11 +982,11 @@ extension TerminalController: ControlWorkspaceContext {
     }
 
     func controlWorkspaceActionMarkRead(workspaceID: UUID) {
-        AppDelegate.shared?.notificationStore?.markRead(forTabId: workspaceID)
+        appEnvironment?.notificationStore?.markRead(forTabId: workspaceID)
     }
 
     func controlWorkspaceActionMarkUnread(workspaceID: UUID) {
-        AppDelegate.shared?.notificationStore?.markUnread(forTabId: workspaceID)
+        appEnvironment?.notificationStore?.markUnread(forTabId: workspaceID)
     }
 
     func controlWorkspaceActionSetTabColor(workspaceID: UUID, hex: String?) {
@@ -1003,7 +1003,7 @@ extension TerminalController: ControlWorkspaceContext {
     private func controlWorkspaceActionResolveWorkspace(
         _ workspaceID: UUID
     ) -> (tabManager: TabManager, workspace: Workspace)? {
-        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+        guard let tabManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceID),
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             return nil
         }

@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 extension AppDelegate {
     func mainWindow(for windowId: UUID) -> NSWindow? {
-        windowForMainWindowId(windowId)
+        windowRegistry.mainWindow(for: windowId)
     }
 
     func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {

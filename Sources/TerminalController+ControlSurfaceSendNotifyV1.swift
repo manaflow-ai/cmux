@@ -442,7 +442,7 @@ extension TerminalController {
         var success = false
         var error: String?
         v2MainSync {
-            guard let targetManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
+            guard let targetManager = appEnvironment?.windowRegistry.tabManagerFor(tabId: workspaceId)
                 ?? (tabManager.tabs.contains(where: { $0.id == workspaceId }) ? tabManager : nil) else {
                 error = "ERROR: Workspace not found"
                 return

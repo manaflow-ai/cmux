@@ -240,7 +240,9 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
-        _tabManager = State(wrappedValue: TabManager())
+        let initialTabManager = TabManager()
+        initialTabManager.attachAppEnvironment(appDelegate.environment)
+        _tabManager = State(wrappedValue: initialTabManager)
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Normalize the persisted socket mode and (for release builds) migrate the
         // legacy keychain password. Breadcrumb instrumentation stays app-side.
@@ -292,7 +294,7 @@ struct cmuxApp: App {
                             openWindow(id: SettingsWindowPresenter.windowID)
                         },
                         parentWindowProvider: {
-                            AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
+                            appDelegate.environment.mainWindowRouter.preferredWindowForSettingsPresentation()
                         }
                     )
 #if DEBUG
@@ -579,28 +581,17 @@ struct cmuxApp: App {
                 }
 
                 splitCommandButton(title: String(localized: "menu.file.newWorkspace", defaultValue: "New Workspace"), shortcut: menuShortcut(for: .newTab)) {
-                    if let appDelegate = AppDelegate.shared {
-                        appDelegate.performNewWorkspaceAction(
-                            tabManager: activeTabManager,
-                            debugSource: "menu.newWorkspace"
-                        )
-                    } else {
-                        activeTabManager.addWorkspace()
-                    }
+                    appDelegate.environment.mainWindowRouter.performNewWorkspaceAction(
+                        tabManager: activeTabManager,
+                        debugSource: "menu.newWorkspace"
+                    )
                 }
 
                 splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
-                    if let appDelegate = AppDelegate.shared {
-                        appDelegate.performNewBrowserWorkspaceAction(
-                            tabManager: activeTabManager,
-                            debugSource: "menu.newBrowserWorkspace"
-                        )
-                    } else if BrowserAvailabilitySettings.isEnabled() {
-                        // Last-resort fallback for a missing AppDelegate; keep
-                        // the browser-availability gate identical to the
-                        // shared action path.
-                        activeTabManager.addWorkspace(initialSurface: .browser)
-                    }
+                    appDelegate.environment.mainWindowRouter.performNewBrowserWorkspaceAction(
+                        tabManager: activeTabManager,
+                        debugSource: "menu.newBrowserWorkspace"
+                    )
                 }
 
                 splitCommandButton(title: String(localized: "menu.file.openFolder", defaultValue: "Open Folder…"), shortcut: menuShortcut(for: .openFolder)) {
@@ -613,7 +604,7 @@ struct cmuxApp: App {
                         defaultValue: "Open Folder in VS Code (Inline)…"
                     )
                 ) {
-                    AppDelegate.shared?.showOpenFolderInInlineVSCodePanel()
+                    appDelegate.environment.mainWindowRouter.showOpenFolderInInlineVSCodePanel()
                 }
                 .disabled(!TerminalDirectoryOpenTarget.vscodeInline.isAvailable())
             }
@@ -671,13 +662,13 @@ struct cmuxApp: App {
 #if DEBUG
                         cmuxDebugLog("find.menu Cmd+F fired")
 #endif
-                        _ = AppDelegate.shared?.performFindShortcutInActiveMainWindow(
+                        _ = appDelegate.environment.mainWindowRouter.performFindInActiveWindow(
                             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
                         )
                     }
 
                     splitCommandButton(title: String(localized: "menu.find.findInDirectory", defaultValue: "Find in Directory…"), shortcut: menuShortcut(for: .findInDirectory)) {
-                        _ = AppDelegate.shared?.focusFileSearchInActiveMainWindow(
+                        _ = appDelegate.environment.mainWindowRouter.focusFileSearchInActiveWindow(
                             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
                         )
                     }
@@ -757,13 +748,13 @@ struct cmuxApp: App {
         historyCommands
         CommandGroup(after: .toolbar) {
             splitCommandButton(title: String(localized: "menu.view.toggleLeftSidebar", defaultValue: "Toggle Left Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
-                if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
+                if appDelegate.environment.mainWindowRouter.toggleSidebarInActiveWindow() != true {
                     sidebarState.toggle()
                 }
             }
 
             splitCommandButton(title: String(localized: "menu.view.toggleRightSidebar", defaultValue: "Toggle Right Sidebar"), shortcut: menuShortcut(for: .toggleRightSidebar)) {
-                if AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
+                if appDelegate.environment.mainWindowRouter.toggleRightSidebarInActiveWindow(
                     preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
                 ) != true {
                     NSSound.beep()
@@ -771,8 +762,9 @@ struct cmuxApp: App {
             }
 
             splitCommandButton(title: String(localized: "menu.view.focusRightSidebar", defaultValue: "Toggle Right Sidebar Focus"), shortcut: menuShortcut(for: .focusRightSidebar)) {
-                if AppDelegate.shared?.toggleRightSidebarKeyboardFocusInActiveMainWindow() != true {
-                    if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                let mainWindowRouter = appDelegate.environment.mainWindowRouter
+                if mainWindowRouter.toggleRightSidebarKeyboardFocusInActiveWindow() != true {
+                    if mainWindowRouter.focusRightSidebarInActiveWindow(
                         preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
                     ) != true {
                         NSSound.beep()
@@ -999,7 +991,7 @@ struct cmuxApp: App {
     }
 
     var activeTabManager: TabManager {
-        AppDelegate.shared?.activeTabManagerForCommands(
+        appDelegate.environment.mainWindowRouter.activeTabManagerForCommands(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) ?? tabManager
     }

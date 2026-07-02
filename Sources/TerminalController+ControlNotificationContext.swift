@@ -66,7 +66,7 @@ extension TerminalController: ControlNotificationContext {
         return .delivered(
             workspaceID: ws.id,
             surfaceID: surfaceID,
-            windowID: AppDelegate.shared?.windowId(for: tabManager)
+            windowID: appEnvironment?.windowRegistry.windowId(for: tabManager)
         )
     }
 
@@ -97,7 +97,7 @@ extension TerminalController: ControlNotificationContext {
         return .delivered(
             workspaceID: ws.id,
             surfaceID: surfaceID,
-            windowID: AppDelegate.shared?.windowId(for: tabManager)
+            windowID: appEnvironment?.windowRegistry.windowId(for: tabManager)
         )
     }
 

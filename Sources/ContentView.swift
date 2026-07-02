@@ -637,7 +637,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             onSendFeedback: feedbackComposerCoordinator.present,
             onToggleSidebar: { sidebarState.toggle() },
             onNewTab: {
-                AppDelegate.shared?.performNewWorkspaceAction(
+                appEnvironment?.mainWindowRouter.performNewWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "titlebar.hiddenNewWorkspace"
                 )
@@ -882,7 +882,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 #if DEBUG
                 cmuxDebugLog("rightSidebar.closeButton")
                 #endif
-                _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
+                _ = appEnvironment?.mainWindowRouter.closeRightSidebarInActiveWindow(preferredWindow: observedWindow)
             }
         )
         .frame(width: rightSidebarWidth)
@@ -970,7 +970,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 )
             },
             onNewTab: {
-                AppDelegate.shared?.performNewWorkspaceAction(
+                appEnvironment?.mainWindowRouter.performNewWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "titlebar.fullscreenNewWorkspace"
                 )
@@ -2623,8 +2623,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             windowLabel: nil
         )
 
-        guard let appDelegate = AppDelegate.shared else { return [fallback] }
-        let summaries = appDelegate.listMainWindowSummaries()
+        guard let windowRegistry = appEnvironment?.windowRegistry else { return [fallback] }
+        let summaries = windowRegistry.listMainWindowSummaries()
         guard !summaries.isEmpty else { return [fallback] }
 
         let orderedSummaries = summaries.sorted { lhs, rhs in
@@ -2646,7 +2646,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         var contexts: [CommandPaletteSwitcherWindowContext] = []
         var seenWindowIds: Set<UUID> = []
         for summary in orderedSummaries {
-            guard let manager = appDelegate.tabManagerFor(windowId: summary.windowId) else { continue }
+            guard let manager = windowRegistry.tabManagerFor(windowId: summary.windowId) else { continue }
             guard seenWindowIds.insert(summary.windowId).inserted else { continue }
             contexts.append(
                 CommandPaletteSwitcherWindowContext(
@@ -2702,7 +2702,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         // Defer focus mutation one turn so browser omnibar autofocus can run
         // without being blocked by the palette-visibility guard.
         DispatchQueue.main.async {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             tabManager.focusTab(
                 workspaceId,
                 suppressFlash: true,
@@ -2718,7 +2718,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         panelId: UUID
     ) {
         DispatchQueue.main.async {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
             tabManager.focusTab(
                 workspaceId,
                 surfaceId: panelId,
@@ -3719,7 +3719,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: "palette.newWorkspace") {
-            AppDelegate.shared?.performNewWorkspaceAction(
+            appEnvironment?.mainWindowRouter.performNewWorkspaceAction(
                 tabManager: tabManager,
                 debugSource: "palette.newWorkspace"
             )
@@ -3728,7 +3728,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             // Let command-palette dismissal complete first so omnibar focus
             // is not blocked by the palette visibility guard.
             DispatchQueue.main.async {
-                _ = AppDelegate.shared?.performNewBrowserWorkspaceAction(
+                _ = appEnvironment?.mainWindowRouter.performNewBrowserWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "palette.newBrowserWorkspace"
                 )
@@ -3750,7 +3750,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         }
         registry.register(commandId: "palette.openFolderInVSCodeInline") {
             DispatchQueue.main.async {
-                AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(tabManager: tabManager)
+                appEnvironment?.mainWindowRouter.showOpenFolderInInlineVSCodePanel(tabManager: tabManager)
             }
         }
         registry.register(commandId: "palette.reopenPreviousSession") {
@@ -3760,7 +3760,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         }
         registry.register(commandId: "palette.newWindow") {
             guard let appDelegate = AppDelegate.shared else { return }
-            appDelegate.openNewMainWindow(preferredWindow: appDelegate.mainWindow(for: windowId))
+            let preferredWindow = appEnvironment?.windowRegistry.mainWindow(for: windowId)
+            appDelegate.openNewMainWindow(preferredWindow: preferredWindow)
         }
         registry.register(commandId: "palette.installCLI") {
             AppDelegate.shared?.installCmuxCLIInPath(nil)
@@ -4144,7 +4145,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             BrowserHistoryStore.shared.clearHistory()
         }
         registry.register(commandId: "palette.findInDirectory") {
-            _ = AppDelegate.shared?.focusFileSearchInActiveMainWindow(
+            _ = appEnvironment?.mainWindowRouter.focusFileSearchInActiveWindow(
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
             )
         }
@@ -5378,6 +5379,11 @@ struct VerticalTabsSidebar: View {
 #else
     fileprivate static let sidebarDragFailsafeDebugLog: ((_ message: String) -> Void)? = nil
 #endif
+    /// Process-lifetime services (nil-default key, faithful to the legacy
+    /// `AppDelegate.shared?` short-circuit). VerticalTabsSidebar is a plain
+    /// View (not Equatable-gated); the Equatable typing-hot-path row type is
+    /// `TabItemView`, which must never gain this property.
+    @Environment(\.appEnvironment) private var appEnvironment
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let windowId: UUID
@@ -5696,7 +5702,7 @@ struct VerticalTabsSidebar: View {
         return SidebarEmptyAreaActions(
             selectedTabIsRemoteTmuxMirror: { tabManager.selectedTab?.isRemoteTmuxMirror == true },
             performNewWorkspaceAction: {
-                _ = AppDelegate.shared?.performNewWorkspaceAction(
+                _ = appEnvironment?.mainWindowRouter.performNewWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "sidebar.emptyArea.remoteTmux"
                 )
@@ -7025,7 +7031,7 @@ struct VerticalTabsSidebar: View {
                 guard let app = AppDelegate.shared else {
                     return false
                 }
-                if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+                if let source = app.environment.windowRegistry.locateBonsplitSurface(tabId: transfer.tab.id),
                    source.workspaceId == workspaceId {
                     return true
                 }
@@ -7037,14 +7043,13 @@ struct VerticalTabsSidebar: View {
                 )
             },
             moveToNewWorkspace: { insertionIndex, transfer in
-                guard let app = AppDelegate.shared,
-                      let result = app.moveBonsplitTabToNewWorkspace(
-                        tabId: transfer.tab.id,
-                        destinationManager: tabManager,
-                        focus: true,
-                        focusWindow: true,
-                        insertionIndexOverride: insertionIndex
-                      ) else {
+                guard let result = appEnvironment?.mainWindowRouter.moveBonsplitTabToNewWorkspace(
+                    tabId: transfer.tab.id,
+                    destinationManager: tabManager,
+                    focus: true,
+                    focusWindow: true,
+                    insertionIndexOverride: insertionIndex
+                ) else {
                     return nil
                 }
                 return result.destinationWorkspaceId

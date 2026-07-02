@@ -503,8 +503,8 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func clearWorkspacePanelUnread(forTabId tabId: UUID) {
         guard let appDelegate = AppDelegate.shared else { return }
-        let workspace = appDelegate.workspaceFor(tabId: tabId) ??
-            appDelegate.tabManager?.tabs.first(where: { $0.id == tabId })
+        let workspace = appDelegate.environment.windowRegistry.workspaceFor(tabId: tabId) ??
+            appDelegate.environment.mainWindowRouter.activeTabManager?.tabs.first(where: { $0.id == tabId })
         workspace?.clearAllPanelUnreadIndicatorsForWorkspaceRead()
     }
 
@@ -736,8 +736,11 @@ final class TerminalNotificationStore: ObservableObject {
         body: String
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
-        let context = appDelegate?.contextContainingTabId(tabId)
-        let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
+        let windowRegistry = appDelegate?.environment.windowRegistry
+        let context = windowRegistry?.contextContainingTabId(tabId)
+        let tabManager = context?.tabManager
+            ?? windowRegistry?.tabManagerFor(tabId: tabId)
+            ?? appDelegate?.environment.mainWindowRouter.activeTabManager
         let cmuxConfigStore = context.flatMap { appDelegate?.configStore(for: $0) }
         let workspace = tabManager?.tabs.first(where: { $0.id == tabId })
         let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
@@ -951,8 +954,11 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func shouldSuppressExternalDelivery(tabId: UUID, surfaceId: UUID?) -> Bool {
         let appDelegate = AppDelegate.shared
-        let context = appDelegate?.contextContainingTabId(tabId)
-        let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
+        let windowRegistry = appDelegate?.environment.windowRegistry
+        let context = windowRegistry?.contextContainingTabId(tabId)
+        let tabManager = context?.tabManager
+            ?? windowRegistry?.tabManagerFor(tabId: tabId)
+            ?? appDelegate?.environment.mainWindowRouter.activeTabManager
         let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
         let isActiveTab = tabManager?.selectedTabId == tabId
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId

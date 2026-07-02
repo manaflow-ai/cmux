@@ -41,8 +41,8 @@ struct CloseOtherTabsConfirmationPrompt: Sendable {
 extension Workspace {
     func closeTabsFromContextMenu(_ tabIds: [TabID], skipPinned: Bool = true) {
         let confirmationManager = owningTabManager
-            ?? AppDelegate.shared?.tabManagerFor(tabId: id)
-            ?? AppDelegate.shared?.tabManager
+            ?? hostEnvironment?.windowRegistry.tabManagerFor(tabId: id)
+            ?? hostEnvironment?.environment.mainWindowRouter.activeTabManager
 
         guard confirmationManager?.workspaceClosing.isCloseConfirmationInFlight != true else { return }
 

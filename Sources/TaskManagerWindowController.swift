@@ -196,9 +196,11 @@ final class CmuxTaskManagerModel {
     func viewWorkspace(for row: CmuxTaskManagerRow) {
         guard let workspaceId = row.workspaceId,
               let appDelegate = AppDelegate.shared,
-              let manager = appDelegate.tabManagerFor(tabId: workspaceId) else { return }
-        if let windowId = appDelegate.windowId(for: manager) {
-            _ = appDelegate.focusMainWindow(windowId: windowId)
+              let manager = appDelegate.environment.windowRegistry.tabManagerFor(tabId: workspaceId) else {
+            return
+        }
+        if let windowId = appDelegate.environment.windowRegistry.windowId(for: manager) {
+            _ = appDelegate.environment.mainWindowRouter.focusMainWindow(windowId: windowId)
         }
         manager.focusTab(
             workspaceId,
@@ -206,16 +208,18 @@ final class CmuxTaskManagerModel {
             suppressFlash: true,
             dismissRestoredUnreadOnResume: true
         )
-        flashSelection(workspaceId: workspaceId, surfaceId: row.surfaceId)
+        flashSelection(workspaceId: workspaceId, surfaceId: row.surfaceId, appDelegate: appDelegate)
     }
 
     func viewTerminal(for row: CmuxTaskManagerRow) {
         guard let workspaceId = row.workspaceId,
               let terminalSurfaceId = row.terminalSurfaceId,
               let appDelegate = AppDelegate.shared,
-              let manager = appDelegate.tabManagerFor(tabId: workspaceId) else { return }
-        if let windowId = appDelegate.windowId(for: manager) {
-            _ = appDelegate.focusMainWindow(windowId: windowId)
+              let manager = appDelegate.environment.windowRegistry.tabManagerFor(tabId: workspaceId) else {
+            return
+        }
+        if let windowId = appDelegate.environment.windowRegistry.windowId(for: manager) {
+            _ = appDelegate.environment.mainWindowRouter.focusMainWindow(windowId: windowId)
         }
         manager.focusTab(
             workspaceId,
@@ -223,7 +227,7 @@ final class CmuxTaskManagerModel {
             suppressFlash: true,
             dismissRestoredUnreadOnResume: true
         )
-        flashSelection(workspaceId: workspaceId, surfaceId: terminalSurfaceId)
+        flashSelection(workspaceId: workspaceId, surfaceId: terminalSurfaceId, appDelegate: appDelegate)
     }
 
     func killProcess(for row: CmuxTaskManagerRow) {
@@ -382,8 +386,8 @@ final class CmuxTaskManagerModel {
         return errno == EPERM
     }
 
-    private func flashSelection(workspaceId: UUID, surfaceId: UUID?) {
-        guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+    private func flashSelection(workspaceId: UUID, surfaceId: UUID?, appDelegate: AppDelegate) {
+        guard let manager = appDelegate.environment.windowRegistry.tabManagerFor(tabId: workspaceId),
               let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return }
         let targetSurfaceId = surfaceId ?? workspace.focusedPanelId
         guard let targetSurfaceId,

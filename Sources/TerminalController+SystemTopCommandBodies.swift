@@ -28,11 +28,11 @@ extension TerminalController {
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
         var windowNodes: [[String: Any]] = []
 
-        if let app = AppDelegate.shared {
-            let summaries = app.listMainWindowSummaries()
+        if let windowRegistry = appEnvironment?.windowRegistry {
+            let summaries = windowRegistry.listMainWindowSummaries()
 
             for (windowIndex, summary) in summaries.enumerated() {
-                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                guard let manager = windowRegistry.tabManagerFor(windowId: summary.windowId) else { continue }
                 let workspaceNodes = manager.tabs.enumerated().map { workspaceIndex, workspace in
                     systemTopWorkspaceNode(
                         workspace: workspace,
@@ -212,8 +212,8 @@ extension TerminalController {
         var workspaceFound = (workspaceFilter == nil)
         var windowFound = (routing.requestedWindowID == nil)
 
-        if let app = AppDelegate.shared {
-            let summaries = app.listMainWindowSummaries()
+        if let windowRegistry = appEnvironment?.windowRegistry {
+            let summaries = windowRegistry.listMainWindowSummaries()
             let defaultWindowId = routing.requestedWindowID ?? routing.focusedWindowID ?? summaries.first?.windowId
 
             for (windowIndex, summary) in summaries.enumerated() {
@@ -221,7 +221,7 @@ extension TerminalController {
                     continue
                 }
                 windowFound = true
-                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                guard let manager = windowRegistry.tabManagerFor(windowId: summary.windowId) else { continue }
 
                 if let workspaceFilter {
                     guard let workspaceIndex = manager.tabs.firstIndex(where: { $0.id == workspaceFilter }) else {

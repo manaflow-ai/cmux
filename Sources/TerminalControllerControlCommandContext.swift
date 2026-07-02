@@ -19,7 +19,7 @@ extension TerminalController: ControlCommandContext {}
 /// hop would re-apply the identical thread-local focus-allowance stack — a no-op.
 extension TerminalController: ControlWindowContext {
     func controlWindowSummaries() -> [ControlWindowSummary] {
-        (AppDelegate.shared?.listMainWindowSummaries() ?? []).map { summary in
+        (appEnvironment?.windowRegistry.listMainWindowSummaries() ?? []).map { summary in
             ControlWindowSummary(
                 windowID: summary.windowId,
                 isKeyWindow: summary.isKeyWindow,
@@ -36,28 +36,28 @@ extension TerminalController: ControlWindowContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        guard let windowId = AppDelegate.shared?.windowId(for: tabManager) else {
+        guard let windowId = appEnvironment?.windowRegistry.windowId(for: tabManager) else {
             return .windowNotFound
         }
         return .resolved(windowId)
     }
 
     func controlFocusWindow(id: UUID) -> Bool {
-        AppDelegate.shared?.focusMainWindow(windowId: id) ?? false
+        appEnvironment?.mainWindowRouter.focusMainWindow(windowId: id) ?? false
     }
 
     func controlCreateWindowAndActivate() -> UUID? {
-        guard let windowId = AppDelegate.shared?.createMainWindow() else { return nil }
+        guard let windowId = appEnvironment?.mainWindowRouter.createMainWindow() else { return nil }
         // The new window should become key, but setActiveTabManager defensively
         // (preserves the legacy v2WindowCreate side effect and ordering).
-        if let tabManager = AppDelegate.shared?.tabManagerFor(windowId: windowId) {
+        if let tabManager = appEnvironment?.windowRegistry.tabManagerFor(windowId: windowId) {
             setActiveTabManager(tabManager)
         }
         return windowId
     }
 
     func controlCloseWindow(id: UUID) -> Bool {
-        AppDelegate.shared?.closeMainWindow(windowId: id) ?? false
+        appEnvironment?.mainWindowRouter.closeMainWindow(windowId: id) ?? false
     }
 
     func controlAvailableDisplays() -> [ControlDisplayInfo] {
@@ -86,11 +86,11 @@ extension TerminalController: ControlWindowContext {
     }
 
     func controlMoveWindow(id: UUID, toDisplayMatching query: String) -> String? {
-        AppDelegate.shared?.moveMainWindow(windowId: id, toDisplayMatching: query)
+        appEnvironment?.mainWindowRouter.moveWindow(windowId: id, toDisplayMatching: query)
     }
 
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult? {
-        guard let result = AppDelegate.shared?.moveAllMainWindows(toDisplayMatching: query) else {
+        guard let result = appEnvironment?.mainWindowRouter.moveAllWindows(toDisplayMatching: query) else {
             return nil
         }
         return ControlMoveAllWindowsResult(display: result.display, windowIDs: result.windowIds)
@@ -114,20 +114,20 @@ extension TerminalController: ControlWindowContext {
         let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
 
-        let ok = v2MainSync { AppDelegate.shared?.focusMainWindow(windowId: windowId) ?? false }
+        let ok = v2MainSync { appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId) ?? false }
         guard ok else { return "ERROR: Window not found" }
 
-        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
+        if let tm = v2MainSync({ appEnvironment?.windowRegistry.tabManagerFor(windowId: windowId) }) {
             setActiveTabManager(tm)
         }
         return "OK"
     }
 
     func controlNewWindowV1() -> String {
-        guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
+        guard let windowId = v2MainSync({ appEnvironment?.mainWindowRouter.createMainWindow() }) else {
             return "ERROR: Failed to create window"
         }
-        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
+        if let tm = v2MainSync({ appEnvironment?.windowRegistry.tabManagerFor(windowId: windowId) }) {
             setActiveTabManager(tm)
         }
         return "OK \(windowId.uuidString)"
@@ -136,7 +136,7 @@ extension TerminalController: ControlWindowContext {
     func controlCloseWindowV1(arg: String) -> String {
         let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
-        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
+        let ok = v2MainSync { appEnvironment?.mainWindowRouter.closeMainWindow(windowId: windowId) ?? false }
         return ok ? "OK" : "ERROR: Window not found"
     }
 
@@ -149,15 +149,15 @@ extension TerminalController: ControlWindowContext {
         var ok = false
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
-                  let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
+            guard let srcTM = appEnvironment?.windowRegistry.tabManagerFor(tabId: wsId),
+                  let dstTM = appEnvironment?.windowRegistry.tabManagerFor(windowId: windowId),
                   let ws = srcTM.detachWorkspace(tabId: wsId) else {
                 ok = false
                 return
             }
             dstTM.attachWorkspace(ws, select: focus)
             if focus {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                _ = appEnvironment?.mainWindowRouter.focusMainWindow(windowId: windowId)
                 setActiveTabManager(dstTM)
             }
             ok = true
