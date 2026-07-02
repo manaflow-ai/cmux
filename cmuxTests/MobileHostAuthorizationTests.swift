@@ -558,6 +558,25 @@ struct MobileHostAuthorizationTests {
 
         #expect(error == nil)
     }
+    @Test func testScopedAttachTicketAcceptsTerminalClose() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "terminal-close",
+            method: "terminal.close",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error == nil)
+    }
     @Test func testScopedAttachTicketAcceptsNamedTerminalReplay() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
@@ -1079,6 +1098,7 @@ struct MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.actions.v1"))
         #expect(capabilities.contains("workspace.read_state.v1"))
         #expect(capabilities.contains("workspace.close.v1"))
+        #expect(capabilities.contains("terminal.close.v1"))
         #expect(capabilities.contains("terminal.render_grid.v1"))
     }
 

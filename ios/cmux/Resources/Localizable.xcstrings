@@ -6036,6 +6036,23 @@
         }
       }
     },
+    "mobile.terminal.closeFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Close Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを閉じられませんでした"
+          }
+        }
+      }
+    },
     "mobile.terminal.new": {
       "extractionState": "manual",
       "localizations": {
@@ -6610,6 +6627,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "新規ワークスペース"
+          }
+        }
+      }
+    },
+    "mobile.workspace.mutationUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That Mac is unavailable. Reconnect it, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その Mac は利用できません。再接続してからもう一度お試しください。"
           }
         }
       }

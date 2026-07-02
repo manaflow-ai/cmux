@@ -23,6 +23,7 @@ extension MobileHostService {
             "terminal.render_grid.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
+            "terminal.close.v1",
             "workspace.actions.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
