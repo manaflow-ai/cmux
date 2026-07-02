@@ -1,11 +1,13 @@
 extension TerminalSurface {
     /// Returns the scalar length of a complete control sequence that must be
     /// routed to the terminal parser (`process_output`) rather than delivered to
-    /// the PTY: OSC/DCS/PM/APC strings, and the CSI cursor reports/queries
-    /// (DSR/CPR) the emulator answers. Interactive CSI input — function keys,
-    /// kitty-keyboard, mouse, arbitrary `terminal.input` — is deliberately not
-    /// matched so it stays on the input path. Returns nil for anything else.
-    /// See #5763: only cursor reports/queries were being misrouted.
+    /// the PTY: OSC/DCS/PM/APC strings, and the CSI DSR *queries* (`ESC[6n`
+    /// cursor position, `ESC[5n` status) the emulator must answer. Everything
+    /// else — interactive CSI input (function keys, kitty-keyboard, mouse,
+    /// arbitrary `terminal.input`) and terminal-to-application *responses* (CPR
+    /// `ESC[…R`, DSR results `ESC[0n`/`ESC[3n`) — is deliberately not matched so
+    /// it stays on the input path toward the foreground program. Returns nil for
+    /// anything else. See #5763: the emulator was failing to answer `ESC[6n`.
     static func terminalControlSequenceLength(
         _ scalars: [Unicode.Scalar],
         from start: Int
@@ -13,8 +15,8 @@ extension TerminalSurface {
         guard start + 1 < scalars.count, scalars[start].value == 0x1B else { return nil }
 
         switch scalars[start + 1].value {
-        case 0x5B: // CSI: ESC [ ... — only cursor reports/queries (DSR/CPR)
-            return csiReportSequenceLength(scalars, from: start)
+        case 0x5B: // CSI: ESC [ ... — only DSR queries the emulator answers
+            return csiDeviceStatusQueryLength(scalars, from: start)
         case 0x5D: // OSC: ESC ] ... (BEL | ST)
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
         case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
@@ -24,19 +26,27 @@ extension TerminalSurface {
         }
     }
 
-    /// Length of a complete CSI sequence *iff* its final byte marks a cursor
-    /// report/query the emulator must consume or answer — DSR (`n`) or CPR (`R`).
-    /// Both finals are unambiguous terminal reports (no interactive key encodes a
-    /// CSI ending in `n` or `R`), so narrowing to them keeps the #5763 cursor-sync
-    /// fix while leaving function keys, kitty-keyboard, mouse, and other raw CSI
-    /// input on the PTY path. Returns nil for any non-report CSI.
-    private static func csiReportSequenceLength(
+    /// Length of a complete CSI sequence *iff* it is a Device Status Report
+    /// *query* the emulator must answer: `CSI 5 n` (status) or `CSI 6 n` (cursor
+    /// position, the sequence #5763 needs answered with a CPR). Both are exactly
+    /// four scalars (`ESC [ 5|6 n`) and have no interactive-key collision.
+    ///
+    /// Only queries match. Terminal-to-application *responses* — CPR
+    /// `CSI {row};{col} R`, DSR results `CSI 0 n` / `CSI 3 n` — and interactive
+    /// keys that share those finals (xterm Shift+F3 is `CSI 1 ; 2 R`) are bytes
+    /// the foreground PTY program is waiting for, so they stay on the input path.
+    /// Returns nil for any non-query CSI.
+    private static func csiDeviceStatusQueryLength(
         _ scalars: [Unicode.Scalar],
         from start: Int
     ) -> Int? {
         guard let length = csiControlSequenceLength(scalars, from: start) else { return nil }
-        switch scalars[start + length - 1].value {
-        case 0x6E, 0x52: // n (DSR), R (CPR)
+        // A DSR query is `ESC [ 5 n` or `ESC [ 6 n`: four scalars ending in `n`
+        // with a single `5`/`6` parameter. Other params/finals are responses or
+        // private forms we leave on the input path.
+        guard length == 4, scalars[start + 3].value == 0x6E else { return nil }
+        switch scalars[start + 2].value {
+        case 0x35, 0x36: // "5" (status), "6" (cursor position)
             return length
         default:
             return nil

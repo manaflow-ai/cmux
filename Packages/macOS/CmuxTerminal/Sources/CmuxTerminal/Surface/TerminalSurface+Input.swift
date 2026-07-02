@@ -265,19 +265,20 @@ extension TerminalSurface {
                     appendKey(nav.keycode, mods: nav.mods, label: nav.label)
                     index += nav.length
                 } else if let length = terminalControlSequenceLength(scalars, from: index) {
-                    // A *complete* terminal report/query — a CSI cursor report
-                    // (DSR `ESC[6n` / CPR `ESC[…R`), or an OSC/DCS/PM/APC string —
-                    // is injected into the terminal parser as process output, not
-                    // the PTY input stream, so the emulator can update state or
-                    // emit a reply (e.g. a DSR query makes Ghostty answer with its
-                    // own CPR). Splitting these into Escape + literal text is the
-                    // #5763 cursor-desync bug. Only this narrow report/query set
-                    // matches here: other complete CSI (function keys,
-                    // kitty-keyboard, mouse, arbitrary `terminal.input`) is
-                    // interactive input and falls through to the input path below,
-                    // never the display parser. Printable text takes the
-                    // input-text path above, and pasted/composed blocks use the
-                    // separate `sendText` (bracketed-paste) path.
+                    // A sequence the *emulator* must consume — a DSR query
+                    // (`ESC[6n` / `ESC[5n`) or an OSC/DCS/PM/APC string — is
+                    // injected into the terminal parser as process output, not the
+                    // PTY input stream, so Ghostty can update state or answer (a
+                    // DSR query makes it emit its own CPR reply). Splitting these
+                    // into Escape + literal text is the #5763 cursor-desync bug.
+                    // Only this narrow set matches: interactive CSI input (function
+                    // keys, kitty-keyboard, mouse, arbitrary `terminal.input`) and
+                    // terminal-to-application *responses* (CPR `ESC[…R`, DSR results
+                    // `ESC[0n`/`ESC[3n`) fall through to the input path below,
+                    // never the display parser, so they reach the foreground
+                    // program. Printable text takes the input-text path above, and
+                    // pasted/composed blocks use the separate `sendText`
+                    // (bracketed-paste) path.
                     flushBufferedText()
                     appendTerminalBytes(length: length, from: index)
                     index += length
@@ -339,8 +340,8 @@ extension TerminalSurface {
         // encode it for the surface's current keyboard mode — matching a hardware
         // back-tab. Otherwise it falls through to the bare-ESC path (Escape key +
         // literal `[Z`), which a kitty-keyboard surface would encode as a modified
-        // Escape and corrupt (the narrowed report matcher no longer claims `ESC[Z`,
-        // since its final byte is `Z`, not DSR `n` / CPR `R`). The iOS client emits
+        // Escape and corrupt (the DSR-query matcher does not claim `ESC[Z`: it is
+        // not `ESC[5n`/`ESC[6n`). The iOS client emits
         // this for a hardware Shift+Tab and the on-screen ⇧+Tab accessory; it is
         // the socket sibling of the `backtab` named key in `pendingKeyEvent(for:)`.
         if next == 0x5B, final == 0x5A { // Z
