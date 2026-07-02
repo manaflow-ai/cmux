@@ -14111,7 +14111,7 @@ class TerminalController {
         guard !clientIDs.isEmpty else { return }
         for surfaceID in Set(mobileViewportReportsBySurfaceID.keys).union(mobileViewportGenerationsBySurfaceID.keys) {
             for clientID in clientIDs {
-                clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: reason)
+                _ = clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: reason)
             }
         }
     }
