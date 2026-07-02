@@ -7250,8 +7250,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         self.clearTerminalReplayBarrierIfCurrent(
                             surfaceID: surfaceID,
                             token: replayBarrierTokenForRequest,
-                            reason: "pending_input",
-                            preserveDroppedOutput: true
+                            reason: "pending_input_exhausted"
                         )
                         return
                     }

@@ -178,6 +178,54 @@ import Testing
     collector.unmount()
 }
 
+@MainActor
+@Test func renderGridReplayRetryExhaustionClearsBarrierForTargetFrame() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let surfaceID = "live-terminal"
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+    let transport = try #require(box.get())
+
+    let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    let droppedOutputAccepted = store.deliverTerminalBytes(Data("live-during-barrier".utf8), surfaceID: surfaceID)
+    #expect(!droppedOutputAccepted)
+    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: surfaceID)
+    let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
+    #expect(inputSent)
+
+    try await router.enqueueReplayRenderGrids([
+        renderGridFrame(surfaceID: surfaceID, seq: 97, text: "stale-replay-1"),
+        renderGridFrame(surfaceID: surfaceID, seq: 98, text: "stale-replay-2"),
+        renderGridFrame(surfaceID: surfaceID, seq: 99, text: "stale-replay-3"),
+    ])
+    store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    let exhaustedRetriesSent = await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 3)
+    #expect(exhaustedRetriesSent)
+    let replaySettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(replaySettled)
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 100,
+        text: "target-after-exhaustion"
+    ))
+    let targetFrameDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("target-after-exhaustion") }
+    }
+    #expect(targetFrameDelivered, "retry exhaustion must not leave the replay barrier blocking the target frame")
+    collector.unmount()
+}
+
 private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throws -> MobileTerminalRenderGridFrame {
     try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
