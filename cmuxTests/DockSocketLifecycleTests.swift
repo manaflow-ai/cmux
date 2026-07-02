@@ -930,4 +930,71 @@ struct DockSocketLifecycleTests {
         Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
     }
+
+    @Test("Dock transfer refreshes resumed-agent cwd rescue from trusted live cwd")
+    @MainActor
+    func dockTransferRefreshesResumedAgentCwdRescueFromTrustedLiveCwd() {
+        let sessionDirectory = "/tmp/cmux-dock-transfer-session"
+        let liveDirectory = "/tmp/cmux-dock-transfer-live"
+
+        #expect(DockSplitStore.dockRestoredResumeSessionWorkingDirectory(
+            preservedSessionDirectory: sessionDirectory,
+            detachedDirectory: liveDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: true,
+            agentProvenExited: false
+        ) == liveDirectory)
+
+        #expect(DockSplitStore.dockRestoredResumeSessionWorkingDirectory(
+            preservedSessionDirectory: sessionDirectory,
+            detachedDirectory: liveDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: false,
+            agentProvenExited: false
+        ) == sessionDirectory)
+
+        #expect(DockSplitStore.dockRestoredResumeSessionWorkingDirectory(
+            preservedSessionDirectory: nil,
+            detachedDirectory: liveDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: true,
+            agentProvenExited: false
+        ) == nil)
+
+        #expect(DockSplitStore.dockRestoredResumeSessionWorkingDirectory(
+            preservedSessionDirectory: sessionDirectory,
+            detachedDirectory: liveDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: true,
+            agentProvenExited: true
+        ) == nil)
+
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "{ cd -- '\(sessionDirectory)' 2>/dev/null || [ ! -d '\(sessionDirectory)' ]; } && 'codex' 'resume' 'abc'",
+            cwd: sessionDirectory,
+            source: "agent-hook"
+        )
+        let retargetedBinding = DockSplitStore.dockResumeBinding(
+            preservedBinding: binding,
+            preservedSessionDirectory: sessionDirectory,
+            restoredResumeSessionWorkingDirectory: liveDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: true,
+            agentProvenExited: false
+        )
+        #expect(retargetedBinding?.cwd == liveDirectory)
+        #expect(retargetedBinding?.command.contains(liveDirectory) == true)
+
+        let claudeBinding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "{ cd -- '\(sessionDirectory)' 2>/dev/null || [ ! -d '\(sessionDirectory)' ]; } && 'claude' '--resume' 'abc'",
+            cwd: sessionDirectory,
+            source: "agent-hook"
+        )
+        let preservedClaudeBinding = DockSplitStore.dockResumeBinding(
+            preservedBinding: claudeBinding,
+            preservedSessionDirectory: sessionDirectory,
+            restoredResumeSessionWorkingDirectory: liveDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: true,
+            agentProvenExited: false
+        )
+        #expect(preservedClaudeBinding?.cwd == sessionDirectory)
+        #expect(preservedClaudeBinding?.command.contains(liveDirectory) == false)
+    }
 }
