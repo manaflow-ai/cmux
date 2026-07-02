@@ -11,6 +11,7 @@ import SwiftUI
 /// identical to the real shell.
 public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
+    @State private var macSelection: WorkspaceMacSelection = .all
 
     public init() {}
 
@@ -60,7 +61,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                 profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
                 profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
                 selectWorkspace: { selectedWorkspaceID = $0 },
-                createWorkspace: {}
+                createWorkspace: {},
+                macSelection: $macSelection
             )
         }
     }
