@@ -11,7 +11,7 @@ cmux hooks setup --agent <agent>
 cmux hooks uninstall <agent>
 ```
 
-Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `amp`, `cursor`, `gemini`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
+Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
 
 ## Integrations
 
@@ -32,6 +32,7 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `amp`, `curs
 | CodeBuddy | `codebuddy` | `~/.codebuddy/settings.json` | `codebuddy --resume <id>` | PreToolUse |
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
+| Kimi Code | `kimi` | `~/.kimi-code/config.toml` | not yet | PreToolUse, PostToolUse, PermissionRequest |
 
 OpenCode also supports project-local Feed installation:
 
@@ -140,6 +141,7 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 | Cursor CLI | none | `CMUX_CURSOR_HOOKS_DISABLED=1` |
 | Gemini | none | `CMUX_GEMINI_HOOKS_DISABLED=1` |
 | Kiro CLI | `KIRO_HOME` | `CMUX_KIRO_HOOKS_DISABLED=1` |
+| Kimi Code | `KIMI_CODE_HOME` | `CMUX_KIMI_HOOKS_DISABLED=1` |
 | Rovo Dev | none | `CMUX_ROVODEV_HOOKS_DISABLED=1` |
 | Copilot | `COPILOT_HOME` | `CMUX_COPILOT_HOOKS_DISABLED=1` |
 | CodeBuddy | `CODEBUDDY_CONFIG_DIR` | `CMUX_CODEBUDDY_HOOKS_DISABLED=1` |

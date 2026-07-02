@@ -27112,7 +27112,7 @@ struct CMUXCLI {
                     eventName: event.agentEvent
                 ))
                 result[event.agentEvent] = entries
-            case .rovoDevYAML, .hermesAgentYAML:
+            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -27150,7 +27150,7 @@ struct CMUXCLI {
                     eventName: agentEvent
                 ))
                 result[agentEvent] = entries
-            case .rovoDevYAML, .hermesAgentYAML:
+            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -27782,6 +27782,136 @@ export default CMUXSessionRestore;
         return RovoDevHookConfig.uninstalling(from: existing)
     }
 
+    // MARK: - Kimi Code hooks (TOML [[hooks]] array-of-tables)
+
+    private static let cmuxKimiHooksBegin =
+        "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f begin"
+    private static let cmuxKimiHooksEnd =
+        "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f end"
+    private static let kimiLifecycleHookTimeoutSeconds = 10
+    private static let kimiFeedHookTimeoutSeconds = 120
+
+    private func installKimiHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let configDir = def.resolvedConfigDir()
+        let filePath = "\(configDir)/\(def.configFile)"
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+
+        var isDirectory = ObjCBool(false)
+        if !fm.fileExists(atPath: configDir, isDirectory: &isDirectory) {
+            try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+        } else if !isDirectory.boolValue {
+            throw CLIError(message: "\(configDir) exists but is not a directory. Move it aside before installing \(def.displayName) hooks.")
+        }
+
+        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
+        let newString = kimiHooksContent(existing: oldString, def: def, shouldInstall: true)
+        if oldString == newString {
+            print("\(def.displayName) hooks already up to date at \(filePath)")
+            return
+        }
+
+        if !skipConfirm {
+            Self.printInstallPreview(
+                path: filePath,
+                oldContent: oldString,
+                newContent: newString,
+                fallbackContent: newString
+            )
+            print("\nProceed? [y/N] ", terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print("Aborted.")
+                return
+            }
+        }
+        try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
+        print("\(def.displayName) hooks installed at \(filePath)")
+    }
+
+    private func uninstallKimiHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let configDir = def.resolvedConfigDir()
+        let filePath = "\(configDir)/\(def.configFile)"
+        guard fm.fileExists(atPath: filePath) else {
+            print("No \(def.configFile) found at \(filePath)")
+            return
+        }
+        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
+        let newString = kimiHooksContent(existing: oldString, def: def, shouldInstall: false)
+        guard oldString != newString else {
+            print("Removed 0 cmux hook(s) from \(filePath)")
+            return
+        }
+        try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
+        print("Removed \(def.displayName) cmux hooks from \(filePath)")
+    }
+
+    private func kimiHooksContent(existing: String, def: AgentHookDef, shouldInstall: Bool) -> String {
+        var lines = Self.tomlLines(from: existing)
+        Self.removeCmuxKimiHooksBlock(from: &lines)
+        guard shouldInstall else {
+            return Self.tomlContent(from: lines)
+        }
+
+        var block: [String] = [Self.cmuxKimiHooksBegin]
+        for event in def.events {
+            let command = Self.hookCommandString(for: def, event: event)
+            block.append(contentsOf: Self.kimiHookTableLines(
+                event: event.agentEvent,
+                command: command,
+                timeoutSeconds: Self.kimiLifecycleHookTimeoutSeconds
+            ))
+        }
+        for agentEvent in def.feedHookEvents {
+            let command = Self.feedHookCommandString(for: def, agentEvent: agentEvent)
+            block.append(contentsOf: Self.kimiHookTableLines(
+                event: agentEvent,
+                command: command,
+                timeoutSeconds: Self.kimiFeedHookTimeoutSeconds
+            ))
+        }
+        block.append(Self.cmuxKimiHooksEnd)
+
+        if !lines.isEmpty, lines.last?.isEmpty == false {
+            lines.append("")
+        }
+        lines.append(contentsOf: block)
+        return Self.tomlContent(from: lines)
+    }
+
+    private static func kimiHookTableLines(
+        event: String,
+        command: String,
+        timeoutSeconds: Int
+    ) -> [String] {
+        return [
+            "[[hooks]]",
+            "event = \"\(tomlBasicStringContent(event))\"",
+            "command = \"\(tomlBasicStringContent(command))\"",
+            "timeout = \(timeoutSeconds)",
+            "",
+        ]
+    }
+
+    private static func removeCmuxKimiHooksBlock(from lines: inout [String]) {
+        var index = 0
+        while index < lines.count {
+            guard lines[index].trimmingCharacters(in: .whitespaces) == cmuxKimiHooksBegin else {
+                index += 1
+                continue
+            }
+            if let endIndex = lines[index...].firstIndex(where: {
+                $0.trimmingCharacters(in: .whitespaces) == cmuxKimiHooksEnd
+            }) {
+                lines.removeSubrange(index...endIndex)
+            } else {
+                lines.remove(at: index)
+                index += 1
+            }
+        }
+    }
+
     private static let antigravityHookGroupName = "cmux"
 
     private func installAntigravityHooks(_ def: AgentHookDef) throws {
@@ -27986,6 +28116,10 @@ export default CMUXSessionRestore;
             try installAntigravityHooks(def)
             return
         }
+        if case .tomlArrayTable = def.format {
+            try installKimiHooks(def)
+            return
+        }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -28093,7 +28227,7 @@ export default CMUXSessionRestore;
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -28121,7 +28255,7 @@ export default CMUXSessionRestore;
                     }
                 }
                 hooks[event] = groups
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -28347,6 +28481,10 @@ export default CMUXSessionRestore;
             try uninstallAntigravityHooks(def)
             return
         }
+        if case .tomlArrayTable = def.format {
+            try uninstallKimiHooks(def)
+            return
+        }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -28411,7 +28549,7 @@ export default CMUXSessionRestore;
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
