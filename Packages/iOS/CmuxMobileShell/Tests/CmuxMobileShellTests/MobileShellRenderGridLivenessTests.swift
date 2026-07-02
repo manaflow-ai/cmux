@@ -47,6 +47,11 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing subscribe buffering"
+    )
 
     // The Mac pushes a live render-grid event while the subscribe ack is
     // still pending (the server-side subscription from a previous generation
@@ -104,6 +109,13 @@ import Testing
 
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing primary render-grid delivery"
+    )
     let transport = try #require(box.get())
     await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 3, text: "grid-only"))
     let gridDelivered = try await pollUntil { collector.lines.contains { $0.contains("grid-only") } }
@@ -116,7 +128,6 @@ import Testing
     let clock = TestClock()
     let router = LivenessHostRouter()
     await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
-    await router.holdNextReplayResponses()
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     defer {
@@ -124,6 +135,11 @@ import Testing
     }
 
     let collector = OutputCollector()
+    let replayCapabilityResolved = try await pollUntil {
+        store.supportedHostCapabilities.contains("terminal.replay.v1")
+    }
+    #expect(replayCapabilityResolved, "the host replay capability must be known before mounting")
+    await router.holdNextReplayResponses()
     collector.mount(store: store, surfaceID: "live-terminal")
     let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(coldReplayRequested, "mounting a sink must request the cold replay")
@@ -185,7 +201,6 @@ import Testing
 @Test func coldAttachReplayBarrierHoldsHybridRawBytesUntilBaseApplies() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
-    await router.holdNextReplayResponses()
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     defer {
@@ -193,6 +208,11 @@ import Testing
     }
 
     let collector = OutputCollector()
+    let replayCapabilityResolved = try await pollUntil {
+        store.supportedHostCapabilities.contains("terminal.replay.v1")
+    }
+    #expect(replayCapabilityResolved, "the host replay capability must be known before mounting")
+    await router.holdNextReplayResponses()
     collector.mount(store: store, surfaceID: "live-terminal")
     let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(coldReplayRequested, "mounting a sink must request the cold replay")
@@ -252,7 +272,6 @@ import Testing
     let clock = TestClock()
     let router = LivenessHostRouter()
     await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
-    await router.holdNextReplayResponses()
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     defer {
@@ -263,7 +282,20 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(coldReplayRequested, "mounting a sink must request the cold replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before arming the held non-cold replay"
+    )
     let transport = try #require(box.get())
+
+    await router.holdNextReplayResponses()
+    let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
+    store.requestTerminalReplay(surfaceID: "live-terminal")
+    let heldReplayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
+    }
+    #expect(heldReplayRequested, "the non-cold replay must be requested before the live grid paints")
 
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
@@ -274,7 +306,7 @@ import Testing
     let freshDelivered = try await pollUntil {
         collector.lines.contains { $0.contains("fresh-wide-grid") }
     }
-    #expect(freshDelivered, "the live render-grid frame must paint before the held cold replay resolves")
+    #expect(freshDelivered, "the live render-grid frame must paint before the held replay resolves")
 
     await router.enqueueReplayRenderGridFrames([
         try MobileTerminalRenderGridFrame(
@@ -295,16 +327,15 @@ import Testing
     }
     #expect(
         staleDelivered == false,
-        "a cold replay captured at an older grid width must not overwrite an already-delivered live frame at the same state sequence"
+        "a replay captured at an older grid width must not overwrite an already-delivered live frame at the same state sequence"
     )
     collector.unmount()
 }
 
 @MainActor
-@Test func hybridPrimaryFullGridAllowsSameSeqColdReplayBeforeRawBytesCatchUp() async throws {
+@Test func hybridPrimaryFullGridAllowsSameSeqReplayBeforeRawBytesCatchUp() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
-    await router.holdNextReplayResponses()
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     defer {
@@ -315,7 +346,20 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(coldReplayRequested, "mounting a sink must request the cold replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before arming the held non-cold replay"
+    )
     let transport = try #require(box.get())
+
+    await router.holdNextReplayResponses()
+    let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
+    store.requestTerminalReplay(surfaceID: "live-terminal")
+    let heldReplayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
+    }
+    #expect(heldReplayRequested, "the non-cold replay must be requested before the advisory grid")
 
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
@@ -351,7 +395,7 @@ import Testing
     }
     #expect(
         replayDelivered,
-        "an advisory primary full grid does not paint terminal content, so the same-sequence cold replay must seed the local terminal until raw bytes catch up"
+        "an advisory primary full grid does not paint terminal content, so the same-sequence replay must seed the local terminal until raw bytes catch up"
     )
     collector.unmount()
 }
@@ -360,7 +404,6 @@ import Testing
 @Test func hybridPrimaryFullGridStillSuppressesSameSeqReplayAfterRawBytesCatchUp() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
-    await router.holdNextReplayResponses()
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     defer {
@@ -371,7 +414,20 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(coldReplayRequested, "mounting a sink must request the cold replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before arming the held non-cold replay"
+    )
     let transport = try #require(box.get())
+
+    await router.holdNextReplayResponses()
+    let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
+    store.requestTerminalReplay(surfaceID: "live-terminal")
+    let heldReplayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
+    }
+    #expect(heldReplayRequested, "the non-cold replay must be requested before raw bytes catch up")
 
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
@@ -416,7 +472,6 @@ import Testing
 @Test func hybridPrimaryNewerFullGridSuppressesOlderStaleReplay() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
-    await router.holdNextReplayResponses()
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     defer {
@@ -427,7 +482,20 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(coldReplayRequested, "mounting a sink must request the cold replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before arming the held non-cold replay"
+    )
     let transport = try #require(box.get())
+
+    await router.holdNextReplayResponses()
+    let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
+    store.requestTerminalReplay(surfaceID: "live-terminal")
+    let heldReplayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
+    }
+    #expect(heldReplayRequested, "the non-cold replay must be requested before raw bytes cover the older seq")
 
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
@@ -538,7 +606,6 @@ import Testing
     let clock = TestClock()
     let router = LivenessHostRouter()
     await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
-    await router.holdNextReplayResponses()
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     defer {
@@ -549,7 +616,20 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let coldReplayRequested = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(coldReplayRequested, "mounting a sink must request the cold replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before arming the held non-cold replay"
+    )
     let transport = try #require(box.get())
+
+    await router.holdNextReplayResponses()
+    let replayCountBeforeHeldReplay = await router.count(of: "mobile.terminal.replay")
+    store.requestTerminalReplay(surfaceID: "live-terminal")
+    let heldReplayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountBeforeHeldReplay
+    }
+    #expect(heldReplayRequested, "the non-cold replay must be requested before the partial delta")
 
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
@@ -598,6 +678,11 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing advisory primary render-grid"
+    )
     let transport = try #require(box.get())
 
     await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 3, text: "grid"))
@@ -630,6 +715,11 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing input recovery"
+    )
     let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
     let transport = try #require(box.get())
 
@@ -661,6 +751,11 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing alternate render-grid delivery"
+    )
     let transport = try #require(box.get())
 
     await transport.deliver(try renderGridEventFrame(
@@ -697,6 +792,11 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing stale alternate suppression"
+    )
     let transport = try #require(box.get())
 
     await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 0, text: "raw-a"))
@@ -727,6 +827,11 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing alternate-to-primary restore"
+    )
     let transport = try #require(box.get())
 
     await transport.deliver(try renderGridEventFrame(
@@ -756,6 +861,11 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing primary-delta recovery"
+    )
     let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
     let transport = try #require(box.get())
 
@@ -813,6 +923,11 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing empty primary-delta recovery"
+    )
     let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
     let transport = try #require(box.get())
 
@@ -893,6 +1008,11 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing healthy idle liveness"
+    )
 
     // Idle past the silence threshold: no events at all, host healthy.
     clock.advance(by: 10)
@@ -953,6 +1073,11 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing repaired subscription replay"
+    )
 
     // The host loses the registration while the RPC channel stays healthy.
     await router.dropSubscription()

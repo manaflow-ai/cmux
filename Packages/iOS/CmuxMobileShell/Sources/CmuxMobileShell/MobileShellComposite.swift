@@ -86,6 +86,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
+    private static let terminalReplayCapability = "terminal.replay.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
     private static let workspaceCloseCapability = "workspace.close.v1"
@@ -735,6 +736,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID: [String: UInt64]
     var terminalReplayFailureRetryCountsBySurfaceID: [String: Int]
     var terminalReplayBarrierFollowUpCountsBySurfaceID: [String: Int]
+    private var terminalColdReplayNeedsBarrierUpgradeSurfaceIDs: Set<String>
     private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
@@ -939,6 +941,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
         self.terminalReplayFailureRetryCountsBySurfaceID = [:]
         self.terminalReplayBarrierFollowUpCountsBySurfaceID = [:]
+        self.terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = []
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
@@ -5266,6 +5269,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
         terminalReplayFailureRetryCountsBySurfaceID = [:]
         terminalReplayBarrierFollowUpCountsBySurfaceID = [:]
+        terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = []
         terminalOutputQueuesBySurfaceID = [:]
         terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
         terminalFullReplacementSeqBySurfaceID = [:]
@@ -6202,6 +6206,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             terminalOutputTransport = transport
             MobileDebugLog.anchormux("sync.transport=\(transport.debugName)")
+            upgradePendingColdTerminalReplaysIfNeeded()
             return transport
         } catch {
             guard remoteClient === client else { return fallback }
@@ -6722,6 +6727,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         preservingFollowUpCount: Bool = false
     ) -> UUID {
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
+        terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -6740,6 +6746,40 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         return token
+    }
+
+    private func requestColdAttachTerminalReplay(surfaceID: String) {
+        guard remoteClient != nil else {
+            terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
+            requestTerminalReplay(surfaceID: surfaceID)
+            return
+        }
+        if supportedHostCapabilities.contains(Self.terminalReplayCapability) {
+            let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+            requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+            return
+        }
+        if supportedHostCapabilities.isEmpty {
+            terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.insert(surfaceID)
+        } else {
+            terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
+        }
+        requestTerminalReplay(surfaceID: surfaceID)
+    }
+
+    private func upgradePendingColdTerminalReplaysIfNeeded() {
+        guard !terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.isEmpty else { return }
+        guard supportedHostCapabilities.contains(Self.terminalReplayCapability) else {
+            terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = []
+            return
+        }
+        let surfaceIDs = terminalColdReplayNeedsBarrierUpgradeSurfaceIDs
+        terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = []
+        for surfaceID in surfaceIDs where hasTerminalOutputSink(surfaceID: surfaceID) {
+            guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil else { continue }
+            let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+            requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+        }
     }
 
     @discardableResult
@@ -6986,11 +7026,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         #endif
-        requestTerminalReplay(surfaceID: surfaceID)
+        requestColdAttachTerminalReplay(surfaceID: surfaceID)
     }
 
     private func unregisterTerminalOutput(surfaceID: String) {
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
+        terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)

@@ -599,6 +599,18 @@ func pollUntil(
 }
 
 @MainActor
+func waitForReplayResponsesServed(
+    _ expectedCount: Int,
+    router: LivenessHostRouter,
+    _ message: String
+) async throws {
+    let settled = try await pollUntil {
+        await router.replayResponsesServed() >= expectedCount
+    }
+    #expect(settled, "\(message)")
+}
+
+@MainActor
 func makeConnectedStore(
     router: LivenessHostRouter,
     box: TransportBox,
@@ -615,6 +627,10 @@ func makeConnectedStore(
     let ticket = try makeTicket(clock: clock)
     let connected = await store.connectPairingURL(try attachURL(for: ticket))
     #expect(connected, "scripted connect must succeed")
+    let capabilitiesResolved = try await pollUntil {
+        !store.supportedHostCapabilities.isEmpty
+    }
+    #expect(capabilitiesResolved, "scripted connect must resolve host capabilities")
     return store
 }
 
