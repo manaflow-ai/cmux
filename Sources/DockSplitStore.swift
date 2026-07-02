@@ -408,6 +408,10 @@ final class DockSplitStore: BonsplitDelegate {
         applyDockSelection(tabId: tabId, inPane: paneId)
     }
 
+    func triggerFocusFlash(panelId: UUID) {
+        panels[panelId]?.triggerFlash(reason: .navigation)
+    }
+
     private func resolveSourcePanelId(_ requested: UUID?) -> UUID? {
         if let requested, panels[requested] != nil { return requested }
         if let focused = focusedPanelId { return focused }

@@ -151,6 +151,23 @@ struct WindowDockLifecycleTests {
         #expect(!appDelegate.closeWindowDockRuntimeSurface(surfaceId: UUID(), force: true))
     }
 
+    @Test("Triggering flash on a Dock panel does not change Dock focus")
+    @MainActor
+    func triggerFlashDoesNotChangeDockFocus() throws {
+        let registry = WindowDockRegistry()
+        let dock = registry.dock(forWindowId: UUID())
+        let focusedPanel = try dock.seedTestPanel()
+        let flashedPanel = try dock.seedTestPanel()
+        dock.focusPanel(focusedPanel.id)
+
+        #expect(dock.focusedPanelId == focusedPanel.id)
+        dock.triggerFocusFlash(panelId: flashedPanel.id)
+
+        #expect(flashedPanel.flashCount == 1)
+        #expect(flashedPanel.focusCount == 0)
+        #expect(dock.focusedPanelId == focusedPanel.id)
+    }
+
     @Test("Moving a window's last main panel into its own Dock is rejected")
     @MainActor
     func lastPanelMoveIntoOwnWindowDockIsRejected() throws {

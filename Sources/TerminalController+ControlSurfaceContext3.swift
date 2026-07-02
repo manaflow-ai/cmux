@@ -187,8 +187,7 @@ extension TerminalController {
             guard dock.panels[surfaceId] != nil else {
                 return .surfaceNotFound(surfaceId)
             }
-            maybeFocusAndRevealWindowDock(for: dock, fallback: tabManager)
-            dock.focusPanel(surfaceId)
+            dock.triggerFocusFlash(panelId: surfaceId)
             return .flashed(
                 windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
