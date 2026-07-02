@@ -366,14 +366,27 @@ export function daytonaSnapshotImage(daemonPath: string): Image {
     )
     .addLocalFile(daemonPath, "/usr/local/bin/cmuxd-remote")
     .runCommands(
-      "chmod 0755 /usr/local/bin/cmuxd-remote",
-      ...cloudToolInstallCommands(),
-      ...cloudRootSetupCommands(),
-      ...cloudShellProfileCommands(),
-      ...daytonaEntrypointCommands(),
-      ...cloudImageSmokeTestCommands(),
+      ...[
+        "chmod 0755 /usr/local/bin/cmuxd-remote",
+        ...cloudToolInstallCommands(),
+        ...cloudRootSetupCommands(),
+        ...cloudShellProfileCommands(),
+        ...daytonaEntrypointCommands(),
+        ...cloudImageSmokeTestCommands(),
+      ].map(toDockerfileRunCommand),
     )
     .entrypoint([DAYTONA_ENTRYPOINT_PATH]);
+}
+
+/**
+ * The declarative builder emits each runCommands entry as one Dockerfile RUN line, so a
+ * command containing newlines (the shared heredoc-based profile/entrypoint writers) would be
+ * parsed as stray Dockerfile instructions. Wrap multi-line commands so they reach `sh` intact.
+ */
+export function toDockerfileRunCommand(command: string): string {
+  if (!command.includes("\n")) return command;
+  const encoded = Buffer.from(command, "utf8").toString("base64");
+  return `printf '%s' '${encoded}' | base64 -d | sh`;
 }
 
 export function daytonaEntrypointCommands(): string[] {

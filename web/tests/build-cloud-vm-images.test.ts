@@ -8,6 +8,7 @@ import {
   cloudImageSmokeTestCommands,
   cloudToolInstallCommands,
   daytonaEntrypointCommands,
+  toDockerfileRunCommand,
   daytonaSnapshotImage,
   findFreestyleSnapshotByName,
   freestyleBaseDockerfileContent,
@@ -169,14 +170,29 @@ describe("Cloud VM image build helpers", () => {
     const dockerfile = daytonaSnapshotImage(daemonPath).dockerfile;
     expect(dockerfile).toContain("FROM ubuntu:24.04");
     expect(dockerfile).toContain("/usr/local/bin/cmuxd-remote");
-    expect(dockerfile).toContain(
-      "cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /usr/local/bin/cmux-cloud-shell",
-    );
     expect(dockerfile).toContain('ENTRYPOINT ["/usr/local/bin/cmux-daytona-entrypoint"]');
+    // Every line must be a real Dockerfile instruction: multi-line shell (heredoc profile and
+    // entrypoint writers) has to be wrapped by toDockerfileRunCommand, or the Daytona builder
+    // fails with "unknown instruction" at snapshot-create time.
+    const instruction = /^(#|FROM|RUN|ENV|COPY|ADD|ENTRYPOINT|CMD|WORKDIR|USER|ARG|LABEL|EXPOSE|SHELL)\b/;
+    for (const line of dockerfile.split("\n")) {
+      if (line.trim() === "") continue;
+      expect(line).toMatch(instruction);
+    }
     // Daytona attach is preview-URL WebSockets and even Daytona's own SSH gateway
     // terminates in the runner daemon, so no sshd belongs in the image.
     expect(dockerfile).not.toContain("openssh-server");
     expect(dockerfile).not.toContain("sshd");
+  });
+
+  test("toDockerfileRunCommand wraps multi-line shell and round-trips it", () => {
+    expect(toDockerfileRunCommand("echo one-liner")).toBe("echo one-liner");
+    const multi = daytonaEntrypointCommands()[0]!;
+    const wrapped = toDockerfileRunCommand(multi);
+    expect(wrapped).not.toContain("\n");
+    const encoded = wrapped.match(/printf '%s' '([^']+)' \| base64 -d \| sh/)?.[1];
+    expect(encoded).toBeTruthy();
+    expect(Buffer.from(encoded!, "base64").toString("utf8")).toBe(multi);
   });
 
   test("Daytona entrypoint restarts the daemon and keeps lease dir private", () => {
