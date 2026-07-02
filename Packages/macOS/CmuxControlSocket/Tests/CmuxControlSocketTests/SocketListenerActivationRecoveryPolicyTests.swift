@@ -137,15 +137,19 @@ import Testing
 
     // MARK: - Activation/wake race (generation staleness)
 
-    /// A rebind decision derived from a probe holds only while the listener
-    /// generation is unchanged. If any other recovery path rebinds the listener
-    /// during the probe (generation moves in either direction), the decision is
-    /// stale and must be discarded so the fresh listener is not torn down.
+    /// A rebind decision derived from a probe holds only while the accept-loop
+    /// generation is unchanged. If any recovery path replaces the listener
+    /// during the probe the generation moves — a restart stamps a fresh, higher
+    /// id; a stop resets it to `0` — and the decision is stale, so the freshly
+    /// recovered listener is not torn down.
     @Test func rebindDecisionIsStaleWhenListenerRebornDuringProbe() {
         let policy = SocketListenerActivationRecoveryPolicy()
+        // Same generation: the probed listener is still the live one.
         #expect(policy.rebindDecisionIsCurrent(capturedGeneration: 7, currentGeneration: 7))
+        // A concurrent restart stamps a fresh, higher accept-loop generation.
         #expect(!policy.rebindDecisionIsCurrent(capturedGeneration: 7, currentGeneration: 8))
-        #expect(!policy.rebindDecisionIsCurrent(capturedGeneration: 7, currentGeneration: 6))
+        // A concurrent stop resets the active accept-loop generation to 0.
+        #expect(!policy.rebindDecisionIsCurrent(capturedGeneration: 7, currentGeneration: 0))
     }
 
     @Test func downListenerForcesRebindRegardlessOfPing() {

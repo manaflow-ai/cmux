@@ -358,6 +358,15 @@ class TerminalController {
         socketServer.activeSocketPath(preferredPath: preferredPath)
     }
 
+    /// The authoritative accept-loop generation of the underlying listener,
+    /// bumped on every (re)start through any recovery path. The activation
+    /// self-heal captures this before its background probe and re-checks it
+    /// before rebinding, so a listener replaced mid-probe is never torn down
+    /// on a stale decision (issue #6406 activation/wake race).
+    nonisolated var activeListenerGeneration: UInt64 {
+        socketServer.activeListenerGeneration
+    }
+
     nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
         !currentSocketCommandFocusAllowanceStack().isEmpty
     }

@@ -221,6 +221,23 @@ public final class SocketControlServer {
         listenerStateSnapshot().socketPath
     }
 
+    /// The active accept-loop generation: a monotonic id stamped on every
+    /// listener (re)start and reset to `0` on stop.
+    ///
+    /// Every restart routes through the same startup that bumps this — the
+    /// host-driven start/stop, the path monitor's rearm, and the accept
+    /// source's recovery rebind alike — so it is the authoritative signal
+    /// that "the listener a caller last observed has since been replaced."
+    /// A blocking readiness probe captures this before it runs and re-reads
+    /// it afterward; a change means the probed listener is gone and any
+    /// rebind decision derived from that probe is stale, so acting on it
+    /// would tear down a freshly recovered listener and drop its clients
+    /// (https://github.com/manaflow-ai/cmux/issues/6406, activation/wake
+    /// race). See ``SocketListenerActivationRecoveryPolicy/rebindDecisionIsCurrent(capturedGeneration:currentGeneration:)``.
+    public nonisolated var activeListenerGeneration: UInt64 {
+        listenerStateSnapshot().activeGeneration
+    }
+
     /// The socket path remote-session restore should reconnect through, or
     /// `nil` when no listener is active or reserved.
     public nonisolated func currentSocketPathForRemoteRestore() -> String? {

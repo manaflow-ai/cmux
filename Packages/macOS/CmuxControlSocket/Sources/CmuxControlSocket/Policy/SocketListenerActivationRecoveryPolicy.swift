@@ -165,19 +165,22 @@ public struct SocketListenerActivationRecoveryPolicy: Sendable {
     ///
     /// The `ping` probe blocks, so the host runs it off the main actor and only
     /// applies the resulting rebind on the main actor afterward. In that window
-    /// another recovery path (`workspace.didWake`, a menu command, the ensure
-    /// path) can rebind the listener. The host stamps a monotonic generation on
-    /// every (re)start and passes the generation captured before the probe here
-    /// alongside the current one: a mismatch means the probed listener was
-    /// already replaced, so the stale decision must be discarded rather than
-    /// tearing down the fresh listener and dropping its clients (#6406 review,
-    /// activation/wake race).
+    /// any recovery path can replace the listener — a host-driven restart
+    /// (`workspace.didWake`, a menu command, the ensure path) *or* the
+    /// listener's own internal recovery (the path monitor's rearm, the accept
+    /// source's rebind). The authoritative signal that covers all of them is
+    /// the server's accept-loop generation (`SocketControlServer.activeListenerGeneration`),
+    /// bumped on every (re)start regardless of who triggered it. The host
+    /// captures it before the probe and passes it here alongside the current
+    /// value: a mismatch means the probed listener was already replaced, so the
+    /// stale decision must be discarded rather than tearing down the fresh
+    /// listener and dropping its clients (#6406 review, activation/wake race).
     ///
     /// - Parameters:
-    ///   - capturedGeneration: Listener generation sampled before the probe.
-    ///   - currentGeneration: Listener generation now, on the main actor.
+    ///   - capturedGeneration: Accept-loop generation sampled with the probe.
+    ///   - currentGeneration: Accept-loop generation now, on the main actor.
     /// - Returns: True when no rebind happened meanwhile and the decision holds.
-    public func rebindDecisionIsCurrent(capturedGeneration: Int, currentGeneration: Int) -> Bool {
+    public func rebindDecisionIsCurrent(capturedGeneration: UInt64, currentGeneration: UInt64) -> Bool {
         capturedGeneration == currentGeneration
     }
 }
