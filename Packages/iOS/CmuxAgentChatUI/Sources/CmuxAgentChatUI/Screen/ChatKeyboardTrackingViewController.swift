@@ -137,7 +137,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         let transcriptClipTopConstraint = transcriptClipView.topAnchor.constraint(equalTo: keyboardContentView.topAnchor)
         let transcriptClipBottomConstraint = transcriptClipView.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor)
         let transcriptHeightConstraint = transcriptHostingController.view.heightAnchor.constraint(equalToConstant: 0)
-        let composerBottomConstraint = composerHostingController.view.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor)
+        let composerBottomConstraint = bottomChromeContainerView.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor)
         self.composerHeightConstraint = composerHeightConstraint
         self.transcriptClipTopConstraint = transcriptClipTopConstraint
         self.transcriptClipBottomConstraint = transcriptClipBottomConstraint
@@ -163,7 +163,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             bottomChromeContainerView.topAnchor.constraint(equalTo: composerHostingController.view.topAnchor),
             bottomChromeContainerView.leadingAnchor.constraint(equalTo: keyboardContentView.leadingAnchor),
             bottomChromeContainerView.trailingAnchor.constraint(equalTo: keyboardContentView.trailingAnchor),
-            bottomChromeContainerView.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor),
+            composerBottomConstraint,
 
             composerBackgroundView.topAnchor.constraint(equalTo: bottomChromeContainerView.topAnchor),
             composerBackgroundView.leadingAnchor.constraint(equalTo: bottomChromeContainerView.leadingAnchor),
