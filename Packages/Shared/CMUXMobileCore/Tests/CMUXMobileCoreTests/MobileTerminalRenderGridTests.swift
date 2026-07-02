@@ -51,10 +51,10 @@ import Testing
         .init(row: 1, column: 0, text: "changed"),
     ])
     #expect(String(data: frame.vtPatchBytes(), encoding: .utf8) ==
-        "\u{1B}[0m\u{1B}[2;1H\u{1B}[2K" +
+        "\u{1B}[?6l\u{1B}[?7l\u{1B}[0m\u{1B}[2;1H\u{1B}[2K" +
         "\u{1B}[0m\u{1B}[3;1H\u{1B}[2K" +
         "\u{1B}[2;1H\u{1B}[0mchanged" +
-        "\u{1B}[0m"
+        "\u{1B}[0m\u{1B}[?7h"
     )
 }
 

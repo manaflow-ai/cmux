@@ -23,6 +23,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     ///   - stateSeq: Terminal byte sequence covered by the source frame.
     ///   - activeScreen: Terminal screen represented by the source frame.
     ///   - rowSignatures: Per-row text/style signatures for the source frame.
+    ///     The count must match `rows`.
     public init(
         columns: Int,
         rows: Int,
@@ -30,6 +31,9 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         activeScreen: MobileTerminalRenderGridFrame.Screen,
         rowSignatures: [String]
     ) {
+        precondition(columns >= 0, "columns must be non-negative")
+        precondition(rows >= 0, "rows must be non-negative")
+        precondition(rowSignatures.count == rows, "rowSignatures count must match rows")
         self.columns = columns
         self.rows = rows
         self.stateSeq = stateSeq

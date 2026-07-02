@@ -56,11 +56,7 @@ extension MobileShellComposite {
                 return nil
             }
             guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
-                clearTerminalReplayBarrierIfCurrent(
-                    surfaceID: surfaceID,
-                    token: prearmedReplayBarrierToken,
-                    reason: "viewport_stale_generation"
-                )
+                // A newer viewport request now owns any pending pre-ACK barrier.
                 return nil
             }
             guard let payload = try? MobileTerminalViewportResponse.decode(data),
@@ -95,11 +91,7 @@ extension MobileShellComposite {
             return (grid.columns, grid.rows)
         } catch {
             guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
-                clearTerminalReplayBarrierIfCurrent(
-                    surfaceID: surfaceID,
-                    token: prearmedReplayBarrierToken,
-                    reason: "viewport_stale_generation"
-                )
+                // A newer viewport request now owns any pending pre-ACK barrier.
                 return nil
             }
             finishPrearmedTerminalViewportBarrierWithoutResize(
@@ -144,6 +136,14 @@ extension MobileShellComposite {
         rows: Int
     ) -> UUID? {
         guard hasTerminalOutputSink(surfaceID: surfaceID) else { return nil }
+        if let pendingToken = terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] {
+            // Rapid geometry reversals must carry the existing drop barrier
+            // forward even when the latest report matches the last effective grid.
+            if terminalReplayBarrierTokensBySurfaceID[surfaceID] == pendingToken {
+                return pendingToken
+            }
+            terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
+        }
         guard previousGrid.map({ $0.columns != columns || $0.rows != rows }) ?? true else {
             return nil
         }

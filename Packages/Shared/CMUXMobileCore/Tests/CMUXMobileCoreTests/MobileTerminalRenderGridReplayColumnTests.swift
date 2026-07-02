@@ -50,9 +50,10 @@ import Testing
     )
 
     #expect(String(data: frame.vtPatchBytes(), encoding: .utf8) ==
+        "\u{1B}[?6l\u{1B}[?7l" +
         "\u{1B}[0m\u{1B}[1;1H\u{1B}[2K" +
         "\u{1B}[1;1H\u{1B}[0mα🇰🇷B" +
-        "\u{1B}[0m"
+        "\u{1B}[0m\u{1B}[?7h"
     )
 }
 
@@ -70,9 +71,10 @@ import Testing
     )
 
     #expect(String(data: frame.vtPatchBytes(), encoding: .utf8) ==
+        "\u{1B}[?6l\u{1B}[?7l" +
         "\u{1B}[0m\u{1B}[1;1H\u{1B}[2K" +
         "\u{1B}[1;1H\u{1B}[0mA B" +
-        "\u{1B}[0m"
+        "\u{1B}[0m\u{1B}[?7h"
     )
 }
 
@@ -110,6 +112,40 @@ import Testing
     #expect(rows[0] == "alpha   ")
     #expect(rows[1] == "row-one!")
     #expect(!rows[0].contains("─"))
+}
+
+@Test func renderGridDeltaNormalizesOriginModeWhenAutowrapIsImplicitDefault() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 52,
+        columns: 8,
+        rows: 4,
+        full: false,
+        clearedRows: [0],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "alpha"),
+        ]
+    )
+
+    var bytes = Data("\u{1B}[2;4r\u{1B}[?6h".utf8)
+    bytes.append(frame.vtPatchBytes())
+    let rows = renderedRows(try replayedCells(
+        from: bytes,
+        rows: frame.rows,
+        columns: frame.columns,
+        initialRows: [
+            "────────",
+            "row-one!",
+            "row-two!",
+            "row-tre!",
+        ]
+    ))
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(vt.hasPrefix("\u{1B}[?6l\u{1B}[?7l"))
+    #expect(vt.hasSuffix("\u{1B}[0m\u{1B}[?7h"))
+    #expect(rows[0] == "alpha   ")
+    #expect(rows[1] == "row-one!")
 }
 
 private func replayedCells(

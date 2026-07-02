@@ -243,3 +243,64 @@ import Testing
     )
     #expect(!staleReplayRequested, "a stale viewport acknowledgement must not request replay")
 }
+
+@MainActor
+@Test func terminalViewportReversalCarriesPendingResizeBarrierForward() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts([
+        "cold-replay",
+        "initial-viewport-replay",
+        "reverted-viewport-replay",
+    ])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+
+    _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    let initialViewportChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    let replayCountAfterBaseline = await router.count(of: "mobile.terminal.replay")
+
+    await router.holdViewportRequest(number: 2)
+    let staleResizeReport = Task {
+        await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 30)
+    }
+    await router.waitForCount(of: "mobile.terminal.viewport", atLeast: 2)
+
+    let staleAccepted = store.deliverTerminalBytes(
+        Data("stale-during-reversal".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(!staleAccepted, "output must be dropped while the superseded resize ACK is pending")
+
+    let revertedGrid = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
+    #expect(revertedGrid?.columns == 80)
+    #expect(revertedGrid?.rows == 48)
+    let replayAfterRevert = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 1
+    )
+    #expect(replayAfterRevert, "the reverted ACK must replay output dropped under the carried barrier")
+    let replayChunk = try #require(await iterator.next())
+    #expect(String(data: replayChunk.data, encoding: .utf8) == "reverted-viewport-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+
+    await router.releaseAllHeld()
+    let staleGrid = await staleResizeReport.value
+    #expect(staleGrid?.columns == nil)
+    #expect(staleGrid?.rows == nil)
+    let extraReplayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBaseline + 2,
+        timeoutNanoseconds: 200_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!extraReplayRequested, "the stale resize ACK must not clear or replay after the revert")
+}
