@@ -326,11 +326,9 @@ public struct GhosttyConfig {
         return config
     }
 
-    /// Applies cmux's managed default appearance (when the user has not chosen
-    /// a `theme`) as the base, then parses the user's config files on top so
-    /// explicit color directives override just those colors — matching
-    /// ghostty's own theme semantics
-    /// (https://github.com/manaflow-ai/cmux/issues/7161).
+    /// Applies cmux's managed default appearance (when the user has not chosen a
+    /// `theme`) as the base, then parses the user's config files on top so explicit
+    /// color directives override just those colors (issue #7161).
     mutating func loadResolvedUserConfig(
         configPaths: [String],
         preferredColorScheme: ColorSchemePreference,
@@ -781,6 +779,9 @@ public struct GhosttyConfig {
     public struct UserAppearanceConfigSummary {
         /// Whether any `theme` directive was seen.
         public var hasThemeDirective = false
+        /// Whether any explicit terminal color directive (background, foreground,
+        /// palette, cursor, selection) was seen.
+        public var hasExplicitTerminalColorDirective = false
         /// The last non-empty `theme` directive value seen, or `nil`.
         public var lastThemeDirective: String?
 
@@ -788,9 +789,8 @@ public struct GhosttyConfig {
         public init() {}
 
         /// Whether cmux should apply its managed default appearance: true unless
-        /// the user chose a `theme`. Explicit color directives (background,
-        /// foreground, palette, cursor, selection) do not suppress the managed
-        /// theme — they are loaded after it, overriding just those colors
+        /// the user chose a `theme`. Explicit color directives do not suppress
+        /// the managed theme — they load after it, overriding just those colors
         /// (https://github.com/manaflow-ai/cmux/issues/7161).
         public var shouldApplyDefaultAppearance: Bool {
             !hasThemeDirective
@@ -803,6 +803,9 @@ public struct GhosttyConfig {
                 hasThemeDirective = true
                 let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 lastThemeDirective = trimmedValue.isEmpty ? nil : trimmedValue
+            case "background", "foreground", "palette", "cursor-color", "cursor-text",
+                 "selection-background", "selection-foreground":
+                hasExplicitTerminalColorDirective = true
             default:
                 break
             }
@@ -865,7 +868,8 @@ public struct GhosttyConfig {
             guard let entry = parsedConfigEntry(from: line) else { continue }
 
             switch entry.key {
-            case "theme":
+            case "theme", "background", "foreground", "palette", "cursor-color",
+                 "cursor-text", "selection-background", "selection-foreground":
                 summary.recordDirective(key: entry.key, value: entry.value)
             case "config-file":
                 guard let value = entry.value else { continue }

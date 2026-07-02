@@ -85,6 +85,25 @@ import Testing
         }
     }
 
+    /// The summary still tracks explicit color directives separately: the runtime
+    /// uses that flag to re-assert the managed default over a stale legacy
+    /// app-support config only when the user set no appearance directives at all.
+    @Test func summaryTracksColorDirectivesWithoutSuppressingManagedDefault() throws {
+        try withTempConfig("background = black\n") { path in
+            let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: [path])
+            #expect(summary.shouldApplyDefaultAppearance)
+            #expect(summary.hasExplicitTerminalColorDirective)
+        }
+    }
+
+    @Test func summaryReportsNoColorDirectivesForNonAppearanceConfig() throws {
+        try withTempConfig("font-family = JetBrains Mono\nbackground-opacity = 0.92\n") { path in
+            let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: [path])
+            #expect(summary.shouldApplyDefaultAppearance)
+            #expect(!summary.hasExplicitTerminalColorDirective)
+        }
+    }
+
     // MARK: Managed base + user override precedence
 
     /// Writes sentinel "Apple System Colors" theme files into a themes root the
