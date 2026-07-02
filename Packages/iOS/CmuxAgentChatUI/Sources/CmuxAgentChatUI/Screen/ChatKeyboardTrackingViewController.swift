@@ -9,7 +9,6 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         get { transcriptHostingController.rootView }
         set { transcriptHostingController.rootView = newValue }
     }
-
     var composerView: Composer {
         get { composerHostingController.rootView }
         set { composerHostingController.rootView = newValue }
@@ -117,11 +116,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         composerHostingController.didMove(toParent: self)
         updateComposerVisibility()
 
-        let observer = NotificationCenter.default.addObserver(
-            forName: UIResponder.keyboardWillChangeFrameNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
+        let observer = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] notification in
             guard let transition = MobileKeyboardTransition(notification: notification) else {
                 return
             }
@@ -470,9 +465,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     func trackedTranscriptTables(in view: UIView) -> [ChatTranscriptUITableView] {
         if let table = view as? ChatTranscriptUITableView {
-            // Stop at the transcript table itself; descending into its own
-            // cells/hosted row views would re-walk the entire transcript on
-            // every layout/keyboard geometry update.
+            // Stop at the transcript table itself to avoid walking hosted rows.
             return [table]
         }
         var tables: [ChatTranscriptUITableView] = []
@@ -488,16 +481,10 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     ) -> Bool {
         guard let window = view.window else { return false }
         let point = touch.location(in: window)
-        let transcriptFrame = transcriptHostingController.view.convert(
-            transcriptHostingController.view.bounds,
-            to: window
-        )
+        let transcriptFrame = transcriptHostingController.view.convert(transcriptHostingController.view.bounds, to: window)
         guard transcriptFrame.contains(point) else { return false }
         guard !excludedKeyboardDismissFrame.contains(point) else { return false }
-        let composerFrame = composerHostingController.view.convert(
-            composerHostingController.view.bounds,
-            to: window
-        )
+        let composerFrame = composerHostingController.view.convert(composerHostingController.view.bounds, to: window)
         return !composerFrame.contains(point)
     }
 
