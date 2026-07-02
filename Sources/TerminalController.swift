@@ -13620,6 +13620,20 @@ class TerminalController {
         )
     }
 
+    private func mobileTerminalCloseProtectedMessage() -> String {
+        String(
+            localized: "mobile.terminal.closeProtected.message",
+            defaultValue: "Pinned terminals can't be closed while pinned. Unpin the terminal first."
+        )
+    }
+
+    private func mobileTerminalCloseConfirmationRequiredMessage() -> String {
+        String(
+            localized: "mobile.terminal.closeConfirmationRequired.message",
+            defaultValue: "This terminal is running a command. Close it from the Mac to confirm."
+        )
+    }
+
     func v2MobileTerminalCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
@@ -13671,6 +13685,31 @@ class TerminalController {
         }
         guard resolved.workspace.panels.count > 1 else {
             return .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
+        }
+        if resolved.workspace.pinnedPanelIds.contains(surfaceId) {
+            return .err(
+                code: "protected",
+                message: mobileTerminalCloseProtectedMessage(),
+                data: [
+                    "workspace_id": resolved.workspace.id.uuidString,
+                    "surface_id": surfaceId.uuidString,
+                    "pinned": true,
+                ]
+            )
+        }
+        if CloseTabWarningStore(defaults: resolved.workspace.closeTabWarningDefaults).shouldConfirmClose(
+            requiresConfirmation: resolved.workspace.panelNeedsConfirmClose(panelId: surfaceId),
+            source: .shortcut
+        ) {
+            return .err(
+                code: "confirmation_required",
+                message: mobileTerminalCloseConfirmationRequiredMessage(),
+                data: [
+                    "workspace_id": resolved.workspace.id.uuidString,
+                    "surface_id": surfaceId.uuidString,
+                    "requires_confirmation": true,
+                ]
+            )
         }
         guard closeSurfaceRecordingHistory(in: resolved.workspace, surfaceId: surfaceId, force: true) else {
             return .err(

@@ -1488,6 +1488,84 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertNotNil(workspace.terminalPanel(for: panel.id))
     }
 
+    func testMobileTerminalCloseRejectsPinnedTerminalSurface() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let pinnedPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
+        workspace.setPanelPinned(panelId: pinnedPanel.id, pinned: true)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-pinned",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": pinnedPanel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected terminal.close on a pinned terminal to fail")
+            return
+        }
+        XCTAssertEqual(error.code, "protected")
+        let data = try XCTUnwrap(error.data as? [String: Any])
+        XCTAssertEqual(data["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(data["surface_id"] as? String, pinnedPanel.id.uuidString)
+        XCTAssertEqual(data["pinned"] as? Bool, true)
+        XCTAssertNotNil(workspace.terminalPanel(for: pinnedPanel.id))
+    }
+
+    func testMobileTerminalCloseRejectsRunningTerminalWhenCloseWarningEnabled() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let suiteName = "terminal-close-warning-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        CloseTabWarningStore(defaults: defaults).setWarnsBeforeClosingTab(true)
+        let manager = TabManager(closeTabWarningDefaults: defaults)
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let runningPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
+        workspace.updatePanelShellActivityState(panelId: runningPanel.id, state: .commandRunning)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-running",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": runningPanel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected terminal.close on a running terminal to require confirmation")
+            return
+        }
+        XCTAssertEqual(error.code, "confirmation_required")
+        let data = try XCTUnwrap(error.data as? [String: Any])
+        XCTAssertEqual(data["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(data["surface_id"] as? String, runningPanel.id.uuidString)
+        XCTAssertEqual(data["requires_confirmation"] as? Bool, true)
+        XCTAssertNotNil(workspace.terminalPanel(for: runningPanel.id))
+    }
+
     func testMobileTerminalCloseClearsViewportReportsForClosedSurface() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
