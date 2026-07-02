@@ -719,11 +719,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var secondaryAggregationScopeGeneration = 0
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
-    /// High-water delivered sequence captured when a replay barrier resets
-    /// ``deliveredTerminalByteEndSeqBySurfaceID``, so a buffered pre-barrier
-    /// render-grid frame cannot slip past the staleness guard and establish an
-    /// outdated baseline while the authoritative replay is still in flight.
-    /// Cleared by the next accepted delivery (which re-bases the floor).
+    /// High-water delivered sequence stashed while a replay barrier holds
+    /// ``deliveredTerminalByteEndSeqBySurfaceID`` cleared: rejects buffered
+    /// pre-barrier frames, and is restored as the baseline if the barrier
+    /// releases without delivering.
     var terminalPreBarrierDeliveredEndSeqBySurfaceID: [String: UInt64]
     var terminalRenderGridBaselineReplayRequestCountsBySurfaceID: [String: Int]
     var terminalRenderGridBaselineReplayBarrierTokensBySurfaceID: [String: UUID]
@@ -6698,13 +6697,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
-        // Preserve the delivered high-water mark before clearing it, so a
-        // buffered pre-barrier frame replayed by the event stream cannot pass
-        // the staleness guard while the fresh authoritative replay is pending.
-        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] {
-            let stashedSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] ?? 0
-            terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] = max(stashedSeq, deliveredSeq)
-        }
+        stashTerminalPreBarrierDeliveredEndSeq(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -6742,6 +6735,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         let wasMissingBaselineBarrier = terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] == token
+        // A barrier released without delivering leaves the surface showing the
+        // pre-barrier content, so the stashed floor IS the truthful baseline;
+        // restoring it keeps later deltas flowing instead of stalling them
+        // behind an exhausted missing-baseline budget.
+        if deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil,
+           let floorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] {
+            deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = floorSeq
+        }
+        terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         let baselineDelivered = terminalOutputTransport == .hybrid
             ? terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
             : deliveredTerminalByteEndSeqBySurfaceID[surfaceID] != nil
@@ -7459,9 +7461,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
             return
         }
-        // No live baseline (a replay barrier reset it): the pre-barrier floor
-        // is the effective delivered mark, so a buffered chunk from before the
-        // barrier cannot repaint stale output or release the stale floor.
+        // With no live baseline, the pre-barrier floor is the effective
+        // delivered mark: pre-barrier chunks must not repaint or count.
         if let floorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] {
             if endSeq <= floorSeq {
                 MobileDebugLog.anchormux("sync.bytes_below_floor surface=\(surfaceID) floor=\(floorSeq) end=\(endSeq)")
