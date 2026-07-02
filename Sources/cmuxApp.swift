@@ -731,7 +731,7 @@ struct cmuxApp: App {
                 // there. Offer an explicit escape hatch, shown only when New Workspace
                 // would go remote so it never clutters ordinary windows.
                 if newLocalWorkspaceMenuItemVisible {
-                    splitCommandButton(title: String(localized: "menu.file.newLocalWorkspace", defaultValue: "New Local Workspace"), shortcut: .unbound) {
+                    splitCommandButton(title: String(localized: "menu.file.newLocalWorkspace", defaultValue: "New Local Workspace"), shortcut: menuShortcut(for: .newLocalWorkspace)) {
                         AppDelegate.shared?.performNewLocalWorkspaceAction(
                             tabManager: activeTabManager,
                             debugSource: "menu.newLocalWorkspace"
@@ -1182,9 +1182,8 @@ struct cmuxApp: App {
     /// before its menu bar opens, so switching into a mirror window refreshes this).
     private var newLocalWorkspaceMenuItemVisible: Bool {
         let _ = focusHistoryMenuInvalidator.revision
-        guard let appDelegate = AppDelegate.shared,
-              let windowId = appDelegate.windowId(for: activeTabManager) else { return false }
-        return appDelegate.remoteTmuxController.wouldNewWorkspaceSpawnRemote(windowId: windowId)
+        guard let appDelegate = AppDelegate.shared else { return false }
+        return appDelegate.remoteTmuxController.wouldNewWorkspaceSpawnRemote(in: activeTabManager)
     }
 
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
