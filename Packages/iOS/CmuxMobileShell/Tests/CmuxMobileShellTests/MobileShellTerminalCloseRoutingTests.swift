@@ -243,6 +243,7 @@ import Testing
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router)
         let terminalA = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA)
+        await router.setTerminalIDs([RoutingHostRouter.terminalA])
         seedTerminalCloseWorkspace(
             on: store,
             supportsTerminalClose: true,
@@ -257,6 +258,42 @@ import Testing
         #expect(closes.map(\.workspaceID) == [RoutingHostRouter.workspaceID])
         #expect(closes.map(\.surfaceID) == [RoutingHostRouter.terminalA])
         #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalA])
+    }
+
+    @Test func closingUnmountedReplacementTerminalPrunesStaleAutoFocusSuppression() async throws {
+        let router = RoutingHostRouter()
+        await router.setTerminalIDs([
+            RoutingHostRouter.terminalA,
+            RoutingHostRouter.terminalB,
+            RoutingHostRouter.terminalC,
+        ])
+        let store = try await makeRoutingConnectedStore(router: router)
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: RoutingHostRouter.workspaceID)
+        let terminalA = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA)
+        let terminalB = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalB)
+        let terminalC = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalC)
+        seedTerminalCloseWorkspace(
+            on: store,
+            supportsTerminalClose: true,
+            terminals: [
+                MobileTerminalPreview(id: terminalA, name: "A"),
+                MobileTerminalPreview(id: terminalB, name: "B"),
+                MobileTerminalPreview(id: terminalC, name: "C"),
+            ]
+        )
+        store.selectedWorkspaceID = workspaceID
+        store.selectedTerminalID = terminalA
+
+        await store.closeTerminal(workspaceID: workspaceID, terminalID: terminalA)
+        #expect(store.selectedTerminalID == terminalB)
+        #expect(store.shouldAutoFocusTerminalSurface(terminalB.rawValue) == false)
+
+        await store.closeTerminal(workspaceID: workspaceID, terminalID: terminalB)
+
+        #expect(store.selectedWorkspace?.terminals.map(\.id) ?? [] == [terminalC])
+        #expect(store.selectedTerminalID == terminalC)
+        #expect(store.shouldAutoFocusTerminalSurface(terminalB.rawValue) == true)
+        #expect(store.shouldAutoFocusTerminalSurface(terminalC.rawValue) == false)
     }
 
     @Test func closeTerminalIsHiddenBehindHostCapability() async throws {

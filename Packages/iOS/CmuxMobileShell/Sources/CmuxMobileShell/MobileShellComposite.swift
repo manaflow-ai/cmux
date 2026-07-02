@@ -241,7 +241,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var workspaces: [MobileWorkspacePreview] = [] {
         didSet {
             workspaceTopologyVersion &+= 1
-            prunePendingAttachmentsForMissingTerminals()
+            pruneTerminalScopedStateForMissingTerminals()
         }
     }
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
@@ -4538,20 +4538,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces.contains { $0.terminals.contains { $0.id.rawValue == terminalID } }
     }
 
-    /// Drop staged attachments whose terminal id is no longer in the topology.
-    /// Called from the ``workspaces`` `didSet` so a workspace/terminal sync that
-    /// removes a terminal also releases its (potentially multi-MB) staged photo
-    /// bytes instead of letting them accumulate until sign-out. The dictionary
-    /// holds large `Data`, so unlike the externally-stored text draft it must be
-    /// pruned in memory on every topology change.
-    private func prunePendingAttachmentsForMissingTerminals() {
-        guard !pendingAttachmentsByTerminalID.isEmpty else { return }
+    /// Drop per-terminal bookkeeping whose terminal id is no longer in the
+    /// topology. Called from the ``workspaces`` `didSet` so a workspace/terminal
+    /// sync that removes a terminal releases staged photo bytes and one-shot
+    /// autofocus suppressions instead of letting them accumulate until sign-out.
+    private func pruneTerminalScopedStateForMissingTerminals() {
+        guard !pendingAttachmentsByTerminalID.isEmpty
+            || !terminalAutoFocusSuppressedSurfaceIDs.isEmpty else {
+            return
+        }
         let liveTerminalIDs: Set<String> = Set(
             workspaces.flatMap { $0.terminals.map(\.id.rawValue) }
         )
-        pendingAttachmentsByTerminalID = pendingAttachmentsByTerminalID.filter {
-            liveTerminalIDs.contains($0.key)
+        if !pendingAttachmentsByTerminalID.isEmpty {
+            pendingAttachmentsByTerminalID = pendingAttachmentsByTerminalID.filter {
+                liveTerminalIDs.contains($0.key)
+            }
         }
+        terminalAutoFocusSuppressedSurfaceIDs.formIntersection(liveTerminalIDs)
     }
 
     /// Remove one staged attachment by id. A no-op when the id is not staged.
