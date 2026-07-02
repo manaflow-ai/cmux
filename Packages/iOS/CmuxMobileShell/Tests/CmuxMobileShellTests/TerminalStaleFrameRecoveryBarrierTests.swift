@@ -303,3 +303,69 @@ import Testing
 
     await router.releaseAllHeld()
 }
+
+/// The alternate-screen twin of the baseline restore: a self-heal replay
+/// barrier only pauses delivery while the surface keeps showing the alternate
+/// content, so the alternate baseline flag must survive a barrier that
+/// releases empty — otherwise the next alternate delta is treated as
+/// missing-baseline and a hybrid TUI stalls right after recovery.
+@MainActor
+@Test func emptySelfHealReplayPreservesAlternateBaseline() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplaySettledEmpty = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+            && store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+    }
+    #expect(coldReplaySettledEmpty)
+
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 50,
+        text: "alt-baseline",
+        activeScreen: .alternate,
+        full: true
+    ))
+    let altBaselineEstablished = try await pollUntil {
+        store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 50
+            && store.terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
+    }
+    #expect(altBaselineEstablished)
+
+    // Self-heal replay over an intact surface answers empty: both the
+    // sequence baseline and the alternate flag must come back.
+    store.terminalOutputNeedsReplay(surfaceID: surfaceID)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
+    let alternateBaselinePreserved = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 50
+            && store.terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
+    }
+    #expect(
+        alternateBaselinePreserved,
+        "an empty self-heal replay must not erase the alternate-screen baseline"
+    )
+
+    // Alternate deltas keep flowing instead of being gated as baseline-less.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 55,
+        text: "alt-delta-after-heal",
+        activeScreen: .alternate,
+        full: false
+    ))
+    let altDeltaDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("alt-delta-after-heal") }
+    }
+    #expect(altDeltaDelivered, "alternate deltas must keep flowing after an empty self-heal replay")
+
+    collector.unmount()
+}

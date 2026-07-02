@@ -421,6 +421,11 @@ extension MobileShellComposite {
             return
         }
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+        // The local surface was rebuilt: its content is gone, so neither the
+        // pre-barrier floor nor the alternate baseline describes anything the
+        // user still sees.
+        rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
+        terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         MobileDebugLog.anchormux("terminal.output.reset surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
@@ -434,7 +439,9 @@ extension MobileShellComposite {
         }
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
-        stashTerminalPreBarrierDeliveredEndSeq(surfaceID: surfaceID)
+        // Post-reset retry: the rebuilt surface no longer shows any
+        // pre-barrier content, so drop the floor instead of stashing it.
+        rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)

@@ -719,10 +719,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var secondaryAggregationScopeGeneration = 0
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
-    /// High-water delivered sequence stashed while a replay barrier holds
-    /// ``deliveredTerminalByteEndSeqBySurfaceID`` cleared: rejects buffered
-    /// pre-barrier frames, and is restored as the baseline if the barrier
-    /// releases without delivering.
+    /// Pre-barrier delivered high-water mark: rejects buffered pre-barrier
+    /// frames, and is restored as the baseline on an empty barrier release.
     var terminalPreBarrierDeliveredEndSeqBySurfaceID: [String: UInt64]
     var terminalRenderGridBaselineReplayRequestCountsBySurfaceID: [String: Int]
     var terminalRenderGridBaselineReplayBarrierTokensBySurfaceID: [String: UUID]
@@ -6701,7 +6699,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
-        terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
+        // The alternate baseline flag survives here: the surface keeps its
+        // content under a barrier; only the surface-destroying resets clear it.
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         let token = UUID()
         terminalReplayBarrierTokensBySurfaceID[surfaceID] = token
