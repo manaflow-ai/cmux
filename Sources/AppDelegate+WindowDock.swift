@@ -1,6 +1,35 @@
 import AppKit
 import CmuxTerminal
 
+extension AppDelegate.MainWindowContext {
+    /// The Dock for this window, created on first access and retained until
+    /// the context is unregistered. Seeded from `~/.config/cmux/dock.json`
+    /// with a home base directory, like the app-wide Dock was on a fresh launch.
+    func windowDockStore() -> DockSplitStore {
+        if let existing = windowDock { return existing }
+        let store = DockSplitStore(
+            workspaceId: windowId,
+            scope: .global,
+            baseDirectoryProvider: { nil },
+            remoteBrowserSettingsProvider: { .local }
+        )
+        windowDock = store
+        return store
+    }
+
+    func existingWindowDock() -> DockSplitStore? {
+        windowDock
+    }
+
+    /// Tears down this context's Dock, closing any live terminals/browsers and
+    /// their portals, so no Dock panel outlives its window.
+    func teardownWindowDock() {
+        guard let dock = windowDock else { return }
+        windowDock = nil
+        dock.closeAllPanels()
+    }
+}
+
 /// Per-window Docks.
 ///
 /// Every main window hosts its own independent `DockSplitStore`: a window's
@@ -28,10 +57,17 @@ extension AppDelegate {
         return AppDelegate.shared?.existingWindowDock(forWindowId: id) != nil
     }
 
+    private func mainWindowContext(forWindowId windowId: UUID) -> MainWindowContext? {
+        mainWindowContexts.values.first { $0.windowId == windowId }
+    }
+
     /// The Dock for the window `windowId`, created on first access and retained
     /// until that window unregisters.
     func windowDock(forWindowId windowId: UUID) -> DockSplitStore {
-        windowDockRegistry.dock(forWindowId: windowId)
+        guard let context = mainWindowContext(forWindowId: windowId) else {
+            preconditionFailure("Window Dock requested for an unregistered main window")
+        }
+        return context.windowDockStore()
     }
 
     /// The Dock of `tabManager`'s window, created on first access for a live
@@ -41,7 +77,7 @@ extension AppDelegate {
     /// quit. Only an existing store remains addressable during close races.
     func windowDock(for tabManager: TabManager) -> DockSplitStore? {
         if let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
-            return windowDock(forWindowId: context.windowId)
+            return context.windowDockStore()
         }
         guard let windowId = windowId(for: tabManager) else { return nil }
         return existingWindowDock(forWindowId: windowId)
@@ -49,7 +85,7 @@ extension AppDelegate {
 
     /// The window's Dock if it already exists, without creating it.
     func existingWindowDock(forWindowId windowId: UUID) -> DockSplitStore? {
-        windowDockRegistry.existingDock(forWindowId: windowId)
+        mainWindowContext(forWindowId: windowId)?.existingWindowDock()
     }
 
     /// The `TabManager` owning the live window Dock whose owner id is `id`
@@ -64,22 +100,26 @@ extension AppDelegate {
     /// The Dock of `tabManager`'s window if it already exists, without creating it.
     func existingWindowDock(for tabManager: TabManager) -> DockSplitStore? {
         guard let windowId = windowId(for: tabManager) else { return nil }
-        return windowDockRegistry.existingDock(forWindowId: windowId)
+        return existingWindowDock(forWindowId: windowId)
     }
 
     /// Every live per-window Dock store.
     var existingWindowDocks: [DockSplitStore] {
-        windowDockRegistry.allDocks
+        var seen: Set<ObjectIdentifier> = []
+        return mainWindowContexts.values.compactMap { context in
+            guard seen.insert(ObjectIdentifier(context)).inserted else { return nil }
+            return context.existingWindowDock()
+        }
     }
 
     /// The window Dock whose tree contains `panelId`, if any.
     func windowDockContainingPanel(_ panelId: UUID) -> DockSplitStore? {
-        windowDockRegistry.dockContainingPanel(panelId)
+        existingWindowDocks.first { $0.containsPanel(panelId) }
     }
 
     /// The window Dock whose tree contains `paneId`, if any.
     func windowDockContainingPane(_ paneId: UUID) -> DockSplitStore? {
-        windowDockRegistry.dockContainingPane(paneId)
+        existingWindowDocks.first { $0.containsPane(paneId) }
     }
 
     /// Routes a Ghostty runtime close (close binding, Ctrl-D child exit) for a
@@ -105,7 +145,7 @@ extension AppDelegate {
     /// the last-window/quit path is gated by
     /// `hasQuitConfirmationDirtyWorkspaces()`, which counts window Docks.
     func teardownWindowDock(forWindowId windowId: UUID) {
-        windowDockRegistry.teardownDock(forWindowId: windowId)
+        mainWindowContext(forWindowId: windowId)?.teardownWindowDock()
     }
 
     /// Resolves the `TabManager` a Dock's cross-container moves should target.
