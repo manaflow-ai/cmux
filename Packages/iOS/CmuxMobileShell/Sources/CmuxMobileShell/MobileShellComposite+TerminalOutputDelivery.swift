@@ -199,6 +199,7 @@ extension MobileShellComposite {
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)

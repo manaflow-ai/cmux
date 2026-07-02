@@ -622,6 +622,60 @@ import Testing
     collector.unmount()
 }
 
+@MainActor
+@Test func livenessRepairDeliversSameSeqReplayAfterExistingFullGrid() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 5, text: "stale-grid"))
+    let staleGridDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("stale-grid") }
+    }
+    #expect(staleGridDelivered, "the pre-gap full render grid must establish the local delivered seq")
+
+    await router.dropSubscription()
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 5,
+            columns: 16,
+            rows: 4,
+            full: true,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "fresh-grid"),
+            ]
+        ),
+    ])
+    let replayCountBeforeRepair = await router.count(of: "mobile.terminal.replay")
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+
+    let replayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountBeforeRepair
+    }
+    #expect(replayRequested, "repairing a lost subscription must request a catch-up replay")
+    let freshGridDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("fresh-grid") }
+    }
+    #expect(
+        freshGridDelivered,
+        "a same-sequence recovery replay requested after an existing full grid must still repaint"
+    )
+    collector.unmount()
+}
+
 /// The watchdog's original purpose (the ~85s silent-death hang) must keep
 /// working: silence past the threshold plus a host that stops answering the
 /// probe must still tear down and re-subscribe.
