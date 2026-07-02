@@ -221,6 +221,68 @@ import Testing
 }
 
 @MainActor
+@Test func hybridPrimaryFullGridDuringReplayBarrierDoesNotSuppressBarrierReplay() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must request the cold replay")
+    let transport = try #require(box.get())
+
+    await router.holdNextReplayResponses()
+    let replayCountBeforeBarrier = await router.count(of: "mobile.terminal.replay")
+    store.terminalOutputNeedsReplay(surfaceID: "live-terminal")
+    let barrierReplayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountBeforeBarrier
+    }
+    #expect(barrierReplayRequested, "manual replay must create a replay barrier request")
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 5,
+        text: "barrier-advisory",
+        columns: 16
+    ))
+    let advisorySuppressedByBarrier = try await pollUntil(attempts: 60) {
+        collector.viewportPolicies.count > 1
+    }
+    #expect(
+        advisorySuppressedByBarrier == false,
+        "advisory output is dropped while the replay barrier waits for the authoritative replay"
+    )
+
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 5,
+            columns: 16,
+            rows: 4,
+            full: true,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "barrier-replay"),
+            ]
+        ),
+    ])
+    await router.releaseAllHeld()
+
+    let replayDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("barrier-replay") }
+    }
+    #expect(
+        replayDelivered,
+        "a same-seq barrier replay must still apply after an advisory full grid that was dropped by the barrier"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func renderGridReplayAtSameSeqStillAppliesAfterPartialLiveDelta() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

@@ -6923,7 +6923,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case .deliver:
             break
         case .advisory(let requestReplay, let updateTrackedScreen, let deliverViewportPolicy):
-            if renderGrid.full {
+            if renderGrid.full,
+               terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil {
                 markTerminalFullReplacementObserved(
                     surfaceID: renderGrid.surfaceID,
                     seq: renderGrid.stateSeq
