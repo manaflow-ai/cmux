@@ -1075,7 +1075,15 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     @discardableResult
     func navigateToTextPosition(lineNumber: Int?, columnNumber: Int?) -> Task<Void, Never>? {
-        guard let lineNumber else { return nil }
+        // A nil line is an explicit "open without navigating" request (an ordinary file
+        // open, as opposed to a search-result open that carries a target line). It must
+        // supersede any jump still queued from an earlier search-result open whose text
+        // load has not resolved yet; otherwise that stale jump fires when the load
+        // completes and scrolls the reused panel to the old search location.
+        guard let lineNumber else {
+            pendingTextNavigation = nil
+            return nil
+        }
         pendingTextNavigation = (
             lineNumber: max(1, lineNumber),
             columnNumber: max(1, columnNumber ?? 1)
@@ -1087,6 +1095,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         }
         applyPendingTextNavigationIfReady()
         return nil
+    }
+
+    /// Whether a text-position jump is still queued (set by a line-carrying
+    /// `navigateToTextPosition` and consumed once the text content loads). Exposed for
+    /// tests that assert a nil-line open clears an earlier search-result jump.
+    var hasPendingTextNavigationForTesting: Bool {
+        pendingTextNavigation != nil
     }
 
     func attachPDFPreview(root: NSView, primaryResponder: NSView) {
