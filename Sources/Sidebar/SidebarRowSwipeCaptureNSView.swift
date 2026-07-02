@@ -8,8 +8,8 @@ final class SidebarRowSwipeCaptureNSView: NSView {
         didSet {
 #if DEBUG
             guard workspaceId != oldValue, window != nil else { return }
-            AppDelegate.shared?.sidebarRowSwipeDebugRegistry.unregister(workspaceId: oldValue, view: self)
-            AppDelegate.shared?.sidebarRowSwipeDebugRegistry.register(workspaceId: workspaceId, view: self)
+            SidebarRowSwipeDebugRegistry.shared.unregister(workspaceId: oldValue, view: self)
+            SidebarRowSwipeDebugRegistry.shared.register(workspaceId: workspaceId, view: self)
 #endif
         }
     }
@@ -35,9 +35,9 @@ final class SidebarRowSwipeCaptureNSView: NSView {
         super.viewDidMoveToWindow()
 #if DEBUG
         if window == nil {
-            AppDelegate.shared?.sidebarRowSwipeDebugRegistry.unregister(workspaceId: workspaceId, view: self)
+            SidebarRowSwipeDebugRegistry.shared.unregister(workspaceId: workspaceId, view: self)
         } else {
-            AppDelegate.shared?.sidebarRowSwipeDebugRegistry.register(workspaceId: workspaceId, view: self)
+            SidebarRowSwipeDebugRegistry.shared.register(workspaceId: workspaceId, view: self)
         }
 #endif
     }

@@ -3,6 +3,8 @@ import AppKit
 #if DEBUG
 @MainActor
 final class SidebarRowSwipeDebugRegistry {
+    static let shared = SidebarRowSwipeDebugRegistry()
+
     enum Action: Equatable {
         case revealLeading
         case revealTrailing

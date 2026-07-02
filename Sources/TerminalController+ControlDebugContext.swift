@@ -401,7 +401,7 @@ extension TerminalController: ControlDebugContext {
             registryAction = .release
         }
 
-        guard let result = AppDelegate.shared?.sidebarRowSwipeDebugRegistry.simulateSwipe(
+        guard let result = SidebarRowSwipeDebugRegistry.shared.simulateSwipe(
             workspaceId: workspaceID,
             action: registryAction
         ) else {
