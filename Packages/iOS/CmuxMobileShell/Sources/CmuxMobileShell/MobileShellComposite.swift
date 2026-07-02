@@ -6629,26 +6629,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             || (terminalOutputTransport == .hybrid && terminalActiveScreenBySurfaceID[surfaceID] == .alternate)
         if canRenderGridAdvancePendingSeq, terminalEventListenerTask != nil {
             let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID]
-            pendingTerminalByteEndSeqBySurfaceID[surfaceID] = max(remoteSeq, pendingSeq ?? 0)
-            if let pendingSeq, localSeq < pendingSeq {
-                MobileDebugLog.anchormux("sync.input_seq_still_behind surface=\(surfaceID) local=\(localSeq) pending=\(pendingSeq) remote=\(remoteSeq)")
-                diagnosticLog?.record(DiagnosticEvent(
-                    .inputSeqBehind,
-                    surface: Self.diagnosticSurfaceHandle(surfaceID),
-                    a: Int(clamping: localSeq),
-                    b: Int(clamping: remoteSeq),
-                    c: Int(clamping: pendingSeq)
-                ))
-                mobileShellLog.info("terminal render-grid still behind after input surface=\(surfaceID, privacy: .public) localSeq=\(localSeq, privacy: .public) pendingSeq=\(pendingSeq, privacy: .public) remoteSeq=\(remoteSeq, privacy: .public)")
-                resyncTerminalOutput(
-                    reason: "input_seq_still_behind",
-                    restartEventStream: true,
-                    surfaceIDs: [surfaceID]
-                )
-            } else {
-                MobileDebugLog.anchormux("sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
-                refreshTerminalEventSubscription(reason: "input_seq_wait")
-            }
+            let targetSeq = max(remoteSeq, pendingSeq ?? 0)
+            pendingTerminalByteEndSeqBySurfaceID[surfaceID] = targetSeq
+            MobileDebugLog.anchormux(
+                "sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)"
+            )
+            refreshTerminalEventSubscription(reason: "input_seq_wait")
             return
         }
         MobileDebugLog.anchormux("sync.input_seq_behind surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
@@ -6873,6 +6859,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
+        guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else {
+            return
+        }
         if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
            deliveredSeq > renderGrid.stateSeq {
             MobileDebugLog.anchormux(
@@ -6972,6 +6961,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
         }
+    }
+
+    private func shouldDropRenderGridBehindPendingInput(
+        _ renderGrid: MobileTerminalRenderGridFrame,
+        source: String
+    ) -> Bool {
+        guard let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
+              renderGrid.stateSeq < pendingSeq else {
+            return false
+        }
+        MobileDebugLog.anchormux(
+            "sync.render_grid_wait_input source=\(source) surface=\(renderGrid.surfaceID) frame=\(renderGrid.stateSeq) pending=\(pendingSeq)"
+        )
+        return true
     }
 
     /// The Mac-pushed live font-size stream for a terminal surface.
@@ -7218,6 +7221,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     MobileDebugLog.anchormux("CMUX_REPLAY raw_tail surface=\(surfaceID) bytes=\(bytes?.count ?? -1) seq=\(replaySeq ?? 0)")
                 }
                 if let renderGrid {
+                    guard !self.shouldDropRenderGridBehindPendingInput(renderGrid, source: "replay") else {
+                        self.clearTerminalReplayBarrierIfCurrent(
+                            surfaceID: surfaceID,
+                            token: replayBarrierTokenForRequest,
+                            reason: "pending_input",
+                            preserveDroppedOutput: true
+                        )
+                        return
+                    }
                     let accepted = self.deliverTerminalRenderGrid(
                         renderGrid,
                         surfaceID: surfaceID,

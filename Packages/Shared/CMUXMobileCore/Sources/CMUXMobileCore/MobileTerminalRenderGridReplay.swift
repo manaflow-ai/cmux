@@ -89,10 +89,12 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
 
-        // Reset to a known state, then apply everything inside a synchronized
-        // update so the client never shows a partially-restored screen.
-        bytes.append(Data("\u{1B}c".utf8))
+        // Apply the whole restore inside a synchronized update so the client
+        // never presents the empty reset/clear frame before the snapshot lands.
+        // `ESC c` clears immediately before synchronized output can be enabled,
+        // so use a soft reset plus explicit primary-screen clear instead.
         bytes.append(Data("\u{1B}[?2026h".utf8))
+        bytes.append(Data("\u{1B}[!p\u{1B}[?2026h\u{1B}[?1049l\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8))
 
         // Dynamic default colors (OSC 10/11/12). Cells already carry explicit
         // RGB, so these mainly fix the cursor color and color queries.

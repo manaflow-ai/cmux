@@ -20,10 +20,10 @@ import Testing
     let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(frame.jsonObject())
     #expect(decoded == frame)
     // A full snapshot is restored as a synchronized, autowrap-off scrolling
-    // flow: reset, paint each viewport row (CHA-positioned spans), then restore
-    // the cursor.
+    // flow: soft-reset and clear, paint each viewport row (CHA-positioned
+    // spans), then restore the cursor.
     #expect(String(data: frame.vtReplacementBytes(), encoding: .utf8) ==
-        "\u{1B}c\u{1B}[?2026h" +
+        "\u{1B}[?2026h\u{1B}[!p\u{1B}[?2026h\u{1B}[?1049l\u{1B}[H\u{1B}[2J\u{1B}[3J" +
         "\u{1B}[?7l\u{1B}[?25l\u{1B}[0m" +
         "\u{1B}[0m\u{1B}[1Galpha" +
         "\r\n\u{1B}[0m" +
@@ -478,7 +478,7 @@ private struct ReplayPresentationProbe {
     )
 
     let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
-    #expect(vt.hasPrefix("\u{1B}c\u{1B}[?2026h"))
+    #expect(vt.hasPrefix("\u{1B}[?2026h\u{1B}[!p\u{1B}[?2026h"))
     #expect(vt.hasSuffix("\u{1B}[?2026l"))
     #expect(vt.contains("\u{1B}[?1049h")) // entered the alternate screen
     #expect(vt.contains("\u{1B}[?1000h")) // mouse mode restored
