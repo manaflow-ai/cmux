@@ -201,11 +201,11 @@ extension RemoteDaemonRPCClient {
             return true
         }
         guard let cliRequestHandler else {
-            sendCLIResponse(requestID: requestID, data: nil, error: "cloud CLI bridge is not configured")
+            sendCLIResponseAsync(requestID: requestID, data: nil, error: "cloud CLI bridge is not configured")
             return true
         }
         guard cliRequestsInFlight < Self.maxCloudCLIRequestsInFlight else {
-            sendCLIResponse(requestID: requestID, data: nil, error: "cloud CLI bridge is busy")
+            sendCLIResponseAsync(requestID: requestID, data: nil, error: "cloud CLI bridge is busy")
             return true
         }
         cliRequestsInFlight += 1
@@ -225,6 +225,12 @@ extension RemoteDaemonRPCClient {
             }
         }
         return true
+    }
+
+    private func sendCLIResponseAsync(requestID: String, data: Data?, error: String?) {
+        cliRequestQueue.async { [weak self] in
+            self?.sendCLIResponse(requestID: requestID, data: data, error: error)
+        }
     }
 
     func consumePTYEventPayload(_ payload: [String: Any]) -> Bool {

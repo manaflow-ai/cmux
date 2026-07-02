@@ -469,6 +469,85 @@ describe("VM Effect workflows", () => {
     expect(error).toBeInstanceOf(VmLimitExceededError);
   });
 
+  dbTest("restores the retained Base generation when reset provider create fails", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () => {
+        createCalls += 1;
+        if (createCalls === 2) {
+          return Effect.fail(new VmProviderOperationError({
+            provider: "freestyle",
+            operation: "create",
+            cause: new Error("provider down"),
+          }));
+        }
+        return Effect.succeed({
+          provider: "freestyle" as const,
+          providerVmId: "provider-vm-base-reset-recover-1",
+          status: "running" as const,
+          image: "snapshot-test",
+          createdAt: Date.now(),
+        });
+      },
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = providerLayer(provider);
+
+    const first = await Effect.runPromise(openBaseVm({
+      userId: "user-base-reset-recover",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-reset-recover",
+      billingPlanId: "free",
+      maxActiveVms: 2,
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: "test-version",
+    }).pipe(Effect.provide(layer)));
+
+    await Effect.runPromise(resetBaseVm({
+      userId: "user-base-reset-recover",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-reset-recover",
+      billingPlanId: "free",
+      maxActiveVms: 2,
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: "test-version",
+      reason: "recover test",
+    }).pipe(Effect.flip, Effect.provide(layer)));
+
+    const reopened = await Effect.runPromise(openBaseVm({
+      userId: "user-base-reset-recover",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-reset-recover",
+      billingPlanId: "free",
+      maxActiveVms: 2,
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: "test-version",
+    }).pipe(Effect.provide(layer)));
+
+    expect(reopened.providerVmId).toBe(first.providerVmId);
+    expect(createCalls).toBe(2);
+
+    const generations = await sql<{ generation: number; state: string; providerVmId: string | null }[]>`
+      select generation, state, provider_vm_id as "providerVmId"
+      from cloud_vm_base_generations
+      order by generation
+    `;
+    expect(generations).toEqual([
+      { generation: 1, state: "active", providerVmId: first.providerVmId },
+      { generation: 2, state: "failed", providerVmId: null },
+    ]);
+  });
+
   dbTest("reuses an idempotency key after a terminal failed row", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;

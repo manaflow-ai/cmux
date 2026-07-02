@@ -886,20 +886,61 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             eq(cloudVmBaseGenerations.generation, input.generation),
             eq(cloudVmBaseGenerations.vmId, input.vmId),
           ));
-        await tx
-          .update(cloudVmBases)
-          .set({ state: "failed", updatedAt: now })
+        const [retained] = await tx
+          .select({
+            generation: cloudVmBaseGenerations,
+            vm: cloudVms,
+          })
+          .from(cloudVmBaseGenerations)
+          .innerJoin(cloudVms, eq(cloudVms.id, cloudVmBaseGenerations.vmId))
           .where(and(
-            eq(cloudVmBases.id, input.baseId),
-            eq(cloudVmBases.activeGeneration, input.generation),
-            eq(cloudVmBases.activeVmId, input.vmId),
-          ));
+            eq(cloudVmBaseGenerations.baseId, input.baseId),
+            sql`${cloudVmBaseGenerations.generation} < ${input.generation}`,
+            eq(cloudVmBaseGenerations.state, "retained"),
+            ne(cloudVms.status, "failed"),
+            ne(cloudVms.status, "destroyed"),
+          ))
+          .orderBy(desc(cloudVmBaseGenerations.generation))
+          .limit(1);
+        if (retained?.generation && retained.vm) {
+          await tx
+            .update(cloudVmBaseGenerations)
+            .set({ state: "active", updatedAt: now })
+            .where(eq(cloudVmBaseGenerations.id, retained.generation.id));
+          await tx
+            .update(cloudVmBases)
+            .set({
+              activeGeneration: retained.generation.generation,
+              activeVmId: retained.vm.id,
+              activeProvider: retained.vm.provider,
+              activeProviderVmId: retained.vm.providerVmId,
+              state: retained.vm.providerVmId ? "ready" : "creating",
+              updatedAt: now,
+            })
+            .where(and(
+              eq(cloudVmBases.id, input.baseId),
+              eq(cloudVmBases.activeGeneration, input.generation),
+              eq(cloudVmBases.activeVmId, input.vmId),
+            ));
+        } else {
+          await tx
+            .update(cloudVmBases)
+            .set({ state: "failed", updatedAt: now })
+            .where(and(
+              eq(cloudVmBases.id, input.baseId),
+              eq(cloudVmBases.activeGeneration, input.generation),
+              eq(cloudVmBases.activeVmId, input.vmId),
+            ));
+        }
         await tx.insert(cloudVmBaseEvents).values({
           baseId: input.baseId,
           userId: input.userId,
           eventType: "base.create_failed",
+          oldGeneration: retained?.generation.generation ?? null,
           newGeneration: input.generation,
+          oldVmId: retained?.vm.id ?? null,
           newVmId: input.vmId,
+          oldProviderVmId: retained?.vm.providerVmId ?? null,
           metadata: { code: input.code, message: input.message },
         });
       });
