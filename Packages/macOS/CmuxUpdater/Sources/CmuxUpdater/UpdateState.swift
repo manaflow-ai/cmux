@@ -35,6 +35,12 @@ public enum UpdateState: Equatable {
         return false
     }
 
+    /// Whether this is the ``installing(_:)`` case.
+    public var isInstalling: Bool {
+        if case .installing = self { return true }
+        return false
+    }
+
     /// Whether the flow is in a phase that the "force install" path can drive to completion
     /// by repeatedly confirming (checking through installing).
     public var isInstallable: Bool {
@@ -282,6 +288,9 @@ public enum UpdateState: Equatable {
         /// Whether this install was triggered by Sparkle's automatic "install on quit" path
         /// rather than an explicit user action.
         public var isAutoUpdate = false
+        /// The display version of the update staged for install, when known (the auto-download
+        /// path knows it from the appcast item; the user-driven path leaves it `nil`).
+        public var stagedVersion: String?
         /// Retries terminating the app so the install can finish.
         public let retryTerminatingApplication: () -> Void
         /// Dismisses the installing state.
@@ -289,11 +298,18 @@ public enum UpdateState: Equatable {
 
         /// Creates the payload.
         public init(isAutoUpdate: Bool = false,
+                    stagedVersion: String? = nil,
                     retryTerminatingApplication: @escaping () -> Void,
                     dismiss: @escaping () -> Void) {
             self.isAutoUpdate = isAutoUpdate
+            self.stagedVersion = stagedVersion
             self.retryTerminatingApplication = retryTerminatingApplication
             self.dismiss = dismiss
+        }
+
+        /// A link to the release notes for the staged update, when its version is known.
+        public var releaseNotes: ReleaseNotes? {
+            stagedVersion.flatMap { ReleaseNotes(displayVersionString: $0) }
         }
     }
 }

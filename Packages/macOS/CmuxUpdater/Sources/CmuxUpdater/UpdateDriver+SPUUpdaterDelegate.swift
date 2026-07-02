@@ -36,15 +36,29 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     /// Called when an update is scheduled to install silently,
     /// which occurs when automatic download is enabled.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        let version = UpdateStateModel.normalizedDetectedUpdateVersion(from: item.displayVersionString)
+        log.append("update staged for install on quit: \(version ?? "<unknown version>")")
         model.clearDetectedUpdate()
         model.setState(.installing(.init(
             isAutoUpdate: true,
+            stagedVersion: version,
             retryTerminatingApplication: immediateInstallHandler,
             dismiss: { [weak self] in
                 self?.model.setState(.idle)
             }
         )))
         return true
+    }
+
+    /// Called when an update session aborts. Background sessions surface no UI, so forward the
+    /// error for retry scheduling; the user driver's `showUpdaterError` handles user-facing
+    /// sessions separately.
+    func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) {
+        let nsError = error as NSError
+        // SUNoUpdateError (1001) flows through here for every no-update session end; only log
+        // genuinely unexpected aborts to keep the update log readable.
+        guard nsError.domain != SUSparkleErrorDomain || nsError.code != 1001 else { return }
+        log.append("update session aborted: \(formatErrorForLog(error))")
     }
 
     func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
@@ -85,6 +99,9 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         } else {
             log.append("valid update found: \(version) (\(fileURL))")
         }
+        // Kick the silent download now instead of waiting for Sparkle's next scheduled check,
+        // so the "update ready" toast appears shortly after a release is detected.
+        onBackgroundUpdateDetected?()
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: any Error) {

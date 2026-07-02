@@ -9153,7 +9153,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     #if DEBUG
     @objc func showUpdatePill(_ sender: Any?) {
         updateViewModel.debugOverrideText = nil
-        updateController.model.setOverrideState(.installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}, dismiss: {})))
+        // A staged version makes the override exercise the full update-ready toast
+        // (title version + See Changes link) in addition to the pill.
+        updateController.model.setOverrideState(.installing(.init(
+            isAutoUpdate: true,
+            stagedVersion: "9.9.9",
+            retryTerminatingApplication: {},
+            dismiss: {}
+        )))
     }
 
     @objc func showUpdatePillLongNightly(_ sender: Any?) {
@@ -17880,6 +17887,37 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     func attemptUpdate() {
         attemptUpdate(nil)
     }
+
+    func requestRestartWhenIdle() {
+        updateController.requestRestartWhenIdle()
+    }
+
+    /// Restarting to finish a staged update is safe only when the user is genuinely away and
+    /// no pane is mid-command.
+    ///
+    /// "Away" is stricter than ``MacPresenceMonitor``'s 120s presence threshold: reading long
+    /// terminal output without touching the keyboard must not count as idle, so an unlocked,
+    /// awake session requires ``updateRestartIdleInputThreshold`` of hardware-input silence.
+    /// A locked screen, sleeping display, or running screensaver is immediately safe. Any
+    /// foreground command running in any workspace pane (agents included) blocks the restart.
+    func updaterIsSafeToRestartNow() -> Bool {
+        if let tabManager, tabManager.tabs.contains(where: { $0.hasRunningForegroundCommand }) {
+            return false
+        }
+        switch MacPresenceMonitor.live().evaluate().verdict {
+        case .awayConsoleSessionInactiveOrLocked, .awayDisplaysAsleep, .awayScreensaverRunning:
+            return true
+        case .awayNoRecentHardwareInput(let secondsSinceLastHardwareInput):
+            guard let secondsSinceLastHardwareInput else { return false }
+            return secondsSinceLastHardwareInput >= Self.updateRestartIdleInputThreshold
+        case .active:
+            return false
+        }
+    }
+
+    /// Hardware-input silence required before an unlocked, awake session counts as idle for
+    /// the deferred update restart.
+    static let updateRestartIdleInputThreshold: TimeInterval = 600
 
     var updateLogPath: String {
         updateLog.logPath()

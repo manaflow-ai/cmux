@@ -28,6 +28,12 @@ public final class UpdateStateModel {
     public private(set) var detectedUpdateVersion: String?
     /// The appcast item for the most recently detected background update, if any.
     public private(set) var detectedUpdateItem: SUAppcastItem?
+    /// The staged-update version whose "update ready" toast the user dismissed. Compared against
+    /// the staged version so the toast stays hidden for that version but re-shows when a newer
+    /// release is staged.
+    public private(set) var dismissedUpdateReadyToastVersion: String?
+    /// Whether the user asked to defer the staged update's restart until the Mac is idle.
+    public private(set) var isRestartWhenIdleArmed = false
     #if DEBUG
     /// A debug override for the pill's title text.
     public var debugOverrideText: String?
@@ -69,13 +75,23 @@ public final class UpdateStateModel {
     /// Sets ``state`` and notifies ``stateChanges()`` subscribers.
     public func setState(_ newState: UpdateState) {
         state = newState
+        disarmRestartWhenIdleIfNotInstalling()
         notifyStateChanged()
     }
 
     /// Sets ``overrideState`` and notifies ``stateChanges()`` subscribers.
     public func setOverrideState(_ newState: UpdateState?) {
         overrideState = newState
+        disarmRestartWhenIdleIfNotInstalling()
         notifyStateChanged()
+    }
+
+    /// The deferred restart only makes sense while an update is staged; leaving
+    /// `.installing` (dismiss, error, new check) disarms it.
+    private func disarmRestartWhenIdleIfNotInstalling() {
+        if isRestartWhenIdleArmed, !effectiveState.isInstalling {
+            isRestartWhenIdleArmed = false
+        }
     }
 
     /// Applies a state produced by the Sparkle driver, recording the detected update first
@@ -155,6 +171,40 @@ public final class UpdateStateModel {
         }
     }
 
+    // MARK: - Update-ready toast
+
+    /// The staged install the "update ready" toast should render, or `nil` when no toast should
+    /// show. A toast shows while an automatically-downloaded update is staged for install,
+    /// until the user dismisses it for that version or defers the restart to idle time.
+    public var updateReadyToastInstalling: UpdateState.Installing? {
+        guard case .installing(let installing) = effectiveState, installing.isAutoUpdate else {
+            return nil
+        }
+        guard !isRestartWhenIdleArmed else { return nil }
+        guard dismissedUpdateReadyToastVersion != Self.toastVersionKey(for: installing) else {
+            return nil
+        }
+        return installing
+    }
+
+    /// Hides the update-ready toast for the currently staged version. It re-shows only when a
+    /// different version is staged.
+    public func dismissUpdateReadyToast() {
+        guard case .installing(let installing) = effectiveState else { return }
+        dismissedUpdateReadyToastVersion = Self.toastVersionKey(for: installing)
+    }
+
+    /// Arms or disarms the deferred "restart when idle" for the staged update.
+    public func setRestartWhenIdleArmed(_ armed: Bool) {
+        guard isRestartWhenIdleArmed != armed else { return }
+        isRestartWhenIdleArmed = armed
+        notifyStateChanged()
+    }
+
+    private static func toastVersionKey(for installing: UpdateState.Installing) -> String {
+        installing.stagedVersion ?? ""
+    }
+
     // MARK: - Derived display state
 
     /// The phase to display: the override if present, otherwise ``state``.
@@ -210,7 +260,13 @@ public final class UpdateStateModel {
             let percent = String(format: "%.0f%%", extracting.progress * 100)
             return String(localized: "update.extracting.progress", defaultValue: "Preparing: \(percent)")
         case .installing(let install):
-            return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installing.status", defaultValue: "Installing…")
+            guard install.isAutoUpdate else {
+                return String(localized: "update.installing.status", defaultValue: "Installing…")
+            }
+            if isRestartWhenIdleArmed {
+                return String(localized: "update.restartingWhenIdle", defaultValue: "Restarting When Idle…")
+            }
+            return String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update")
         case .notFound:
             return String(localized: "update.noUpdates.title", defaultValue: "No Updates Available")
         case .error(let err):
@@ -277,7 +333,13 @@ public final class UpdateStateModel {
         case .extracting:
             return String(localized: "update.preparingUpdate", defaultValue: "Extracting and preparing the update")
         case let .installing(install):
-            return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
+            guard install.isAutoUpdate else {
+                return String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
+            }
+            if isRestartWhenIdleArmed {
+                return String(localized: "update.restartingWhenIdle.message", defaultValue: "cmux will restart to finish updating when you step away")
+            }
+            return String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update")
         case .notFound:
             return String(localized: "update.noUpdates.message", defaultValue: "You are running the latest version")
         case .error(let err):

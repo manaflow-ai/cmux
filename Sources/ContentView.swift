@@ -2515,6 +2515,13 @@ struct ContentView: View {
                     workspaceTitlebarBand(appearance: appearance)
                         .zIndex(100)
                 }
+
+                if let updateActionsHost = AppDelegate.shared {
+                    UpdateReadyToast(model: updateViewModel, actions: updateActionsHost)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .padding([.bottom, .trailing], 16)
+                        .zIndex(200)
+                }
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
