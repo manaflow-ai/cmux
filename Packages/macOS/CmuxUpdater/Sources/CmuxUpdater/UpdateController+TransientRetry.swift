@@ -25,10 +25,13 @@ extension UpdateController {
         preservingInstallIntent: Bool,
         coordinatorIsMonitoring: Bool
     ) -> TransientRetryPlan {
-        // BUG (issue #5632 follow-up): a preserved-intent retry that is not already being monitored
-        // is collapsed into the monitored-restart path, so the coordinator is never armed and the
-        // retried check surfaces a prompt instead of auto-confirming the update it finds.
-        if preservingInstallIntent || coordinatorIsMonitoring { return .restartMonitoredCheck }
+        // A retry while the attempt coordinator is already monitoring just restarts its in-flight
+        // check (intent preserved by the coordinator itself). A preserved-intent retry that arrives
+        // *before* the coordinator is monitoring must re-arm it so the retried check auto-confirms
+        // the update it resolves — the case that previously stranded the interrupted install by
+        // falling through to a bare check that only surfaced a prompt (issue #5632).
+        if coordinatorIsMonitoring { return .restartMonitoredCheck }
+        if preservingInstallIntent { return .rearmConfirmedInstall }
         return .plainCheck
     }
 }
