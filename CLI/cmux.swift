@@ -19679,7 +19679,8 @@ struct CMUXCLI {
         private let readinessLock = NSLock()
         private let stateLock = NSLock()
         private var lastAgentSurfaceId: String?
-        private var subscribedThreadIds = Set<String>()
+        private var hydratedThreadIds = Set<String>()
+        private var deferredBareThreadIds: [String] = []
         private var approvalItemById: [String: [String: Any]] = [:]
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
@@ -19720,7 +19721,7 @@ struct CMUXCLI {
                         version: CMUXCLI.codexTeamsClientVersion,
                         optOutNotificationMethods: CMUXCLI.codexTeamsWatcherResumeOptOutNotificationMethods
                     )
-                    resetConnectionSubscriptions()
+                    resetConnectionHydration()
                     try backfillLoadedThreads(connection: connection)
                     try listenForNotifications(connection: connection)
                 } catch {
@@ -19742,20 +19743,25 @@ struct CMUXCLI {
                     )
                 }
             )
-            let threadIds = loaded["data"] as? [String] ?? []
-            for threadId in threadIds {
+            for threadId in (loaded["data"] as? [String] ?? []) {
                 do {
-                    try subscribeToThreadIfNeeded(threadId, connection: connection)
-                } catch {
+                    _ = try hydrateThreadIfNeeded(threadId, connection: connection)
+                } catch let error as CLIError {
+                    // Protocol-level failures only affect this thread; transport
+                    // failures propagate so run() reconnects and re-backfills.
                     cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
                 }
             }
+            // Threads announced by a bare id while a backfill read was in flight
+            // were deferred; hydrate them now that those reads have completed.
+            try drainDeferredBareThreadIds(connection: connection)
         }
 
         private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
             while true {
                 let message = try connection.receiveObject()
                 try handleAppServerMessage(message, connection: connection)
+                try drainDeferredBareThreadIds(connection: connection)
             }
         }
 
@@ -19772,61 +19778,163 @@ struct CMUXCLI {
             }
             if message["id"] != nil { return }
             guard method.hasPrefix("thread/"),
-                  let params = message["params"] as? [String: Any],
-                  let threadObject = params["thread"] as? [String: Any],
-                  let thread = CMUXCLI.codexTeamsThread(from: threadObject) else {
+                  let params = message["params"] as? [String: Any] else {
                 return
             }
-            try observeThreadSafely(thread)
+            guard let threadObject = params["thread"] as? [String: Any],
+                  let thread = CMUXCLI.codexTeamsThread(from: threadObject) else {
+                // Current Codex app-servers announce thread lifecycle changes
+                // with a bare threadId and no thread object, so late-spawned
+                // threads are only discoverable by hydrating that id.
+                guard let threadId = params["threadId"] as? String, !threadId.isEmpty else { return }
+                guard allowThreadSubscribe else {
+                    // This notification arrived on an in-flight thread/read's
+                    // handler, where re-entrant hydration is disabled to avoid
+                    // recursion. Defer the id and drain it once the current read
+                    // completes instead of dropping it until the next reconnect.
+                    deferBareThreadId(threadId)
+                    return
+                }
+                do {
+                    _ = try hydrateThreadIfNeeded(threadId, connection: connection)
+                } catch let error as CLIError {
+                    cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
+                }
+                return
+            }
             if allowThreadSubscribe {
                 do {
-                    try subscribeToThreadIfNeeded(thread.id, connection: connection)
-                } catch {
+                    if try hydrateThreadIfNeeded(thread.id, connection: connection) { return }
+                } catch let error as CLIError {
                     cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n")
                 }
             }
+            markThreadAttachableIfLoaded(thread)
+            try observeThreadSafely(thread)
         }
 
-        private func subscribeToThreadIfNeeded(
-            _ threadId: String,
-            connection: CodexTeamsAppServerConnection
-        ) throws {
+        private func hydrateThreadIfNeeded(_ threadId: String, connection: CodexTeamsAppServerConnection) throws -> Bool {
             stateLock.lock()
-            let inserted = subscribedThreadIds.insert(threadId).inserted
+            let inserted = hydratedThreadIds.insert(threadId).inserted
             stateLock.unlock()
-            guard inserted else { return }
+            guard inserted else { return false }
 
             do {
                 let response = try connection.request(
-                    method: "thread/resume",
-                    params: [
-                        "threadId": threadId,
-                        "excludeTurns": true
-                    ],
+                    method: "thread/read",
+                    params: ["threadId": threadId, "includeTurns": false],
                     notificationHandler: { [weak self] message in
-                        try self?.handleAppServerMessage(
-                            message,
-                            connection: connection,
-                            allowThreadSubscribe: false
-                        )
+                        try self?.handleAppServerMessage(message, connection: connection, allowThreadSubscribe: false)
                     }
                 )
                 if let threadObject = response["thread"] as? [String: Any],
                    let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
+                    markThreadAttachableIfLoaded(thread)
                     try observeThreadSafely(thread)
+                    if !CMUXCLI.codexTeamsThreadMayBeAttachable(thread) {
+                        // The app-server knows this thread but has not finished
+                        // loading it, so no pane can open yet. Forget the
+                        // hydration so a later "now loaded" status notification
+                        // re-reads it instead of being suppressed by the dedup
+                        // guard above.
+                        forgetThreadHydration(threadId)
+                    }
+                    return true
                 }
+                // No usable thread object came back; forget the id so a later
+                // notification can retry instead of being deduplicated away.
+                forgetThreadHydration(threadId)
+                return false
             } catch {
-                stateLock.lock()
-                subscribedThreadIds.remove(threadId)
-                stateLock.unlock()
+                forgetThreadHydration(threadId)
                 throw error
             }
         }
 
-        private func resetConnectionSubscriptions() {
+        private func forgetThreadHydration(_ threadId: String) {
             stateLock.lock()
-            subscribedThreadIds.removeAll(keepingCapacity: true)
+            hydratedThreadIds.remove(threadId)
             stateLock.unlock()
+        }
+
+        private func deferBareThreadId(_ threadId: String) {
+            stateLock.lock()
+            if !deferredBareThreadIds.contains(threadId) {
+                deferredBareThreadIds.append(threadId)
+            }
+            stateLock.unlock()
+        }
+
+        private func takeDeferredBareThreadIds() -> [String] {
+            stateLock.lock()
+            let ids = deferredBareThreadIds
+            deferredBareThreadIds.removeAll(keepingCapacity: true)
+            stateLock.unlock()
+            return ids
+        }
+
+        private func drainDeferredBareThreadIds(connection: CodexTeamsAppServerConnection) throws {
+            // Bare status notifications that arrived while a thread/read was in
+            // flight were deferred (re-entrant hydration is disabled on request
+            // handlers). Flush them here. Reading one thread can surface siblings
+            // buffered behind it, so loop until no id is left to read.
+            //
+            // A not_loaded thread is intentionally forgotten (see
+            // hydrateThreadIfNeeded) so a later "now loaded" status change
+            // re-reads it. That re-announcement can arrive while the not_loaded
+            // read is still in flight, which re-defers the same id onto this
+            // drain — so an id must be allowed to be re-read within one drain, or
+            // its only "now loaded" signal is lost until the next reconnect. But
+            // an app-server that re-announces an unchanged not_loaded id on every
+            // read must not spin this synchronous loop across unbounded
+            // round-trips and starve approval/status handling. So bound same-drain
+            // reads per id to two: one initial hydration plus one retry to honor
+            // an in-flight "now loaded" transition. Any id announced beyond that
+            // within a single drain is handed back to the deferred queue for the
+            // next receive-cycle drain instead of being dropped. Work per drain is
+            // therefore bounded by twice the number of distinct deferred ids.
+            let maxReadsPerThreadPerDrain = 2
+            var readsThisDrain: [String: Int] = [:]
+            while true {
+                let taken = takeDeferredBareThreadIds()
+                if taken.isEmpty { return }
+                var toRead: [String] = []
+                for threadId in taken {
+                    let priorReads = readsThisDrain[threadId, default: 0]
+                    if priorReads < maxReadsPerThreadPerDrain {
+                        readsThisDrain[threadId] = priorReads + 1
+                        toRead.append(threadId)
+                    } else {
+                        // Already retried this id the allowed number of times in
+                        // this drain; hand it back so the next receive-cycle drain
+                        // can honor a genuine later transition without spinning the
+                        // socket here.
+                        deferBareThreadId(threadId)
+                    }
+                }
+                if toRead.isEmpty { return }
+                for threadId in toRead {
+                    do {
+                        _ = try hydrateThreadIfNeeded(threadId, connection: connection)
+                    } catch let error as CLIError {
+                        cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
+                    }
+                }
+            }
+        }
+
+        private func resetConnectionHydration() {
+            stateLock.lock()
+            hydratedThreadIds.removeAll(keepingCapacity: true)
+            deferredBareThreadIds.removeAll(keepingCapacity: true)
+            stateLock.unlock()
+        }
+
+        private func markThreadAttachableIfLoaded(_ thread: CodexTeamsThread) {
+            guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else { return }
+            readinessLock.lock()
+            attachableThreadIds.insert(thread.id)
+            readinessLock.unlock()
         }
 
         private func cacheApprovalItemIfPresent(_ message: [String: Any], method: String) {
@@ -20101,6 +20209,23 @@ struct CMUXCLI {
             return true
         }
 
+        private func reconnectedSocketClient() throws -> SocketClient {
+            // The app can close a control connection that sat idle between
+            // subagent spawns, and SocketClient does not self-heal local
+            // sockets. Reconnect and re-authenticate before pane-opening
+            // requests so late spawns still open panes.
+            if !socketClient.connectionAppearsOpen() {
+                socketClient.close()
+                try socketClient.connect()
+                try CMUXCLI.authenticateSocketClientIfNeeded(
+                    socketClient,
+                    explicitPassword: socketPassword,
+                    socketPath: socketClient.socketPath
+                )
+            }
+            return socketClient
+        }
+
         private func openSubagent(
             _ thread: CodexTeamsThread,
             spawn: CodexTeamsSpawn,
@@ -20139,7 +20264,7 @@ struct CMUXCLI {
                 splitParams["working_directory"] = cwd
             }
 
-            let created = try socketClient.sendV2(method: "surface.split", params: splitParams)
+            let created = try reconnectedSocketClient().sendV2(method: "surface.split", params: splitParams)
             if (created["accepted"] as? Bool) == true {
                 // Routed to a remote tmux mirror: the pane was created on the
                 // remote session and there is no local surface id to attach the
@@ -20152,7 +20277,7 @@ struct CMUXCLI {
             lastAgentSurfaceId = surfaceId
 
             do {
-                _ = try socketClient.sendV2(method: "tab.action", params: [
+                _ = try reconnectedSocketClient().sendV2(method: "tab.action", params: [
                     "workspace_id": workspaceId,
                     "surface_id": surfaceId,
                     "action": "rename",
@@ -20162,7 +20287,7 @@ struct CMUXCLI {
                 // The subagent pane already exists, so a rename failure should not stop watching.
             }
             do {
-                _ = try socketClient.sendV2(method: "workspace.equalize_splits", params: [
+                _ = try reconnectedSocketClient().sendV2(method: "workspace.equalize_splits", params: [
                     "workspace_id": workspaceId,
                     "orientation": "vertical"
                 ])
