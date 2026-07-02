@@ -77,6 +77,7 @@ extension ShortcutAction {
         case .quit: return ShortcutStroke(key: "q", command: true)
         case .toggleSidebar: return ShortcutStroke(key: "b", command: true)
         case .newTab: return ShortcutStroke(key: "n", command: true)
+        case .newLocalWorkspace: return ShortcutStroke(key: "n", command: true, control: true)
         case .newBrowserWorkspace: return ShortcutStroke(key: "n", command: true, option: true)
         case .newCloudWorkspace: return ShortcutStroke(key: "y", command: true, shift: true)
         case .newCloudMachine: return ShortcutStroke(key: "y", command: true)
