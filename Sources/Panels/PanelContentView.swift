@@ -22,6 +22,9 @@ struct PanelContentView: View {
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
     let workspaceDisplayName: String
+    /// Explicit browser pane-ownership signal for hosts whose panels live outside
+    /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
+    var paneOwnershipOverride: Bool? = nil
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
@@ -65,6 +68,7 @@ struct PanelContentView: View {
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
+                    paneOwnershipOverride: paneOwnershipOverride,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
