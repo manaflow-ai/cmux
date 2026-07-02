@@ -252,13 +252,16 @@ final class SavingTextView: NSTextView {
         guard event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
         }
-        guard let shouldSave = saveShortcutMatch(for: event) else {
-            return super.performKeyEquivalent(with: event)
+        if let shouldSave = saveShortcutMatch(for: event) {
+            if shouldSave {
+                panel?.saveTextContent()
+            }
+            return true
         }
-        if shouldSave {
-            panel?.saveTextContent()
+        if handlePreviewFontZoomShortcut(event) {
+            return true
         }
-        return true
+        return super.performKeyEquivalent(with: event)
     }
 
     override func magnify(with event: NSEvent) {
@@ -277,21 +280,40 @@ final class SavingTextView: NSTextView {
 
     override func smartMagnify(with event: NSEvent) {
         if previewFontSize == Self.defaultPreviewFontSize {
-            setPreviewFontSize(18)
+            _ = setPreviewFontSize(18)
         } else {
-            setPreviewFontSize(Self.defaultPreviewFontSize)
+            _ = resetPreviewFontSize()
         }
     }
 
-    private func adjustPreviewFontSize(by factor: CGFloat) {
+    @discardableResult
+    func zoomPreviewFontIn() -> Bool {
+        adjustPreviewFontSize(by: FilePreviewInteraction.zoomStep)
+    }
+
+    @discardableResult
+    func zoomPreviewFontOut() -> Bool {
+        adjustPreviewFontSize(by: 1 / FilePreviewInteraction.zoomStep)
+    }
+
+    @discardableResult
+    func resetPreviewFontSize() -> Bool {
+        setPreviewFontSize(Self.defaultPreviewFontSize)
+    }
+
+    @discardableResult
+    private func adjustPreviewFontSize(by factor: CGFloat) -> Bool {
         setPreviewFontSize(previewFontSize * factor)
     }
 
-    private func setPreviewFontSize(_ nextFontSize: CGFloat) {
+    @discardableResult
+    private func setPreviewFontSize(_ nextFontSize: CGFloat) -> Bool {
         let clamped = min(max(nextFontSize, Self.minimumPreviewFontSize), Self.maximumPreviewFontSize)
-        guard clamped.isFinite else { return }
+        guard clamped.isFinite else { return false }
+        guard abs(clamped - previewFontSize) > 0.0001 else { return false }
         previewFontSize = clamped
         applyCurrentPreviewFont()
+        return true
     }
 
     func applyCurrentPreviewFont() {
@@ -321,5 +343,30 @@ final class SavingTextView: NSTextView {
             return false
         }
         return nil
+    }
+
+    private func handlePreviewFontZoomShortcut(_ event: NSEvent) -> Bool {
+        if previewFontZoomShortcutMatches(event, action: .browserZoomIn) {
+            _ = zoomPreviewFontIn()
+            return true
+        }
+        if previewFontZoomShortcutMatches(event, action: .browserZoomOut) {
+            _ = zoomPreviewFontOut()
+            return true
+        }
+        if previewFontZoomShortcutMatches(event, action: .browserZoomReset) {
+            _ = resetPreviewFontSize()
+            return true
+        }
+        return false
+    }
+
+    private func previewFontZoomShortcutMatches(
+        _ event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> Bool {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        guard !shortcut.isUnbound, !shortcut.hasChord else { return false }
+        return shortcut.matches(event: event)
     }
 }
