@@ -248,10 +248,16 @@ final class CmuxMainWindow: NSWindow {
     /// arrangements. Because cmux never re-asserts the saved frame after wake,
     /// whatever the re-constrain produced sticks and accumulates.
     ///
-    /// Fix: refuse the re-constrain for any frame that is already reachable on
-    /// some screen, and defer to AppKit's default only when the frame would
-    /// otherwise be stranded off-screen (e.g. a display was disconnected), so a
-    /// genuinely lost window can still be pulled back into view.
+    /// Fix: refuse the re-constrain for any frame whose titlebar strip is still
+    /// reachable on some screen, and defer to AppKit's default only when the
+    /// titlebar would otherwise be stranded (e.g. a display was disconnected),
+    /// so a genuinely lost window can still be pulled back into view. The
+    /// reachability test is titlebar-specific on purpose: cmux main windows set
+    /// `isMovable = false`, so a frame whose *body* overlaps a screen but whose
+    /// titlebar sits above every screen top is unmovable by the user and must
+    /// not be preserved (the pre-titlebar-aware rule accepted any 60x60pt
+    /// overlap anywhere in the frame, which is exactly how monitor disconnects
+    /// stranded windows).
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         if Self.shouldPreserveFrameDuringConstrain(
             frameRect,
@@ -263,24 +269,21 @@ final class CmuxMainWindow: NSWindow {
     }
 
     /// Whether `proposedFrame` is reachable enough across `visibleFrames` that
-    /// AppKit's constraining pass should be skipped. The frame qualifies when it
-    /// overlaps some screen's visible area by at least `minimumVisibleExtent`
-    /// points in both dimensions (or its full extent, when smaller) — i.e. a
-    /// usable, grabbable slice of the window is on-screen.
+    /// AppKit's constraining pass should be skipped. The frame qualifies when
+    /// enough of its titlebar strip is visible on some screen per the lenient
+    /// `WindowTitlebarReachability` thresholds — generous enough to keep
+    /// preserving a titlebar tucked under the menu bar (the sleep/wake
+    /// anti-creep behavior), strict enough to let AppKit rescue a titlebar
+    /// stranded above every screen.
     nonisolated static func shouldPreserveFrameDuringConstrain(
         _ proposedFrame: NSRect,
-        visibleFrames: [NSRect],
-        minimumVisibleExtent: CGFloat = 60
+        visibleFrames: [NSRect]
     ) -> Bool {
-        let requiredWidth = min(proposedFrame.width, minimumVisibleExtent)
-        let requiredHeight = min(proposedFrame.height, minimumVisibleExtent)
-        for visibleFrame in visibleFrames {
-            let intersection = proposedFrame.intersection(visibleFrame)
-            if intersection.width >= requiredWidth, intersection.height >= requiredHeight {
-                return true
-            }
-        }
-        return false
+        WindowTitlebarReachability.isTopStripReachable(
+            proposedFrame,
+            onAnyOf: visibleFrames,
+            thresholds: .lenient
+        )
     }
 }
 
