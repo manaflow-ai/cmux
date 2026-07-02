@@ -1,26 +1,40 @@
 import CmuxFoundation
 import Foundation
 
-enum GitFileStatus {
+enum GitFileStatus: Equatable {
     case modified, added, deleted, renamed, untracked
 }
 
-/// Runs `git status --porcelain` and parses results into a path-to-status map.
-enum GitStatusProvider {
+/// Runs non-locking `git status --porcelain` and parses results into a path-to-status map.
+struct GitStatusProvider: Sendable {
     private static let nonLockingGitEnvironmentKey = "GIT_OPTIONAL_LOCKS"
     private static let nonLockingGitEnvironmentValue = "0"
     private static let nonLockingRemoteGitCommand = "\(nonLockingGitEnvironmentKey)=\(nonLockingGitEnvironmentValue) git"
 
-    static func fetchStatus(directory: String) -> [String: GitFileStatus] {
+    private let gitExecutableURL: URL
+    private let sshExecutableURL: URL
+    private let environment: [String: String]
+
+    init(
+        gitExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/git"),
+        sshExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/ssh"),
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        self.gitExecutableURL = gitExecutableURL
+        self.sshExecutableURL = sshExecutableURL
+        self.environment = environment
+    }
+
+    func fetchStatus(directory: String) -> [String: GitFileStatus] {
         guard let repoRoot = gitRepoRoot(for: directory) else { return [:] }
         return parseGitStatus(
-            output: runGit(in: repoRoot, arguments: ["status", "--porcelain"]),
+            output: runGit(in: repoRoot, arguments: ["status", "--porcelain=v1", "-z"]),
             repoRoot: repoRoot,
             explorerRoot: directory
         )
     }
 
-    static func fetchStatusSSH(
+    func fetchStatusSSH(
         directory: String, destination: String, port: Int?,
         identityFile: String?, sshOptions: [String]
     ) -> [String: GitFileStatus] {
@@ -29,7 +43,7 @@ enum GitStatusProvider {
             "cd '\(escapedDir)' 2>/dev/null",
             "\(nonLockingRemoteGitCommand) rev-parse --show-toplevel 2>/dev/null",
             "echo '---GIT_STATUS---'",
-            "\(nonLockingRemoteGitCommand) status --porcelain 2>/dev/null",
+            "\(nonLockingRemoteGitCommand) status --porcelain=v1 -z 2>/dev/null",
         ].joined(separator: " && ")
         guard let output = runSSH(
             command: cmd, destination: destination,
@@ -42,50 +56,60 @@ enum GitStatusProvider {
         return parseGitStatus(output: parts[1], repoRoot: repoRoot, explorerRoot: directory)
     }
 
-    private static func parseGitStatus(
+    private func parseGitStatus(
         output: String?, repoRoot: String, explorerRoot: String
     ) -> [String: GitFileStatus] {
         guard let output, !output.isEmpty else { return [:] }
         var statusMap: [String: GitFileStatus] = [:]
+        let normalizedRepoRoot = Self.pathWithoutTrailingSlashes(repoRoot)
+        let normalizedExplorerRoot = Self.pathWithoutTrailingSlashes(explorerRoot)
+        let entries = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
 
-        for line in output.components(separatedBy: "\n") where line.count >= 4 {
-            let indexStatus = line[line.startIndex]
-            let workTreeStatus = line[line.index(after: line.startIndex)]
-            var path = String(line.dropFirst(3))
-                .trimmingCharacters(in: .whitespaces)
-                .replacingOccurrences(of: "\"", with: "")
-
-            if path.contains(" -> ") {
-                path = String(path.split(separator: " -> ").last ?? Substring(path))
+        var entryIndex = 0
+        while entryIndex < entries.count {
+            let entry = entries[entryIndex]
+            guard entry.count >= 4 else {
+                entryIndex += 1
+                continue
             }
-
+            let indexStatus = entry[entry.startIndex]
+            let workTreeStatus = entry[entry.index(after: entry.startIndex)]
+            let path = String(entry.dropFirst(3))
+            let usesSecondPath = Self.statusUsesSecondPath(index: indexStatus, workTree: workTreeStatus)
+            entryIndex += usesSecondPath ? 2 : 1
             guard let status = parseStatusChars(index: indexStatus, workTree: workTreeStatus) else { continue }
 
-            let absolutePath = repoRoot.hasSuffix("/") ? repoRoot + path : repoRoot + "/" + path
-            guard absolutePath.hasPrefix(explorerRoot) else { continue }
+            let absolutePath = Self.absolutePath(repoRoot: normalizedRepoRoot, relativePath: path)
+            guard Self.path(absolutePath, isContainedIn: normalizedExplorerRoot) else { continue }
 
             statusMap[absolutePath] = status
-            markParentDirectories(absolutePath: absolutePath, explorerRoot: explorerRoot, status: status, in: &statusMap)
+            markParentDirectories(
+                absolutePath: absolutePath,
+                explorerRoot: normalizedExplorerRoot,
+                status: status,
+                in: &statusMap
+            )
         }
         return statusMap
     }
 
-    private static func parseStatusChars(index: Character, workTree: Character) -> GitFileStatus? {
+    private func parseStatusChars(index: Character, workTree: Character) -> GitFileStatus? {
         if index == "?" && workTree == "?" { return .untracked }
         if index == "A" || workTree == "A" { return .added }
+        if index == "C" || workTree == "C" { return .added }
         if index == "D" || workTree == "D" { return .deleted }
         if index == "R" || workTree == "R" { return .renamed }
         if index == "M" || workTree == "M" { return .modified }
         return nil
     }
 
-    private static func markParentDirectories(
+    private func markParentDirectories(
         absolutePath: String, explorerRoot: String,
         status: GitFileStatus, in map: inout [String: GitFileStatus]
     ) {
         let dirStatus: GitFileStatus = (status == .untracked) ? .untracked : .modified
         var current = (absolutePath as NSString).deletingLastPathComponent
-        while current.hasPrefix(explorerRoot) && current != explorerRoot {
+        while Self.path(current, isContainedIn: explorerRoot) && current != explorerRoot {
             if map[current] == nil {
                 map[current] = dirStatus
             }
@@ -93,14 +117,38 @@ enum GitStatusProvider {
         }
     }
 
-    private static func gitRepoRoot(for directory: String) -> String? {
+    private static func statusUsesSecondPath(index: Character, workTree: Character) -> Bool {
+        index == "R" || workTree == "R" || index == "C" || workTree == "C"
+    }
+
+    private static func absolutePath(repoRoot: String, relativePath: String) -> String {
+        repoRoot == "/" ? "/" + relativePath : repoRoot + "/" + relativePath
+    }
+
+    private static func path(_ path: String, isContainedIn root: String) -> Bool {
+        let normalizedPath = pathWithoutTrailingSlashes(path)
+        let normalizedRoot = pathWithoutTrailingSlashes(root)
+        if normalizedPath == normalizedRoot { return true }
+        if normalizedRoot == "/" { return normalizedPath.hasPrefix("/") }
+        return normalizedPath.hasPrefix(normalizedRoot + "/")
+    }
+
+    private static func pathWithoutTrailingSlashes(_ path: String) -> String {
+        var result = path
+        while result.count > 1 && result.hasSuffix("/") {
+            result.removeLast()
+        }
+        return result
+    }
+
+    private func gitRepoRoot(for directory: String) -> String? {
         runGit(in: directory, arguments: ["rev-parse", "--show-toplevel"])?
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func runGit(in directory: String, arguments: [String]) -> String? {
+    private func runGit(in directory: String, arguments: [String]) -> String? {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.executableURL = gitExecutableURL
         process.arguments = arguments
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
         process.environment = nonLockingGitEnvironment()
@@ -118,18 +166,18 @@ enum GitStatusProvider {
         }
     }
 
-    private static func nonLockingGitEnvironment() -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
+    private func nonLockingGitEnvironment() -> [String: String] {
+        var environment = environment
         environment[nonLockingGitEnvironmentKey] = nonLockingGitEnvironmentValue
         return environment
     }
 
-    private static func runSSH(
+    private func runSSH(
         command: String, destination: String,
         port: Int?, identityFile: String?, sshOptions: [String]
     ) -> String? {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.executableURL = sshExecutableURL
         var args: [String] = []
         if let port { args += ["-p", String(port)] }
         if let identityFile { args += ["-i", identityFile] }

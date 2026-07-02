@@ -859,7 +859,7 @@ final class FileExplorerStore: ObservableObject {
             let identity = sshProvider.identityFile
             let opts = sshProvider.sshOptions
             DispatchQueue.global(qos: .utility).async {
-                let status = GitStatusProvider.fetchStatusSSH(
+                let status = GitStatusProvider().fetchStatusSSH(
                     directory: path, destination: dest, port: port,
                     identityFile: identity, sshOptions: opts
                 )
@@ -869,7 +869,7 @@ final class FileExplorerStore: ObservableObject {
             }
         } else {
             DispatchQueue.global(qos: .utility).async {
-                let status = GitStatusProvider.fetchStatus(directory: path)
+                let status = GitStatusProvider().fetchStatus(directory: path)
                 DispatchQueue.main.async { [weak self] in
                     self?.gitStatusByPath = status
                 }
