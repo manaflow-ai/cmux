@@ -7,7 +7,7 @@ public import Foundation
 public struct WorkspacePullRequestRepoCacheEntry: Sendable {
     /// When this entry was fetched.
     public let fetchedAt: Date
-    /// The best pull request per normalized branch name.
+    /// The best pull request per normalized branch name, including CI rollups.
     public let pullRequestsByBranch: [String: GitHubPullRequestProbeItem]
     /// Branches positively known to have no pull request (so a cached entry
     /// doesn't re-trigger per-branch lookups for them).

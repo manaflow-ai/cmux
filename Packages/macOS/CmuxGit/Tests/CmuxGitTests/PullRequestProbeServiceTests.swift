@@ -13,7 +13,8 @@ import Testing
         updatedAt: String?,
         mergedAt: String? = nil,
         headRefName: String? = nil,
-        baseRefName: String? = nil
+        baseRefName: String? = nil,
+        ciStatus: PullRequestCheckStatus = .neutral
     ) -> GitHubPullRequestProbeItem {
         GitHubPullRequestProbeItem(
             number: number,
@@ -22,7 +23,8 @@ import Testing
             updatedAt: updatedAt,
             mergedAt: mergedAt,
             headRefName: headRefName,
-            baseRefName: baseRefName
+            baseRefName: baseRefName,
+            ciStatus: ciStatus
         )
     }
 
@@ -152,6 +154,226 @@ import Testing
         #expect(PullRequestStatus(githubState: items[1].state) == .open)
         #expect(items[1].baseRefName == nil)
         #expect(items[1].url == "https://github.com/manaflow-ai/cmux/pull/5293")
+        #expect(items[1].ciStatus == .neutral)
+    }
+
+    @Test func checkStatusMapsGitHubRollupStates() {
+        #expect(PullRequestCheckStatus(githubStatusCheckRollupState: "SUCCESS") == .success)
+        #expect(PullRequestCheckStatus(githubStatusCheckRollupState: "failure") == .failure)
+        #expect(PullRequestCheckStatus(githubStatusCheckRollupState: "ERROR") == .failure)
+        #expect(PullRequestCheckStatus(githubStatusCheckRollupState: "PENDING") == .neutral)
+        #expect(PullRequestCheckStatus(githubStatusCheckRollupState: "EXPECTED") == .neutral)
+        #expect(PullRequestCheckStatus(githubStatusCheckRollupState: nil) == .neutral)
+    }
+
+    @Test func decodesGraphQLCheckRollupStatuses() throws {
+        let json = """
+        {
+          "data": {
+            "repository": {
+              "pullRequests": {
+                "nodes": [
+                  {
+                    "number": 7,
+                    "headRefName": "feature/pass",
+                    "commits": {
+                      "nodes": [
+                        {"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}
+                      ]
+                    }
+                  },
+                  {
+                    "number": 8,
+                    "headRefName": "feature/fail",
+                    "commits": {
+                      "nodes": [
+                        {"commit": {"statusCheckRollup": {"state": "ERROR"}}}
+                      ]
+                    }
+                  },
+                  {
+                    "number": 9,
+                    "headRefName": "feature/pending",
+                    "commits": {
+                      "nodes": [
+                        {"commit": {"statusCheckRollup": {"state": "EXPECTED"}}}
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+        """
+        let response = try #require(
+            PullRequestProbeService.decodeJSON(
+                WorkspacePullRequestGraphQLResponse.self,
+                from: Data(json.utf8)
+            )
+        )
+
+        let statuses = PullRequestProbeService.checkStatusesByPullRequestNumber(from: response)
+        #expect(statuses[7] == .success)
+        #expect(statuses[8] == .failure)
+        #expect(statuses[9] == .neutral)
+    }
+
+    // MARK: branch-lookup CI status
+
+    @Test func branchLookupAppliesFetchedCheckStatusToFoundPullRequests() {
+        // A PR resolved only by the targeted `head=` branch lookup is absent
+        // from the recent REST window, so the window-wide GraphQL fetch never
+        // covered it. Its freshly fetched rollup must still be applied instead
+        // of defaulting to `.neutral`.
+        let baseEntry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(),
+            pullRequestsByBranch: [:]
+        )
+        let found = item(
+            number: 4242,
+            state: "OPEN",
+            url: "https://github.com/manaflow-ai/cmux/pull/4242",
+            updatedAt: "2026-03-20T18:00:00Z",
+            headRefName: "feature/branch-lookup"
+        )
+        let outcome = PullRequestProbeService.foldingBranchLookupResults(
+            [("feature/branch-lookup", .found(found))],
+            fetchedCheckStatuses: [4242: .success],
+            into: baseEntry,
+            refreshedAt: Date()
+        )
+        #expect(
+            outcome.cacheEntry.pullRequestsByBranch["feature/branch-lookup"]?.ciStatus == .success
+        )
+    }
+
+    @Test func branchLookupKeepsNeutralWhenNoCheckStatusAvailable() {
+        let baseEntry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(),
+            pullRequestsByBranch: [:]
+        )
+        let found = item(
+            number: 7,
+            state: "OPEN",
+            url: "https://github.com/manaflow-ai/cmux/pull/7",
+            updatedAt: "2026-03-20T18:00:00Z",
+            headRefName: "feature/none"
+        )
+        let outcome = PullRequestProbeService.foldingBranchLookupResults(
+            [("feature/none", .found(found))],
+            fetchedCheckStatuses: [:],
+            into: baseEntry,
+            refreshedAt: Date()
+        )
+        #expect(
+            outcome.cacheEntry.pullRequestsByBranch["feature/none"]?.ciStatus == .neutral
+        )
+    }
+
+    @Test func decodesAliasedGraphQLCheckRollupStatuses() throws {
+        let json = """
+        {
+          "data": {
+            "repository": {
+              "pr0": {
+                "number": 7,
+                "headRefName": "feature/pass",
+                "commits": {
+                  "nodes": [
+                    {"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}
+                  ]
+                }
+              },
+              "pr1": {
+                "number": 108,
+                "headRefName": "feature/fail",
+                "commits": {
+                  "nodes": [
+                    {"commit": {"statusCheckRollup": {"state": "FAILURE"}}}
+                  ]
+                }
+              }
+            }
+          }
+        }
+        """
+        let response = try #require(
+            PullRequestProbeService.decodeJSON(
+                WorkspacePullRequestGraphQLResponse.self,
+                from: Data(json.utf8)
+            )
+        )
+
+        let statuses = PullRequestProbeService.checkStatusesByPullRequestNumber(from: response)
+        #expect(statuses[7] == .success)
+        #expect(statuses[108] == .failure)
+    }
+
+    @Test func checkStatusQueryTargetsExactOpenPullRequestNumbers() {
+        let open = item(
+            number: 7,
+            state: "OPEN",
+            updatedAt: "2026-06-01T00:00:00Z"
+        )
+        let duplicateOpen = item(
+            number: 7,
+            state: "open",
+            updatedAt: "2026-06-01T00:00:00Z"
+        )
+        let merged = item(
+            number: 8,
+            state: "MERGED",
+            updatedAt: "2026-06-01T00:00:00Z"
+        )
+        let secondOpen = item(
+            number: 108,
+            state: "OPEN",
+            updatedAt: "2026-06-01T00:00:00Z"
+        )
+
+        let numbers = PullRequestProbeService.checkStatusPullRequestNumbers(
+            from: [open, duplicateOpen, merged, secondOpen]
+        )
+        #expect(numbers == [7, 108])
+
+        let query = PullRequestProbeService.checkStatusGraphQLQuery(pullRequestNumbers: numbers)
+        #expect(query.contains("pr0: pullRequest(number: 7)"))
+        #expect(query.contains("pr1: pullRequest(number: 108)"))
+        #expect(!query.contains("pullRequests(states:"))
+    }
+
+    @Test func applyingCheckStatusesUsesNumberMatches() {
+        let passing = item(
+            number: 7,
+            state: "OPEN",
+            url: "https://github.com/o/r/pull/7",
+            updatedAt: "2026-06-01T00:00:00Z",
+            headRefName: "feature/pass"
+        )
+        let unknown = item(
+            number: 8,
+            state: "OPEN",
+            url: "https://github.com/o/r/pull/8",
+            updatedAt: "2026-06-01T00:00:00Z",
+            headRefName: "feature/unknown"
+        )
+        let branchMatched = item(
+            number: 9,
+            state: "OPEN",
+            url: "https://github.com/o/r/pull/9",
+            updatedAt: "2026-06-01T00:00:00Z",
+            headRefName: "feature/branch"
+        )
+
+        let updated = PullRequestProbeService.applyingCheckStatuses(
+            [7: .success, 9: .failure],
+            to: [passing, unknown, branchMatched]
+        )
+
+        #expect(updated[0].ciStatus == .success)
+        #expect(updated[1].ciStatus == .neutral)
+        #expect(updated[2].ciStatus == .failure)
     }
 
     @Test func branchEndpointEncodesHeadFilterAndRejectsMalformedSlugs() throws {
@@ -168,7 +390,14 @@ import Testing
 
     @Test func resolveRefreshResultsMatchesPrefersAndPropagatesFailures() {
         let wsA = UUID(), wsB = UUID(), wsC = UUID(), panel = UUID()
-        let pr = item(number: 7, state: "OPEN", url: "https://github.com/o/r/pull/7", updatedAt: "2026-06-01T00:00:00Z", headRefName: "feat/x")
+        let pr = item(
+            number: 7,
+            state: "OPEN",
+            url: "https://github.com/o/r/pull/7",
+            updatedAt: "2026-06-01T00:00:00Z",
+            headRefName: "feat/x",
+            ciStatus: .failure
+        )
         let entry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: Date(),
             pullRequestsByBranch: ["feat/x": pr]
@@ -189,6 +418,7 @@ import Testing
         }
         #expect(resolved.number == 7)
         #expect(resolved.statusRawValue == PullRequestStatus.open.rawValue)
+        #expect(resolved.ciStatusRawValue == PullRequestCheckStatus.failure.rawValue)
 
         guard case .transientFailure = results[1].resolution else {
             Issue.record("expected transientFailure for branch with transient lookup")

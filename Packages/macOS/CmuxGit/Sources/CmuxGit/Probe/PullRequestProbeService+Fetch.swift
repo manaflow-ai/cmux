@@ -145,9 +145,19 @@ extension PullRequestProbeService {
             page += 1
         }
 
+        let checkStatuses = await pullRequestCheckStatuses(
+            repoSlug: repoSlug,
+            pullRequests: allPullRequests,
+            authHeader: authHeader
+        )
+        let pullRequestsWithCheckStatuses = Self.applyingCheckStatuses(
+            checkStatuses,
+            to: allPullRequests
+        )
+
         let recentWindowEntry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: fetchTimestamp,
-            pullRequestsByBranch: Self.pullRequestMapByNormalizedBranch(from: allPullRequests)
+            pullRequestsByBranch: Self.pullRequestMapByNormalizedBranch(from: pullRequestsWithCheckStatuses)
         )
         let unresolvedBranches = Self.unresolvedBranches(
             normalizedCandidateBranches,
@@ -234,6 +244,37 @@ extension PullRequestProbeService {
             return collected
         }
 
+        // Branch-lookup PRs can be outside the recent REST window, so the
+        // window-wide GraphQL fetch never covered them. Fetch their CI rollups
+        // in one batched call so their sidebar badges reflect real status
+        // instead of defaulting to `.neutral`. (`pullRequestCheckStatuses`
+        // skips the network when there are no open PRs to query.)
+        let foundPullRequests: [GitHubPullRequestProbeItem] = branchResults.compactMap { entry in
+            guard case .found(let pullRequest) = entry.1 else { return nil }
+            return pullRequest
+        }
+        let lookupCheckStatuses = await pullRequestCheckStatuses(
+            repoSlug: repoSlug,
+            pullRequests: foundPullRequests,
+            authHeader: authHeader
+        )
+        return Self.foldingBranchLookupResults(
+            branchResults,
+            fetchedCheckStatuses: lookupCheckStatuses,
+            into: baseEntry,
+            refreshedAt: refreshedAt
+        )
+    }
+
+    /// Folds per-branch lookup results into a refreshed cache entry, applying a
+    /// CI rollup to each found PR — preferring a freshly fetched status and
+    /// falling back to one already cached in `baseEntry`.
+    nonisolated static func foldingBranchLookupResults(
+        _ branchResults: [(String, WorkspacePullRequestBranchFetchResult)],
+        fetchedCheckStatuses: [Int: PullRequestCheckStatus],
+        into baseEntry: WorkspacePullRequestRepoCacheEntry,
+        refreshedAt: Date
+    ) -> WorkspacePullRequestBranchLookupOutcome {
         var pullRequestsByBranch = baseEntry.pullRequestsByBranch
         var knownAbsentBranches = baseEntry.knownAbsentBranches
         var transientBranches: Set<String> = []
@@ -241,7 +282,15 @@ extension PullRequestProbeService {
         for (branch, result) in branchResults {
             switch result {
             case .found(let pullRequest):
-                pullRequestsByBranch[branch] = pullRequest
+                let ciStatus = fetchedCheckStatuses[pullRequest.number]
+                    ?? Self.cachedCheckStatus(
+                        for: pullRequest,
+                        normalizedBranch: branch,
+                        in: baseEntry
+                    )
+                pullRequestsByBranch[branch] = ciStatus.map {
+                    Self.applyingCheckStatus($0, to: pullRequest)
+                } ?? pullRequest
                 knownAbsentBranches.remove(branch)
             case .notFound:
                 knownAbsentBranches.insert(branch)

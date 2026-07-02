@@ -24,6 +24,13 @@ import Testing
             #expect(status.rawValue == raw)
         }
     }
+
+    @Test func pullRequestCIStatusRawValuesRoundTrip() {
+        for (raw, status) in [("neutral", SidebarPullRequestCIStatus.neutral), ("success", .success), ("failure", .failure)] {
+            #expect(SidebarPullRequestCIStatus(rawValue: raw) == status)
+            #expect(status.rawValue == raw)
+        }
+    }
 }
 
 @Suite struct SidebarBranchNameNormalizationTests {
@@ -43,5 +50,7 @@ import Testing
         #expect(SidebarPullRequestState(number: 1, label: "o/r", url: url, status: .open, branch: " b ").branch == "b")
         #expect(SidebarPullRequestState(number: 1, label: "o/r", url: url, status: .open, branch: "  ").branch == nil)
         #expect(SidebarPullRequestState(number: 1, label: "o/r", url: url, status: .open).branch == nil)
+        #expect(SidebarPullRequestState(number: 1, label: "o/r", url: url, status: .open).ciStatus == .neutral)
+        #expect(SidebarPullRequestState(number: 1, label: "o/r", url: url, status: .open, ciStatus: .success).ciStatus == .success)
     }
 }

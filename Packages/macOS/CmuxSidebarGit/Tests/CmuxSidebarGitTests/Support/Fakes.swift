@@ -6,9 +6,16 @@ import CmuxFoundation
 /// A reader returning canned metadata, with an optional gate the test holds
 /// closed to control exactly when a snapshot probe completes.
 actor GatedMetadataReader: WorkspaceGitMetadataReading {
+    private struct ProbeWaiter {
+        let id: UUID
+        let minimumCount: Int
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     private let metadata: GitWorkspaceMetadata
     private let gated: Bool
     private var gateWaiters: [CheckedContinuation<Void, Never>] = []
+    private var probeWaiters: [ProbeWaiter] = []
     private var isOpen = false
     private(set) var probedDirectories: [String] = []
     private(set) var probedTrackedPathEventGenerations: [GitTrackedPathEventGeneration?] = []
@@ -28,15 +35,44 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
 
     func waitForTrackedPathEventGenerationProbe(
         count minimumCount: Int = 1,
-        maxYields: Int = 5_000
+        timeout: Duration = .seconds(10)
     ) async -> Bool {
-        for _ in 0..<maxYields {
-            if probedTrackedPathEventGenerations.count >= minimumCount {
-                return true
-            }
-            await Task.yield()
+        if probedTrackedPathEventGenerations.count >= minimumCount {
+            return true
         }
-        return probedTrackedPathEventGenerations.count >= minimumCount
+        // Bound the wait so a probe that never arrives fails the test
+        // deterministically instead of hanging the whole suite. The timeout
+        // task and the probe path both resolve the waiter by id on the actor,
+        // so the continuation is resumed exactly once.
+        let waiterID = UUID()
+        let timeoutTask = Task {
+            try? await Task.sleep(for: timeout)
+            if Task.isCancelled { return }
+            await self.expireProbeWaiter(id: waiterID)
+        }
+        let satisfied = await withCheckedContinuation { continuation in
+            if probedTrackedPathEventGenerations.count >= minimumCount {
+                continuation.resume(returning: true)
+            } else {
+                probeWaiters.append(ProbeWaiter(
+                    id: waiterID,
+                    minimumCount: minimumCount,
+                    continuation: continuation
+                ))
+            }
+        }
+        timeoutTask.cancel()
+        return satisfied
+    }
+
+    private func expireProbeWaiter(id: UUID) {
+        guard let index = probeWaiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = probeWaiters.remove(at: index)
+        waiter.continuation.resume(
+            returning: probedTrackedPathEventGenerations.count >= waiter.minimumCount
+        )
     }
 
     func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
@@ -49,6 +85,7 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
     ) async -> GitWorkspaceMetadata {
         probedDirectories.append(directory)
         probedTrackedPathEventGenerations.append(trackedPathEventGeneration)
+        resumeProbeWaiters()
         if !isOpen {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 if isOpen {
@@ -59,6 +96,18 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
             }
         }
         return metadata
+    }
+
+    private func resumeProbeWaiters() {
+        var remainingWaiters: [ProbeWaiter] = []
+        for waiter in probeWaiters {
+            if probedTrackedPathEventGenerations.count >= waiter.minimumCount {
+                waiter.continuation.resume(returning: true)
+            } else {
+                remainingWaiters.append(waiter)
+            }
+        }
+        probeWaiters = remainingWaiters
     }
 }
 

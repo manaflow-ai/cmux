@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxGit
+import CmuxGit
 
 // MARK: - Settings toggles, command-hint reconciliation, and test seams.
 
@@ -88,6 +88,7 @@ extension PullRequestPollService {
                 label: currentPullRequest.label,
                 url: currentPullRequest.url,
                 status: nextStatus,
+                ciStatus: currentPullRequest.ciStatus,
                 branch: currentPullRequest.branch,
                 isStale: false
             )

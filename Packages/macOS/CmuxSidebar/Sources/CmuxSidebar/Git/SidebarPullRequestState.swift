@@ -10,6 +10,8 @@ public struct SidebarPullRequestState: Equatable, Sendable {
     public let url: URL
     /// Lifecycle status.
     public let status: SidebarPullRequestStatus
+    /// CI check rollup status.
+    public let ciStatus: SidebarPullRequestCIStatus
     /// The PR's branch, normalized (trimmed, nil when empty).
     public let branch: String?
     /// Whether the row is stale (reported by an inactive panel).
@@ -21,6 +23,7 @@ public struct SidebarPullRequestState: Equatable, Sendable {
         label: String,
         url: URL,
         status: SidebarPullRequestStatus,
+        ciStatus: SidebarPullRequestCIStatus = .neutral,
         branch: String? = nil,
         isStale: Bool = false
     ) {
@@ -28,6 +31,7 @@ public struct SidebarPullRequestState: Equatable, Sendable {
         self.label = label
         self.url = url
         self.status = status
+        self.ciStatus = ciStatus
         self.branch = branch?.normalizedSidebarBranchName
         self.isStale = isStale
     }
