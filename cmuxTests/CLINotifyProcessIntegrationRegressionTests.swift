@@ -2094,6 +2094,243 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testGeminiAfterAgentWithoutSessionIdMarksOriginalSessionIdle() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "gemini-session-with-idless-afteragent"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "gemini",
+            executable: "/usr/local/bin/gemini"
+        )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let start = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let prompt = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "prompt-submit",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"BeforeAgent","prompt":"fix it"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stopCommandStart = context.state.commands.count
+        let stop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let stopCommands = Array(context.state.commands.dropFirst(stopCommandStart))
+        XCTAssertTrue(
+            stopCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle gemini idle --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Gemini AfterAgent must emit idle for hibernation, saw \(stopCommands)"
+        )
+
+        let storeURL = context.root.appendingPathComponent("gemini-hook-sessions.json")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let original = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(original["agentLifecycle"] as? String, "idle")
+        XCTAssertEqual(original["lastNotificationStatus"] as? String, "idle")
+        XCTAssertNil(
+            sessions[context.surfaceId],
+            "Id-less Gemini turn hooks must resolve to the original session record instead of creating a surface-id fallback record"
+        )
+    }
+
+    func testGeminiIdlessAfterAgentPrefersNewestStartedSessionOverLateOlderWrite() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop-prefers-new-start")
+        defer { context.cleanup() }
+
+        let olderSessionId = "gemini-older-session"
+        let newerSessionId = "gemini-newer-session"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "gemini",
+            executable: "/usr/local/bin/gemini"
+        )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 80)
+
+        let olderStart = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(olderStart.timedOut, olderStart.stderr)
+        XCTAssertEqual(olderStart.status, 0, olderStart.stderr)
+
+        let newerStart = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(newerSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(newerStart.timedOut, newerStart.stderr)
+        XCTAssertEqual(newerStart.status, 0, newerStart.stderr)
+
+        let olderLateStop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"older done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(olderLateStop.timedOut, olderLateStop.stderr)
+        XCTAssertEqual(olderLateStop.status, 0, olderLateStop.stderr)
+
+        let newerIdlessStop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"newer done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(newerIdlessStop.timedOut, newerIdlessStop.stderr)
+        XCTAssertEqual(newerIdlessStop.status, 0, newerIdlessStop.stderr)
+
+        let storeURL = context.root.appendingPathComponent("gemini-hook-sessions.json")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let newer = try XCTUnwrap(sessions[newerSessionId] as? [String: Any])
+        XCTAssertEqual(newer["agentLifecycle"] as? String, "idle")
+        XCTAssertEqual(newer["lastNotificationStatus"] as? String, "idle")
+        XCTAssertNil(
+            sessions[context.surfaceId],
+            "Late writes from an older Gemini session must not make the new id-less Stop create a surface-id fallback record"
+        )
+    }
+
+    func testGeminiIdlessAfterAgentIgnoresStaleDuplicateOlderSessionStart() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop-ignores-stale-start")
+        defer { context.cleanup() }
+
+        let olderSessionId = "gemini-older-session"
+        let newerSessionId = "gemini-newer-session"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "gemini",
+            executable: "/usr/local/bin/gemini"
+        )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 96)
+
+        let olderStart = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(olderStart.timedOut, olderStart.stderr)
+        XCTAssertEqual(olderStart.status, 0, olderStart.stderr)
+
+        let newerStart = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(newerSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(newerStart.timedOut, newerStart.stderr)
+        XCTAssertEqual(newerStart.status, 0, newerStart.stderr)
+
+        // A duplicate/late SessionStart from the older session must not steal the
+        // active slot from the newer session that started after it.
+        let staleOlderStart = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(staleOlderStart.timedOut, staleOlderStart.stderr)
+        XCTAssertEqual(staleOlderStart.status, 0, staleOlderStart.stderr)
+
+        // After the stale duplicate older SessionStart, the pane-scoped active
+        // slot must still point at the newer session — the older SessionStart
+        // must not demote it. Read the store before the Stop so we observe the
+        // promotion state directly (the Stop clears the matching active slot).
+        let storeURL = context.root.appendingPathComponent("gemini-hook-sessions.json")
+        func activeSlotSessionIds() throws -> [String] {
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            var ids: [String] = []
+            for key in ["activeSessionsBySurface", "activeSessionsByWorkspace"] {
+                guard let map = json[key] as? [String: Any] else { continue }
+                for value in map.values {
+                    if let record = value as? [String: Any], let sid = record["sessionId"] as? String {
+                        ids.append(sid)
+                    }
+                }
+            }
+            return ids
+        }
+        let activeAfterStaleStart = try activeSlotSessionIds()
+        XCTAssertFalse(
+            activeAfterStaleStart.isEmpty,
+            "Gemini SessionStart must populate a pane-scoped active session slot"
+        )
+        XCTAssertFalse(
+            activeAfterStaleStart.contains(olderSessionId),
+            "A stale duplicate older Gemini SessionStart must not steal the active slot from the newer session, saw \(activeAfterStaleStart)"
+        )
+        XCTAssertTrue(
+            activeAfterStaleStart.allSatisfy { $0 == newerSessionId },
+            "The active slot must remain the newer session after a stale older SessionStart, saw \(activeAfterStaleStart)"
+        )
+
+        let idlessStop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"newer done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(idlessStop.timedOut, idlessStop.stderr)
+        XCTAssertEqual(idlessStop.status, 0, idlessStop.stderr)
+
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let newer = try XCTUnwrap(sessions[newerSessionId] as? [String: Any])
+        XCTAssertEqual(
+            newer["agentLifecycle"] as? String,
+            "idle",
+            "Id-less Gemini Stop must resolve to the newest session even after a stale duplicate older SessionStart"
+        )
+        XCTAssertEqual(newer["lastNotificationStatus"] as? String, "idle")
+        let older = try XCTUnwrap(sessions[olderSessionId] as? [String: Any])
+        XCTAssertNotEqual(
+            older["agentLifecycle"] as? String,
+            "idle",
+            "A stale duplicate older SessionStart must not capture the id-less Stop meant for the newer session"
+        )
+        XCTAssertNil(
+            sessions[context.surfaceId],
+            "Id-less Gemini Stop must not create a surface-id fallback record when a stale older SessionStart arrives late"
+        )
+    }
+
     func testCodexTurnStackPreservesAnonymousDepthBetweenKnownTurns() throws {
         let context = try makeClaudeHookContext(name: "codex-mixed-anonymous-depth")
         defer { context.cleanup() }

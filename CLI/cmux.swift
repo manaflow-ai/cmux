@@ -295,6 +295,58 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    func lookupCurrentSession(workspaceId: String?, surfaceId: String?) throws -> ClaudeHookSessionRecord? {
+        let normalizedWorkspace = normalizeOptional(workspaceId)
+        let normalizedSurface = normalizeOptional(surfaceId)
+        guard normalizedWorkspace != nil || normalizedSurface != nil else {
+            return nil
+        }
+        return try withLockedState { state in
+            func matchesTarget(_ record: ClaudeHookSessionRecord) -> Bool {
+                if let normalizedWorkspace, normalizeOptional(record.workspaceId) != normalizedWorkspace {
+                    return false
+                }
+                if let normalizedSurface, normalizeOptional(record.surfaceId) != normalizedSurface {
+                    return false
+                }
+                return true
+            }
+            func activeRecord(_ active: ClaudeHookActiveSessionRecord?) -> ClaudeHookSessionRecord? {
+                guard let active,
+                      let record = state.sessions[active.sessionId],
+                      matchesTarget(record) else {
+                    return nil
+                }
+                return record
+            }
+            if let normalizedSurface,
+               let record = activeRecord(state.activeSessionsBySurface[normalizedSurface]) {
+                return record
+            }
+            if let normalizedWorkspace,
+               let record = activeRecord(state.activeSessionsByWorkspace[normalizedWorkspace]) {
+                return record
+            }
+            let matches = state.sessions.values.filter { record in
+                matchesTarget(record)
+            }
+            func startedEarlier(_ lhs: ClaudeHookSessionRecord, _ rhs: ClaudeHookSessionRecord) -> Bool {
+                if lhs.startedAt != rhs.startedAt {
+                    return lhs.startedAt < rhs.startedAt
+                }
+                return lhs.sessionId < rhs.sessionId
+            }
+            guard !matches.isEmpty else { return nil }
+            if let normalizedSurface,
+               let nonSurfaceSession = matches
+                   .filter({ normalizeOptional($0.sessionId) != normalizedSurface })
+                   .max(by: startedEarlier) {
+                return nonSurfaceSession
+            }
+            return matches.max(by: startedEarlier)
+        }
+    }
+
     struct AutoNamingRecentMessagesSnapshot {
         var messages: [AutoNamingTranscriptMessage]
         var totalMessageCount: Int
@@ -693,7 +745,8 @@ final class ClaudeHookSessionStore {
         hadPendingBackgroundWorkAtStop: Bool? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
-        allowsNewSessionReplacement: Bool = false
+        allowsNewSessionReplacement: Bool = false,
+        preserveNewerActiveSession: Bool = false
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
@@ -750,10 +803,31 @@ final class ClaudeHookSessionStore {
                     allowsNewSessionReplacement: allowsNewSessionReplacement ? true : nil,
                     updatedAt: now
                 )
-                if let normalizedWorkspace = normalizeOptional(workspaceId) {
+                // When `preserveNewerActiveSession` is set, a late or duplicate
+                // SessionStart from an older session must not steal the active
+                // slot from a session that started more recently. Ordering
+                // mirrors `lookupCurrentSession`'s fallback (newest `startedAt`,
+                // tie-broken by larger `sessionId`) so the active slot stays
+                // consistent with the id-less hook resolution it feeds.
+                func canPromoteActiveSession(over existing: ClaudeHookActiveSessionRecord?) -> Bool {
+                    guard preserveNewerActiveSession,
+                          let existing,
+                          existing.sessionId != normalized,
+                          let existingRecord = state.sessions[existing.sessionId]
+                    else {
+                        return true
+                    }
+                    if record.startedAt != existingRecord.startedAt {
+                        return record.startedAt > existingRecord.startedAt
+                    }
+                    return normalized > existingRecord.sessionId
+                }
+                if let normalizedWorkspace = normalizeOptional(workspaceId),
+                   canPromoteActiveSession(over: state.activeSessionsByWorkspace[normalizedWorkspace]) {
                     state.activeSessionsByWorkspace[normalizedWorkspace] = activeRecord
                 }
-                if let normalizedSurface = normalizeOptional(surfaceId) {
+                if let normalizedSurface = normalizeOptional(surfaceId),
+                   canPromoteActiveSession(over: state.activeSessionsBySurface[normalizedSurface]) {
                     state.activeSessionsBySurface[normalizedSurface] = activeRecord
                 }
             }
@@ -29543,8 +29617,101 @@ export default CMUXSessionRestore;
         let hookCwd = input.cwd
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(env["PWD"])
-        let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
+        let inputSessionId = normalizedHookValue(input.sessionId)
+        var sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
         let action = Self.subcommandActions[subcommand] ?? .noop
+        func shouldAdoptSurfaceSessionForIdlessHook(action: AgentHookAction) -> Bool {
+            guard def.name == "gemini", inputSessionId == nil else {
+                return false
+            }
+            switch action {
+            case .promptSubmit, .stop:
+                return true
+            case .sessionStart, .notification, .approvalResponse, .sessionEnd, .sessionFinalize, .noop:
+                return false
+            }
+        }
+        // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
+        // (CMUX_SURFACE_ID), which a launcher or an inherited subprocess can leak as the operator's
+        // FOCUSED pane rather than the agent's own pane. When the agent process's controlling TTY
+        // (or PID) is bound to a DIFFERENT, accessible surface inside this same workspace, that
+        // binding is ground truth — prefer it. Returns the env surface unchanged when there is no
+        // env surface to correct, when it came from an explicit --surface flag (operator intent),
+        // or when the TTY/PID binding is unavailable (remote/SSH) or already agrees. Stays within
+        // the env workspace so a flaky binding can never cross-route to a different workspace.
+        // Shared by SessionStart target resolution and id-less hook session adoption.
+        func correctedDirectSurfaceId(workspaceId: String) -> String? {
+            guard let envSurface = resolvedDirectSurfaceArg else { return nil }
+            guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return envSurface }
+            guard let binding = processBinding(),
+                  let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
+                  let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
+                  resolveAccessibleWorkspaceId(boundWorkspaceRaw) == workspaceId,
+                  let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: workspaceId),
+                  boundSurface != envSurface else {
+                return envSurface
+            }
+#if DEBUG
+            agentHookDebugLog(
+                "agentHook.surface.correct agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) env=\(agentHookDebugShort(envSurface)) tty=\(agentHookDebugShort(boundSurface))",
+                socketPath: client.socketPath,
+                env: env
+            )
+#endif
+            return boundSurface
+        }
+        func idlessHookSurfaceLookupTarget() -> (workspaceId: String, surfaceId: String)? {
+            // Adoption resolves the id-less hook to an existing session record and
+            // mutates its durable lifecycle (idle/running), so it must only target a
+            // surface the hook can prove is its own. Mirror resolveAgentHookTarget's
+            // codex-jumble defense: correct a leaked ambient CMUX_SURFACE_ID (which a
+            // launcher can leak as the operator's FOCUSED pane) with the agent's own
+            // TTY/PID binding, then fail closed rather than adopting a session on the
+            // workspace's default/focused pane across unrelated panes.
+            if let workspaceId = resolvedDirectWorkspaceArg {
+                if let surfaceId = correctedDirectSurfaceId(workspaceId: workspaceId) {
+                    return (workspaceId, surfaceId)
+                }
+                if hookWsFlag == nil,
+                   let bindingSurface = processBinding()?.surfaceId,
+                   let surfaceId = resolveAccessibleSurfaceId(bindingSurface, workspaceId: workspaceId) {
+                    return (workspaceId, surfaceId)
+                }
+                // A direct workspace was resolved (explicit --workspace or ambient
+                // CMUX_WORKSPACE_ID) but no surface resolved inside it. Fail closed
+                // rather than falling through to a process binding in a DIFFERENT
+                // workspace: resolveAgentHookTarget routes the mutation to this direct
+                // workspace, so adopting a session from another workspace's binding
+                // would idle/rewrite an unrelated session there.
+                return nil
+            }
+            guard let binding = processBinding(),
+                  let workspaceId = resolveAccessibleWorkspaceId(binding.workspaceId),
+                  let surfaceId = resolveAccessibleSurfaceId(binding.surfaceId, workspaceId: workspaceId) else {
+                return nil
+            }
+            return (workspaceId, surfaceId)
+        }
+        if shouldAdoptSurfaceSessionForIdlessHook(action: action),
+           let target = idlessHookSurfaceLookupTarget() {
+            do {
+                if let existing = try store.lookupCurrentSession(
+                    workspaceId: target.workspaceId,
+                    surfaceId: target.surfaceId
+                ) {
+                    sessionId = existing.sessionId
+                }
+            } catch {
+                telemetry.breadcrumb("\(def.name)-hook.idless-session-lookup.failed")
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.idless.lookup.failed agent=\(def.name) subcommand=\(subcommand) workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) error=\(error)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+            }
+        }
 #if DEBUG
         agentHookDebugLog(
             "agentHook.start agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) inputSession=\(agentHookDebugShort(input.sessionId)) rawBytes=\(rawInput.utf8.count) hasCwd=\(hookCwd == nil ? 0 : 1) envWorkspace=\(env["CMUX_WORKSPACE_ID"] == nil ? 0 : 1) envSurface=\(env["CMUX_SURFACE_ID"] == nil ? 0 : 1) directWorkspace=\(directWorkspaceArg == nil ? 0 : 1) directSurface=\(directSurfaceArg == nil ? 0 : 1) invalidDirect=\(hasUnusableDirectBinding ? 1 : 0) processBinding=\(processBindingDebugState()) socketName=\(agentHookDebugSocketName(client.socketPath))",
@@ -29712,35 +29879,6 @@ export default CMUXSessionRestore;
                 return (workspaceId, surfaceId)
             }
 
-            // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
-            // (CMUX_SURFACE_ID), which a launcher or an inherited subprocess can leak as the operator's
-            // FOCUSED pane rather than the agent's own pane. When the agent process's controlling TTY
-            // (or PID) is bound to a DIFFERENT, accessible surface inside this same workspace, that
-            // binding is ground truth — prefer it. Returns the env surface unchanged when there is no
-            // env surface to correct, when it came from an explicit --surface flag (operator intent),
-            // or when the TTY/PID binding is unavailable (remote/SSH) or already agrees. Stays within
-            // the env workspace so a flaky binding can never cross-route to a different workspace.
-            func correctedDirectSurfaceId(workspaceId: String) -> String? {
-                guard let envSurface = resolvedDirectSurfaceArg else { return nil }
-                guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return envSurface }
-                guard let binding = processBinding(),
-                      let boundSurfaceRaw = nonEmptyClaudeHookIdentifier(binding.surfaceId),
-                      let boundWorkspaceRaw = nonEmptyClaudeHookIdentifier(binding.workspaceId),
-                      resolveAccessibleWorkspaceId(boundWorkspaceRaw) == workspaceId,
-                      let boundSurface = resolveAccessibleSurfaceId(boundSurfaceRaw, workspaceId: workspaceId),
-                      boundSurface != envSurface else {
-                    return envSurface
-                }
-#if DEBUG
-                agentHookDebugLog(
-                    "agentHook.surface.correct agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) env=\(agentHookDebugShort(envSurface)) tty=\(agentHookDebugShort(boundSurface))",
-                    socketPath: client.socketPath,
-                    env: env
-                )
-#endif
-                return boundSurface
-            }
-
             if let workspaceId = resolvedDirectWorkspaceArg {
                 let preferredSurfaceId = correctedDirectSurfaceId(workspaceId: workspaceId)
                     ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
@@ -29849,7 +29987,9 @@ export default CMUXSessionRestore;
                         launchCommand: launchCommand,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
-                        updateRuntimeStatus: !suppressVisibleMutations
+                        updateRuntimeStatus: !suppressVisibleMutations,
+                        markActive: def.name == "gemini" && !suppressVisibleMutations,
+                        preserveNewerActiveSession: true
                     )
                     acceptedSessionStart = true
                 }
