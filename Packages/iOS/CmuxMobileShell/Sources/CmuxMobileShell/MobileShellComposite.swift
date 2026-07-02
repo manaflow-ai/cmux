@@ -3129,11 +3129,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .failed
         }
 
-        if let emailFailure = Self.emailFailure(
-            for: ticket,
+        let accountPreflight = MobilePairingAccountPreflight(
+            scannedScheme: URLComponents(string: rawURL)?.scheme,
             actualUserID: identityProvider?.currentUserID,
-            actualEmail: identityProvider?.currentUserEmail
-        ) {
+            actualEmail: identityProvider?.currentUserEmail,
+            isDevelopmentAuthEnvironment: identityProvider?.isDevelopmentAuthEnvironment ?? false
+        )
+        if let emailFailure = accountPreflight.failure(for: ticket) {
             applyPairingValidationFailure(emailFailure)
             if connectionState != .connected {
                 connectionState = .disconnected
@@ -5458,28 +5460,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func clearPairingVersionWarning() {
         pairingVersionWarning = nil
         pendingPairingVersionWarningURL = nil
-    }
-
-    static func emailFailure(
-        for ticket: CmxAttachTicket,
-        actualUserID: String?,
-        actualEmail: String?
-    ) -> MobilePairingFailureCategory? {
-        if let expectedUserID = Self.mobileShellNormalizedNonEmpty(ticket.macUserID) {
-            guard let actualUserID = Self.mobileShellNormalizedNonEmpty(actualUserID) else { return nil }
-            guard actualUserID == expectedUserID else {
-                return .authFailed
-            }
-            return nil
-        }
-        guard let actual = Self.mobileShellNormalizedEmail(actualEmail) else { return nil }
-        if let expected = Self.mobileShellNormalizedEmail(ticket.macUserEmail) {
-            guard actual == expected else {
-                return .emailMismatch(expected: expected, actual: actual)
-            }
-            return nil
-        }
-        return nil
     }
 
     private func versionWarning(for ticket: CmxAttachTicket) -> String? {
