@@ -8919,8 +8919,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // On a remote-tmux mirror workspace, a new terminal workspace means
         // "create a new tmux session on that workspace's host" — route it to the
         // remote and mirror it back instead of creating a local workspace. The
-        // browser variant always stays local.
+        // browser variant always stays local, and `skipConfiguredAction` (the "New Local
+        // Workspace" command) is the explicit escape hatch for opening local
+        // work alongside mirrors.
         if initialSurface == .terminal,
+           !skipConfiguredAction,
            let context,
            remoteTmuxController.handleNewWorkspaceRequested(in: context.tabManager) {
             return true
