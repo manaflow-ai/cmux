@@ -14,18 +14,6 @@ extension CMUXCLI {
     ) {
         guard let sessionId = parsedInput.sessionId else { return }
         let env = ProcessInfo.processInfo.environment
-        guard let probe = try? client.sendV2(
-            method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true else {
-            telemetry.breadcrumb("claude-hook.auto-name.disabled")
-            return
-        }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
-            return
-        }
-
         let claudePid = mappedSession?.pid ?? claudeAgentPID(from: env)
         guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: claudePid, env: env) else {
             telemetry.breadcrumb("claude-hook.auto-name.nested-suppressed")
@@ -48,6 +36,35 @@ extension CMUXCLI {
         }
         let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
         let engine = AutoNamingEngine()
+        let autoTitleProbe = try? client.sendV2(
+            method: "workspace.set_auto_title",
+            params: ["probe": true, "workspace_id": workspaceId]
+        )
+        if let claudeTitle = engine.latestClaudeConversationTitle(
+            fromTranscriptLines: lines,
+            matchingSessionId: sessionId
+        ) {
+            applyClaudeConversationTitleIfNeeded(
+                claudeTitle,
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                allowWorkspaceRename: (autoTitleProbe?["workspace_user_owned"] as? Bool) == false,
+                sessionStore: sessionStore,
+                client: client,
+                telemetry: telemetry
+            )
+        }
+
+        guard let probe = autoTitleProbe, probe["enabled"] as? Bool == true else {
+            telemetry.breadcrumb("claude-hook.auto-name.disabled")
+            return
+        }
+        guard probe["workspace_user_owned"] as? Bool != true else {
+            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
+            return
+        }
+
         guard let outcome = try? sessionStore.beginAutoNaming(
             sessionId: sessionId,
             workspaceId: workspaceId,
@@ -104,6 +121,84 @@ extension CMUXCLI {
         // app's clear-on-apply doesn't immediately wipe the Settings note.
         if confirmedTitle != nil, let missing = resolution.missingOverride {
             reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
+        }
+    }
+
+    func applyClaudeConversationTitleIfNeeded(
+        _ title: String,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        allowWorkspaceRename: Bool,
+        sessionStore: ClaudeHookSessionStore,
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard let decision = try? sessionStore.beginClaudeConversationTitleApply(
+            sessionId: sessionId,
+            title: title,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            allowWorkspaceRename: allowWorkspaceRename,
+            now: Date()
+        ), decision.shouldApply else {
+            telemetry.breadcrumb("claude-hook.conversation-title.unchanged")
+            return
+        }
+
+        var workspaceApplied = false
+        var tabApplied = false
+        var tabSkippedUserOwned = false
+        if decision.shouldRenameWorkspace {
+            if let payload = try? client.sendV2(method: "workspace.action", params: [
+                "action": "rename",
+                "workspace_id": workspaceId,
+                "title_source": "auto",
+                "title": title
+            ]), payload["title"] as? String == title {
+                workspaceApplied = true
+            } else {
+                telemetry.breadcrumb("claude-hook.conversation-title.workspace-failed")
+            }
+        } else {
+            telemetry.breadcrumb("claude-hook.conversation-title.workspace-skipped")
+        }
+
+        if decision.shouldRenameTab {
+            do {
+                let payload = try client.sendV2(method: "tab.action", params: [
+                    "action": "rename",
+                    "workspace_id": workspaceId,
+                    "surface_id": surfaceId,
+                    "title_source": "auto",
+                    "title": title
+                ])
+                if payload["title"] as? String == title {
+                    tabApplied = true
+                } else {
+                    telemetry.breadcrumb("claude-hook.conversation-title.tab-failed")
+                }
+            } catch {
+                if (error as? CLIError)?.v2Code == "title_user_owned" {
+                    tabSkippedUserOwned = true
+                    telemetry.breadcrumb("claude-hook.conversation-title.tab-user-owned")
+                } else {
+                    telemetry.breadcrumb("claude-hook.conversation-title.tab-failed")
+                }
+            }
+        }
+
+        guard workspaceApplied || tabApplied || tabSkippedUserOwned else { return }
+        try? sessionStore.recordClaudeConversationTitleApplied(
+            sessionId: sessionId,
+            title: title,
+            workspaceApplied: workspaceApplied,
+            tabApplied: tabApplied,
+            tabSkippedUserOwned: tabSkippedUserOwned,
+            now: Date()
+        )
+        if workspaceApplied || tabApplied {
+            telemetry.breadcrumb("claude-hook.conversation-title.applied")
         }
     }
 

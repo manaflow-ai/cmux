@@ -448,6 +448,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
     final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private var commands: [String] = []
+        private var workspaceUserOwned = false
 
         func append(_ command: String) {
             lock.lock()
@@ -458,6 +459,19 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         func snapshot() -> [String] {
             lock.lock()
             let value = commands
+            lock.unlock()
+            return value
+        }
+
+        func setWorkspaceUserOwned(_ value: Bool) {
+            lock.lock()
+            workspaceUserOwned = value
+            lock.unlock()
+        }
+
+        func isWorkspaceUserOwned() -> Bool {
+            lock.lock()
+            let value = workspaceUserOwned
             lock.unlock()
             return value
         }
@@ -607,9 +621,13 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         agentPID: Int? = nil,
         agentPIDWorkspaceId: String? = nil,
         agentPIDSurfaceId: String? = nil,
-        requiredSocketPassword: String? = nil
+        requiredSocketPassword: String? = nil,
+        workspaceUserOwned: Bool = false,
+        tabTitleUserOwned: Bool = false,
+        failingMethods: Set<String> = []
     ) -> DispatchSemaphore {
         let resolvedTTYWorkspaceId = ttyWorkspaceId ?? context.workspaceId
+        context.state.setWorkspaceUserOwned(workspaceUserOwned)
         return startMockServer(
             listenerFD: context.listenerFD,
             state: context.state,
@@ -619,6 +637,9 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
                 return "OK"
+            }
+            if failingMethods.contains(method) {
+                return v2Response(id: id, ok: false, error: ["code": "test_failure", "message": "forced failure: \(method)"])
             }
             switch method {
             case "surface.list":
@@ -662,6 +683,39 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                 return v2Response(id: id, ok: true, result: [:])
             case "surface.resume.set":
                 return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            case "workspace.set_auto_title":
+                let params = payload["params"] as? [String: Any]
+                if params?["probe"] as? Bool == true {
+                    return v2Response(id: id, ok: true, result: [
+                        "enabled": false,
+                        "workspace_user_owned": context.state.isWorkspaceUserOwned(),
+                    ])
+                }
+                return v2Response(id: id, ok: false, error: ["code": "disabled", "message": "disabled in test"])
+            case "workspace.action":
+                let params = payload["params"] as? [String: Any]
+                context.state.setWorkspaceUserOwned((params?["title_source"] as? String) != "auto")
+                return v2Response(id: id, ok: true, result: [
+                    "action": params?["action"] as? String ?? "",
+                    "workspace_id": params?["workspace_id"] as? String ?? context.workspaceId,
+                    "title_source": params?["title_source"] as? String ?? "",
+                    "title": params?["title"] as? String ?? "",
+                ])
+            case "tab.action":
+                let params = payload["params"] as? [String: Any]
+                if tabTitleUserOwned {
+                    return v2Response(id: id, ok: false, error: [
+                        "code": "title_user_owned",
+                        "message": "Tab title is user-owned",
+                    ])
+                }
+                return v2Response(id: id, ok: true, result: [
+                    "action": params?["action"] as? String ?? "",
+                    "workspace_id": params?["workspace_id"] as? String ?? context.workspaceId,
+                    "surface_id": params?["surface_id"] as? String ?? context.surfaceId,
+                    "title_source": params?["title_source"] as? String ?? "",
+                    "title": params?["title"] as? String ?? "",
+                ])
             default:
                 return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
@@ -682,32 +736,477 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         ]
     }
 
-    private func writeClaudeHookStore(to storeURL: URL, sessionId: String, workspaceId: String, surfaceId: String, cwd: String) throws {
+    private func writeClaudeHookStore(
+        to storeURL: URL,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String,
+        active: Bool = false,
+        claudeConversationLastAppliedTabTitle: String? = nil
+    ) throws {
         let now = Date().timeIntervalSince1970
-        let store: [String: Any] = [
+        var sessionRecord: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": workspaceId,
+            "surfaceId": surfaceId,
+            "cwd": cwd,
+            "isRestorable": true,
+            "launchCommand": [
+                "launcher": "claude",
+                "executablePath": "/usr/local/bin/claude",
+                "arguments": ["/usr/local/bin/claude"],
+                "workingDirectory": cwd,
+                "capturedAt": now,
+                "source": "test",
+            ],
+            "startedAt": now,
+            "updatedAt": now,
+        ]
+        if let claudeConversationLastAppliedTabTitle {
+            sessionRecord["claudeConversationLastAppliedTabTitle"] = claudeConversationLastAppliedTabTitle
+        }
+        var store: [String: Any] = [
             "version": 1,
             "sessions": [
-                sessionId: [
-                    "sessionId": sessionId,
-                    "workspaceId": workspaceId,
-                    "surfaceId": surfaceId,
-                    "cwd": cwd,
-                    "isRestorable": true,
-                    "launchCommand": [
-                        "launcher": "claude",
-                        "executablePath": "/usr/local/bin/claude",
-                        "arguments": ["/usr/local/bin/claude"],
-                        "workingDirectory": cwd,
-                        "capturedAt": now,
-                        "source": "test",
-                    ],
-                    "startedAt": now,
-                    "updatedAt": now,
-                ],
+                sessionId: sessionRecord,
             ],
         ]
+        if active {
+            store["activeSessionsByWorkspace"] = [
+                workspaceId: [
+                    "sessionId": sessionId,
+                    "updatedAt": now,
+                ],
+            ]
+            store["activeSessionsBySurface"] = [
+                surfaceId: [
+                    "sessionId": sessionId,
+                    "updatedAt": now,
+                ],
+            ]
+        }
         let storeData = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
         try storeData.write(to: storeURL)
+    }
+
+    @Test func claudeAutoNameRenamesWorkspaceAndTabFromConversationTitle() throws {
+        let context = try makeClaudeHookContext(name: "claude-ai-title")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-ai-title-session"
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let transcriptURL = context.root.appendingPathComponent("claude-transcript.jsonl")
+        try writeClaudeHookStore(
+            to: storeURL,
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            active: true
+        )
+        try [
+            #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"Claude Conversation Names"}"#
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-ai-title",
+            ttySurfaceId: context.surfaceId
+        )
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "auto-name"],
+            environment: claudeHookEnvironment(
+                context: context,
+                surfaceId: context.surfaceId,
+                ttyName: "ttys-claude-ai-title",
+                storeURL: storeURL
+            ),
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+            timeout: 5
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let requests = context.state.snapshot().compactMap { jsonObject($0) }
+        assertClaudeConversationRenameRequests(
+            in: requests,
+            context: context,
+            title: "Claude Conversation Names"
+        )
+
+        let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try #require(state["sessions"] as? [String: Any])
+        let record = try #require(sessions[sessionId] as? [String: Any])
+        #expect(record["claudeConversationLastAppliedTitle"] as? String == "Claude Conversation Names")
+        #expect(record["claudeConversationLastAppliedWorkspaceTitle"] as? String == "Claude Conversation Names")
+        #expect(record["claudeConversationLastAppliedTabTitle"] as? String == "Claude Conversation Names")
+
+        let renameRequestCount = requests.filter { request in
+            let method = request["method"] as? String
+            return method == "workspace.action" || method == "tab.action"
+        }.count
+        let repeated = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "auto-name"],
+            environment: claudeHookEnvironment(
+                context: context,
+                surfaceId: context.surfaceId,
+                ttyName: "ttys-claude-ai-title",
+                storeURL: storeURL
+            ),
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+            timeout: 5
+        )
+        assertSuccessfulHook(repeated)
+        let repeatedRequests = context.state.snapshot().compactMap { jsonObject($0) }
+        let repeatedRenameRequestCount = repeatedRequests.filter { request in
+            let method = request["method"] as? String
+            return method == "workspace.action" || method == "tab.action"
+        }.count
+        #expect(repeatedRenameRequestCount == renameRequestCount)
+    }
+
+    @Test func claudeAutoNameKeepsConversationTitleRenamesAutoOwned() throws {
+        let context = try makeClaudeHookContext(name: "claude-ai-title-auto-owned")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-ai-title-auto-owned-session"
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let transcriptURL = context.root.appendingPathComponent("claude-transcript.jsonl")
+        try writeClaudeHookStore(
+            to: storeURL,
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            active: true
+        )
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-ai-title-auto-owned",
+            ttySurfaceId: context.surfaceId
+        )
+
+        func runAutoNameHook() -> ProcessRunResult {
+            runProcess(
+                executablePath: context.cliPath,
+                arguments: ["hooks", "claude", "auto-name"],
+                environment: claudeHookEnvironment(
+                    context: context,
+                    surfaceId: context.surfaceId,
+                    ttyName: "ttys-claude-ai-title-auto-owned",
+                    storeURL: storeURL
+                ),
+                standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+                timeout: 5
+            )
+        }
+
+        try [
+            #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"First Auto Title"}"#
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        assertSuccessfulHook(runAutoNameHook())
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+
+        try [
+            #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"First Auto Title"}"#,
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"Second Auto Title"}"#
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        assertSuccessfulHook(runAutoNameHook())
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+
+        let requests = context.state.snapshot().compactMap { jsonObject($0) }
+        let workspaceTitles = requests.compactMap { request -> String? in
+            guard request["method"] as? String == "workspace.action",
+                  let params = request["params"] as? [String: Any],
+                  params["action"] as? String == "rename",
+                  params["title_source"] as? String == "auto" else { return nil }
+            return params["title"] as? String
+        }
+        let tabTitles = requests.compactMap { request -> String? in
+            guard request["method"] as? String == "tab.action",
+                  let params = request["params"] as? [String: Any],
+                  params["action"] as? String == "rename",
+                  params["title_source"] as? String == "auto" else { return nil }
+            return params["title"] as? String
+        }
+        #expect(workspaceTitles == ["First Auto Title", "Second Auto Title"])
+        #expect(tabTitles == ["First Auto Title", "Second Auto Title"])
+    }
+
+    @Test func claudeAutoNameRenamesWhenSessionRecordRacesStopUpsert() throws {
+        let context = try makeClaudeHookContext(name: "claude-ai-title-race")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-ai-title-race-session"
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let transcriptURL = context.root.appendingPathComponent("claude-transcript.jsonl")
+        try [
+            #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"Async Stop Hook Title"}"#
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-ai-title-race",
+            ttySurfaceId: context.surfaceId
+        )
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "auto-name"],
+            environment: claudeHookEnvironment(
+                context: context,
+                surfaceId: context.surfaceId,
+                ttyName: "ttys-claude-ai-title-race",
+                storeURL: storeURL
+            ),
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+            timeout: 5
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let requests = context.state.snapshot().compactMap { jsonObject($0) }
+        assertClaudeConversationRenameRequests(
+            in: requests,
+            context: context,
+            title: "Async Stop Hook Title"
+        )
+
+        let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try #require(state["sessions"] as? [String: Any])
+        let record = try #require(sessions[sessionId] as? [String: Any])
+        #expect(record["workspaceId"] as? String == context.workspaceId)
+        #expect(record["surfaceId"] as? String == context.surfaceId)
+        #expect(record["claudeConversationLastAppliedTitle"] as? String == "Async Stop Hook Title")
+        #expect(record["claudeConversationLastAppliedWorkspaceTitle"] as? String == "Async Stop Hook Title")
+        #expect(record["claudeConversationLastAppliedTabTitle"] as? String == "Async Stop Hook Title")
+    }
+
+    @Test func claudeAutoNameRetriesOnlyFailedConversationTitleRenameSide() throws {
+        let context = try makeClaudeHookContext(name: "claude-ai-title-partial")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-ai-title-partial-session"
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let transcriptURL = context.root.appendingPathComponent("claude-transcript.jsonl")
+        try writeClaudeHookStore(
+            to: storeURL,
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            active: true
+        )
+        try [
+            #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"Retry Failed Side"}"#
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-ai-title-partial",
+            ttySurfaceId: context.surfaceId,
+            failingMethods: ["tab.action"]
+        )
+
+        for _ in 0..<2 {
+            let result = runProcess(
+                executablePath: context.cliPath,
+                arguments: ["hooks", "claude", "auto-name"],
+                environment: claudeHookEnvironment(
+                    context: context,
+                    surfaceId: context.surfaceId,
+                    ttyName: "ttys-claude-ai-title-partial",
+                    storeURL: storeURL
+                ),
+                standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+                timeout: 5
+            )
+            assertSuccessfulHook(result)
+        }
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        let requests = context.state.snapshot().compactMap { jsonObject($0) }
+        let workspaceRenameRequestCount = requests.filter { request in
+            request["method"] as? String == "workspace.action"
+        }.count
+        let tabRenameRequestCount = requests.filter { request in
+            request["method"] as? String == "tab.action"
+        }.count
+        #expect(workspaceRenameRequestCount == 1)
+        #expect(tabRenameRequestCount == 2)
+
+        let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try #require(state["sessions"] as? [String: Any])
+        let record = try #require(sessions[sessionId] as? [String: Any])
+        #expect(record["claudeConversationLastAppliedWorkspaceTitle"] as? String == "Retry Failed Side")
+        #expect(record["claudeConversationLastAppliedTabTitle"] == nil)
+    }
+
+    @Test func claudeAutoNameDoesNotRetryUserOwnedTabRejectionForSameTitle() throws {
+        let context = try makeClaudeHookContext(name: "claude-ai-title-tab-owned")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-ai-title-tab-owned-session"
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let transcriptURL = context.root.appendingPathComponent("claude-transcript.jsonl")
+        try writeClaudeHookStore(
+            to: storeURL,
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            active: true,
+            claudeConversationLastAppliedTabTitle: "Previous Auto Title"
+        )
+        try [
+            #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"Manual Tab Stays"}"#
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-ai-title-tab-owned",
+            ttySurfaceId: context.surfaceId,
+            tabTitleUserOwned: true
+        )
+
+        for _ in 0..<2 {
+            let result = runProcess(
+                executablePath: context.cliPath,
+                arguments: ["hooks", "claude", "auto-name"],
+                environment: claudeHookEnvironment(
+                    context: context,
+                    surfaceId: context.surfaceId,
+                    ttyName: "ttys-claude-ai-title-tab-owned",
+                    storeURL: storeURL
+                ),
+                standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+                timeout: 5
+            )
+            assertSuccessfulHook(result)
+            #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        }
+
+        let requests = context.state.snapshot().compactMap { jsonObject($0) }
+        let workspaceRenameRequestCount = requests.filter { request in
+            request["method"] as? String == "workspace.action"
+        }.count
+        let tabRenameRequestCount = requests.filter { request in
+            request["method"] as? String == "tab.action"
+        }.count
+        #expect(workspaceRenameRequestCount == 1)
+        #expect(tabRenameRequestCount == 1)
+
+        let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try #require(state["sessions"] as? [String: Any])
+        let record = try #require(sessions[sessionId] as? [String: Any])
+        #expect(record["claudeConversationLastAppliedWorkspaceTitle"] as? String == "Manual Tab Stays")
+        #expect(record["claudeConversationLastAppliedTabTitle"] == nil)
+        #expect(record["claudeConversationLastSkippedUserOwnedTabTitle"] as? String == "Manual Tab Stays")
+    }
+
+    @Test func claudeAutoNameDoesNotOverwriteUserOwnedWorkspaceTitle() throws {
+        let context = try makeClaudeHookContext(name: "claude-ai-title-user-owned")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-ai-title-user-owned-session"
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let transcriptURL = context.root.appendingPathComponent("claude-transcript.jsonl")
+        try writeClaudeHookStore(
+            to: storeURL,
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: context.surfaceId,
+            cwd: context.root.path,
+            active: true
+        )
+        try [
+            #"{"type":"user","message":{"role":"user","content":"Please rename this chat"}}"#,
+            #"{"type":"ai-title","sessionId":"\#(sessionId)","aiTitle":"Respect Manual Workspace"}"#
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-ai-title-user-owned",
+            ttySurfaceId: context.surfaceId,
+            workspaceUserOwned: true
+        )
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "auto-name"],
+            environment: claudeHookEnvironment(
+                context: context,
+                surfaceId: context.surfaceId,
+                ttyName: "ttys-claude-ai-title-user-owned",
+                storeURL: storeURL
+            ),
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#,
+            timeout: 5
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let requests = context.state.snapshot().compactMap { jsonObject($0) }
+        #expect(!requests.contains { $0["method"] as? String == "workspace.action" })
+        #expect(requests.contains { request in
+            guard request["method"] as? String == "tab.action",
+                  let params = request["params"] as? [String: Any] else { return false }
+            return params["action"] as? String == "rename"
+                && params["workspace_id"] as? String == context.workspaceId
+                && params["surface_id"] as? String == context.surfaceId
+                && params["title_source"] as? String == "auto"
+                && params["title"] as? String == "Respect Manual Workspace"
+        })
+
+        let state = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try #require(state["sessions"] as? [String: Any])
+        let record = try #require(sessions[sessionId] as? [String: Any])
+        #expect(record["claudeConversationLastAppliedWorkspaceTitle"] == nil)
+        #expect(record["claudeConversationLastAppliedTabTitle"] as? String == "Respect Manual Workspace")
+    }
+
+    private func assertClaudeConversationRenameRequests(
+        in requests: [[String: Any]],
+        context: ClaudeHookContext,
+        title: String
+    ) {
+        #expect(requests.contains { request in
+            guard request["method"] as? String == "workspace.action",
+                  let params = request["params"] as? [String: Any] else { return false }
+            return params["action"] as? String == "rename"
+                && params["workspace_id"] as? String == context.workspaceId
+                && params["title_source"] as? String == "auto"
+                && params["title"] as? String == title
+        })
+        #expect(requests.contains { request in
+            guard request["method"] as? String == "tab.action",
+                  let params = request["params"] as? [String: Any] else { return false }
+            return params["action"] as? String == "rename"
+                && params["workspace_id"] as? String == context.workspaceId
+                && params["surface_id"] as? String == context.surfaceId
+                && params["title_source"] as? String == "auto"
+                && params["title"] as? String == title
+        })
     }
 
     private func assertPromptSubmitRoutes(
