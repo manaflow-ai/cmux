@@ -1316,6 +1316,9 @@ enum GitFileStatus {
 
 /// Runs `git status --porcelain` and parses results into a path-to-status map.
 enum GitStatusProvider {
+    private static let nonLockingGitEnvironmentKey = "GIT_OPTIONAL_LOCKS"
+    private static let nonLockingGitEnvironmentValue = "0"
+    private static let nonLockingRemoteGitCommand = "\(nonLockingGitEnvironmentKey)=\(nonLockingGitEnvironmentValue) git"
 
     static func fetchStatus(directory: String) -> [String: GitFileStatus] {
         guard let repoRoot = gitRepoRoot(for: directory) else { return [:] }
@@ -1331,7 +1334,12 @@ enum GitStatusProvider {
         identityFile: String?, sshOptions: [String]
     ) -> [String: GitFileStatus] {
         let escapedDir = directory.replacingOccurrences(of: "'", with: "'\\''")
-        let cmd = "cd '\(escapedDir)' 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null && echo '---GIT_STATUS---' && git status --porcelain 2>/dev/null"
+        let cmd = [
+            "cd '\(escapedDir)' 2>/dev/null",
+            "\(nonLockingRemoteGitCommand) rev-parse --show-toplevel 2>/dev/null",
+            "echo '---GIT_STATUS---'",
+            "\(nonLockingRemoteGitCommand) status --porcelain 2>/dev/null",
+        ].joined(separator: " && ")
         guard let output = runSSH(
             command: cmd, destination: destination,
             port: port, identityFile: identityFile, sshOptions: sshOptions
@@ -1404,6 +1412,7 @@ enum GitStatusProvider {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = arguments
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
+        process.environment = nonLockingGitEnvironment()
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
@@ -1416,6 +1425,12 @@ enum GitStatusProvider {
         } catch {
             return nil
         }
+    }
+
+    private static func nonLockingGitEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment[nonLockingGitEnvironmentKey] = nonLockingGitEnvironmentValue
+        return environment
     }
 
     private static func runSSH(
