@@ -423,10 +423,20 @@ jobs:
       - name: Prepare isolated DerivedData
         run: |
           set -euo pipefail
-          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${{ matrix.shard }}"
+          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}"
           rm -rf "$DERIVED_DATA_PATH"
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Cache DerivedData
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}
+          key: deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}-${{ hashFiles('.xcode-version') }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}-${{ hashFiles('.xcode-version') }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}-${{ hashFiles('.xcode-version') }}-${{ steps.ghostty-revision.outputs.sha }}-
+            deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}-${{ hashFiles('.xcode-version') }}-
 
       - name: Resolve Swift packages
         run: |
@@ -473,6 +483,47 @@ jobs:
           )
           xcrun xctest "$DERIVED_DATA_PATH/Build/Products/Debug/CmuxTerminalCoreTests.xctest"
 
+      - name: Build app-host tests
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          build_app_host_tests() {
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              build-for-testing 2>&1
+          }
+
+          BUILD_OUTPUT="$RUNNER_TEMP/cmux-unit-build-for-testing-shard-${{ matrix.shard }}.txt"
+          set +e
+          build_app_host_tests | tee "$BUILD_OUTPUT"
+          EXIT_CODE=${PIPESTATUS[0]}
+          OUTPUT=$(cat "$BUILD_OUTPUT")
+          set -e
+
+          # SwiftPM binary artifact resolution can occasionally fail on ephemeral
+          # runners with "Could not resolve package dependencies". Retry once
+          # after clearing SwiftPM/DerivedData caches so test-without-building
+          # has a complete app-host bundle to reuse.
+          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+            echo "SwiftPM package resolution failed, clearing caches and retrying once"
+            rm -rf ~/Library/Caches/org.swift.swiftpm
+            mkdir -p ~/Library/Caches/org.swift.swiftpm
+            rm -rf "$CMUX_DERIVED_DATA_PATH"
+            mkdir -p "$CMUX_DERIVED_DATA_PATH"
+            set +e
+            build_app_host_tests | tee "$BUILD_OUTPUT"
+            EXIT_CODE=${PIPESTATUS[0]}
+            set -e
+          fi
+
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            exit "$EXIT_CODE"
+          fi
+
       - name: Enable XCTest automation mode
         run: |
           set -euo pipefail
@@ -506,7 +557,7 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
-            test
+            test-without-building
 
       - name: Run Option/Alt sided-modifier regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -522,7 +573,7 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
-            test
+            test-without-building
 
       - name: Run unit tests
         run: |
@@ -555,7 +606,7 @@ jobs:
               -destination "platform=macOS" \
               "${ONLY_TESTING_ARGS[@]}" \
               CMUX_SKIP_ZIG_BUILD=1 \
-              test 2>&1 &
+              test-without-building 2>&1 &
             local xcodebuild_pid=$!
             local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
             local deadline=$((SECONDS + timeout_seconds))
@@ -582,22 +633,11 @@ jobs:
           OUTPUT=$(cat "$TEST_OUTPUT")
           set -e
 
-          # SwiftPM binary artifact resolution can occasionally fail on ephemeral
-          # runners with "Could not resolve package dependencies". Retry once after
-          # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
-            echo "SwiftPM package resolution failed, clearing caches and retrying once"
-            rm -rf ~/Library/Caches/org.swift.swiftpm
-            mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf "$CMUX_DERIVED_DATA_PATH"
-            mkdir -p "$CMUX_DERIVED_DATA_PATH"
-            set +e
-            run_unit_tests | tee "$TEST_OUTPUT"
-            EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat "$TEST_OUTPUT")
-            set -e
-          fi
-
+          # Package resolution (and its one-shot retry) happens in the
+          # "Build app-host tests" step. This step runs the prebuilt bundle with
+          # test-without-building and -disableAutomaticPackageResolution, so it
+          # can never emit "Could not resolve package dependencies" and needs no
+          # resolution retry of its own.
           if [ "$EXIT_CODE" -ne 0 ]; then
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
