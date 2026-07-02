@@ -4,7 +4,7 @@
 34427	CLI/cmux.swift
 17978	Sources/AppDelegate.swift
 16487	Sources/ContentView.swift
-14260	Sources/TerminalController.swift
+14263	Sources/TerminalController.swift
 13018	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12212	Sources/GhosttyTerminalView.swift
@@ -19,7 +19,7 @@
 6217	cmuxTests/GhosttyConfigTests.swift
 6181	Sources/TabManager.swift
 6077	Sources/TextBoxInput.swift
-5943	cmuxTests/TerminalAndGhosttyTests.swift
+5958	cmuxTests/TerminalAndGhosttyTests.swift
 5573	cmuxTests/BrowserConfigTests.swift
 4487	Sources/Panels/FilePreviewPanel.swift
 4483	Sources/cmuxApp.swift
@@ -133,7 +133,6 @@
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 739	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 738	Packages/macOS/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
-737	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 718	Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 716	Sources/TaskManagerSnapshot.swift
 715	Sources/AppleScriptSupport.swift
@@ -149,6 +148,7 @@
 690	cmuxTests/SessionIndexViewTests.swift
 683	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 683	Sources/Panels/CodexAppServerSession.swift
+682	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
 680	Sources/FileExplorerSearchController.swift
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
