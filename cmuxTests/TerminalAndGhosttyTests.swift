@@ -2630,22 +2630,33 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
         config.backgroundBlur = .disabled
 
         let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-        let expectedBackground = GhosttyBackgroundTheme.color(
-            backgroundColor: config.backgroundColor,
-            opacity: config.backgroundOpacity
-        )
+        // Independently composite the configured background over the dynamic window
+        // background instead of asking GhosttyBackgroundTheme (the production path under
+        // test) for the expected value — that would be a tautological self-compare.
+        // `windowBackgroundColor` is read at runtime so the oracle stays correct across
+        // appearances and macOS versions, and deriving the expected channels here gives
+        // genuine regression coverage against the production blend.
+        let clampedOpacity = CGFloat(max(0.0, min(1.0, config.backgroundOpacity)))
         guard let actualBackground = appearance.backgroundColor.usingColorSpace(.sRGB),
-              let expectedBackground = expectedBackground.usingColorSpace(.sRGB) else {
+              let foreground = config.backgroundColor
+                .withAlphaComponent(clampedOpacity)
+                .usingColorSpace(.sRGB),
+              let base = NSColor.windowBackgroundColor.usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible panel background colors")
             return
         }
+        let alpha = foreground.alphaComponent
+        let expectedRed = foreground.redComponent * alpha + base.redComponent * (1 - alpha)
+        let expectedGreen = foreground.greenComponent * alpha + base.greenComponent * (1 - alpha)
+        let expectedBlue = foreground.blueComponent * alpha + base.blueComponent * (1 - alpha)
 
         XCTAssertTrue(appearance.usesClearContentBackground)
         XCTAssertFalse(appearance.drawsContentBackground)
-        XCTAssertEqual(actualBackground.redComponent, expectedBackground.redComponent, accuracy: 0.005)
-        XCTAssertEqual(actualBackground.greenComponent, expectedBackground.greenComponent, accuracy: 0.005)
-        XCTAssertEqual(actualBackground.blueComponent, expectedBackground.blueComponent, accuracy: 0.005)
-        XCTAssertEqual(actualBackground.alphaComponent, expectedBackground.alphaComponent, accuracy: 0.005)
+        XCTAssertEqual(actualBackground.redComponent, expectedRed, accuracy: 0.005)
+        XCTAssertEqual(actualBackground.greenComponent, expectedGreen, accuracy: 0.005)
+        XCTAssertEqual(actualBackground.blueComponent, expectedBlue, accuracy: 0.005)
+        // Compositing an opaque window background under the fill flattens it to opaque.
+        XCTAssertEqual(actualBackground.alphaComponent, 1.0, accuracy: 0.005)
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
     }
 

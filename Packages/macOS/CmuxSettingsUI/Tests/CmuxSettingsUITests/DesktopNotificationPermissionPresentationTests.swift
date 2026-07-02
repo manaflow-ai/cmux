@@ -38,4 +38,22 @@ import Testing
         #expect(presentation.primaryAction == .requestAuthorization)
         #expect(!presentation.sendTestEnabled)
     }
+
+    @Test func provisionalStateShowsDeliverQuietlyStatusAndAllowsSendTest() {
+        let presentation = DesktopNotificationPermissionPresentation.make(for: .provisional)
+
+        #expect(presentation.statusLabel == .deliverQuietly)
+        #expect(presentation.subtitle == .allowed)
+        #expect(presentation.primaryAction == .openSystemSettings)
+        #expect(presentation.sendTestEnabled)
+    }
+
+    @Test func ephemeralStateShowsTemporaryStatusAndAllowsSendTest() {
+        let presentation = DesktopNotificationPermissionPresentation.make(for: .ephemeral)
+
+        #expect(presentation.statusLabel == .temporary)
+        #expect(presentation.subtitle == .allowed)
+        #expect(presentation.primaryAction == .openSystemSettings)
+        #expect(presentation.sendTestEnabled)
+    }
 }

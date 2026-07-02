@@ -1501,12 +1501,33 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
 
 @MainActor
 final class WorkspaceChromeColorTests: XCTestCase {
+    /// Independently composites `backgroundColor` at `backgroundOpacity` over the
+    /// dynamic window background using the source-over formula directly, WITHOUT
+    /// calling the production `compositedTerminalColor` path that `bonsplitChromeHex`
+    /// exercises. Reusing `hexString` keeps byte formatting identical, so only the
+    /// color value is derived independently here — a regression in the production
+    /// blend makes the two diverge and fails the assertion instead of passing
+    /// tautologically. `windowBackgroundColor` is read at runtime, which is why the
+    /// earlier hardcoded "#1122337F" ground-truth was unstable across appearances and
+    /// macOS versions and had to be replaced.
     private func expectedChromeHex(backgroundColor: NSColor, backgroundOpacity: Double) -> String {
-        let expected = WindowAppearanceSnapshot.compositedTerminalColor(
-            backgroundColor: backgroundColor,
-            opacity: backgroundOpacity
+        let clampedOpacity = CGFloat(max(0.0, min(1.0, backgroundOpacity)))
+        guard
+            let foreground = backgroundColor
+                .withAlphaComponent(clampedOpacity)
+                .usingColorSpace(.sRGB),
+            let base = NSColor.windowBackgroundColor.usingColorSpace(.sRGB)
+        else {
+            return backgroundColor.hexString()
+        }
+        let alpha = foreground.alphaComponent
+        let composited = NSColor(
+            srgbRed: foreground.redComponent * alpha + base.redComponent * (1 - alpha),
+            green: foreground.greenComponent * alpha + base.greenComponent * (1 - alpha),
+            blue: foreground.blueComponent * alpha + base.blueComponent * (1 - alpha),
+            alpha: 1
         )
-        return expected.hexString(includeAlpha: expected.alphaComponent < 0.999)
+        return composited.hexString(includeAlpha: composited.alphaComponent < 0.999)
     }
 
     func testBonsplitChromeHexIncludesAlphaWhenTranslucent() {
