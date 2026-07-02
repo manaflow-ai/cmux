@@ -519,3 +519,78 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
     #expect(!replayAfterExhaustion, "exhausted retry budget must stop live-event replay requests")
     collector.unmount()
 }
+
+@MainActor
+@Test func renderGridNewInputCatchUpEpisodeGetsFreshReplayRetryBudget() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let surfaceID = "live-terminal"
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let mountReplaySettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(mountReplaySettled)
+    let transport = try #require(box.get())
+
+    // Burn the whole retry budget in a barrier episode that ultimately
+    // succeeds: two failed replays consume maxTerminalReplayFailureRetries,
+    // the third succeeds and the barrier clears through the ack path, which
+    // does not reset the counter.
+    await router.failNextReplay(count: 2)
+    try await router.enqueueReplayRenderGridFrames([
+        renderGridFrame(surfaceID: surfaceID, seq: 10, text: "barrier-recovered"),
+    ])
+    store.terminalOutputNeedsReplay(surfaceID: surfaceID)
+    let barrierRecovered = try await pollUntil {
+        collector.lines.contains { $0.contains("barrier-recovered") }
+    }
+    #expect(barrierRecovered, "the barrier replay must eventually land after burning retries")
+    let replaySettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(replaySettled)
+    let replayCountAfterBarrier = await router.count(of: "mobile.terminal.replay")
+
+    // A new typing catch-up episode must get a fresh budget: the dropped
+    // delta below must still be repairable by a replay.
+    try await router.enqueueReplayRenderGridFrames([
+        renderGridFrame(surfaceID: surfaceID, seq: 100, text: "episode-repair"),
+    ])
+    await store.submitTerminalRawInput(Data("a".utf8), surfaceID: surfaceID)
+    let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
+    #expect(inputSent)
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 99,
+        text: "dropped-behind-ack",
+        columns: 40,
+        full: false
+    ))
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 100,
+        text: "incomplete-after-drop",
+        columns: 40,
+        full: false
+    ))
+    let repairRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterBarrier + 1
+    )
+    #expect(
+        repairRequested,
+        "a fresh input catch-up episode must not inherit an exhausted retry budget from a prior barrier episode"
+    )
+    let repaired = try await pollUntil {
+        collector.lines.contains { $0.contains("episode-repair") }
+    }
+    #expect(repaired)
+    collector.unmount()
+}
