@@ -564,6 +564,95 @@ final class TerminalDefaultFileOpenRequestTests: XCTestCase {
 
         XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: directory, contentType: .directory))
     }
+
+    // MARK: - Non-ASCII (CJK) path transport safety
+    // https://github.com/manaflow-ai/cmux/issues/7036
+
+    func testBuildsAsciiSafeStartupInputForNonAsciiCommandPath() throws {
+        let contentType = DefaultTerminalRegistration.contentType(forIdentifier: "com.apple.terminal.shell-script")
+        let url = URL(fileURLWithPath: "/Users/kuaiyun/测试目录/run.command")
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: url, contentType: contentType))
+
+        // The startup input is delivered to Ghostty as inline `initial_input`, whose embedded
+        // parser corrupts every non-ASCII byte (UTF-8 misread as Latin-1). It must therefore
+        // stay ASCII-only so the byte stream survives the transport unchanged.
+        XCTAssertTrue(
+            request.initialInput.utf8.allSatisfy { $0 < 0x80 },
+            "Default-terminal file-open startup input must stay ASCII-only; got: \(request.initialInput)"
+        )
+        XCTAssertFalse(
+            request.initialInput.contains("测试目录"),
+            "Raw non-ASCII path must not be delivered inline; Ghostty's initial_input parser would mojibake it."
+        )
+
+        // Modeling the transport must be a no-op for ASCII: the bytes survive verbatim.
+        XCTAssertEqual(
+            Self.ghosttyInitialInputTransport(request.initialInput),
+            request.initialInput,
+            "ASCII-only startup input must round-trip byte-for-byte through Ghostty's initial_input transport."
+        )
+    }
+
+    func testNonAsciiCommandPathStartupInputReconstructsRealPathThroughTransport() throws {
+        try XCTSkipUnless(
+            FileManager.default.isExecutableFile(atPath: "/bin/zsh"),
+            "requires /bin/zsh to exercise the reconstructed-path execution"
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-terminal-default-cjk-\(UUID().uuidString)", isDirectory: true)
+        let directory = root.appendingPathComponent("测试目录", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let executable = directory.appendingPathComponent("run.command", isDirectory: false)
+        // The .command prints the path the shell resolved for it ($0), so we can assert the
+        // reconstructed path is byte-exact after the transport.
+        try "#!/bin/sh\nprintf '%s' \"$0\"\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: executable))
+        let expectedPath = request.fileURL.path(percentEncoded: false)
+
+        // Simulate delivery through Ghostty's initial_input transport, then run exactly what the
+        // interactive shell would run. Without an ASCII-safe encoding the transport mojibakes the
+        // CJK path and the shell fails with "no such file or directory".
+        let delivered = Self.ghosttyInitialInputTransport(request.initialInput)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-fc", delivered]
+        let output = Pipe()
+        let error = Pipe()
+        process.standardOutput = output
+        process.standardError = error
+        try process.run()
+        process.waitUntilExit()
+
+        let stdout = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+        let stderr = String(data: error.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        XCTAssertEqual(process.terminationStatus, 0, stderr ?? "")
+        XCTAssertEqual(stdout, expectedPath)
+    }
+
+    /// Models Ghostty's inline `initial_input` transport (`src/apprt/embedded.zig`):
+    /// `std.zig.stringEscape` escapes the UTF-8 C string byte-by-byte (`\xNN` for bytes
+    /// >= 0x80), then the config string parser (`src/config/string.zig`) decodes each
+    /// `\xNN` back as codepoint U+00NN and UTF-8-re-encodes it — so every non-ASCII byte
+    /// is corrupted exactly as "UTF-8 misread as Latin-1". ASCII bytes round-trip.
+    private static func ghosttyInitialInputTransport(_ input: String) -> String {
+        var bytes: [UInt8] = []
+        for byte in input.utf8 {
+            if byte < 0x80 {
+                bytes.append(byte)
+            } else {
+                bytes.append(contentsOf: Array(String(UnicodeScalar(byte)).utf8))
+            }
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
 }
 
 
