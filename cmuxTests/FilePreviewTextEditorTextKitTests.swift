@@ -75,7 +75,8 @@ struct FilePreviewTextEditorTextKitTests {
         try withDefaultShortcutSettings {
             let textView = SavingTextView.makeFilePreviewTextView()
             let initialPointSize = try #require(textView.font?.pointSize)
-            let event = try #require(Self.keyEvent(characters: "+", keyCode: 30))
+            // kVK_ANSI_RightBracket is the physical key that produces "+" on German/European layouts.
+            let event = try #require(Self.keyEvent(characters: "+", keyCode: UInt16(kVK_ANSI_RightBracket)))
 
             #expect(textView.performKeyEquivalent(with: event))
             let zoomedPointSize = try #require(textView.font?.pointSize)
