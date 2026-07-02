@@ -3185,6 +3185,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             isLoading: false,
             isPinned: false,
             directory: directory,
+            directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: nil,
             customTitle: nil,
@@ -6744,6 +6745,39 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(
             workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds).map(\.directory),
             [liveDirectory]
+        )
+    }
+
+    func testSidebarDirectoryDisplayLabelUpgradesSharedRowWhileFilesystemVariantKeepsPath() {
+        let workspace = Workspace()
+        guard let firstPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: firstPanelId),
+              let secondPanel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+            XCTFail("Expected panels for display-label ordering test")
+            return
+        }
+
+        let sharedDirectory = "/tmp/cmux-display-label-shared"
+        workspace.updatePanelDirectory(panelId: firstPanelId, directory: sharedDirectory)
+        workspace.updatePanelDirectory(
+            panelId: secondPanel.id,
+            directory: sharedDirectory,
+            displayLabel: "Shared  main"
+        )
+
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        XCTAssertEqual(orderedPanelIds, [firstPanelId, secondPanel.id])
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            ["Shared  main"]
+        )
+        XCTAssertEqual(
+            workspace.sidebarDisplayedDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            [Workspace.SidebarDisplayedDirectory(text: "Shared  main", isDisplayLabel: true)]
+        )
+        XCTAssertEqual(
+            workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            [sharedDirectory]
         )
     }
 
