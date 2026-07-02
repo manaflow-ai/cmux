@@ -54,7 +54,13 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
           _cmux_codex_retry_stderr="$(mktemp "${TMPDIR:-/tmp}/cmux-codex-resume.XXXXXX")" || exit 1
           _cmux_codex_retry_pipe="${_cmux_codex_retry_stderr}.pipe"
           mkfifo "$_cmux_codex_retry_pipe" || exit 1
-          tee "$_cmux_codex_retry_stderr" <"$_cmux_codex_retry_pipe" >&2 &
+          # Mirror the wrapped command's stderr to the terminal in full, but retain only
+          # the first 64 KiB for lock detection. `codex resume`/`fork` are long-lived
+          # interactive sessions, so capturing the whole stderr stream would grow this
+          # temp file (and the read below) without bound; the lock diagnostics are emitted
+          # at startup, well within the retained prefix. `cat >/dev/null` drains the tail so
+          # the mirror never receives SIGPIPE after `head` stops.
+          tee /dev/stderr <"$_cmux_codex_retry_pipe" | { head -c 65536 >"$_cmux_codex_retry_stderr" 2>/dev/null; cat >/dev/null; } &
           _cmux_codex_retry_tee_pid=$!
           { \(command); } 2>"$_cmux_codex_retry_pipe"
           _cmux_codex_retry_status=$?
