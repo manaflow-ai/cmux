@@ -76,6 +76,32 @@ struct BrowserWebExtensionsManagerTests {
         #expect(manager.controller.extensionContexts.contains(context))
     }
 
+    @Test func runtimePermissionPromptsGrantOnlyManifestDeclaredSet() async throws {
+        guard #available(macOS 15.4, *) else { return }
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["optional_permissions"] = ["cookies"]
+        let dir = try Self.writeExtension(named: "sample", in: root, manifest: manifest)
+        try "// no-op".write(to: dir.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
+
+        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        await manager.loadExtensions()
+        let context = try #require(manager.loadedContexts.first)
+
+        let granted = await withCheckedContinuation { continuation in
+            manager.webExtensionController(
+                manager.controller,
+                promptForPermissions: [.cookies, .nativeMessaging],
+                in: nil,
+                for: context
+            ) { allowed, _ in
+                continuation.resume(returning: allowed)
+            }
+        }
+        #expect(granted == [.cookies])
+    }
+
     @Test func recordsErrorForInvalidManifestAndKeepsLoadingOthers() async throws {
         guard #available(macOS 15.4, *) else { return }
         let root = try Self.makeExtensionsRoot()

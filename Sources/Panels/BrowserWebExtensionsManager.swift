@@ -125,8 +125,11 @@ final class BrowserWebExtensionsManager: NSObject {
 
 @available(macOS 15.4, *)
 extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
-    // Runtime requests for optional permissions are granted without prompting;
-    // installing the extension is the consent gate.
+    // Runtime permission requests are granted without prompting, but only for
+    // what the manifest declares (`permissions`/`host_permissions` plus
+    // `optional_permissions`/`optional_host_permissions`); installing the
+    // extension is the consent gate for exactly that declared set. Anything
+    // outside the manifest is denied.
     func webExtensionController(
         _ controller: WKWebExtensionController,
         promptForPermissions permissions: Set<WKWebExtension.Permission>,
@@ -134,7 +137,9 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping (Set<WKWebExtension.Permission>, Date?) -> Void
     ) {
-        completionHandler(permissions, nil)
+        let declared = extensionContext.webExtension.requestedPermissions
+            .union(extensionContext.webExtension.optionalPermissions)
+        completionHandler(permissions.intersection(declared), nil)
     }
 
     func webExtensionController(
@@ -144,7 +149,9 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping (Set<URL>, Date?) -> Void
     ) {
-        completionHandler(urls, nil)
+        let declared = Self.declaredMatchPatterns(of: extensionContext.webExtension)
+        let allowed = urls.filter { url in declared.contains { $0.matches(url) } }
+        completionHandler(allowed, nil)
     }
 
     func webExtensionController(
@@ -154,6 +161,13 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping (Set<WKWebExtension.MatchPattern>, Date?) -> Void
     ) {
-        completionHandler(matchPatterns, nil)
+        let declared = Self.declaredMatchPatterns(of: extensionContext.webExtension)
+        let allowed = matchPatterns.filter { requested in declared.contains { $0.matches(requested) } }
+        completionHandler(allowed, nil)
+    }
+
+    private static func declaredMatchPatterns(of webExtension: WKWebExtension) -> Set<WKWebExtension.MatchPattern> {
+        webExtension.requestedPermissionMatchPatterns
+            .union(webExtension.optionalPermissionMatchPatterns)
     }
 }
