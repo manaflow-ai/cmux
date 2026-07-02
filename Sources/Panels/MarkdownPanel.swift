@@ -272,10 +272,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if mode == .text {
             focus()
         } else {
-            // Toggling back to rendered preview drops the NSTextView find bar. Clear the
-            // optimistic `isFindVisible` shadow state (and any queued action) so "Hide Find
-            // Bar" does not stay enabled over a preview where `performTextFinderAction`
-            // early-returns, mirroring `close()`.
+            // Toggling back to rendered preview drops the find bar; clear the optimistic
+            // `isFindVisible` (and any queued action) here, mirroring `close()`.
             isFindVisible = false
             pendingTextFinderAction = nil
         }

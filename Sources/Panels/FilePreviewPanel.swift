@@ -1185,11 +1185,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard previewMode != mode else { return }
         if mode != .text {
             textLoadGeneration += 1
-            // Leaving text mode tears down the NSTextView and its find bar. The optimistic
-            // `isFindVisible` shadow state (and any queued action) must not linger: once
-            // `previewMode != .text`, `performTextFinderAction` early-returns without clearing
-            // it, so a stale `true` would keep "Hide Find Bar" enabled over a preview where the
-            // command is a no-op. Reset it here, mirroring `close()`.
+            // Leaving text mode tears down the find bar; once `previewMode != .text`,
+            // `performTextFinderAction` early-returns without clearing the optimistic
+            // `isFindVisible`, so reset it (and any queued action) here, mirroring `close()`.
             isFindVisible = false
             pendingTextFinderAction = nil
         }
