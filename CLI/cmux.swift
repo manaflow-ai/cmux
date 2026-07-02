@@ -30720,6 +30720,24 @@ export default CMUXSessionRestore;
                 return
             }
 
+            // A turn-complete notification while Antigravity still reports active
+            // background work (fullyIdle=false) is an intermediate event, not a
+            // turn boundary — the same invariant the stop lane enforces. Skip the
+            // send AND the dedupe fingerprint: sending a gated payload here would
+            // mark the idle fingerprint and swallow the real fullyIdle completion.
+            if summary.notifyCategory == .turnComplete, hasActiveAntigravityBackgroundWork() {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.notification.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=backgroundWorkPendingTurnComplete",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+                print("{}")
+                return
+            }
+
             let staleIdleNotificationHasNewerRunningSession = summary.status == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             if staleIdleNotificationHasNewerRunningSession {
