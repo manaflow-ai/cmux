@@ -63,7 +63,7 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
             "_cmux_codex_retry_pipe=\"\"",
             "if [ \"$_cmux_codex_retry_status\" -eq 0 ]; then exit 0; fi",
             "if [ \"$_cmux_codex_retry_attempt\" -ge \"$_cmux_codex_retry_limit\" ]; then exit \"$_cmux_codex_retry_status\"; fi",
-            "case \"$_cmux_codex_retry_output\" in *\"database is locked\"*|*\"another Codex process is using its local data\"*|*\"failed to initialize sqlite state db\"*) ;; *) exit \"$_cmux_codex_retry_status\" ;; esac",
+            "case \"$_cmux_codex_retry_output\" in *\"database is locked\"*|*\"another Codex process is using its local data\"*) ;; *) exit \"$_cmux_codex_retry_status\" ;; esac",
             "case \"$_cmux_codex_retry_attempt\" in 1) _cmux_codex_retry_delay=\"0.$((150 + (RANDOM % 100)))\" ;; 2) _cmux_codex_retry_delay=\"0.$((300 + (RANDOM % 150)))\" ;; *) _cmux_codex_retry_delay=\"0.$((600 + (RANDOM % 250)))\" ;; esac",
             "sleep \"$_cmux_codex_retry_delay\"",
             "_cmux_codex_retry_attempt=$((_cmux_codex_retry_attempt + 1))",
