@@ -75,6 +75,7 @@ extension VerticalTabsSidebar {
             name: group.name,
             iconSymbol: effectiveIcon,
             tintHex: effectiveColor,
+            storedColorHex: group.customColor,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
@@ -184,6 +185,21 @@ extension VerticalTabsSidebar {
             },
             onOpenDocs: {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
+            },
+            onSetColor: { [weak tabManager, groupId = group.id] hex in
+                tabManager?.setWorkspaceGroupColor(groupId: groupId, hex: hex)
+            },
+            onChooseCustomColor: { [weak tabManager, groupId = group.id] in
+                guard let tabManager else { return }
+                // Resolve the current override live: the header is .equatable()
+                // and closures are excluded from ==, so a captured hex could go
+                // stale across a same-count group mutation.
+                let currentHex = tabManager.workspaceGroups.first(where: { $0.id == groupId })?.customColor
+                presentSidebarWorkspaceGroupColorPrompt(
+                    tabManager: tabManager,
+                    groupId: groupId,
+                    currentHex: currentHex
+                )
             }
         )
         .equatable()

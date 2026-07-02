@@ -41,6 +41,66 @@ func presentSidebarWorkspaceGroupRenamePrompt(
     tabManager.renameWorkspaceGroup(groupId: groupId, name: input.stringValue)
 }
 
+/// Prompts for a custom hex color for a workspace group and applies it through
+/// the shared `TabManager.setWorkspaceGroupColor` mutation path. Mirrors the
+/// per-workspace custom-color prompt: validates via `WorkspaceTabColorSettings`
+/// and surfaces an invalid-color warning on bad input.
+@MainActor
+func presentSidebarWorkspaceGroupColorPrompt(
+    tabManager: TabManager,
+    groupId: UUID,
+    currentHex: String?
+) {
+    let alert = NSAlert()
+    alert.messageText = String(
+        localized: "workspaceGroup.contextMenu.color",
+        defaultValue: "Group Color"
+    )
+    alert.informativeText = String(
+        localized: "alert.customColor.message",
+        defaultValue: "Enter a hex color in the format #RRGGBB."
+    )
+    alert.addButton(
+        withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply")
+    )
+    alert.addButton(
+        withTitle: String(localized: "common.cancel", defaultValue: "Cancel")
+    )
+    let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+    input.stringValue = currentHex ?? ""
+    input.placeholderString = "#1565C0"
+    alert.accessoryView = input
+
+    let alertWindow = alert.window
+    alertWindow.initialFirstResponder = input
+    DispatchQueue.main.async {
+        alertWindow.makeFirstResponder(input)
+        input.selectText(nil)
+    }
+
+    let response = runCmuxModalAlert(alert)
+    guard response == .alertFirstButtonReturn else { return }
+    guard let normalized = WorkspaceTabColorSettings.normalizedHex(input.stringValue) else {
+        presentSidebarWorkspaceGroupInvalidColorAlert()
+        return
+    }
+    tabManager.setWorkspaceGroupColor(groupId: groupId, hex: normalized)
+}
+
+/// Warning shown when the group color prompt receives an invalid hex value.
+@MainActor
+private func presentSidebarWorkspaceGroupInvalidColorAlert() {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = String(localized: "alert.invalidColor.title", defaultValue: "Invalid Color")
+    alert.informativeText = String(
+        localized: "alert.invalidColor.emptyMessage",
+        defaultValue: "Enter a hex color in the format #RRGGBB."
+    )
+    alert.addButton(withTitle: String(localized: "alert.invalidColor.ok", defaultValue: "OK"))
+    _ = runCmuxModalAlert(alert)
+}
+
 /// Confirmation dialog for destructive group deletion.
 @MainActor
 func confirmDeleteWorkspaceGroup(groupName: String, otherMemberCount: Int) -> Bool {
