@@ -5574,9 +5574,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyPairingFailure(category ?? .unknown(host: nil, port: nil), phase: phase)
             return
         }
-        if let category {
-            pairingChecklist = pairingChecklist.applyingFailure(category, phase: phase)
-        }
+        // `connect()` already applied the checklist with the phase that failed
+        // (`.routeSelection` for `.noSupportedRoute`); re-applying with `.connect`
+        // would wrongly mark the network row succeeded, so only record analytics.
         recordPairingFailed(reason: category?.analyticsReason ?? "other", phase: phase)
     }
 
