@@ -1101,6 +1101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // True while remote tmux kill-before-quit owns the terminate reply.
     private var isAwaitingTerminateKills = false
     private var terminateKillWatchdogTask: Task<Void, Never>?
+    /// Hard deadline that force-exits if AppKit's terminate gauntlet wedges on an
+    /// observer we don't own (e.g. CFPasteboardResolveAllPromisedData, #6758).
+    private let terminationWatchdog = TerminationWatchdog()
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
@@ -1875,6 +1878,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
+        // Quit is committed and the critical state is now on disk. Bound the
+        // remainder of the terminate sequence so a blocked Apple will-terminate
+        // observer (e.g. CFPasteboardResolveAllPromisedData, #6758) can't hang
+        // the main thread for ~30s. Idempotent and a no-op if the process exits
+        // first.
+        terminationWatchdog.arm()
     }
 
     private func presentQuitConfirmationAlert(
@@ -1988,16 +1997,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
-        sentryStopMemoryContextRefresh()
+        // Backstop for any terminate path that did not route through
+        // prepareForConfirmedAppTermination() (idempotent with the primary arm).
+        // Apple's promised-pasteboard observer can fire before this delegate
+        // method, so the primary arm above is what bounds #6758; this only
+        // widens coverage to other entrypoints.
         isTerminatingApp = true
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        ClosedItemHistoryStore.shared.flushPendingSaves()
+        terminationWatchdog.arm()
+        sentryStopMemoryContextRefresh()
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
         remoteTmuxController.detachAll()
         // Best-effort presence goodbye; unclean exits are covered by the
         // service's missed-heartbeat timeout.
         PresenceHeartbeatClient.shared.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        ClosedItemHistoryStore.shared.flushPendingSaves()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
@@ -2056,7 +2071,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
-        agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSession(titleChange: $0) }
+        agentChatTranscriptService.start()
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded()
@@ -2097,6 +2112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.paneMemoryGuardrailDescriptors() ?? []
         }
         guardrail.onSystemMemoryPressure = { [weak self] in
+            RendererRealizationController.shared.reclaimForSystemMemoryPressure(now: Date())
             self?.discardHiddenBrowserWebViewsForSystemMemoryPressure()
         }
         guardrail.start()
@@ -5142,6 +5158,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         guard let located = locateBonsplitSurface(tabId: tabId) else {
+            // The tab isn't in any workspace pane tree — it may be a Dock tab
+            // being dragged out into the main split area. Route the live panel
+            // out of its Dock and into the destination workspace.
+            if let dockSource = locateDockSurface(tabId: tabId) {
+                return moveDockSurfaceToWorkspace(
+                    sourceDock: dockSource.dock,
+                    panelId: dockSource.panelId,
+                    toWorkspace: targetWorkspaceId,
+                    targetPane: targetPane,
+                    targetIndex: targetIndex,
+                    splitTarget: splitTarget,
+                    focus: focus,
+                    focusWindow: focusWindow
+                )
+            }
 #if DEBUG
             cmuxDebugLog(
                 "surface.moveBonsplit.fail tab=\(tabId.uuidString.prefix(5)) reason=tabNotFound " +
@@ -8691,7 +8722,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func applyUpdateIfAvailable(_ sender: Any?) {
         updateController.model.setOverrideState(nil)
-        updateController.installUpdate()
+        updateController.attemptUpdate() // re-resolve to the latest version at install time (#6366)
     }
 
     @objc func attemptUpdate(_ sender: Any?) {
@@ -12759,6 +12790,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?"),
             String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
             String(localized: "dialog.closeOtherTabs.title", defaultValue: "Close other tabs?"),
+            String(localized: "dialog.closePane.title", defaultValue: "Close pane?"),
             String(localized: "dialog.closeWindow.title", defaultValue: "Close window?"),
         ]
         let closeConfirmationPanel = NSApp.windows
@@ -13102,7 +13134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        if shouldBypassPrintableOptionTextForShortcutRouting(event: event) {
             return false
         }
 
@@ -13518,6 +13550,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        if matchConfiguredShortcut(event: event, action: .newWorkspaceGroup) {
+            return createEmptyWorkspaceGroup(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+            )
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleFocusedWorkspaceGroupCollapsed) {
             // Only consume the event when the toggle actually fired (focused
             // workspace was in a group). Otherwise fall through so a rebinding
@@ -13571,6 +13609,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 targetWindow.performClose(nil)
                 return true
             } else {
+                if closeFocusedDockPanelForCommand(preferredWindow: mainWindowForFocusedCloseShortcut(event: event)) { return true }
                 if let routedManager {
 #if DEBUG
                     let selectedWorkspace = routedManager.selectedWorkspace
@@ -13615,9 +13654,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Numeric shortcuts for specific workspaces (9 = last workspace)
         // Always consume the event when the digit matches to prevent Ghostty's
         // goto_tab fallback from creating a new window when the index is out of bounds.
-        if shortcutWhenClauseAllows(action: .selectWorkspaceByNumber, event: event),
-           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
-            if let manager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
+        if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
+            if let manager = tabManagerForNumberedShortcut(event: event),
                let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
                 cmuxDebugLog(
@@ -13631,12 +13669,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Numeric shortcuts for surfaces: focused pane in split layout,
         // workspace Canvas order in Canvas layout (9 = last).
-        if shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event),
-           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+        if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+            let manager = tabManagerForNumberedShortcut(event: event)
             if digit == 9 {
-                (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectLastSurface()
+                manager?.selectLastSurface()
             } else {
-                (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectSurface(at: digit - 1)
+                manager?.selectSurface(at: digit - 1)
             }
             return true
         }
@@ -13727,6 +13765,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            // When the Dock owns keyboard focus, split the focused Dock pane
+            // instead of the main area (checked before the transient-focus
+            // suppression, which only guards main-terminal states).
+            if routeSplitToFocusedDock(kind: .terminal, direction: .right, preferredWindow: event.window) {
+                return true
+            }
             if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {
                 return true
             }
@@ -13741,6 +13785,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            if routeSplitToFocusedDock(kind: .terminal, direction: .down, preferredWindow: event.window) {
+                return true
+            }
             if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .down) {
                 return true
             }
@@ -13755,6 +13802,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitBrowserRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            if routeSplitToFocusedDock(kind: .browser, direction: .right, preferredWindow: event.window) {
+                return true
+            }
             _ = performBrowserSplitShortcut(direction: .right)
             return true
         }
@@ -13763,6 +13813,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitBrowserDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            if routeSplitToFocusedDock(kind: .browser, direction: .down, preferredWindow: event.window) {
+                return true
+            }
             _ = performBrowserSplitShortcut(direction: .down)
             return true
         }
@@ -13779,12 +13832,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // New surface: Cmd+T
         if matchConfiguredShortcut(event: event, action: .newSurface) {
+            if routeCreateToFocusedDock(.terminal, focusAddressBar: false, preferredWindow: event.window) != nil {
+                return true
+            }
             tabManager?.newSurface()
             return true
         }
 
         // Open browser: Cmd+Shift+L
         if matchConfiguredShortcut(event: event, action: .openBrowser) {
+            if routeCreateToFocusedDock(.browser, focusAddressBar: true, preferredWindow: event.window) != nil {
+                return true
+            }
             _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
             return true
         }
@@ -14176,7 +14235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )?.id
     }
 
-    private func focusBrowserAddressBar(in panel: BrowserPanel) {
+    func focusBrowserAddressBar(in panel: BrowserPanel) {
 #if DEBUG
         let requestId = panel.requestAddressBarFocus(selectionIntent: .selectAll)
         cmuxDebugLog(
@@ -14681,6 +14740,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
+    /// Route numbered workspace/surface key-equivalent fallbacks through the same
+    /// app shortcut dispatcher before terminal-owned non-Command keys go to Ghostty.
+    @discardableResult
+    func handleRoutableNumberedShortcutKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard eventCouldMatchNumberedShortcutDigit(event) else {
+            return false
+        }
+        guard routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) != nil ||
+            routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil else {
+            return false
+        }
+        return handleCustomShortcut(event: event)
+    }
+
     /// WebKit can consume the configured Find shortcut as a browser find key equivalent before SwiftUI
     /// command actions run. Keep this pre-menu route narrow so normal menu-backed
     /// browser shortcuts such as New Workspace, Close Tab, and Reload Page still use AppKit.
@@ -14721,6 +14794,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         tabManager.toggleWorkspaceGroupCollapsed(groupId: groupId)
         return true
+    }
+
+    @discardableResult
+    func createEmptyWorkspaceGroup(tabManager explicitTabManager: TabManager? = nil, preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let resolvedTabs: TabManager? = explicitTabManager ?? contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
+        guard let tabs = resolvedTabs, tabs.selectedTab?.isRemoteTmuxMirror != true else { return false }
+        return tabs.createWorkspaceGroup(name: "") != nil
     }
 
     @discardableResult
@@ -14982,6 +15063,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
         return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
+    }
+
+    private func routableNumberedConfiguredShortcutDigit(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> Int? {
+        if let digit = numberedConfiguredShortcutDigit(event: event, action: action), shortcutWhenClauseAllows(action: action, event: event) { return digit }
+        return nil
+    }
+
+    fileprivate func shouldBypassPrintableOptionTextForShortcutRouting(event: NSEvent) -> Bool {
+        guard shortcutRoutingShouldBypassForPrintableOptionText(event: event) else {
+            return false
+        }
+
+        if routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) != nil {
+            return false
+        }
+
+        if routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil {
+            return false
+        }
+
+        return true
+    }
+
+    private func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
+        preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
     }
 
     private func matchConfiguredDirectionalShortcut(
@@ -15444,6 +15553,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         guard let digit = Int(normalized), (1...9).contains(digit) else { return nil }
         return digit
+    }
+
+    private func eventCouldMatchNumberedShortcutDigit(_ event: NSEvent) -> Bool {
+        if digitForNumberKeyCode(event.keyCode) != nil {
+            return true
+        }
+        return numberedShortcutDigit(
+            eventCharacter: event.charactersIgnoringModifiers,
+            applyShiftSymbolNormalization: false,
+            eventKeyCode: event.keyCode
+        ) != nil
     }
 
     private func normalizedShortcutEventCharacter(
@@ -17122,7 +17242,7 @@ private extension NSWindow {
             return true
         }
         let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        if AppDelegate.shared?.shouldBypassPrintableOptionTextForShortcutRouting(event: event) == true {
             if browserWebKitKeyDownReentry { return false }
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
@@ -17188,6 +17308,10 @@ private extension NSWindow {
 
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
+                if AppDelegate.shared?.handleRoutableNumberedShortcutKeyEquivalent(event) == true {
+                    return true
+                }
+
                 if shouldDispatchTerminalArrowViaFirstResponderKeyDown(
                     keyCode: event.keyCode,
                     firstResponderIsTerminal: true,
