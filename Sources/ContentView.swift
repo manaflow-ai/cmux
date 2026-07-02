@@ -1920,8 +1920,8 @@ struct ContentView: View {
             onResumeSession: { entry in
                 resumeSession(entry: entry)
             },
-            onOpenFilePreview: { filePath in
-                openFilePreviewFromSidebar(filePath: filePath)
+            onOpenFilePreview: { request in
+                openFilePreviewFromSidebar(filePath: request.path, lineNumber: request.lineNumber, columnNumber: request.columnNumber)
             },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)
@@ -2321,7 +2321,7 @@ struct ContentView: View {
         _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
     }
 
-    private func openFilePreviewFromSidebar(filePath: String) {
+    private func openFilePreviewFromSidebar(filePath: String, lineNumber: Int?, columnNumber: Int?) {
         guard let workspace = tabManager.selectedWorkspace else { return }
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
@@ -2333,9 +2333,11 @@ struct ContentView: View {
                 guard let workspace else { return }
                 do {
                     let localURL = try await fileExplorerStore.materializeRemoteFileForPreview(path: filePath)
-                    _ = workspace.openFileSurfaces(
+                    workspace.openFileSurfacesNavigatingTextPosition(
                         inPane: paneId,
-                        filePaths: [localURL.path],
+                        filePath: localURL.path,
+                        lineNumber: lineNumber,
+                        columnNumber: columnNumber,
                         focus: true,
                         reuseExisting: true
                     )
@@ -2345,9 +2347,11 @@ struct ContentView: View {
             }
             return
         }
-        _ = workspace.openFileSurfaces(
+        workspace.openFileSurfacesNavigatingTextPosition(
             inPane: paneId,
-            filePaths: [filePath],
+            filePath: filePath,
+            lineNumber: lineNumber,
+            columnNumber: columnNumber,
             focus: true,
             reuseExisting: true
         )

@@ -86,7 +86,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         }
     }
 
-    func openFilePreview(_ filePath: String) {
+    func openFilePreview(_ request: (path: String, lineNumber: Int?, columnNumber: Int?)) {
+        let filePath = request.path
+        let lineNumber = request.lineNumber
+        let columnNumber = request.columnNumber
         guard let workspace,
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
@@ -97,9 +100,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                 guard let workspace, let store else { return }
                 do {
                     let localURL = try await store.materializeRemoteFileForPreview(path: filePath)
-                    _ = workspace.openFileSurfaces(
+                    workspace.openFileSurfacesNavigatingTextPosition(
                         inPane: paneId,
-                        filePaths: [localURL.path],
+                        filePath: localURL.path,
+                        lineNumber: lineNumber,
+                        columnNumber: columnNumber,
                         focus: true,
                         reuseExisting: true
                     )
@@ -109,9 +114,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             }
             return
         }
-        _ = workspace.openFileSurfaces(
+        workspace.openFileSurfacesNavigatingTextPosition(
             inPane: paneId,
-            filePaths: [filePath],
+            filePath: filePath,
+            lineNumber: lineNumber,
+            columnNumber: columnNumber,
             focus: true,
             reuseExisting: true
         )

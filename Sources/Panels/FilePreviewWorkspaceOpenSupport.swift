@@ -3,6 +3,36 @@ import Foundation
 
 extension Workspace {
     @discardableResult
+    func openFileSurfacesNavigatingTextPosition(
+        inPane paneId: PaneID,
+        filePath: String,
+        lineNumber: Int?,
+        columnNumber: Int?,
+        focus: Bool? = nil,
+        reuseExisting: Bool = false
+    ) -> [any Panel] {
+        let openedPanels = openFileSurfaces(
+            inPane: paneId,
+            filePaths: [filePath],
+            focus: focus,
+            reuseExisting: reuseExisting
+        )
+        // Line/column navigation applies only to plain-text file previews. The same
+        // path may instead route to a Markdown render surface or an Xcode project
+        // surface (see `openFileSurfaces`), neither of which has a selectable text
+        // position, so for those the navigation request is intentionally a no-op.
+        // Routing is covered by `searchNavigationPreservesMarkdownSurfaceRouting` and
+        // `searchNavigationPreservesXcodeProjectSurfaceRouting`.
+        for panel in openedPanels {
+            (panel as? FilePreviewPanel)?.navigateToTextPosition(
+                lineNumber: lineNumber,
+                columnNumber: columnNumber
+            )
+        }
+        return openedPanels
+    }
+
+    @discardableResult
     func openFileSurfaces(
         inPane paneId: PaneID,
         filePaths: [String],

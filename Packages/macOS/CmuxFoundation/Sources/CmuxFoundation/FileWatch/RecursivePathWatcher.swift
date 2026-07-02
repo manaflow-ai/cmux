@@ -38,6 +38,9 @@ public actor RecursivePathWatcher {
     /// recreating an equivalent watcher.
     public nonisolated let watchedPaths: [String]
 
+    /// Descendant paths excluded by the underlying `FSEventStream`.
+    public nonisolated let excludedPaths: [String]
+
     /// Stream of coalesced change events. Yields one element per throttle window
     /// in which at least one filesystem event affected a watched path. Finishes
     /// when ``stop()`` is called or the watcher is deallocated.
@@ -63,6 +66,8 @@ public actor RecursivePathWatcher {
     ///
     /// - Parameters:
     ///   - paths: The files and directories to watch. Must be non-empty.
+    ///   - excludedPaths: Descendant paths to suppress at the `FSEventStream`
+    ///     level before they reach the watcher's throttle.
     ///   - clock: The clock driving the coalescing throttle. Defaults to
     ///     ``SystemFileWatchClock``.
     /// - Returns: `nil` if `paths` is empty or the underlying `FSEventStream`
@@ -70,10 +75,13 @@ public actor RecursivePathWatcher {
     ///   listening.
     public init?(
         paths: [String],
+        excludedPaths: [String] = [],
         clock: any FileWatchClock = SystemFileWatchClock()
     ) {
         guard !paths.isEmpty else { return nil }
+        let effectiveExcludedPaths = Array(excludedPaths.prefix(FileSystemEventStream.maximumExclusionPathCount))
         self.watchedPaths = paths
+        self.excludedPaths = effectiveExcludedPaths
         self.clock = clock
         let (events, eventsContinuation) = AsyncStream<Void>.makeStream()
         self.events = events
@@ -86,6 +94,7 @@ public actor RecursivePathWatcher {
         // actor mid-init.
         guard let eventStream = FileSystemEventStream(
             paths: paths,
+            excludedPaths: effectiveExcludedPaths,
             latency: Self.streamLatency,
             onEvent: { rawContinuation.yield(()) }
         ) else {
@@ -112,6 +121,7 @@ public actor RecursivePathWatcher {
     /// with an injected clock and no real filesystem dependency.
     init(testThrottleClock clock: any FileWatchClock) {
         self.watchedPaths = []
+        self.excludedPaths = []
         self.clock = clock
         let (events, eventsContinuation) = AsyncStream<Void>.makeStream()
         self.events = events

@@ -752,10 +752,47 @@ final class FileExplorerStore: ObservableObject {
     /// Whether hidden files are shown. Set from FileExplorerState externally.
     var showHiddenFiles: Bool = false
 
-    /// Watches the root directory for filesystem changes (local only).
-    private var directoryWatcher: FileWatcher?
+    /// Watches the root directory recursively for filesystem changes (local only).
+    private var directoryWatcher: RecursivePathWatcher?
     private var directoryWatchTask: Task<Void, Never>?
-    private var directoryWatchPath: String?
+    var directoryWatchPath: String?
+
+    /// Watches the repository's `.git` metadata so status badges refresh after
+    /// metadata-only changes (`git commit`, `git add`, `git reset`) that never
+    /// touch the working tree — and so are excluded from the main tree watcher.
+    /// Kept separate because those events must refresh git status without
+    /// triggering a tree `reload()`.
+    var gitStateWatcher: RecursivePathWatcher?
+    private var gitStateWatchTask: Task<Void, Never>?
+
+    /// Short-lived bootstrap watcher used only while the opened folder is not yet
+    /// a Git repository. The main tree watcher excludes `.git`, so `git init` —
+    /// which writes only under `.git` — produces no main-watcher event, and the
+    /// git-state watcher would otherwise never be installed until an unrelated
+    /// working-tree change happened to fire. This watches the same root *without*
+    /// excluding `.git`, so `.git`'s creation is observed as an ordinary
+    /// descendant event; it installs the git-state watcher and then tears itself
+    /// down, so it never observes steady-state `.git` churn.
+    private var gitCreationWatcher: RecursivePathWatcher?
+    private var gitCreationWatchTask: Task<Void, Never>?
+
+    /// Bumped whenever the explorer root or provider changes
+    /// (``invalidateGitStatusRefresh()``). A `git status` fetch captures this at
+    /// launch; a result whose generation no longer matches is dropped, so a
+    /// slow/hung fetch for a previous workspace can neither overwrite the current
+    /// workspace's status nor block its refresh. Only read/written on the main
+    /// actor.
+    private var gitStatusContextGeneration = 0
+    /// Whether a `git status` fetch is in flight for the current context. The
+    /// recursive watcher can request a refresh once per throttle window during a
+    /// sustained filesystem storm; without this guard each request would spawn
+    /// another uncancelled `git status` process, letting slow fetches on a large
+    /// repo pile up. Only read/written on the main actor.
+    var isGitStatusRefreshInFlight = false
+    /// Set when a refresh is requested while one is already in flight, so exactly
+    /// one follow-up runs after the current fetch finishes (coalescing a burst of
+    /// requests into a single trailing refresh rather than N concurrent ones).
+    private var gitStatusRefreshRequestedWhileInFlight = false
 
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
@@ -848,6 +885,7 @@ final class FileExplorerStore: ObservableObject {
             pendingDescendIntoFirstChildPath = nil
         }
         rootPath = path
+        invalidateGitStatusRefresh()
         reload()
         refreshGitStatus()
         updateDirectoryWatcher()
@@ -856,9 +894,22 @@ final class FileExplorerStore: ObservableObject {
     func refreshGitStatus() {
         guard !rootPath.isEmpty else {
             gitStatusByPath = [:]
+            gitStatusRefreshRequestedWhileInFlight = false
             return
         }
+        // Coalesce overlapping refreshes. The recursive directory watcher can
+        // request a refresh once per throttle window during a sustained
+        // filesystem storm, and each fetch spawns an external `git status`
+        // process. Running at most one at a time — and re-running once if a
+        // request arrived mid-flight — bounds this to a single process instead
+        // of letting slow fetches on a large repo pile up.
+        if isGitStatusRefreshInFlight {
+            gitStatusRefreshRequestedWhileInFlight = true
+            return
+        }
+        isGitStatusRefreshInFlight = true
         let path = rootPath
+        let generation = gitStatusContextGeneration
         if let sshProvider = provider as? SSHFileExplorerProvider {
             let dest = sshProvider.destination
             let port = sshProvider.port
@@ -871,7 +922,7 @@ final class FileExplorerStore: ObservableObject {
                     identityFile: identity, sshOptions: opts
                 )
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    self?.applyGitStatusResult(status, generation: generation)
                 }
             }
         } else {
@@ -879,10 +930,37 @@ final class FileExplorerStore: ObservableObject {
             DispatchQueue.global(qos: .utility).async {
                 let status = gitStatusProvider.fetchStatus(directory: path)
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    self?.applyGitStatusResult(status, generation: generation)
                 }
             }
         }
+    }
+
+    /// Applies a completed `git status` result and, if a refresh was requested
+    /// while the fetch was in flight, runs exactly one coalesced follow-up so the
+    /// final state reflects the latest filesystem change without spawning
+    /// overlapping `git status` processes. Results from a fetch superseded by a
+    /// root/provider change (stale `generation`) are dropped without touching the
+    /// newer fetch's in-flight state.
+    private func applyGitStatusResult(_ status: [String: GitFileStatus], generation: Int) {
+        guard generation == gitStatusContextGeneration else { return }
+        gitStatusByPath = status
+        isGitStatusRefreshInFlight = false
+        if gitStatusRefreshRequestedWhileInFlight {
+            gitStatusRefreshRequestedWhileInFlight = false
+            refreshGitStatus()
+        }
+    }
+
+    /// Invalidates any in-flight `git status` fetch when the explorer root or
+    /// provider changes: the in-flight result is dropped (its generation no
+    /// longer matches) and the in-flight gate is released so a fetch for the new
+    /// context can start immediately instead of waiting behind a slow or hung
+    /// fetch for the previous one.
+    private func invalidateGitStatusRefresh() {
+        gitStatusContextGeneration &+= 1
+        isGitStatusRefreshInFlight = false
+        gitStatusRefreshRequestedWhileInFlight = false
     }
 
     func materializeRemoteFileForPreview(path: String) async throws -> URL {
@@ -901,30 +979,236 @@ final class FileExplorerStore: ObservableObject {
         if provider is LocalFileExplorerProvider, !rootPath.isEmpty {
             guard directoryWatchPath != rootPath || directoryWatcher == nil else { return }
             stopDirectoryWatcher()
-            // Preserve the previous 0.3s coalescing as a leading-edge throttle.
-            let watcher = FileWatcher(path: rootPath, throttle: .milliseconds(300))
+            guard let watcher = RecursivePathWatcher(
+                paths: [rootPath],
+                excludedPaths: Self.recursiveWatcherExcludedPaths(under: rootPath)
+            ) else { return }
             directoryWatcher = watcher
             directoryWatchPath = rootPath
             let events = watcher.events
+            // `events` is already leading-edge throttled by RecursivePathWatcher
+            // (one element per window even during a sustained storm), so this
+            // loop runs at a bounded rate rather than per raw filesystem event.
+            // `reload()` supersedes its own prior load via `cancelAllLoads()`,
+            // and `refreshGitStatus()` coalesces to a single in-flight process,
+            // so neither work item accumulates under churn.
             directoryWatchTask = Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
                     self.reload()
                     self.refreshGitStatus()
+                    self.installGitStateWatcherIfNeeded()
                 }
             }
+            startGitStateWatcher(under: rootPath)
+            installGitCreationWatcherIfNeeded(under: rootPath)
         } else {
             stopDirectoryWatcher()
         }
     }
 
-    /// Cancels the directory-watch consumer and drops the watcher; the watcher's
-    /// deinit cancels its `DispatchSource`s synchronously.
-    private func stopDirectoryWatcher() {
+    /// Watches the repository's Git metadata directory (minus the high-churn
+    /// `objects`/`logs` subtrees) so status badges refresh after metadata-only
+    /// changes the main tree watcher intentionally excludes. Only refreshes git
+    /// status — Git metadata writes don't change the visible file tree, so no
+    /// `reload()`. Resolves the `gitdir:` pointer when `.git` is a file (the
+    /// worktree/submodule layout); no-op when there is no usable `.git` entry.
+    private func startGitStateWatcher(under rootPath: String) {
+        guard let gitMetadataDirectory = Self.gitMetadataDirectory(under: rootPath) else { return }
+        let metadata = gitMetadataDirectory as NSString
+        guard let watcher = RecursivePathWatcher(
+            paths: [gitMetadataDirectory],
+            excludedPaths: [
+                metadata.appendingPathComponent("objects"),
+                metadata.appendingPathComponent("logs"),
+            ]
+        ) else { return }
+        gitStateWatcher = watcher
+        let events = watcher.events
+        gitStateWatchTask = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self else { break }
+                self.refreshGitStatus()
+            }
+        }
+    }
+
+    /// Installs the git-state watcher if a repository appeared after the folder
+    /// was opened (e.g. `git init`, or adding a worktree/submodule). The main
+    /// tree watcher excludes `.git`, so its creation isn't observed directly;
+    /// instead this re-checks on the next working-tree event and starts watching
+    /// metadata once `.git` exists. A no-op once the watcher is installed or
+    /// while the folder still isn't a repository.
+    func installGitStateWatcherIfNeeded() {
+        guard gitStateWatcher == nil, let watchPath = directoryWatchPath else { return }
+        startGitStateWatcher(under: watchPath)
+        // Once the repository exists the git-state watcher owns `.git`, so the
+        // bootstrap creation watcher (whichever code path installed the metadata
+        // watcher) has done its job and must stop before it observes churn.
+        if gitStateWatcher != nil {
+            stopGitCreationWatcher()
+            // The git-state watcher only refreshes on *subsequent* `.git` changes.
+            // A repository that appeared after the folder was opened (`git init`)
+            // has already finished writing its initial metadata by the time this
+            // installs, so without an eager refresh the badges would stay empty
+            // until some unrelated change fired. The already-a-repo path gets the
+            // same eager refresh from `setRootPath`; `refreshGitStatus()` coalesces,
+            // so the redundant call from the main-watcher entrypoint (which just
+            // refreshed) collapses into a single `git status` process.
+            refreshGitStatus()
+        }
+    }
+
+    /// Installs the ``gitCreationWatcher`` bootstrap watcher when the opened
+    /// folder is not yet a repository, so a later `git init` is observed even
+    /// though the main tree watcher excludes `.git`. Unlike the main watcher this
+    /// one does *not* exclude `.git`, so `.git`'s creation reaches its throttle;
+    /// its handler installs the git-state watcher and then tears the bootstrap
+    /// watcher down. A no-op once the repository exists (the git-state watcher is
+    /// already installed) or once a bootstrap watcher is already running.
+    private func installGitCreationWatcherIfNeeded(under rootPath: String) {
+        guard gitStateWatcher == nil, gitCreationWatcher == nil else { return }
+        guard let watcher = RecursivePathWatcher(
+            paths: [rootPath],
+            excludedPaths: Self.gitCreationWatcherExcludedPaths(under: rootPath)
+        ) else { return }
+        gitCreationWatcher = watcher
+        let events = watcher.events
+        gitCreationWatchTask = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self else { break }
+                self.installGitStateWatcherIfNeeded()
+                // `installGitStateWatcherIfNeeded()` stops this watcher once the
+                // metadata watcher is installed; break so the loop ends promptly
+                // even before the finished stream drains.
+                if self.gitStateWatcher != nil { break }
+            }
+        }
+    }
+
+    /// Cancels the bootstrap creation-watch consumer and drops the watcher; its
+    /// deinit tears down the filesystem stream synchronously. Idempotent.
+    private func stopGitCreationWatcher() {
+        gitCreationWatchTask?.cancel()
+        gitCreationWatchTask = nil
+        gitCreationWatcher = nil
+    }
+
+    /// Maximum bytes read from a non-directory `.git` entry. A real `gitdir:`
+    /// pointer is tiny (`gitdir: <path>`); the cap stops a huge
+    /// workspace-controlled `.git` regular file from hanging the UI or
+    /// exhausting memory during watcher setup on the main actor.
+    private static let maximumGitPointerFileBytes = 64 * 1024
+
+    /// Reads up to ``maximumGitPointerFileBytes`` from the `.git` pointer file at
+    /// `path`, so a malformed or malicious oversized file can't be loaded whole.
+    ///
+    /// Only a regular file holds a real `gitdir:` pointer. A repository-controlled
+    /// `.git` entry can be a FIFO, socket, or device, and opening one for reading
+    /// can block indefinitely on `open()` (a reader blocks until a FIFO writer
+    /// appears), hanging watcher setup on the main actor before the byte cap above
+    /// can ever apply. `stat` follows symlinks — matching the
+    /// `fileExists(atPath:isDirectory:)` probe in ``gitMetadataDirectory(under:)``,
+    /// so a legitimate `.git` symlink to a regular pointer file still resolves —
+    /// and never blocks, so reject anything that is not a regular file up front.
+    private static func readGitPointerFile(at path: String) -> String? {
+        var info = stat()
+        guard stat(path, &info) == 0,
+              (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG)
+        else {
+            return nil
+        }
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
+            return nil
+        }
+        let data = try? handle.read(upToCount: maximumGitPointerFileBytes)
+        try? handle.close()
+        guard let data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Resolves the directory holding the repository's Git metadata for
+    /// `rootPath`. When `.git` is a directory it is the metadata directory; when
+    /// `.git` is a file (the layout Git uses for worktrees and submodules, where
+    /// `git add`/`commit`/`reset` update an external gitdir) its `gitdir:`
+    /// pointer is followed and resolved — relative targets against `rootPath`.
+    ///
+    /// The resolved candidate is validated to actually look like Git metadata
+    /// before being returned: a `.git` file's pointer (and a `.git` symlink) is
+    /// repository-controlled, so without this check a checked-out workspace could
+    /// aim `gitdir:` at `/`, a home directory, or another large/sensitive tree
+    /// and make cmux watch it recursively. Returns nil when there is no `.git`
+    /// entry, the resolved target is not a directory, or it lacks the Git
+    /// metadata shape.
+    static func gitMetadataDirectory(under rootPath: String) -> String? {
+        let gitPath = (rootPath as NSString).appendingPathComponent(".git")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: gitPath, isDirectory: &isDirectory) else {
+            return nil
+        }
+
+        let candidate: String
+        if isDirectory.boolValue {
+            candidate = gitPath
+        } else {
+            guard let contents = Self.readGitPointerFile(at: gitPath) else {
+                return nil
+            }
+            let gitdirPrefix = "gitdir:"
+            let pointerLine = contents
+                .split(whereSeparator: { $0.isNewline })
+                .lazy
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { $0.hasPrefix(gitdirPrefix) }
+            guard let pointerLine else { return nil }
+            let target = String(pointerLine.dropFirst(gitdirPrefix.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !target.isEmpty else { return nil }
+            let absoluteTarget = (target as NSString).isAbsolutePath
+                ? target
+                : (rootPath as NSString).appendingPathComponent(target)
+            // Resolve `.`/`..` lexically without touching symlinks so the watched
+            // path stays consistent with `rootPath`'s own representation.
+            candidate = URL(fileURLWithPath: absoluteTarget).standardizedFileURL.path
+        }
+
+        var candidateIsDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate, isDirectory: &candidateIsDirectory),
+              candidateIsDirectory.boolValue,
+              Self.isPlausibleGitMetadataDirectory(candidate) else {
+            return nil
+        }
+        return candidate
+    }
+
+    /// Whether `path` has the shape of a Git metadata directory: a `HEAD` file
+    /// plus either a `config` (main checkout or submodule) or a `commondir`
+    /// (linked worktree). Used to reject repository-controlled `gitdir:` pointers
+    /// or `.git` symlinks that aim at arbitrary, non-Git directories.
+    private static func isPlausibleGitMetadataDirectory(_ path: String) -> Bool {
+        let directory = path as NSString
+        func containsFile(_ name: String) -> Bool {
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent(name),
+                isDirectory: &isDirectory
+            ) && !isDirectory.boolValue
+        }
+        guard containsFile("HEAD") else { return false }
+        return containsFile("config") || containsFile("commondir")
+    }
+
+    /// Cancels the directory-watch consumers and drops the watchers; each
+    /// watcher's deinit tears down its filesystem stream synchronously.
+    func stopDirectoryWatcher() {
         directoryWatchTask?.cancel()
         directoryWatchTask = nil
         directoryWatcher = nil
         directoryWatchPath = nil
+        gitStateWatchTask?.cancel()
+        gitStateWatchTask = nil
+        gitStateWatcher = nil
+        stopGitCreationWatcher()
     }
 
     private func setProvider(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
@@ -932,6 +1216,7 @@ final class FileExplorerStore: ObservableObject {
         NSLog("[FileExplorer] setProvider: \(type(of: newProvider).self) available=\(newProvider?.isAvailable ?? false)")
         #endif
         provider = newProvider
+        invalidateGitStatusRefresh()
         // Re-expand previously expanded nodes if provider becomes available
         if reloadIfAvailable, newProvider?.isAvailable == true {
             reload()
@@ -1291,6 +1576,43 @@ final class FileExplorerStore: ObservableObject {
         return trimmed
     }
 
+    static func recursiveWatcherExcludedPaths(under rootPath: String) -> [String] {
+        let rootURL = URL(fileURLWithPath: rootPath).standardizedFileURL
+        let ignoredDirectoryNames = [
+            ".build",
+            ".git",
+            ".next",
+            ".swiftpm",
+            "DerivedData",
+            "build",
+            "dist",
+            "node_modules",
+        ]
+        return ignoredDirectoryNames
+            .map { rootURL.appendingPathComponent($0, isDirectory: true).path }
+            .sorted()
+    }
+
+    /// The root-level `.git` path as the exclusion list represents it, so the two
+    /// stay in lockstep (same `standardizedFileURL` construction) and the filter
+    /// in ``gitCreationWatcherExcludedPaths(under:)`` matches exactly.
+    static func rootLevelGitPath(under rootPath: String) -> String {
+        URL(fileURLWithPath: rootPath)
+            .standardizedFileURL
+            .appendingPathComponent(".git", isDirectory: true)
+            .path
+    }
+
+    /// Exclusions for the ``gitCreationWatcher`` bootstrap watcher: the same
+    /// high-churn directories the main tree watcher ignores, *except* `.git`
+    /// itself — whose creation is precisely the event this watcher exists to
+    /// observe. Keeping the other exclusions means it stays cheap while it waits
+    /// for a folder that may never become a repository.
+    static func gitCreationWatcherExcludedPaths(under rootPath: String) -> [String] {
+        let gitPath = rootLevelGitPath(under: rootPath)
+        return recursiveWatcherExcludedPaths(under: rootPath).filter { $0 != gitPath }
+    }
+
     private static func remotePreviewCacheURL(displayTarget: String, remotePath: String) -> URL {
         let cacheRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-remote-file-previews", isDirectory: true)
@@ -1313,5 +1635,6 @@ final class FileExplorerStore: ObservableObject {
     deinit {
         cancelRemoteHomeResolution()
         directoryWatchTask?.cancel()
+        gitCreationWatchTask?.cancel()
     }
 }

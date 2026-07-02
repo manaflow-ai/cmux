@@ -2,9 +2,16 @@ import AppKit
 import CmuxSettings
 import CmuxWorkspaces
 
+typealias FileExplorerPreviewOpenHandler = ((path: String, lineNumber: Int?, columnNumber: Int?)) -> Void
+
 /// Perform the configured action for opening a local file from the file explorer.
 @MainActor
-func performFileExplorerFileOpen(path: String, onOpenFilePreview: (String) -> Void) {
+func performFileExplorerFileOpen(
+    path: String,
+    lineNumber: Int? = nil,
+    columnNumber: Int? = nil,
+    onOpenFilePreview: FileExplorerPreviewOpenHandler
+) {
     let action = FileExplorerDoubleClickActionSettings.resolvedAction()
     let hasPreferredEditor = PreferredEditorSettingsStore(defaults: .standard).resolvedCommand != nil
     switch FileExplorerDoubleClickActionSettings.fileActivation(
@@ -12,7 +19,7 @@ func performFileExplorerFileOpen(path: String, onOpenFilePreview: (String) -> Vo
         hasPreferredEditorCommand: hasPreferredEditor
     ) {
     case .preview:
-        onOpenFilePreview(path)
+        onOpenFilePreview((path: path, lineNumber: lineNumber, columnNumber: columnNumber))
     case .defaultEditor:
         FileExternalOpenAction.openDefault(fileURL: URL(fileURLWithPath: path))
     case .preferredEditor:
@@ -41,7 +48,7 @@ extension FileExplorerPanelView.Coordinator {
         }
 
         guard store.provider is LocalFileExplorerProvider else {
-            onOpenFilePreview(node.path)
+            onOpenFilePreview((path: node.path, lineNumber: nil, columnNumber: nil))
             return
         }
         performFileExplorerFileOpen(path: node.path, onOpenFilePreview: onOpenFilePreview)

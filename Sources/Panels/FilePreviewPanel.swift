@@ -1000,6 +1000,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
     private weak var textView: NSTextView?
+    private var hasLoadedTextContent = false
+    private var pendingTextNavigation: (lineNumber: Int, columnNumber: Int)?
     private let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
@@ -1054,6 +1056,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
+        applyPendingTextNavigationIfReady()
     }
 
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
@@ -1068,6 +1071,37 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func retryPendingFocus() {
         focusCoordinator.fulfillPendingFocusIfNeeded()
+    }
+
+    @discardableResult
+    func navigateToTextPosition(lineNumber: Int?, columnNumber: Int?) -> Task<Void, Never>? {
+        // A nil line is an explicit "open without navigating" request (an ordinary file
+        // open, as opposed to a search-result open that carries a target line). It must
+        // supersede any jump still queued from an earlier search-result open whose text
+        // load has not resolved yet; otherwise that stale jump fires when the load
+        // completes and scrolls the reused panel to the old search location.
+        guard let lineNumber else {
+            pendingTextNavigation = nil
+            return nil
+        }
+        pendingTextNavigation = (
+            lineNumber: max(1, lineNumber),
+            columnNumber: max(1, columnNumber ?? 1)
+        )
+        focusCoordinator.notePreferredIntent(.textEditor)
+        _ = restoreFocusIntent(.filePreview(.textEditor))
+        if isDirty {
+            return loadTextContent(replacingDirtyContent: false)
+        }
+        applyPendingTextNavigationIfReady()
+        return nil
+    }
+
+    /// Whether a text-position jump is still queued (set by a line-carrying
+    /// `navigateToTextPosition` and consumed once the text content loads). Exposed for
+    /// tests that assert a nil-line open clears an earlier search-result jump.
+    var hasPendingTextNavigationForTesting: Bool {
+        pendingTextNavigation != nil
     }
 
     func attachPDFPreview(root: NSView, primaryResponder: NSView) {
@@ -1187,6 +1221,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard previewMode == .text else {
             return Task {}
         }
+        hasLoadedTextContent = false
         textLoadGeneration += 1
         let generation = textLoadGeneration
         let fileURL = fileURL
@@ -1208,19 +1243,30 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         switch result {
         case .unavailable:
             guard replacingDirtyContent || !isDirty else {
+                hasLoadedTextContent = true
                 isFileUnavailable = true
+                pendingTextNavigation = nil
                 return
             }
             textContent = ""
             originalTextContent = ""
             isDirty = false
             isFileUnavailable = true
+            hasLoadedTextContent = true
+            pendingTextNavigation = nil
             return
         case .loaded(let content, let encoding):
             if !replacingDirtyContent && isDirty {
+                let canApplyPendingNavigation = textContent == content
                 originalTextContent = content
                 textEncoding = encoding
                 isFileUnavailable = false
+                hasLoadedTextContent = true
+                if canApplyPendingNavigation {
+                    applyPendingTextNavigationIfReady()
+                } else {
+                    pendingTextNavigation = nil
+                }
                 return
             }
             textContent = content
@@ -1228,6 +1274,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             textEncoding = encoding
             isDirty = false
             isFileUnavailable = false
+            hasLoadedTextContent = true
+            applyPendingTextNavigationIfReady()
         }
     }
 
@@ -1279,6 +1327,64 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         case .quickLook:
             return .quickLook
         }
+    }
+
+    private func applyPendingTextNavigationIfReady() {
+        guard previewMode == .text,
+              hasLoadedTextContent,
+              let textView,
+              let pendingTextNavigation else {
+            return
+        }
+
+        if textView.string != textContent {
+            textView.string = textContent
+        }
+        let location = Self.textLocation(
+            lineNumber: pendingTextNavigation.lineNumber,
+            columnNumber: pendingTextNavigation.columnNumber,
+            in: textView.string
+        )
+        let textLength = (textView.string as NSString).length
+        let range = NSRange(location: min(location, textLength), length: 0)
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+        _ = textView.window?.makeFirstResponder(textView)
+        self.pendingTextNavigation = nil
+    }
+
+    static func textLocation(lineNumber: Int, columnNumber: Int, in text: String) -> Int {
+        var index = text.startIndex
+        var currentLine = 1
+        // Iterate by `Character` (grapheme cluster), not by Unicode scalar or byte:
+        // a `\r\n` (CRLF) sequence is a single `Character` whose `isNewline` is true
+        // exactly once, and `index(after:)` steps over both code units together. So a
+        // CRLF line ending advances `currentLine` once — never twice — keeping line
+        // numbers correct for Windows-style files.
+        while currentLine < lineNumber, index < text.endIndex {
+            let character = text[index]
+            index = text.index(after: index)
+            if character.isNewline {
+                currentLine += 1
+            }
+        }
+
+        let utf8 = text.utf8
+        guard var utf8Index = index.samePosition(in: utf8) else {
+            return index.utf16Offset(in: text)
+        }
+
+        for _ in 1..<columnNumber {
+            guard utf8Index < utf8.endIndex else { break }
+            let byte = utf8[utf8Index]
+            guard byte != 0x0A, byte != 0x0D else { break }
+            utf8Index = utf8.index(after: utf8Index)
+        }
+
+        while utf8Index < utf8.endIndex, utf8Index.samePosition(in: text) == nil {
+            utf8Index = utf8.index(after: utf8Index)
+        }
+        return (utf8Index.samePosition(in: text) ?? text.endIndex).utf16Offset(in: text)
     }
 }
 
