@@ -42,7 +42,12 @@ private final class WindowDockTestPanel: Panel, ObservableObject {
 
 private extension DockSplitStore {
     @discardableResult
-    func seedTestPanel(_ panel: WindowDockTestPanel = WindowDockTestPanel()) throws -> WindowDockTestPanel {
+    func seedTestPanel() throws -> WindowDockTestPanel {
+        try seedTestPanel(WindowDockTestPanel())
+    }
+
+    @discardableResult
+    func seedTestPanel(_ panel: WindowDockTestPanel) throws -> WindowDockTestPanel {
         let pane = try #require(bonsplitController.allPaneIds.first)
         panels[panel.id] = panel
         let tabId = try #require(
