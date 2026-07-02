@@ -1538,6 +1538,47 @@ jobs:
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
 
+      # The browser UI regressions below (this step and the browser find step)
+      # intentionally rely on the runner's native WindowServer display and do
+      # NOT self-provision a virtual display. This job is pinned to a display
+      # runner via repo variable MACOS_RUNNER_DISPLAY (e.g. depot-macos-latest),
+      # and the "Validate display runner identity" step above fails the job if a
+      # requested depot-* runner resolves outside Depot. On that display runner
+      # browser XCUITest windows are accessible without a virtual display, which
+      # is why this lane replaced the persistent virtual display it used before.
+      # Keep MACOS_RUNNER_DISPLAY pointed at a display-capable runner. The later
+      # "display resolution churn" step still creates its own scoped virtual
+      # display because that test specifically exercises display add/remove
+      # churn, not because these browser steps need one.
+      - name: Run browser omnibar suggestions UI regressions
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -maximum-test-execution-time-allowance 180 \
+            -only-testing:cmuxUITests/BrowserOmnibarSuggestionsUITests/testInlineAutocompleteBackspaceDeletesTypedPrefixCharacter \
+            -only-testing:cmuxUITests/BrowserOmnibarSuggestionsUITests/testOmnibarEscapeAndClickOutsideBehaveLikeChrome \
+            test-without-building
+
+      - name: Run browser find focus UI regression
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -maximum-test-execution-time-allowance 180 \
+            -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFOpensBrowserFindAfterCmdDCmdLNavigation \
+            test-without-building
+
       - name: Run display resolution churn UI regression
         run: |
           set -euo pipefail
@@ -1793,101 +1834,6 @@ jobs:
             echo "Attempt $attempt failed, retrying..."
             sleep 3
           done
-
-      - name: Create persistent virtual display
-        run: |
-          set -euo pipefail
-          LOCK_ENV="$(scripts/ci/virtual-display-lock.sh acquire)"
-          eval "$LOCK_ENV"
-          export CMUX_VDISPLAY_LOCK_DIR CMUX_VDISPLAY_LOCK_TOKEN
-          {
-            echo "CMUX_VDISPLAY_LOCK_DIR=$CMUX_VDISPLAY_LOCK_DIR"
-            echo "CMUX_VDISPLAY_LOCK_TOKEN=$CMUX_VDISPLAY_LOCK_TOKEN"
-          } >> "$GITHUB_ENV"
-
-          HELPER_PATH="$RUNNER_TEMP/create-virtual-display-persistent"
-          clang -framework Foundation -framework CoreGraphics \
-            -o "$HELPER_PATH" scripts/create-virtual-display.m
-
-          VDISPLAY_READY="$RUNNER_TEMP/cmux-vdisplay-persistent.ready"
-          VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-vdisplay-persistent.id"
-          VDISPLAY_LOG="$RUNNER_TEMP/cmux-vdisplay-persistent.log"
-          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
-
-          # Now that we hold the lock, reap any leaked display helper so a
-          # CGVirtualDisplay orphaned by a crashed/cancelled job cannot block
-          # this create on persistent self-hosted runners.
-          scripts/ci/virtual-display-lock.sh reap-strays || true
-
-          "$HELPER_PATH" \
-            --modes "1920x1080" \
-            --ready-path "$VDISPLAY_READY" \
-            --display-id-path "$VDISPLAY_ID_PATH" \
-            >"$VDISPLAY_LOG" 2>&1 &
-          VDISPLAY_PERSISTENT_PID=$!
-          scripts/ci/virtual-display-lock.sh set-owner "$VDISPLAY_PERSISTENT_PID"
-
-          {
-            echo "VDISPLAY_PERSISTENT_PID=$VDISPLAY_PERSISTENT_PID"
-            echo "VDISPLAY_PERSISTENT_HELPER_PATH=$HELPER_PATH"
-            echo "VDISPLAY_PERSISTENT_READY=$VDISPLAY_READY"
-            echo "VDISPLAY_PERSISTENT_ID_PATH=$VDISPLAY_ID_PATH"
-            echo "VDISPLAY_PERSISTENT_LOG=$VDISPLAY_LOG"
-          } >> "$GITHUB_ENV"
-
-          echo "Waiting for persistent virtual display..."
-          for _ in $(seq 1 100); do
-            if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
-              break
-            fi
-            if ! kill -0 "$VDISPLAY_PERSISTENT_PID" 2>/dev/null; then
-              echo "Persistent virtual display helper exited before readiness" >&2
-              cat "$VDISPLAY_LOG" >&2 || true
-              exit 1
-            fi
-            sleep 0.1
-          done
-
-          if [ ! -s "$VDISPLAY_READY" ] || [ ! -s "$VDISPLAY_ID_PATH" ]; then
-            echo "ERROR: Persistent virtual display not ready after 10s" >&2
-            cat "$VDISPLAY_LOG" >&2 || true
-            exit 1
-          fi
-
-          echo "Persistent virtual display ready: ID=$(tr -d '\n' < "$VDISPLAY_ID_PATH")"
-          cat "$VDISPLAY_LOG"
-
-      - name: Run browser find focus UI regression
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          if [ -n "${VDISPLAY_PERSISTENT_PID:-}" ] && ! kill -0 "$VDISPLAY_PERSISTENT_PID" 2>/dev/null; then
-            echo "Persistent virtual display exited before browser find UI regression" >&2
-            cat "${VDISPLAY_PERSISTENT_LOG:-/dev/null}" >&2 || true
-            exit 1
-          fi
-
-          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            -maximum-test-execution-time-allowance 180 \
-            -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFOpensBrowserFindAfterCmdDCmdLNavigation \
-            test-without-building
-
-      - name: Cleanup persistent virtual display
-        if: always()
-        run: |
-          if [ -n "${VDISPLAY_PERSISTENT_PID:-}" ]; then
-            kill "$VDISPLAY_PERSISTENT_PID" >/dev/null 2>&1 || true
-            for _ in $(seq 1 50); do
-              kill -0 "$VDISPLAY_PERSISTENT_PID" >/dev/null 2>&1 || break
-              sleep 0.1
-            done
-          fi
-          scripts/ci/virtual-display-lock.sh release || true
-          rm -f "${VDISPLAY_PERSISTENT_HELPER_PATH:-}" "${VDISPLAY_PERSISTENT_READY:-}" "${VDISPLAY_PERSISTENT_ID_PATH:-}" "${VDISPLAY_PERSISTENT_LOG:-}"
 
   ci-status:
     needs:
