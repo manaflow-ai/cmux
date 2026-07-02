@@ -2675,7 +2675,8 @@ final class CmuxConfigStore: ObservableObject {
             return resolvedAction(for: command, sourcePath: commandSourcePaths[command.id])
         }
         if let action = resolvedAction(id: trimmed),
-           action.workspaceCommandName != nil {
+           let workspaceCommandName = action.workspaceCommandName,
+           loadedCommands.contains(where: { $0.name == workspaceCommandName && $0.workspace != nil }) {
             return action
         }
         guard let command = loadedCommands.first(where: { command in
@@ -2691,8 +2692,8 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     func executionContext(startingFrom directory: String?) -> CmuxConfigStore {
-        guard let directory = directory?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !directory.isEmpty else {
+        guard let directory,
+              !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return self
         }
         let localPath = Self.resolvedLocalConfigPath(startingFrom: directory)
