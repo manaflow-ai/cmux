@@ -30730,6 +30730,13 @@ export default CMUXSessionRestore;
                 && mapped?.lastNotificationStatus == .idle
                 && hasActiveAntigravityBackgroundWork()
 
+            // A waiting/idle nag while background work is still live is not a real
+            // "needs input" state (same invariant as the Claude pending idle_prompt):
+            // the banner is gated app-side (p=1) and the pane must stay Running
+            // rather than flipping to "needs input".
+            let suppressPendingWaitingState = summary.notifyCategory == .idleReminder
+                && hasActiveAntigravityBackgroundWork()
+
 #if DEBUG
             agentHookDebugLog(
                 "agentHook.notification.summary agent=\(def.name) session=\(agentHookDebugShort(sessionId)) status=\(summary.status?.rawValue ?? "nil") fallback=\(summary.isFallback ? 1 : 0) subtitleLen=\(summary.subtitle.count) bodyLen=\(summary.body.count)",
@@ -30804,7 +30811,7 @@ export default CMUXSessionRestore;
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                let lifecycle = agentLifecycle(for: summary.status)
+                let lifecycle = suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
                 if (def.name == "grok" || def.name == "antigravity"),
@@ -30908,6 +30915,10 @@ export default CMUXSessionRestore;
             }
 
             switch summary.status {
+            case .needsInput? where suppressPendingWaitingState:
+                // Suppressed pending waiting cue: leave the Running pill and
+                // lifecycle in place; the fullyIdle turn boundary reconciles.
+                break
             case .needsInput?:
                 setAgentLifecycle(
                     client: client,
