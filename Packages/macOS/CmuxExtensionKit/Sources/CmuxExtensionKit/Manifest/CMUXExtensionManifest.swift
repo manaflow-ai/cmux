@@ -18,6 +18,12 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
     public var actionScopes: [CmuxExtensionActionScope]
 
     /// Creates a sidebar extension manifest.
+    ///
+    /// `minimumAPIVersion` is derived from the requested action scopes: it is the newest
+    /// version any requested scope requires (never below the 2.0 baseline). This lets an
+    /// author request a newer scope such as `runWorkspaceCommand` without manually setting
+    /// the SPI version — the encoded manifest advertises the correct version so older hosts
+    /// reject it by version instead of mis-running it with the scope dropped.
     public init(
         id: String,
         displayName: String,
@@ -26,7 +32,7 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
     ) {
         self.id = id
         self.displayName = displayName
-        self.minimumAPIVersion = .sidebarV2
+        self.minimumAPIVersion = actionScopes.reduce(.sidebarV2) { max($0, $1.minimumAPIVersion) }
         self.readScopes = readScopes
         self.actionScopes = actionScopes
     }

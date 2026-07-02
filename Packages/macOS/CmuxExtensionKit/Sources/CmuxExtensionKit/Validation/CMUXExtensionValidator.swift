@@ -25,7 +25,7 @@ public func validateSidebarManifest(
     // rejects the extension by version above rather than silently running it with a
     // capability trimmed away.
     for scope in manifest.actionScopes {
-        let required = minimumAPIVersion(for: scope)
+        let required = scope.minimumAPIVersion
         guard manifest.minimumAPIVersion >= required else {
             throw CmuxExtensionValidationError.actionScopeRequiresNewerAPIVersion(
                 scope: scope,
@@ -33,19 +33,5 @@ public func validateSidebarManifest(
                 declared: manifest.minimumAPIVersion
             )
         }
-    }
-}
-
-/// The earliest sidebar API version that includes a given action scope. The switch is
-/// deliberately exhaustive (no `default`) so that adding a new scope forces a decision
-/// about which API version introduces it.
-private func minimumAPIVersion(for scope: CmuxExtensionActionScope) -> CmuxExtensionAPIVersion {
-    switch scope {
-    case .runWorkspaceCommand:
-        return .sidebarV2_1
-    case .createWorkspace, .selectWorkspace, .closeWorkspace, .createSurface,
-         .selectSurface, .closeSurface, .splitSurface, .zoomSurface,
-         .navigateWorkspace, .navigateSurface, .openURL, .createWorkspaceWithPath:
-        return .sidebarV2
     }
 }

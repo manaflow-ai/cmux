@@ -27,6 +27,25 @@ public enum CmuxExtensionActionScope: String, Codable, CaseIterable, Equatable, 
     ///
     /// Introduced in API ``CmuxExtensionAPIVersion/sidebarV2_1``. Manifests requesting
     /// this scope must declare `minimumAPIVersion` 2.1 or newer; `validateSidebarManifest`
-    /// rejects a lower declaration.
+    /// rejects a lower declaration, and `CmuxExtensionManifest.init` derives the version
+    /// from the requested scopes so authors get it automatically.
     case runWorkspaceCommand
+}
+
+extension CmuxExtensionActionScope {
+    /// The earliest sidebar API version that includes this action scope.
+    ///
+    /// The switch is deliberately exhaustive (no `default`) so that adding a new scope
+    /// forces a decision about which API version introduces it.
+    @_spi(CmuxHostTransport)
+    public var minimumAPIVersion: CmuxExtensionAPIVersion {
+        switch self {
+        case .runWorkspaceCommand:
+            return .sidebarV2_1
+        case .createWorkspace, .selectWorkspace, .closeWorkspace, .createSurface,
+             .selectSurface, .closeSurface, .splitSurface, .zoomSurface,
+             .navigateWorkspace, .navigateSurface, .openURL, .createWorkspaceWithPath:
+            return .sidebarV2
+        }
+    }
 }

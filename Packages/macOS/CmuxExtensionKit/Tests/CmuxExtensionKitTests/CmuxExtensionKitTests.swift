@@ -607,6 +607,36 @@ struct CMUXExtensionKitTests {
         #expect(manifest.actionScopes == [.selectWorkspace])
         try validateSidebarManifest(manifest)
     }
+
+    @Test
+    func testManifestInitializerDerivesAPIVersionForRunWorkspaceCommand() throws {
+        let manifest = CmuxExtensionManifest(
+            id: "dev.example.sidebar",
+            displayName: "Example Sidebar",
+            actionScopes: [.runWorkspaceCommand]
+        )
+
+        #expect(manifest.minimumAPIVersion == .sidebarV2_1)
+        try validateSidebarManifest(manifest)
+    }
+
+    @Test
+    func testManifestInitializerDerivesHighestRequiredAPIVersion() throws {
+        let baseline = CmuxExtensionManifest(
+            id: "dev.example.sidebar",
+            displayName: "Example Sidebar",
+            actionScopes: [.selectWorkspace, .openURL]
+        )
+        #expect(baseline.minimumAPIVersion == .sidebarV2)
+
+        let mixed = CmuxExtensionManifest(
+            id: "dev.example.sidebar",
+            displayName: "Example Sidebar",
+            actionScopes: [.selectWorkspace, .runWorkspaceCommand]
+        )
+        #expect(mixed.minimumAPIVersion == .sidebarV2_1)
+        try validateSidebarManifest(mixed)
+    }
 }
 
 private final class CancellationBox: @unchecked Sendable {
