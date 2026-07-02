@@ -745,6 +745,118 @@ encode_launch_argv() {
     } | base64 | tr -d '\n'
 }
 
+# cmux computer use: attach the bundled cmux-computer-use MCP server so any
+# Claude session cmux launches can drive the local Mac with the same
+# AX-tree+screenshot engine as Codex Computer Use (codex agents have it
+# natively; see Resources/computer-use-mcp/README.md). Prints the --mcp-config
+# JSON, or returns nonzero to skip injection so sessions never see
+# always-failing tools when the standard Codex machinery is absent.
+cmux_computer_use_json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    printf '%s' "$value"
+}
+
+# Resolve the codex binary for the computer-use engine, mirroring the MCP
+# server's own order (CMUX_CU_CODEX decides alone, then PATH, then Codex.app).
+# The resolved path is pinned into the injected config as CMUX_CU_CODEX so the
+# gate and the server always agree on one binary. cmux's own per-surface
+# `codex` shim is on PATH in every cmux terminal, so a plain `command -v
+# codex` would always succeed; skip cmux shim dirs like the shims themselves
+# do when they fall back to the real binary.
+# A codex only counts if it actually speaks the app-server protocol the
+# computer-use engine runs on — legacy CLIs (e.g. a stray v0.2.x in
+# /usr/local/bin) reject the subcommand, and pinning one would surface 12
+# always-failing tools while a working Codex.app sits ignored. The probe runs
+# on the Claude launch path, so it is hard-bounded: perl's alarm(2) survives
+# exec and kills a hung candidate after 5s (macOS ships perl; no `timeout`).
+# Any failure — including the timeout or a missing perl — just skips this
+# candidate, so a misbehaving codex can never block Claude from starting.
+cmux_computer_use_codex_supports_app_server() {
+    # Prefer the absolute system perl; fall back to PATH only if it is missing.
+    local perl_bin=/usr/bin/perl
+    [[ -x "$perl_bin" ]] || perl_bin="$(command -v perl 2>/dev/null)"
+    [[ -n "$perl_bin" && -x "$perl_bin" ]] || return 1
+    # Probe the candidate under a minimal allowlisted env (mirrors the MCP
+    # server's child env): keep only what codex/node/subprocess resolution
+    # needs plus benign locale/proxy/cert vars and codex-owned CODEX_*/OPENAI_*,
+    # so a shadow `codex` earlier on PATH never receives cmux socket
+    # credentials, preserved Claude/backend auth-selection vars, or NODE_OPTIONS.
+    local -a env_args=()
+    local key
+    for key in HOME CODEX_HOME PATH TMPDIR USER LOGNAME SHELL TERM LANG LC_ALL TZ \
+        HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY http_proxy https_proxy no_proxy all_proxy \
+        SSL_CERT_FILE SSL_CERT_DIR NODE_EXTRA_CA_CERTS \
+        "${!LC_@}" "${!XDG_@}" "${!CODEX_@}" "${!OPENAI_@}"; do
+        [[ -n "${!key+x}" ]] && env_args+=("$key=${!key}")
+    done
+    # Subshell so the parent shell's signal-death notice ("Alarm clock") for a
+    # timed-out probe is captured by the redirect instead of leaking to the
+    # user's terminal.
+    (env -i "${env_args[@]}" "$perl_bin" -e 'alarm 5; exec { $ARGV[0] } @ARGV; exit 127' "$1" app-server --help) >/dev/null 2>&1
+}
+
+cmux_computer_use_resolve_codex() {
+    if [[ -n "${CMUX_CU_CODEX:-}" ]]; then
+        [[ -x "$CMUX_CU_CODEX" ]] || return 1
+        cmux_computer_use_codex_supports_app_server "$CMUX_CU_CODEX" || return 1
+        printf '%s' "$CMUX_CU_CODEX"
+        return 0
+    fi
+    local dir
+    local IFS=:
+    for dir in $PATH; do
+        case "$dir" in
+            "${CMUX_CODEX_WRAPPER_SHIM_ROOT:-}"|"${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"|*/cmux-cli-shims/*|*/cmux-cli-shims)
+                continue
+                ;;
+        esac
+        if [[ -n "$dir" && -x "$dir/codex" ]] &&
+            cmux_computer_use_codex_supports_app_server "$dir/codex"; then
+            printf '%s' "$dir/codex"
+            return 0
+        fi
+    done
+    if [[ -x "/Applications/Codex.app/Contents/Resources/codex" ]] &&
+        cmux_computer_use_codex_supports_app_server "/Applications/Codex.app/Contents/Resources/codex"; then
+        printf '%s' "/Applications/Codex.app/Contents/Resources/codex"
+        return 0
+    fi
+    return 1
+}
+
+cmux_computer_use_mcp_config() {
+    [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --strict-mcp-config|--strict-mcp-config=*)
+                # Respect explicit MCP isolation (e.g. cmux's headless
+                # auto-naming summarizers pass --strict-mcp-config).
+                return 1
+                ;;
+        esac
+    done
+    command -v node >/dev/null 2>&1 || return 1
+    [[ -f "${CODEX_HOME:-$HOME/.codex}/auth.json" ]] || return 1
+    local codex_binary
+    codex_binary="$(cmux_computer_use_resolve_codex)" || return 1
+    local self_dir candidate
+    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
+    for candidate in \
+        "$self_dir/../cmux-computer-use-mcp.mjs" \
+        "$self_dir/../computer-use-mcp/cmux-computer-use-mcp.mjs"; do
+        if [[ -f "$candidate" ]]; then
+            printf '{"mcpServers":{"cmux-computer-use":{"command":"node","args":["%s"],"env":{"CMUX_CU_CODEX":"%s"}}}}' \
+                "$(cmux_computer_use_json_escape "$candidate")" \
+                "$(cmux_computer_use_json_escape "$codex_binary")"
+            return 0
+        fi
+    done
+    return 1
+}
+
 claude_interactive_entry_flag() {
     case "$1" in
         --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
@@ -1009,6 +1121,18 @@ process.stdout.write(JSON.stringify(acc));
         printf 'cmux: warning: --settings merge failed; your --settings was ignored\n' >&2
     fi
     unset CMUX_MERGED_SETTINGS cmux_merge_status
+fi
+
+# Attach the cmux computer use MCP server. Prepended so a user-supplied
+# --mcp-config still applies as an additional config (the CLI merges repeated
+# --mcp-config flags). Must be the single-token `--mcp-config=<json>` form:
+# --mcp-config is variadic (`<configs...>`), so a separate value token would
+# make a following positional prompt (`claude "fix this"`) parse as another
+# MCP config. Injected after launch-argv capture on purpose: resume re-runs
+# the wrapper, which re-injects against the machinery present then.
+CMUX_COMPUTER_USE_MCP_CONFIG="$(cmux_computer_use_mcp_config "$@")" || CMUX_COMPUTER_USE_MCP_CONFIG=""
+if [[ -n "$CMUX_COMPUTER_USE_MCP_CONFIG" ]]; then
+    set -- "--mcp-config=$CMUX_COMPUTER_USE_MCP_CONFIG" "$@"
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
