@@ -9,7 +9,6 @@ import CoreGraphics
 /// readback, and render-layer presentation. This coordinator turns the current
 /// main-actor inputs into one immutable snapshot so every participant consumes
 /// the same viewport for a frame.
-@MainActor
 struct TerminalViewportCoordinator {
     func snapshot(inputs: TerminalViewportInputs) -> TerminalViewportSnapshot {
         let bounds = CGSize(
@@ -29,23 +28,24 @@ struct TerminalViewportCoordinator {
             chromeHidden: inputs.chromeHidden
         )
 
-        let bottomEdge = inputs.chromeHidden ? bounds.height : bounds.height - occupancy
+        let bottomEdge = max(0, inputs.chromeHidden ? bounds.height : bounds.height - occupancy)
         let effectiveComposerHeight = inputs.chromeHidden ? 0 : inputs.composerBandHeight
         let composerTop = bottomEdge - effectiveComposerHeight
+        let composerY = max(0, composerTop)
         let composerFrame = CGRect(
             x: 0,
-            y: max(0, composerTop),
+            y: composerY,
             width: bounds.width,
-            height: effectiveComposerHeight
+            height: max(0, bottomEdge - composerY)
         )
-        let toolbarBottom = effectiveComposerHeight > 0 ? composerTop : bottomEdge
+        let toolbarBottom = effectiveComposerHeight > 0 ? composerFrame.minY : bottomEdge
         let toolbarReservedTop = toolbarBottom - inputs.toolbarFrameHeight
         let toolbarTop = max(0, toolbarReservedTop)
         let toolbarFrame = CGRect(
             x: 0,
             y: toolbarTop,
             width: bounds.width,
-            height: toolbarBottom - toolbarTop
+            height: max(0, toolbarBottom - toolbarTop)
         )
 
         let layoutViewport = CGRect(
@@ -90,7 +90,6 @@ struct TerminalViewportCoordinator {
     }
 }
 
-@MainActor
 struct TerminalViewportInputs {
     let bounds: CGSize
     let keyboardHeight: CGFloat
@@ -104,7 +103,6 @@ struct TerminalViewportInputs {
     let toolbarPresentationFrame: CGRect?
 }
 
-@MainActor
 struct TerminalViewportSnapshot {
     let bounds: CGSize
     let containerSize: CGSize
@@ -114,19 +112,10 @@ struct TerminalViewportSnapshot {
     let layoutViewportRect: CGRect
     let liveViewportRect: CGRect
 
-    func renderViewportRect(forRenderSize renderSize: CGSize) -> CGRect {
+    func renderViewportRect(forRenderSize renderSize: CGSize, clampsStaleLiveViewport: Bool) -> CGRect {
         let targetHeight = layoutViewportRect.height
         let liveHeight = liveViewportRect.height
-        let height: CGFloat
-        if renderSize.height <= targetHeight + 1 {
-            // Once Ghostty has produced a surface that fits the new container,
-            // presentation-layer chrome from the previous layout may no longer
-            // move the render bottom. This makes the "new render + old toolbar"
-            // mixed state unrepresentable.
-            height = min(liveHeight, targetHeight)
-        } else {
-            height = liveHeight
-        }
+        let height = clampsStaleLiveViewport ? min(liveHeight, targetHeight) : liveHeight
         return CGRect(
             x: layoutViewportRect.minX,
             y: layoutViewportRect.minY,
@@ -135,8 +124,11 @@ struct TerminalViewportSnapshot {
         )
     }
 
-    func renderRect(forRenderSize renderSize: CGSize) -> CGRect {
-        let viewport = renderViewportRect(forRenderSize: renderSize)
+    func renderRect(forRenderSize renderSize: CGSize, clampsStaleLiveViewport: Bool) -> CGRect {
+        let viewport = renderViewportRect(
+            forRenderSize: renderSize,
+            clampsStaleLiveViewport: clampsStaleLiveViewport
+        )
         return CGRect(
             x: viewport.minX,
             y: viewport.maxY - renderSize.height,

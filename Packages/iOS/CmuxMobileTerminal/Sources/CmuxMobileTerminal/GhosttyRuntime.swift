@@ -384,15 +384,7 @@ public final class GhosttyRuntime {
         }
 
         #if DEBUG
-        // DEBUG scrollbar bridge for deterministic bottom-scroll XCUITests.
-        if action.tag == GHOSTTY_ACTION_SCROLLBAR {
-            let sb = action.action.scrollbar
-            MobileDebugLog.anchormux("scroll.bar total=\(sb.total) offset=\(sb.offset) len=\(sb.len)")
-            if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
-                Task { @MainActor in
-                    GhosttySurfaceView.updateScrollbarForTesting(total: Int(sb.total), offset: Int(sb.offset), len: Int(sb.len), for: surface)
-                }
-            }
+        if Self.handleBottomScrollStressDebugAction(action, target: target) {
             return true
         }
         #endif
