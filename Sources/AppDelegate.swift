@@ -875,7 +875,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let sidebarDragStateRegistry = SidebarDragStateRegistry()
     var debugFocusedTerminalKeyRepairObserverForTesting: ((NSWindow, NSEvent, NSResponder?) -> Void)?
     #endif
-    private lazy var updateController = UpdateController(log: updateLog)
+    // Internal (not private): the CmuxUpdater seams extension lives in AppDelegate+Updater.swift.
+    lazy var updateController = UpdateController(log: updateLog)
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
@@ -9153,7 +9154,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     #if DEBUG
     @objc func showUpdatePill(_ sender: Any?) {
         updateViewModel.debugOverrideText = nil
-        updateController.model.setOverrideState(.installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}, dismiss: {})))
+        // A staged version makes the override exercise the full update-ready toast
+        // (title version + See Changes link) in addition to the pill.
+        updateController.model.setOverrideState(.installing(.init(
+            isAutoUpdate: true,
+            stagedVersion: "9.9.9",
+            retryTerminatingApplication: {},
+            dismiss: {}
+        )))
     }
 
     @objc func showUpdatePillLongNightly(_ sender: Any?) {
@@ -17859,32 +17867,6 @@ private extension NSWindow {
 
 }
 
-// MARK: - CmuxUpdater seams
-
-/// Conforms the composition root to updater host actions, retry, and relaunch seams.
-/// `checkForUpdatesInCustomUI()` is satisfied by the main `AppDelegate` declaration.
-extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
-    func updaterRequestsRetryCheckForUpdates() {
-        checkForUpdates(nil)
-    }
-
-    func updaterWillRelaunchApplication() {
-        persistSessionForUpdateRelaunch()
-        TerminalController.shared.stop()
-        NSApp.invalidateRestorableState()
-        for window in NSApp.windows {
-            window.invalidateRestorableState()
-        }
-    }
-
-    func attemptUpdate() {
-        attemptUpdate(nil)
-    }
-
-    var updateLogPath: String {
-        updateLog.logPath()
-    }
-}
 
 // MARK: - Window display placement (`window.display` / `window.displays`)
 

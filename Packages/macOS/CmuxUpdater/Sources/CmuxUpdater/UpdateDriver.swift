@@ -27,6 +27,20 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var pendingCheckTransitionTask: Task<Void, Never>?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
+    /// Whether a user-initiated check session is active. Errors from purely background
+    /// sessions (scheduled silent downloads) are logged and retried, not shown as the pill's
+    /// error state — the user never asked for that session. Internal (not `private(set)`)
+    /// because the `SPUUpdaterDelegate` extension in the sibling file clears it on session end.
+    var hasUserInitiatedSession = false
+    /// Invoked when a background probe finds a valid update, so ``UpdateController`` can start
+    /// the silent download instead of waiting for Sparkle's next scheduled check.
+    var onBackgroundUpdateDetected: (() -> Void)?
+    /// Invoked when a background (non-user-initiated) session aborts with an error, so the
+    /// controller can schedule a retry for transient network failures.
+    var onBackgroundSessionError: ((any Error) -> Void)?
+    /// Invoked when Sparkle finishes an update cycle (success or abort) — the real
+    /// session-teardown signal the controller keys deferred work (the silent-download kick) on.
+    var onUpdateSessionFinished: (() -> Void)?
 
     init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock, isDevLikeBundle: Bool = false) {
         self.model = model
@@ -59,6 +73,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
         log.append("show user-initiated update check")
+        hasUserInitiatedSession = true
         beginChecking(cancel: cancellation)
     }
 
@@ -87,6 +102,15 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         log.append("show updater error: \(details)")
+        if !hasUserInitiatedSession, model.state.isIdle {
+            // A background session (scheduled check / silent download) failed with nothing
+            // user-visible in progress. Don't surface an error pill for work the user never
+            // asked for; log it. Retry scheduling happens in `didAbortWithError`, which fires
+            // for every failed background session regardless of which UI callbacks ran (#5632).
+            log.append("background updater error suppressed (no user-initiated session)")
+            acknowledgement()
+            return
+        }
         setState(.error(.init(
             error: error,
             retry: { [weak self] in
@@ -159,6 +183,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
         log.append("show update installed (relaunched=\(relaunched))")
+        hasUserInitiatedSession = false
         setState(.idle)
         acknowledgement()
     }
@@ -169,6 +194,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func dismissUpdateInstallation() {
         log.append("dismiss update installation")
+        hasUserInitiatedSession = false
         if case .error = model.state {
             log.append("dismiss update installation ignored (error visible)")
             return

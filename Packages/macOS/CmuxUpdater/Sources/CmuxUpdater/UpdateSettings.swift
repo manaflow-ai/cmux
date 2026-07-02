@@ -18,6 +18,8 @@ public struct UpdateSettings: Sendable {
     public static let sendProfileInfoKey = "SUSendProfileInfo"
     /// cmux's marker that the v2 automatic-checks migration already ran.
     public static let migrationKey = "cmux.sparkle.automaticChecksMigration.v2"
+    /// cmux's marker that the v3 automatic-downloads migration already ran.
+    public static let automaticDownloadsMigrationKey = "cmux.sparkle.automaticDownloadsMigration.v3"
 
     /// The previous default scheduled-check interval (24h) that the migration upgrades from.
     public let previousDefaultScheduledCheckInterval: TimeInterval
@@ -44,10 +46,12 @@ public struct UpdateSettings: Sendable {
     public func apply(to defaults: UserDefaults) {
         defaults.register(defaults: [
             Self.automaticChecksKey: true,
-            Self.automaticallyUpdateKey: false,
+            Self.automaticallyUpdateKey: true,
             Self.scheduledCheckIntervalKey: scheduledCheckInterval,
             Self.sendProfileInfoKey: false,
         ])
+
+        runAutomaticDownloadsMigration(on: defaults)
 
         guard !defaults.bool(forKey: Self.migrationKey) else { return }
 
@@ -65,13 +69,22 @@ public struct UpdateSettings: Sendable {
             defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
         }
 
-        if defaults.object(forKey: Self.automaticallyUpdateKey) == nil {
-            defaults.set(false, forKey: Self.automaticallyUpdateKey)
-        }
         if defaults.object(forKey: Self.sendProfileInfoKey) == nil {
             defaults.set(false, forKey: Self.sendProfileInfoKey)
         }
 
         defaults.set(true, forKey: Self.migrationKey)
+    }
+
+    /// One-time v3 migration: turn automatic downloads on.
+    ///
+    /// The v2 migration (and the pre-v3 registered default) wrote an explicit `false` for
+    /// ``automaticallyUpdateKey`` into every install, so flipping the registered default alone
+    /// would never reach existing users. This runs once and sets the key to `true`; users who
+    /// prefer manual installs can turn it back off afterwards and their choice sticks.
+    private func runAutomaticDownloadsMigration(on defaults: UserDefaults) {
+        guard !defaults.bool(forKey: Self.automaticDownloadsMigrationKey) else { return }
+        defaults.set(true, forKey: Self.automaticallyUpdateKey)
+        defaults.set(true, forKey: Self.automaticDownloadsMigrationKey)
     }
 }

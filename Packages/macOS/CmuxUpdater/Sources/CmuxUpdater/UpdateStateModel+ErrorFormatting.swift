@@ -184,6 +184,38 @@ extension UpdateStateModel {
         return lines.joined(separator: "\n")
     }
 
+    /// Whether an update error is a transient network failure worth silently retrying
+    /// (offline, timeout, dropped connection, or a download/feed fetch that failed mid-flight —
+    /// GitHub's release CDN intermittently 504s individual objects, #5632). Signature,
+    /// configuration, and installer failures are not transient and must surface instead.
+    public nonisolated static func isTransientNetworkError(_ error: any Swift.Error) -> Bool {
+        let nsError = error as NSError
+        if let networkError = networkError(from: nsError) {
+            switch networkError.code {
+            case NSURLErrorNotConnectedToInternet,
+                 NSURLErrorTimedOut,
+                 NSURLErrorCannotFindHost,
+                 NSURLErrorCannotConnectToHost,
+                 NSURLErrorNetworkConnectionLost,
+                 NSURLErrorDNSLookupFailed,
+                 NSURLErrorResourceUnavailable,
+                 NSURLErrorBadServerResponse:
+                return true
+            default:
+                break
+            }
+        }
+        guard nsError.domain == SUSparkleErrorDomain else { return false }
+        switch nsError.code {
+        case 1002,       // SUAppcastError (feed fetch failed)
+             1004,       // SUResumeAppcastError
+             2001:       // SUDownloadError
+            return true
+        default:
+            return false
+        }
+    }
+
     /// The canonical direct-download URL for the latest stable release artifact, used as the
     /// manual fallback when Sparkle's in-app install path fails.
     private static let manualDownloadURLString = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg"
@@ -225,7 +257,7 @@ extension UpdateStateModel {
         return text.contains("agent connection") || text.contains("remote port")
     }
 
-    private static func networkError(from error: NSError) -> NSError? {
+    private nonisolated static func networkError(from error: NSError) -> NSError? {
         if error.domain == NSURLErrorDomain {
             return error
         }
