@@ -56,10 +56,13 @@ public final class UpdateStateModel {
 
     /// A stream that emits once whenever ``state`` or ``overrideState`` changes.
     ///
-    /// The element is `Void`: subscribers read the latest ``state``/``overrideState`` directly
-    /// (both are main-actor isolated like the subscriber), which avoids sending the
-    /// non-`Sendable` ``UpdateState`` across the stream. This is the `@Observable`-native
-    /// replacement for observing `@Published var state`.
+    /// The element is `Void`: it is a wakeup, not the payload, which avoids sending the
+    /// non-`Sendable` ``UpdateState`` across the stream. Reaction consumers that must observe
+    /// **every** transition in order call ``drainPendingChanges()`` on each wakeup instead of
+    /// re-reading the latest ``state`` — reading only the latest silently conflates
+    /// back-to-back transitions (two states landing before the consumer's task runs), which is
+    /// how a control-flow consumer can miss the `.checking` restart signal entirely. This is
+    /// the `@Observable`-native replacement for observing `@Published var state`.
     public func stateChanges() -> AsyncStream<Void> {
         AsyncStream { continuation in
             let id = UUID()
@@ -70,7 +73,28 @@ public final class UpdateStateModel {
         }
     }
 
+    /// One recorded transition: the ``state``/``overrideState`` pair as it was at emission time.
+    public struct StateChange {
+        public let state: UpdateState
+        public let overrideState: UpdateState?
+    }
+
+    /// Transitions recorded since the last ``drainPendingChanges()``, oldest first. There is one
+    /// reaction consumer (``UpdateController``); the mailbox exists for it.
+    @ObservationIgnored
+    private var pendingChanges: [StateChange] = []
+
+    /// Removes and returns every transition recorded since the last drain, oldest first.
+    ///
+    /// Call once per ``stateChanges()`` wakeup. Extra wakeups drain empty and are harmless.
+    public func drainPendingChanges() -> [StateChange] {
+        let drained = pendingChanges
+        pendingChanges.removeAll()
+        return drained
+    }
+
     private func notifyStateChanged() {
+        pendingChanges.append(StateChange(state: state, overrideState: overrideState))
         for continuation in changeObservers.values {
             continuation.yield(())
         }

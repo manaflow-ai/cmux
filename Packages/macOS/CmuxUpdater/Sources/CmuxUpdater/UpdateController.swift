@@ -17,7 +17,7 @@ public import Foundation
 /// concrete ``UpdateLogging`` and ``UpdateActionDelegate``.
 @MainActor
 public final class UpdateController {
-    private let updater: SPUUpdater
+    private let updater: any UpdaterHandle
     // `driver` and `log` are internal (not private) so `UpdateController+InstallAttempt.swift`
     // can reach them; they stay module-internal.
     let driver: UpdateDriver
@@ -77,13 +77,44 @@ public final class UpdateController {
     ///   - isDevLikeBundle: Overrides whether this is a DEV/staging build. Defaults to `nil`,
     ///     which derives it from `hostBundle.bundleIdentifier` via ``isDevLikeBundleIdentifier(_:)``.
     ///     Injectable because a `Bundle` with an arbitrary identifier cannot be constructed in tests.
-    public init(log: any UpdateLogging,
-                clock: any UpdateClock = SystemUpdateClock(),
-                settings: UpdateSettings = UpdateSettings(),
-                hostBundle: Bundle = .main,
-                defaults: UserDefaults = .standard,
-                fileManager: FileManager = .default,
-                isDevLikeBundle: Bool? = nil) {
+    public convenience init(log: any UpdateLogging,
+                            clock: any UpdateClock = SystemUpdateClock(),
+                            settings: UpdateSettings = UpdateSettings(),
+                            hostBundle: Bundle = .main,
+                            defaults: UserDefaults = .standard,
+                            fileManager: FileManager = .default,
+                            isDevLikeBundle: Bool? = nil) {
+        self.init(log: log,
+                  clock: clock,
+                  settings: settings,
+                  hostBundle: hostBundle,
+                  defaults: defaults,
+                  fileManager: fileManager,
+                  isDevLikeBundle: isDevLikeBundle,
+                  updaterFactory: { driver, hostBundle in
+                      SPUUpdater(
+                          hostBundle: hostBundle,
+                          applicationBundle: hostBundle,
+                          userDriver: driver,
+                          delegate: driver
+                      )
+                  })
+    }
+
+    /// The designated initializer, with the updater seam exposed.
+    ///
+    /// - Parameter updaterFactory: Builds the ``UpdaterHandle`` from the freshly created driver
+    ///   and host bundle. Production (the convenience init above) always builds a real
+    ///   `SPUUpdater`; pipeline tests inject a fake so the reaction loop can be replayed
+    ///   deterministically.
+    init(log: any UpdateLogging,
+         clock: any UpdateClock = SystemUpdateClock(),
+         settings: UpdateSettings = UpdateSettings(),
+         hostBundle: Bundle = .main,
+         defaults: UserDefaults = .standard,
+         fileManager: FileManager = .default,
+         isDevLikeBundle: Bool? = nil,
+         updaterFactory: (UpdateDriver, Bundle) -> any UpdaterHandle) {
         self.log = log
         self.clock = clock
         self.defaults = defaults
@@ -108,12 +139,7 @@ public final class UpdateController {
         let model = UpdateStateModel()
         let driver = UpdateDriver(model: model, log: log, clock: clock, isDevLikeBundle: isDevLikeBundle)
         self.driver = driver
-        self.updater = SPUUpdater(
-            hostBundle: hostBundle,
-            applicationBundle: hostBundle,
-            userDriver: driver,
-            delegate: driver
-        )
+        self.updater = updaterFactory(driver, hostBundle)
         startStateReactions()
     }
 
@@ -131,20 +157,28 @@ public final class UpdateController {
     private func startStateReactions() {
         let changes = model.stateChanges()
         stateReactionTask = Task { @MainActor [weak self] in
-            self?.handleStateChange()
+            if let self {
+                self.handleStateChange(self.model.state, overrideState: self.model.overrideState)
+            }
             for await _ in changes {
                 guard let self else { return }
-                self.handleStateChange()
+                // Drain every recorded transition in order rather than re-reading the latest
+                // state: two transitions landing before this task runs would otherwise conflate,
+                // and a control-flow consumer (the attempt coordinator) could miss the
+                // `.checking` restart signal entirely — the same ambiguity family as the
+                // double-idle install loop.
+                for change in self.model.drainPendingChanges() {
+                    self.handleStateChange(change.state, overrideState: change.overrideState)
+                }
             }
         }
     }
 
-    /// Runs the three state reactions for the current model state. Invoked once on start and on
-    /// every ``UpdateStateModel/stateChanges()`` emission (the merge of the old `$state.sink`,
-    /// the attempt sink, and the `CombineLatest` dismiss observer).
-    private func handleStateChange() {
-        let state = model.state
-        let overrideState = model.overrideState
+    /// Runs the three state reactions for one observed transition. Invoked once on start with
+    /// the current model values and then for every drained ``UpdateStateModel/StateChange``
+    /// (the merge of the old `$state.sink`, the attempt sink, and the `CombineLatest` dismiss
+    /// observer).
+    private func handleStateChange(_ state: UpdateState, overrideState: UpdateState?) {
 
         if attemptCoordinator.isMonitoring {
             let action = attemptCoordinator.handleStateChange(state)

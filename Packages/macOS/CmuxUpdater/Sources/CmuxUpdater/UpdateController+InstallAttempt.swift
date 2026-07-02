@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// The "attempt update" policy: the single user-facing install entry point, the actions it
 /// performs on behalf of ``AttemptUpdateCoordinator``, and the ``InstallWatchdog`` trip handling
