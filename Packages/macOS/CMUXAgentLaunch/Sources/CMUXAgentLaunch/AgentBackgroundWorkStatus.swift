@@ -41,8 +41,8 @@ public struct AgentBackgroundWorkStatus: Equatable, Sendable {
     /// group SIGTERM and a live background process; unreadable evidence of work must
     /// keep the pane alive (until the next parseable Stop), never authorize the kill.
     public init(hookObject object: [String: Any]?) {
-        let tasks = AgentHookFieldParse(value: object?["background_tasks"])
-        let crons = AgentHookFieldParse(value: object?["session_crons"])
+        let tasks = agentHookParseArrayField(object?["background_tasks"])
+        let crons = agentHookParseArrayField(object?["session_crons"])
         let running = tasks.objects.reduce(into: tasks.unreadableCount) { count, task in
             let status = ((task["status"] as? String) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -72,26 +72,12 @@ private let agentBackgroundTerminalStatuses: Set<String> = [
     "exited", "timeout", "timedout",
 ]
 
-/// One parsed hook array field: the readable object entries, plus how many values were
-/// present but unreadable (a non-array field, or non-object array elements). Callers
-/// decide what unreadable means; the background-work parser fails closed on it.
-private struct AgentHookFieldParse {
-    let objects: [[String: Any]]
-    let unreadableCount: Int
-
-    init(value: Any?) {
-        guard let value else {
-            objects = []
-            unreadableCount = 0
-            return
-        }
-        guard let array = value as? [Any] else {
-            objects = []
-            unreadableCount = 1
-            return
-        }
-        let parsed = array.compactMap { $0 as? [String: Any] }
-        objects = parsed
-        unreadableCount = array.count - parsed.count
-    }
+/// Parse one hook array field into its readable object entries plus a count of values
+/// that were present but unreadable (a non-array field, or non-object array elements).
+/// The background-work parser fails closed on unreadable values.
+private func agentHookParseArrayField(_ value: Any?) -> (objects: [[String: Any]], unreadableCount: Int) {
+    guard let value else { return ([], 0) }
+    guard let array = value as? [Any] else { return ([], 1) }
+    let parsed = array.compactMap { $0 as? [String: Any] }
+    return (parsed, array.count - parsed.count)
 }
