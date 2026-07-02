@@ -1,5 +1,6 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
+import CMUXMobileCore
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -33,6 +34,7 @@ struct WorkspaceDetailView: View {
     let signOut: (() -> Void)?
     /// Phone-local browser surfaces, injected from the app root.
     @Environment(BrowserSurfaceStore.self) private var browserStore
+    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -270,6 +272,20 @@ struct WorkspaceDetailView: View {
             } else {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .overlay {
+                        TerminalLoadingDiagnosticsOverlay(
+                            workspace: workspace,
+                            host: host,
+                            connectionStatus: connectionStatus,
+                            tailnetStatus: tailscaleStatusMonitor?.status,
+                            activeRoute: activeLoadingDiagnosticsRoute,
+                            storedRouteDescription: loadingDiagnosticsMacSnapshot?.routeDescription,
+                            connectionError: store.connectionError,
+                            connectionErrorGuidance: store.connectionErrorGuidance,
+                            createTerminal: createTerminal,
+                            canCreateTerminal: canCreateWorkspace
+                        )
+                    }
             }
             #else
             TerminalPalette.background
