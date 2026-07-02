@@ -36,23 +36,24 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
     return try #require(value)
 }
 
-@Suite struct SidebarWorkspaceReorderGatePolicyTests {
-    @Test func allowsRelativeReorderWhenNoTagFilterIsActive() {
+@Suite struct SidebarWorkspacePositionRelativeActionGateTests {
+    @Test func allowsPositionRelativeActionsWhenNoTagFilterIsActive() {
         expectTrue(
-            SidebarWorkspaceReorderGatePolicy().allowsRelativeReorder(activeWorkspaceTagFilter: nil)
+            SidebarWorkspacePositionRelativeActionGate().allows(activeWorkspaceTagFilter: nil)
         )
     }
 
-    @Test func blocksRelativeReorderWhileTagFilterHidesRows() {
-        // A tag filter renders only matching rows while drag / Move Up / Move Down
-        // still commit in full `tabManager.tabs` coordinates, so hidden rows make a
-        // ±1 move a visible no-op. The gate must refuse until the filter clears, and
-        // any non-nil filter tag counts as active.
+    @Test func blocksPositionRelativeActionsWhileTagFilterHidesRows() {
+        // A tag filter renders only matching rows while drag / Move Up/Down and the
+        // destructive Close Above/Below actions still resolve against the full
+        // `tabManager.tabs` order. Hidden rows make a move a visible no-op and let a
+        // close reach workspaces the user cannot see, so the gate refuses any
+        // position-relative action until the filter clears. Any non-nil tag counts.
         expectFalse(
-            SidebarWorkspaceReorderGatePolicy().allowsRelativeReorder(activeWorkspaceTagFilter: "backend")
+            SidebarWorkspacePositionRelativeActionGate().allows(activeWorkspaceTagFilter: "backend")
         )
         expectFalse(
-            SidebarWorkspaceReorderGatePolicy().allowsRelativeReorder(activeWorkspaceTagFilter: "frontend")
+            SidebarWorkspacePositionRelativeActionGate().allows(activeWorkspaceTagFilter: "frontend")
         )
     }
 }

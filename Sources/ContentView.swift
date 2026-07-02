@@ -12465,7 +12465,7 @@ struct VerticalTabsSidebar: View {
         // inference). Refuse to reorder while filtered — no indicator is drawn
         // and the row stays put; clear the filter to reorder. Keyboard and
         // socket/CLI reorders use full-list ids and are unaffected.
-        guard SidebarWorkspaceReorderGatePolicy().allowsRelativeReorder(
+        guard SidebarWorkspacePositionRelativeActionGate().allows(
             activeWorkspaceTagFilter: renderContext.activeWorkspaceTagFilter
         ) else { return nil }
         guard let draggedTabId = dragState.draggedTabId else { return nil }
@@ -14880,12 +14880,12 @@ struct TabItemView: View, Equatable {
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
             closeTabsBelow(tabId: tab.id)
         }
-        .disabled(index >= tabManager.tabs.count - 1)
+        .disabled(index >= tabManager.tabs.count - 1 || activeWorkspaceTagFilter != nil)
 
         Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
             closeTabsAbove(tabId: tab.id)
         }
-        .disabled(index == 0)
+        .disabled(index == 0 || activeWorkspaceTagFilter != nil)
 
         Divider()
 
@@ -14974,7 +14974,7 @@ struct TabItemView: View, Equatable {
         // filtered (`workspaceReorderPlan`). Refuse here too so the context-menu and
         // accessibility Move Up/Down actions stay consistent with drag; clear the
         // filter to reorder.
-        guard SidebarWorkspaceReorderGatePolicy().allowsRelativeReorder(
+        guard SidebarWorkspacePositionRelativeActionGate().allows(
             activeWorkspaceTagFilter: activeWorkspaceTagFilter
         ) else { return }
         let targetIndex = index + delta
@@ -15099,12 +15099,25 @@ struct TabItemView: View, Equatable {
     }
 
     private func closeTabsBelow(tabId: UUID) {
+        // Close-below resolves against the full `tabManager.tabs` order, so under a
+        // tag filter it would close hidden workspaces sitting below the row in full
+        // order even though they are not visible. Refuse while filtered, matching the
+        // Move Up/Down and drag-reorder gates (the context-menu button is likewise
+        // disabled); clear the filter to close by position.
+        guard SidebarWorkspacePositionRelativeActionGate().allows(
+            activeWorkspaceTagFilter: activeWorkspaceTagFilter
+        ) else { return }
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
         closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsAbove(tabId: UUID) {
+        // See closeTabsBelow: refuse while a tag filter hides rows so we never close
+        // workspaces the user cannot see above the row in full order.
+        guard SidebarWorkspacePositionRelativeActionGate().allows(
+            activeWorkspaceTagFilter: activeWorkspaceTagFilter
+        ) else { return }
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
         closeTabs(idsToClose, allowPinned: true)
