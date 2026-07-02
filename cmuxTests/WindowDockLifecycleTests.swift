@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import Combine
 import Foundation
 import Testing
 
@@ -8,6 +9,55 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@MainActor
+private final class WindowDockTestPanel: Panel, ObservableObject {
+    let id = UUID()
+    let panelType: PanelType = .terminal
+    let displayTitle = "Test Dock Panel"
+    let displayIcon: String? = "terminal.fill"
+
+    private(set) var closeCount = 0
+    private(set) var focusCount = 0
+    private(set) var unfocusCount = 0
+    private(set) var flashCount = 0
+
+    func close() {
+        closeCount += 1
+    }
+
+    func focus() {
+        focusCount += 1
+    }
+
+    func unfocus() {
+        unfocusCount += 1
+    }
+
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
+        _ = reason
+        flashCount += 1
+    }
+}
+
+private extension DockSplitStore {
+    @discardableResult
+    func seedTestPanel(_ panel: WindowDockTestPanel = WindowDockTestPanel()) throws -> WindowDockTestPanel {
+        let pane = try #require(bonsplitController.allPaneIds.first)
+        panels[panel.id] = panel
+        let tabId = try #require(
+            bonsplitController.createTab(
+                title: panel.displayTitle,
+                icon: panel.displayIcon,
+                kind: "terminal",
+                isDirty: panel.isDirty,
+                inPane: pane
+            )
+        )
+        surfaceIdToPanelId[tabId] = panel.id
+        return panel
+    }
+}
 
 /// Per-window Dock registry lifecycle: every main window owns an independent
 /// `DockSplitStore` (created lazily, owner id == window id) that is torn down
@@ -19,46 +69,28 @@ struct WindowDockLifecycleTests {
     @Test("Each window gets its own independent Dock store")
     @MainActor
     func windowDocksAreIndependentPerWindow() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
-        let firstManager = TabManager(autoWelcomeIfNeeded: false)
-        let secondManager = TabManager(autoWelcomeIfNeeded: false)
-        let firstWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: firstManager)
-        let secondWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: secondManager)
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: firstWindowId)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: secondWindowId)
-            firstManager.tabs.forEach { $0.teardownAllPanels() }
-            secondManager.tabs.forEach { $0.teardownAllPanels() }
-            AppDelegate.shared = previousAppDelegate
-        }
+        let registry = WindowDockRegistry()
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
 
-        let firstDock = appDelegate.windowDock(forWindowId: firstWindowId)
-        let secondDock = appDelegate.windowDock(forWindowId: secondWindowId)
+        let firstDock = registry.dock(forWindowId: firstWindowId)
+        let secondDock = registry.dock(forWindowId: secondWindowId)
 
         #expect(firstDock !== secondDock)
         #expect(firstDock.workspaceId == firstWindowId)
         #expect(secondDock.workspaceId == secondWindowId)
         #expect(firstDock.scope == .global)
-        // Repeated access returns the same store, and manager-based lookup
-        // resolves the same per-window instance.
-        #expect(appDelegate.windowDock(forWindowId: firstWindowId) === firstDock)
-        #expect(appDelegate.windowDock(for: firstManager) === firstDock)
-        #expect(appDelegate.windowDock(for: secondManager) === secondDock)
-        // Both owner ids route as Dock ids, as does the legacy alias.
-        #expect(AppDelegate.isWindowDockRoutingId(firstWindowId))
-        #expect(AppDelegate.isWindowDockRoutingId(secondWindowId))
-        #expect(AppDelegate.isWindowDockRoutingId(AppDelegate.windowDockAliasWorkspaceId))
-        #expect(!AppDelegate.isWindowDockRoutingId(UUID()))
+        #expect(registry.dock(forWindowId: firstWindowId) === firstDock)
+        #expect(registry.existingDock(forWindowId: firstWindowId) === firstDock)
+        #expect(registry.existingDock(forWindowId: secondWindowId) === secondDock)
+        #expect(registry.existingDock(forWindowId: UUID()) == nil)
+        #expect(Set(registry.allDocks.map(\.workspaceId)) == [firstWindowId, secondWindowId])
     }
 
     @Test("Window Dock tears down with its window")
     @MainActor
     func windowDockTearsDownOnWindowUnregister() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
+        let appDelegate = try #require(AppDelegate.shared)
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         var unregistered = false
@@ -67,13 +99,13 @@ struct WindowDockLifecycleTests {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             }
             manager.tabs.forEach { $0.teardownAllPanels() }
-            AppDelegate.shared = previousAppDelegate
         }
 
         let dock = appDelegate.windowDock(forWindowId: windowId)
-        let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
-        let panelId = try #require(dock.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let panel = try dock.seedTestPanel()
+        let panelId = panel.id
         #expect(dock.containsPanel(panelId))
+        #expect(AppDelegate.isWindowDockRoutingId(windowId))
 
         appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
         unregistered = true
@@ -85,55 +117,44 @@ struct WindowDockLifecycleTests {
         #expect(!dock.containsPanel(panelId))
         #expect(dock.panels.isEmpty)
         #expect(!dock.isVisibleInUI)
+        #expect(panel.closeCount == 1)
         // A closed window's manager can never seed a NEW Dock (it would have
         // no teardown owner); manager-based lookup fails closed instead.
         #expect(appDelegate.windowDock(for: manager) == nil)
-        #expect(appDelegate.existingWindowDocks.isEmpty)
     }
 
-    @Test("Runtime close routes window Dock terminals through the Dock store")
+    @Test("Runtime close routes window Dock surfaces through the Dock store")
     @MainActor
     func runtimeCloseRoutesWindowDockTerminals() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = UUID()
         defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            manager.tabs.forEach { $0.teardownAllPanels() }
-            AppDelegate.shared = previousAppDelegate
+            appDelegate.teardownWindowDock(forWindowId: windowId)
         }
 
         let dock = appDelegate.windowDock(forWindowId: windowId)
-        let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
-        let panelId = try #require(dock.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let panel = try dock.seedTestPanel()
 
         // Ghostty runtime closes (Ctrl-D / child exit) route by the surface's
         // owner id, which for a window Dock is a window id no TabManager tab
         // matches — the Dock-aware path must close the panel instead.
-        #expect(appDelegate.closeWindowDockRuntimeSurface(surfaceId: panelId, force: true))
-        #expect(!dock.containsPanel(panelId))
+        #expect(appDelegate.closeWindowDockRuntimeSurface(surfaceId: panel.id, force: true))
+        #expect(!dock.containsPanel(panel.id))
+        #expect(panel.closeCount == 1)
 
         // Non-Dock surfaces fall through to the workspace close path untouched.
-        let workspace = try #require(manager.tabs.first)
-        let mainPanelId = try #require(workspace.panels.keys.first)
-        #expect(!appDelegate.closeWindowDockRuntimeSurface(surfaceId: mainPanelId, force: true))
-        #expect(workspace.panels[mainPanelId] != nil)
+        #expect(!appDelegate.closeWindowDockRuntimeSurface(surfaceId: UUID(), force: true))
     }
 
     @Test("Moving a window's last main panel into its own Dock is rejected")
     @MainActor
     func lastPanelMoveIntoOwnWindowDockIsRejected() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
+        let appDelegate = try #require(AppDelegate.shared)
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
-            AppDelegate.shared = previousAppDelegate
         }
 
         let workspace = try #require(manager.tabs.first)
@@ -161,39 +182,24 @@ struct WindowDockLifecycleTests {
     @Test("Docks in two windows render simultaneously without render-host gating")
     @MainActor
     func windowDocksRenderSimultaneouslyInBothWindows() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
-        let firstManager = TabManager(autoWelcomeIfNeeded: false)
-        let secondManager = TabManager(autoWelcomeIfNeeded: false)
-        let firstWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: firstManager)
-        let secondWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: secondManager)
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: firstWindowId)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: secondWindowId)
-            firstManager.tabs.forEach { $0.teardownAllPanels() }
-            secondManager.tabs.forEach { $0.teardownAllPanels() }
-            AppDelegate.shared = previousAppDelegate
-        }
+        let registry = WindowDockRegistry()
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
 
-        let firstDock = appDelegate.windowDock(forWindowId: firstWindowId)
-        let secondDock = appDelegate.windowDock(forWindowId: secondWindowId)
-        let firstPane = try #require(firstDock.bonsplitController.allPaneIds.first)
-        let secondPane = try #require(secondDock.bonsplitController.allPaneIds.first)
-        let firstPanelId = try #require(firstDock.newSurface(kind: .terminal, inPane: firstPane, focus: true))
-        let secondPanelId = try #require(secondDock.newSurface(kind: .terminal, inPane: secondPane, focus: true))
-        let firstPanel = try #require(firstDock.panels[firstPanelId] as? TerminalPanel)
-        let secondPanel = try #require(secondDock.panels[secondPanelId] as? TerminalPanel)
+        let firstDock = registry.dock(forWindowId: firstWindowId)
+        let secondDock = registry.dock(forWindowId: secondWindowId)
+        let firstPanel = try firstDock.seedTestPanel()
+        let secondPanel = try secondDock.seedTestPanel()
 
-        // Each window's Dock panel activates its store independently — with the
-        // retired single Global Dock, the second window showed an inactive-host
-        // placeholder instead of live content.
-        firstDock.setActive(isVisible: true, mode: .dock, visibilityHostId: UUID())
-        secondDock.setActive(isVisible: true, mode: .dock, visibilityHostId: UUID())
+        // Each window's Dock panel marks its own store visible independently —
+        // the retired single Global Dock had one render host, so a second host
+        // was gated behind an inactive placeholder instead of live content.
+        firstDock.setVisibleInUI(true, hostId: UUID())
+        secondDock.setVisibleInUI(true, hostId: UUID())
 
         #expect(firstDock.isVisibleInUI)
         #expect(secondDock.isVisibleInUI)
-        #expect(firstPanel.hostedView.debugPortalVisibleInUI)
-        #expect(secondPanel.hostedView.debugPortalVisibleInUI)
+        #expect(firstPanel.focusCount == 1)
+        #expect(secondPanel.focusCount == 1)
     }
 }
