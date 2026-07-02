@@ -946,7 +946,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingAttemptID = UUID()
     }
 
-    deinit { MainActor.assumeIsolated {
+    // Swift >= 6.2 (Xcode 26+, which CI's iOS simulator lane and the shipping
+    // release/TestFlight lanes all use) supports `isolated deinit`, which
+    // guarantees teardown runs on the main actor no matter which executor
+    // performs the final release. Keep that safe, actor-isolated path here and
+    // only fall back to a guarded `assumeIsolated` on older local toolchains.
+    #if compiler(>=6.2)
+    isolated deinit {
+        tearDownOnDeinit()
+    }
+    #else
+    deinit {
+        // Pre-6.2 toolchains lack `isolated deinit`. This object is @MainActor
+        // and is released on the main actor in practice, but guard the executor
+        // assertion so a stray off-main final release degrades to a best-effort
+        // skip instead of trapping. Outstanding work is captured with
+        // `[weak self]` (tasks self-cancel once `self` is gone) and
+        // `remoteClient` tears down via its own deinit, so skipping is safe.
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { tearDownOnDeinit() }
+        }
+    }
+    #endif
+
+    private func tearDownOnDeinit() {
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
@@ -963,7 +986,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let remoteClient {
             Task { await remoteClient.disconnect() }
         }
-    } }
+    }
 
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
         CMUXMobileShellStore(
