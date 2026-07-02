@@ -154,11 +154,60 @@ public enum HermesAgentIndex {
               FileManager.default.fileExists(atPath: stateDBPath) else {
             return nil
         }
-        let resolved = try? withDatabase(stateDBPath) { db -> String? in
-            try loadSessions(db: db, needle: "", cwdCandidates: cwdCandidates, offset: 0, limit: 1)
-                .sessions.first?.sessionId
+        let resolved = try? withDatabase(stateDBPath) { db in
+            try latestSessionID(db: db, cwdCandidates: cwdCandidates)
         }
         return resolved ?? nil
+    }
+
+    /// The newest-active `cli`/`tui` session id for the given cwd candidates, or `nil`.
+    ///
+    /// A purpose-built id-only query: no `messages` `LEFT JOIN` / `GROUP BY` and no preview subquery
+    /// (unlike ``loadSessions(db:needle:cwdCandidates:offset:limit:)``, which builds full rows for
+    /// the search UI). Ordering keys on last message activity so auto-resume targets the session the
+    /// index shows as most recent for the cwd, and still prefers a session resumed from an older id
+    /// over a newer-but-idle one in the same directory; the `MAX(timestamp)` correlated subquery
+    /// runs only for the (few) cwd-matched rows, not the whole history.
+    private static func latestSessionID(
+        db: OpaquePointer,
+        cwdCandidates: [String]
+    ) throws -> String? {
+        guard !cwdCandidates.isEmpty else { return nil }
+        let placeholders = cwdCandidates.map { _ in "?" }.joined(separator: ", ")
+        let sql = """
+            SELECT s.id
+            FROM sessions s
+            WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
+              AND s.cwd IN (\(placeholders))
+            ORDER BY COALESCE(
+              (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id),
+              s.ended_at,
+              s.started_at
+            ) DESC
+            LIMIT 1
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "prepare failed")
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        var bindIndex: Int32 = 1
+        for candidate in cwdCandidates {
+            guard sqlite3_bind_text(stmt, bindIndex, candidate, -1, destructor) == SQLITE_OK else {
+                throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
+            }
+            bindIndex += 1
+        }
+
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let sessionId = sqliteText(stmt, 0),
+              !sessionId.isEmpty else {
+            return nil
+        }
+        return sessionId
     }
 
     /// The `cwd` values a stored session `cwd` may equal for `cwd` to be considered a match: the
