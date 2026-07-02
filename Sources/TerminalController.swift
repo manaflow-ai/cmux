@@ -152,7 +152,7 @@ class TerminalController {
         var sticky: Bool = false
     }
     private static let mobileViewportReportTTL: TimeInterval = 5
-    private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
+    private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]; private var mobileViewportGenerationsBySurfaceID: [UUID: [String: UInt64]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
@@ -13538,16 +13538,13 @@ class TerminalController {
     }
 
     func clearAllMobileViewportReports(reason: String) {
-        guard !mobileViewportReportsBySurfaceID.isEmpty ||
-            !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else {
-            return
-        }
+        guard !mobileViewportReportsBySurfaceID.isEmpty || !mobileViewportGenerationsBySurfaceID.isEmpty || !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else { return }
 
         for timer in mobileViewportReportCleanupTimersBySurfaceID.values {
             timer.cancel()
         }
-        let surfaceIDs = Array(mobileViewportReportsBySurfaceID.keys)
-        mobileViewportReportsBySurfaceID.removeAll()
+        let surfaceIDs = Array(Set(mobileViewportReportsBySurfaceID.keys).union(mobileViewportGenerationsBySurfaceID.keys))
+        mobileViewportReportsBySurfaceID.removeAll(); mobileViewportGenerationsBySurfaceID.removeAll()
         mobileViewportReportCleanupTimersBySurfaceID.removeAll()
 
         for surfaceID in surfaceIDs {
@@ -14051,8 +14048,7 @@ class TerminalController {
         reports = reports.filter { _, report in
             report.sticky || now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
         }
-        if let generation, let existingGeneration = reports[clientID]?.generation, existingGeneration > generation,
-           let minColumns = reports.values.map(\.columns).min(), let minRows = reports.values.map(\.rows).min() { return (minColumns, minRows) }
+        if let existingGeneration = reports[clientID]?.generation ?? mobileViewportGenerationsBySurfaceID[terminalPanel.id]?[clientID], generation.map({ existingGeneration > $0 }) ?? true { return nil }; if let generation { mobileViewportGenerationsBySurfaceID[terminalPanel.id, default: [:]][clientID] = generation }
         reports[clientID] = MobileViewportReport(
             columns: columns,
             rows: rows,
@@ -14082,8 +14078,9 @@ class TerminalController {
         clientID: String, generation: UInt64? = nil, requireGeneration: Bool = false,
         reason: String
     ) -> (columns: Int, rows: Int)? {
-        guard var reports = mobileViewportReportsBySurfaceID[surfaceID], let existingReport = reports[clientID] else { return nil }
-        if requireGeneration, let existingGeneration = existingReport.generation, generation.map({ existingGeneration > $0 }) ?? true { return nil }
+        if requireGeneration { guard let generation else { return nil }; if let existingGeneration = mobileViewportReportsBySurfaceID[surfaceID]?[clientID]?.generation ?? mobileViewportGenerationsBySurfaceID[surfaceID]?[clientID], existingGeneration > generation { return nil }; mobileViewportGenerationsBySurfaceID[surfaceID, default: [:]][clientID] = generation }
+        else if var generations = mobileViewportGenerationsBySurfaceID[surfaceID] { generations.removeValue(forKey: clientID); mobileViewportGenerationsBySurfaceID[surfaceID] = generations.isEmpty ? nil : generations }
+        guard var reports = mobileViewportReportsBySurfaceID[surfaceID], reports[clientID] != nil else { return nil }
         reports.removeValue(forKey: clientID)
         if reports.isEmpty {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
@@ -14111,7 +14108,7 @@ class TerminalController {
     /// clear. Sticky reports rely on this signal instead of the TTL.
     func clearMobileViewportReports(clientIDs: Set<String>, reason: String) {
         guard !clientIDs.isEmpty else { return }
-        for surfaceID in Array(mobileViewportReportsBySurfaceID.keys) {
+        for surfaceID in Set(mobileViewportReportsBySurfaceID.keys).union(mobileViewportGenerationsBySurfaceID.keys) {
             for clientID in clientIDs {
                 clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: reason)
             }

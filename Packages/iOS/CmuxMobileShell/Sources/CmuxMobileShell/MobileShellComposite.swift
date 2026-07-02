@@ -7025,6 +7025,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         if let replayBarrierToken, terminalReplayBarrierTokensBySurfaceID[surfaceID] != replayBarrierToken { return }; let replayBarrierTokenForRequest = replayBarrierToken
             ?? terminalReplayBarrierTokensBySurfaceID[surfaceID]
+        if replayBarrierToken == nil, terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] != nil { return }
         let coveredReplayBarrierDroppedOutputCountForRequest = replayBarrierTokenForRequest == nil
             ? nil
             : (coveredReplayBarrierDroppedOutputCount

@@ -175,6 +175,7 @@ import Testing
         surfaceID: surfaceID
     )
     #expect(!staleAccepted, "output must be dropped while a resize acknowledgement is in flight")
+    store.requestTerminalReplay(surfaceID: surfaceID)
     let replayBeforeAck = await router.waitForCount(
         of: "mobile.terminal.replay",
         atLeast: replayCountAfterBaseline + 1,
