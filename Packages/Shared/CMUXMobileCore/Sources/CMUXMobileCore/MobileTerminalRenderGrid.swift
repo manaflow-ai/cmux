@@ -289,9 +289,10 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             clearedRows: full ? [] : Array(includedRows.sorted()),
             styles: styles,
             rowSpans: rowSpans.filter { includedRows.contains($0.row) },
-            // Deltas only carry the DEC modes that replay temporarily overrides.
+            // Deltas only carry autowrap; DECOM needs a full snapshot because
+            // restoring it homes the cursor and requires scroll-region state.
             activeScreen: activeScreen,
-            modes: full ? modes : modes.filter { $0.isDECOriginMode || $0.isDECAutowrapMode },
+            modes: full ? modes : modes.filter(\.isDECAutowrapMode),
             terminalForeground: full ? terminalForeground : nil,
             terminalBackground: full ? terminalBackground : nil,
             terminalCursorColor: full ? terminalCursorColor : nil,
@@ -437,9 +438,11 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             self.on = on
         }
 
-        var isDECAutowrapMode: Bool { !ansi && code == Self.decAutowrapModeCode }
+        /// Whether this DEC private mode is autowrap (`CSI ? 7 h/l`).
+        public var isDECAutowrapMode: Bool { !ansi && code == Self.decAutowrapModeCode }
 
-        var isDECOriginMode: Bool { !ansi && code == Self.decOriginModeCode }
+        /// Whether this DEC private mode is origin mode (`CSI ? 6 h/l`).
+        public var isDECOriginMode: Bool { !ansi && code == Self.decOriginModeCode }
 
         enum CodingKeys: String, CodingKey {
             case code

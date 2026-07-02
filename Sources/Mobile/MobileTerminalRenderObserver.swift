@@ -193,7 +193,9 @@ final class MobileTerminalRenderObserver {
         let previous = renderGridStatesBySurfaceID[surfaceID]
         let nextSignatures = snapshot.frame.rowSignatures()
         let frame: MobileTerminalRenderGridFrame
+        let needsFullSnapshot = snapshot.frame.modes.contains { $0.isDECOriginMode && $0.on }
         if let previous,
+           !needsFullSnapshot,
            previous.columns == snapshot.frame.columns,
            previous.rows == snapshot.frame.rows {
             var changedRows = Set<Int>()

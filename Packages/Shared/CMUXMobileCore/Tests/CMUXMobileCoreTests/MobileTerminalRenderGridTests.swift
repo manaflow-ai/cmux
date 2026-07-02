@@ -178,12 +178,38 @@ import Testing
 
     let delta = try frame.filteredRows([0], full: false)
 
-    #expect(delta.modes == [.init(code: 6, ansi: false, on: true), .init(code: 7, ansi: false, on: false)])
+    #expect(delta.modes == [.init(code: 7, ansi: false, on: false)])
     let vt = try #require(String(data: delta.vtPatchBytes(), encoding: .utf8))
     #expect(vt.hasPrefix("\u{1B}[?6l\u{1B}[?7l"))
-    #expect(vt.hasSuffix("\u{1B}[0m\u{1B}[?7l\u{1B}[?6h"))
+    #expect(vt.hasSuffix("\u{1B}[0m\u{1B}[?7l"))
+    #expect(!vt.contains("\u{1B}[?6h"))
     #expect(!vt.contains("\u{1B}[?1000h"))
     #expect(!vt.contains("\u{1B}[4h"))
+}
+
+@Test func renderGridDeltaDoesNotRestoreOriginModeAfterCursor() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 48,
+        columns: 8,
+        rows: 4,
+        cursor: .init(row: 2, column: 3),
+        full: false,
+        clearedRows: [0],
+        styles: [.default],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "line"),
+        ],
+        modes: [
+            .init(code: 6, ansi: false, on: true),
+            .init(code: 7, ansi: false, on: true),
+        ]
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(vt.hasPrefix("\u{1B}[?6l\u{1B}[?7l"))
+    #expect(vt.hasSuffix("\u{1B}[0m\u{1B}[?7h\u{1B}[2 q\u{1B}[?25h\u{1B}[3;4H"))
+    #expect(!vt.contains("\u{1B}[?6h"))
 }
 
 @Test func renderGridSpanCellWidthSupportsWideCells() throws {

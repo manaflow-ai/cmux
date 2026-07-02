@@ -49,8 +49,8 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         var bytes = Data()
         let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
-        let modeState = deltaReplayModeState()
-        if modeState != nil {
+        let autowrapMode = deltaReplayAutowrapMode()
+        if autowrapMode != nil {
             bytes.append(deltaReplayModeNormalizationBytes())
         }
         let rowsToClear = Set(frame.clearedRows).union(frame.rowSpans.map(\.row)).sorted()
@@ -69,7 +69,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             }
         }
         bytes.append(sgrBytes(for: defaultStyle))
-        if let modeState { bytes.append(modeBytes(modeState.autowrap)) }
+        if let autowrapMode { bytes.append(modeBytes(autowrapMode)) }
         // A delta never hides the cursor while painting, so (unlike a full
         // snapshot) it leaves a nil cursor untouched instead of forcing it
         // visible.
@@ -81,7 +81,6 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                 bytes.append(Data("\u{1B}[?25l".utf8))
             }
         }
-        if let modeState { bytes.append(modeBytes(modeState.origin)) }
         return bytes
     }
 
@@ -172,11 +171,8 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         ).utf8)
     }
 
-    private func deltaReplayModeState() -> (origin: MobileTerminalRenderGridFrame.ModeSetting, autowrap: MobileTerminalRenderGridFrame.ModeSetting)? {
-        guard let origin = frame.modes.first(where: \.isDECOriginMode), let autowrap = frame.modes.first(where: \.isDECAutowrapMode) else {
-            return nil
-        }
-        return (origin, autowrap)
+    private func deltaReplayAutowrapMode() -> MobileTerminalRenderGridFrame.ModeSetting? {
+        frame.modes.first(where: \.isDECAutowrapMode)
     }
 
     /// Append `lineCount` lines (rows `0..<lineCount` of `spans`) as a natural
