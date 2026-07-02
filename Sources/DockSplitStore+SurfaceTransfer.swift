@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxTerminal
 import CmuxTerminalCore
+import Darwin
 
 /// Cross-container surface transfer for the Dock.
 ///
@@ -12,6 +13,16 @@ import CmuxTerminalCore
 /// own panel registry (`panels`/`surfaceIdToPanelId`), so these methods manage
 /// that registry directly rather than going through the workspace pane tree.
 extension DockSplitStore {
+    static func dockAgentPIDProbeIndicatesExited(result: Int32, errnoCode: Int32) -> Bool {
+        result != 0 && errnoCode == ESRCH
+    }
+
+    private static func dockAgentPIDHasExited(_ pid: pid_t) -> Bool {
+        errno = 0
+        let result = Darwin.kill(pid, 0)
+        return dockAgentPIDProbeIndicatesExited(result: result, errnoCode: errno)
+    }
+
     /// Detaches a live panel from this Dock *without closing it*, packaging it
     /// into a `Workspace.DetachedSurfaceTransfer` for re-attachment elsewhere.
     ///
@@ -49,7 +60,7 @@ extension DockSplitStore {
         // has no pids yet, and dropping it would reintroduce the Dock
         // round-trip metadata loss #7155 fixes.
         let cachedAgentPIDs = (preservedTransfer?.agentRuntime?.agentPIDs ?? [:]).values.filter { $0 > 0 }
-        let agentProvenExited = !cachedAgentPIDs.isEmpty && cachedAgentPIDs.allSatisfy { kill($0, 0) != 0 }
+        let agentProvenExited = !cachedAgentPIDs.isEmpty && cachedAgentPIDs.allSatisfy(Self.dockAgentPIDHasExited)
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).

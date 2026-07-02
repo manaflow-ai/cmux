@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import Foundation
 import Testing
 
@@ -335,6 +336,14 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.restoredResumeSessionWorkingDirectory == nil)
         #expect(roundTripped.resumeBinding == nil)
         #expect(roundTripped.agentRuntime == nil)
+    }
+
+    @Test("Dock process probe treats only ESRCH as exited")
+    @MainActor
+    func dockProcessProbeTreatsOnlyESRCHAsExited() {
+        #expect(DockSplitStore.dockAgentPIDProbeIndicatesExited(result: 0, errnoCode: 0) == false)
+        #expect(DockSplitStore.dockAgentPIDProbeIndicatesExited(result: -1, errnoCode: EPERM) == false)
+        #expect(DockSplitStore.dockAgentPIDProbeIndicatesExited(result: -1, errnoCode: ESRCH))
     }
 
     @Test("Dock terminal reveal requests a view reattach")

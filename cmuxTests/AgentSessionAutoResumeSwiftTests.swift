@@ -574,12 +574,53 @@ struct AgentSessionAutoResumeSwiftTests {
             restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeDir)
             try #require(restored.panelDirectories[restoredPanelId] == homeDir)
 
+            // Even when the live foreground read yields the launch cwd, the
+            // `.ignore` registration opted out of directory tracking, so the
+            // rescue must not consult it.
+            restored.foregroundProcessWorkingDirectoryProvider = { _ in projectDir }
+
             let split = try #require(restored.newTerminalSplit(
                 from: restoredPanelId,
                 orientation: .horizontal,
                 focus: false
             ))
             #expect(split.requestedWorkingDirectory == homeDir)
+        }
+    }
+
+    /// A recorded session directory on a temporarily unmounted volume must
+    /// not be tombstoned as deleted (#5278): a split while the volume is
+    /// offline falls back to the tracked cwd, but the recorded entry survives
+    /// so the rescue engages again after remount.
+    @MainActor
+    @Test func splitWhileSessionDirectoryVolumeUnmountedKeepsRescueArmed() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-unmounted-volume-resume")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId, homeDir) = try restoreResumedAgentWorkspaceWithClobberedTrackedCwd(
+                projectDir: projectDir
+            )
+            restored.foregroundProcessWorkingDirectoryProvider = { _ in nil }
+
+            // Re-point the recorded session directory at a path whose volume
+            // is not mounted, as if the resumed session lived on an external
+            // drive that went offline after the tracked cwd was clobbered.
+            let unmountedSessionDir = "/Volumes/cmux-missing-\(UUID().uuidString)/project"
+            try #require(!FileManager.default.fileExists(atPath: unmountedSessionDir))
+            restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] = unmountedSessionDir
+
+            let split = try #require(restored.newTerminalSplit(
+                from: restoredPanelId,
+                orientation: .horizontal,
+                focus: false
+            ))
+            #expect(split.requestedWorkingDirectory == homeDir)
+            #expect(
+                restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == unmountedSessionDir
+            )
         }
     }
 

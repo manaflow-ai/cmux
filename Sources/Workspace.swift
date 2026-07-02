@@ -7039,14 +7039,19 @@ final class Workspace: Identifiable, ObservableObject {
     private func resumedAgentPaneWorkingDirectoryRescue(panelId: UUID) -> String? {
         guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return nil }
         guard !isRemoteTerminalSurface(panelId) else { return nil }
-        let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
+        // No recorded session directory means the resume launcher targets no
+        // directory of its own (e.g. a registration with a `.ignore` cwd
+        // policy, whose resume command never cds) — the tracked cwd is
+        // genuine, so there is nothing to rescue and the live foreground
+        // process must not be consulted either.
+        guard let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
             restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
-        )
+        ) else { return nil }
         let trackedDirectory = Self.normalizedTerminalWorkingDirectory(panelDirectories[panelId])
-        if let sessionDirectory, trackedDirectory == sessionDirectory { return nil }
+        if trackedDirectory == sessionDirectory { return nil }
         for candidate in [liveForegroundProcessWorkingDirectory(panelId: panelId), sessionDirectory] {
             guard let candidate = Self.normalizedTerminalWorkingDirectory(candidate) else { continue }
-            if candidate == trackedDirectory, sessionDirectory != nil {
+            if candidate == trackedDirectory {
                 continue
             }
             var candidateIsDirectory: ObjCBool = false
@@ -7054,7 +7059,11 @@ final class Workspace: Identifiable, ObservableObject {
                candidateIsDirectory.boolValue {
                 return candidate
             }
-            if candidate == sessionDirectory {
+            // A recorded directory on a temporarily unmounted volume is not
+            // deleted: keep the rescue armed so it engages again after the
+            // volume remounts (#5278). Only a genuinely deleted directory is
+            // tombstoned.
+            if candidate == sessionDirectory, Self.unmountedVolumeRoot(for: candidate) == nil {
                 restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
             }
         }

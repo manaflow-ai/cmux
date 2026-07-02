@@ -5,7 +5,7 @@
 17978	Sources/AppDelegate.swift
 16484	Sources/ContentView.swift
 14232	Sources/TerminalController.swift
-13231	Sources/Workspace.swift
+13240	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12212	Sources/GhosttyTerminalView.swift
 11671	Sources/Panels/BrowserPanel.swift
@@ -68,7 +68,7 @@
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1363	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
-1358	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
+1399	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 1317	Sources/FileExplorerStore.swift
 1295	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift
