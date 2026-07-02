@@ -105,6 +105,19 @@ extension MobileShellComposite {
                     "terminal.output.viewport_resync surface=\(surfaceID) grid=\(effectiveGrid.columns)x\(effectiveGrid.rows)"
                 )
                 requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+            } else if prearmedReplayBarrierToken == nil,
+                      terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil,
+                      terminalReplayFailureRetryExhausted(surfaceID: surfaceID),
+                      hasTerminalOutputSink(surfaceID: surfaceID) {
+                // A previous resize replay exhausted its retries and preserved
+                // its barrier, and the grid maps already record this geometry
+                // as settled — so no later same-size report would otherwise
+                // re-arm recovery and output stays dropped. Re-arm with a
+                // fresh barrier (fresh retry budget), carrying the preserved
+                // barrier's owed work.
+                let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: surfaceID)
+                MobileDebugLog.anchormux("terminal.output.viewport_rearm_exhausted surface=\(surfaceID)")
+                requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
             } else {
                 finishPrearmedTerminalViewportBarrierWithoutResize(
                     surfaceID: surfaceID,
