@@ -71,6 +71,7 @@ actor LivenessHostRouter {
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
     private var replayRequestCount = 0
+    private var replayResponseCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
     private var heldReplayResponsesRemaining = 0
     private var hasActiveSubscription = false
@@ -88,6 +89,10 @@ actor LivenessHostRouter {
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
+    }
+
+    func replayResponsesServed() -> Int {
+        replayResponseCount
     }
 
     @discardableResult
@@ -294,6 +299,9 @@ actor LivenessHostRouter {
                 await park()
             } else if heldReplayRequestNumbers.contains(replayRequestCount) {
                 await park()
+            }
+            defer {
+                replayResponseCount += 1
             }
             if replayFailuresRemaining > 0 {
                 replayFailuresRemaining -= 1
