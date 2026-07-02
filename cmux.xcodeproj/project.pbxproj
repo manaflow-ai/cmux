@@ -3992,6 +3992,7 @@
 				E3B7A30000000000000000F2 /* CmuxPanes */,
 				E3B7A3000000000000000102 /* CmuxWorkspaces */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
+				C0B7CF1000000000000000F2 /* CmuxCopyReflow */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
 				CFF12E0000000000000000A2 /* CmuxTestSupport */,
 				CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */,
@@ -4153,6 +4154,7 @@
 				A5C0DE0000000000000000A1 /* XCLocalSwiftPackageReference "CMUXProjectModel" */,
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
+				C0B7CF1000000000000000F1 /* XCLocalSwiftPackageReference "CmuxCopyReflow" */,
 				CA52A004CA52A004CA52A004 /* XCLocalSwiftPackageReference "CmuxCanvas" */,
 				CA53A004CA53A004CA53A004 /* XCLocalSwiftPackageReference "CmuxCanvasUI" */,
 				C5A1FED000000000000000C4 /* XCLocalSwiftPackageReference "CmuxSwiftRender" */,
@@ -5977,6 +5979,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CMUXDebugLog;
 		};
+		C0B7CF1000000000000000F1 /* XCLocalSwiftPackageReference "CmuxCopyReflow" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxCopyReflow;
+		};
 		CA52A004CA52A004CA52A004 /* XCLocalSwiftPackageReference "CmuxCanvas" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCanvas;
@@ -6204,6 +6210,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */;
 			productName = CMUXDebugLog;
+		};
+		C0B7CF1000000000000000F2 /* CmuxCopyReflow */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0B7CF1000000000000000F1 /* XCLocalSwiftPackageReference "CmuxCopyReflow" */;
+			productName = CmuxCopyReflow;
 		};
 		CA52A005CA52A005CA52A005 /* CmuxCanvas */ = {
 			isa = XCSwiftPackageProductDependency;

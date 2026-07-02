@@ -1,5 +1,6 @@
 import Foundation
 import CmuxAppKitSupportUI
+import CmuxCopyReflow
 import CmuxTerminal
 import CmuxFoundation
 import CmuxPanes
@@ -4733,7 +4734,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return selectedText.isEmpty ? nil : selectedText
     }
 
-    private func copyCurrentGhosttySelectionToClipboard(surface: ghostty_surface_t) -> Bool {
+    /// - Parameter reflow: when false (Copy Raw), the verbatim selection is
+    ///   written and reflow is never applied, regardless of the setting.
+    private func copyCurrentGhosttySelectionToClipboard(surface: ghostty_surface_t, reflow: Bool = true) -> Bool {
         let generalPasteboard = NSPasteboard.general
         let previousChangeCount = generalPasteboard.changeCount
         let copied = performBindingAction("copy_to_clipboard")
@@ -4742,6 +4745,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let ghosttyWroteFormattedText = generalPasteboard.changeCount != previousChangeCount
             && generalPasteboard.availableType(from: [.string]) != nil
         if ghosttyWroteFormattedText {
+            // Ghostty wrote trimmed, soft-wrap-unwrapped text. Reflow that clean
+            // text rather than the raw trim=false snapshot: a no-op for ordinary
+            // soft-wrapped prose, and a clean rejoin for genuine hard wraps. Copy
+            // Raw (reflow == false) leaves Ghostty's verbatim output untouched.
+            if reflow { reflowClipboardTextIfEnabled(generalPasteboard) }
             return true
         }
 
@@ -4749,17 +4757,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return copied
         }
 
-        GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+        let text = (reflow && TerminalReflowCopySettings.isEnabled()) ? reflowCopiedText(selectedText) : selectedText
+        GhosttyApp.terminalPasteboard.writeString(text, to: GHOSTTY_CLIPBOARD_STANDARD)
         return true
+    }
+
+    /// When reflow is enabled, rewrite the string Ghostty just put on the
+    /// pasteboard with its reflowed form. Ghostty's copy output is already
+    /// trailing-trimmed and soft-wrap unwrapped, so reflow only rejoins genuine
+    /// application hard wrapping and is a no-op for ordinary soft-wrapped prose.
+    private func reflowClipboardTextIfEnabled(_ pasteboard: NSPasteboard) {
+        guard TerminalReflowCopySettings.isEnabled(),
+              let original = pasteboard.string(forType: .string),
+              !original.isEmpty else { return }
+        let reflowed = reflowCopiedText(original)
+        guard reflowed != original else { return }
+        pasteboard.clearContents()
+        pasteboard.setString(reflowed, forType: .string)
     }
 
     private func copyKeyboardCopyModeSelectionToClipboard(surface: ghostty_surface_t) -> Bool {
         if keyboardCopyModeVisualLineActive {
             guard let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface) else { return false }
-            GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+            // The engine right-trims each line, so per-row padding here cannot
+            // become seam gaps.
+            let text = TerminalReflowCopySettings.isEnabled() ? reflowCopiedText(selectedText) : selectedText
+            GhosttyApp.terminalPasteboard.writeString(text, to: GHOSTTY_CLIPBOARD_STANDARD)
             return true
         }
 
+        // Normal selection: let Ghostty write its trimmed/unwrapped text, then
+        // reflow that clean output (see copyCurrentGhosttySelectionToClipboard).
         return copyCurrentGhosttySelectionToClipboard(surface: surface)
     }
 
@@ -5066,6 +5094,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         _ = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
+    }
+
+    /// Copies the selection verbatim, bypassing reflow. Wired to the "Copy Raw"
+    /// context-menu item so a raw copy is available even when reflow is the
+    /// default Copy behavior.
+    @IBAction func copyRaw(_ sender: Any?) {
+        guard let surface else {
+            _ = performBindingAction("copy_to_clipboard")
+            return
+        }
+        if keyboardCopyModeVisualLineActive {
+            if let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface) {
+                GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+            }
+            return
+        }
+        _ = copyCurrentGhosttySelectionToClipboard(surface: surface, reflow: false)
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
@@ -7164,6 +7209,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEquivalent: ""
             )
             item.target = self
+            // When reflow is the default Copy behavior, offer a verbatim escape.
+            // When reflow is off, plain Copy is already verbatim, so this is hidden.
+            if TerminalReflowCopySettings.isEnabled() {
+                let rawItem = menu.addItem(
+                    withTitle: String(localized: "terminalContextMenu.copyRaw", defaultValue: "Copy Raw"),
+                    action: #selector(copyRaw(_:)),
+                    keyEquivalent: ""
+                )
+                rawItem.target = self
+            }
         }
         let pasteItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.paste", defaultValue: "Paste"),
