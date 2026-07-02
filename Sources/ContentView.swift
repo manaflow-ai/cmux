@@ -3069,8 +3069,7 @@ struct ContentView: View {
         // resync each tick. Without this the Dock's surfaces miss the
         // interactive-resize flush path and the width drag renders laggily
         // compared to a native Bonsplit divider drag.
-        view = AnyView(view.onChange(of: fileExplorerWidth) { _ in
-            guard rightSidebarVisible else { return }
+        view = AnyView(view.onChange(of: rightSidebarWidth) { _ in
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
         })
@@ -3252,6 +3251,18 @@ struct ContentView: View {
         let pinnedIds = handoffPinnedIds
             .union(tabManager.mountedBackgroundWorkspaceLoadIds)
             .union(tabManager.debugPinnedWorkspaceLoadIds)
+        var activeWorkspaceIds = Set(currentTabs.map(\.id))
+            .union(pinnedIds)
+        var renderingSyncWorkspaces = currentTabs
+        // Close clears ownership before removing from tabs; a selected workspace
+        // still owned by this manager is live even if a transient order snapshot omits it.
+        if let effectiveSelectedId,
+           !activeWorkspaceIds.contains(effectiveSelectedId),
+           let selectedWorkspace = tabManager.tabs.first(where: { $0.id == effectiveSelectedId }),
+           selectedWorkspace.owningTabManager === tabManager {
+            activeWorkspaceIds.insert(effectiveSelectedId)
+            renderingSyncWorkspaces.append(selectedWorkspace)
+        }
         let isCycleHot = tabManager.isWorkspaceCycleHot
         let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
         let baseMaxMounted = shouldKeepHandoffPair
@@ -3265,12 +3276,13 @@ struct ContentView: View {
             selected: effectiveSelectedId,
             pinnedIds: pinnedIds,
             orderedTabIds: orderedTabIds,
+            activeWorkspaceIds: activeWorkspaceIds,
             isCycleHot: isCycleHot,
             maxMounted: maxMounted
         ).mountedWorkspaceIds
         let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
         let mountedIdSet = Set(mountedWorkspaceIds)
-        for workspace in currentTabs {
+        for workspace in renderingSyncWorkspaces {
             workspace.setPortalRenderingEnabled(
                 mountedIdSet.contains(workspace.id),
                 reason: "workspaceMount"

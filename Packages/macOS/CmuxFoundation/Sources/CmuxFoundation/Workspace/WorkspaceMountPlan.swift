@@ -14,14 +14,26 @@ public struct WorkspaceMountPlan: Equatable {
     private let selected: UUID?
     private let pinnedIds: Set<UUID>
     private let orderedTabIds: [UUID]
+    private let activeWorkspaceIds: Set<UUID>
     private let isCycleHot: Bool
     private let maxMounted: Int
 
+    /// Creates a mount plan from workspace order, liveness, and priority inputs.
+    ///
+    /// - Parameters:
+    ///   - current: Workspace ids currently mounted, in priority order.
+    ///   - selected: The selected workspace id, if any.
+    ///   - pinnedIds: Workspace ids that must stay mounted for handoff or background work.
+    ///   - orderedTabIds: Workspace ids in sidebar order.
+    ///   - activeWorkspaceIds: Authoritative workspace ids that still exist. Defaults to `orderedTabIds`.
+    ///   - isCycleHot: Whether workspace cycling is currently in its hot handoff window.
+    ///   - maxMounted: Maximum number of workspace ids to retain.
     public init(
         current: [UUID],
         selected: UUID?,
         pinnedIds: Set<UUID>,
         orderedTabIds: [UUID],
+        activeWorkspaceIds: Set<UUID>? = nil,
         isCycleHot: Bool,
         maxMounted: Int
     ) {
@@ -29,6 +41,7 @@ public struct WorkspaceMountPlan: Equatable {
         self.selected = selected
         self.pinnedIds = pinnedIds
         self.orderedTabIds = orderedTabIds
+        self.activeWorkspaceIds = activeWorkspaceIds ?? Set(orderedTabIds)
         self.isCycleHot = isCycleHot
         self.maxMounted = maxMounted
     }
@@ -37,14 +50,17 @@ public struct WorkspaceMountPlan: Equatable {
     public var mountedWorkspaceIds: [UUID] {
         let existing = Set(orderedTabIds)
         let clampedMax = max(1, maxMounted)
-        var ordered = current.filter { existing.contains($0) }
+        var ordered = current.filter { existing.contains($0) && activeWorkspaceIds.contains($0) }
 
-        if let selected, existing.contains(selected) {
+        // Session restore can briefly publish an ordered-tab snapshot that omits
+        // the selected workspace; keep it sticky only when liveness confirms it.
+        let shouldKeepSelectedMounted = selected.map { activeWorkspaceIds.contains($0) } ?? false
+        if let selected, shouldKeepSelectedMounted {
             ordered.removeAll { $0 == selected }
             ordered.insert(selected, at: 0)
         }
 
-        if isCycleHot, let selected {
+        if isCycleHot, let selected, shouldKeepSelectedMounted {
             let warmIds = Self.cycleWarmIds(selected: selected, orderedTabIds: orderedTabIds)
             for id in warmIds.reversed() {
                 ordered.removeAll { $0 == id }
@@ -54,24 +70,25 @@ public struct WorkspaceMountPlan: Equatable {
 
         if isCycleHot,
            pinnedIds.isEmpty,
-           let selected {
+           let selected,
+           shouldKeepSelectedMounted {
             ordered.removeAll { $0 != selected }
         }
 
         // Ensure pinned ids (retiring handoff workspaces) are always retained at highest priority.
         // This runs after warming to prevent neighbor warming from evicting the retiring workspace.
         let prioritizedPinnedIds = pinnedIds
-            .filter { existing.contains($0) && $0 != selected }
+            .filter { activeWorkspaceIds.contains($0) && $0 != selected }
             .sorted { lhs, rhs in
                 let lhsIndex = orderedTabIds.firstIndex(of: lhs) ?? .max
                 let rhsIndex = orderedTabIds.firstIndex(of: rhs) ?? .max
                 return lhsIndex < rhsIndex
             }
-        if let selected, existing.contains(selected) {
+        if let selected, shouldKeepSelectedMounted {
             ordered.removeAll { $0 == selected }
             ordered.insert(selected, at: 0)
         }
-        var pinnedInsertionIndex = (selected != nil) ? 1 : 0
+        var pinnedInsertionIndex = shouldKeepSelectedMounted ? 1 : 0
         for pinnedId in prioritizedPinnedIds {
             ordered.removeAll { $0 == pinnedId }
             let insertionIndex = min(pinnedInsertionIndex, ordered.count)
