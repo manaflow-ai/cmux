@@ -687,7 +687,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
-    @ObservationIgnored private var macSwitchAttemptID: UUID?
+    @ObservationIgnored var macSwitchAttemptID: UUID?
     @ObservationIgnored private var macSwitchAttemptSignInGeneration: Int?
     @ObservationIgnored private var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
     @ObservationIgnored private var macSwitchRestoreBaseline: MobilePairedMac?
