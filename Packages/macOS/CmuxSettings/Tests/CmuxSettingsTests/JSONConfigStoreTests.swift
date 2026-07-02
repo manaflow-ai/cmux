@@ -175,6 +175,39 @@ struct JSONConfigStoreTests {
         try await store.reset(catalog.app.devWindowDisplay)
         #expect(store.snapshotValue(for: catalog.app.devWindowDisplay) == "")
     }
+
+    @Test func writesThroughSymlinkWithoutReplacingIt() async throws {
+        // A cmux.json symlinked into a dotfiles repo must survive writes: the
+        // atomic write (temp-file + rename) has to land on the link *target*,
+        // not clobber the link itself and turn it into a standalone file.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-settings-symlink-\(UUID().uuidString)", isDirectory: true)
+        let repoDir = tempDir.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let targetURL = repoDir.appendingPathComponent("cmux.json", isDirectory: false)
+        try Data("{}".utf8).write(to: targetURL)
+
+        let linkURL = tempDir.appendingPathComponent("cmux.json", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+
+        let store = JSONConfigStore(fileURL: linkURL)
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "")
+        try await store.set("dark", for: key)
+
+        // The link path is still a symlink — not replaced by a regular file.
+        let linkAttributes = try FileManager.default.attributesOfItem(atPath: linkURL.path)
+        #expect(linkAttributes[.type] as? FileAttributeType == .typeSymbolicLink)
+
+        // The write landed on the target file, so reading through either the
+        // target or the store reflects the new value.
+        let targetData = try Data(contentsOf: targetURL)
+        let parsed = try JSONSerialization.jsonObject(with: targetData) as? [String: Any]
+        let app = parsed?["app"] as? [String: Any]
+        #expect(app?["appearance"] as? String == "dark")
+        #expect(await store.value(for: key) == "dark")
+    }
 }
 
 private func withTimeout<T: Sendable>(seconds: Double, _ work: @escaping @Sendable () async -> T) async -> T {

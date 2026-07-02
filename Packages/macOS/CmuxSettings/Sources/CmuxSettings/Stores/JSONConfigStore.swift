@@ -59,7 +59,10 @@ public actor JSONConfigStore {
     public init(fileURL: URL, sanitizer: JSONCSanitizer = JSONCSanitizer()) {
         self.fileURL = fileURL
         self.sanitizer = sanitizer
-        self.watcher = FileWatcher(path: fileURL.path)
+        // Watch the symlink target when `fileURL` is a symlink (e.g. a
+        // dotfiles-managed cmux.json), so edits made through the real file are
+        // observed. Falls back to `fileURL` for plain or not-yet-created files.
+        self.watcher = FileWatcher(path: Self.resolvedWriteURL(for: fileURL).path)
     }
 
     deinit {
@@ -225,6 +228,35 @@ public actor JSONConfigStore {
         return dictionary
     }
 
+    /// Resolves the location a write should target for `url`.
+    ///
+    /// When `url` is a symlink — e.g. a `cmux.json` symlinked into a dotfiles
+    /// repo — an atomic write (`options: [.atomic]`) does a temp-file
+    /// `rename()` onto the link path, which *replaces the symlink with a
+    /// regular file* and silently breaks the dotfiles setup. Following the link
+    /// to its target means the atomic replace lands on the target file, leaving
+    /// the symlink intact. Non-symlink and missing paths are returned
+    /// unchanged, so plain files (and first-time creation) still write in place.
+    ///
+    /// Mirrors `ConfigSource.configWriteURL(for:)`, which already does this for
+    /// the ghostty-format config surface; the JSON store had not been given the
+    /// same treatment.
+    private static func resolvedWriteURL(
+        for url: URL,
+        fileManager: FileManager = .default
+    ) -> URL {
+        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
+            return url
+        }
+        let destinationURL: URL
+        if destination.hasPrefix("/") {
+            destinationURL = URL(fileURLWithPath: destination)
+        } else {
+            destinationURL = url.deletingLastPathComponent().appendingPathComponent(destination)
+        }
+        return destinationURL.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
     /// Computes the mutation, writes it to disk, and **only then** commits to
     /// the in-memory cache.
     ///
@@ -242,13 +274,17 @@ public actor JSONConfigStore {
         var root = cacheValid ? cachedRoot : try readFromDisk()
         mutate(&root)
 
-        let parent = fileURL.deletingLastPathComponent()
+        // Write through a symlink to its target rather than at the link path:
+        // an atomic write is a temp-file + `rename()`, which would replace the
+        // link itself with a regular file and break a dotfiles-managed config.
+        let writeURL = Self.resolvedWriteURL(for: fileURL)
+        let parent = writeURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(
             withJSONObject: root,
             options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         )
-        try data.write(to: fileURL, options: [.atomic])
+        try data.write(to: writeURL, options: [.atomic])
 
         // Only commit to cache after the file write succeeded.
         cachedRoot = root
