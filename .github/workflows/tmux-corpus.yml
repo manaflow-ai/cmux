@@ -154,15 +154,6 @@ jobs:
               -only-testing:cmuxTests/SessionPersistenceTests \
               test 2>&1 | tee /tmp/tmux-terminal-corpus-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
-          OUTPUT=$(cat /tmp/tmux-terminal-corpus-output.txt)
           set -e
 
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1 || true)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected terminal corpus test failures detected"
-              exit 1
-            fi
-          fi
+          python3 scripts/ci/check-xcodebuild-test-result.py --exit-code "$EXIT_CODE" /tmp/tmux-terminal-corpus-output.txt

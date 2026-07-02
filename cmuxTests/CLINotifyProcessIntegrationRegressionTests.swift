@@ -3492,9 +3492,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testSSHPersistentPTYJSONReportsResolvedSessionID() throws {
         let run = try runMockedSSH(arguments: [], jsonOutput: true)
-        let payload = try jsonPayload(from: run.stdout)
-        let sessionID = try XCTUnwrap(payload["ssh_pty_session_id"] as? String)
-        let persistentDaemonSlot = try XCTUnwrap(payload["persistent_daemon_slot"] as? String)
+        let payload = ((try? JSONSerialization.jsonObject(with: Data(run.stdout.utf8), options: [])) as? [String: Any]) ?? ["_stdout": run.stdout]
+        let sessionID = payload["ssh_pty_session_id"] as? String ?? "<missing ssh_pty_session_id in \(payload)>"
+        let persistentDaemonSlot = payload["persistent_daemon_slot"] as? String ?? "<missing persistent_daemon_slot in \(payload)>"
 
         XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
         XCTAssertFalse(sessionID.contains("$"), sessionID)
@@ -3505,9 +3505,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testSSHPersistentPTYJSONResolvesSessionIDWhenWorkspaceCreateOmitsSurfaceID() throws {
         let run = try runMockedSSH(arguments: [], jsonOutput: true, omitWorkspaceCreateSurfaceID: true)
-        let payload = try jsonPayload(from: run.stdout)
-        let sessionID = try XCTUnwrap(payload["ssh_pty_session_id"] as? String)
-        let persistentDaemonSlot = try XCTUnwrap(payload["persistent_daemon_slot"] as? String)
+        let payload = ((try? JSONSerialization.jsonObject(with: Data(run.stdout.utf8), options: [])) as? [String: Any]) ?? ["_stdout": run.stdout]
+        let sessionID = payload["ssh_pty_session_id"] as? String ?? "<missing ssh_pty_session_id in \(payload)>"
+        let persistentDaemonSlot = payload["persistent_daemon_slot"] as? String ?? "<missing persistent_daemon_slot in \(payload)>"
 
         XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
         XCTAssertTrue(persistentDaemonSlot.hasPrefix("ssh-"), persistentDaemonSlot)

@@ -695,14 +695,14 @@ check_tmux_terminal_nightly_isolation() {
     in_job && /-derivedDataPath "\$CMUX_DERIVED_DATA_PATH"/ { saw_flag=1 }
     in_job && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_noninteractive=1 }
     in_job && /SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"/ { saw_backtrace=1 }
-    in_job && /All failures are expected, treating as pass/ { saw_expected_failure_handling=1 }
-    END { exit !(saw_env && saw_flag && saw_noninteractive && saw_backtrace && saw_expected_failure_handling) }
+    in_job && /scripts\/ci\/check-xcodebuild-test-result\.py/ { saw_result_policy=1 }
+    END { exit !(saw_env && saw_flag && saw_noninteractive && saw_backtrace && saw_result_policy) }
   ' "$TMUX_CORPUS_FILE"; then
-    echo "FAIL: tmux corpus terminal-nightly must use isolated DerivedData, the noninteractive xcodebuild wrapper, and expected-failure handling"
+    echo "FAIL: tmux corpus terminal-nightly must use isolated DerivedData, the noninteractive xcodebuild wrapper, and the shared xcodebuild result policy"
     exit 1
   fi
 
-  echo "PASS: tmux corpus terminal-nightly uses isolated DerivedData, noninteractive xcodebuild, and expected-failure handling"
+  echo "PASS: tmux corpus terminal-nightly uses isolated DerivedData, noninteractive xcodebuild, and the shared xcodebuild result policy"
 }
 
 check_no_bare_github_hosted_runners() {
