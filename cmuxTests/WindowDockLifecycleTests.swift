@@ -200,6 +200,7 @@ struct WindowDockLifecycleTests {
         try dock.seedTestPanel(panel)
         let tabId = try #require(dock.surfaceId(forPanelId: panel.id))
         let paneId = try #require(dock.paneId(forPanelId: panel.id))
+        let tab = try #require(dock.bonsplitController.tabs(inPane: paneId).first { $0.id == tabId })
 
         var activeManagerPromptCount = 0
         activeManager.confirmCloseHandler = { _, _, _ in
@@ -212,7 +213,7 @@ struct WindowDockLifecycleTests {
             return false
         }
 
-        #expect(!dock.splitTabBar(dock.bonsplitController, shouldCloseTab: tabId, inPane: paneId))
+        #expect(!dock.splitTabBar(dock.bonsplitController, shouldCloseTab: tab, inPane: paneId))
         for _ in 0..<10 where dockManagerPromptCount == 0 {
             await Task.yield()
         }
