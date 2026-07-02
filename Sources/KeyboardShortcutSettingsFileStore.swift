@@ -850,22 +850,21 @@ final class CmuxSettingsFileStore {
     }
 
     private func workspaceStateColorKey(_ raw: String) -> String? {
+        // Defer to the shared lifecycle-state parser so state names and their
+        // synonyms stay defined in one place (AgentHibernationLifecycleState),
+        // instead of duplicating its normalization switch here.
+        if let state = AgentHibernationLifecycleState.parseCLIValue(raw) {
+            return state.rawValue
+        }
+        // "waiting" is a legacy alias for needsInput accepted only in stateColors
+        // config; every other spelling flows through the shared parser above.
         let normalized = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: "_", with: "-")
-        switch normalized {
-        case "unknown":
-            return AgentHibernationLifecycleState.unknown.rawValue
-        case "running":
-            return AgentHibernationLifecycleState.running.rawValue
-        case "idle":
-            return AgentHibernationLifecycleState.idle.rawValue
-        case "needsinput", "needs-input", "waiting":
-            return AgentHibernationLifecycleState.needsInput.rawValue
-        default:
-            return nil
-        }
+        return normalized == "waiting"
+            ? AgentHibernationLifecycleState.needsInput.rawValue
+            : nil
     }
 
     private func parseSidebarAppearanceSection(

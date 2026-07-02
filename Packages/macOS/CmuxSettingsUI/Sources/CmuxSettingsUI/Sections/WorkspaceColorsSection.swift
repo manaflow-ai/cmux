@@ -30,6 +30,10 @@ public struct WorkspaceColorsSection: View {
         var id: String { rawValue }
     }
 
+    /// Neutral gray shown in the state-color swatch when a state is cleared
+    /// (no tint). Matches the "No tint" label rather than the built-in default.
+    private static let noTintSwatchHex = "#8E8E93"
+
     /// Built-in palette order and default hexes. Mirrors
     /// `WorkspaceTabColorSettings.defaultPalette` in the legacy app target.
     /// Kept in this file so the section can render the full effective
@@ -231,7 +235,7 @@ public struct WorkspaceColorsSection: View {
                 // the label and the sidebar both say no tint. "Reset" restores
                 // the default.
                 ColorPicker("", selection: Binding(
-                    get: { Color(cmuxHex: currentHex ?? "#8E8E93") ?? Color(nsColor: .systemBlue) },
+                    get: { Color(cmuxHex: currentHex ?? Self.noTintSwatchHex) ?? Color(nsColor: .systemBlue) },
                     set: { newColor in setStateColor(newColor.cmuxHexString, for: row.rawValue) }
                 ), supportsOpacity: false)
                 .labelsHidden()

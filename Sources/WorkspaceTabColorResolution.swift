@@ -72,13 +72,16 @@ struct WorkspaceStateColorResolver: Equatable {
         return (Int((value >> 16) & 0xFF), Int((value >> 8) & 0xFF), Int(value & 0xFF))
     }
 
+    // Hex digit table hoisted to a stored static so the hot sidebar refresh
+    // path doesn't re-allocate the array on every color-to-hex conversion.
+    private static let hexDigits: [Character] = Array("0123456789ABCDEF")
+
     private static func hexString(red: Int, green: Int, blue: Int) -> String {
         // Avoid String(format:) on this hot path: it is the byte-to-hex pattern
         // that caused unbounded memory growth in cmux PR #5347.
-        let digits: [Character] = Array("0123456789ABCDEF")
         func byteHex(_ value: Int) -> String {
             let clamped = max(0, min(255, value))
-            return String([digits[clamped >> 4], digits[clamped & 0x0F]])
+            return String([hexDigits[clamped >> 4], hexDigits[clamped & 0x0F]])
         }
         return "#" + byteHex(red) + byteHex(green) + byteHex(blue)
     }

@@ -948,10 +948,12 @@
             "unknown": { "$ref": "#/$defs/colorHexOrNull" },
             "waiting": {
               "$ref": "#/$defs/colorHexOrNull",
+              "deprecated": true,
               "description": "Deprecated alias for needsInput."
             },
             "needs-input": {
               "$ref": "#/$defs/colorHexOrNull",
+              "deprecated": true,
               "description": "Deprecated alias for needsInput."
             }
           },
