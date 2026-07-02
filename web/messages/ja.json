@@ -1950,7 +1950,8 @@
   "afterSignIn": {
     "title": "cmux にサインインしました",
     "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
-    "button": "cmux に戻る"
+    "button": "cmux に戻る",
+    "switchAccountButton": "別のアカウントを使用"
   },
   "landing": {
     "bestTerminal": {
