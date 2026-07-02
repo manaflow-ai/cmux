@@ -73,6 +73,12 @@ final class CodexTeamsWatcherRegressionTests {
         // actually routed through surface.split — not merely mentioned by some
         // later command such as the tab.action rename.
         //
+        // - backfilled-subagent-thread: present in the initial thread/loaded/list
+        //   backfill. Its id carries a distinct "backfilled-" prefix so this
+        //   condition can assert it by id. The bare "subagent-thread" would be a
+        //   substring of every late id below, so a contains()-needle of it (or a
+        //   nil matcher that accepts any surface.split) is satisfied by the late
+        //   panes alone and never actually asserts the backfilled pane opened.
         // - late-subagent-thread: announced by a bare-threadId notification just
         //   after the backfill reads; one extra thread/read once connected.
         // - late-inflight-subagent-thread (Finding 1): announced by a bare
@@ -84,7 +90,7 @@ final class CodexTeamsWatcherRegressionTests {
         //   app-server re-announces it as loaded the watcher must re-read it.
         let splitResults = cmuxSocket.waitForCommands(
             matchingAll: [
-                (method: "surface.split", needle: nil),
+                (method: "surface.split", needle: "backfilled-subagent-thread"),
                 (method: "surface.split", needle: "late-subagent-thread"),
                 (method: "surface.split", needle: "late-inflight-subagent-thread"),
                 (method: "surface.split", needle: "reloaded-subagent-thread")
@@ -111,7 +117,7 @@ final class CodexTeamsWatcherRegressionTests {
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         #expect(
             openedSplit,
-            "Expected codex-teams watcher to open a subagent split. stdout=\(stdout) stderr=\(stderr) appServerMethods=\(appServer.methodSnapshot()) cmuxCommands=\(cmuxSocket.commandSnapshot())"
+            "Expected codex-teams watcher to open the backfilled subagent split. stdout=\(stdout) stderr=\(stderr) appServerMethods=\(appServer.methodSnapshot()) cmuxCommands=\(cmuxSocket.commandSnapshot())"
         )
         #expect(
             openedLateSplit,
@@ -239,7 +245,7 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
                 let params = request["params"] as? [String: Any]
                 let readThreadId = method == "thread/read" ? (params?["threadId"] as? String) : nil
                 let readCount = readThreadId.map { recordRead(of: $0) } ?? 0
-                if readThreadId == "subagent-thread" {
+                if readThreadId == "backfilled-subagent-thread" {
                     // Finding 1: a thread announced by a bare-threadId status
                     // notification delivered *before* the in-flight read's
                     // response, so it lands on that request's notification
@@ -263,7 +269,7 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
                 if let response = response(for: request, method: method, readCount: readCount) {
                     sendText(response, to: clientFD)
                 }
-                if readThreadId == "subagent-thread" {
+                if readThreadId == "backfilled-subagent-thread" {
                     // Mirror current Codex app-servers: a thread spawned after
                     // the watcher connected is announced only by a bare-threadId
                     // status notification, never by a full thread object.
@@ -293,7 +299,7 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
                 "result": [
                     "data": [
                         "root-thread",
-                        "subagent-thread"
+                        "backfilled-subagent-thread"
                     ]
                 ]
             ]
@@ -313,7 +319,7 @@ private final class FakeCodexTeamsAppServer: @unchecked Sendable {
 
     private func threadObject(id: String, readCount: Int) -> [String: Any] {
         let subagentNicknames = [
-            "subagent-thread": "Zeno",
+            "backfilled-subagent-thread": "Zeno",
             "late-subagent-thread": "Hopper",
             "late-inflight-subagent-thread": "Kepler",
             "reloaded-subagent-thread": "Reloader"
