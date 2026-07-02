@@ -294,6 +294,11 @@ struct WindowDockRoutingSocketTests {
                 "workspace_id": dockWindowId.uuidString,
             ])
             #expect(ownerConflictFocusEnvelope["ok"] as? Bool == false)
+            let aliasConflictFocusEnvelope = try v2Envelope(method: "surface.focus", params: [
+                "workspace_id": AppDelegate.windowDockAliasWorkspaceId.uuidString,
+                "surface_id": otherDockSurfaceId.uuidString,
+            ])
+            #expect(aliasConflictFocusEnvelope["ok"] as? Bool == false)
             let focusResult = try v2Result(method: "surface.focus", params: [
                 "surface_id": dockSurfaceId.uuidString,
             ])

@@ -172,12 +172,20 @@ extension TerminalController {
     /// `dock` — via `window_id` or a Dock-owner `workspace_id`. Used by the
     /// surface-containment paths that bypass `windowDockForRouting`; a
     /// non-Dock `workspace_id` never conflicts (see `windowDockForRouting`).
-    func windowDockMismatchesExplicitSelectors(_ routing: ControlRoutingSelectors, dock: DockSplitStore) -> Bool {
+    func windowDockMismatchesExplicitSelectors(
+        _ routing: ControlRoutingSelectors,
+        dock: DockSplitStore,
+        aliasTabManager: TabManager? = nil
+    ) -> Bool {
         if windowDockMismatchesExplicitWindow(routing, dock: dock) { return true }
         if windowDockMismatchesExplicitDockSurfaceOrPane(routing, dock: dock) { return true }
-        guard let workspaceID = routing.workspaceID,
-              workspaceID != AppDelegate.windowDockAliasWorkspaceId,
-              AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceID) != nil else { return false }
+        guard let workspaceID = routing.workspaceID else { return false }
+        if workspaceID == AppDelegate.windowDockAliasWorkspaceId {
+            guard let aliasTabManager,
+                  let aliasWindowId = AppDelegate.shared?.windowId(for: aliasTabManager) else { return false }
+            return aliasWindowId != dock.workspaceId
+        }
+        guard AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceID) != nil else { return false }
         return workspaceID != dock.workspaceId
     }
 
