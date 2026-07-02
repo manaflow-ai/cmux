@@ -60,7 +60,7 @@ extension DockSplitStore {
             directory: preservedTransfer?.directory,
             directoryDisplayLabel: preservedTransfer?.directoryDisplayLabel,
             ttyName: preservedTransfer?.ttyName,
-            cachedTitle: preservedTransfer?.cachedTitle,
+            cachedTitle: panel.displayTitle,
             customTitle: preservedTransfer?.customTitle,
             customTitleSource: preservedTransfer?.customTitleSource,
             manuallyUnread: preservedTransfer?.manuallyUnread ?? false,

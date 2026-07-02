@@ -14,7 +14,7 @@ private final class DockTransferTestPanel: Panel {
     let objectWillChange = ObservableObjectPublisher()
     let id: UUID
     let panelType: PanelType
-    let displayTitle: String
+    var displayTitle: String
     let displayIcon: String?
     let isDirty = false
 
@@ -42,6 +42,7 @@ extension DockSocketLifecycleTests {
         panel: any Panel,
         sourceWorkspaceId: UUID,
         directory: String? = nil,
+        cachedTitle: String? = nil,
         restorableAgent: SessionRestorableAgentSnapshot? = nil,
         restorableAgentResumeState: Workspace.RestoredAgentResumeState? = nil,
         restoredResumeSessionWorkingDirectory: String? = nil,
@@ -60,7 +61,7 @@ extension DockSocketLifecycleTests {
             directory: directory,
             directoryDisplayLabel: nil,
             ttyName: nil,
-            cachedTitle: nil,
+            cachedTitle: cachedTitle,
             customTitle: nil,
             customTitleSource: nil,
             manuallyUnread: false,
@@ -259,6 +260,7 @@ extension DockSocketLifecycleTests {
             panel: panel,
             sourceWorkspaceId: sourceWorkspaceId,
             directory: trackedDirectory,
+            cachedTitle: "Stale Dock Title",
             restorableAgent: agent,
             restorableAgentResumeState: .autoResumeCommandRunning,
             restoredResumeSessionWorkingDirectory: sessionDirectory,
@@ -267,9 +269,11 @@ extension DockSocketLifecycleTests {
 
         let attachedPanelId = store.attachDetachedSurface(detached, inPane: rootPane, focus: false)
         #expect(attachedPanelId == panel.id)
+        panel.displayTitle = "Current Dock Title"
 
         let roundTripped = try #require(store.detachSurface(panelId: panel.id))
         #expect(roundTripped.panelId == panel.id)
+        #expect(roundTripped.cachedTitle == "Current Dock Title")
         #expect(roundTripped.directory == trackedDirectory)
         #expect(roundTripped.restorableAgent?.sessionId == sessionId)
         #expect(roundTripped.restorableAgentResumeState == nil)
