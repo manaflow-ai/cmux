@@ -594,3 +594,66 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
     #expect(repaired)
     collector.unmount()
 }
+
+@MainActor
+@Test func hybridAlternateExitFrameDroppedBehindPendingInputStillRequestsReplay() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    // Default capabilities include terminal.bytes.v1, selecting the hybrid
+    // transport whose raw primary bytes stay suppressed while the tracked
+    // screen is alternate.
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let surfaceID = "live-terminal"
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let mountReplaySettled = try await pollUntil {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(mountReplaySettled)
+    let transport = try #require(box.get())
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 50,
+        text: "tui-screen",
+        activeScreen: .alternate
+    ))
+    let tuiDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("tui-screen") }
+    }
+    #expect(tuiDelivered)
+    let replayCountBeforeInput = await router.count(of: "mobile.terminal.replay")
+
+    await store.submitTerminalRawInput(Data("q".utf8), surfaceID: surfaceID)
+    let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
+    #expect(inputSent)
+
+    // The alternate-exit frame raced the input ACK and lands behind the
+    // pending sequence: it is dropped, but it may be the only signal that
+    // the host returned to the primary screen, so it must still arm a
+    // bounded replay instead of leaving the surface wedged on TUI content.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 60,
+        text: "back-at-shell",
+        columns: 40,
+        full: false
+    ))
+    let exitFrameDelivered = try await pollUntil(attempts: 50) {
+        collector.lines.contains { $0.contains("back-at-shell") }
+    }
+    #expect(!exitFrameDelivered, "the behind-pending exit frame itself stays dropped")
+    let replayRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountBeforeInput + 1
+    )
+    #expect(
+        replayRequested,
+        "a dropped alternate-exit frame must arm a bounded replay so hybrid byte suppression cannot wedge the surface"
+    )
+    collector.unmount()
+}

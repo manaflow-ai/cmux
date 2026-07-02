@@ -6852,6 +6852,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         pendingTerminalInputDroppedRenderGridSurfaceIDs.insert(renderGrid.surfaceID)
         MobileDebugLog.anchormux("sync.render_grid_wait_input source=\(source) surface=\(renderGrid.surfaceID) frame=\(renderGrid.stateSeq) pending=\(pendingSeq)")
+        if source == "event",
+           terminalOutputTransport == .hybrid,
+           terminalActiveScreenBySurfaceID[renderGrid.surfaceID] == .alternate,
+           renderGrid.activeScreen == .primary {
+            // The dropped frame may be the only signal that the host left the
+            // alternate screen. Hybrid keeps suppressing raw primary bytes
+            // while the tracked screen stays alternate, so without a replay
+            // the surface can wedge on stale TUI content. Bounded by the
+            // replay retry budget.
+            requestTerminalReplayAfterDroppedRenderGrid(surfaceID: renderGrid.surfaceID, source: source)
+        }
         return true
     }
 
