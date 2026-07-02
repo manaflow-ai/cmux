@@ -329,6 +329,14 @@ final class RemoteTmuxController {
 
     // MARK: - Create / destroy propagation (P5)
 
+    /// The destination (ssh alias / `user@host`) of the host whose mirror owns
+    /// `workspaceId`, or `nil` when no mirror maps to it. Drives the per-host
+    /// origin color: mirror workspaces carry their host only through the session
+    /// mirror (not `remoteConfiguration`), so the color resolver reads it here.
+    func hostDestination(forWorkspaceId workspaceId: UUID) -> String? {
+        sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId })?.host.destination
+    }
+
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
     /// tmux session name tracks the cmux workspace title.
     func handleMirrorWorkspaceRenamed(workspaceId: UUID, title: String?) {

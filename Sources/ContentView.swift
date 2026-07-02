@@ -10523,6 +10523,9 @@ struct VerticalTabsSidebar: View, Equatable {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    // Per-host origin colors (beta). Read here so toggling the flag re-evaluates
+    // the sidebar and rebuilds each row's snapshot with the resolved color.
+    @LiveSetting(\.betaFeatures.remoteTmuxOriginColors) private var remoteTmuxOriginColorsEnabled
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
@@ -11062,6 +11065,13 @@ struct VerticalTabsSidebar: View, Equatable {
             refreshWorkspaceSnapshots()
         }
         .onChange(of: renderContext.showsAgentActivity) { _, _ in
+            refreshWorkspaceSnapshots()
+        }
+        .onChange(of: remoteTmuxOriginColorsEnabled) { _, _ in
+            // The origin color feeds the snapshot's effective color, so a flag
+            // toggle must repopulate the cache like any other presentation change;
+            // otherwise every row keeps missing the cache and rebuilds its
+            // snapshot on each evaluation.
             refreshWorkspaceSnapshots()
         }
         .onDisappear {
@@ -11993,8 +12003,23 @@ struct VerticalTabsSidebar: View, Equatable {
         return SidebarWorkspaceSnapshotFactory(
             workspace: workspace,
             settings: settings,
-            showsAgentActivity: showsAgentActivity
+            showsAgentActivity: showsAgentActivity,
+            originColorHex: originColorHex(for: workspace)
         ).makeSnapshot()
+    }
+
+    /// Per-host origin color (beta), resolved here — above the row boundary — to
+    /// a plain value. Mirror workspaces carry their host only through the session
+    /// mirror, so fall back to the controller lookup when there's no
+    /// remoteConfiguration. Nil when the flag is off or the workspace has no host.
+    private func originColorHex(for workspace: Workspace) -> String? {
+        guard remoteTmuxOriginColorsEnabled else { return nil }
+        let destination = workspace.remoteConfiguration?.destination
+            ?? (workspace.isRemoteTmuxMirror
+                ? AppDelegate.shared?.remoteTmuxController.hostDestination(forWorkspaceId: workspace.id)
+                : nil)
+        guard let destination, !destination.isEmpty else { return nil }
+        return RemoteHostColorRegistry.shared.colorHex(for: destination)
     }
 
     private func clearExtensionSidebarObservationPublishers() {
@@ -13665,9 +13690,15 @@ struct VerticalTabsSidebar: View, Equatable {
         )
         let settings = renderContext.tabItemSettings
         let cachedWorkspaceSnapshot = workspaceSnapshotsById[tab.id]
+        // The effective row color (manual color, else resolved origin color) is
+        // part of the key so the cached snapshot is rebuilt when the color
+        // changes — e.g. toggling the origin-colors flag or a mirror host
+        // resolving after the row first appears, neither of which is a Workspace
+        // @Published change that would otherwise refresh the snapshot.
         let expectedPresentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
             settings: settings,
-            showsAgentActivity: renderContext.showsAgentActivity
+            showsAgentActivity: renderContext.showsAgentActivity,
+            customColorHex: tab.customColor ?? originColorHex(for: tab)
         )
         let workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
         if let cachedWorkspaceSnapshot,

@@ -138,6 +138,7 @@ import Testing
             customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: customColorHex,
+            hasManualCustomColor: customColorHex != nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",
@@ -181,7 +182,8 @@ import Testing
             showsBranchDirectory: true,
             showsPullRequests: true,
             showsPorts: true
-        )
+        ),
+        customColorHex: String? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: showsWorkspaceDescription,
@@ -189,8 +191,21 @@ import Testing
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
             showsAgentActivity: showsAgentActivity,
-            visibleAuxiliaryDetails: visibleAuxiliaryDetails
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails,
+            customColorHex: customColorHex
         )
+    }
+
+    /// The effective row color is part of the presentation key so the cached
+    /// sidebar snapshot is rebuilt when the color changes — e.g. toggling the
+    /// origin-colors flag or a mirror host resolving after the row first appears.
+    /// Without this, the row re-evaluates but renders the stale cached color.
+    @Test func presentationKeyDistinguishesEffectiveColor() {
+        let uncolored = Self.presentationKey(customColorHex: nil)
+        let tinted = Self.presentationKey(customColorHex: "#1565C0")
+        #expect(uncolored != tinted)
+        #expect(tinted == Self.presentationKey(customColorHex: "#1565C0"))
+        #expect(Self.presentationKey(customColorHex: "#922B21") != tinted)
     }
 }
 

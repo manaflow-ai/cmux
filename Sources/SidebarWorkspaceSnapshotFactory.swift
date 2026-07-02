@@ -15,6 +15,10 @@ struct SidebarWorkspaceSnapshotFactory {
     let workspace: Workspace
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
+    /// Resolved per-host origin color (hex), or nil when the beta flag is off or
+    /// the workspace has no host. Resolved by the caller above the row boundary
+    /// and passed in as a plain value; a manual `workspace.customColor` still wins.
+    var originColorHex: String? = nil
 
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         let detailVisibility = settings.visibleAuxiliaryDetails
@@ -80,7 +84,10 @@ struct SidebarWorkspaceSnapshotFactory {
             title: workspace.title,
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
-            customColorHex: workspace.customColor,
+            // A manual workspace color always wins; the per-host origin color
+            // (nil when the flag is off) is the fallback.
+            customColorHex: workspace.customColor ?? originColorHex,
+            hasManualCustomColor: workspace.customColor != nil,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -122,12 +129,17 @@ struct SidebarWorkspaceSnapshotFactory {
     }
 
     private var presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
-        Self.presentationKey(settings: settings, showsAgentActivity: showsAgentActivity)
+        Self.presentationKey(
+            settings: settings,
+            showsAgentActivity: showsAgentActivity,
+            customColorHex: workspace.customColor ?? originColorHex
+        )
     }
 
     static func presentationKey(
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        customColorHex: String?
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
@@ -135,7 +147,8 @@ struct SidebarWorkspaceSnapshotFactory {
             showsGitBranch: settings.showsGitBranch,
             usesViewportAwarePath: settings.usesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,
-            visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails
+            visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails,
+            customColorHex: customColorHex
         )
     }
 
