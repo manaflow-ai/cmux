@@ -152,9 +152,19 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             hostedView.setActive(false)
             hostedView.setFocusHandler(nil)
             hostedView.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
-            panel.surface.setRendererPortalVisible(true)
-            panel.surface.realizeRenderer()
-            panel.surface.setOcclusion(true)
+            // Hand the surface off in the same hidden state as the authoritative
+            // portal hide (`GhosttySurfaceScrollView.setVisibleInUI(false)`):
+            // portal-hidden and occluded, without realizing. Unmount also runs
+            // when a canvas tab is deselected (`CanvasRootView.reconcileMount`),
+            // where no portal re-hosts the surface — leaving it portal-visible
+            // would pin `RendererRealizationController` off this surface forever
+            // and leak its GPU renderer, and leaving it occlusion-visible would
+            // let Ghostty draw into a swap chain the controller has since
+            // released. When the split path re-hosts on its next update,
+            // `setVisibleInUI(true)` re-marks it visible and re-realizes before
+            // any draw. Release stays controller-driven (idle/warm policy).
+            panel.surface.setRendererPortalVisible(false)
+            panel.surface.setOcclusion(false)
             hostedView.removeFromSuperview()
         case .hosted(let panel, let view):
             if let browserPanel = panel as? BrowserPanel {
