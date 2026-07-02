@@ -664,12 +664,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private(set) var surface: ghostty_surface_t?
     private var surfaceGeneration: UInt64 = 0
     private var lastReportedSize: TerminalGridSize?
-    /// Local natural grid waiting for the Mac's effective-grid echo. While set,
-    /// an older smaller effective grid is treated as stale viewport-growth state.
+    /// Local natural grid waiting for the Mac's effective-grid echo.
     private var awaitingViewportEcho: TerminalGridSize?
-    /// True after the Mac has confirmed at least one local viewport report.
-    /// Until then, a pending initial natural-grid report is not evidence of
-    /// viewport growth and must not suppress direct remote-grid top anchoring.
     private var hasConfirmedViewportReport = false
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
@@ -3746,16 +3742,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let hasPriorReportedSize = lastReportedSize != nil
         let shouldReportNaturalSize = reportGridChanged ||
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
-        let awaitingViewportEchoForPlacement: (cols: Int, rows: Int)?
-        if hasConfirmedViewportReport {
-            if reportGridChanged, hasPriorReportedSize {
-                awaitingViewportEchoForPlacement = (cols: reportGrid.columns, rows: reportGrid.rows)
-            } else {
-                awaitingViewportEchoForPlacement = awaitingViewportEcho.map { (cols: $0.columns, rows: $0.rows) }
-            }
-        } else {
-            awaitingViewportEchoForPlacement = nil
-        }
+        let pendingEchoForPlacement = reportGridChanged && hasPriorReportedSize ? reportGrid : awaitingViewportEcho
+        let awaitingViewportEchoForPlacement = hasConfirmedViewportReport
+            ? pendingEchoForPlacement.map { (cols: $0.columns, rows: $0.rows) }
+            : nil
         let naturalRenderSize = CGSize(
             width: max(1, CGFloat(naturalSize.pixelWidth) / scale),
             height: max(1, CGFloat(naturalSize.pixelHeight) / scale)
