@@ -126,7 +126,11 @@ extension RestorableAgentSessionIndex {
             )
             guard let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]),
                   let registration = registryForWorkingDirectory(cwd).registrations.first(where: { $0.detect.matches(observed) }),
-                  registration.sessionIdSource == .stateDB else {
+                  registration.sessionIdSource == .stateDB,
+                  // Only fresh launches compete for the cwd's newest session. A pane with an explicit
+                  // `--resume <id>` binds to that id directly (below) and does not consult the cwd
+                  // heuristic, so counting it would wrongly mark a co-located fresh pane ambiguous.
+                  observed.arguments.hermesResumeSessionID == nil else {
                 continue
             }
             let key = hermesAmbiguityKey(
@@ -982,8 +986,7 @@ private extension CmuxVaultAgentSessionIDSource {
             // and hermes rejects an id that does not exist, so trust the argv id over the heuristic:
             // it is correct even when the pane resumed an older session in a directory that also holds
             // a newer one, and it disambiguates two panes in the same cwd.
-            if let explicitSessionId = process.arguments.nonOptionValue(afterOption: "--resume")
-                ?? process.arguments.nonOptionValue(afterOption: "-r") {
+            if let explicitSessionId = process.arguments.hermesResumeSessionID {
                 return VaultAgentSessionIDResolution(sessionId: explicitSessionId, source: .explicit)
             }
             // Otherwise Hermes minted its own id at startup (readable only from state.db, scoped to
@@ -1084,6 +1087,14 @@ private extension Array where Element == String {
     private func normalizedNonOptionValue(_ rawValue: String) -> String? {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         return !value.isEmpty && !value.hasPrefix("-") ? value : nil
+    }
+
+    /// The explicit session id from a live `hermes --resume <id>` / `-r <id>` argv, or nil for a
+    /// fresh launch. hermes rejects an id that does not exist, so an argv id names the exact running
+    /// session; the scanner trusts it over the state.db cwd-newest heuristic and excludes such panes
+    /// from the same-cwd ambiguity count (they do not compete for the cwd's newest fresh session).
+    var hermesResumeSessionID: String? {
+        nonOptionValue(afterOption: "--resume") ?? nonOptionValue(afterOption: "-r")
     }
 
     var grokResumeSessionID: String? {

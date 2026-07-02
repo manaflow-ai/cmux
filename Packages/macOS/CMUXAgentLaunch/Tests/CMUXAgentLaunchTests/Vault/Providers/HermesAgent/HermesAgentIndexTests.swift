@@ -154,6 +154,25 @@ struct HermesAgentIndexTests {
         #expect(HermesAgentIndex.latestSessionID(cwd: repoB, stateDBPath: dbURL.path) == "b-newest-globally")
     }
 
+    @Test("latestSessionID never picks an ended session over a newer live one")
+    func latestSessionIDDoesNotPreferEndedSession() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+        let repo = try makeDirectory(root.appendingPathComponent("repo", isDirectory: true))
+        // 'ended-late' started early (10) but ended at 500; 'fresh-live' started later (100), active.
+        // The running pane is the fresh one; ordering by started_at must not let the later ended_at win.
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, ended_at, cwd)
+        VALUES
+          ('ended-late', 'cli', 'm', 10, 500, '\(repo)'),
+          ('fresh-live', 'tui', 'm', 100, NULL, '\(repo)');
+        """)
+
+        #expect(HermesAgentIndex.latestSessionID(cwd: repo, stateDBPath: dbURL.path) == "fresh-live")
+    }
+
     @Test("latestSessionID orders by session timestamps, not message recency (bounded restore path)")
     func latestSessionIDOrdersBySessionTimestampsNotMessages() throws {
         let root = try temporaryDirectory()

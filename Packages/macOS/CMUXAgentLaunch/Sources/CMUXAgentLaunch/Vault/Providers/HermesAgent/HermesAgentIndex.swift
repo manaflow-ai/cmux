@@ -165,11 +165,13 @@ public enum HermesAgentIndex {
     /// A purpose-built, bounded id-only query: it selects only `s.id` and touches only the
     /// `sessions` table — no `messages` join, `GROUP BY`, correlated aggregate, or preview subquery —
     /// so it stays O(cwd-matched sessions) regardless of how large `messages` grows, keeping the
-    /// process-scan restore path cheap. Ordering by `COALESCE(s.ended_at, s.started_at)` is correct
-    /// for the only case that reaches this fallback: a *fresh* Hermes launch (a pane resuming a
-    /// specific session carries `--resume <id>` in argv, which the scanner honours before calling
-    /// this) mints a new row whose timestamp is the newest for its cwd. Concurrent fresh panes in one
-    /// cwd are rejected upstream by the scanner's ambiguity guard.
+    /// process-scan restore path cheap. Ordering by `started_at` (never `ended_at`) is correct for
+    /// the only case that reaches this fallback: a *fresh* Hermes launch. A pane resuming a specific
+    /// session carries `--resume <id>` in argv, which the scanner honours before calling this, so the
+    /// running process here just minted a new row whose `started_at` is the newest for its cwd — newer
+    /// than any pre-existing session, including one that *ended* after this pane started (ordering by
+    /// `ended_at` could otherwise pick that ended session). Concurrent fresh panes in one cwd are
+    /// rejected upstream by the scanner's ambiguity guard.
     private static func latestSessionID(
         db: OpaquePointer,
         cwdCandidates: [String]
@@ -181,7 +183,7 @@ public enum HermesAgentIndex {
             FROM sessions s
             WHERE s.source IN (\(knownSources.map { "'\($0)'" }.joined(separator: ", ")))
               AND s.cwd IN (\(placeholders))
-            ORDER BY COALESCE(s.ended_at, s.started_at) DESC
+            ORDER BY s.started_at DESC, s.id DESC
             LIMIT 1
             """
         var stmt: OpaquePointer?

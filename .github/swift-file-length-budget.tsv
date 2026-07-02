@@ -51,10 +51,10 @@
 1900	cmuxTests/NotificationAndMenuBarTests.swift
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
 1810	Sources/SessionIndexStore.swift
+1755	cmuxTests/RestorableAgentSessionIndexTests.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
-1682	cmuxTests/RestorableAgentSessionIndexTests.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1656	Sources/FileExplorerView.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
@@ -74,7 +74,7 @@
 1295	cmuxTests/MobileHostAuthorizationTests.swift
 1290	cmuxTests/TextBoxSubmitActionTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
-1262	Sources/VaultAgentProcessScanner.swift
+1273	Sources/VaultAgentProcessScanner.swift
 1258	Sources/Feed/FeedCoordinator.swift
 1240	cmuxTests/SidebarOrderingTests.swift
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
@@ -219,10 +219,10 @@
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 535	Sources/App/WorkspaceRuntimeSettings.swift
 532	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
+531	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Vault/Providers/HermesAgent/HermesAgentIndex.swift
 530	Sources/BrowserPaneDropTargetView.swift
 530	Sources/TerminalController+ControlSurfaceContext3.swift
 529	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
-529	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Vault/Providers/HermesAgent/HermesAgentIndex.swift
 528	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
 527	cmuxTests/BrowserHTTPBasicAuthPromptTests.swift
