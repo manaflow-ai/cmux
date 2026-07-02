@@ -251,8 +251,11 @@ public struct FeedbackComposerClient {
     }
 
     private static func sanitizedMultipartFileName(_ fileName: String) -> String {
+        // Remove every character that could break out of the quoted-string
+        // `filename="..."` parameter: the quote itself, the backslash escape
+        // character, and any control characters (CR/LF header injection).
         String(fileName.unicodeScalars.filter { scalar in
-            scalar != "\"" && CharacterSet.controlCharacters.contains(scalar) == false
+            scalar != "\"" && scalar != "\\" && CharacterSet.controlCharacters.contains(scalar) == false
         })
     }
 }
