@@ -8,6 +8,7 @@ export type VmTimingStage =
   | "begin_create"
   | "limit_reconcile"
   | "billing"
+  | "billing_reconcile"
   | "provider_create"
   | "mark_running"
   | "usage_events"

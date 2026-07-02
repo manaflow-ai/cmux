@@ -265,6 +265,7 @@ describe("VM REST auth", () => {
         clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
       },
       listTeams,
+      listProducts: async () => Object.assign([], { nextCursor: null }),
     });
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-body-team",
@@ -290,7 +291,8 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(getUser).toHaveBeenCalledTimes(2);
+    // initial auth + team-mismatch re-verify + pro-plan reconcile user fetch
+    expect(getUser).toHaveBeenCalledTimes(3);
     expect(listTeams).toHaveBeenCalledTimes(1);
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       billingCustomerType: "team",

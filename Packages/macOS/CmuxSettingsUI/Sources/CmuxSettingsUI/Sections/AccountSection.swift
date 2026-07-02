@@ -1,11 +1,12 @@
 import CmuxSettings
 import SwiftUI
 
-/// **Account** section — mirrors the legacy in-app section: a single
+/// **Account** section — mirrors the legacy in-app section: a
 /// `SettingsCard` containing the identity row (primary email title +
-/// display name subtitle + Sign In / Sign Out button, no avatar). The
-/// integration toggles (Claude Code, Cursor, Gemini, ripgrep, subagent
-/// suppression) live under **Automation** to match legacy ordering.
+/// display name subtitle + Sign In / Sign Out button, no avatar),
+/// followed by the cmux Pro upgrade card. The integration toggles
+/// (Claude Code, Cursor, Gemini, ripgrep, subagent suppression) live
+/// under **Automation** to match legacy ordering.
 @MainActor
 public struct AccountSection: View {
     private let accountFlow: AccountFlow?
@@ -31,6 +32,12 @@ public struct AccountSection: View {
                 AccountIdentityCard(flow: accountFlow)
             }
             .settingsSearchAnchors(["setting:account:account"])
+            if accountFlow?.isProUpgradeAvailable ?? true {
+                SettingsCard {
+                    ProUpgradeCard(flow: accountFlow)
+                }
+                .settingsSearchAnchors(["setting:account:pro"])
+            }
         }
     }
 }

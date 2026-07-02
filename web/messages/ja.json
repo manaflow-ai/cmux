@@ -24,7 +24,6 @@
     "howTitle": "仕組み",
     "howBody": "Mobile Connect ウィンドウから iPhone と Mac をペアリングし、任意のワークスペースにアタッチします。接続は自分の Tailscale やローカルネットワーク経由で行われるため、ターミナルが第三者のサーバーを経由することはありません。",
     "galleryTitle": "ターミナルで動くものは何でも",
-    "galleryItemAlt": "iPhone の cmux ターミナルで動作する {name}",
     "backToMac": "cmux for Mac"
   },
   "meta": {
@@ -40,14 +39,14 @@
     "toggleTheme": "テーマを切り替え",
     "backToBlog": "ブログに戻る",
     "readTheDocs": "ドキュメントを読む",
-    "viewChangelog": "変更履歴を見る",
-    "otherPlatforms": "その他のプラットフォーム"
+    "viewChangelog": "変更履歴を見る"
   },
   "nav": {
     "docs": "ドキュメント",
     "blog": "ブログ",
     "changelog": "変更履歴",
     "community": "コミュニティ",
+    "pricing": "料金",
     "github": "GitHub"
   },
   "footer": {
@@ -55,6 +54,7 @@
     "resources": "リソース",
     "legal": "法的事項",
     "social": "ソーシャル",
+    "pricing": "料金",
     "blog": "ブログ",
     "community": "コミュニティ",
     "docs": "ドキュメント",
@@ -72,6 +72,287 @@
     "assets": "アセット",
     "openSource": "オープンソース",
     "guides": "ガイド"
+  },
+  "pricing": {
+    "metaTitle": "料金 — cmux",
+    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、モデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "title": "料金",
+    "perMonth": "/月",
+    "perUserMonth": "/ユーザー/月",
+    "free": {
+      "name": "Free",
+      "price": "$0",
+      "cta": "Mac版をダウンロード",
+      "featuresLead": "含まれるもの:",
+      "features": [
+        "Ghostty 上に構築された、完全オープンソースのネイティブ macOS ターミナル",
+        "Claude Code、Codex、Gemini など任意の CLI エージェントを自分のキーで実行",
+        "縦型タブ、ワークスペース、分割ペイン、完了通知",
+        "ブラウザパネル、スクリプト可能なソケット API、カスタムスキル",
+        "ローカルのセッション履歴と Cloud VM の1回限りのトライアル",
+        "Discord と GitHub でのコミュニティサポート"
+      ]
+    },
+    "pro": {
+      "name": "Pro",
+      "price": "$30",
+      "cta": "Pro を入手",
+      "featuresLead": "Free のすべてに加えて:",
+      "features": [
+        "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
+        "4 vCPU / 16 GB の VM で毎月20時間のアクティブ計算時間、超過分は従量課金",
+        "モデルゲートウェイ: 複数プロバイダーへのルーティングと使用量・コスト分析",
+        "cmux iOS アプリとメールサポート"
+      ],
+      "vaultFeatures": [
+        "cmux Vault: すべてのセッションをクラウドにバックアップし検索可能に",
+        "すべてのマシンをまたいだ無制限のセッション履歴"
+      ],
+      "hostedNetworkingFeatures": [
+        "iOS アプリから Mac に接続するホスト型ネットワーク、Tailscale の設定不要"
+      ]
+    },
+    "team": {
+      "name": "Team",
+      "price": "$35",
+      "cta": "チームを始める",
+      "featuresLead": "Pro のすべてに加えて:",
+      "features": [
+        "一元請求: チーム全体をまとめて1つの請求書に",
+        "シート管理: メンバーをいつでも追加・削除",
+        "チームで共有する Cloud VM のプール計算時間",
+        "共有のチームルール、設定、ワークスペーステンプレート",
+        "メンバーごとの使用量・コスト分析付きのチーム全体モデルゲートウェイ",
+        "一元管理と優先メールサポート"
+      ]
+    },
+    "enterprise": {
+      "name": "Enterprise",
+      "price": "カスタム",
+      "cta": "営業に問い合わせ",
+      "featuresLead": "Team のすべてに加えて:",
+      "features": [
+        "セルフホストのクラウド実行とネットワーク、ネットワーク外に何も出ません",
+        "組織全体の使用量・コスト分析を備えたセルフホストのモデルゲートウェイ",
+        "SSO と SAML サインイン",
+        "一元管理と共有チームルール",
+        "ターミナルセッション、ネットワークリクエスト、ブラウザ操作の監査ログ",
+        "コミット型のクラウド利用とボリューム価格",
+        "SOC 2 と SLA、専任サポート付き"
+      ]
+    },
+    "compare": {
+      "title": "プラン比較",
+      "rows": [
+        {
+          "label": "ネイティブ macOS ターミナル、オープンソース",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "自分のキーで使うローカル CLI エージェント",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "縦型タブ、分割、通知、ソケット API",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "セッション履歴",
+          "free": "ローカル",
+          "pro": "無制限",
+          "team": "無制限",
+          "enterprise": "無制限",
+          "vault": true
+        },
+        {
+          "label": "cmux Vault: クラウドセッションバックアップ",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "すべてのセッションを横断検索",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "Cloud VM 上のクラウドエージェント",
+          "free": "VM 1台トライアル",
+          "pro": "月20時間、以降従量課金",
+          "team": "プール制・従量課金",
+          "enterprise": "コミット利用"
+        },
+        {
+          "label": "同時 Cloud VM 数",
+          "free": "1",
+          "pro": "従量制",
+          "team": "従量制",
+          "enterprise": "カスタム"
+        },
+        {
+          "label": "モデルゲートウェイ: ルーティングと使用量分析",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "iOS アプリ",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Mac に接続するネットワーク",
+          "free": "持ち込み",
+          "pro": "ホスト型",
+          "team": "ホスト型",
+          "enterprise": "セルフホスト",
+          "hostedNetworking": true
+        },
+        {
+          "label": "一元請求とシート管理",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "SSO と SAML サインイン",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "セルフホストとエアギャップ実行",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "一元管理と共有チームルール",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "監査ログ: セッション、ネットワーク、ブラウザ",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "コミット利用とボリューム価格",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "SOC 2 と SLA",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "サポート",
+          "free": "コミュニティ",
+          "pro": "メール",
+          "team": "優先",
+          "enterprise": "専任"
+        }
+      ]
+    },
+    "sizes": {
+      "title": "Cloud VM サイズ",
+      "body": "エージェントごとに VM サイズを選べます。アクティブな計算時間に対して課金され、アイドルの VM は自動的に一時停止します。Pro には 4 vCPU / 16 GB サイズで毎月20時間が含まれます。",
+      "colSize": "サイズ",
+      "colUse": "おすすめ用途",
+      "colRate": "アクティブ1時間あたり",
+      "rows": [
+        {
+          "size": "2 vCPU / 8 GB",
+          "use": "軽いエージェントと短いタスク",
+          "rate": "$0.20"
+        },
+        {
+          "size": "4 vCPU / 16 GB",
+          "use": "標準的な開発",
+          "rate": "$0.40"
+        },
+        {
+          "size": "8 vCPU / 32 GB",
+          "use": "重いビルドと並列エージェント",
+          "rate": "$0.80"
+        }
+      ]
+    },
+    "help": "ご質問は <discord>Discord</discord> へ、<github>GitHub の Issue</github> を立てるか、<email>メール</email>でどうぞ。",
+    "faq": {
+      "title": "よくある質問",
+      "items": [
+        {
+          "q": "ターミナルは本当に無料ですか?",
+          "a": "はい。macOS アプリはオープンソースで永久に無料です。ローカルエージェントは自分の API キーで動き、追加費用はかかりません。料金が発生するのは Cloud VM でエージェントを実行したときだけです。"
+        },
+        {
+          "q": "Cloud VM とは何ですか?",
+          "a": "エージェントがリポジトリをクローンし、コマンドを実行し、プルリクエストをクラウド上で開くためのリモート Linux サンドボックスで、お使いのマシンには触れません。並列作業、バックグラウンドジョブ、PR レビューに対応します。アイドルの VM は自動的に一時停止するため、課金されるのはアクティブな計算時間だけです。"
+        },
+        {
+          "q": "cmux Vault とは何ですか?",
+          "a": "Vault はすべてのターミナルセッションをクラウドにバックアップし、それらを横断検索できるようにします。マシンをまたいだ無制限の履歴を保持します。Free では履歴は各マシンのローカルに残り、Pro でクラウドバックアップと検索が追加されます。",
+          "vault": true
+        },
+        {
+          "q": "モデルゲートウェイとは何ですか?",
+          "a": "各リクエストを複数プロバイダーの強力なモデルにルーティングし、使用量とコストの分析を1か所で提供するホスト型ゲートウェイです。自分のプロバイダーキーを持ち込めます。Enterprise では組織全体の管理のためにゲートウェイをセルフホストできます。"
+        },
+        {
+          "q": "iOS アプリにまだ Tailscale が必要ですか?",
+          "a": "はい、現時点では必要です。どのプランでも Tailscale などお使いのネットワーク経由で iPhone と Mac をペアリングできます。Enterprise ではセルフホストも可能です。設定不要のホスト型ネットワークはロードマップにあります。"
+        },
+        {
+          "q": "課金はどのように行われますか?",
+          "a": "Pro は年払いで月額 $30(月払いの場合は月額 $45)で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます(上記の Cloud VM サイズを参照)。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
+        },
+        {
+          "q": "クラウドをセルフホストできますか?",
+          "a": "はい、Enterprise で可能です。エージェントの実行を自社インフラ上で、または完全なエアギャップで動かせるため、ソースコードがネットワーク外に出ることはありません。"
+        },
+        {
+          "q": "チームプランはありますか?",
+          "a": "はい。Team は1ユーザーあたり月額 $35 です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
+        }
+      ]
+    },
+    "welcomeSuccess": "cmux Proへようこそ。サブスクリプションが有効になりました。",
+    "welcomeActive": "cmux Proはすでに有効です。",
+    "welcomePending": "決済を受け付けました。Proの有効化には1分ほどかかることがあります。",
+    "welcomePendingAction": "再確認",
+    "billingError": "チェックアウトの開始中に問題が発生しました。しばらくしてからもう一度お試しください。",
+    "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
@@ -135,7 +416,7 @@
     "faqFeatureQ": "機能リクエストやバグ報告があります",
     "faqFeatureA": "ぜひ聞かせてください。GitHubで<issuesLink>イシュー</issuesLink>や<prLink>プルリクエスト</prLink>を開くか、<mailLink>メールでご連絡</mailLink>ください。",
     "faqIosQ": "iOSアプリはありますか？",
-    "faqIosA": "はい、ベータ版があります。Mobile ConnectウィンドウからiPhoneをMacとペアリングし、スマートフォンからターミナルにアタッチできます。ターミナル通知の転送もオプションで利用できます。TestFlightで「cmux BETA」として提供されています。早期アクセスは<foundersLink>cmux Founders Edition</foundersLink>に含まれます。",
+    "faqIosA": "はい、ベータ版があります。Mobile ConnectウィンドウからiPhoneをMacとペアリングし、スマートフォンからターミナルにアタッチできます。ターミナル通知の転送もオプションで利用できます。TestFlightで「cmux BETA」として提供されています。",
     "faqSupportQ": "cmuxを支援するには？",
     "faqSupportA": "cmuxは無料・オープンソースであり、これからもずっとそうです。開発を支援し、cmux AI、iOSアプリ、Cloud VMなど今後の機能に早期アクセスしたい方は、<foundersLink>cmux Founders Edition</foundersLink>をご覧ください。",
     "faqBrowserQ": "組み込みブラウザでは何ができますか？",
@@ -516,16 +797,6 @@
         "fullHistoryTitle": "履歴ペイン",
         "fullHistoryP": "直近の一つ以上が必要なときは、履歴ペインを開きます。閉じたものとフォーカスしたものを日付ごとにまとめ、タイムスタンプ付きで検索でき、Clear Closed で消去もできます。",
         "docsCta": "履歴ナビゲーションの再割り当てを含む一覧は<link>キーボードショートカット</link>をご覧ください。"
-      },
-      "cmuxHome": {
-        "title": "cmux home",
-        "summary": "cmuxにワークツリー機能は追加しません。プリミティブなので、ワークツリーや複数チェックアウト、リモート開発を自分でスクリプト化して、自分の居場所にできます。",
-        "date": "2026年6月23日",
-        "p1": "cmuxにgitワークツリーを追加するのか、とよく聞かれます。追加しません。ワークツリーをすべての人に押し付けたくないからです。cmuxは<link>解決策ではなく、プリミティブ</link>です。",
-        "p2": "働き方は人それぞれです。複数のgitリポジトリにまたがるプロジェクトもあります。同じリポジトリのチェックアウトをいくつも持つ人もいます（私の共同創業者はcmux0からcmux40まで名付けたクローンを持っていますが、理由はいまだに分かりません）。SSHとリモート開発を基本にする人もいます。",
-        "p3": "cmuxはターミナルとブラウザ、そしてそれらを操作するCLIだけです。数行のbashスクリプトを書けば、ワークツリーの管理、複数チェックアウトのやりくり、リモートセッションの起動ができ、ワークスペースを自分に合った形に並べられます。",
-        "p4": "cmuxはワークフローを押し付けるのではなく、あなたのワークフローに合わせるべきです。cmuxを自分の居場所のように感じてほしいのです。",
-        "p5": "<link>cmux-home</link>はその一例です。ClaudeとCodexのワークスペースを起動してライブ状態を監視する小さなRust製TUIで、すべてcmuxのプリミティブの上に作られています。ランチャーはコマンドテンプレートを使うので、ワークツリーの作成、チェックアウトの選択、VMへのSSH接続などを自分のスクリプトに差し替えられます。フォークして自分のものにしてください。"
       }
     },
     "zenOfCmux": {
@@ -655,10 +926,6 @@
     "cmuxHistory": {
       "metaTitle": "cmux history: 閉じたターミナルやセッションを再び開く",
       "metaDescription": "cmux は閉じたものとフォーカスの履歴を記録します。Cmd+Shift+T で閉じたターミナル、ブラウザ、ワークスペース、そして Claude Code / Codex / OpenCode のセッションを再び開き、Cmd+[ と Cmd+] でフォーカスを前後に移動できます。"
-    },
-    "cmuxHome": {
-      "metaTitle": "cmux home",
-      "metaDescription": "cmuxはワークツリーを押し付けません。プリミティブなので、ワークツリーや複数チェックアウト、リモート開発を自分でスクリプト化して、cmuxを自分の居場所にできます。"
     }
   },
   "docs": {
@@ -677,7 +944,7 @@
       "rowPane": "そのタブ内の、ネイティブな分割の中のペイン。",
       "mappingPanes": "新しく追加された機能は「タブの中のペイン」です。これまで cmux のタブは 1 つのターミナルだけを保持していましたが、複数のペインを持つ tmux ウィンドウは、1 つのタブの中でネイティブな cmux の分割レイアウトとして描画されるようになりました（各リモートペインは通常のクロムを備えたネイティブな cmux のターミナルペインです）。橋渡しは双方向で、そのタブ内でペインを分割・クローズすると tmux の split-window が実行され、タブを並べ替えると swap-window で tmux のウィンドウが並べ替えられます。",
       "requirementsTitle": "必要なもの",
-      "requirementsDesc": "到達可能な SSH ホスト（cmux は ~/.ssh/config を読み込みます）と、tmux 3.2 以降がインストールされていること。コントロールモード（tmux -CC）は tmux の標準機能なので、特別なビルドは不要です。cmux は接続前にリモートの tmux バージョンを確認し、それより古いサーバーでは明確なエラーで失敗します。cmux は SSH の ControlMaster 接続で接続し、デタッチしてもリモートの tmux サーバーは動作し続けます。",
+      "requirementsDesc": "到達可能な SSH ホスト（cmux は ~/.ssh/config を読み込みます）と、tmux がインストールされていること。コントロールモード（tmux -CC）は tmux の標準機能なので、特別なビルドは不要です（全機能を使うには新しめの tmux を推奨）。cmux は SSH の ControlMaster 接続で接続し、デタッチしてもリモートの tmux サーバーは動作し続けます。",
       "enableTitle": "有効にする",
       "enableDesc": "設定 → ベータ機能 を開き、「リモート tmux」をオンにします。デフォルトはオフなので、オプトインするまでローカルのターミナルには何も影響しません。",
       "attachTitle": "接続する",
@@ -712,7 +979,7 @@
       "limitationsTitle": "制限事項",
       "limitReconnect": "一時的な SSH の切断は自動的に再接続されます: セッション中に接続が途切れると、ミラーは固まり、cmux は上限付きの指数バックオフで再試行し、再開時にペインを再シードします。ミラーが完全に閉じるのは、リモートセッション自体が終了したとき、またはミラーウィンドウを閉じたり cmux を終了したときだけで、再起動時には復元されません（cmux ssh-tmux で再接続してください）。",
       "limitPaste": "ブラケットペーストとして paste-buffer -p で渡されるのは単一行の貼り付け・ドロップ（ファイルや画像のパスなど）のみです。複数行のテキストは通常のキー入力として送られるため、リモートアプリは 1 回の貼り付けとして扱いません。",
-      "limitCwd": "作業ディレクトリのライブ更新はコントロールモードのサブスクリプションを使用します。そのため、cmux はミラーを開く前に tmux 3.2 以降を要求します。",
+      "limitCwd": "作業ディレクトリのライブ更新はコントロールモードのサブスクリプション（tmux 3.2 以降）を使用します。それより古い tmux では初期フォルダーは表示されますが、cd しても更新されません。",
       "limitReflow": "プライマリスクリーンのスクロールバックはリサイズ時に折り返し直されません。cmux はリフローを tmux に任せるため、古い行はアプリが再描画するまで以前の幅のままになることがあります。リサイズ時に再描画するフルスクリーンの TUI は影響を受けません。"
     },
     "layoutTitle": "cmux docs",
@@ -877,13 +1144,13 @@
       "layoutItem1": "ピン留めされたトップレベルの行（ワークスペースとグループ）。",
       "layoutItem2": "ピン留めされていないトップレベルの行（ワークスペースとグループ）。",
       "creatingTitle": "グループの作成",
-      "creatingIntro": "グループは、キーボードショートカットまたはサイドバーのコンテキストメニューから作成できます。空のグループでは、新しいアンカーワークスペースがグループヘッダーとして挿入されます。選択範囲から作るグループでは、そのアンカーが選択範囲の上に挿入され、選択したワークスペースがグループに移動します。グループが作成された後は、グループヘッダーからグループを管理したりワークスペースを追加したりできます（後述の「グループの管理」を参照）。",
-      "keyboardTitle": "キーボードショートカットから",
-      "keyboardDesc": "⌃⌘G を押すと、空のワークスペースグループを作成できます。サイドバーで 2 つ以上のワークスペースを選択し、{shortcut} を押すと、選択範囲をグループ化できます。どちらも新しいアンカーワークスペースを作成し、グループは Group 1、Group 2 のように自動的に名前が付けられます。ヘッダーのコンテキストメニューからいつでも名前を変更できます。",
+      "creatingIntro": "グループは 2 つの方法で作成できます。キーボードショートカット、またはワークスペースのコンテキストメニューです。どちらも選択範囲の上に新しいアンカーワークスペースを挿入し、選択したワークスペースをグループに移動します。グループが作成された後は、グループヘッダーからグループを管理したりワークスペースを追加したりできます（後述の「グループの管理」を参照）。",
+      "keyboardTitle": "キーボードから（{shortcut}）",
+      "keyboardDesc": "サイドバーで 2 つ以上のワークスペースを選択し、{shortcut} を押します。選択範囲の上に新しいアンカーワークスペースが挿入され、選択したすべてのワークスペースが子になります。グループは Group 1、Group 2 のように自動的に名前が付けられ、ヘッダーのコンテキストメニューからいつでも名前を変更できます。",
       "keyboardNote": "{shortcut} は React Grab のデフォルトと競合します。グループハンドラーは、サイドバーで 2 つ以上のワークスペースが明示的に複数選択されている場合にのみこのショートカットを消費するため、単一選択時やブラウザ・ターミナルのコンテキストでは React Grab が引き続き動作します。2 つでキーを共有させたくない場合は、設定 → キーボードで再割り当てしてください。",
       "keyboardSingle": "単一タブのグループはショートカットからは作成されません。それには、ワークスペースのコンテキストメニューの「ワークスペースからグループを作成」項目を使用してください。",
       "contextMenuTitle": "ワークスペースのコンテキストメニューから",
-      "contextMenuDesc": "サイドバーで任意のワークスペースを右クリックし、「空のワークスペースグループを作成」、「ワークスペースからグループを作成」、または複数のワークスペースが選択されている場合は「選択からグループを作成」を選択します。サイドバー一覧の下にある空白部分にも「空のワークスペースグループを作成」があります。これらはショートカットと同じ自動命名の動作を使用します。",
+      "contextMenuDesc": "サイドバーで任意のワークスペースを右クリックし、「ワークスペースからグループを作成」を選択するか、複数のワークスペースが選択されている場合は「選択からグループを作成」を選択します。これはショートカットと同じ自動命名の動作を使用します。",
       "managingTitle": "グループの管理",
       "managingIntro": "グループが作成された後は、ヘッダーのコンテキストメニューとヘッダーの + ボタンを使って、グループの管理やワークスペースの追加ができます。どちらも新しいグループは作成しません。",
       "headerMenuTitle": "グループヘッダーのコンテキストメニューから",
@@ -964,14 +1231,10 @@
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
           "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。"
         },
-        "notifications": {
-          "suppressOnlyFocusedSurface": "有効にすると、通知バナーはその対象がまさにフォーカス中のサーフェスである場合のみ自動的に取り下げられます。現在表示中のワークスペース内でフォーカスされていないサーフェス向けに配信されたバナーは、ワークスペースが表示されたときに取り消されるのではなく、そのサーフェスをフォーカスする（またはクリック／消去する）まで表示され続けます。オフの場合は従来のワークスペース表示時の取り下げ動作を維持します。"
-        },
         "browser": {
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
-          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "グループ内で Cmd-N、グループヘッダーの + ボタン、設定済みグループアクションが新しいワークスペースを配置する場所のグローバル既定値です: `afterCurrent` (アクティブなグループ内ワークスペースの直後。ない場合は top)、`top` (アンカー直後の2番目の位置)、`end` (最後のメンバーの後)。",
@@ -1002,7 +1265,7 @@
           "defaultLayout": "新しく開く diff ビューアの既定レイアウトです。ツールバーのレイアウト切り替えはユーザーの最後の選択を保持し、明示的な `cmux diff --layout` オプションはその両方を上書きします。"
         },
         "shortcuts": {
-          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
+          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
           "showModifierHoldHints": "Cmd または Control を押し続けている間、ショートカットヒントのチップを表示します。"
         }
       },
@@ -1232,8 +1495,7 @@
       "closeWorkspaceDesc": "ワークスペースを閉じる。",
       "splitCommands": "分割コマンド",
       "newSplitDesc": "新しい分割ペインを作成。方向：left、right、up、down。",
-      "listPanelsDesc": "現在のワークスペースのすべてのサーフェスを一覧表示。",
-      "listPaneSurfacesDesc": "フォーカスされたペイン内のサーフェスを一覧表示。",
+      "listSurfacesDesc": "現在のワークスペースのすべてのサーフェスを一覧表示。",
       "focusSurfaceDesc": "特定のサーフェスにフォーカス。",
       "inputCommands": "入力コマンド",
       "sendDesc": "フォーカス中のターミナルにテキスト入力を送信。",
@@ -1897,33 +2159,6 @@
     "heading": "cmux をダウンロードいただきありがとうございます！",
     "subtext": "ダウンロードが始まらない場合は<link>こちら</link>をクリックしてください。"
   },
-  "platforms": {
-    "macos": "macOS",
-    "ios": "iOS",
-    "linux": "Linux",
-    "android": "Android",
-    "windows": "Windows"
-  },
-  "waitlist": {
-    "title": "{platform}版の順番待ちリストに登録",
-    "titleAny": "順番待ちリストに登録",
-    "description": "{platform}版は準備中です。メールアドレスをご記入いただくと、公開され次第すぐにお知らせします。",
-    "descriptionAny": "現在 cmux は macOS 専用です。メールアドレスをご記入いただくと、Linux・Windows・Android 版が公開され次第お知らせします。",
-    "calloutText": "Linux・Windows・Android 版も準備中です。",
-    "platformsLabel": "対象プラットフォーム",
-    "selectPlatform": "1つ以上選択してください。",
-    "emailLabel": "メールアドレス",
-    "emailPlaceholder": "you@example.com",
-    "join": "リストに登録",
-    "joining": "登録中…",
-    "cancel": "キャンセル",
-    "invalidEmail": "有効なメールアドレスを入力してください。",
-    "sendError": "送信できませんでした。もう一度お試しください。",
-    "successTitle": "登録が完了しました",
-    "successBody": "{platform}版が利用可能になりましたらメールでお知らせします。",
-    "successBodyAny": "cmux がお使いのプラットフォームで利用可能になりましたらメールでお知らせします。",
-    "done": "完了"
-  },
   "testimonialSubtitles": {
     "steipete": "OpenClaw の開発者。PSPDFKit の創業者。"
   },
@@ -2022,16 +2257,7 @@
       "iosTitle": "スマホから Claude を確認",
       "iosBody": "cmux には iOS コンパニオンアプリ（ベータ）があります。iPhone を Mac とペアリングすれば、デスクを離れていても Claude Code セッションを確認でき、必要に応じて通知を転送できます。",
       "scriptTitle": "スクリプト可能",
-      "scriptBody": "すべての操作は cmux CLI と Unix ソケットから利用できます。ワークスペースの作成、その中での Claude Code の起動、入力の送信、画面の読み取り、変更を検証するためのアプリ内ブラウザの操作まで、すべてスクリプトから行えます。",
-      "faqTitle": "FAQ",
-      "faqQ1": "cmux で Claude Code は動きますか？",
-      "faqA1": "はい。cmux は標準的な macOS ターミナルなので、<code>claude</code> はどのワークスペースでも追加設定なしで動きます。",
-      "faqQ2": "cmux で Claude Code チームを実行できますか？",
-      "faqA2": "はい。cmux は Claude Code のチームメイトモードを1つのコマンドで実行し、チームメイトは独自のサイドバーメタデータと通知を持つネイティブの cmux 分割として起動します。tmux は不要です。",
-      "faqQ3": "Claude が入力を必要とするのはどうやって分かりますか？",
-      "faqA3": "Claude Code が完了したり入力を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されるので、複数のエージェントを走らせておき、必要なものに戻ってこられます。",
-      "faqQ4": "Claude Code と一緒に使う cmux は無料ですか？",
-      "faqA4": "はい。cmux は macOS 向けの無料のオープンソースです。"
+      "scriptBody": "すべての操作は cmux CLI と Unix ソケットから利用できます。ワークスペースの作成、その中での Claude Code の起動、入力の送信、画面の読み取り、変更を検証するためのアプリ内ブラウザの操作まで、すべてスクリプトから行えます。"
     },
     "codex": {
       "metaTitle": "Codex CLI のためのターミナル — cmux",
@@ -2047,16 +2273,7 @@
       "iosTitle": "スマホから Codex を確認",
       "iosBody": "cmux には iOS コンパニオンアプリ（ベータ）があります。iPhone を Mac とペアリングすれば、デスクを離れていても Codex 実行を確認でき、必要に応じて通知を転送できます。",
       "scriptTitle": "スクリプト可能",
-      "scriptBody": "すべては cmux CLI と Unix ソケットから利用できます。ワークスペースの作成、Codex の起動、入力の送信、画面の読み取り、スクリーンショットの取得、アプリ内ブラウザの操作まで、すべてスクリプトから行えます。",
-      "faqTitle": "FAQ",
-      "faqQ1": "cmux で Codex CLI は動きますか？",
-      "faqA1": "はい。cmux は標準的な macOS ターミナルなので、<code>codex</code> はどのワークスペースでも追加設定なしで動きます。",
-      "faqQ2": "Codex を他のエージェントと並べて実行できますか？",
-      "faqA2": "はい。タスクごとにワークスペースを開いて、Codex、Claude Code、OpenCode を並べて実行できます。サイドバーが各セッションを見やすく保ちます。",
-      "faqQ3": "Codex が入力を必要とするのはどうやって分かりますか？",
-      "faqA3": "Codex が完了したり入力を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されるので、走らせておいて必要なときに戻ってこられます。",
-      "faqQ4": "Codex と一緒に使う cmux は無料ですか？",
-      "faqA4": "はい。cmux は macOS 向けの無料のオープンソースです。"
+      "scriptBody": "すべては cmux CLI と Unix ソケットから利用できます。ワークスペースの作成、Codex の起動、入力の送信、画面の読み取り、スクリーンショットの取得、アプリ内ブラウザの操作まで、すべてスクリプトから行えます。"
     },
     "opencode": {
       "metaTitle": "OpenCode のためのターミナル — cmux",
@@ -2072,16 +2289,7 @@
       "iosTitle": "スマホから OpenCode を確認",
       "iosBody": "cmux には iOS コンパニオンアプリ（ベータ）があります。iPhone を Mac とペアリングすれば、デスクを離れていても OpenCode 実行を確認でき、必要に応じて通知を転送できます。",
       "scriptTitle": "スクリプト可能",
-      "scriptBody": "すべての操作は cmux CLI と Unix ソケットから利用できるので、ワークスペースの作成、OpenCode の起動、入力の送信、画面の読み取り、アプリ内ブラウザの操作まで、すべてスクリプトから行えます。",
-      "faqTitle": "FAQ",
-      "faqQ1": "cmux で OpenCode は動きますか？",
-      "faqA1": "はい。cmux は標準的な macOS ターミナルなので、<code>opencode</code> はどのワークスペースでも追加設定なしで動きます。",
-      "faqQ2": "OpenCode を他のエージェントと並べて実行できますか？",
-      "faqA2": "はい。タスクごとにワークスペースを開いて、OpenCode、Claude Code、Codex を並べて実行できます。サイドバーが各セッションを見やすく保ちます。",
-      "faqQ3": "OpenCode が入力を必要とするのはどうやって分かりますか？",
-      "faqA3": "OpenCode が完了したり入力を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されるので、走らせておいて必要なときに戻ってこられます。",
-      "faqQ4": "OpenCode と一緒に使う cmux は無料ですか？",
-      "faqA4": "はい。cmux は macOS 向けの無料のオープンソースです。"
+      "scriptBody": "すべての操作は cmux CLI と Unix ソケットから利用できるので、ワークスペースの作成、OpenCode の起動、入力の送信、画面の読み取り、アプリ内ブラウザの操作まで、すべてスクリプトから行えます。"
     },
     "guides": {
       "metaTitle": "cmuxガイド：比較とターミナルの使い方",
@@ -2104,128 +2312,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyOpenCode": "oh-my-opencode",
       "claudeTeams": "Claude Codeチーム",
-      "notifications": "通知",
-      "home": "ホーム",
-      "agents": "コーディングエージェントのためのターミナル",
-      "geminiCli": "Gemini CLI のためのターミナル",
-      "aider": "Aider のためのターミナル",
-      "amp": "Amp のためのターミナル",
-      "cursorCli": "Cursor CLI のためのターミナル"
-    },
-    "agents": {
-      "metaTitle": "コーディングエージェントのためのターミナル | cmux",
-      "metaDescription": "cmux は、Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp、Cursor といったコーディングエージェントを実行するために作られたネイティブ macOS ターミナルです。並行エージェントのためのワークスペース、通知リング、垂直タブ、iOS コンパニオン、スクリプト可能な CLI を備えます。",
-      "title": "コーディングエージェントのためのターミナル",
-      "intro": "cmux は AI コーディングエージェントを実行するために Ghostty 上に作られたネイティブ macOS ターミナルです。あくまでターミナルなので、どんなエージェント CLI もそのまま動きます。そして、多数のエージェントを同時に把握し、必要なときに気づくという、エージェント実行で厄介になりがちな点こそ、cmux が作られた目的です。",
-      "agentsTitle": "エージェントを選ぶ",
-      "agentsBody": "cmux はあらゆるエージェント CLI で動きます。以下の各ページでは、cmux がそのエージェントの実行をどう助けるかを紹介します。並行ワークスペース、通知リング、垂直タブ、iOS コンパニオン、スクリプト可能なソケットなどです。",
-      "organizeTitle": "多数のエージェントを整理して実行",
-      "organizeBody": "タスクごとにワークスペースを開き、それぞれで任意のエージェントを実行します。垂直サイドバーは各ワークスペースを git ブランチ、ディレクトリ、ポート、出力の最新行とともに表示するので、12個の並行エージェントもタブに埋もれず見やすいままです。",
-      "notifyTitle": "エージェントが呼ぶと通知リングが鳴る",
-      "notifyBody": "エージェントが完了したり入力を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されます。複数のエージェントを走らせておき、判断が必要なものに戻ってこられます。通知は自動で鳴り、エージェントのフックから発火させることもできます。",
-      "scriptTitle": "スクリプト可能",
-      "scriptBody": "すべての操作は cmux CLI と Unix ソケットから利用できます。ワークスペースの作成、その中でのエージェントの起動、入力の送信、画面の読み取り、変更を検証するためのアプリ内ブラウザの操作まで、すべてスクリプトから行えます。",
-      "faqTitle": "FAQ",
-      "faqQ1": "cmux ではどのコーディングエージェントが動きますか？",
-      "faqA1": "cmux は標準的な macOS ターミナルなので、あらゆる CLI エージェントが動きます。Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp、Cursor、そのほかシェルから実行するものなら何でも対応します。",
-      "faqQ2": "各エージェントを設定する必要はありますか？",
-      "faqA2": "いいえ。エージェントは他のターミナルとまったく同じように動きます。cmux はワークスペース、通知リング、スクリプト可能なソケットをその上に追加するだけで、エージェント自体の動きは変えません。",
-      "faqQ3": "複数のエージェントを同時に実行できますか？",
-      "faqA3": "はい。タスクごとにワークスペースを開いてそれぞれで別のエージェントを実行でき、サイドバーが各セッションをブランチ、ディレクトリ、出力の最新行とともに見やすく保ちます。",
-      "faqQ4": "cmux は無料ですか？",
-      "faqA4": "はい。cmux は macOS 向けの無料のオープンソースです。"
-    },
-    "geminiCli": {
-      "metaTitle": "Gemini CLI のためのターミナル | cmux",
-      "metaDescription": "cmux は Google の Gemini CLI を実行するために作られたネイティブ macOS ターミナルです。並行エージェントを整理するワークスペース、Gemini が呼ぶときの通知リング、iOS コンパニオン、スクリプト可能な CLI を備えます。",
-      "title": "Gemini CLI のためのターミナル",
-      "intro": "cmux は AI コーディングエージェントを実行するために作られたネイティブ macOS ターミナルで、Google の Gemini CLI はその第一級の相棒です。cmux はあくまでターミナルなので、<code>gemini</code> はどのワークスペースでもそのまま動きます。そして、多数のエージェントを同時に把握し、必要なときに気づくという、エージェント実行で厄介になりがちな点こそ、cmux が作られた目的です。",
-      "organizeTitle": "多数の Gemini CLI セッションを整理して実行",
-      "organizeBody": "タスクごとにワークスペースを開き、それぞれで Gemini CLI を実行します。垂直サイドバーは各ワークスペースを git ブランチ、ディレクトリ、ポート、Gemini の出力の最新行とともに表示するので、12個の並行セッションもタブに埋もれず見やすいままです。",
-      "notifyTitle": "Gemini が呼ぶと通知リングが鳴る",
-      "notifyBody": "Gemini CLI が完了したり入力を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されます。複数のエージェントを走らせておき、判断が必要なものに戻ってこられます。通知は自動で鳴り、シェルのフックから発火させることもできます。",
-      "iosTitle": "スマホから Gemini を確認",
-      "iosBody": "cmux には iOS コンパニオンアプリ（ベータ）があります。iPhone を Mac とペアリングすれば、デスクを離れていても Gemini CLI セッションを確認でき、必要に応じて通知を転送できます。",
-      "scriptTitle": "スクリプト可能",
-      "scriptBody": "すべての操作は cmux CLI と Unix ソケットから利用できます。ワークスペースの作成、その中での Gemini CLI の起動、入力の送信、画面の読み取り、変更を検証するためのアプリ内ブラウザの操作まで、すべてスクリプトから行えます。",
-      "faqTitle": "FAQ",
-      "faqQ1": "cmux で Gemini CLI は動きますか？",
-      "faqA1": "はい。cmux は標準的な macOS ターミナルなので、<code>gemini</code> はどのワークスペースでも追加設定なしで動きます。",
-      "faqQ2": "Gemini CLI を他のエージェントと並べて実行できますか？",
-      "faqA2": "はい。タスクごとにワークスペースを開いて、Gemini CLI、Claude Code、Codex を並べて実行できます。サイドバーが各セッションを見やすく保ちます。",
-      "faqQ3": "Gemini が入力を必要とするのはどうやって分かりますか？",
-      "faqA3": "Gemini CLI が完了したり入力を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されるので、走らせておいて必要なときに戻ってこられます。",
-      "faqQ4": "Gemini CLI と一緒に使う cmux は無料ですか？",
-      "faqA4": "はい。cmux は macOS 向けの無料のオープンソースです。"
-    },
-    "aider": {
-      "metaTitle": "Aider のためのターミナル | cmux",
-      "metaDescription": "cmux は Aider を実行するために作られたネイティブ macOS ターミナルです。並行エージェントを整理するワークスペース、Aider が呼ぶときの通知リング、iOS コンパニオン、スクリプト可能な CLI を備えます。",
-      "title": "Aider のためのターミナル",
-      "intro": "cmux は AI コーディングエージェントを実行するために作られたネイティブ macOS ターミナルで、Aider はその第一級の相棒です。cmux はあくまでターミナルなので、<code>aider</code> はどのワークスペースでもそのまま動きます。そして、多数のエージェントを同時に把握し、必要なときに気づくという、エージェント実行で厄介になりがちな点こそ、cmux が作られた目的です。",
-      "organizeTitle": "多数の Aider セッションを整理して実行",
-      "organizeBody": "タスクごとにワークスペースを開き、それぞれで Aider を実行します。垂直サイドバーは各ワークスペースを git ブランチ、ディレクトリ、ポート、出力の最新行とともに表示するので、12個の並行セッションもタブに埋もれず見やすいままです。Aider は作業しながらコミットし、各ワークスペースは現在のブランチを表示します。",
-      "notifyTitle": "Aider が呼ぶと通知リングが鳴る",
-      "notifyBody": "Aider が変更を終えたり確認を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されます。複数のエージェントを走らせておき、判断が必要なものに戻ってこられます。通知は自動で鳴り、シェルのフックから発火させることもできます。",
-      "iosTitle": "スマホから Aider を確認",
-      "iosBody": "cmux には iOS コンパニオンアプリ（ベータ）があります。iPhone を Mac とペアリングすれば、デスクを離れていても Aider セッションを確認でき、必要に応じて通知を転送できます。",
-      "scriptTitle": "スクリプト可能",
-      "scriptBody": "すべての操作は cmux CLI と Unix ソケットから利用できます。ワークスペースの作成、その中での Aider の起動、入力の送信、画面の読み取り、変更を検証するためのアプリ内ブラウザの操作まで、すべてスクリプトから行えます。",
-      "faqTitle": "FAQ",
-      "faqQ1": "cmux で Aider は動きますか？",
-      "faqA1": "はい。cmux は標準的な macOS ターミナルなので、<code>aider</code> はどのワークスペースでも追加設定なしで動きます。",
-      "faqQ2": "複数のブランチで同時に Aider を実行できますか？",
-      "faqA2": "はい。ブランチごとにワークスペースを開いて、それぞれで Aider を実行できます。サイドバーが各ワークスペースの git ブランチとディレクトリを表示するので、並行作業がはっきりします。",
-      "faqQ3": "Aider が確認を必要とするのはどうやって分かりますか？",
-      "faqA3": "Aider が完了したり入力を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されるので、走らせておいて必要なときに戻ってこられます。",
-      "faqQ4": "Aider と一緒に使う cmux は無料ですか？",
-      "faqA4": "はい。cmux は macOS 向けの無料のオープンソースです。"
-    },
-    "amp": {
-      "metaTitle": "Amp のためのターミナル | cmux",
-      "metaDescription": "cmux は Sourcegraph の Amp を実行するために作られたネイティブ macOS ターミナルです。並行エージェントを整理するワークスペース、Amp が呼ぶときの通知リング、iOS コンパニオン、スクリプト可能な CLI を備えます。",
-      "title": "Amp のためのターミナル",
-      "intro": "cmux は AI コーディングエージェントを実行するために作られたネイティブ macOS ターミナルで、Sourcegraph の Amp はその第一級の相棒です。cmux はあくまでターミナルなので、<code>amp</code> はどのワークスペースでもそのまま動きます。そして、多数のエージェントを同時に把握し、必要なときに気づくという、エージェント実行で厄介になりがちな点こそ、cmux が作られた目的です。",
-      "organizeTitle": "多数の Amp セッションを整理して実行",
-      "organizeBody": "タスクごとにワークスペースを開き、それぞれで Amp を実行します。垂直サイドバーは各ワークスペースを git ブランチ、ディレクトリ、ポート、Amp の出力の最新行とともに表示するので、12個の並行セッションもタブに埋もれず見やすいままです。",
-      "notifyTitle": "Amp が呼ぶと通知リングが鳴る",
-      "notifyBody": "Amp が完了したり入力を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されます。複数のエージェントを走らせておき、判断が必要なものに戻ってこられます。通知は自動で鳴り、シェルのフックから発火させることもできます。",
-      "iosTitle": "スマホから Amp を確認",
-      "iosBody": "cmux には iOS コンパニオンアプリ（ベータ）があります。iPhone を Mac とペアリングすれば、デスクを離れていても Amp セッションを確認でき、必要に応じて通知を転送できます。",
-      "scriptTitle": "スクリプト可能",
-      "scriptBody": "すべての操作は cmux CLI と Unix ソケットから利用できます。ワークスペースの作成、その中での Amp の起動、入力の送信、画面の読み取り、変更を検証するためのアプリ内ブラウザの操作まで、すべてスクリプトから行えます。",
-      "faqTitle": "FAQ",
-      "faqQ1": "cmux で Amp は動きますか？",
-      "faqA1": "はい。cmux は標準的な macOS ターミナルなので、<code>amp</code> はどのワークスペースでも追加設定なしで動きます。",
-      "faqQ2": "Amp を他のエージェントと並べて実行できますか？",
-      "faqA2": "はい。タスクごとにワークスペースを開いて、Amp、Claude Code、Codex を並べて実行できます。サイドバーが各セッションを見やすく保ちます。",
-      "faqQ3": "Amp が入力を必要とするのはどうやって分かりますか？",
-      "faqA3": "Amp が完了したり入力を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されるので、走らせておいて必要なときに戻ってこられます。",
-      "faqQ4": "Amp と一緒に使う cmux は無料ですか？",
-      "faqA4": "はい。cmux は macOS 向けの無料のオープンソースです。"
-    },
-    "cursorCli": {
-      "metaTitle": "Cursor CLI のためのターミナル | cmux",
-      "metaDescription": "cmux は Cursor CLI（cursor-agent）を実行するために作られたネイティブ macOS ターミナルです。並行エージェントを整理するワークスペース、エージェントが呼ぶときの通知リング、iOS コンパニオン、スクリプト可能な CLI を備えます。",
-      "title": "Cursor CLI のためのターミナル",
-      "intro": "cmux は AI コーディングエージェントを実行するために作られたネイティブ macOS ターミナルで、Cursor CLI はその第一級の相棒です。cmux はあくまでターミナルなので、<code>cursor-agent</code> はどのワークスペースでもそのまま動きます。そして、多数のエージェントを同時に把握し、必要なときに気づくという、エージェント実行で厄介になりがちな点こそ、cmux が作られた目的です。",
-      "organizeTitle": "多数の Cursor CLI セッションを整理して実行",
-      "organizeBody": "タスクごとにワークスペースを開き、それぞれで Cursor CLI を実行します。垂直サイドバーは各ワークスペースを git ブランチ、ディレクトリ、ポート、出力の最新行とともに表示するので、12個の並行セッションもタブに埋もれず見やすいままです。",
-      "notifyTitle": "エージェントが呼ぶと通知リングが鳴る",
-      "notifyBody": "Cursor CLI が完了したり入力を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されます。複数のエージェントを走らせておき、判断が必要なものに戻ってこられます。通知は自動で鳴り、シェルのフックから発火させることもできます。",
-      "iosTitle": "スマホから Cursor CLI を確認",
-      "iosBody": "cmux には iOS コンパニオンアプリ（ベータ）があります。iPhone を Mac とペアリングすれば、デスクを離れていても Cursor CLI セッションを確認でき、必要に応じて通知を転送できます。",
-      "scriptTitle": "スクリプト可能",
-      "scriptBody": "すべての操作は cmux CLI と Unix ソケットから利用できます。ワークスペースの作成、その中での Cursor CLI の起動、入力の送信、画面の読み取り、変更を検証するためのアプリ内ブラウザの操作まで、すべてスクリプトから行えます。",
-      "faqTitle": "FAQ",
-      "faqQ1": "cmux で Cursor CLI は動きますか？",
-      "faqA1": "はい。cmux は標準的な macOS ターミナルなので、<code>cursor-agent</code> はどのワークスペースでも追加設定なしで動きます。",
-      "faqQ2": "Cursor CLI を他のエージェントと並べて実行できますか？",
-      "faqA2": "はい。タスクごとにワークスペースを開いて、Cursor CLI、Claude Code、Codex を並べて実行できます。サイドバーが各セッションを見やすく保ちます。",
-      "faqQ3": "Cursor CLI が入力を必要とするのはどうやって分かりますか？",
-      "faqA3": "Cursor CLI が完了したり入力を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されるので、走らせておいて必要なときに戻ってこられます。",
-      "faqQ4": "Cursor CLI と一緒に使う cmux は無料ですか？",
-      "faqA4": "はい。cmux は macOS 向けの無料のオープンソースです。"
+      "notifications": "通知"
     }
   }
 }
