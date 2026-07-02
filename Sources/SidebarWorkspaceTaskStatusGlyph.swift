@@ -76,24 +76,22 @@ struct SidebarWorkspaceTaskStatusGlyphModel: Equatable {
         showsOverrideDot = hasOverride
     }
 
+    /// Localized format strings resolved once, not per row render (the glyph
+    /// sits on every sidebar row's title line, a hot layout path).
+    private static let manualTooltipFormat = String(
+        localized: "sidebar.status.tooltip.manual",
+        defaultValue: "%@ — set manually"
+    )
+    private static let inferredTooltipFormat = String(
+        localized: "sidebar.status.tooltip.inferred",
+        defaultValue: "%@ — inferred"
+    )
+
     /// The localized tooltip: lane name plus whether it was set manually or
     /// inferred from live signals.
     static func tooltip(status: WorkspaceTaskStatus, hasOverride: Bool) -> String {
-        if hasOverride {
-            return String(
-                format: String(
-                    localized: "sidebar.status.tooltip.manual",
-                    defaultValue: "%@ — set manually"
-                ),
-                locale: .current,
-                status.displayName
-            )
-        }
-        return String(
-            format: String(
-                localized: "sidebar.status.tooltip.inferred",
-                defaultValue: "%@ — inferred"
-            ),
+        String(
+            format: hasOverride ? manualTooltipFormat : inferredTooltipFormat,
             locale: .current,
             status.displayName
         )
