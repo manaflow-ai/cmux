@@ -139,6 +139,22 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         return merged
     }
 
+    /// Routes to persist from a LIVE presence push. Unlike the registry
+    /// snapshot (``selectReconnectRoutes(local:registry:)``, host/port-only),
+    /// a presence `routes` event is the Mac's heartbeat announcing its CURRENT
+    /// full route set — including its current iroh EndpointId — so it replaces
+    /// the stored set wholesale. This is the path that heals a stored peer
+    /// route after the Mac's iroh identity rotates (a dev re-sign regenerates
+    /// the Keychain-held key). Returns `nil` when pushed is empty or identical
+    /// (no store write needed).
+    public static func selectPushedRoutes(
+        local: [CmxAttachRoute],
+        pushed: [CmxAttachRoute]
+    ) -> [CmxAttachRoute]? {
+        guard !pushed.isEmpty, pushed != local else { return nil }
+        return pushed
+    }
+
     /// Whether a background registry refresh may write back into the paired-Mac
     /// store, re-evaluated *after* the network call.
     ///

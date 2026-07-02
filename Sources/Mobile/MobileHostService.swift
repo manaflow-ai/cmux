@@ -1450,30 +1450,57 @@ final class MobileHostService {
     /// EndpointId across launches. Generated once via CryptoKit's Ed25519 (the
     /// curve iroh uses); a fresh ephemeral key is returned if the Keychain write
     /// fails so the host still binds.
+    ///
+    /// Observed wedge this must recover from: an item created by an EARLIER,
+    /// differently-signed build ACL-blocks this build's read forever. The old
+    /// code then tried to delete using the READ query (which carries
+    /// `kSecReturnData`/`kSecMatchLimit`, invalid for `SecItemDelete`), the
+    /// delete never removed the item, the add failed as a duplicate, and the
+    /// host fell back to a fresh ephemeral key on EVERY launch — rotating the
+    /// EndpointId and killing every stored/registry iroh route each restart.
+    /// The rewrite path below deletes with a minimal (class, service) query and
+    /// falls back to `SecItemUpdate` on a duplicate, so the identity rotates at
+    /// most once per re-signed build, never per launch.
     private nonisolated static func loadOrCreateIrohSecretKey() -> [UInt8] {
-        let query: [String: Any] = [
+        let readQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: irohSecretKeyKeychainService,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var result: CFTypeRef?
-        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+        let readStatus = SecItemCopyMatching(readQuery as CFDictionary, &result)
+        if readStatus == errSecSuccess,
            let data = result as? Data,
            data.count == irohSecretKeyByteCount {
             return [UInt8](data)
         }
+        mobileHostLog.info("iroh secret key read missed (status \(readStatus, privacy: .public)); rewriting")
+
         let key = Data(Curve25519.Signing.PrivateKey().rawRepresentation)
-        var insert: [String: Any] = [
+        // Minimal identity-only query: valid for delete/update (the read query
+        // is NOT — return/match attributes make SecItemDelete reject it).
+        let itemQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: irohSecretKeyKeychainService,
-            kSecValueData as String: key,
         ]
+        let deleteStatus = SecItemDelete(itemQuery as CFDictionary)
+        var insert = itemQuery
+        insert[kSecValueData as String] = key
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        _ = SecItemDelete(query as CFDictionary)
-        let status = SecItemAdd(insert as CFDictionary, nil)
-        if status != errSecSuccess {
-            mobileHostLog.error("failed to persist iroh secret key (status \(status, privacy: .public)); using ephemeral")
+        var writeStatus = SecItemAdd(insert as CFDictionary, nil)
+        if writeStatus == errSecDuplicateItem {
+            // The old item survived the delete (e.g. ACL held by a previous
+            // build): overwrite its value in place instead of giving up.
+            writeStatus = SecItemUpdate(
+                itemQuery as CFDictionary,
+                [kSecValueData as String: key] as CFDictionary
+            )
+        }
+        if writeStatus != errSecSuccess {
+            mobileHostLog.error(
+                "failed to persist iroh secret key (read \(readStatus, privacy: .public), delete \(deleteStatus, privacy: .public), write \(writeStatus, privacy: .public)); using ephemeral"
+            )
         }
         return [UInt8](key)
     }

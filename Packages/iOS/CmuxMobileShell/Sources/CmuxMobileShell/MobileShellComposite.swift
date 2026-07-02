@@ -2231,9 +2231,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               let sole = presenceMap.soleRouteAdvertisingInstance(deviceId: deviceId),
               sole.tag == instance.tag,
               let mac = knownMacs.first(where: { $0.macDeviceID == deviceId }),
-              let updated = DeviceRegistryService.selectReconnectRoutes(
+              let updated = DeviceRegistryService.selectPushedRoutes(
                 local: mac.routes,
-                registry: routes
+                pushed: routes
               ),
               let pairedMacStore,
               await isScopeCurrent(scope) else { return }
