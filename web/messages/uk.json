@@ -1677,7 +1677,8 @@
   "afterSignIn": {
     "title": "Вхід у cmux виконано",
     "body": "Якщо cmux не відкрився автоматично, скористайтеся кнопкою нижче.",
-    "button": "Повернутися до cmux"
+    "button": "Повернутися до cmux",
+    "switchAccountButton": "Використати інший обліковий запис"
   },
   "landing": {
     "bestTerminal": {

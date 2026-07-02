@@ -94,12 +94,15 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
+            // No explicit `.buttonStyle(.glass)`: the system already backs this
+            // `.topBarLeading` item in Liquid Glass on iOS 26. A second glass
+            // layer renders as an oversized square. See the matching note on
+            // `WorkspaceDetailView.workspaceBackToolbarButton`.
             WorkspaceBackButton(
                 unreadCount: backButtonConfiguration.unreadCount,
                 badgeContrast: backButtonConfiguration.badgeContrast,
                 action: backButtonConfiguration.action
             )
-            .mobileGlassCompactToolbarControl()
         }
     }
 
