@@ -159,6 +159,39 @@ extension Workspace {
         return didChange
     }
 
+    @discardableResult
+    func clearStaleAgentPIDs(panelId: UUID, refreshPorts: Bool = true) -> Bool {
+        let keys = agentPIDKeysByPanelId[panelId] ?? []
+        var didChange = false
+        for key in keys {
+            guard let pid = agentPIDs[key] else {
+                if clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                    didChange = true
+                }
+                continue
+            }
+            if !isRecordedAgentPIDLive(key: key, pid: pid),
+               clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        if didChange, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+        return didChange
+    }
+
+    func clearAllAgentPIDs(refreshPorts: Bool = true) {
+        let hadAgentPIDs = !agentPIDs.isEmpty
+        agentPIDs.removeAll()
+        agentPIDProcessIdentitiesByKey.removeAll()
+        agentPIDPanelIdsByKey.removeAll()
+        agentPIDKeysByPanelId.removeAll()
+        if hadAgentPIDs, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+    }
+
     private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
         guard pid > 0,
               let recordedIdentity = agentPIDProcessIdentitiesByKey[key],

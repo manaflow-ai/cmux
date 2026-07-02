@@ -219,9 +219,7 @@ extension Workspace {
         // processes (e.g. claude_code "Running"). Don't restore them across app
         // restarts because the processes that set them are gone.
         statusEntries.removeAll()
-        agentPIDs.removeAll()
-        agentPIDPanelIdsByKey.removeAll()
-        agentPIDKeysByPanelId.removeAll()
+        clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
         logEntries = snapshot.logEntries.map { entry in
@@ -5030,9 +5028,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
-        agentPIDs.removeAll()
-        agentPIDPanelIdsByKey.removeAll()
-        agentPIDKeysByPanelId.removeAll()
+        clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
         latestConversationMessage = nil
