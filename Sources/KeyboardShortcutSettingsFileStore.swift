@@ -498,6 +498,13 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
         }
         applyStringSettings(NotificationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        if let raw = jsonString(section["agentTurnComplete"]) {
+            if AgentTurnCompleteMode(rawValue: raw) != nil {
+                snapshot.managedUserDefaults[NotificationsCatalogSection().agentTurnComplete.userDefaultsKey] = .string(raw)
+            } else {
+                logInvalid("notifications.agentTurnComplete", sourcePath: sourcePath)
+            }
+        }
     }
 
     private func parseTerminalSection(
