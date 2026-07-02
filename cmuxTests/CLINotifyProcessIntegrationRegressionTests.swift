@@ -8,14 +8,6 @@ import CMUXAgentLaunch
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
-    private func codexRetryWrappedForTest(_ command: String) -> String {
-        CodexResumeRetryShell().wrappedCommand(command, quote: Self.shellSingleQuoted)
-    }
-
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
@@ -7906,10 +7898,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let request = try XCTUnwrap(resumeBindingRequests.first)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(request["auto_resume"] as? Bool, true)
+        // The published/stored resume binding stays compact and portable (no `/bin/zsh -lc` retry
+        // launcher): the retry launcher is applied only on the local repair path at restore time
+        // (`SurfaceResumeCommandCanonicalizer.resolvedStartupCommand(repairPortableAgentExecutable: true)`),
+        // so remote restoration can reuse this binding without assuming zsh or overflowing the inline budget.
         XCTAssertEqual(
             request["command"] as? String,
             "cd -- '\(root.path)' 2>/dev/null || [ ! -d '\(root.path)' ] && "
-                + codexRetryWrappedForTest("'/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'")
+                + "'/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
     }
 
