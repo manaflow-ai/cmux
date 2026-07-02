@@ -23918,7 +23918,10 @@ struct CMUXCLI {
         windowId: String?,
         jsonOutput: Bool
     ) throws {
-        let usage = "Usage: cmux workspace loading <on|off> [--id <name>] [--workspace <id>] [--window <id>] [--json]"
+        let usage = String(
+            localized: "cli.workspaceLoading.usage",
+            defaultValue: "Usage: cmux workspace loading <on|off> [--id <name>] [--workspace <id>] [--window <id>] [--json]"
+        )
         let (idArg, r0) = parseOption(commandArgs, name: "--id")
         let (wsArg, r1) = parseOption(r0, name: "--workspace")
         let (winArg, r2) = parseOption(r1, name: "--window")
@@ -23934,7 +23937,15 @@ struct CMUXCLI {
         case "off", "stop", "hide", "done", "idle", "finished":
             turnOn = false
         default:
-            throw CLIError(message: "Invalid state '\(sub)'. Expected on or off. \(usage)")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.error.workspaceLoadingInvalidState",
+                    defaultValue: "Invalid state '%@'. Expected on or off. %@"
+                ),
+                locale: .current,
+                sub,
+                usage
+            ))
         }
 
         // Named loaders live under the reserved manual namespace so several can
@@ -23947,7 +23958,14 @@ struct CMUXCLI {
         if let rawId = idArg?.trimmingCharacters(in: .whitespacesAndNewlines), !rawId.isEmpty {
             let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
             guard rawId.unicodeScalars.allSatisfy(allowed.contains) else {
-                throw CLIError(message: "Invalid --id '\(rawId)'. Use letters, digits, '.', '_', or '-' (no spaces).")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.error.workspaceLoadingInvalidId",
+                        defaultValue: "Invalid --id '%@'. Use letters, digits, '.', '_', or '-' (no spaces)."
+                    ),
+                    locale: .current,
+                    rawId
+                ))
             }
             key = "\(manual):\(rawId)"
         } else {
@@ -23966,7 +23984,10 @@ struct CMUXCLI {
             windowHandle: winId,
             allowCurrent: true
         ) else {
-            throw CLIError(message: "No workspace resolved. Run inside a cmux workspace or pass --workspace <id>.")
+            throw CLIError(message: String(
+                localized: "cli.error.workspaceLoadingNoWorkspace",
+                defaultValue: "No workspace resolved. Run inside a cmux workspace or pass --workspace <id>."
+            ))
         }
 
         // Response is "before=ON;after=OFF" so an agent sees the state change.
