@@ -155,9 +155,12 @@ extension PreferredEditorService {
         return (line, nil)
     }
 
-    /// Splits a configured editor command into shell words, honoring single and
-    /// double quotes and backslash escapes so a binary path with spaces — a
-    /// quoted app bundle or a backslash-escaped path — stays one token.
+    /// Splits a configured editor command into shell words. Single and double
+    /// quotes keep a binary path with spaces (a quoted app bundle) as one token;
+    /// an unquoted backslash escapes the next character, so a backslash-escaped
+    /// path stays one token too. Backslashes are literal inside quotes, matching
+    /// how `/bin/sh -c` word-splits the command that is actually run — so a
+    /// quoted arg like `"\--goto"` is not misread as the `--goto` flag.
     private static func commandTokens(_ command: String) -> [String] {
         var tokens: [String] = []
         var current = ""
@@ -172,7 +175,7 @@ extension PreferredEditorService {
                 hasToken = true
                 continue
             }
-            if character == "\\", quote != "'" {
+            if character == "\\", quote == nil {
                 escaping = true
                 hasToken = true
                 continue
