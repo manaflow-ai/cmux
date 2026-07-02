@@ -21217,7 +21217,7 @@ struct CMUXCLI {
         }
         config["plugin"] = plugins
 
-        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        let output = try Self.serializeOpenCodeConfigJSON(config)
         try output.write(to: shadowJsonURL, options: .atomic)
 
         // Symlink node_modules from the user's config dir so installed packages resolve
@@ -21352,7 +21352,7 @@ struct CMUXCLI {
                attrs[.type] as? FileAttributeType == .typeSymbolicLink {
                 try? fm.removeItem(at: omoConfigURL)
             }
-            let output = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys])
+            let output = try Self.serializeOpenCodeConfigJSON(omoConfig)
             try output.write(to: omoConfigURL, options: .atomic)
         }
 
@@ -27807,6 +27807,20 @@ export default CMUXSessionRestore;
         }
     }
 
+    /// Serializes an opencode / oh-my-openagent config object to pretty-printed JSON **without**
+    /// escaping forward slashes. opencode's `{file:...}` template resolver reads the inner path
+    /// byte-literally, so `NSJSONSerialization`'s default of escaping every `/` to `\/` turns a
+    /// `{file:./AGENTS.md}` reference into `{file:.\/AGENTS.md}` and opencode rejects the entire
+    /// config ("bad file reference"). Matching opencode's own writer (Bun/Node `JSON.stringify`
+    /// never escapes `/`) keeps every `{file:...}` reference, schema URL, and plugin path intact.
+    /// See https://github.com/manaflow-ai/cmux/issues/7140.
+    private static func serializeOpenCodeConfigJSON(_ object: [String: Any]) throws -> Data {
+        try JSONSerialization.data(
+            withJSONObject: object,
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        )
+    }
+
     private func updateOpenCodePluginRegistration(configDir: URL, shouldInstall: Bool) throws -> Bool {
         let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false); let existingData = try? Data(contentsOf: configURL)
         var config: [String: Any]
@@ -27819,7 +27833,7 @@ export default CMUXSessionRestore;
         var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
         if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) { plugins.append(Self.openCodeSessionPluginConfigSpec) }
         config["plugin"] = plugins
-        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        let output = try Self.serializeOpenCodeConfigJSON(config)
         if existingData == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         try output.write(to: configURL, options: .atomic)
