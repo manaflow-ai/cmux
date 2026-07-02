@@ -592,7 +592,18 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected inline completion display to avoid injecting an https:// prefix unless typed."
         )
 
-        let shortcutResponse = socketCommand("simulate_shortcut ctrl+h")
+        // `simulate_shortcut` dispatches synchronously on the main thread
+        // (v2MainSync -> AppKit sendEvent -> the omnibar's deleteBackward), and
+        // the handler only writes its "OK" ack after that hop returns. Right
+        // after the omnibar renders inline suggestions the main thread can be
+        // busy long enough that the default 2s netcat read window closes before
+        // the ack arrives, yielding a nil transport response even though the
+        // dispatch itself is healthy (the diagnostics probe below still
+        // answers). Give this one call a generous single-shot budget instead of
+        // retrying: Ctrl+H mutates the buffer (deletes a character), so a retry
+        // after a lost ack would delete a second character and corrupt the
+        // assertion below.
+        let shortcutResponse = socketCommand("simulate_shortcut ctrl+h", responseTimeout: 10.0)
         XCTAssertEqual(
             shortcutResponse,
             "OK",
@@ -796,8 +807,8 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         }
     }
 
-    private func socketCommand(_ command: String) -> String? {
-        controlSocketCommandViaNetcat(command, socketPath: socketPath)
+    private func socketCommand(_ command: String, responseTimeout: TimeInterval = 2.0) -> String? {
+        controlSocketCommandViaNetcat(command, socketPath: socketPath, responseTimeout: responseTimeout)
     }
 
     private func typeQueryAndWaitForSuggestions(
