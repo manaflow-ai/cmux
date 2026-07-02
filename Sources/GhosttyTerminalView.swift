@@ -3044,25 +3044,38 @@ class GhosttyApp {
                         workspace: workspace,
                         surfaceId: termSurface.id
                     )
-                    guard let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
+                    guard let reference = TerminalPathResolver().resolveOpenURLFileReference(trimmedUrlString, cwd: cwd) else {
                         return (false, nil)
                     }
-                    guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
-                        return (false, resolvedPath)
+                    // A `path:line[:column]` reference always opens in the
+                    // preferred editor: cmux's in-app file/markdown viewers
+                    // cannot jump to a line, and jumping there is the whole
+                    // point of the reference. This also routes relative
+                    // `dir/file.swift:line` refs to the editor instead of the
+                    // browser omnibar they previously fell through to.
+                    if reference.line != nil {
+                        #if DEBUG
+                        cmuxDebugLog("link.openURL resolvedAsFileReference=\(reference.fileURL)")
+                        #endif
+                        PreferredEditorService(defaults: .standard).open(reference.fileURL)
+                        return (true, nil)
+                    }
+                    guard CommandClickFileOpenRouter.shouldRouteInCmux(path: reference.path) else {
+                        return (false, reference.path)
                     }
                     #if DEBUG
-                    cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
+                    cmuxDebugLog("link.openURL resolvedAsFilePath=\(reference.path)")
                     #endif
-                    let fileURL = URL(fileURLWithPath: resolvedPath)
+                    let fileURL = URL(fileURLWithPath: reference.path)
                     CommandClickFileOpenRouter.deferredOpenFileInCmux(
                         workspace: workspace,
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
-                        filePath: resolvedPath
+                        filePath: reference.path
                     ) {
                         NSWorkspace.shared.open(fileURL)
                     }
-                    return (true, resolvedPath)
+                    return (true, nil)
                 }
                 if let fallbackPath = filePathResolution.fallbackPath {
                     normalizedOpenURLString = fallbackPath
