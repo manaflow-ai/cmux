@@ -25,6 +25,7 @@ extension DockSocketLifecycleTests {
             isLoading: false,
             isPinned: false,
             directory: nil,
+            directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: nil,
             customTitle: nil,
