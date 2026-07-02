@@ -110,9 +110,7 @@ struct WorkspaceDetailView: View {
         #if os(iOS)
         if isChatMode, let session = chosenChatSession {
             chatContent(session)
-                // Emerge from the toolbar (top edge) rather than snapping in,
-                // matching standard toolbar-driven transitions.
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .transition(.opacity)
         } else if let browser = activeBrowser {
             browserContent(browser)
         } else {
@@ -357,7 +355,8 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// Compact-stack back button rendered as its own leading toolbar island.
+    /// Leading back-button island. No explicit `.buttonStyle(.glass)`: iOS 26 backs
+    /// toolbar items in glass; a 2nd layer renders as an oversized square (see chat pane).
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
@@ -366,7 +365,6 @@ struct WorkspaceDetailView: View {
                 badgeContrast: backButtonConfiguration.badgeContrast,
                 action: backButtonConfiguration.action
             )
-            .mobileGlassCompactToolbarControl()
         }
     }
 
@@ -484,8 +482,7 @@ struct WorkspaceDetailView: View {
 
             #if DEBUG
             Button(action: copyDebugLogsFromMenu) {
-                // DEV-only debug tooling; not shipped, so not localized.
-                Label("Copy Debug Logs", systemImage: "doc.on.clipboard")
+                Label(L10n.string("mobile.debug.copyLogs", defaultValue: "Copy Debug Logs"), systemImage: "doc.on.clipboard")
             }
             .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
             #endif
@@ -512,8 +509,8 @@ struct WorkspaceDetailView: View {
     private func copyDebugLogsFromMenu() {
         // Include "what the user sees" (the visible terminal text) above the
         // debug log so a pasted bug report shows the on-screen content too.
-        let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
         Task { @MainActor in
+            let terminalText = await GhosttySurfaceView.visibleTerminalSnapshot()
             let count = await MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
@@ -639,10 +636,10 @@ struct WorkspaceDetailView: View {
         // Only the agent path reads the terminal/debug snapshots; reading them is
         // cheap and harmless on the email path, but skip the work when unused.
         // `visibleTerminalSnapshot()` reads off the output queue with a bounded
-        // wait (never a main-thread `ghostty_surface_read_text`, which blanks the
+        // async deadline (never a main-thread `ghostty_surface_read_text`, which blanks the
         // terminal). The debug-log snapshot is awaited from its actor.
-        let terminalText = routesToAgent ? GhosttySurfaceView.visibleTerminalSnapshot() : ""
         Task { @MainActor in
+            let terminalText = routesToAgent ? await GhosttySurfaceView.visibleTerminalSnapshot() : ""
             let debugLogText = routesToAgent ? await MobileDebugLog.shared.sink.snapshotWithCount().1 : ""
             let outcome = await store.submitFeedback(
                 message: note,

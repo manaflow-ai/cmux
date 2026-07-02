@@ -145,11 +145,10 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             defer { isApplyingDataUpdate = false }
             tableView.reloadData()
             tableView.layoutIfNeeded()
-
-            if shouldScrollToBottom || wasAtBottom {
+            if shouldScrollToBottom || (wasAtBottom && !tableView.isUserScrollMomentumActive) {
                 pendingContentUpdateAnchor = nil
                 scrollToBottom(in: tableView, animated: false)
-            } else if let anchor {
+            } else if let anchor, !tableView.isUserScrollMomentumActive {
                 restore(anchor, in: tableView)
                 pendingContentUpdateAnchor = anchor
             }
@@ -214,11 +213,12 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             isHandlingLayout = true
             defer { isHandlingLayout = false }
 
-            if tableView.isViewportInsetsExternallyDriven {
+            if tableView.isUserScrollMomentumActive {
+                pendingContentUpdateAnchor = nil
                 updateBottomState(from: tableView)
                 return
             }
-            if isApplyingDataUpdate {
+            if tableView.isViewportInsetsExternallyDriven || isApplyingDataUpdate {
                 updateBottomState(from: tableView)
                 return
             }

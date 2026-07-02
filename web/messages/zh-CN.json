@@ -1594,7 +1594,8 @@
   "afterSignIn": {
     "title": "已登录 cmux",
     "body": "如果 cmux 没有自动打开，请使用下面的按钮。",
-    "button": "返回 cmux"
+    "button": "返回 cmux",
+    "switchAccountButton": "使用其他账号"
   },
   "landing": {
     "bestTerminal": {

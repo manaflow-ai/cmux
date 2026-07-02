@@ -94,6 +94,8 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
+            // Keep this in its own capsule so the back affordance does not
+            // visually merge into the centered workspace title glass.
             WorkspaceBackButton(
                 unreadCount: backButtonConfiguration.unreadCount,
                 badgeContrast: backButtonConfiguration.badgeContrast,
