@@ -302,3 +302,62 @@ import Testing
     )
     collector.unmount()
 }
+
+@MainActor
+@Test func coldAttachReplayMountedBeforeConnectionStillReplaysOnHostWithoutReplayCapability() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1"])
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 5,
+            columns: 24,
+            rows: 4,
+            full: true,
+            rowSpans: [
+                .init(row: 0, column: 0, text: "legacy-base"),
+            ]
+        ),
+    ])
+    let box = TransportBox()
+    let runtime = LivenessTestRuntime(
+        transportFactory: LivenessTransportFactory(router: router, box: box),
+        now: { clock.now }
+    )
+    let store = MobileShellComposite.preview(runtime: runtime)
+    store.signIn()
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let replayBeforeConnection = try await pollUntil(attempts: 60) {
+        await router.count(of: "mobile.terminal.replay") > 0
+    }
+    #expect(
+        replayBeforeConnection == false,
+        "mounting before a remote client exists must not send an inert replay request"
+    )
+
+    let connected = await store.connectPairingURL(try attachURL(for: makeTicket(clock: clock)))
+    #expect(connected, "scripted connect must succeed")
+    let capabilitiesResolved = try await pollUntil {
+        !store.supportedHostCapabilities.isEmpty
+    }
+    #expect(capabilitiesResolved, "host capabilities must resolve after connecting")
+
+    let coldReplayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 1
+    }
+    #expect(
+        coldReplayRequested,
+        "a sink mounted before connection must still get its cold replay when the host lacks terminal.replay.v1"
+    )
+    let baseDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("legacy-base") }
+    }
+    #expect(
+        baseDelivered,
+        "the fallback cold replay must paint the terminal on hosts without the replay barrier capability"
+    )
+    collector.unmount()
+}
