@@ -1063,6 +1063,99 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertTrue(command.contains("hermes-4"), command)
     }
 
+    func testHermesStateDBDetectionReplacesStaleSamePanelHookRecord() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-stale-hook-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        let stateDB = hermesHome.appendingPathComponent("state.db", isDirectory: false)
+        try Self.writeHermesStateDB(at: stateDB, rows: [
+            (id: "current-session", source: "tui", startedAt: 40, cwd: repo.path),
+        ])
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        // A stale hermes hook record for the same panel points at an old session.
+        try writeHookStore(
+            root: root,
+            storeFilename: "hermes-agent-hook-sessions.json",
+            sessions: [
+                "stale-session": driftedAgentHookRecord(
+                    launcher: "hermes-agent",
+                    sessionId: "stale-session",
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: repo.path,
+                    launchCwd: repo.path,
+                    updatedAt: 100
+                ),
+            ]
+        )
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path, fileManager: fm)
+
+        // Part 1: with no live detection, the panel restores the stale hook session — confirming the
+        // hook record actually loads (so Part 2 is a meaningful replacement, not a trivial pass).
+        let staleIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: registry,
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in nil }
+        )
+        XCTAssertEqual(staleIndex.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, "stale-session")
+
+        // Part 2: the live process + state.db resolve the current single active session, which must
+        // replace the stale same-panel hook. (Regression: classifying the state.db match as
+        // .inferredLatestSessionFile made load keep the stale hook instead.)
+        let process = CmuxTopProcessInfo(
+            pid: 8_500,
+            parentPID: 1,
+            name: "hermes",
+            path: "/usr/local/bin/hermes",
+            ttyDevice: nil,
+            cmuxWorkspaceID: workspaceId,
+            cmuxSurfaceID: panelId,
+            cmuxAttributionReason: "cmux-test",
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processId == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["hermes"],
+                    environment: ["HERMES_HOME": hermesHome.path, "CMUX_AGENT_LAUNCH_CWD": repo.path]
+                )
+            }
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: registry,
+            detectedSnapshots: detected,
+            processArgumentsProvider: { _ in nil }
+        )
+        XCTAssertEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, "current-session")
+    }
+
     func testHermesProcessInUnknownCwdRecordsNoSnapshot() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory

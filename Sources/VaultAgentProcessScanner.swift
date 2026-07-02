@@ -1009,7 +1009,12 @@ private extension CmuxVaultAgentSessionIDSource {
             guard let cwd, !cwd.isEmpty else { return nil }
             let stateDBPath = HermesAgentIndex.defaultStateDBPath(env: process.environment)
             guard let sessionId = stateDBSessionIDLookup(stateDBPath, cwd) else { return nil }
-            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
+            // `.explicit`, not `.inferredLatestSessionFile`: the lookup already returns a value only
+            // for a single unambiguous active session in the cwd, so this is a verified match — not
+            // the fuzzy newest-file guess that source is meant for. Using `.inferredLatestSessionFile`
+            // would make `RestorableAgentSessionIndex.load` keep a *stale* same-panel hook record over
+            // this current session, defeating the recovery.
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
         }
     }
 }
