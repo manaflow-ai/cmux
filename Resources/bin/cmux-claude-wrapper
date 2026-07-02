@@ -560,6 +560,17 @@ clear_inherited_claude_auth_selection_env() {
     normalize_claude_config_dir
 }
 
+clear_inherited_claude_session_env() {
+    unset CLAUDECODE
+    unset CLAUDE_CODE
+    unset CLAUDE_CODE_CHILD_SESSION
+    unset CLAUDE_CODE_PARENT_SESSION_ID
+    unset CLAUDE_CODE_SESSION_ID
+    unset CLAUDE_CODE_ENTRYPOINT
+    unset CLAUDE_CODE_EXECPATH
+    unset CLAUDE_CODE_SSE_PORT
+}
+
 # Pass through if not in a cmux terminal, hooks are disabled, or the cmux
 # socket is unavailable (stale env / app not running).
 IN_CMUX=0
@@ -569,6 +580,7 @@ fi
 
 exec_real_claude_passthrough() {
     if [[ "$IN_CMUX" == "1" ]]; then
+        clear_inherited_claude_session_env
         local cmux_key
         for cmux_key in "${!CMUX_@}"; do
             unset "$cmux_key"
@@ -581,7 +593,7 @@ exec_real_claude_passthrough() {
 if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     # User-managed hooks need the original cmux terminal environment.
     if [[ "$IN_CMUX" == "1" ]]; then
-        unset CLAUDECODE
+        clear_inherited_claude_session_env
     fi
     clear_inherited_claude_auth_selection_env
     if [[ "$IN_CMUX" == "1" ]]; then
@@ -595,7 +607,7 @@ if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
     # In cmux-launched shells, preserve old behavior and always clear nested
     # Claude session markers, even when we must pass through due to stale socket.
     if [[ "$IN_CMUX" == "1" ]]; then
-        unset CLAUDECODE
+        clear_inherited_claude_session_env
     fi
     clear_inherited_claude_auth_selection_env
     if [[ "$IN_CMUX" == "1" ]]; then
@@ -838,7 +850,7 @@ fi
 
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
 # independent sessions even when the parent shell was launched from Claude Code.
-unset CLAUDECODE
+clear_inherited_claude_session_env
 clear_inherited_claude_auth_selection_env
 
 # Check if the user already specified a session/resume flag.
