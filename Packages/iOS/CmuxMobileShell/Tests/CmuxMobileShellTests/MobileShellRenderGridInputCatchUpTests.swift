@@ -182,6 +182,7 @@ import Testing
     }
     #expect(!staleFrameDelivered)
 
+    await router.holdNextReplayResponses()
     await store.submitTerminalRawInput(Data("b".utf8), surfaceID: "live-terminal")
     let secondInputSent = try await pollUntil { await router.count(of: "terminal.input") >= 2 }
     #expect(secondInputSent)
@@ -189,6 +190,24 @@ import Testing
         await router.count(of: "mobile.terminal.replay") > replayCountAfterMount
     }
     #expect(replayRequested, "a pending input target that survived a dropped frame and another ACK must request replay")
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 100,
+        text: "incomplete-while-replay",
+        full: false
+    ))
+    let incompleteTargetDelivered = try await pollUntil(attempts: 50) {
+        collector.lines.contains { $0.contains("incomplete-while-replay") }
+    }
+    #expect(!incompleteTargetDelivered)
+    try await router.enqueueReplayRenderGrids([
+        renderGridFrame(surfaceID: "live-terminal", seq: 100, text: "replayed-after-repeat"),
+    ])
+    await router.releaseAllHeld()
+    let replayDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("replayed-after-repeat") }
+    }
+    #expect(replayDelivered)
     collector.unmount()
 }
 

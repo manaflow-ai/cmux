@@ -6635,7 +6635,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let targetSeq = max(remoteSeq, pendingTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0)
             if let previousPendingSeq {
                 guard targetSeq > previousPendingSeq else {
-                    if pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID) != nil {
+                    if pendingTerminalInputDroppedRenderGridSurfaceIDs.contains(surfaceID) {
                         MobileDebugLog.anchormux(
                             "sync.input_seq_replay_after_drop surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)"
                         )
@@ -6643,7 +6643,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     return
                 }
-                pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
             }
             pendingTerminalByteEndSeqBySurfaceID[surfaceID] = targetSeq
             MobileDebugLog.anchormux("sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)")
