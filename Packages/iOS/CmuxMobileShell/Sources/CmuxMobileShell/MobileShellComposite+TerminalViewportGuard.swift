@@ -48,13 +48,26 @@ extension MobileShellComposite {
         )
     }
 
+    /// Whether the connected Mac can honor `mobile.terminal.viewport` caps:
+    /// it either advertises `terminal.viewport.v1` or has returned an
+    /// effective grid on this connection. Without that, the oversized-grid
+    /// guard must stay off — withholding output based on a cap the host
+    /// cannot apply would freeze the mirror on legacy hosts instead of
+    /// (at worst) rendering it the pre-guard way.
+    private var hostSupportsTerminalViewportCap: Bool {
+        supportedHostCapabilities.contains(Self.terminalViewportCapability)
+            || terminalViewportRPCConfirmedByHost
+    }
+
     /// Whether a producer grid fits the viewport this phone last reported for
-    /// `surfaceID`. Grids are trusted until a first report exists.
+    /// `surfaceID`. Grids are trusted until a first report exists, and always
+    /// trusted against hosts that cannot honor viewport caps.
     func producerGridFitsReportedViewport(
         columns: Int,
         rows: Int,
         surfaceID: String
     ) -> Bool {
+        guard hostSupportsTerminalViewportCap else { return true }
         guard let reported = reportedTerminalViewportGridsBySurfaceID[surfaceID] else {
             return true
         }

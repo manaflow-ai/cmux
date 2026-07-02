@@ -742,6 +742,65 @@ private func unsequencedTerminalBytesEventFrame(
 }
 
 @MainActor
+@Test func legacyHostWithoutViewportSupportKeepsTrustingProducerGrids() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    // A version-skewed Mac that streams render-grid but cannot honor
+    // mobile.terminal.viewport caps: the guard must stay off, or withheld
+    // output would freeze the mirror instead of rendering it the legacy way.
+    await router.setCapabilities([
+        "events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1",
+    ])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 0,
+        text: "pre-probe"
+    ))
+    let probeDelivered = try await pollUntil { collector.lines.contains { $0.contains("pre-probe") } }
+    #expect(probeDelivered, "raw bytes must flow after mount")
+
+    // The report is still recorded locally (and attempted), but the fixture
+    // host answers without an effective grid, so viewport support stays
+    // unconfirmed.
+    _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    let replayBaseline = await router.count(of: "mobile.terminal.replay")
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 20,
+        columns: 90,
+        rows: 40,
+        text: "oversized",
+        full: false
+    ))
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 9,
+        text: "legacy-bytes"
+    ))
+    let delivered = try await pollUntil { collector.lines.contains { $0.contains("legacy-bytes") } }
+    #expect(
+        delivered,
+        "against a host without viewport support the stream must keep flowing (legacy behavior), not freeze behind a recovery barrier"
+    )
+    let replayCount = await router.count(of: "mobile.terminal.replay")
+    #expect(
+        replayCount == replayBaseline,
+        "no oversized-grid recovery replay may be armed against a host that cannot honor viewport caps"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func fittingRenderGridFramesKeepOutputFlowing() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

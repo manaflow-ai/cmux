@@ -86,6 +86,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
+    static let terminalViewportCapability = "terminal.viewport.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
     private static let workspaceCloseCapability = "workspace.close.v1"
@@ -748,6 +749,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Last oversized-grid recovery attempt per surface, pacing viewport
     /// re-assertion and barrier re-arming while a producer stays diverged.
     var oversizedTerminalGridRecoveryLastAttemptsBySurfaceID: [String: Date] = [:]
+    /// Whether this connection's Mac has proven it honors
+    /// `mobile.terminal.viewport` by returning an effective grid. Together
+    /// with the advertised `terminal.viewport.v1` capability this gates the
+    /// oversized-grid guard: a host that cannot re-cap its grid must keep the
+    /// legacy trust-the-producer behavior, or withheld output would freeze the
+    /// mirror instead of converging.
+    var terminalViewportRPCConfirmedByHost = false
     /// Per-surface continuations for the Mac-pushed live font-size signal. A
     /// mounted surface obtains ``terminalLiveFontStream(surfaceID:)`` and applies
     /// each yielded point size; the Mac emits `terminal.set_font` to drive a live
@@ -5257,6 +5265,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalActiveScreenBySurfaceID = [:]
         oversizedTerminalGridRecoveryLastAttemptsBySurfaceID = [:]
+        terminalViewportRPCConfirmedByHost = false
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
         terminalReplayBarrierTokensInFlightBySurfaceID = [:]
@@ -7069,6 +7078,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   let grid = payload.effectiveGrid else {
                 return nil
             }
+            terminalViewportRPCConfirmedByHost = true
             return (grid.columns, grid.rows)
         } catch {
             mobileShellLog.error("viewport report failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
