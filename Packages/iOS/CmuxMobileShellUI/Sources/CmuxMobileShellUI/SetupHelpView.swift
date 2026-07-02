@@ -45,7 +45,7 @@ struct SetupHelpView: View {
                 }
                 networkSection
             }
-            .navigationTitle(L10n.string("mobile.setupHelp.title", defaultValue: "Set up your Mac"))
+            .navigationTitle(L10n.string("mobile.setupHelp.title", defaultValue: "Set Up Computer"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if let onDone {
@@ -75,11 +75,11 @@ struct SetupHelpView: View {
             Text(highlight == nil
                 ? L10n.string(
                     "mobile.setupHelp.introReference",
-                    defaultValue: "To see your Mac's terminals here, four things have to line up."
+                    defaultValue: "To see your computer's terminals here, four things have to line up."
                 )
                 : L10n.string(
                     "mobile.setupHelp.intro",
-                    defaultValue: "To see your Mac's terminals here, four things have to line up. The step you are on is marked below."
+                    defaultValue: "To see your computer's terminals here, four things have to line up. The step you are on is marked below."
                 ))
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -126,7 +126,7 @@ struct SetupHelpView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.string(
                     "mobile.setupHelp.networkBody",
-                    defaultValue: "Scanning the Mac's QR code needs Tailscale: the Mac only shows a code when it has a Tailscale address your phone can reach. Install Tailscale on both, sign both in to the same tailnet, and the code appears."
+                    defaultValue: "Scanning the computer's QR code needs Tailscale: the computer only shows a code when it has a Tailscale address your phone can reach. Install Tailscale on both, sign both in to the same tailnet, and the code appears."
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -143,7 +143,7 @@ struct SetupHelpView: View {
 
                 Link(destination: Self.tailscaleURL) {
                     Label(
-                        L10n.string("mobile.setupHelp.tailscaleMac", defaultValue: "Set up Tailscale on the Mac"),
+                        L10n.string("mobile.setupHelp.tailscaleMac", defaultValue: "Set up Tailscale on the computer"),
                         systemImage: "arrow.up.right.square"
                     )
                     .font(.callout.weight(.medium))
@@ -152,7 +152,7 @@ struct SetupHelpView: View {
 
                 Text(L10n.string(
                     "mobile.setupHelp.lanBody",
-                    defaultValue: "No Tailscale? On the same Wi-Fi you can still connect by typing the Mac's local address and port by hand in Add Computer. That link is unencrypted, so only use it on a network you trust."
+                    defaultValue: "No Tailscale? On the same Wi-Fi you can still connect by typing the computer's local address and port by hand in Add Computer. That link is unencrypted, so only use it on a network you trust."
                 ))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -169,7 +169,7 @@ struct SetupHelpView: View {
         } footer: {
             Text(L10n.string(
                 "mobile.setupHelp.sameAccountFooter",
-                defaultValue: "The Mac and this phone must be signed in to the same cmux account, and on the same tailnet (or the same Wi-Fi for a manual local connection)."
+                defaultValue: "The computer and this phone must be signed in to the same cmux account, and on the same tailnet (or the same Wi-Fi for a manual local connection)."
             ))
         }
         .accessibilityIdentifier("MobileSetupHelpNetworkSection")
