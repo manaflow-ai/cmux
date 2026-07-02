@@ -286,12 +286,12 @@ final class WindowGlassEffectTests {
         XCTAssertFalse(Self.windowContainsGlassBackground(window))
     }
 
-    @Test func testNativeGlassTintFollowsWindowKeyNotifications() throws {
+    @Test(.enabled(
+        if: NSClassFromString("NSGlassEffectView") != nil,
+        "NSGlassEffectView is unavailable on this macOS version"
+    ))
+    func testNativeGlassTintFollowsWindowKeyNotifications() throws {
         let glassEffect = WindowGlassEffect()
-        guard glassEffect.isAvailable else {
-            // Skip (was XCTSkip): NSGlassEffectView is unavailable on this macOS version.
-            return
-        }
         _ = NSApplication.shared
 
         let originalContentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
@@ -859,9 +859,16 @@ private func dragConfigurationOperationsSnapshot<T>(from operations: T) throws -
 @MainActor
 @Suite(.serialized)
 final class InternalTabDragConfigurationTests {
-    @Test func testDisablesExternalOperationsForInternalTabDrags() throws {
+    @Test(.enabled(
+        if: ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+        ),
+        "requires macOS 26 drag configuration APIs"
+    ))
+    func testDisablesExternalOperationsForInternalTabDrags() throws {
         guard #available(macOS 26.0, *) else {
-            // Skip (was XCTSkip): requires macOS 26 drag configuration APIs.
+            // Unreachable: the enabled(if:) trait skips below macOS 26; this
+            // guard only satisfies the compiler's availability checking.
             return
         }
 

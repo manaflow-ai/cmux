@@ -82,5 +82,10 @@ struct NoteTitleRenameField: View {
             return
         }
         onRename(trimmed)
+        // The rename is async and can fail (index write, invalid slug). Keep the
+        // committed title authoritative: fall back to it now, and let the rename's
+        // retitle notification deliver the new title through `onChange(of: title)`
+        // (Enter already unfocused the field, so the update is not blocked).
+        draft = title
     }
 }
