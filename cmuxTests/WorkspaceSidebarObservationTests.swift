@@ -196,6 +196,36 @@ struct WorkspaceSidebarObservationTests {
         #expect(received == [1, 2, 5, 6])
     }
 
+    @Test func coalesceLatestDropsStalePendingValueWhenLeadingSupersedesOverdueTrailing() {
+        let subject = PassthroughSubject<Int, Never>()
+        var received: [Int] = []
+        let cancellable = subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: RunLoop.main)
+            .sink { received.append($0) }
+        defer { cancellable.cancel() }
+
+        subject.send(1) // replay: forwarded, no window
+        subject.send(2) // leading edge: opens window
+        subject.send(3) // pending trailing value for the open window
+        #expect(received == [1, 2])
+
+        // Stall the main run loop past the trailing deadline WITHOUT pumping
+        // it, so the scheduled callback is overdue when the next value lands.
+        Thread.sleep(forTimeInterval: 0.12)
+        subject.send(4) // deadline passed: new leading edge must supersede 3
+
+        #expect(
+            received == [1, 2, 4],
+            "A newer leading value after an overdue deadline must drop the stale pending value."
+        )
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        #expect(
+            received == [1, 2, 4],
+            "The overdue trailing callback must not emit the superseded stale value out of order."
+        )
+    }
+
     @Test func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 

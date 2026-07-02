@@ -281,6 +281,11 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
             pendingValue = input
             scheduleTrailingEmission(at: start.advanced(by: interval))
         } else {
+            // If a trailing emission was scheduled but its callback is
+            // overdue (main run loop stalled past the deadline), this newer
+            // value supersedes the stale pending one; drop it so the late
+            // callback cannot emit it out of order after this value.
+            pendingValue = nil
             windowStart = now
             _ = downstream.receive(input)
         }
@@ -307,6 +312,16 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
     private func emitTrailing() {
         trailingScheduled = false
         guard !isCancelled, let value = pendingValue else { return }
+        // An overdue callback may fire inside a window that a newer leading
+        // value opened; hold the pending value until that window's own
+        // deadline instead of emitting early.
+        if let start = windowStart {
+            let deadline = start.advanced(by: interval)
+            if scheduler.now < deadline {
+                scheduleTrailingEmission(at: deadline)
+                return
+            }
+        }
         pendingValue = nil
         windowStart = scheduler.now
         _ = downstream.receive(value)
