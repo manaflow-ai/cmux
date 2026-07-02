@@ -424,9 +424,9 @@ enum KeyboardShortcutSettings {
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:
-                return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
             case .focusRight:
-                return StoredShortcut(key: "→", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
             case .focusUp:
                 return StoredShortcut(key: "↑", command: true, shift: false, option: true, control: false)
             case .focusDown:
