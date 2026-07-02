@@ -6772,6 +6772,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         effectiveViewportSizesBySurfaceID.removeValue(forKey: surfaceID); reportedTerminalViewportSizesBySurfaceID.removeValue(forKey: surfaceID)
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
+        // Drop the letterbox dimension cache too: piggybacks attach the
+        // current generation to whatever dimensions this cache holds, and
+        // after clearTerminalViewport bumps the generation for the clear, a
+        // remount's cold replay could otherwise carry these pre-detach
+        // dimensions through the Mac's fence and re-pin the cleared surface.
+        // The next dedicated report repopulates the cache with fresh geometry.
+        if let workspaceID = workspaceID(forTerminalID: surfaceID) {
+            reportedViewportSizesByTerminalKey.removeValue(forKey: viewportKey(
+                workspaceID: workspaceID,
+                terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+            ))
+        }
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
