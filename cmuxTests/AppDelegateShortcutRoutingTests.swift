@@ -7242,6 +7242,119 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(hostWindow.firstResponder === otherView)
     }
 
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6380.
+    // Paste must preflight into focused browser web content first, exactly like
+    // copy/cut/select-all. When paste is missing from the browser document
+    // editing commands, Cmd+V is never routed to the focused web view and falls
+    // through to the NSWindow.performKeyEquivalent broadcast, where a terminal
+    // pane's text box (text box beta) claims it instead of the browser.
+    func testBrowserPasteCommandRoutesThroughWebContentFirst() {
+        let pasteEvent = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            keyCode: 9
+        )
+        XCTAssertTrue(
+            shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(pasteEvent),
+            "Cmd+V should preflight into focused browser web content like copy/cut/select-all"
+        )
+    }
+
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6380.
+    // `performKeyEquivalent` is broadcast to every view in the window, not just
+    // the first responder. A terminal pane's text box (text box beta) must not
+    // claim Cmd+V while another view (e.g. the focused browser) owns first
+    // responder, or paste lands in the text box instead of the browser.
+    func testTextBoxDeclinesPasteShortcutWhenNotFirstResponder() {
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 80))
+        let otherView = FocusableTestView(frame: NSRect(x: 0, y: 40, width: 320, height: 40))
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textBoxScrollView.documentView = textView
+        contentView.addSubview(otherView)
+        contentView.addSubview(textBoxScrollView)
+        hostWindow.animationBehavior = .none
+        hostWindow.isReleasedWhenClosed = false
+        hostWindow.contentView = contentView
+        hostWindow.makeKeyAndOrderFront(nil)
+        Self.retainedTextBoxUndoWindows.append(hostWindow)
+        Self.retainedTextBoxRestoreViews.append(textView)
+        defer { hostWindow.orderOut(nil) }
+
+        XCTAssertTrue(hostWindow.makeFirstResponder(otherView))
+        XCTAssertTrue(hostWindow.firstResponder === otherView)
+
+        let pasteEvent = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            keyCode: 9
+        )
+        XCTAssertFalse(
+            textView.performKeyEquivalent(with: pasteEvent),
+            "Text box must not claim Cmd+V while another view owns first responder"
+        )
+    }
+
+    // The first-responder gate must not regress normal text box paste: when the
+    // text box itself owns first responder, Cmd+V is handled by the text box.
+    func testTextBoxHandlesPasteShortcutWhenFirstResponder() {
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 80))
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textBoxScrollView.documentView = textView
+        contentView.addSubview(textBoxScrollView)
+        hostWindow.animationBehavior = .none
+        hostWindow.isReleasedWhenClosed = false
+        hostWindow.contentView = contentView
+        hostWindow.makeKeyAndOrderFront(nil)
+        Self.retainedTextBoxUndoWindows.append(hostWindow)
+        Self.retainedTextBoxRestoreViews.append(textView)
+        defer { hostWindow.orderOut(nil) }
+
+        XCTAssertTrue(hostWindow.makeFirstResponder(textView))
+        XCTAssertTrue(hostWindow.firstResponder === textView)
+
+        let pasteEvent = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            keyCode: 9
+        )
+        XCTAssertTrue(
+            textView.performKeyEquivalent(with: pasteEvent),
+            "Text box must still handle Cmd+V while it owns first responder"
+        )
+    }
+
+    // Cmd+Shift+V (paste-and-match-style) must keep its dedicated CmuxWebView
+    // path and must not resolve as a plain document-editing paste.
+    func testBrowserPlainTextPasteCommandIsNotADocumentEditingPaste() {
+        let pasteAsPlainTextEvent = makeKeyEvent(
+            modifierFlags: [.command, .shift],
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            keyCode: 9
+        )
+        XCTAssertFalse(
+            shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(pasteAsPlainTextEvent),
+            "Cmd+Shift+V keeps its dedicated paste-as-plain-text path"
+        )
+    }
+
     func testFocusTextBoxShortcutRoutesToEventWindowWhenActiveManagerIsStale() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
