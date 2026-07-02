@@ -348,8 +348,7 @@ struct SessionEntry: Identifiable, Hashable {
             // user's own shell (fish/csh included), so the rendered command is
             // wrapped in `/bin/sh -c '…'`; the `cd` guard stays outside in
             // `resumeCommandWithCwd`. https://github.com/manaflow-ai/cmux/issues/5639
-            var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)"]
-            parts.append(AgentResumeArgv.codexUpdateCheckSuppressionOverride.joined(separator: " "))
+            var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)", AgentResumeArgv.codexUpdateCheckSuppressionOverride.joined(separator: " ")]
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
             }
