@@ -3163,6 +3163,9 @@ class TerminalController {
             }
         }
         if let wsId = v2UUID(params, "workspace_id") {
+            if wsId == AppDelegate.windowDockAliasWorkspaceId {
+                return v2MainSync { tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
+            }
             if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(tabId: wsId) }) {
                 return tm
             }
@@ -3214,6 +3217,9 @@ class TerminalController {
             return tm
         }
         if let workspaceId = routing.workspaceID {
+            if workspaceId == AppDelegate.windowDockAliasWorkspaceId {
+                return tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager
+            }
             if let tm = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) {
                 return tm
             }
