@@ -96,12 +96,10 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 
     // MARK: - Reconnect route policy (pure, testable)
 
-    /// Fixed reference instant used to stamp both route sources when merging.
-    /// Local and registry routes have no per-route timestamps at this layer, so
-    /// stamping both equally makes freshness tie and ranking fall through to
-    /// source authority (registry over local cache) and proximity — keeping
-    /// ``selectReconnectRoutes(local:registry:)`` deterministic and clock-free
-    /// for tests.
+    /// Fixed reference instant used to stamp registry routes during dedup.
+    /// The registry response has no per-route timestamps at this layer, so using
+    /// one constant keeps duplicate-endpoint tie-breaking deterministic and
+    /// clock-free for tests.
     private static let mergeReferenceDate = Date(timeIntervalSinceReferenceDate: 0)
 
     /// Choose the routes to persist for the next reconnect, with the registry
@@ -111,10 +109,11 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// (no added latency) and only *replaces* them when the registry returns a
     /// usable, different set, so a stale-route Mac (moved networks / changed port)
     /// gets rescued on the next reconnect trigger. The registry routes are first
-    /// deduped by endpoint and ranked through the shared ``CmxRouteCandidateSet``
-    /// model so a duplicated or unordered registry response persists cleanly.
+    /// deduped by endpoint through the shared ``CmxRouteCandidateSet`` model so
+    /// a duplicated response persists cleanly without reordering the dialer's
+    /// existing priority hints.
     ///
-    /// Returns the ranked registry routes when they differ from the local cache
+    /// Returns the deduped registry routes when they differ from the local cache
     /// by full route equality — a new/changed endpoint, or a changed
     /// `priority`/`id`/`kind` — and `nil` when nothing changed (registry
     /// unavailable/empty, or it re-advertises exactly the cached routes), so

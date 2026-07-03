@@ -171,6 +171,14 @@ import Testing
         #expect(deduped.map(\.id) == ["relay", "lan"])
     }
 
+    @Test func dedupedKeepsLowerPriorityForDuplicateRegistryEndpoint() throws {
+        let worse = candidate(try hostPort("100.96.0.9", id: "worse", priority: 10), .registry, at: 100)
+        let unrelated = candidate(try hostPort("100.96.0.10", id: "unrelated", priority: -1), .registry, at: 100)
+        let better = candidate(try hostPort("100.96.0.9", id: "better", priority: 0), .registry, at: 100)
+        let deduped = CmxRouteCandidateSet([worse, unrelated, better]).dedupedRoutes()
+        #expect(deduped.map(\.id) == ["better", "unrelated"])
+    }
+
     @Test func mergedDedupsPeerById() throws {
         let qr = candidate(try peer("nodeabc"), .qr, at: 100)
         let registry = candidate(try peer("nodeabc"), .registry, at: 100)
