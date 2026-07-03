@@ -449,12 +449,12 @@ select {
   color: var(--color-token-terminal-ansi-bright-magenta);
 }
 
-.codex-assistant-message :where(pre code.hljs .hljs-built_in, pre code.hljs .hljs-type, pre code.hljs .hljs-title.class_, pre code.hljs .hljs-title.class_.inherited__) {
-  color: var(--color-token-terminal-ansi-bright-cyan);
-}
-
 .codex-assistant-message :where(pre code.hljs .hljs-title, pre code.hljs .hljs-title.function_, pre code.hljs .hljs-section) {
   color: var(--color-token-terminal-ansi-bright-blue);
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-built_in, pre code.hljs .hljs-type, pre code.hljs .hljs-title.class_, pre code.hljs .hljs-title.class_.inherited__) {
+  color: var(--color-token-terminal-ansi-bright-cyan);
 }
 
 .codex-assistant-message :where(pre code.hljs .hljs-string, pre code.hljs .hljs-doctag, pre code.hljs .hljs-template-string) {
