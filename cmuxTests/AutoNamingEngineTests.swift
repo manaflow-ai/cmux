@@ -262,7 +262,10 @@ import Testing
             "CMUX_WORKSPACE_ID": "ws",
             "CMUX_SURFACE_ID": "sf",
             "CLAUDECODE": "1",
+            "CLAUDE_CODE": "1",
+            "CLAUDE_CODE_CHILD_SESSION": "child",
             "CLAUDE_CODE_ENTRYPOINT": "cli",
+            "CLAUDE_CODE_PARENT_SESSION_ID": "parent",
             "CLAUDE_CODE_SESSION_ID": "abc",
             "NODE_OPTIONS": "--require /tmp/guard.js",
             "CLAUDE_CODE_EXECPATH": "/usr/local/bin/claude",
@@ -277,7 +280,10 @@ import Testing
         #expect(env["CMUX_WORKSPACE_ID"] == nil)
         #expect(env["CMUX_SURFACE_ID"] == nil)
         #expect(env["CLAUDECODE"] == nil)
+        #expect(env["CLAUDE_CODE"] == nil)
+        #expect(env["CLAUDE_CODE_CHILD_SESSION"] == nil)
         #expect(env["CLAUDE_CODE_ENTRYPOINT"] == nil)
+        #expect(env["CLAUDE_CODE_PARENT_SESSION_ID"] == nil)
         #expect(env["CLAUDE_CODE_SESSION_ID"] == nil)
         #expect(env["NODE_OPTIONS"] == nil)
         #expect(env["CLAUDE_CODE_EXECPATH"] == nil)
