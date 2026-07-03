@@ -3,8 +3,7 @@ import AppKit
 extension GhosttyNSView {
     func appendReconnectRemotePaneMenuItem(to menu: NSMenu) {
         guard let workspace = remoteWorkspaceForCurrentSurface(),
-              workspace.remoteConnectionState != .connecting,
-              workspace.remoteConnectionState != .reconnecting,
+              canReconnectRemotePane(in: workspace),
               terminalSurface?.id != nil else { return }
         menu.addItem(.separator())
         let item = menu.addItem(
@@ -27,8 +26,18 @@ extension GhosttyNSView {
         return workspace
     }
 
+    private func canReconnectRemotePane(in workspace: Workspace) -> Bool {
+        switch workspace.remoteConnectionState {
+        case .disconnected, .suspended, .error:
+            return true
+        case .connected, .connecting, .reconnecting:
+            return false
+        }
+    }
+
     @objc private func reconnectRemotePane(_ sender: Any?) {
         guard let workspace = remoteWorkspaceForCurrentSurface(),
+              canReconnectRemotePane(in: workspace),
               let surfaceId = terminalSurface?.id else { return }
         workspace.reconnectRemoteConnection(surfaceId: surfaceId)
     }
