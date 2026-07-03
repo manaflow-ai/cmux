@@ -399,6 +399,12 @@ class TabManager {
     // (the coordinator's `confirming` ref is weak) and attached to the
     // coordinator in init; its preferred host window is wired from `window`.
     let closeConfirmationPresenter = WorkspaceCloseConfirmationPresenter()
+    /// Close-confirmation forwarders matching main's TabManager API (used by the
+    /// Dock split-store). Our refactor moved the state into `workspaceClosing`.
+    var isCloseConfirmationInFlight: Bool { workspaceClosing.isCloseConfirmationInFlight }
+    func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
+        workspaceClosing.confirmClose(title: title, message: message, acceptCmdD: acceptCmdD)
+    }
     // Pure new-workspace insertion planning over the workspaces model
     // (CmuxWorkspaces): the pre-creation snapshot, its live-order remap, and the
     // placement-driven insertion index. The creation orchestration (Workspace
