@@ -64,19 +64,36 @@ extension SurfaceResumeCommandCanonicalizer {
         let resumeIndex = isCodexTeamsCommand ? commandWordIndex + 1 : commandWordIndex
         let sessionIndex = resumeIndex + 1
         guard sessionIndex < words.count,
-              words[resumeIndex].value == "resume",
-              !words[sessionIndex].value.hasPrefix("-") else {
+              words[resumeIndex].value == "resume" else {
             return nil
         }
         let parsedArguments = words[(executableIndex + 1)...].map(\.value)
         guard !codexResumeConfigOverrideAlreadyPresent(in: parsedArguments) else {
             return nil
         }
+        if words[sessionIndex].value == "--remote" {
+            let threadIndex = resumeIndex + 3
+            guard threadIndex < words.count,
+                  !words[threadIndex].value.hasPrefix("-") else {
+                return nil
+            }
+            return insertingOverride(in: command, after: words[threadIndex])
+        }
+        guard !words[sessionIndex].value.hasPrefix("-") else {
+            return nil
+        }
+        return insertingOverride(in: command, after: words[sessionIndex])
+    }
+
+    private static func insertingOverride(
+        in command: String,
+        after word: TerminalStartupWorkingDirectoryPrefix.ShellWordRange
+    ) -> String {
         let overrideText = AgentResumeArgv.codexUpdateCheckSuppressionOverride
             .map(shellQuoted)
             .joined(separator: " ")
         var updated = command
-        updated.insert(contentsOf: " " + overrideText, at: words[sessionIndex].range.upperBound)
+        updated.insert(contentsOf: " " + overrideText, at: word.range.upperBound)
         return updated
     }
 
@@ -132,19 +149,32 @@ extension SurfaceResumeCommandCanonicalizer {
         let resumeIndex = 0
         let sessionIndex = 1
         guard sessionIndex < tailWords.count,
-              tailWords[resumeIndex].value == "resume",
-              !tailWords[sessionIndex].value.hasPrefix("-") else {
+              tailWords[resumeIndex].value == "resume" else {
             return nil
         }
         guard !codexResumeConfigOverrideAlreadyPresent(in: tailWords.map(\.value)) else {
             return nil
+        }
+        let insertionWord: TerminalStartupWorkingDirectoryPrefix.ShellWordRange
+        if tailWords[sessionIndex].value == "--remote" {
+            let threadIndex = resumeIndex + 3
+            guard threadIndex < tailWords.count,
+                  !tailWords[threadIndex].value.hasPrefix("-") else {
+                return nil
+            }
+            insertionWord = tailWords[threadIndex]
+        } else {
+            guard !tailWords[sessionIndex].value.hasPrefix("-") else {
+                return nil
+            }
+            insertionWord = tailWords[sessionIndex]
         }
         let overrideText = AgentResumeArgv.codexUpdateCheckSuppressionOverride
             .map(shellQuoted)
             .joined(separator: " ")
         let insertionOffset = tail.distance(
             from: tail.startIndex,
-            to: tailWords[sessionIndex].range.upperBound
+            to: insertionWord.range.upperBound
         )
         let insertionIndex = command.index(tailStart, offsetBy: insertionOffset)
         var updated = command

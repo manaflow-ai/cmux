@@ -79,14 +79,13 @@ import Testing
         #expect(!startupInput.contains("check_for_update_on_startup"), "\(startupInput)")
     }
 
-    @Test func codexBindingWithRemoteResumeReplaysUnchanged() throws {
+    @Test func codexBindingWithRemoteResumeGainsUpdateCheckSuppressionOnReplay() throws {
         // Codex Teams subagent bindings resume by thread through the app-server
-        // (`resume --remote <url> <thread>`); the option word after `resume` must
-        // not be mistaken for a session id.
-        let command = "'/usr/local/bin/codex' 'resume' '--remote' 'ws://127.0.0.1:4500' 'thread-1'"
+        // (`resume --remote <url> <thread>`); the override belongs after the
+        // thread id, not after the `--remote` option.
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
-            command: command,
+            command: "'/usr/local/bin/codex' 'resume' '--remote' 'ws://127.0.0.1:4500' 'thread-1'",
             checkpointId: "thread-1",
             source: "agent-hook",
             autoResume: true
@@ -94,8 +93,10 @@ import Testing
 
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains(command), "\(startupInput)")
-        #expect(!startupInput.contains("check_for_update_on_startup"), "\(startupInput)")
+        #expect(
+            startupInput.contains("'--remote' 'ws://127.0.0.1:4500' 'thread-1' -c check_for_update_on_startup=false"),
+            "\(startupInput)"
+        )
     }
 
     @Test func legacyCodexBindingWithoutKindGainsUpdateCheckSuppressionOnReplay() throws {
