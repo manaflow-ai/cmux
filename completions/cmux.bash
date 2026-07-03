@@ -47,7 +47,7 @@ _cmux() {
             if [[ $prev == --load-state ]]; then
                 __cmux_compgen "interactive complete" "$cur"; return
             fi
-            __cmux_compgen "addinitscript addscript addstyle back check click console cookies dblclick devtools dialog disable download errors eval fill find focus focus-mode forward frame get get-url goto highlight history hover identify import is keydown keyup navigate open open-split press profiles react-grab reload screenshot scroll scroll-into-view select snapshot state storage tab type uncheck url wait zoom --all --compact --cursor --dx --dy --focus --force --function --interactive --json --load-state --max-depth --out --path --return-to --selector --snapshot-after --surface --text --timeout-ms --url-contains" "$cur"; return ;;
+            __cmux_compgen "addinitscript addscript addstyle back check click console cookies dblclick devtools dialog disable download enable errors eval fill find focus focus-mode forward frame get get-url goto highlight history hover identify import is keydown keyup navigate open open-split press profiles react-grab reload screenshot scroll scroll-into-view select snapshot state status storage tab type uncheck url wait zoom --all --compact --cursor --dx --dy --focus --force --function --interactive --json --load-state --max-depth --out --path --return-to --selector --snapshot-after --surface --text --timeout-ms --url-contains" "$cur"; return ;;
         capture-pane)
             __cmux_compgen "--lines --scrollback --surface --window --workspace" "$cur"; return ;;
         clear-history)

@@ -73,6 +73,35 @@ def top_level_commands(shell: str, text: str) -> set[str]:
     raise ValueError(f"unsupported shell: {shell}")
 
 
+def command_completion_words(shell: str, text: str, command: str) -> set[str]:
+    if shell in {"bash", "zsh"}:
+        match = re.search(
+            rf"^\s*{re.escape(command)}\)\n"
+            r"(?P<body>.*?)(?=^\s*[a-z][a-z0-9-]*\)|^\s*esac)",
+            text,
+            re.MULTILINE | re.DOTALL,
+        )
+        if not match:
+            return set()
+        body = match.group("body")
+        words: set[str] = set()
+        for quoted in re.findall(r'__cmux_compgen "([^"]+)"', body):
+            words.update(quoted.split())
+        for compadd in re.findall(r"^\s*compadd -- ([^\n;]+)", body, re.MULTILINE):
+            words.update(compadd.split())
+        return words
+    if shell == "fish":
+        return set(
+            re.findall(
+                rf"^complete -c cmux -n '__cmux_command_is {re.escape(command)}' "
+                r"-f -a '([^']+)'$",
+                text,
+                re.MULTILINE,
+            )
+        )
+    raise ValueError(f"unsupported shell: {shell}")
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -145,6 +174,18 @@ def main() -> int:
                     f"top-level completions: "
                     f"{', '.join(missing[:10])}{'...' if len(missing) > 10 else ''}"
                 )
+
+    # Regression guard: spaced pipe alternatives in a command suffix, such as
+    # `browser disable | enable | status`, must produce every alternative.
+    browser_subcommands = {"disable", "enable", "status"}
+    for shell, text in regenerated.items():
+        actual = command_completion_words(shell, text, "browser")
+        missing = sorted(browser_subcommands - actual)
+        if missing:
+            failures.append(
+                f"{shell}: browser completions missing spaced-pipe "
+                f"subcommand(s): {', '.join(missing)}"
+            )
 
     # Best-effort: the committed scripts must be shell-syntax valid.
     for shell, filename in SHELLS.items():

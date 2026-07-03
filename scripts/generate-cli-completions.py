@@ -110,6 +110,28 @@ def is_real_enum(tokens: list[str]) -> bool:
     return bool(tokens) and not all(t in METAVARS for t in tokens)
 
 
+def spaced_pipe_alternatives(tokens: list[str]) -> list[str]:
+    """Leading `a | b | c` alternatives from a command help suffix."""
+    if len(tokens) < 3 or tokens[1] != "|":
+        return []
+    alternatives: list[str] = []
+    expect_word = True
+    for token in tokens:
+        if expect_word:
+            if re.fullmatch(r"[a-z][a-z0-9-]*", token) and token not in METAVARS:
+                alternatives.append(token)
+                expect_word = False
+                continue
+            break
+        if token == "|":
+            expect_word = True
+            continue
+        break
+    if len(alternatives) > 1 and not expect_word:
+        return alternatives
+    return []
+
+
 @dataclass
 class CommandSpec:
     name: str
@@ -275,18 +297,23 @@ def parse_help(help_text: str, known: set[str]) -> dict[str, CommandSpec]:
         sub: set[str] = set()
         cmd_portion = line.split("  ")[0].split()
         if len(targets) == 1 and len(cmd_portion) > 1:
-            nxt = cmd_portion[1]
-            pipe_parts = nxt.split("|")
-            if re.fullmatch(r"[a-z][a-z0-9-]*", nxt) and nxt not in METAVARS:
-                sub.add(nxt)
-            elif len(pipe_parts) > 1 and all(
-                re.fullmatch(r"[a-z][a-z0-9-]*", p) for p in pipe_parts
-            ):
-                # Unbracketed pipe group of bare words = literal subcommand
-                # alternatives (e.g. `feed tui|clear`, `browser goto|navigate`,
-                # `browser url|get-url`). Placeholders are conventionally
-                # bracketed, so the METAVARS filter does not apply here.
-                sub.update(pipe_parts)
+            sub_tokens = cmd_portion[1:]
+            alternatives = spaced_pipe_alternatives(sub_tokens)
+            if alternatives:
+                sub.update(alternatives)
+            else:
+                nxt = sub_tokens[0]
+                pipe_parts = nxt.split("|")
+                if re.fullmatch(r"[a-z][a-z0-9-]*", nxt) and nxt not in METAVARS:
+                    sub.add(nxt)
+                elif len(pipe_parts) > 1 and all(
+                    re.fullmatch(r"[a-z][a-z0-9-]*", p) for p in pipe_parts
+                ):
+                    # Unbracketed pipe group of bare words = literal subcommand
+                    # alternatives (e.g. `feed tui|clear`, `browser goto|navigate`,
+                    # `browser url|get-url`). Placeholders are conventionally
+                    # bracketed, so the METAVARS filter does not apply here.
+                    sub.update(pipe_parts)
             for grp in CHOICE_RE.findall(" ".join(cmd_portion[1:2])):
                 choices = grp.split("|")
                 if is_real_enum(choices):

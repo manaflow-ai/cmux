@@ -185,7 +185,7 @@ _cmux() {
             if [[ $prev == --load-state ]]; then
                 compadd -- interactive complete; return
             fi
-            compadd -- addinitscript addscript addstyle back check click console cookies dblclick devtools dialog disable download errors eval fill find focus focus-mode forward frame get get-url goto highlight history hover identify import is keydown keyup navigate open open-split press profiles react-grab reload screenshot scroll scroll-into-view select snapshot state storage tab type uncheck url wait zoom --all --compact --cursor --dx --dy --focus --force --function --interactive --json --load-state --max-depth --out --path --return-to --selector --snapshot-after --surface --text --timeout-ms --url-contains ;;
+            compadd -- addinitscript addscript addstyle back check click console cookies dblclick devtools dialog disable download enable errors eval fill find focus focus-mode forward frame get get-url goto highlight history hover identify import is keydown keyup navigate open open-split press profiles react-grab reload screenshot scroll scroll-into-view select snapshot state status storage tab type uncheck url wait zoom --all --compact --cursor --dx --dy --focus --force --function --interactive --json --load-state --max-depth --out --path --return-to --selector --snapshot-after --surface --text --timeout-ms --url-contains ;;
         capture-pane)
             compadd -- --lines --scrollback --surface --window --workspace ;;
         clear-history)
