@@ -253,7 +253,8 @@ struct AutoNamingEngine: Sendable {
         // (typically English). Without this a late non-English prompt can be
         // pushed out of the excerpt entirely, yielding an English title and
         // contradicting the documented "conversation's language". (#6239)
-        if let lastUserIndex = messages.lastIndex(where: { $0.role == "user" }) {
+        let lastUserIndex = messages.lastIndex(where: { $0.role == "user" })
+        if let lastUserIndex {
             includedIndices.insert(lastUserIndex)
         }
         var seen = Set<String>()
@@ -261,6 +262,10 @@ struct AutoNamingEngine: Sendable {
         for index in includedIndices.sorted() {
             let message = messages[index]
             let excerpt = String(message.text.prefix(config.contextMessageMaxChars))
+            if let lastUserIndex, index == lastUserIndex {
+                parts.append("\(message.role): \(excerpt)")
+                continue
+            }
             let key = "\(message.role):\(excerpt)"
             guard seen.insert(key).inserted else { continue }
             parts.append("\(message.role): \(excerpt)")

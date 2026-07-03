@@ -210,19 +210,26 @@ import Testing
         // the head/tail windows. Otherwise a late non-English prompt is dropped
         // and only English assistant text remains, so the title comes out
         // English (contradicting the documented "conversation's language").
+        let phrase = "ログイン画面のバグを直して"
+        let sharedExcerpt = phrase + String(
+            repeating: "あ",
+            count: max(0, config.contextMessageMaxChars - phrase.count)
+        )
         var messages: [AutoNamingTranscriptMessage] = [
-            AutoNamingTranscriptMessage(role: "user", text: "Set up the project"),
+            AutoNamingTranscriptMessage(role: "user", text: sharedExcerpt + " older request"),
             AutoNamingTranscriptMessage(role: "user", text: "Add the initial config"),
-            AutoNamingTranscriptMessage(role: "user", text: "ログイン画面のバグを直して")
+            AutoNamingTranscriptMessage(role: "user", text: sharedExcerpt + " latest request")
         ]
         // Enough assistant replies that the trailing window no longer reaches
         // the Japanese user turn (its index falls before suffix(contextTail)).
-        for index in 0..<5 {
+        for index in 0..<(config.contextTailMessages + 1) {
             messages.append(AutoNamingTranscriptMessage(role: "assistant", text: "Investigating step \(index)"))
         }
 
         let context = try #require(engine.buildContext(from: messages))
-        #expect(context.contains("ログイン画面のバグを直して"))
+        #expect(context.contains(phrase))
+        let duplicateExcerptCount = context.components(separatedBy: "user: \(sharedExcerpt)").count - 1
+        #expect(duplicateExcerptCount == 2)
     }
 
     // MARK: - Prompt
