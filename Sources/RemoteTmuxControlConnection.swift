@@ -336,7 +336,7 @@ final class RemoteTmuxControlConnection {
         enterReceived = false
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        proc.executableURL = URL(fileURLWithPath: RemoteTmuxSSHBinary.path)
         proc.arguments = host.controlModeArguments(
             sessionName: sessionName,
             createIfMissing: createIfMissing

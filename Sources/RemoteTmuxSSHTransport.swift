@@ -36,7 +36,7 @@ actor RemoteTmuxSSHTransport {
     ///   - controlPersistSeconds: idle lifetime of the shared master.
     init(
         host: RemoteTmuxHost,
-        sshExecutablePath: String = "/usr/bin/ssh",
+        sshExecutablePath: String = RemoteTmuxSSHBinary.path,
         controlPersistSeconds: Int = 180
     ) {
         self.host = host
@@ -278,7 +278,7 @@ actor RemoteTmuxSSHTransport {
     /// the mirror window. Best-effort: a missing/dead socket just fails fast.
     nonisolated static func spawnControlMasterExit(
         host: RemoteTmuxHost,
-        sshExecutablePath: String = "/usr/bin/ssh"
+        sshExecutablePath: String = RemoteTmuxSSHBinary.path
     ) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: sshExecutablePath)
