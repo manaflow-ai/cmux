@@ -28,8 +28,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// returns to the primary screen) instead of being painted onto primary.
     public var activeScreen: Screen
     /// Non-default DEC/ANSI modes to restore on a full snapshot (mouse
-    /// tracking, bracketed paste, application cursor keys, origin, autowrap,
-    /// etc.). Empty for delta frames.
+    /// tracking, bracketed paste, application cursor keys, autowrap, etc.).
+    /// Delta frames keep only mode state needed to restore after replay-time
+    /// coordinate normalization.
     public var modes: [ModeSetting]
     /// Dynamic default foreground/background/cursor colors (OSC 10/11/12),
     /// `nil` when the terminal still uses its configured defaults.
@@ -196,11 +197,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             guard includedRows.contains(row) else { return nil }
             let trimmed = trimmingTrailingGridBlanks(line)
             guard !trimmed.isEmpty else { return nil }
+            let clipped = trimmed.clippedToRenderGridColumns(columns)
+            guard !clipped.isEmpty else { return nil }
             return RowSpan(
                 row: row,
                 column: 0,
                 styleID: 0,
-                text: clippedToColumns(trimmed, columns: columns)
+                text: clipped
             )
         }
         return try MobileTerminalRenderGridFrame(
@@ -286,10 +289,10 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             clearedRows: full ? [] : Array(includedRows.sorted()),
             styles: styles,
             rowSpans: rowSpans.filter { includedRows.contains($0.row) },
-            // Full-state restore data only applies to a full snapshot; a delta
-            // frame just clears and repaints the changed viewport rows.
+            // Deltas only carry autowrap; DECOM needs a full snapshot because
+            // restoring it homes the cursor and requires scroll-region state.
             activeScreen: activeScreen,
-            modes: full ? modes : [],
+            modes: full ? modes : modes.filter(\.isDECAutowrapMode),
             terminalForeground: full ? terminalForeground : nil,
             terminalBackground: full ? terminalBackground : nil,
             terminalCursorColor: full ? terminalCursorColor : nil,
@@ -343,8 +346,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// terminal, restores dynamic default colors, repaints scrollback and the
     /// visible viewport as a natural scrolling flow, restores the active screen
     /// (`?1049h` for the alternate screen), reapplies non-default DEC/ANSI
-    /// modes, and finally restores the cursor. A **delta** frame clears and
-    /// repaints only the changed viewport rows.
+    /// modes, and finally restores the cursor. A **delta** frame normalizes
+    /// coordinate-affecting modes, then clears and repaints only the changed
+    /// viewport rows using absolute producer row indexes.
     ///
     /// Forwards to ``MobileTerminalRenderGridReplay/patchBytes()``; the VT
     /// synthesizer lives there so this DTO stays a pure value.
@@ -382,11 +386,6 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return String(String.UnicodeScalarView(scalars[..<end]))
     }
 
-    private static func clippedToColumns(_ text: String, columns: Int) -> String {
-        guard text.count > columns else { return text }
-        return String(text.prefix(columns))
-    }
-
     enum CodingKeys: String, CodingKey {
         case format
         case surfaceID = "surface_id"
@@ -417,6 +416,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
 
     /// One DEC private or ANSI mode to restore on a full snapshot.
     public struct ModeSetting: Codable, Equatable, Sendable {
+        static let decOriginModeCode = 6
+        static let decAutowrapModeCode = 7
+        static let decAlternateScreenCode = 47
+        static let decAlternateScreenSaveCursorCode = 1047
+        static let decSaveRestoreCursorCode = 1048
+        static let decAlternateScreenSaveRestoreCursorCode = 1049
+
         /// The numeric mode code (e.g. `2004` for bracketed paste, `1` for
         /// application cursor keys).
         public var code: Int
@@ -431,6 +437,12 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             self.ansi = ansi
             self.on = on
         }
+
+        /// Whether this DEC private mode is autowrap (`CSI ? 7 h/l`).
+        public var isDECAutowrapMode: Bool { !ansi && code == Self.decAutowrapModeCode }
+
+        /// Whether this DEC private mode is origin mode (`CSI ? 6 h/l`).
+        public var isDECOriginMode: Bool { !ansi && code == Self.decOriginModeCode }
 
         enum CodingKeys: String, CodingKey {
             case code
@@ -551,10 +563,6 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             self.styleID = styleID
             self.text = text
             self.cellWidth = cellWidth
-        }
-
-        fileprivate var gridCellWidth: Int {
-            cellWidth ?? text.count
         }
 
         enum CodingKeys: String, CodingKey {
