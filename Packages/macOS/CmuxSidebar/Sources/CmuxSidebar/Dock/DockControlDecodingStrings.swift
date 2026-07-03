@@ -14,11 +14,22 @@ public struct DockControlDecodingStrings: Sendable {
     public let blankControlID: String
     /// Message thrown when a control's `command` normalizes to an empty string.
     public let blankControlCommand: String
+    /// Message thrown when a browser control's `url` normalizes to an empty string.
+    public let blankControlURL: String
+    /// Message thrown when a control's `type` is neither `terminal` nor `browser`.
+    public let unknownControlType: String
 
     /// Creates a localized-strings bundle for Dock control decoding.
-    public init(blankControlID: String, blankControlCommand: String) {
+    public init(
+        blankControlID: String,
+        blankControlCommand: String,
+        blankControlURL: String,
+        unknownControlType: String
+    ) {
         self.blankControlID = blankControlID
         self.blankControlCommand = blankControlCommand
+        self.blankControlURL = blankControlURL
+        self.unknownControlType = unknownControlType
     }
 }
 

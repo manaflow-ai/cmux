@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSidebar
 import Bonsplit
 import CmuxCommandPalette
 

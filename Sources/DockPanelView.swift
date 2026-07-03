@@ -33,7 +33,7 @@ final class DockControlRuntime: Identifiable {
         self.panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
     }
 
-    fileprivate var snapshot: DockControlSnapshot { .init(id: id, title: definition.title, command: definition.command, requestedHeight: definition.height) }
+    fileprivate var snapshot: DockControlSnapshot { .init(id: id, title: definition.title, command: definition.command ?? definition.url ?? "", requestedHeight: definition.height) }
 
     fileprivate var terminalAttachment: DockTerminalAttachment { .init(paneId: paneId, panelId: panel.id, terminalSurface: panel.surface, searchState: panel.searchState, reattachToken: panel.viewReattachToken) }
 
@@ -79,12 +79,24 @@ final class DockControlRuntime: Identifiable {
         environment["CMUX_DOCK_CONTROL_TITLE"] = definition.title
 
         let workingDirectory = DockStartupScript.resolvedWorkingDirectory(definition.cwd, baseDirectory: baseDirectory)
+        // The list-based Dock renders terminal controls only. Browser Dock
+        // controls (`kind == .browser`, carrying `url` instead of `command`)
+        // are hosted by the Bonsplit `DockSplitStore`; here they degrade to an
+        // empty login shell so a browser entry in a shared `dock.json` never
+        // crashes this parallel right-sidebar surface.
+        let startupCommand: String
+        switch definition.kind {
+        case .terminal:
+            startupCommand = definition.command ?? ""
+        case .browser:
+            startupCommand = ""
+        }
         return TerminalPanel(
             workspaceId: workspaceId,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             workingDirectory: workingDirectory,
             initialCommand: DockStartupScript(
-                command: definition.command,
+                command: startupCommand,
                 workingDirectory: workingDirectory
             ).materializedPath,
             initialEnvironmentOverrides: environment,
@@ -117,7 +129,9 @@ final class DockControlsStore {
     private let configResolver = DockConfigResolver(
         decodingStrings: DockControlDecodingStrings(
             blankControlID: String(localized: "dock.error.blankControlID", defaultValue: "Dock control id must not be blank."),
-            blankControlCommand: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
+            blankControlCommand: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank."),
+            blankControlURL: String(localized: "dock.error.blankControlURL", defaultValue: "Dock browser control url must not be blank."),
+            unknownControlType: String(localized: "dock.error.unknownControlType", defaultValue: "Dock control type must be terminal or browser.")
         ),
         duplicateControlMessage: String(localized: "dock.error.duplicateControl", defaultValue: "Dock control ids must be unique."),
         sourceTitle: String(localized: "dock.source.title", defaultValue: "Dock"),
