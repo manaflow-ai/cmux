@@ -72,6 +72,8 @@ export default async function RemoteTmuxPage({
       <p>{t("attachIntro")}</p>
       <p>{t("attachCli")}</p>
       <CodeBlock lang="bash">{`cmux ssh-tmux dev@example.com\ncmux ssh-tmux my-ssh-alias --port 2222 --identity ~/.ssh/id_ed25519`}</CodeBlock>
+      <p>{t("attachNewWindow")}</p>
+      <CodeBlock lang="bash">{`cmux ssh-tmux dev@example.com --new-window`}</CodeBlock>
       <p>{t("attachSockets")}</p>
 
       <DocsHeading level={3} id="permission-denied">{t("troubleshootTitle")}</DocsHeading>
@@ -106,14 +108,14 @@ export default async function RemoteTmuxPage({
         <tbody>
           <tr><td><code>remote.tmux.sessions</code></td><td><code>host</code>, <code>port?</code>, <code>identity_file?</code></td><td>{t("methodSessions")}</td></tr>
           <tr><td><code>remote.tmux.attach</code></td><td><code>host</code>, <code>session</code>, <code>create?</code></td><td>{t("methodAttach")}</td></tr>
-          <tr><td><code>remote.tmux.mirror</code></td><td><code>host</code></td><td>{t("methodMirror")}</td></tr>
+          <tr><td><code>remote.tmux.attach_here</code></td><td><code>host</code>, <code>port?</code>, <code>identity_file?</code></td><td>{t("methodAttachHere")}</td></tr>
           <tr><td><code>remote.tmux.window</code></td><td><code>host</code>, <code>port?</code>, <code>identity_file?</code></td><td>{t("methodWindow")}</td></tr>
           <tr><td><code>remote.tmux.detach</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodDetach")}</td></tr>
           <tr><td><code>remote.tmux.state</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodState")}</td></tr>
         </tbody>
       </table>
       <p>{t("socketSafetyDesc")}</p>
-      <CodeBlock lang="json">{`{ "method": "remote.tmux.mirror", "params": { "host": "dev.example.com" } }`}</CodeBlock>
+      <CodeBlock lang="json">{`{ "method": "remote.tmux.attach_here", "params": { "host": "dev.example.com" } }`}</CodeBlock>
 
       <DocsHeading level={2} id="limitations">{t("limitationsTitle")}</DocsHeading>
       <ul>
