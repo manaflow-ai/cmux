@@ -2627,19 +2627,19 @@ class GhosttyApp {
     }
 
     @MainActor
-    private static func deliverSurfaceDesktopNotificationIfNeeded(
+    static func deliverSurfaceDesktopNotificationIfNeeded(
         tabId: UUID,
         surfaceId: UUID?,
         actionTitle: String,
         actionBody: String
-    ) {
-        guard let app = AppDelegate.shared else { return }
+    ) -> Bool {
+        guard let app = AppDelegate.shared else { return false }
         let owningManager = app.tabManagerFor(tabId: tabId) ?? app.tabManagerForWindowDockOwner(tabId) ?? app.tabManager
         let workspace = owningManager?.tabs.first { $0.id == tabId }
         let liveSurface = surfaceId.map { workspace?.panels[$0] != nil || workspace?.containsDockPanel($0) == true || app.windowDockContainingPanel($0)?.workspaceId == tabId || app.remoteTmuxController.isMirrorPaneSurface($0) } ?? (workspace != nil)
-        guard liveSurface else { return }
+        guard liveSurface else { return false }
         if workspace?.suppressesRawTerminalNotification(panelId: surfaceId) == true {
-            return
+            return true
         }
         let tabTitle = owningManager?.titleForTab(tabId) ?? fallbackDesktopNotificationTitle()
         let command = actionTitle.isEmpty ? tabTitle : actionTitle
@@ -2650,6 +2650,7 @@ class GhosttyApp {
             subtitle: "",
             body: actionBody
         )
+        return true
     }
 
     private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
@@ -3070,7 +3071,7 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
-            guard let tabId = surfaceView.tabId else { return true }
+            guard let tabId = surfaceView.tabId else { return false }
             let surfaceId = surfaceView.terminalSurface?.id
             let actionTitle = action.action.desktop_notification.title
                 .flatMap { String(cString: $0) } ?? ""
@@ -3083,7 +3084,6 @@ class GhosttyApp {
                     actionTitle: actionTitle,
                     actionBody: actionBody
                 )
-                return true
             }
         case GHOSTTY_ACTION_COLOR_CHANGE:
             let change = action.action.color_change

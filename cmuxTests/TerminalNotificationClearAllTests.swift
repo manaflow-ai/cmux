@@ -337,6 +337,30 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
     }
 
+    func testSurfaceDesktopNotificationFallsThroughWhenWorkspaceIsUnresolved() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+        }
+
+        XCTAssertFalse(
+            GhosttyApp.deliverSurfaceDesktopNotificationIfNeeded(
+                tabId: UUID(),
+                surfaceId: UUID(),
+                actionTitle: "Build done",
+                actionBody: "No owner yet"
+            )
+        )
+        XCTAssertTrue(store.notifications.isEmpty)
+    }
+
     func testClosingVisualOnlyRestoredPanelUnreadClearsDismissibleActivity() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let store = TerminalNotificationStore.shared
