@@ -1002,6 +1002,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         registeredMainWindows.flatMap { $0.tabManager.tabs }
     }
 
+    /// In-flight off-main-thread diff-baseline lookup tasks, keyed by task id
+    /// (#6497). Retained so a superseding request can cancel a stale lookup.
+    var openDiffViewerAgentContextTasks: [String: Task<Void, Never>] = [:]
+    /// Pending diff-viewer requests awaiting their baseline-lookup result (#6497),
+    /// keyed by task id.
+    var openDiffViewerAgentContextPendingRequests: [String: OpenDiffViewerAgentContextRequest] = [:]
+
+    /// Spawns the bundled `cmux diff` CLI for the given workspace/surface,
+    /// delegating to the composition-root ``diffViewerLaunchService`` (the
+    /// process-lifecycle registry lives there, not on this delegate). Supports
+    /// the last-turn agent-diff source, session id, and focus control (#6497).
+    @discardableResult
+    func launchDiffViewerProcess(
+        cliURL: URL,
+        socketPath: String,
+        cwd: String,
+        workspaceId: UUID,
+        surfaceId: UUID?,
+        useLastTurnSource: Bool,
+        sessionId: String?,
+        focus: Bool = true
+    ) -> Bool {
+        diffViewerLaunchService.launch(
+            cliURL: cliURL,
+            socketPath: socketPath,
+            cwd: cwd,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            useLastTurnSource: useLastTurnSource,
+            sessionId: sessionId,
+            focus: focus
+        )
+    }
+
     /// The resolved registered window owning `tabManager`, via the coordinator's
     /// reverse index. Replaces the recurring `registeredMainWindow(forManager:)`.
     func registeredMainWindow(forManager tabManager: TabManager) -> RegisteredMainWindow? {

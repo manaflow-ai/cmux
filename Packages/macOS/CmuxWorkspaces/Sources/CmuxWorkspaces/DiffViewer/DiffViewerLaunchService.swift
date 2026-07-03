@@ -58,20 +58,26 @@ public final class DiffViewerLaunchService: DiffViewerLaunching {
         socketPath: String,
         cwd: String,
         workspaceId: UUID,
-        surfaceId: UUID?
+        surfaceId: UUID?,
+        useLastTurnSource: Bool,
+        sessionId: String?,
+        focus: Bool
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
         var arguments = [
             "--socket", socketPath,
             "diff",
-            "--unstaged",
+            useLastTurnSource ? "--last-turn" : "--unstaged",
             "--cwd", cwd,
             "--workspace", workspaceId.uuidString,
-            "--focus", "true",
+            "--focus", focus ? "true" : "false",
         ]
         if let surfaceId {
             arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
+        }
+        if useLastTurnSource, let sessionId {
+            arguments.append(contentsOf: ["--session", sessionId])
         }
         process.arguments = arguments
         process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)

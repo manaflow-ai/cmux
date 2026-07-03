@@ -21,6 +21,11 @@ public protocol DiffViewerLaunching: Sendable {
     ///   - workspaceId: Workspace the diff viewer targets (`--workspace`).
     ///   - surfaceId: Optional focused surface (`--surface`) the viewer opens
     ///     beside.
+    ///   - useLastTurnSource: When `true`, pass `--last-turn` (the latest agent
+    ///     turn's diff) instead of `--unstaged`.
+    ///   - sessionId: Optional agent session id, passed as `--session` only when
+    ///     `useLastTurnSource` is `true`.
+    ///   - focus: Whether the viewer should steal focus (`--focus`).
     /// - Returns: `true` when the process launched; `false` when `Process.run`
     ///   threw, in which case the caller beeps.
     @MainActor
@@ -30,6 +35,34 @@ public protocol DiffViewerLaunching: Sendable {
         socketPath: String,
         cwd: String,
         workspaceId: UUID,
-        surfaceId: UUID?
+        surfaceId: UUID?,
+        useLastTurnSource: Bool,
+        sessionId: String?,
+        focus: Bool
     ) -> Bool
+}
+
+public extension DiffViewerLaunching {
+    /// Convenience for the common `--unstaged`, focused launch (no last-turn
+    /// source, no session), matching the pre-#6497 5-parameter call sites.
+    @MainActor
+    @discardableResult
+    func launch(
+        cliURL: URL,
+        socketPath: String,
+        cwd: String,
+        workspaceId: UUID,
+        surfaceId: UUID?
+    ) -> Bool {
+        launch(
+            cliURL: cliURL,
+            socketPath: socketPath,
+            cwd: cwd,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            useLastTurnSource: false,
+            sessionId: nil,
+            focus: true
+        )
+    }
 }
