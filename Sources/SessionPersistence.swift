@@ -179,7 +179,14 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
+    /// Custom right-sidebar tab persisted state (#6430). Optional with a `nil`
+    /// default so snapshots persisted before custom sidebars decode unchanged.
+    var customSidebar: SessionCustomSidebarPanelSnapshot? = nil
 }
+
+/// Persisted state for a custom right-sidebar tab panel (#6430): just its name,
+/// which resolves back to the on-disk custom-sidebar definition on restore.
+struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
 
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 
