@@ -48,11 +48,19 @@ extension MobileShellComposite {
         // converged grid; other callers restart the paced recovery.
         guard renderGridFrameFitsReportedViewport(frame, surfaceID: surfaceID) else {
             if bypassReplayBarrier, terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
-                // Withholding the replay response is itself dropped output:
-                // record it so the caller's not_delivered cleanup keeps the
-                // barrier alive (preserveDroppedOutput) for the scheduled
-                // retry, instead of releasing still-diverged live output.
-                recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
+                // Withholding the replay response is itself dropped output;
+                // the hold records it so the caller's not_delivered cleanup
+                // keeps the barrier alive (preserveDroppedOutput), and — for a
+                // barrier that did not originate from an oversized live frame
+                // (e.g. terminalOutputDidReset on an idle surface) — starts
+                // the recovery bookkeeping, most importantly the paced
+                // viewport re-assert that drives the Mac to re-cap.
+                holdTerminalOutputForOversizedGrid(
+                    columns: frame.columns,
+                    rows: frame.rows,
+                    surfaceID: surfaceID,
+                    source: "replay_response"
+                )
                 retryTerminalReplayForOversizedGrid(surfaceID: surfaceID)
             } else {
                 holdTerminalOutputForOversizedGrid(

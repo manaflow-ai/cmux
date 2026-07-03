@@ -215,19 +215,35 @@ extension MobileShellComposite {
         // completion bookkeeping lands before the retry is armed.
         Task { @MainActor [weak self] in
             guard let self,
-                  let replayBarrierToken = self.terminalReplayBarrierTokensBySurfaceID[surfaceID],
-                  let retryToken = self.prepareTerminalReplayFailureRetry(
-                      surfaceID: surfaceID,
-                      replayBarrierToken: replayBarrierToken
-                  ) else {
+                  let replayBarrierToken = self.terminalReplayBarrierTokensBySurfaceID[surfaceID] else {
                 return
             }
-            self.requestTerminalReplay(
+            if let retryToken = self.prepareTerminalReplayFailureRetry(
                 surfaceID: surfaceID,
-                replayBarrierToken: retryToken,
-                coveredReplayBarrierDroppedOutputCount:
-                    self.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
-            )
+                replayBarrierToken: replayBarrierToken
+            ) {
+                self.requestTerminalReplay(
+                    surfaceID: surfaceID,
+                    replayBarrierToken: retryToken,
+                    coveredReplayBarrierDroppedOutputCount:
+                        self.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
+                )
+                return
+            }
+            // Retry budget exhausted on diverged responses. If a fitting frame
+            // was observed during this recovery, the producer has converged
+            // and — on an idle terminal — will never emit another frame to
+            // re-arm through `noteFittingRenderGridFrame`. Restart the barrier
+            // once (fresh budget) so the converged grid can repaint.
+            guard self.oversizedRecoveryObservedFittingFrameSurfaceIDs.remove(surfaceID) != nil,
+                  self.terminalByteContinuationsBySurfaceID[surfaceID] != nil,
+                  !self.terminalReplaySurfaceIDsInFlight.contains(surfaceID) else {
+                return
+            }
+            MobileDebugLog.anchormux("terminal.output.oversized_grid_converged_rearm surface=\(surfaceID)")
+            let restartedToken = self.beginTerminalReplayBarrier(surfaceID: surfaceID)
+            self.recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
+            self.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: restartedToken)
         }
     }
 
@@ -257,15 +273,22 @@ extension MobileShellComposite {
             // No barrier holds the stream: the recovery episode is over. Drop
             // the pacing marker so a later divergence starts fresh.
             oversizedTerminalGridRecoveryLastAttemptsBySurfaceID.removeValue(forKey: surfaceID)
+            oversizedRecoveryObservedFittingFrameSurfaceIDs.remove(surfaceID)
             return
         }
         guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
               terminalReplayFailureRetryExhausted(surfaceID: surfaceID) else {
             // A barrier replay is still in flight or has budget left; it will
             // repaint or exhaust on its own. Keep the marker so a later
-            // fitting frame can still re-arm after exhaustion.
+            // fitting frame can still re-arm after exhaustion — and remember
+            // that convergence was observed: an idle terminal emits exactly
+            // one dimension-change frame, so if the in-flight chain exhausts
+            // on diverged responses this signal re-arms the barrier without
+            // needing another frame.
+            oversizedRecoveryObservedFittingFrameSurfaceIDs.insert(surfaceID)
             return
         }
+        oversizedRecoveryObservedFittingFrameSurfaceIDs.remove(surfaceID)
         MobileDebugLog.anchormux("terminal.output.oversized_grid_converged_rearm surface=\(surfaceID)")
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         // The fitting frame itself is dropped by the restarted barrier below;
