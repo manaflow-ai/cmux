@@ -5819,7 +5819,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         command: String,
         workingDirectory: String? = nil,
         tmuxStartCommand: String? = nil,
-        focus: Bool? = nil
+        focus: Bool? = nil,
+        allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanel? {
         guard let oldPanel = terminalPanel(for: panelId),
               let tabId = surfaceIdFromPanelId(panelId),
@@ -5893,7 +5894,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement
         )
-        configureNewTerminalPanel(replacementPanel)
+        configureNewTerminalPanel(replacementPanel, allowTextBoxFocusDefault: allowTextBoxFocusDefault)
         panels[panelId] = replacementPanel
         panelTitles[panelId] = replacementPanel.displayTitle
         if let customTitle {
