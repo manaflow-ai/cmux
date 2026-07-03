@@ -382,7 +382,7 @@ final class RemoteTmuxSessionMirror {
            activePane(inWindow: windowId) != paneId {
             return
         }
-        _ = workspace.updatePanelDirectory(panelId: panelId, directory: trimmed)
+        _ = workspace.updateRemotePanelDirectory(panelId: panelId, directory: trimmed)
     }
 
     /// Re-projects the newly-active pane's cached directory onto its multi-pane
@@ -393,7 +393,7 @@ final class RemoteTmuxSessionMirror {
               windowMirrorByWindowId[windowId] != nil,
               let panelId = panelIdByWindow[windowId],
               let path = cwdByPane[paneId] else { return }
-        _ = workspace.updatePanelDirectory(panelId: panelId, directory: path)
+        _ = workspace.updateRemotePanelDirectory(panelId: panelId, directory: path)
     }
 
     /// The panel id of the tab that renders `paneId`: a single-pane window's

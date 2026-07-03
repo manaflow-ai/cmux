@@ -6734,7 +6734,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
 
-        workspace.updatePanelDirectory(panelId: firstPanelId, directory: liveDirectory)
+        workspace.updateRemotePanelDirectory(panelId: firstPanelId, directory: liveDirectory)
 
         let orderedPanelIds = workspace.sidebarOrderedPanelIds()
         XCTAssertEqual(orderedPanelIds, [firstPanelId, requestedPanel.id])

@@ -186,7 +186,11 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
         #expect(workspace.presentedCurrentDirectory == nil)
 
-        workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
+        #expect(workspace.presentedCurrentDirectory == nil)
+        #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
+
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
 
         #expect(workspace.presentedCurrentDirectory == remoteDirectory)
         #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [remoteDirectory])
@@ -232,7 +236,12 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(preReportSnapshot.currentDirectory == "")
         #expect(preReportSnapshot.focusedPanel == nil)
 
-        workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
+        let localRereportSnapshot = try #require(TerminalController.shared.controlSidebarStateSnapshot(tabArg: nil))
+        #expect(localRereportSnapshot.currentDirectory == "")
+        #expect(localRereportSnapshot.focusedPanel == nil)
+
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
 
         let postReportSnapshot = try #require(TerminalController.shared.controlSidebarStateSnapshot(tabArg: nil))
         #expect(postReportSnapshot.currentDirectory == remoteDirectory)

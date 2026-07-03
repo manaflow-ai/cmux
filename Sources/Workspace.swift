@@ -4583,7 +4583,17 @@ final class Workspace: Identifiable, ObservableObject {
 
     private enum PanelDirectoryUpdateSource {
         case liveReport
+        case remoteReport
         case restoredSnapshotMetadata
+
+        var isLiveReport: Bool {
+            switch self {
+            case .liveReport, .remoteReport:
+                return true
+            case .restoredSnapshotMetadata:
+                return false
+            }
+        }
     }
 
     private static func unmountedVolumeRoot(
@@ -4625,6 +4635,12 @@ final class Workspace: Identifiable, ObservableObject {
         updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel, source: .liveReport)
     }
 
+    /// Records a directory report that came from the remote shell/PTY control path.
+    @discardableResult
+    func updateRemotePanelDirectory(panelId: UUID, directory: String, displayLabel: String? = nil) -> Bool {
+        updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel, source: .remoteReport)
+    }
+
     @discardableResult
     private func updatePanelDirectory(
         panelId: UUID,
@@ -4635,13 +4651,13 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         let previousPresentedDirectory = presentedCurrentDirectory
-        if source == .liveReport,
+        if source.isLiveReport,
            shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
             return false
         }
         let directoryChanged = panelDirectories[panelId] != trimmed
         if directoryChanged { panelDirectories[panelId] = trimmed }
-        if source == .liveReport, isRemoteTerminalSurface(panelId) {
+        if source == .remoteReport, isRemoteTerminalSurface(panelId) {
             remoteDirectoryReportPanelIds.insert(panelId)
         }
         let trimmedDisplayLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -6384,7 +6400,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         pendingRemoteSurfacePWD = nil
         pendingRemoteSurfacePWDSurfaceId = nil
-        return updatePanelDirectory(panelId: panelId, directory: path)
+        return updateRemotePanelDirectory(panelId: panelId, directory: path)
     }
 
     @MainActor
