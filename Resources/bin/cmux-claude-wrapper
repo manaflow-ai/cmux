@@ -499,7 +499,7 @@ cmux_claude_seed_resume_session_for_current_cwd() {
         done < <(cmux_claude_project_dir_names_for_cwd "$cwd")
     done < <(cmux_claude_current_cwd_candidates)
 
-    [[ "$seeded" == true && "$copy_failed" != true ]]
+    [[ "$seeded" == true ]]
 }
 
 claude_option_consumes_value() {

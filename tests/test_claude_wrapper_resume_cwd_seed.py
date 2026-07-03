@@ -159,9 +159,13 @@ def test_copy_failure_in_current_root_allows_fallback_root(failures: list[str]) 
             origin_project.mkdir(parents=True, exist_ok=True)
             (origin_project / f"{sid}.jsonl").write_text(content, encoding="utf-8")
 
-        blocked_project_dir_name = str(target_cwd).replace("/", "-")
-        blocked_target_project = inherited_config / "projects" / blocked_project_dir_name
-        blocked_target_project.write_text("not a directory\n", encoding="utf-8")
+        blocked_target_projects = [
+            inherited_config / "projects" / project_dir_name
+            for project_dir_name in cwd_project_dir_names(target_cwd)
+        ]
+        for blocked_target_project in blocked_target_projects:
+            blocked_target_project.parent.mkdir(parents=True, exist_ok=True)
+            blocked_target_project.write_text("not a directory\n", encoding="utf-8")
 
         real_seen_transcript = root / "real-seen-transcript.log"
         write_executable(
@@ -217,13 +221,12 @@ cat "$transcript" > {str(real_seen_transcript)!r}
             failures.append(
                 f"fallback wrapper exited {result.returncode}: stdout={result.stdout!r} stderr={result.stderr!r}"
             )
-        inherited_seeded_targets = [
+        inherited_targets = [
             inherited_config / "projects" / project_dir_name / f"{sid}.jsonl"
             for project_dir_name in cwd_project_dir_names(target_cwd)
-            if project_dir_name != blocked_project_dir_name
         ]
-        if not any(target.exists() for target in inherited_seeded_targets):
-            failures.append("current root did not partially seed an unblocked dotted cwd variant")
+        if any(target.exists() for target in inherited_targets):
+            failures.append("current root target transcript was seeded despite blocked project dirs")
         if not any(target.exists() for target in fallback_targets):
             failures.append("fallback root target transcript was not seeded")
         for fallback_target in fallback_targets:
@@ -233,6 +236,110 @@ cat "$transcript" > {str(real_seen_transcript)!r}
             failures.append("real claude did not observe fallback root transcript")
         elif real_seen_transcript.read_text(encoding="utf-8") != "fallback transcript\n":
             failures.append("real claude did not run from the fallback config root")
+
+
+def test_partial_compatibility_copy_failure_keeps_current_root(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-resume-cwd-partial-") as td:
+        root = Path(td)
+        wrapper_bin = root / "wrapper-bin"
+        real_bin = root / "real-bin"
+        inherited_config = root / "claude-config"
+        fallback_config = root / ".claude"
+        origin_cwd = root / "repo-main"
+        target_cwd = root / "worktrees" / "feature.v2"
+        sid = "39c1eb84-aaaa-bbbb-cccc-dddddddddddd"
+        for directory in (wrapper_bin, real_bin, origin_cwd, target_cwd):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        wrapper = wrapper_bin / "cmux-claude-wrapper"
+        shutil.copy2(WRAPPER, wrapper)
+        wrapper.chmod(0o755)
+
+        for config_root, content in (
+            (inherited_config, "inherited transcript\n"),
+            (fallback_config, "fallback transcript\n"),
+        ):
+            origin_project = config_root / "projects" / claude_project_dir_name(origin_cwd)
+            origin_project.mkdir(parents=True, exist_ok=True)
+            (origin_project / f"{sid}.jsonl").write_text(content, encoding="utf-8")
+
+        blocked_project_dir_name = str(target_cwd).replace("/", "-")
+        blocked_target_project = inherited_config / "projects" / blocked_project_dir_name
+        blocked_target_project.parent.mkdir(parents=True, exist_ok=True)
+        blocked_target_project.write_text("not a directory\n", encoding="utf-8")
+
+        real_seen_transcript = root / "real-seen-transcript.log"
+        write_executable(
+            real_bin / "claude",
+            f"""#!/usr/bin/env bash
+set -euo pipefail
+sid=""
+while (($#)); do
+  case "$1" in
+    --resume|-r)
+      shift
+      sid="${{1:-}}"
+      ;;
+    --resume=*)
+      sid="${{1#--resume=}}"
+      ;;
+  esac
+  shift || true
+done
+project="$(printf '%s' "$PWD" | sed 's#[/.]#-#g')"
+transcript="${{CLAUDE_CONFIG_DIR}}/projects/${{project}}/${{sid}}.jsonl"
+if [[ ! -f "$transcript" ]]; then
+  echo "No conversation found with session ID: $sid" >&2
+  exit 42
+fi
+cat "$transcript" > {str(real_seen_transcript)!r}
+""",
+        )
+
+        env = dict(os.environ)
+        env["PATH"] = f"{wrapper_bin}:{real_bin}:/usr/bin:/bin"
+        env["HOME"] = str(root)
+        env["CLAUDE_CONFIG_DIR"] = str(inherited_config)
+        env["CMUX_SURFACE_ID"] = "surface:test"
+        env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
+        env.pop("CMUX_SOCKET_PATH", None)
+
+        result = subprocess.run(
+            [str(wrapper), "--resume", sid, "--fork-session"],
+            cwd=target_cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        inherited_target = (
+            inherited_config
+            / "projects"
+            / claude_project_dir_name(target_cwd)
+            / f"{sid}.jsonl"
+        )
+        fallback_targets = [
+            fallback_config / "projects" / project_dir_name / f"{sid}.jsonl"
+            for project_dir_name in cwd_project_dir_names(target_cwd)
+        ]
+        if result.returncode != 0:
+            failures.append(
+                f"partial wrapper exited {result.returncode}: stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
+        if not inherited_target.exists():
+            failures.append("current root usable target transcript was not seeded")
+        elif inherited_target.read_text(encoding="utf-8") != "inherited transcript\n":
+            failures.append("current root target transcript did not preserve inherited content")
+        if any(target.exists() for target in fallback_targets):
+            failures.append("fallback root was used despite a usable current root transcript")
+        if not blocked_target_project.is_file():
+            failures.append("blocked compatibility target was unexpectedly replaced")
+        if not real_seen_transcript.exists():
+            failures.append("real claude did not observe current root transcript")
+        elif real_seen_transcript.read_text(encoding="utf-8") != "inherited transcript\n":
+            failures.append("real claude did not stay on the current config root")
 
 
 def test_existing_target_transcript_retries_missing_sidecar(failures: list[str]) -> None:
@@ -333,6 +440,7 @@ def main() -> int:
     failures: list[str] = []
     test_resume_from_different_cwd_seeds_transcript_copy(failures)
     test_copy_failure_in_current_root_allows_fallback_root(failures)
+    test_partial_compatibility_copy_failure_keeps_current_root(failures)
     test_existing_target_transcript_retries_missing_sidecar(failures)
     if failures:
         print("FAIL: claude wrapper resume cwd seeding checks failed")
