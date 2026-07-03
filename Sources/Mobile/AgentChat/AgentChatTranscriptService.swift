@@ -435,7 +435,8 @@ final class AgentChatTranscriptService {
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
         let endedRecordIsListable: Bool
         if record.state == .ended {
-            endedRecordIsListable = endedListability.update(record, previous: previous, resolver: resolver)
+            endedRecordIsListable = record.agentKind == .codex
+                || endedListability.update(record, previous: previous, resolver: resolver)
         } else {
             endedListability.remove(sessionID: record.sessionID)
             endedRecordIsListable = true

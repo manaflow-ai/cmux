@@ -14,13 +14,14 @@ struct AgentChatSessionRegistryLifecycleTests {
         let home = try temporaryHomeDirectory()
         let workspaceID = UUID().uuidString
         let surfaceID = UUID().uuidString
+        let (staleWorkspaceID, staleSurfaceID) = (UUID().uuidString, UUID().uuidString)
         let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
         let transcriptPath = "/Users/example/.claude/projects/-Users-example-project/\(sessionID).jsonl"
         try writeClaudeHookStore(
             home: home,
             sessionID: sessionID,
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
+            workspaceID: staleWorkspaceID,
+            surfaceID: staleSurfaceID,
             transcriptPath: transcriptPath,
             pid: 444
         )
@@ -38,6 +39,8 @@ struct AgentChatSessionRegistryLifecycleTests {
         await registry.seedFromHookStores(agentSources: ["claude"])
 
         let record = try #require(registry.record(sessionID: sessionID))
+        #expect(record.workspaceID == workspaceID)
+        #expect(record.surfaceID == surfaceID)
         #expect(record.transcriptPath == transcriptPath)
         #expect(record.pid == nil)
         #expect(record.state == .idle)

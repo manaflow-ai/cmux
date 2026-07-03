@@ -79,6 +79,19 @@ struct AgentChatSessionRecord: Sendable {
         }
     }
 
+    /// Fills gaps from the hook store without replacing live cmux bindings.
+    mutating func adoptMissingBindings(
+        from entry: AgentChatHookSessionStore.Entry,
+        includingPID: Bool = true
+    ) {
+        rememberHookStoreSessionID(entry.sessionID)
+        if surfaceID == nil { surfaceID = entry.surfaceID }
+        if workspaceID == nil { workspaceID = entry.workspaceID }
+        if transcriptPath == nil { transcriptPath = entry.transcriptPath }
+        if workingDirectory == nil { workingDirectory = entry.workingDirectory }
+        if includingPID, pid == nil { pid = entry.pid }
+    }
+
     /// The wire descriptor for this record.
     var descriptor: ChatSessionDescriptor {
         ChatSessionDescriptor(

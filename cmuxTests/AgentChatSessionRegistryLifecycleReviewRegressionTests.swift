@@ -110,6 +110,55 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
         })
     }
 
+    @MainActor
+    @Test func endedCodexSessionPushesEndedStateInsteadOfRemoval() throws {
+        let coding = ChatWireCoding()
+        var emitted: [ChatSessionEventFrame] = []
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { true },
+            emitEventPayload: { payload in
+                guard let data = try? JSONSerialization.data(withJSONObject: payload),
+                      let frame = try? coding.decode(ChatSessionEventFrame.self, from: data) else {
+                    return
+                }
+                emitted.append(frame)
+            }
+        )
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "codex",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            ppid: 111,
+            receivedAt: Date(timeIntervalSince1970: 280)
+        ))
+        emitted.removeAll()
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionEnd,
+            source: "codex",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 281)
+        ))
+
+        #expect(!emitted.contains { frame in
+            guard case .sessionRemoved = frame.event else { return false }
+            return frame.sessionID == sessionID
+        })
+        #expect(emitted.contains { frame in
+            guard case .stateChanged(.ended) = frame.event else { return false }
+            return frame.sessionID == sessionID
+        })
+    }
+
     private func temporaryHomeDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-chat-\(UUID().uuidString)", isDirectory: true)

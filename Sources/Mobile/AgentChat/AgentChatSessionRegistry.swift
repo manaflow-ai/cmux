@@ -350,13 +350,13 @@ final class AgentChatSessionRegistry {
                 )
                 if let current = records[sessionID] {
                     var candidate = current
-                    candidate.adoptBindings(from: entry, includingPID: false)
+                    candidate.adoptMissingBindings(from: entry, includingPID: false)
                     guard candidate.surfaceID != current.surfaceID
                         || candidate.workspaceID != current.workspaceID
                         || candidate.transcriptPath != current.transcriptPath
                         || candidate.workingDirectory != current.workingDirectory || candidate.hookStoreSessionID != current.hookStoreSessionID else { continue }
                     update(sessionID: sessionID) { record in
-                        record.adoptBindings(from: entry, includingPID: false)
+                        record.adoptMissingBindings(from: entry, includingPID: false)
                     }
                     continue
                 }
@@ -671,14 +671,14 @@ final class AgentChatSessionRegistry {
     private func applyStoreBackfill(sessionID: String, entry: AgentChatHookSessionStore.Entry) {
         guard let current = records[sessionID] else { return }
         var candidate = current
-        candidate.adoptBindings(from: entry, includingPID: current.pid == nil)
+        candidate.adoptMissingBindings(from: entry, includingPID: current.pid == nil)
         guard candidate.surfaceID != current.surfaceID
             || candidate.workspaceID != current.workspaceID
             || candidate.transcriptPath != current.transcriptPath
             || candidate.workingDirectory != current.workingDirectory
             || candidate.pid != current.pid || candidate.hookStoreSessionID != current.hookStoreSessionID else { return }
         update(sessionID: sessionID) { record in
-            record.adoptBindings(from: entry, includingPID: record.pid == nil)
+            record.adoptMissingBindings(from: entry, includingPID: record.pid == nil)
         }
     }
 
