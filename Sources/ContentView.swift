@@ -1015,7 +1015,7 @@ struct ContentView: View {
     private func tmuxWorkspacePaneWindowOverlayState(for window: NSWindow) -> TmuxWorkspacePaneOverlayRenderState? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
-        let resolvedActivePaneBorderColorHex = WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex)
+        let resolvedActivePaneBorderColorHex = WorkspaceTabColorPaletteStore.normalizedHex(activePaneBorderColorHex)
         let shouldShowActivePaneBorder = shouldShowActivePaneBorder(for: workspace, colorHex: resolvedActivePaneBorderColorHex)
         guard usesWorkspacePaneOverlay || shouldShowActivePaneBorder else { return nil }
 
@@ -1153,7 +1153,7 @@ struct ContentView: View {
         if TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay { return true }
         if WindowTmuxWorkspacePaneOverlayController.controller(for: window, createIfNeeded: false)?.hasRenderedState == true { return true }
         guard let workspace = tabManager.selectedWorkspace else { return false }
-        return shouldShowActivePaneBorder(for: workspace, colorHex: WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex))
+        return shouldShowActivePaneBorder(for: workspace, colorHex: WorkspaceTabColorPaletteStore.normalizedHex(activePaneBorderColorHex))
     }
 
     private func scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow?) {
