@@ -86,7 +86,14 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     }
 
     func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
-    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {}
+    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        let key = teamID ?? ""
+        recordsByTeam[key] = recordsByTeam[key]?.map { mac in
+            var copy = mac
+            copy.isActive = copy.macDeviceID == macDeviceID
+            return copy
+        }
+    }
     func clearActive(stackUserID: String?, teamID: String?) async throws {}
     func setCustomization(
         macDeviceID: String,
