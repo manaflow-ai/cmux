@@ -6,10 +6,10 @@ import Foundation
 final class MobileHostRouteAdvertisement {
     nonisolated static let manualHostDefaultsKey = SettingCatalog().mobile.iOSPairingManualHost.userDefaultsKey
 
-    private let routeResolver: MobileRouteResolver
+    let routeResolver: MobileRouteResolver
     private var advertisedManualHost: String?
 
-    init(routeResolver: MobileRouteResolver) {
+    init(routeResolver: MobileRouteResolver = MobileRouteResolver()) {
         self.routeResolver = routeResolver
     }
 

@@ -366,10 +366,10 @@ final class MobileHostService {
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
-    let routeResolver: MobileRouteResolver
-    let routeAdvertisement: MobileHostRouteAdvertisement
+    let routeAdvertisement = MobileHostRouteAdvertisement()
+    var routeResolver: MobileRouteResolver { routeAdvertisement.routeResolver }
     private let ticketStore = MobileAttachTicketStore()
-    nonisolated private let publicStatusSnapshot: MobileHostPublicStatusSnapshot
+    nonisolated private let publicStatusSnapshot = MobileHostPublicStatusSnapshot()
     private var listener: NWListener?
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
@@ -391,16 +391,6 @@ final class MobileHostService {
     /// listener starts accepting connections.
     private var auth: AuthCoordinator?
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
-
-    private init(
-        routeResolver: MobileRouteResolver = MobileRouteResolver(),
-        publicStatusSnapshot: MobileHostPublicStatusSnapshot = MobileHostPublicStatusSnapshot()
-    ) {
-        self.routeResolver = routeResolver
-        routeAdvertisement = MobileHostRouteAdvertisement(routeResolver: routeResolver)
-        self.publicStatusSnapshot = publicStatusSnapshot
-    }
-
     private var readinessTimeoutTask: Task<Void, Never>?
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
