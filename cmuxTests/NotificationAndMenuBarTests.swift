@@ -1572,7 +1572,6 @@ final class NotificationDockBadgeTests: XCTestCase {
         store.clearLatestNotification(forTabId: tab)
         XCTAssertEqual(store.latestNotification(forTabId: tab)?.id, previousNotification.id)
     }
-
 }
 
 
