@@ -14,7 +14,6 @@ final class VSCodeServeWebController {
     private struct TerminationWait {
         var pendingProcessIDs: Set<ObjectIdentifier>
         let completion: () -> Void
-        let deadlineCompletion: (() -> Void)?
         var deadlineTimer: DispatchSourceTimer?
     }
 
@@ -148,13 +147,10 @@ final class VSCodeServeWebController {
     }
 
     func stop() {
-        stopAndNotifyAfterTermination(afterTermination: nil, afterDeadline: nil)
+        stopAndNotifyAfterTermination(nil)
     }
 
-    private func stopAndNotifyAfterTermination(
-        afterTermination: ((UInt64) -> Void)?,
-        afterDeadline: (() -> Void)?
-    ) {
+    private func stopAndNotifyAfterTermination(_ completion: ((UInt64) -> Void)?) {
         // The connection-token file is now persisted under the stable server data
         // dir and reused across launches, so stop() must NOT delete it — doing so
         // would change the server URL and drop VS Code Web auth/Settings Sync.
@@ -178,12 +174,9 @@ final class VSCodeServeWebController {
             return (self.lifecycleGeneration, processes, completions)
         }
 
-        if let afterTermination {
-            notifyAfterTermination(
-                of: processes,
-                deadlineCompletion: afterDeadline
-            ) {
-                afterTermination(stoppedGeneration)
+        if let completion {
+            notifyAfterTermination(of: processes) {
+                completion(stoppedGeneration)
             }
         }
 
@@ -199,20 +192,13 @@ final class VSCodeServeWebController {
     }
 
     func restart(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
-        stopAndNotifyAfterTermination(
-            afterTermination: { [weak self] stoppedGeneration in
-                self?.ensureServeWebURL(
-                    vscodeApplicationURL: vscodeApplicationURL,
-                    requiredLifecycleGeneration: stoppedGeneration,
-                    completion: completion
-                )
-            },
-            afterDeadline: {
-                DispatchQueue.main.async {
-                    completion(nil)
-                }
-            }
-        )
+        stopAndNotifyAfterTermination { [weak self] stoppedGeneration in
+            self?.ensureServeWebURL(
+                vscodeApplicationURL: vscodeApplicationURL,
+                requiredLifecycleGeneration: stoppedGeneration,
+                completion: completion
+            )
+        }
     }
 
     func isServeWebURL(_ candidateURL: URL?) -> Bool {
@@ -429,11 +415,7 @@ final class VSCodeServeWebController {
         }
     }
 
-    private func notifyAfterTermination(
-        of processes: [Process],
-        deadlineCompletion: (() -> Void)?,
-        completion: @escaping () -> Void
-    ) {
+    private func notifyAfterTermination(of processes: [Process], completion: @escaping () -> Void) {
         let runningProcesses = processes.filter(\.isRunning)
         guard !runningProcesses.isEmpty else {
             completion()
@@ -447,7 +429,6 @@ final class VSCodeServeWebController {
             self.terminationWaits[waitID] = TerminationWait(
                 pendingProcessIDs: processIDs,
                 completion: completion,
-                deadlineCompletion: deadlineCompletion,
                 deadlineTimer: nil
             )
             return waitID
@@ -491,14 +472,14 @@ final class VSCodeServeWebController {
     }
 
     private func handleTerminationDeadline(waitID: UInt64, processes: [Process]) {
-        guard let wait = terminationWaits.removeValue(forKey: waitID) else { return }
-        wait.deadlineTimer?.cancel()
+        guard let wait = terminationWaits[waitID] else { return }
         for process in processes where wait.pendingProcessIDs.contains(ObjectIdentifier(process)) {
             if process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
+            } else {
+                finishTerminationWait(waitID: waitID, process: process)
             }
         }
-        wait.deadlineCompletion?()
     }
 
     private func finishTerminationWait(waitID: UInt64, process: Process) {

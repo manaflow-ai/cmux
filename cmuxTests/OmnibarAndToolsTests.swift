@@ -844,12 +844,13 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         XCTAssertEqual(sawFirstProcessRunning, false)
     }
 
-    func testRestartCompletesWithoutRelaunchWhenStoppedProcessIgnoresTermination() throws {
+    func testRestartForceKillsAndRelaunchesWhenStoppedProcessIgnoresTermination() throws {
         let firstCompletionCalled = expectation(description: "first generation completion called")
         let restartCompletionCalled = expectation(description: "restart completion called")
         let launchCallLock = NSLock()
         var launchCallCount = 0
         var firstProcess: Process?
+        var secondLaunchSawFirstProcessRunning: Bool?
         var restartURL: URL?
 
         let releaseFileURL = FileManager.default.temporaryDirectory
@@ -866,6 +867,7 @@ final class VSCodeServeWebControllerTests: XCTestCase {
             launchCallLock.lock()
             launchCallCount += 1
             let callNumber = launchCallCount
+            let trackedProcess = firstProcess
             launchCallLock.unlock()
 
             if callNumber == 1 {
@@ -893,6 +895,9 @@ final class VSCodeServeWebControllerTests: XCTestCase {
                 )
             }
 
+            launchCallLock.lock()
+            secondLaunchSawFirstProcessRunning = trackedProcess?.isRunning
+            launchCallLock.unlock()
             return nil
         }, terminationGraceSeconds: 0.1)
 
@@ -912,10 +917,12 @@ final class VSCodeServeWebControllerTests: XCTestCase {
 
         launchCallLock.lock()
         let launchCalls = launchCallCount
+        let sawFirstProcessRunning = secondLaunchSawFirstProcessRunning
         launchCallLock.unlock()
 
         XCTAssertNil(restartURL)
-        XCTAssertEqual(launchCalls, 1)
+        XCTAssertEqual(launchCalls, 2)
+        XCTAssertEqual(sawFirstProcessRunning, false)
     }
 }
 
