@@ -149,16 +149,11 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
     }
 }
 
-private enum MobileHostPublicStatusCache {
+enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var routes: [CmxAttachRoute] = []
-
     static func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()
-        guard routes != nextRoutes else {
-            lock.unlock()
-            return
-        }
         routes = nextRoutes
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
@@ -373,12 +368,12 @@ final class MobileHostService {
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
-    private let routeResolver = MobileRouteResolver()
+    let routeResolver = MobileRouteResolver()
     private let ticketStore = MobileAttachTicketStore()
     private var listener: NWListener?
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
-    private var listenerPort: Int?
+    var listenerPort: Int?
     /// The preferred port the active start-sequence targeted (regardless of an
     /// ephemeral fallback). Used to decide whether a settings change needs a
     /// restart. `nil` while stopped.
@@ -526,20 +521,6 @@ final class MobileHostService {
             return SettingCatalog().mobile.iOSPairingPort.defaultValue
         }
         return (1...65535).contains(raw) ? raw : nil
-    }
-
-    /// User-default key for the explicit manual host advertised to iOS when
-    /// Tailscale is unavailable on this Mac.
-    nonisolated static let manualHostDefaultsKey = SettingCatalog().mobile.iOSPairingManualHost.userDefaultsKey
-
-    /// The user-configured LAN/DNS host to advertise as an explicit manual route,
-    /// or `nil` when unset or invalid.
-    nonisolated static func configuredManualHost(defaults: UserDefaults = .standard) -> String? {
-        guard let raw = defaults.object(forKey: manualHostDefaultsKey) as? String,
-              let host = CmxManualHost(raw)?.rawValue else {
-            return nil
-        }
-        return host
     }
 
     /// Pure reconciliation between the desired settings and the live listener
@@ -855,25 +836,6 @@ final class MobileHostService {
     func statusSnapshot() -> MobileHostServiceStatus {
         let routes = listenerPort.map { currentRoutes(port: $0) } ?? []
         return makeStatus(routes: routes)
-    }
-
-    private func currentRoutes(port: Int) -> [CmxAttachRoute] {
-        routeResolver.routes(port: port, manualHost: Self.configuredManualHost()).routes
-    }
-
-    private func currentRoutes(port: Int, tailscaleHosts: [String]) -> [CmxAttachRoute] {
-        routeResolver.routes(
-            port: port,
-            tailscaleHosts: tailscaleHosts,
-            manualHost: Self.configuredManualHost()
-        ).routes
-    }
-
-    private func refreshAdvertisedRoutesIfRunning() {
-        guard let listenerPort else {
-            return
-        }
-        MobileHostPublicStatusCache.update(routes: currentRoutes(port: listenerPort))
     }
 
     /// Emits the current ``MobileHostServiceStatus`` immediately, then a fresh

@@ -176,18 +176,8 @@ struct MobileHostAuthorizationTests {
         #expect(tailscaleRoutes.count == 2)
         #expect(tailscaleRoutes.first?.priority == 10)
         #expect(tailscaleRoutes.last?.priority == 20)
-        if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "work-mac.tailnet.ts.net")
-            #expect(port == 61234)
-        } else {
-            #expect(Bool(false), "Expected first Tailscale route to use a host/port endpoint")
-        }
-        if case let .hostPort(host, port) = tailscaleRoutes.last?.endpoint {
-            #expect(host == "100.71.210.41")
-            #expect(port == 61234)
-        } else {
-            #expect(Bool(false), "Expected fallback Tailscale route to use a host/port endpoint")
-        }
+        #expect(tailscaleRoutes.first?.endpoint == .hostPort(host: "work-mac.tailnet.ts.net", port: 61234))
+        #expect(tailscaleRoutes.last?.endpoint == .hostPort(host: "100.71.210.41", port: 61234))
     }
     @Test func testMobileRouteResolverImmediateSnapshotUsesNumericTailscaleFallbackWithoutDNS() throws {
         let resolver = MobileRouteResolver()
@@ -201,32 +191,18 @@ struct MobileHostAuthorizationTests {
 
         let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
         #expect(tailscaleRoutes.count == 1)
-        if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "100.71.210.41")
-            #expect(port == 61234)
-        } else {
-            #expect(Bool(false), "Expected immediate snapshot to include a numeric Tailscale route")
-        }
+        #expect(tailscaleRoutes.first?.endpoint == .hostPort(host: "100.71.210.41", port: 61234))
         #expect(snapshot.routes.filter { $0.kind == .debugLoopback }.count == 1)
     }
     @Test func testMobileRouteResolverUsesManualHostWhenTailscaleIsUnavailable() throws {
-        let resolver = MobileRouteResolver()
-
-        let snapshot = resolver.routes(
+        let snapshot = MobileRouteResolver().routes(
             port: 61234,
             tailscaleHosts: [],
             manualHost: " studio-mac.corp.example "
         )
-
-        let manualRoutes = snapshot.routes.filter { $0.kind == .manualHost }
-        #expect(manualRoutes.count == 1)
+        let route = try #require(snapshot.routes.first { $0.kind == .manualHost })
         #expect(snapshot.routes.filter { $0.kind == .tailscale }.isEmpty)
-        if case let .hostPort(host, port) = manualRoutes.first?.endpoint {
-            #expect(host == "studio-mac.corp.example")
-            #expect(port == 61234)
-        } else {
-            #expect(Bool(false), "Expected manual host route to use a host/port endpoint")
-        }
+        #expect(route.endpoint == .hostPort(host: "studio-mac.corp.example", port: 61234))
     }
     @Test func testMobileRouteResolverAwaitsMagicDNSForPublicStatusRoutes() async throws {
         let resolver = MobileRouteResolver()

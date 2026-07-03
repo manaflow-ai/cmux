@@ -1908,6 +1908,29 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func mixedPairingQRCodeBlocksManualFallbackUntilApproved() async throws {
+    let responses = ScriptedTransportResponses([])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale, .manualHost],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-mixed-manual"
+    )
+    let store = CMUXMobileShellStore.preview(
+        runtime: runtime,
+        manualHostTrustStore: InMemoryMobileManualHostTrustStore()
+    )
+    let url = "cmux-ios://attach?v=2&pc=1&r=100.71.210.41:61234&m=studio-mac.local:61234"
+
+    store.signIn()
+    let result = await store.connectPairingURLResult(url)
+
+    #expect(result == .needsUserApproval)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.manualHostTrustWarning?.endpoint == "studio-mac.local:61234")
+    #expect(try await responses.sentRequests().isEmpty)
+}
+
+@MainActor
 @Test func pairLinkWithoutAttachTokenRejectsArbitraryHostBeforeSendingAuth() async throws {
     let route = try hostPortRoute(kind: .tailscale, host: "attacker.example", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(

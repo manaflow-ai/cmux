@@ -265,20 +265,8 @@ struct CMUXMobileRootView: View {
             connectPairingCode: {
                 await store.connectPairingInput()
             },
-            acceptVersionWarning: {
-                let result = await store.acceptPairingVersionWarning()
-                clearAttachTicketAuthentication(after: result)
-                if result == .connected {
-                    dismissAddDeviceSheet()
-                }
-            },
-            acceptManualHostTrustWarning: {
-                let result = await store.acceptManualHostTrustWarning()
-                clearAttachTicketAuthentication(after: result)
-                if result == .connected {
-                    dismissAddDeviceSheet()
-                }
-            },
+            acceptVersionWarning: acceptPairingVersionWarning,
+            acceptManualHostTrustWarning: acceptManualHostTrustWarning,
             connectManualHost: { name, host, port in
                 await store.connectManualHost(name: name, host: host, port: port)
             },
@@ -441,7 +429,7 @@ struct CMUXMobileRootView: View {
         clearAttachTicketAuthenticationIfNeeded()
     }
 
-    private func dismissAddDeviceSheet() {
+    func dismissAddDeviceSheet() {
         isShowingAddDeviceSheet = false
         if store.pairingVersionWarning != nil || store.manualHostTrustWarning != nil {
             cancelPairing()
@@ -450,7 +438,7 @@ struct CMUXMobileRootView: View {
         }
     }
 
-    private func clearAttachTicketAuthentication(after result: MobilePairingURLConnectionResult) {
+    func clearAttachTicketAuthentication(after result: MobilePairingURLConnectionResult) {
         guard MobileRootAuthGate.shouldClearAttachTicketAuthentication(
             pairingResult: result,
             connectionState: store.connectionState,

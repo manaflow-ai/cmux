@@ -15,18 +15,6 @@ private let mobileShellLog = Logger(
     category: "mobile-shell"
 )
 
-private enum PendingManualHostTrust {
-    case manual(
-        name: String,
-        host: String,
-        port: Int,
-        pairedMacDeviceID: String?,
-        recordsPairingAttempt: Bool,
-        ifStillCurrent: (() -> Bool)?
-    )
-    case pairingURL(rawURL: String, acceptedVersionWarning: Bool)
-}
-
 /// Transitional alias for the decomposed shell facade.
 ///
 /// The iOS views and push coordinator still bind to `CMUXMobileShellStore`;
@@ -182,7 +170,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var pairingVersionWarning: String?
     /// A warning that must be accepted before a non-Tailscale manual host can
     /// carry Stack auth over plaintext LAN transport.
-    public private(set) var manualHostTrustWarning: MobileManualHostTrustWarning?
+    public internal(set) var manualHostTrustWarning: MobileManualHostTrustWarning?
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
 
@@ -625,7 +613,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// false` and break the first-pair funnel.
     private var pairingAttemptIsFirstPair = false
     private var pendingPairingVersionWarningURL: String?
-    @ObservationIgnored private var pendingManualHostTrust: PendingManualHostTrust?
+    @ObservationIgnored var pendingManualHostTrust: PendingManualHostTrust?
 
     /// The structured diagnostic log, injected from the app composition root.
     ///
@@ -1562,7 +1550,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   `mobile.attach_ticket.create` connects via a synthetic `manual-…` ticket;
     ///   passing the real id keys the foreground aggregate state under it instead of
     ///   the synthetic id. `nil` for a genuinely manual/unknown host.
-    private func connectManualHost(
+    func connectManualHost(
         name: String,
         host: String,
         port: Int,
@@ -2769,82 +2757,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didFinishStoredMacReconnectAttempt = false
     }
 
-    /// Whether route selection should avoid loopback routes. A loopback route
-    /// (`.debugLoopback`, `127.0.0.1`) names the host it runs on, so on a
-    /// physical device it can only ever reach the phone itself, never a remote
-    /// Mac. On the simulator `127.0.0.1` IS the host Mac, so loopback is valid
-    /// (and is how the dev/UI-test mock host attaches).
-    static var prefersNonLoopbackRoutes: Bool {
-        #if targetEnvironment(simulator)
-        false
-        #else
-        true
-        #endif
-    }
-
-    /// The first reachable host/port route to a Mac, in priority order.
-    ///
-    /// When `preferNonLoopback` is set (physical devices), a real route
-    /// (`.tailscale` etc.) is always chosen over a `.debugLoopback` route even
-    /// if the loopback route has a lower (more-preferred) priority, because a
-    /// loopback route can never reach a remote Mac from a physical phone. A
-    /// loopback route is used only when it is the sole supported route — the
-    /// on-device XCUITest mock host, which serves a real listener on `127.0.0.1`
-    /// inside the test runner. This is what lets a restored Mac (whose published
-    /// routes include both `debug_loopback` and `tailscale`) actually connect
-    /// over Tailscale instead of dialing the phone's own loopback and failing.
-    static func firstReconnectHostPortRoute(
-        _ routes: [CmxAttachRoute],
-        supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool = false
-    ) -> (String, Int)? {
-        let supportedKinds = Set(supportedKinds)
-        let ordered = routes.sorted(by: Self.routeSortsBefore)
-        func firstHostPort(where predicate: (CmxAttachRoute) -> Bool) -> (String, Int)? {
-            for route in ordered {
-                if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
-                    continue
-                }
-                guard predicate(route), case let .hostPort(host, port) = route.endpoint else {
-                    continue
-                }
-                return (host, port)
-            }
-            return nil
-        }
-        if preferNonLoopback {
-            // Among non-loopback routes, prefer one whose host is a numeric IP: a
-            // raw tailscale/LAN IP is dialable without DNS, whereas a MagicDNS
-            // hostname (e.g. "<node>.<tailnet>.ts.net") depends on the client
-            // having tailscale DNS active and resolving it. On devices where
-            // MagicDNS isn't resolving, dialing the hostname times out and the Mac
-            // silently drops out of the list, even though its IP route is fine.
-            if let ip = firstHostPort(where: { route in
-                guard route.kind != .debugLoopback,
-                      case let .hostPort(host, _) = route.endpoint else { return false }
-                return Self.isIPLiteralHost(host)
-            }) {
-                return ip
-            }
-            if let real = firstHostPort(where: { $0.kind != .debugLoopback }) {
-                return real
-            }
-        }
-        return firstHostPort(where: { _ in true })
-    }
-
-    /// Whether `host` is a numeric IP literal (IPv4 or IPv6) rather than a name
-    /// that needs DNS resolution. Used to prefer directly-dialable IP routes over
-    /// MagicDNS hostnames, which fail to resolve on some clients.
-    static func isIPLiteralHost(_ host: String) -> Bool {
-        if host.contains(":") { return true } // IPv6 literal
-        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
-        return octets.count == 4 && octets.allSatisfy { part in
-            guard let value = Int(part), (0...255).contains(value), !part.isEmpty else { return false }
-            return String(value) == part // reject leading zeros / non-canonical
-        }
-    }
-
     /// Enqueues one paired-Mac store mutation on the serialized write chain.
     ///
     /// All `markActive` writes go through here so they execute strictly in
@@ -3126,28 +3038,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// `true` on a physical iPhone/iPad; `false` in the simulator and in
-    /// macOS-hosted package tests. Drives the loopback-pairing rejection:
-    /// the simulator's 127.0.0.1 is the host Mac and dev auto-pair depends
-    /// on it, while a physical device dialing loopback only ever reaches
-    /// itself.
-    private static var isPhysicalDevice: Bool {
-        #if os(iOS) && !targetEnvironment(simulator)
-        true
-        #else
-        false
-        #endif
-    }
-
-    static func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
-        let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
-        return try CmxAttachRoute(
-            id: routeKind.rawValue,
-            kind: routeKind,
-            endpoint: .hostPort(host: host, port: port)
-        )
-    }
-
     @discardableResult
     public func connectPairingURL(_ rawValue: String? = nil) async -> Bool {
         await connectPairingURLResult(rawValue).didConnect
@@ -3159,7 +3049,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     @discardableResult
-    private func connectPairingURLResult(
+    func connectPairingURLResult(
         _ rawValue: String? = nil,
         acceptedVersionWarning: Bool
     ) async -> MobilePairingURLConnectionResult {
@@ -5166,24 +5056,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var preferActiveTicketTarget: Bool
     }
 
-    private static func supportedRoutes(
-        for ticket: CmxAttachTicket,
-        supportedKinds: [CmxAttachTransportKind]
-    ) -> [CmxAttachRoute] {
-        let orderedRoutes = ticket.routes.sorted(by: Self.routeSortsBefore)
-        guard !supportedKinds.isEmpty else {
-            return orderedRoutes
-        }
-        let supportedKinds = Set(supportedKinds)
-        return orderedRoutes.filter { route in
-            supportedKinds.contains(route.kind)
-        }
-    }
-
-    private static func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
-        !ticket.isExpired(at: now)
-    }
-
     private static func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> [String: Any] {
         guard UUID(uuidString: ticket.workspaceID) != nil else {
             return [:]
@@ -5592,7 +5464,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Clear the error and its guidance together (never bare `connectionError
     /// = nil`) so guidance cannot linger under a cleared headline.
-    private func clearPairingError() {
+    func clearPairingError() {
         connectionError = nil
         connectionErrorGuidance = nil
     }
@@ -5600,98 +5472,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func clearPairingVersionWarning() {
         pairingVersionWarning = nil
         pendingPairingVersionWarningURL = nil
-    }
-
-    private func clearManualHostTrustWarning() {
-        manualHostTrustWarning = nil
-        pendingManualHostTrust = nil
-    }
-
-    private func manualHostTrustScope(for route: CmxAttachRoute?) -> MobileManualHostTrustScope? {
-        guard let route,
-              MobileShellRouteAuthPolicy.routeRequiresManualHostTrust(route) else {
-            return nil
-        }
-        return MobileManualHostTrustScope(
-            route: route,
-            stackUserID: identityProvider?.currentUserID
-        )
-    }
-
-    private func manualHostStackAuthTrusted(for route: CmxAttachRoute?) async -> Bool {
-        guard let scope = manualHostTrustScope(for: route) else {
-            return false
-        }
-        return await manualHostTrustStore.isTrusted(scope)
-    }
-
-    private func manualHostRouteNeedsApproval(_ route: CmxAttachRoute) async -> Bool {
-        guard let scope = manualHostTrustScope(for: route) else {
-            return false
-        }
-        return !(await manualHostTrustStore.isTrusted(scope))
-    }
-
-    private func firstManualHostRouteNeedingApproval(
-        in routes: [CmxAttachRoute]
-    ) async -> (route: CmxAttachRoute, scope: MobileManualHostTrustScope)? {
-        for route in routes {
-            if MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
-                return nil
-            }
-            guard let scope = manualHostTrustScope(for: route) else {
-                continue
-            }
-            if await manualHostTrustStore.isTrusted(scope) {
-                return nil
-            }
-            return (route, scope)
-        }
-        return nil
-    }
-
-    private func queueManualHostTrustWarning(
-        route: CmxAttachRoute,
-        displayHost: String,
-        pending: PendingManualHostTrust
-    ) {
-        guard let scope = manualHostTrustScope(for: route) else {
-            return
-        }
-        clearPairingError()
-        pendingManualHostTrust = pending
-        manualHostTrustWarning = MobileManualHostTrustWarning(
-            scope: scope,
-            displayHost: displayHost
-        )
-    }
-
-    @discardableResult
-    public func acceptManualHostTrustWarning() async -> MobilePairingURLConnectionResult {
-        guard let warning = manualHostTrustWarning,
-              let pending = pendingManualHostTrust else {
-            clearManualHostTrustWarning()
-            return .failed
-        }
-        await manualHostTrustStore.trust(warning.scope)
-        clearManualHostTrustWarning()
-        switch pending {
-        case let .manual(name, host, port, pairedMacDeviceID, recordsPairingAttempt, ifStillCurrent):
-            await connectManualHost(
-                name: name,
-                host: host,
-                port: port,
-                pairedMacDeviceID: pairedMacDeviceID,
-                recordsPairingAttempt: recordsPairingAttempt,
-                ifStillCurrent: ifStillCurrent
-            )
-            return connectionState == .connected ? .connected : .failed
-        case let .pairingURL(rawURL, acceptedVersionWarning):
-            return await connectPairingURLResult(
-                rawURL,
-                acceptedVersionWarning: acceptedVersionWarning
-            )
-        }
     }
 
     private func versionWarning(for ticket: CmxAttachTicket) -> String? {

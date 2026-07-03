@@ -695,6 +695,7 @@
 		DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */; };
 		4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */; };
 		C7A50B000000000000000014 /* MobileHostService+Capabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */; };
+		7230A0017230A0017230A001 /* MobileHostService+ManualHostRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7230B0017230B0017230B001 /* MobileHostService+ManualHostRoutes.swift */; };
 		F67FBC88671C40AC3A3284CE /* MobileHostService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ACA497A6831165EA879C642 /* MobileHostService.swift */; };
 		C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */; };
 		4C1A7E10B2D34F56A8C90011 /* MobileHostStatusVerificationLimiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */; };
@@ -1976,6 +1977,7 @@
 		DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathRefreshTests.swift; sourceTree = "<group>"; };
 		47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostRPC.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileHostService+Capabilities.swift"; sourceTree = "<group>"; };
+		7230B0017230B0017230B001 /* MobileHostService+ManualHostRoutes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileHostService+ManualHostRoutes.swift"; sourceTree = "<group>"; };
 		7ACA497A6831165EA879C642 /* MobileHostService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostService.swift; sourceTree = "<group>"; };
 		C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostServiceSettingsTests.swift; sourceTree = "<group>"; };
 		4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostStatusVerificationLimiter.swift; sourceTree = "<group>"; };
@@ -2746,6 +2748,7 @@
 				C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */,
 				4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */,
 				C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */,
+				7230B0017230B0017230B001 /* MobileHostService+ManualHostRoutes.swift */,
 				DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */,
 				7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */,
 				04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */,
@@ -4743,6 +4746,7 @@
 				DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */,
 				4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */,
 				C7A50B000000000000000014 /* MobileHostService+Capabilities.swift in Sources */,
+				7230A0017230A0017230A001 /* MobileHostService+ManualHostRoutes.swift in Sources */,
 				F67FBC88671C40AC3A3284CE /* MobileHostService.swift in Sources */,
 				4C1A7E10B2D34F56A8C90011 /* MobileHostStatusVerificationLimiter.swift in Sources */,
 				0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */,
