@@ -2279,17 +2279,7 @@ final class Workspace: Identifiable, ObservableObject {
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard oldDirectory != newDirectory else { return }
-            scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
-            // Notify the sidebar so anchor-cwd-driven group config (color,
-            // icon, context menu, newWorkspacePlacement) refreshes even
-            // when the anchor isn't the visible/selected workspace. Group
-            // headers are the anchor's only sidebar surface, so a
-            // TabItemView-style observation isn't mounted for them.
-            NotificationCenter.default.post(
-                name: .workspaceCurrentDirectoryDidChange,
-                object: self,
-                userInfo: ["workspaceId": id]
-            )
+            postWorkspaceCurrentDirectoryDidChange()
         }
     }
     @Published private(set) var extensionSidebarProjectRootPath: String?
@@ -2297,6 +2287,25 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
+
+    private func postWorkspaceCurrentDirectoryDidChange() {
+        scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
+        // Notify the sidebar so anchor-cwd-driven group config (color, icon,
+        // context menu, newWorkspacePlacement) refreshes even when the anchor
+        // is not selected. Window-title and file-tree consumers also listen
+        // here for presented remote directory changes.
+        NotificationCenter.default.post(
+            name: .workspaceCurrentDirectoryDidChange,
+            object: self,
+            userInfo: ["workspaceId": id]
+        )
+    }
+
+    private func notifyPresentedCurrentDirectoryChanged(from previousDirectory: String?) {
+        guard previousDirectory != presentedCurrentDirectory else { return }
+        postWorkspaceCurrentDirectoryDidChange()
+    }
+
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
 
@@ -2592,6 +2601,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    @Published private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
     private var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
     private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
@@ -4624,12 +4634,16 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> Bool {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
+        let previousPresentedDirectory = presentedCurrentDirectory
         if source == .liveReport,
            shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
             return false
         }
         let directoryChanged = panelDirectories[panelId] != trimmed
         if directoryChanged { panelDirectories[panelId] = trimmed }
+        if source == .liveReport, isRemoteTerminalSurface(panelId) {
+            remoteDirectoryReportPanelIds.insert(panelId)
+        }
         let trimmedDisplayLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDisplayLabel.isEmpty {
             if panelDirectoryDisplayLabels[panelId] != trimmedDisplayLabel {
@@ -4644,6 +4658,9 @@ final class Workspace: Identifiable, ObservableObject {
             let nextSurfaceTabBarDirectory = configTrackingDirectory(for: panelId)
             if surfaceTabBarDirectory != nextSurfaceTabBarDirectory { surfaceTabBarDirectory = nextSurfaceTabBarDirectory }
             if currentDirectory != trimmed { currentDirectory = trimmed }
+        }
+        if isRemoteWorkspace {
+            notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
         }
         return true
     }
@@ -5228,6 +5245,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelDirectoryDisplayLabels = panelDirectoryDisplayLabels.filter { validSurfaceIds.contains($0.key) }
+        remoteDirectoryReportPanelIds = remoteDirectoryReportPanelIds.filter { validSurfaceIds.contains($0) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
@@ -5308,157 +5326,6 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private func normalizedSidebarDirectory(_ directory: String?) -> String? {
-        guard let directory else { return nil }
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private var reportedRemoteCurrentDirectory: String? {
-        if let focusedPanelId,
-           activeRemoteTerminalSurfaceIds.contains(focusedPanelId),
-           let directory = normalizedSidebarDirectory(panelDirectories[focusedPanelId]) {
-            return directory
-        }
-        let directories = Set(activeRemoteTerminalSurfaceIds.compactMap {
-            normalizedSidebarDirectory(panelDirectories[$0])
-        })
-        return directories.count == 1 ? directories.first : nil
-    }
-
-    var presentedCurrentDirectory: String? {
-        isRemoteWorkspace ? reportedRemoteCurrentDirectory : normalizedSidebarDirectory(currentDirectory)
-    }
-
-    private func sidebarHomeDirectoryForCanonicalization(
-        resolvedPanelDirectories: [UUID: String]
-    ) -> String? {
-        if isRemoteWorkspace {
-            return SidebarBranchOrdering().inferredRemoteHomeDirectory(
-                from: Array(resolvedPanelDirectories.values),
-                fallbackDirectory: reportedRemoteCurrentDirectory
-            )
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.path
-    }
-
-    private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
-        if let directory = normalizedSidebarDirectory(panelDirectories[panelId]) {
-            return directory
-        }
-        guard !isRemoteWorkspace else { return nil }
-        if let requestedDirectory = normalizedSidebarDirectory(
-            terminalPanel(for: panelId)?.requestedWorkingDirectory
-        ) {
-            return requestedDirectory
-        }
-        guard panelId == focusedPanelId else { return nil }
-        return normalizedSidebarDirectory(currentDirectory)
-    }
-
-    private func sidebarResolvedPanelDirectories(orderedPanelIds: [UUID]) -> [UUID: String] {
-        var resolved: [UUID: String] = [:]
-        for panelId in orderedPanelIds {
-            if let directory = sidebarResolvedDirectory(for: panelId) {
-                resolved[panelId] = directory
-            }
-        }
-        return resolved
-    }
-
-    /// One sidebar directory row: the text to render and whether it is a
-    /// reporter-supplied display label. Labels are opaque text and must not go
-    /// through path shortening or `~` abbreviation.
-    struct SidebarDisplayedDirectory: Equatable {
-        let text: String
-        let isDisplayLabel: Bool
-    }
-
-    func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID], includeFallback: Bool = true) -> [String] {
-        sidebarDisplayedDirectoriesInDisplayOrder(
-            orderedPanelIds: orderedPanelIds,
-            includeFallback: includeFallback
-        ).map(\.text)
-    }
-
-    func sidebarDisplayedDirectoriesInDisplayOrder(
-        orderedPanelIds: [UUID],
-        includeFallback: Bool = true
-    ) -> [SidebarDisplayedDirectory] {
-        sidebarOrderedUniqueDirectories(
-            orderedPanelIds: orderedPanelIds,
-            includeFallback: includeFallback,
-            preferDisplayLabels: true
-        )
-    }
-
-    /// Same rows as ``sidebarDirectoriesInDisplayOrder(orderedPanelIds:includeFallback:)``
-    /// but always emitting the real filesystem path, never a reported display
-    /// label. Consumers that resolve paths on disk (Finder, File Explorer) or
-    /// publish path-shaped API payloads (extension sidebar snapshots) must use
-    /// this variant.
-    func sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [UUID], includeFallback: Bool = true) -> [String] {
-        sidebarOrderedUniqueDirectories(
-            orderedPanelIds: orderedPanelIds,
-            includeFallback: includeFallback,
-            preferDisplayLabels: false
-        ).map(\.text)
-    }
-
-    func sidebarFilesystemDirectoriesInDisplayOrder() -> [String] {
-        sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
-    }
-
-    /// One row per canonical filesystem directory, in panel display order.
-    /// Dedup keys always derive from the real filesystem path; when
-    /// `preferDisplayLabels` is set, the emitted row prefers the panel's
-    /// reported display label.
-    private func sidebarOrderedUniqueDirectories(
-        orderedPanelIds: [UUID],
-        includeFallback: Bool,
-        preferDisplayLabels: Bool
-    ) -> [SidebarDisplayedDirectory] {
-        let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
-        let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
-            resolvedPanelDirectories: resolvedDirectories
-        )
-        var ordered: [SidebarDisplayedDirectory] = []
-        var orderedIndexByKey: [String: Int] = [:]
-
-        for panelId in orderedPanelIds {
-            guard let directory = resolvedDirectories[panelId],
-                  let key = SidebarBranchOrdering().canonicalDirectoryKey(
-                      directory,
-                      homeDirectoryForTildeExpansion: homeDirectoryForCanonicalization
-                  ) else { continue }
-            let displayLabel = preferDisplayLabels
-                ? normalizedSidebarDirectory(panelDirectoryDisplayLabels[panelId])
-                : nil
-            if let existingIndex = orderedIndexByKey[key] {
-                // A label wins over an unlabeled path spelling for a shared
-                // directory; the first reported label wins over later ones.
-                if let displayLabel, !ordered[existingIndex].isDisplayLabel {
-                    ordered[existingIndex] = SidebarDisplayedDirectory(text: displayLabel, isDisplayLabel: true)
-                }
-                continue
-            }
-            orderedIndexByKey[key] = ordered.count
-            ordered.append(SidebarDisplayedDirectory(
-                text: displayLabel ?? directory,
-                isDisplayLabel: displayLabel != nil
-            ))
-        }
-
-        if includeFallback, ordered.isEmpty, let fallbackDirectory = presentedCurrentDirectory {
-            return [SidebarDisplayedDirectory(text: fallbackDirectory, isDisplayLabel: false)]
-        }
-
-        return ordered
-    }
-
-    func sidebarDirectoriesInDisplayOrder() -> [String] {
-        sidebarDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
-    }
     func sidebarFinderDirectory() -> String? {
         guard !isRemoteWorkspace else { return nil }
         let panelIds = sidebarOrderedPanelIds()
@@ -5471,41 +5338,6 @@ final class Workspace: Identifiable, ObservableObject {
             orderedPanelIds: localPanelIds,
             includeFallback: panelIds.isEmpty || localPanelIds.count == panelIds.count
         ).first
-    }
-
-    func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
-        SidebarBranchOrdering()
-            .orderedUniqueBranches(
-                orderedPanelIds: orderedPanelIds,
-                panelBranches: panelGitBranches,
-                fallbackBranch: gitBranch
-            )
-            .map { SidebarGitBranchState(branch: $0.name, isDirty: $0.isDirty) }
-    }
-
-    func sidebarGitBranchesInDisplayOrder() -> [SidebarGitBranchState] {
-        sidebarGitBranchesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
-    }
-
-    func sidebarBranchDirectoryEntriesInDisplayOrder(
-        orderedPanelIds: [UUID]
-    ) -> [SidebarBranchOrdering.BranchDirectoryEntry] {
-        let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
-        return SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
-            orderedPanelIds: orderedPanelIds,
-            panelBranches: panelGitBranches,
-            panelDirectories: resolvedDirectories,
-            panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
-            defaultDirectory: presentedCurrentDirectory,
-            homeDirectoryForTildeExpansion: sidebarHomeDirectoryForCanonicalization(
-                resolvedPanelDirectories: resolvedDirectories
-            ),
-            fallbackBranch: gitBranch
-        )
-    }
-
-    func sidebarBranchDirectoryEntriesInDisplayOrder() -> [SidebarBranchOrdering.BranchDirectoryEntry] {
-        sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
     }
 
     func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
@@ -5825,6 +5657,7 @@ final class Workspace: Identifiable, ObservableObject {
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
+        let previousPresentedDirectory = presentedCurrentDirectory
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteDisconnectReplacement = nil
         let remoteDisconnectPlaceholderPanelIdsToClear = remoteDisconnectPlaceholderPanelIds
@@ -5836,7 +5669,9 @@ final class Workspace: Identifiable, ObservableObject {
             clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
+        remoteDirectoryReportPanelIds.removeAll()
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
         remoteDisconnectPlaceholderPanelIds.subtract(remoteDisconnectPlaceholderPanelIdsToClear)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
@@ -5952,6 +5787,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
+        let previousPresentedDirectory = presentedCurrentDirectory
         let shouldCleanupControlMaster =
             clearConfiguration
             && !isDetachingCloseTransaction
@@ -5964,6 +5800,7 @@ final class Workspace: Identifiable, ObservableObject {
         previousController?.stop()
         pendingRemoteForegroundAuthToken = nil
         activeRemoteTerminalSurfaceIds.removeAll()
+        remoteDirectoryReportPanelIds.removeAll()
         endedPersistentRemotePTYAttachSurfaceIds.removeAll()
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
@@ -5999,6 +5836,7 @@ final class Workspace: Identifiable, ObservableObject {
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
         recomputeListeningPorts()
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
         if let configurationForCleanup {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: configurationForCleanup)
         }
@@ -6033,6 +5871,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func trackRemoteTerminalSurface(_ panelId: UUID) {
+        let previousPresentedDirectory = presentedCurrentDirectory
+        remoteDirectoryReportPanelIds.remove(panelId)
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
@@ -6041,16 +5881,24 @@ final class Workspace: Identifiable, ObservableObject {
            normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId]) == nil {
             remotePTYSessionIDsByPanelId[panelId] = Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
         }
-        guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
+        let inserted = activeRemoteTerminalSurfaceIds.insert(panelId).inserted
+        guard inserted else {
+            notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
+            return
+        }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         _ = applyPendingRemoteSurfacePWDIfNeeded(to: panelId)
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
         _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
     }
 
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
+        let previousPresentedDirectory = presentedCurrentDirectory
+        remoteDirectoryReportPanelIds.remove(panelId)
         guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
         guard !isDetachingCloseTransaction else { return }
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
@@ -6464,6 +6312,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func markPersistentRemotePTYAttachFailed(surfaceId: UUID) {
         guard remoteConfiguration?.preserveAfterTerminalExit == true else { return }
+        let previousPresentedDirectory = presentedCurrentDirectory
 
         remotePTYSessionIDsByPanelId.removeValue(forKey: surfaceId)
         endedPersistentRemotePTYAttachSurfaceIds.remove(surfaceId)
@@ -6471,11 +6320,13 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)
         surfaceTTYNames.removeValue(forKey: surfaceId)
+        remoteDirectoryReportPanelIds.remove(surfaceId)
         if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
             activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         }
         syncRemotePortScanTTYs()
         applyBrowserRemoteWorkspaceStatusToPanels()
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
     }
 
     private func maybeDemoteRemoteWorkspaceAfterSSHSessionEnded() {
@@ -6663,13 +6514,16 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
         let preservesRemotePTYSession = configuration.preserveAfterTerminalExit
+        let previousPresentedDirectory = presentedCurrentDirectory
         if !preservesRemotePTYSession {
             rememberPendingRemoteDisconnectReplacement(configuration: configuration)
         }
         pendingRemoteTerminalChildExitSurfaceIds.insert(surfaceId)
+        remoteDirectoryReportPanelIds.remove(surfaceId)
         if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
             activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         }
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
         if activeRemoteTerminalSurfaceIds.isEmpty {
             guard !preservesRemotePTYSession else { return }
             let shouldCleanupControlMaster =

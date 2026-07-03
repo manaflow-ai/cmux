@@ -237,6 +237,23 @@ struct WindowTitleTemplateTests {
         manager.windowId = windowId
         let workspace = try #require(manager.selectedWorkspace)
         let remotePanelId = try #require(workspace.focusedPanelId)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        manager.window = window
+        defer {
+            manager.window = nil
+            window.close()
+        }
+
+        #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
+        manager.refreshWindowTitle()
+        #expect(window.title == "[cmux:01234567] \(localDirectory)")
+
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "seepine@192.168.5.20",
@@ -252,24 +269,9 @@ struct WindowTitleTemplateTests {
             ),
             autoConnect: false
         )
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        manager.window = window
-        defer {
-            manager.window = nil
-            window.close()
-        }
-
-        manager.refreshWindowTitle()
         #expect(window.title == "[cmux:01234567]")
 
         workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
-        manager.workspaceCurrentDirectoryDidChange(workspaceId: workspace.id)
         #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
     }
 

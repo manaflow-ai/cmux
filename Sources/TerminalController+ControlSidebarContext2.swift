@@ -346,7 +346,7 @@ extension TerminalController {
 
         let focusedPanel: ControlSidebarFocusedPanelInfo?
         if let focused = tab.focusedPanelId,
-           let focusedDir = tab.panelDirectories[focused] {
+           let focusedDir = tab.reportedPanelDirectory(panelId: focused) {
             focusedPanel = ControlSidebarFocusedPanelInfo(panelID: focused, directory: focusedDir)
         } else {
             focusedPanel = nil

@@ -169,6 +169,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
         workspaceObservationCancellable = Publishers.MergeMany(
             workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
+            workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+            workspace.$remoteDirectoryReportPanelIds.map { _ in () }.eraseToAnyPublisher(),
+            workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),

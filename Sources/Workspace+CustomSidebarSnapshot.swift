@@ -58,7 +58,7 @@ extension Workspace {
                         title: tab.title,
                         isFocused: panelId == focusedPanelId,
                         isPinned: pinnedPanelIds.contains(panelId),
-                        directory: panelDirectories[panelId],
+                        directory: reportedPanelDirectory(panelId: panelId),
                         gitBranch: git?.branch,
                         gitIsDirty: git?.isDirty ?? false,
                         listeningPorts: surfaceListeningPorts[panelId] ?? []

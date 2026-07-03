@@ -163,6 +163,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         )
         let remotePanelId = try #require(workspace.focusedPanelId)
 
+        #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "seepine@192.168.5.20",
@@ -206,6 +207,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         )
         let workspace = try #require(manager.selectedWorkspace)
         let remotePanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "seepine@192.168.5.20",

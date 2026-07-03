@@ -888,6 +888,9 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let remoteConnectionState: WorkspaceRemoteConnectionState?
         let remoteConnectionDetail: String?
         let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
+        let panelDirectories: [UUID: String]
+        let remoteDirectoryReportPanelIds: Set<UUID>
+        let activeRemoteTerminalSessionCount: Int
     }
 
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
@@ -912,7 +915,10 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConfiguration: nil,
                             remoteConnectionState: nil,
                             remoteConnectionDetail: nil,
-                            remoteDaemonStatus: nil
+                            remoteDaemonStatus: nil,
+                            panelDirectories: [:],
+                            remoteDirectoryReportPanelIds: [],
+                            activeRemoteTerminalSessionCount: 0
                         )
                     )
                     .eraseToAnyPublisher()
@@ -923,21 +929,35 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                         workspace.$remoteConnectionState,
                         workspace.$remoteConnectionDetail
                     )
-                    .combineLatest(workspace.$remoteDaemonStatus)
-                    .map { values, remoteDaemonStatus in
+                    .combineLatest(
+                        workspace.$remoteDaemonStatus,
+                        workspace.$panelDirectories,
+                        workspace.$activeRemoteTerminalSessionCount
+                    )
+                    .combineLatest(workspace.$remoteDirectoryReportPanelIds)
+                    .map { values, remoteDirectoryReportPanelIds in
+                        let (
+                            previousValues,
+                            remoteDaemonStatus,
+                            panelDirectories,
+                            activeRemoteTerminalSessionCount
+                        ) = values
                         let (
                             currentDirectory,
                             remoteConfiguration,
                             remoteConnectionState,
                             remoteConnectionDetail
-                        ) = values
+                        ) = previousValues
                         return Snapshot(
                             workspaceId: workspace.id,
                             currentDirectory: currentDirectory,
                             remoteConfiguration: remoteConfiguration,
                             remoteConnectionState: remoteConnectionState,
                             remoteConnectionDetail: remoteConnectionDetail,
-                            remoteDaemonStatus: remoteDaemonStatus
+                            remoteDaemonStatus: remoteDaemonStatus,
+                            panelDirectories: panelDirectories,
+                            remoteDirectoryReportPanelIds: remoteDirectoryReportPanelIds,
+                            activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount
                         )
                     }
                     .eraseToAnyPublisher()
