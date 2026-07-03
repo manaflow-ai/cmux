@@ -7833,7 +7833,7 @@ struct TabItemView: View, Equatable {
         .padding(.horizontal, 6)
         .background { SidebarRowHeightProbe { rowHeight = $0 } }
 
-        return decoratedRow
+        let interactiveRow = decoratedRow
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
@@ -7866,6 +7866,8 @@ struct TabItemView: View, Equatable {
                 accent: cmuxAccentColor()
             )
         }
+
+        return interactiveRow
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
         }
