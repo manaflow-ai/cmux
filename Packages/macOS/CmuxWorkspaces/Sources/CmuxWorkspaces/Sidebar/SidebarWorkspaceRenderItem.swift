@@ -1,13 +1,15 @@
-import CmuxWorkspaces
-import Foundation
+public import Foundation
 
 /// One drawable item in the workspace sidebar.
 @MainActor
-enum SidebarWorkspaceRenderItem {
+public enum SidebarWorkspaceRenderItem<Tab: WorkspaceTabRepresenting> {
+    /// A workspace group header row and the workspace ids contained by that group.
     case groupHeader(WorkspaceGroup, memberWorkspaceIds: [UUID])
-    case workspace(Workspace)
+    /// A visible workspace row.
+    case workspace(Tab)
 
-    var id: SidebarWorkspaceRenderItemID {
+    /// Stable identity for SwiftUI row diffing.
+    public var id: SidebarWorkspaceRenderItemID {
         switch self {
         case .groupHeader(let group, _):
             return .group(group.id)
@@ -16,7 +18,8 @@ enum SidebarWorkspaceRenderItem {
         }
     }
 
-    var rowWorkspaceId: UUID {
+    /// The workspace id represented by this visible row.
+    public var rowWorkspaceId: UUID {
         switch self {
         case .groupHeader(let group, _):
             return group.anchorWorkspaceId
@@ -25,10 +28,15 @@ enum SidebarWorkspaceRenderItem {
         }
     }
 
-    static func renderItems(
-        tabs: [Workspace],
+    /// Builds the visible sidebar rows for the supplied workspaces and groups.
+    /// - Parameters:
+    ///   - tabs: The workspaces in storage order.
+    ///   - groupsById: Workspace groups keyed by their stable identifiers.
+    /// - Returns: Visible row items, including group headers and non-collapsed children.
+    public static func renderItems(
+        tabs: [Tab],
         groupsById: [UUID: WorkspaceGroup]
-    ) -> [SidebarWorkspaceRenderItem] {
+    ) -> [SidebarWorkspaceRenderItem<Tab>] {
         guard !tabs.isEmpty else { return [] }
         var memberWorkspaceIdsByGroupId: [UUID: [UUID]] = [:]
         for tab in tabs {
@@ -36,7 +44,7 @@ enum SidebarWorkspaceRenderItem {
                 memberWorkspaceIdsByGroupId[gid, default: []].append(tab.id)
             }
         }
-        var items: [SidebarWorkspaceRenderItem] = []
+        var items: [SidebarWorkspaceRenderItem<Tab>] = []
         items.reserveCapacity(tabs.count + groupsById.count)
         var lastEmittedGroupId: UUID? = nil
         var emittedHeaders: Set<UUID> = []
@@ -59,7 +67,6 @@ enum SidebarWorkspaceRenderItem {
                     skipChildrenUntilNextGroup = collapsedByGroupId[groupId] ?? false
                 }
             }
-            // Anchor workspaces are represented exclusively by the group header.
             if let groupId, let group = groupsById[groupId], group.anchorWorkspaceId == tab.id {
                 continue
             }

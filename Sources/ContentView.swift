@@ -10352,7 +10352,7 @@ struct VerticalTabsSidebar: View {
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
-        let workspaceRenderItems: [SidebarWorkspaceRenderItem]
+        let workspaceRenderItems: [SidebarWorkspaceRenderItem<Workspace>]
         let visibleWorkspaceRowIds: [UUID]
 
         var workspaceIds: [UUID] { tabIds }
@@ -10394,7 +10394,7 @@ struct VerticalTabsSidebar: View {
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings,
-            pinResolutionContext: sidebarSnapshot.pinResolutionContext,
+            pinResolutionContext: WorkspaceActionDispatcher.PinResolutionContext(sidebarSnapshot: sidebarSnapshot),
             tabIndexById: sidebarSnapshot.tabIndexById,
             workspaceById: sidebarSnapshot.workspaceById,
             workspaceGroupIdByWorkspaceId: sidebarSnapshot.workspaceGroupIdByWorkspaceId,

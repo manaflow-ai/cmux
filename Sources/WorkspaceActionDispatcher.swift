@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 enum WorkspaceActionDispatcher {
     struct PinResolutionContext {
@@ -16,6 +17,14 @@ enum WorkspaceActionDispatcher {
         init(workspacesById: [UUID: Workspace], liveWorkspaceIds: Set<UUID>) {
             self.workspacesById = workspacesById
             self.liveWorkspaceIds = liveWorkspaceIds
+        }
+
+        @MainActor
+        init(sidebarSnapshot: SidebarWorkspaceListSnapshot<Workspace>) {
+            self.init(
+                workspacesById: sidebarSnapshot.workspaceById,
+                liveWorkspaceIds: Set(sidebarSnapshot.tabIds)
+            )
         }
     }
 

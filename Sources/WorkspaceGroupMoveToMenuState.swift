@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 struct WorkspaceGroupMoveToMenuState: Equatable {
     let groups: [WorkspaceGroupMenuSnapshot.Item]

@@ -193,7 +193,7 @@ class TabManager: ObservableObject {
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
     private var workspacesById: [UUID: Workspace] = [:]
-    private var sidebarWorkspaceListSnapshotCache = SidebarWorkspaceListSnapshot(tabs: [], workspaceGroups: [])
+    private var sidebarWorkspaceListSnapshotCache = SidebarWorkspaceListSnapshot<Workspace>(tabs: [], workspaceGroups: [])
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -207,7 +207,7 @@ class TabManager: ObservableObject {
         set { workspaces.workspaceGroups = newValue }
     }
 
-    var sidebarWorkspaceListSnapshot: SidebarWorkspaceListSnapshot {
+    var sidebarWorkspaceListSnapshot: SidebarWorkspaceListSnapshot<Workspace> {
         sidebarWorkspaceListSnapshotCache
     }
 

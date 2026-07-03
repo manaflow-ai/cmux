@@ -1,22 +1,31 @@
-import CmuxFoundation
-import CmuxWorkspaces
-import Foundation
+public import CmuxFoundation
+public import Foundation
 
-/// Immutable sidebar topology derived from `TabManager.tabs` and workspace groups.
+/// Immutable sidebar topology derived from workspaces and workspace groups.
 @MainActor
-final class SidebarWorkspaceListSnapshot {
-    let tabs: [Workspace]
-    let tabIds: [UUID]
-    let workspaceCount: Int
-    let tabIndexById: [UUID: Int]
-    let workspaceById: [UUID: Workspace]
-    let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
-    let workspaceGroups: [WorkspaceGroup]
-    let workspaceGroupById: [UUID: WorkspaceGroup]
-    let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
-    let workspaceRenderItems: [SidebarWorkspaceRenderItem]
-    let visibleWorkspaceRowIds: [UUID]
-    let pinResolutionContext: WorkspaceActionDispatcher.PinResolutionContext
+public final class SidebarWorkspaceListSnapshot<Tab: WorkspaceTabRepresenting> {
+    /// The workspaces in storage order.
+    public let tabs: [Tab]
+    /// The workspace ids in storage order.
+    public let tabIds: [UUID]
+    /// The number of workspaces in the snapshot.
+    public let workspaceCount: Int
+    /// Workspace indices keyed by workspace id.
+    public let tabIndexById: [UUID: Int]
+    /// Workspaces keyed by workspace id.
+    public let workspaceById: [UUID: Tab]
+    /// Workspace group ids keyed by workspace id.
+    public let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
+    /// The workspace groups in sidebar order.
+    public let workspaceGroups: [WorkspaceGroup]
+    /// Workspace groups keyed by group id.
+    public let workspaceGroupById: [UUID: WorkspaceGroup]
+    /// Context-menu group entries in sidebar order.
+    public let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
+    /// Visible workspace-sidebar render items.
+    public let workspaceRenderItems: [SidebarWorkspaceRenderItem<Tab>]
+    /// Visible row workspace ids used by drop-indicator planning.
+    public let visibleWorkspaceRowIds: [UUID]
 
     private let workspaceGroupByAnchorId: [UUID: WorkspaceGroup]
     private let workspaceGroupAnchorIds: Set<UUID>
@@ -25,7 +34,11 @@ final class SidebarWorkspaceListSnapshot {
     private let fullRowPinnedWorkspaceIds: Set<UUID>
     private let visibleWorkspaceRowIdSet: Set<UUID>
 
-    init(tabs: [Workspace], workspaceGroups: [WorkspaceGroup]) {
+    /// Creates a snapshot from the current workspace and group topology.
+    /// - Parameters:
+    ///   - tabs: The workspaces in storage order.
+    ///   - workspaceGroups: The workspace groups in sidebar order.
+    public init(tabs: [Tab], workspaceGroups: [WorkspaceGroup]) {
         self.tabs = tabs
         self.tabIds = tabs.map(\.id)
         workspaceCount = tabs.count
@@ -50,10 +63,6 @@ final class SidebarWorkspaceListSnapshot {
         )
         visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         visibleWorkspaceRowIdSet = Set(visibleWorkspaceRowIds)
-        pinResolutionContext = WorkspaceActionDispatcher.PinResolutionContext(
-            workspacesById: workspacesById,
-            liveWorkspaceIds: Set(tabIds)
-        )
         topLevelWorkspaceIds = Self.makeTopLevelWorkspaceIds(
             tabs: tabs,
             groupsById: groupsById
@@ -67,7 +76,10 @@ final class SidebarWorkspaceListSnapshot {
         fullRowPinnedWorkspaceIds = Set(tabs.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
     }
 
-    func orderedWorkspaces(for workspaceIds: Set<UUID>) -> [Workspace] {
+    /// Returns workspaces from `workspaceIds`, sorted by the snapshot's storage order.
+    /// - Parameter workspaceIds: The workspace ids to resolve.
+    /// - Returns: The matching workspaces in storage order.
+    public func orderedWorkspaces(for workspaceIds: Set<UUID>) -> [Tab] {
         guard !workspaceIds.isEmpty else { return [] }
         return workspaceIds
             .compactMap { workspaceById[$0] }
@@ -76,7 +88,13 @@ final class SidebarWorkspaceListSnapshot {
             }
     }
 
-    func sidebarReorderWorkspaceIds(
+    /// Returns the row-id space a sidebar drag should plan in.
+    /// - Parameters:
+    ///   - draggedWorkspaceId: The dragged workspace id, when any.
+    ///   - targetWorkspaceId: The target workspace id, when any.
+    ///   - usesTopLevelRows: Whether top-level rows are already known to be required.
+    /// - Returns: Full raw workspace row ids or top-level row ids.
+    public func sidebarReorderWorkspaceIds(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID? = nil,
         usesTopLevelRows: Bool = false
@@ -90,7 +108,13 @@ final class SidebarWorkspaceListSnapshot {
         return topLevelWorkspaceIdsForReorder(promotingWorkspaceId: draggedWorkspaceId)
     }
 
-    func sidebarReorderPinnedWorkspaceIds(
+    /// Returns the pinned subset for the row-id space a sidebar drag should plan in.
+    /// - Parameters:
+    ///   - draggedWorkspaceId: The dragged workspace id, when any.
+    ///   - targetWorkspaceId: The target workspace id, when any.
+    ///   - usesTopLevelRows: Whether top-level rows are already known to be required.
+    /// - Returns: Pinned workspace ids in the chosen row-id space.
+    public func sidebarReorderPinnedWorkspaceIds(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID? = nil,
         usesTopLevelRows: Bool = false
@@ -104,7 +128,12 @@ final class SidebarWorkspaceListSnapshot {
         return topLevelPinnedWorkspaceIdsForReorder(promotingWorkspaceId: draggedWorkspaceId)
     }
 
-    func sidebarDropIndicatorRowIds(
+    /// Returns the visible row ids a drop indicator should use for one drag scope.
+    /// - Parameters:
+    ///   - draggedWorkspaceId: The dragged workspace id.
+    ///   - scope: The resolved drop-indicator scope.
+    /// - Returns: Visible row workspace ids for the scope.
+    public func sidebarDropIndicatorRowIds(
         draggedWorkspaceId: UUID,
         scope: SidebarWorkspaceReorderDropIndicatorScope
     ) -> [UUID] {
@@ -121,7 +150,12 @@ final class SidebarWorkspaceListSnapshot {
         }
     }
 
-    func sidebarReorderUsesTopLevelRows(
+    /// Whether a sidebar drag plans in top-level rows.
+    /// - Parameters:
+    ///   - draggedWorkspaceId: The dragged workspace id, when any.
+    ///   - targetWorkspaceId: The target workspace id, when any.
+    /// - Returns: `true` when group rows or a grouped-child promotion are involved.
+    public func sidebarReorderUsesTopLevelRows(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID?
     ) -> Bool {
@@ -191,7 +225,7 @@ final class SidebarWorkspaceListSnapshot {
     }
 
     private static func makeTopLevelWorkspaceIds(
-        tabs: [Workspace],
+        tabs: [Tab],
         groupsById: [UUID: WorkspaceGroup]
     ) -> [UUID] {
         var emittedGroupIds = Set<UUID>()
