@@ -891,6 +891,53 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertEqual(postCount, 2)
     }
 
+    func testTitleNotificationDispatcherAllowsSameTitleAfterSurfaceReplacement() {
+        let dispatcher = GhosttyTitleNotificationDispatcher()
+        let center = NotificationCenter()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let firstSurface = NSObject()
+        let replacementSurface = NSObject()
+        var postCount = 0
+        let immediateDelivery: (@escaping () -> Void) -> Void = { block in
+            postCount += 1
+            block()
+        }
+
+        XCTAssertTrue(
+            dispatcher.postTitleIfChanged(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "tmux",
+                object: firstSurface,
+                center: center,
+                deliver: immediateDelivery
+            )
+        )
+        XCTAssertFalse(
+            dispatcher.postTitleIfChanged(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "tmux",
+                object: firstSurface,
+                center: center,
+                deliver: immediateDelivery
+            )
+        )
+        XCTAssertTrue(
+            dispatcher.postTitleIfChanged(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "tmux",
+                object: replacementSurface,
+                center: center,
+                deliver: immediateDelivery
+            )
+        )
+
+        XCTAssertEqual(postCount, 2)
+    }
+
     func testTitleNotificationDispatcherEvictsOldSurfaceTitles() {
         let dispatcher = GhosttyTitleNotificationDispatcher(maximumTrackedTitles: 1)
         let center = NotificationCenter()
