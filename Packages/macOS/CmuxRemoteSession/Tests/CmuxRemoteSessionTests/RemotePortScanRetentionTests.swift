@@ -70,6 +70,28 @@ struct RemotePortScanRetentionTests {
         coordinator.stop()
     }
 
+    @Test("Teardown clears the retained ports and the miss counter together")
+    func teardownClearsRetentionState() {
+        let runner = ScriptedProcessRunner(stdouts: ["ttys010\t3001\n", ""])
+        let host = RecordingRemoteSessionHost()
+        let coordinator = Self.makeCoordinator(runner: runner, host: host)
+        let panelId = UUID()
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.remotePortScanTTYNames = [panelId: "ttys010"]
+            coordinator.performRemotePortScanLocked()
+            coordinator.performRemotePortScanLocked()
+            #expect(coordinator.remotePortScanEmptyMissByPanel.isEmpty == false)
+
+            coordinator.stopAllLocked()
+            #expect(coordinator.remoteScannedPortsByPanel.isEmpty)
+            #expect(coordinator.remotePortScanEmptyMissByPanel.isEmpty)
+        }
+
+        coordinator.stop()
+    }
+
     private static func makeCoordinator(
         runner: RemoteSessionProcessRunning,
         host: RemoteSessionHosting

@@ -83,9 +83,15 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var reverseRelayControlMasterForwardSpec: String?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]
+    /// Last-known listening ports per panel. To absorb the TTY attribution's
+    /// transient misses (`retainingTransientEmptyScansLocked`) this may lag the
+    /// most recent physical scan by up to `remotePortScanEmptyRetentionLimit`
+    /// scans, so it is not always a faithful view of the last scan. Kept in sync
+    /// with `remotePortScanEmptyMissByPanel`: every site that clears one clears
+    /// the other.
     var remoteScannedPortsByPanel: [UUID: [Int]] = [:]
-    /// Consecutive empty-scan count per panel, used to retain a panel's
-    /// last-known ports across the TTY attribution's transient misses.
+    /// Consecutive empty-scan count per panel backing the retention above.
+    /// Cleared wherever `remoteScannedPortsByPanel` is cleared.
     var remotePortScanEmptyMissByPanel: [UUID: Int] = [:]
     var remotePortScanBurstActive = false
     var remotePortScanActiveReason: PortScanKickReason?
@@ -259,6 +265,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         remotePortScanPendingReason = nil
         remotePortScanTTYNames.removeAll()
         remoteScannedPortsByPanel.removeAll()
+        remotePortScanEmptyMissByPanel.removeAll()
         stopRemotePortPollingLocked()
         polledRemotePorts = []
         remotePortPollBaselinePorts = nil
@@ -456,6 +463,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             remotePortScanPendingReason = nil
             cancelRemotePortScanCoalesceLocked()
             remoteScannedPortsByPanel.removeAll()
+            remotePortScanEmptyMissByPanel.removeAll()
             stopRemotePortPollingLocked()
             polledRemotePorts = []
             keepPolledRemotePortsUntilTTYScan = false
