@@ -303,11 +303,10 @@ struct AgentChatSessionRegistryClaudeObservationTests {
         #expect(livePID == nil)
     }
 
-    @Test func mobileChatLivenessRequiresMatchingClaudeSessionIdentity() {
+    @Test func mobileChatLivenessPrefersDeepestMatchingClaudeSessionIdentity() {
         let workspaceID = UUID()
         let surfaceID = UUID()
         let expectedSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
-        let otherSessionID = "b6fbc8e1-2c4b-4e51-a2b8-fd17c2ad59f0"
         let snapshot = CmuxTopProcessSnapshot(
             processes: [
                 topProcess(
@@ -322,7 +321,8 @@ struct AgentChatSessionRegistryClaudeObservationTests {
                     name: "claude",
                     path: "/opt/homebrew/bin/claude",
                     workspaceID: workspaceID,
-                    surfaceID: surfaceID
+                    surfaceID: surfaceID,
+                    parentPID: 809
                 ),
             ],
             sampledAt: Date(timeIntervalSince1970: 810),
@@ -335,11 +335,10 @@ struct AgentChatSessionRegistryClaudeObservationTests {
             kind: .claude,
             matchingSessionIDs: [expectedSessionID],
             processArgumentsAndEnvironment: { pid in
-                let sessionID = pid == 810 ? expectedSessionID : otherSessionID
                 return CmuxTopProcessArguments(
                     arguments: ["claude"],
                     environment: [
-                        "CLAUDE_CODE_SESSION_ID": sessionID,
+                        "CLAUDE_CODE_SESSION_ID": expectedSessionID,
                     ]
                 )
             }
@@ -453,12 +452,13 @@ struct AgentChatSessionRegistryClaudeObservationTests {
         path: String?,
         workspaceID: UUID,
         surfaceID: UUID,
-        isForeground: Bool = true
+        isForeground: Bool = true,
+        parentPID: Int = 1
     ) -> CmuxTopProcessInfo {
         let processGroupID = pid
         return CmuxTopProcessInfo(
             pid: pid,
-            parentPID: 1,
+            parentPID: parentPID,
             name: name,
             path: path,
             ttyDevice: nil,

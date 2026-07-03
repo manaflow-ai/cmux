@@ -196,7 +196,8 @@ final class AgentChatSessionRegistry {
             let livePID = Self.liveAgentPID(
                 surfaceID: surfaceID,
                 kind: kind,
-                matchingSessionIDs: expectedSessionIDs
+                matchingSessionIDs: expectedSessionIDs,
+                allowUnidentifiedFallback: kind == .claude
             )
             await MainActor.run { [weak self] in
                 guard let self,

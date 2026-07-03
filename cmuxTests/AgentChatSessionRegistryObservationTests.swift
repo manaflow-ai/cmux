@@ -394,6 +394,47 @@ struct AgentChatSessionRegistryObservationTests {
         #expect(livePID == nil)
     }
 
+    @Test func mobileChatLivenessFallsBackToUnidentifiedClaudeProcess() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 707,
+                    name: "claude",
+                    path: "/opt/homebrew/bin/claude",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 700),
+            includesProcessDetails: true
+        )
+
+        let livePID = AgentChatSessionRegistry.liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID.uuidString,
+            kind: .claude,
+            matchingSessionIDs: [AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID.uuidString)],
+            allowUnidentifiedFallback: true,
+            processArgumentsAndEnvironment: { _ in CmuxTopProcessArguments(arguments: ["claude"], environment: [:]) }
+        )
+
+        #expect(livePID == 707)
+    }
+
+    @Test func endedLifecycleIgnoresDelayedNonStartEvents() {
+        let delayed = WorkstreamEvent(
+            sessionId: "session",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            receivedAt: Date(timeIntervalSince1970: 1)
+        )
+        let restart = WorkstreamEvent(sessionId: "session", hookEventName: .sessionStart, source: "claude")
+        #expect(AgentChatSessionRegistry.nextState(previous: .ended, event: delayed) == .ended)
+        #expect(AgentChatSessionRegistry.nextState(previous: .ended, event: restart) == .idle)
+    }
+
     @Test func mobileChatObserverSkipsUnambiguousNonAgentWithoutReadingDetails() {
         let workspaceID = UUID()
         let surfaceID = UUID()

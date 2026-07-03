@@ -131,10 +131,6 @@ extension AgentChatSessionRegistry {
         return await waitForObservation(observation, upTo: timeout)
     }
 
-    func scheduleAgentProcessObservation() {
-        _ = observeAgentProcessesTask(scope: .all, force: false)
-    }
-
     func waitForObservation(_ observation: AgentChatObservationHandle, upTo timeout: Duration) async -> Bool {
         guard observeInFlight?.id == observation.id else {
             return true

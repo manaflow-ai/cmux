@@ -67,10 +67,13 @@ extension AgentChatSessionRegistry {
         return id
     }
 
-    static func nextState(
+    nonisolated static func nextState(
         previous: ChatAgentState,
         event: WorkstreamEvent
     ) -> ChatAgentState {
+        if stateIsEnded(previous), event.hookEventName != .sessionStart {
+            return .ended
+        }
         switch event.hookEventName {
         case .sessionStart:
             return .idle
@@ -95,7 +98,7 @@ extension AgentChatSessionRegistry {
         }
     }
 
-    static func stateIsEnded(_ state: ChatAgentState) -> Bool {
+    nonisolated static func stateIsEnded(_ state: ChatAgentState) -> Bool {
         if case .ended = state {
             return true
         }

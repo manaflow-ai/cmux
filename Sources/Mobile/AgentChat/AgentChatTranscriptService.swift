@@ -208,12 +208,6 @@ final class AgentChatTranscriptService {
         await registry.observeAgentProcessesForListing(surfaceIDs: surfaceIDs, waitUpTo: timeout)
     }
 
-    /// Starts one observe-floor scan without blocking the caller. Use this for
-    /// proactive refreshes where a later `descriptorChanged` push is enough.
-    func scheduleAgentProcessObservation() {
-        registry.scheduleAgentProcessObservation()
-    }
-
     /// The registry record for a session (send path needs the terminal
     /// binding).
     ///

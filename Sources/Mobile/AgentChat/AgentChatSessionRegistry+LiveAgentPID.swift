@@ -19,7 +19,8 @@ extension AgentChatSessionRegistry {
     nonisolated static func liveAgentPID(
         surfaceID: String,
         kind: ChatAgentKind,
-        matchingSessionIDs expectedSessionIDs: Set<String>
+        matchingSessionIDs expectedSessionIDs: Set<String>,
+        allowUnidentifiedFallback: Bool = false
     ) -> Int? {
         guard !expectedSessionIDs.isEmpty else { return nil }
         let snapshot = CmuxTopProcessSnapshot.capture(
@@ -31,6 +32,7 @@ extension AgentChatSessionRegistry {
             surfaceID: surfaceID,
             kind: kind,
             matchingSessionIDs: expectedSessionIDs,
+            allowUnidentifiedFallback: allowUnidentifiedFallback,
             processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
         )
     }
@@ -46,6 +48,7 @@ extension AgentChatSessionRegistry {
             surfaceID: surfaceID,
             kind: kind,
             matchingSessionIDs: nil,
+            allowUnidentifiedFallback: false,
             processArgumentsAndEnvironment: processArgumentsAndEnvironment
         )
     }
@@ -55,13 +58,19 @@ extension AgentChatSessionRegistry {
         surfaceID: String,
         kind: ChatAgentKind,
         matchingSessionIDs expectedSessionIDs: Set<String>?,
+        allowUnidentifiedFallback: Bool = false,
         processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?
     ) -> Int? {
         guard let surfaceUUID = UUID(uuidString: surfaceID) else { return nil }
         let rootPIDs = snapshot.pids(forCMUXSurfaceID: surfaceUUID)
         guard !rootPIDs.isEmpty else { return nil }
         let wantedID = kind.sourceName
-        for pid in snapshot.expandedPIDs(rootPIDs: rootPIDs).sorted() {
+        var matchedPID: (pid: Int, depth: Int)?
+        var unidentifiedFallbackPID: (pid: Int, depth: Int)?
+        var sawMismatchedSessionIdentity = false
+        let expandedPIDs = snapshot.expandedPIDs(rootPIDs: rootPIDs)
+        for pid in expandedPIDs.sorted() {
+            let depth = processTreeDepth(pid: pid, rootPIDs: rootPIDs, snapshot: snapshot)
             var details: CmuxTopProcessArguments?
             func loadDetails() -> CmuxTopProcessArguments? {
                 if details == nil {
@@ -81,14 +90,73 @@ extension AgentChatSessionRegistry {
                     agentID: def.id,
                     pid: pid,
                     details: loadDetails()
-                ),
-                      expectedSessionIDs.contains(candidateSessionID) else {
+                ) else {
+                    if allowUnidentifiedFallback {
+                        unidentifiedFallbackPID = preferredLiveAgentPID(
+                            current: unidentifiedFallbackPID,
+                            candidate: (pid, depth)
+                        )
+                    }
                     continue
                 }
+                if expectedSessionIDs.contains(candidateSessionID) {
+                    matchedPID = preferredLiveAgentPID(
+                        current: matchedPID,
+                        candidate: (pid, depth)
+                    )
+                } else {
+                    sawMismatchedSessionIdentity = true
+                }
+                continue
             }
-            return pid
+            matchedPID = preferredLiveAgentPID(
+                current: matchedPID,
+                candidate: (pid, depth)
+            )
+        }
+        if let matchedPID {
+            return matchedPID.pid
+        }
+        if !sawMismatchedSessionIdentity {
+            return unidentifiedFallbackPID?.pid
         }
         return nil
+    }
+
+    private nonisolated static func preferredLiveAgentPID(
+        current: (pid: Int, depth: Int)?,
+        candidate: (pid: Int, depth: Int)
+    ) -> (pid: Int, depth: Int) {
+        guard let current else { return candidate }
+        if candidate.depth > current.depth {
+            return candidate
+        }
+        if candidate.depth == current.depth,
+           candidate.pid > current.pid {
+            return candidate
+        }
+        return current
+    }
+
+    private nonisolated static func processTreeDepth(
+        pid: Int,
+        rootPIDs: Set<Int>,
+        snapshot: CmuxTopProcessSnapshot
+    ) -> Int {
+        guard pid > 0 else { return 0 }
+        var currentPID = pid
+        var depth = 0
+        var visited: Set<Int> = []
+        while !rootPIDs.contains(currentPID) {
+            guard visited.insert(currentPID).inserted,
+                  let parentPID = snapshot.process(pid: currentPID)?.parentPID,
+                  parentPID > 0 else {
+                break
+            }
+            currentPID = parentPID
+            depth += 1
+        }
+        return depth
     }
 
     private nonisolated static func observedSessionID(

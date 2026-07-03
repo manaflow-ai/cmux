@@ -242,6 +242,7 @@ extension WorkspaceDetailView {
             cachedChatToggleTerminalID: cachedChatToggleTerminalID
         )
         else { return false }
+        guard !Task.isCancelled else { return false }
         let sessions: [ChatSessionDescriptor]
         guard let refreshed = await coalescedIgnoredChatSessionSnapshot(
             source: source,
@@ -275,7 +276,11 @@ extension WorkspaceDetailView {
         let key = "\(workspaceID)#\(sourceIdentity)"
         if let task = ignoredChatSessionRefreshTask,
            ignoredChatSessionRefreshKey == key {
-            return await task.value
+            return await withTaskCancellationHandler {
+                await task.value
+            } onCancel: {
+                task.cancel()
+            }
         }
         let taskID = UUID()
         let task = Task { () -> [ChatSessionDescriptor]? in
@@ -288,7 +293,11 @@ extension WorkspaceDetailView {
         ignoredChatSessionRefreshKey = key
         ignoredChatSessionRefreshID = taskID
         ignoredChatSessionRefreshTask = task
-        let result = await task.value
+        let result = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
         if ignoredChatSessionRefreshKey == key,
            ignoredChatSessionRefreshID == taskID {
             ignoredChatSessionRefreshKey = nil
