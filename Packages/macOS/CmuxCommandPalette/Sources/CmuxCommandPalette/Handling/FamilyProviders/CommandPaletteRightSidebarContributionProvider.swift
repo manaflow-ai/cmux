@@ -64,6 +64,8 @@ public struct CommandPaletteRightSidebarContributionProvider {
             return "palette.showRightSidebarFeed"
         case .dock:
             return "palette.showRightSidebarDock"
+        case .customSidebar:
+            return "palette.showRightSidebarFiles"
         }
     }
 

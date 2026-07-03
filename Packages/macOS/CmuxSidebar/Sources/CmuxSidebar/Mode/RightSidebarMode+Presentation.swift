@@ -10,6 +10,7 @@ extension RightSidebarMode {
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
+        case .customSidebar: return "folder"
         }
     }
 }

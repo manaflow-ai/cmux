@@ -30,6 +30,8 @@ extension RightSidebarFocusTarget {
             return focusFirstItem ? .firstItem : .host
         case .dock:
             return focusFirstItem ? .firstItem : .host
+        case .customSidebar:
+            return .outline
         }
     }
 }

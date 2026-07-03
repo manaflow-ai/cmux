@@ -89,6 +89,8 @@ public final class RightSidebarFocusHostRouter {
                 dockHost?.focusFirstItemFromCoordinator()
             }
             return dockHost?.focusHostFromCoordinator() == true
+        case .customSidebar:
+            return false
         }
     }
 
