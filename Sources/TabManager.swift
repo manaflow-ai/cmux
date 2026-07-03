@@ -3275,11 +3275,16 @@ class TabManager: ObservableObject {
         guard !trimmed.isEmpty else { return }
         guard workspacesById[change.tabId]?.terminalPanel(for: change.surfaceId)?.surface === sourceSurface else { return }
         let key = PanelTitleUpdateKey(tabId: change.tabId, panelId: change.surfaceId)
-        // If a flush is already scheduled for this panel with the same stable
-        // title, re-arming the coalescer would only repeat identical work, so
-        // drop the redundant frame. A *different* pending title still falls
-        // through so the latest title wins.
-        if pendingPanelTitleUpdates[key]?.title == trimmed { return }
+        // If a flush is already scheduled for this exact surface with the same
+        // stable title, re-arming the coalescer would only repeat identical work,
+        // so drop the redundant frame. A replacement surface with the same title
+        // must refresh the pending source identity so the flush is not rejected.
+        if let pending = pendingPanelTitleUpdates[key],
+           pending.title == trimmed,
+           pending.sourceSurface === sourceSurface
+        {
+            return
+        }
 #if DEBUG
         if PanelTitleUpdateCoalescingSettings.diagnosticsEnabled(settings: settings) {
             cmuxDebugLog(

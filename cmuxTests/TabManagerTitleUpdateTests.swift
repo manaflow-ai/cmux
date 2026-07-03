@@ -503,6 +503,72 @@ struct TabManagerTitleUpdateTests {
     }
 
     @Test
+    func sameStableTitleFromReplacementSurfaceRefreshesPendingSource() async throws {
+        let suiteName = "TabManagerReplacementSurfaceTitle.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(500, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        let scheduler = ManualCoalescerScheduler()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        let originalSurface = try #require(workspace.terminalPanel(for: focusedPanelId)?.surface)
+        let stableTitle = "replacement ready"
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: originalSurface,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: stableTitle,
+            ]
+        )
+        await drainMainQueue()
+        #expect(scheduler.delays == [0.5])
+
+        let replacementPanel = try #require(
+            workspace.respawnTerminalSurface(
+                panelId: focusedPanelId,
+                command: "echo replacement",
+                focus: true
+            )
+        )
+        #expect(replacementPanel.surface !== originalSurface)
+        #expect(workspace.panelTitles[focusedPanelId] != stableTitle)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: replacementPanel.surface,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: stableTitle,
+            ]
+        )
+        await drainMainQueue()
+        #expect(scheduler.delays == [0.5, 0.5])
+
+        scheduler.fire(at: 0)
+        #expect(workspace.panelTitles[focusedPanelId] != stableTitle)
+
+        scheduler.fire(at: 1)
+        #expect(workspace.panelTitles[focusedPanelId] == stableTitle)
+        #expect(workspace.title == stableTitle)
+    }
+
+    @Test
     func stableTerminalNotificationTitleStripsSpinnerGlyphs() {
         // Leading braille spinner frames of the same logical title collapse to one
         // string — the standalone spinner token is dropped.
