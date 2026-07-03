@@ -178,10 +178,12 @@ public protocol ControlSidebarContext: AnyObject {
     func controlSidebarClearPorts(tabArg: String?, panelArg: String?) -> ControlSidebarPanelWriteResolution
 
     /// Enqueues the explicit-scope `report_pwd` directory update.
-    func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String)
+    /// `displayLabel` carries the optional human-friendly sidebar label
+    /// reported alongside the real filesystem path (`--path=`).
+    func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?)
 
     /// Applies the fallback `report_pwd` directory update.
-    func controlSidebarUpdateDirectory(tabArg: String?, panelArg: String?, directory: String) -> ControlSidebarPanelWriteResolution
+    func controlSidebarUpdateDirectory(tabArg: String?, panelArg: String?, directory: String, displayLabel: String?) -> ControlSidebarPanelWriteResolution
 
     /// Runs the explicit-scope `report_shell_state` fast path (dedupe gate +
     /// enqueue).

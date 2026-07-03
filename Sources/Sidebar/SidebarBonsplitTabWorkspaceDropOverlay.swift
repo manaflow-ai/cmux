@@ -7,18 +7,18 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     @MainActor
     final class TargetBridge {
         fileprivate weak var view: SidebarBonsplitTabWorkspaceDropView?
-        fileprivate var targets: [SidebarDropPlanner.WorkspaceDropTarget] = []
+        fileprivate var targets = SidebarDropPlanner.OrderedWorkspaceDropTargets([])
 
         func updateTargets(_ targets: [SidebarDropPlanner.WorkspaceDropTarget]) {
-            self.targets = targets
-            guard !targets.isEmpty else { return }
+            self.targets = SidebarDropPlanner.OrderedWorkspaceDropTargets(targets)
+            guard !self.targets.isEmpty else { return }
             DispatchQueue.main.async { [weak view] in
                 view?.performPendingDropIfPossible()
             }
         }
 
         func clearTargets() {
-            targets = []
+            targets = SidebarDropPlanner.OrderedWorkspaceDropTargets([])
         }
     }
 
@@ -130,8 +130,8 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     private var isRequestingWorkspaceDropTargets = false
     private var workspaceDropTargetRequestId: UInt64 = 0
     private var pendingDrop: PendingDrop?
-    private var targets: [SidebarDropPlanner.WorkspaceDropTarget] {
-        targetBridge?.targets ?? []
+    private var targets: SidebarDropPlanner.OrderedWorkspaceDropTargets {
+        targetBridge?.targets ?? SidebarDropPlanner.OrderedWorkspaceDropTargets([])
     }
 
     override var isFlipped: Bool { true }

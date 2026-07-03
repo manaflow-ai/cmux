@@ -26,14 +26,20 @@ public enum ComposerDictationState: Equatable {
     /// Whether the engine is actively capturing audio (drives the listening UI).
     public var isListening: Bool { self == .listening }
 
-    /// Whether dictation owns the composer text and the field must be locked
-    /// (non-editable). True while ``listening`` (partials are streaming in) and
-    /// while ``stopping`` (the final result is still pending). Locking the field
-    /// across both states is what guarantees a user edit cannot be silently
-    /// discarded by a later partial/final callback: the user simply cannot type
-    /// until dictation fully settles to ``idle``. The mic toggle and send stay
-    /// live, and send hard-cancels dictation back to ``idle``, re-enabling editing.
-    public var locksComposerField: Bool { self == .listening || self == .stopping }
+    /// Whether dictation owns (or is about to own) the composer text and the field
+    /// must be locked (non-editable). True while ``requestingPermission`` (the
+    /// engine is spinning up off-main, ~100-300ms, after which partials will rewrite
+    /// the field from the base text captured at start), ``listening`` (partials are
+    /// streaming in), and ``stopping`` (the final result is still pending). Locking
+    /// from the very first state guarantees a user edit cannot be silently discarded
+    /// by a later partial/final callback: the user simply cannot type until dictation
+    /// settles to ``idle``. (Locking through ``requestingPermission`` is what closes
+    /// the async-spin-up edit-loss window the synchronous start path never had.) The
+    /// mic toggle and send stay live, and send hard-cancels dictation back to
+    /// ``idle``, re-enabling editing.
+    public var locksComposerField: Bool {
+        self == .requestingPermission || self == .listening || self == .stopping
+    }
 
     /// Whether a tap should be accepted to start dictation. Rejected while a
     /// request is in flight, while already listening, while stopping, or when the
