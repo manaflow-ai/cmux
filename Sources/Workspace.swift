@@ -5526,12 +5526,17 @@ final class Workspace: Identifiable, ObservableObject {
     /// command is not tracked as a remote terminal surface (see `tracksRemoteTerminalSurface`
     /// in the split/surface creation paths), even inside a remote workspace, so such a
     /// subagent pane is kept open here too. Surfaces that are genuinely remote — tracked
-    /// remote terminals or those already routed through remote child-exit demotion — return
-    /// `false` and keep their dedicated keep-open / teardown handling.
+    /// remote terminals, those already routed through remote child-exit demotion, or a
+    /// persistent remote PTY attach whose session ended (still untracked with its own SSH
+    /// attach command + wait-after set, but owned by `shouldKeepPersistentRemoteSurfaceOpenAfterChildExit`)
+    /// — return `false` here so `closePanelAfterChildExited` runs their dedicated persistent-remote
+    /// keep-open branch, which also performs the remote cleanup (`markPersistentRemotePTYAttachFailed`)
+    /// this local path would otherwise skip.
     @MainActor
     func shouldKeepSurfaceOpenAfterCommandExit(surfaceId: UUID) -> Bool {
         guard !isRemoteTerminalSurface(surfaceId),
-              !pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId) else {
+              !pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId),
+              !shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId) else {
             return false
         }
         guard let surface = terminalPanel(for: surfaceId)?.surface else { return false }
