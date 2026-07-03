@@ -436,6 +436,30 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func nonRecoverableWebContentTerminationKeepsNavigationCallbacksActive() {
+        let failedURL = URL(string: "https://example.invalid/nonrecoverable")!
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+
+        simulateWebContentProcessTermination(for: panel)
+        #expect(!panel.hasRecoverableWebContentTermination)
+
+        panel.navigate(to: failedURL)
+        panel.webView.navigationDelegate?.webView?(
+            panel.webView,
+            didFailProvisionalNavigation: nil,
+            withError: NSError(
+                domain: NSURLErrorDomain,
+                code: NSURLErrorCannotFindHost,
+                userInfo: [NSURLErrorFailingURLStringErrorKey: failedURL.absoluteString]
+            )
+        )
+
+        #expect(panel.currentURL == failedURL)
+        #expect(panel.pageTitle == failedURL.absoluteString)
+    }
+
+    @Test
     func floatingPopupInheritsOpenerWebsiteDataStore() throws {
         let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
         defer { panel.close() }
