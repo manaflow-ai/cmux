@@ -54,7 +54,8 @@ struct TerminalInputReportParser {
         case 0x63:
             return intermediates.isEmpty && isDeviceAttributesReport(parameters)
         case 0x6E:
-            return intermediates.isEmpty && startsWithQuestionMark(parameters)
+            return intermediates.isEmpty
+                && (startsWithQuestionMark(parameters) || isStandardDeviceStatusReport(parameters))
         case 0x75:
             return intermediates.isEmpty && startsWithQuestionMark(parameters)
         case 0x79:
@@ -88,6 +89,10 @@ struct TerminalInputReportParser {
     private func isDeviceAttributesReport(_ parameters: [UInt32]) -> Bool {
         guard let first = parameters.first else { return false }
         return first == 0x3F || first == 0x3E
+    }
+
+    private func isStandardDeviceStatusReport(_ parameters: [UInt32]) -> Bool {
+        parameters == [0x30] || parameters == [0x33]
     }
 
     private func startsWithQuestionMark(_ parameters: [UInt32]) -> Bool {
