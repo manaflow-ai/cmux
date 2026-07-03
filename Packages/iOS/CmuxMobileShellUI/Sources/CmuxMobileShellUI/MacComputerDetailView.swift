@@ -38,8 +38,8 @@ struct MacComputerDetailView: View {
 
     /// Latest keep-awake status from the connected Mac (nil until first load).
     @State private var keepAwakeStatus: MobileMacPowerStatus?
-    /// True while a sleep / disable-keep-awake / status request is in flight.
-    @State private var isPowerBusy = false
+    /// Number of sleep / disable-keep-awake / status requests in flight.
+    @State private var powerBusyOperationCount = 0
     /// Drives the "Sleep this Mac?" confirmation dialog.
     @State private var pendingSleep = false
     /// Transient feedback after a power action (e.g. a refused sleep), if any.
@@ -424,9 +424,25 @@ struct MacComputerDetailView: View {
         "\(isForeground)-\(store.supportsMacPowerControl)"
     }
 
+    private var isPowerBusy: Bool {
+        powerBusyOperationCount > 0
+    }
+
+    @MainActor
+    private func beginPowerOperation() {
+        powerBusyOperationCount += 1
+    }
+
+    @MainActor
+    private func endPowerOperation() {
+        powerBusyOperationCount = max(0, powerBusyOperationCount - 1)
+    }
+
+    @MainActor
     private func loadPowerStatus() async {
         guard isForeground, store.supportsMacPowerControl else { return }
-        isPowerBusy = true
+        beginPowerOperation()
+        defer { endPowerOperation() }
         let status = await store.macPowerStatus(macDeviceID: macDeviceID)
         if let status {
             keepAwakeStatus = status
@@ -437,13 +453,14 @@ struct MacComputerDetailView: View {
                 "mobile.computers.power.statusUnavailable",
                 defaultValue: "Couldn't read Mac power status.")
         }
-        isPowerBusy = false
     }
 
+    @MainActor
     private func disableKeepAwake() {
-        isPowerBusy = true
+        beginPowerOperation()
         powerMessage = nil
-        Task {
+        Task { @MainActor in
+            defer { endPowerOperation() }
             let status = await store.disableMacKeepAwake(macDeviceID: macDeviceID)
             if let status {
                 keepAwakeStatus = status
@@ -453,16 +470,16 @@ struct MacComputerDetailView: View {
                     "mobile.computers.power.statusUnavailable",
                     defaultValue: "Couldn't read Mac power status.")
             }
-            isPowerBusy = false
         }
     }
 
+    @MainActor
     private func sleepMac() {
-        isPowerBusy = true
+        beginPowerOperation()
         powerMessage = nil
-        Task {
+        Task { @MainActor in
+            defer { endPowerOperation() }
             let result = await store.sleepMac(macDeviceID: macDeviceID)
-            isPowerBusy = false
             switch result {
             case .requested:
                 // The connection drops as the Mac sleeps; nothing to surface.
