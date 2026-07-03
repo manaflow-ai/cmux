@@ -295,6 +295,14 @@ public enum AgentLaunchSanitizer {
         return result
     }
 
+    /// Fork-aware preserved Codex launch arguments. Restored during the main
+    /// merge (the merge took main's package version, which dropped our public
+    /// method); AgentResumeCommandBuilder resumes Codex/codex-teams forks through
+    /// it. Delegates to the (now fork-aware) internal preservation logic.
+    public static func preservedCodexForkArguments(args: [String]) -> [String]? {
+        preservedCodexLaunchArguments(args: args)
+    }
+
     private static func preservedCodexLaunchArguments(args: [String]) -> [String]? {
         if let forkCommand = codexForkCommand(in: args) {
             return CodexForkLaunchCapture(args: args, forkIndex: forkCommand.forkIndex, sessionIndex: forkCommand.sessionIndex, preserveOptions: preserveOptions)
