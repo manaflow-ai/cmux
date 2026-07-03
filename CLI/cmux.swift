@@ -295,9 +295,14 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    func lookupCurrentSession(workspaceId: String?, surfaceId: String?) throws -> ClaudeHookSessionRecord? {
+    func lookupCurrentSession(
+        workspaceId: String?,
+        surfaceId: String?,
+        matchingPID pid: Int? = nil
+    ) throws -> ClaudeHookSessionRecord? {
         let normalizedWorkspace = normalizeOptional(workspaceId)
         let normalizedSurface = normalizeOptional(surfaceId)
+        let matchingPID = pid.flatMap { $0 > 0 ? $0 : nil }
         guard normalizedWorkspace != nil || normalizedSurface != nil else {
             return nil
         }
@@ -310,6 +315,35 @@ final class ClaudeHookSessionStore {
                     return false
                 }
                 return true
+            }
+            func startedEarlier(_ lhs: ClaudeHookSessionRecord, _ rhs: ClaudeHookSessionRecord) -> Bool {
+                if lhs.startedAt != rhs.startedAt {
+                    return lhs.startedAt < rhs.startedAt
+                }
+                return lhs.sessionId < rhs.sessionId
+            }
+            func newestSession(in records: [ClaudeHookSessionRecord]) -> ClaudeHookSessionRecord? {
+                guard !records.isEmpty else { return nil }
+                if let normalizedSurface {
+                    let nonSurfaceSessionRecords = records.filter {
+                        normalizeOptional($0.sessionId) != normalizedSurface
+                    }
+                    if !nonSurfaceSessionRecords.isEmpty {
+                        return nonSurfaceSessionRecords.max(by: startedEarlier)
+                    }
+                }
+                return records.max(by: startedEarlier)
+            }
+            let matches = state.sessions.values.filter { record in
+                matchesTarget(record)
+            }
+            if let matchingPID {
+                let pidMatches = matches.filter { $0.pid == matchingPID }
+                if let record = newestSession(in: pidMatches) {
+                    return record
+                }
+                let pidlessMatches = matches.filter { $0.pid == nil }
+                return matches.count == 1 ? pidlessMatches.first : nil
             }
             func activeRecord(_ active: ClaudeHookActiveSessionRecord?) -> ClaudeHookSessionRecord? {
                 guard let active,
@@ -327,23 +361,7 @@ final class ClaudeHookSessionStore {
                let record = activeRecord(state.activeSessionsByWorkspace[normalizedWorkspace]) {
                 return record
             }
-            let matches = state.sessions.values.filter { record in
-                matchesTarget(record)
-            }
-            func startedEarlier(_ lhs: ClaudeHookSessionRecord, _ rhs: ClaudeHookSessionRecord) -> Bool {
-                if lhs.startedAt != rhs.startedAt {
-                    return lhs.startedAt < rhs.startedAt
-                }
-                return lhs.sessionId < rhs.sessionId
-            }
-            guard !matches.isEmpty else { return nil }
-            if let normalizedSurface,
-               let nonSurfaceSession = matches
-                   .filter({ normalizeOptional($0.sessionId) != normalizedSurface })
-                   .max(by: startedEarlier) {
-                return nonSurfaceSession
-            }
-            return matches.max(by: startedEarlier)
+            return newestSession(in: matches)
         }
     }
 
@@ -29692,14 +29710,26 @@ export default CMUXSessionRestore;
             }
             return (workspaceId, surfaceId)
         }
+        var shouldDropIdlessHookAfterAdoptionMiss = false
         if shouldAdoptSurfaceSessionForIdlessHook(action: action),
            let target = idlessHookSurfaceLookupTarget() {
             do {
                 if let existing = try store.lookupCurrentSession(
                     workspaceId: target.workspaceId,
-                    surfaceId: target.surfaceId
+                    surfaceId: target.surfaceId,
+                    matchingPID: inferredPID
                 ) {
                     sessionId = existing.sessionId
+                } else if inferredPID != nil {
+                    telemetry.breadcrumb("\(def.name)-hook.idless-session-lookup.pid-miss")
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.idless.lookup.pidMiss agent=\(def.name) subcommand=\(subcommand) workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) pid=\(inferredPID.map(String.init) ?? "nil")",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                    shouldDropIdlessHookAfterAdoptionMiss = true
                 }
             } catch {
                 telemetry.breadcrumb("\(def.name)-hook.idless-session-lookup.failed")
@@ -29721,6 +29751,11 @@ export default CMUXSessionRestore;
 #endif
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
+        if shouldDropIdlessHookAfterAdoptionMiss {
+            didSendFeedTelemetry = true
+            print("{}")
+            return
+        }
         // Destructive session teardown shared by a genuine (non-turn-boundary)
         // `session-end` and the dedicated `session-finalize` action: consume the
         // restore record, clear the surface resume binding, and clear PID routing.

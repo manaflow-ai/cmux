@@ -2223,6 +2223,83 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testGeminiIdlessAfterAgentUsesHookPIDInsteadOfNewerActiveSession() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop-pid-bound")
+        defer { context.cleanup() }
+
+        let olderSessionId = "gemini-older-pid-session"
+        let newerSessionId = "gemini-newer-pid-session"
+        let baseEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "gemini",
+            executable: "/usr/local/bin/gemini"
+        )
+        var olderEnvironment = baseEnvironment
+        olderEnvironment["CMUX_GEMINI_PID"] = "44001"
+        var newerEnvironment = baseEnvironment
+        newerEnvironment["CMUX_GEMINI_PID"] = String(Int(getpid()))
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 96)
+
+        let olderStart = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: olderEnvironment
+        )
+        XCTAssertFalse(olderStart.timedOut, olderStart.stderr)
+        XCTAssertEqual(olderStart.status, 0, olderStart.stderr)
+
+        let newerStart = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(newerSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: newerEnvironment
+        )
+        XCTAssertFalse(newerStart.timedOut, newerStart.stderr)
+        XCTAssertEqual(newerStart.status, 0, newerStart.stderr)
+
+        let stopCommandStart = context.state.commands.count
+        let staleOlderIdlessStop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"older done"}"#,
+            extraEnvironment: olderEnvironment
+        )
+        XCTAssertFalse(staleOlderIdlessStop.timedOut, staleOlderIdlessStop.stderr)
+        XCTAssertEqual(staleOlderIdlessStop.status, 0, staleOlderIdlessStop.stderr)
+        let stopCommands = Array(context.state.commands.dropFirst(stopCommandStart))
+        XCTAssertFalse(
+            stopCommands.contains {
+                $0.hasPrefix("notify_target") || ($0.hasPrefix("set_status gemini ") && $0.contains(" Idle "))
+            },
+            "A stale id-less Stop from the older Gemini PID must not notify or mark the active newer process idle, saw \(stopCommands)"
+        )
+        XCTAssertFalse(
+            stopCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle gemini idle --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "A stale id-less Stop from the older Gemini PID must not set the pane lifecycle idle while the newer PID is running, saw \(stopCommands)"
+        )
+
+        let storeURL = context.root.appendingPathComponent("gemini-hook-sessions.json")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let newer = try XCTUnwrap(sessions[newerSessionId] as? [String: Any])
+        XCTAssertNotEqual(
+            newer["agentLifecycle"] as? String,
+            "idle",
+            "A stale id-less Stop from the older Gemini PID must not rewrite the newer active session"
+        )
+        XCTAssertNil(
+            sessions[context.surfaceId],
+            "A PID-matched id-less Stop must not create a surface-id fallback record"
+        )
+    }
+
     func testGeminiIdlessAfterAgentIgnoresStaleDuplicateOlderSessionStart() throws {
         let context = try makeClaudeHookContext(name: "gemini-idless-stop-ignores-stale-start")
         defer { context.cleanup() }
