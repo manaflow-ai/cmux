@@ -8581,7 +8581,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // A window/quit close only detaches — the remote tmux server stays alive.
             self.remoteTmuxController.handleRemoteWindowClosed(windowId: windowId)
             // Also detach any per-workspace mirrors in this window (covers the
-            // socket `remote.tmux.mirror` path into a non-dedicated window), so
+            // socket `remote.tmux.attach_here` path into a non-dedicated window), so
             // their pane surfaces / ssh connections don't leak on window close.
             if let manager {
                 self.remoteTmuxController.handleWindowWorkspacesClosed(

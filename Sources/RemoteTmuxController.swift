@@ -1105,7 +1105,7 @@ final class RemoteTmuxController {
     }
 
     /// Detaches any session mirrors whose workspace is in a closing window
-    /// (covers the `remote.tmux.mirror` socket path that mirrors into a
+    /// (covers the `remote.tmux.attach_here` socket path that mirrors into a
     /// non-dedicated window, whose generic close doesn't run handleWorkspaceClosed).
     /// Window close = detach + preserve remote (no kill); pane surfaces are torn
     /// down via `detachObserver`.
@@ -1121,7 +1121,7 @@ final class RemoteTmuxController {
         }
         // For any host left with no live mirror or connection, close its shared SSH
         // ControlMaster now — the dedicated-window/last-session paths already do this,
-        // and a non-dedicated `remote.tmux.mirror` window must too or the master
+        // and a non-dedicated `remote.tmux.attach_here` window must too or the master
         // lingers for the full ControlPersist window.
         for (hash, host) in affectedHosts {
             let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == hash }

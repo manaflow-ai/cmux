@@ -205,7 +205,7 @@ actor RemoteTmuxSSHTransport {
     ///
     /// Single-flight: the actor is reentrant across `await`, so two concurrent
     /// bulk-mirror callers for the same host (e.g. a dedicated-window attach and a
-    /// `remote.tmux.mirror` socket call) could otherwise both observe no master and
+    /// `remote.tmux.attach_here` socket call) could otherwise both observe no master and
     /// both open it, recreating the race. Every caller shares one in-flight
     /// ``readinessTask``; the check-create-store below is a single synchronous actor
     /// step (no `await` between them), so only one caller becomes the creator.
