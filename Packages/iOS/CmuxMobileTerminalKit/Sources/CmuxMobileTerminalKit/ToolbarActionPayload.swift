@@ -42,11 +42,15 @@ extension ToolbarActionPayload {
     /// (empty text, or an unencodable key combo).
     ///
     /// For ``text(_:)`` newlines are normalized to carriage returns, matching the
-    /// terminal input pipeline's Return handling.
+    /// terminal input pipeline's Return handling. `\r\n` is collapsed to a single
+    /// `\r` first so CRLF text (e.g. pasted or imported) does not send a double
+    /// Return.
     public var output: Data? {
         switch self {
         case let .text(value):
-            let normalized = value.replacingOccurrences(of: "\n", with: "\r")
+            let normalized = value
+                .replacingOccurrences(of: "\r\n", with: "\r")
+                .replacingOccurrences(of: "\n", with: "\r")
             guard !normalized.isEmpty else { return nil }
             return Data(normalized.utf8)
         case let .keyCombo(modifiers, key):
