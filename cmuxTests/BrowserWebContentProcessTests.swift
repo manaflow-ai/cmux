@@ -347,7 +347,7 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func minimumViewportSizeIgnoresPageZoomChanges() {
+    func minimumViewportSizeAccountsForPageZoomChanges() {
         let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
         defer { panel.close() }
         panel.webView.frame = NSRect(x: 0, y: 0, width: 700, height: 600)
@@ -356,7 +356,7 @@ struct BrowserWebContentProcessTests {
         #expect(abs(panel.webView.magnification - 0.5) < 0.0001)
 
         #expect(panel.setPageZoomFactor(2.0))
-        #expect(abs(panel.webView.magnification - 0.5) < 0.0001)
+        #expect(abs(panel.webView.magnification - 0.25) < 0.0001 && (700 / (panel.webView.pageZoom * panel.webView.magnification)) >= 1400)
     }
 
     @Test
@@ -369,8 +369,8 @@ struct BrowserWebContentProcessTests {
 
         panel.webView.frame = NSRect(x: 0, y: 0, width: 700, height: 600); panel.webView.pageZoom = 2.0
         let maximum = try #require(panel.maximumReachableMinimumViewportSize())
-        #expect(abs(maximum.width - 7000) < 0.001)
-        #expect(abs(maximum.height - 6000) < 0.001)
+        #expect(abs(maximum.width - 3500) < 0.001)
+        #expect(abs(maximum.height - 3000) < 0.001)
     }
 
     @Test
