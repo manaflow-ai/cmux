@@ -398,25 +398,40 @@ struct CmuxTaskManagerRowView: View, Equatable {
         .cmuxAppKitContextMenu {
             var elements: [CmuxContextMenuElement] = []
             if row.canViewWorkspace {
-                elements.append(.button(
-                    String(localized: "taskManager.contextMenu.viewWorkspace", defaultValue: "View Workspace"),
-                    systemImage: "rectangle.stack"
-                ) { onViewWorkspace() })
+                elements.append(
+                    CmuxContextMenuElement(
+                        button: String(
+                            localized: "taskManager.contextMenu.viewWorkspace",
+                            defaultValue: "View Workspace"
+                        ),
+                        systemImage: "rectangle.stack"
+                    ) { onViewWorkspace() }
+                )
             }
             if row.canViewTerminal {
-                elements.append(.button(
-                    String(localized: "taskManager.contextMenu.viewTerminal", defaultValue: "View Terminal"),
-                    systemImage: "terminal"
-                ) { onViewTerminal() })
+                elements.append(
+                    CmuxContextMenuElement(
+                        button: String(
+                            localized: "taskManager.contextMenu.viewTerminal",
+                            defaultValue: "View Terminal"
+                        ),
+                        systemImage: "terminal"
+                    ) { onViewTerminal() }
+                )
             }
             if row.canKillProcess {
                 if row.canViewWorkspace || row.canViewTerminal {
                     elements.append(.separator)
                 }
-                elements.append(.button(
-                    String(localized: "taskManager.contextMenu.killProcess", defaultValue: "Kill Process..."),
-                    systemImage: "xmark.octagon"
-                ) { onKillProcess() })
+                elements.append(
+                    CmuxContextMenuElement(
+                        button: String(
+                            localized: "taskManager.contextMenu.killProcess",
+                            defaultValue: "Kill Process..."
+                        ),
+                        systemImage: "xmark.octagon"
+                    ) { onKillProcess() }
+                )
             }
             return elements
         }
