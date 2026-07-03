@@ -1,4 +1,10 @@
-extension TerminalSurface {
+struct TerminalControlSequenceParser {
+    private let scalars: [Unicode.Scalar]
+
+    init(scalars: [Unicode.Scalar]) {
+        self.scalars = scalars
+    }
+
     /// Returns the scalar length of a complete control sequence that must be
     /// routed to the terminal parser (`process_output`) rather than delivered to
     /// the PTY: OSC/DCS/PM/APC strings, and the CSI DSR *queries* (`ESC[6n`
@@ -9,19 +15,16 @@ extension TerminalSurface {
     /// `ESC[…R`, DSR results `ESC[0n`/`ESC[3n`) — is deliberately not matched so
     /// it stays on the input path toward the foreground program. Returns nil for
     /// anything else. See #5763: the emulator was failing to answer `ESC[6n`.
-    static func terminalControlSequenceLength(
-        _ scalars: [Unicode.Scalar],
-        from start: Int
-    ) -> Int? {
+    func terminalControlSequenceLength(from start: Int) -> Int? {
         guard start + 1 < scalars.count, scalars[start].value == 0x1B else { return nil }
 
         switch scalars[start + 1].value {
         case 0x5B: // CSI: ESC [ ... — only DSR queries the emulator answers
-            return csiDeviceStatusQueryLength(scalars, from: start)
+            return csiDeviceStatusQueryLength(from: start)
         case 0x5D: // OSC: ESC ] ... (BEL | ST)
-            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
+            return stringControlSequenceLength(from: start, terminatesWithBEL: true)
         case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
-            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
+            return stringControlSequenceLength(from: start, terminatesWithBEL: false)
         default:
             return nil
         }
@@ -38,11 +41,8 @@ extension TerminalSurface {
     /// keys that share those finals (xterm Shift+F3 is `CSI 1 ; 2 R`) are bytes
     /// the foreground PTY program is waiting for, so they stay on the input path.
     /// Returns nil for any non-query CSI.
-    private static func csiDeviceStatusQueryLength(
-        _ scalars: [Unicode.Scalar],
-        from start: Int
-    ) -> Int? {
-        guard let length = csiControlSequenceLength(scalars, from: start) else { return nil }
+    private func csiDeviceStatusQueryLength(from start: Int) -> Int? {
+        guard let length = csiControlSequenceLength(from: start) else { return nil }
         guard scalars[start + length - 1].value == 0x6E else { return nil }
         if length == 4 {
             switch scalars[start + 2].value {
@@ -61,10 +61,7 @@ extension TerminalSurface {
     }
 
     /// Finds the terminator for a complete CSI sequence.
-    private static func csiControlSequenceLength(
-        _ scalars: [Unicode.Scalar],
-        from start: Int
-    ) -> Int? {
+    private func csiControlSequenceLength(from start: Int) -> Int? {
         var index = start + 2
         while index < scalars.count {
             let value = scalars[index].value
@@ -80,11 +77,7 @@ extension TerminalSurface {
     }
 
     /// Finds the terminator for ESC-prefixed string controls without accepting partial sequences.
-    private static func stringControlSequenceLength(
-        _ scalars: [Unicode.Scalar],
-        from start: Int,
-        terminatesWithBEL: Bool
-    ) -> Int? {
+    private func stringControlSequenceLength(from start: Int, terminatesWithBEL: Bool) -> Int? {
         var index = start + 2
         while index < scalars.count {
             let value = scalars[index].value

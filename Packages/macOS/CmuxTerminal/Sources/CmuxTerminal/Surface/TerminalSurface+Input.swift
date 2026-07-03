@@ -201,6 +201,7 @@ extension TerminalSurface {
         bufferedText.reserveCapacity(text.count)
         var previousWasCR = false
         let scalars = Array(text.unicodeScalars)
+        let controlSequenceParser = TerminalControlSequenceParser(scalars: scalars)
 
         func flushBufferedText() {
             guard !bufferedText.isEmpty else { return }
@@ -264,10 +265,10 @@ extension TerminalSurface {
                     flushBufferedText()
                     appendKey(nav.keycode, mods: nav.mods, label: nav.label)
                     index += nav.length
-                } else if let length = terminalControlSequenceLength(scalars, from: index) {
+                } else if let length = controlSequenceParser.terminalControlSequenceLength(from: index) {
                     // A sequence the *emulator* must consume — a DSR query
-                    // (`ESC[6n` / `ESC[5n`) or an OSC/DCS/PM/APC string — is
-                    // injected into the terminal parser as process output, not the
+                    // (`ESC[6n` / `ESC[?6n` / `ESC[5n`) or an OSC/DCS/PM/APC
+                    // string — is injected into the terminal parser as process output, not the
                     // PTY input stream, so Ghostty can update state or answer (a
                     // DSR query makes it emit its own CPR reply). Splitting these
                     // into Escape + literal text is the #5763 cursor-desync bug.
