@@ -4155,13 +4155,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// A failed close must not strand the user on the neighbor the optimistic
     /// removal auto-picked. Restore the pre-delete selection, but only when the
     /// current selection is still that auto-picked neighbor — so a selection the
-    /// user changed while the close was in flight is left untouched — and only when
-    /// the previously-selected row is present again.
+    /// user changed while the close was in flight is left untouched. The row may
+    /// have reappeared through an authoritative refresh under a new UI id, so
+    /// resolve the current id from the same remote workspace identity rollback uses
+    /// for dedupe before falling back to the captured id.
     private func restoreSelectionAfterRollback(_ rollback: WorkspaceCloseRollback) {
         guard selectedWorkspaceID == rollback.autoSelection,
               rollback.autoSelection != rollback.previousSelection else { return }
         if let previous = rollback.previousSelection {
-            if workspaces.contains(where: { $0.id == previous }) {
+            let ownerMacDeviceID = rollback.macKey == Self.foregroundAnonymousKey ? nil : rollback.macKey
+            if let currentID = rowWorkspaceID(
+                forRemoteWorkspaceID: rollback.workspace.rpcWorkspaceID,
+                macDeviceID: ownerMacDeviceID
+            ) {
+                selectedWorkspaceID = currentID
+            } else if workspaces.contains(where: { $0.id == previous }) {
                 selectedWorkspaceID = previous
             }
         } else {
