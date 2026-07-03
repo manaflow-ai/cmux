@@ -1396,14 +1396,14 @@ jobs:
   ui-regressions:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'depot-macos-latest' }}
     # Cold builds after project/package changes can spend more than 25 minutes
     # in build-for-testing before the UI regression script starts.
     timeout-minutes: 45
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'depot-macos-latest' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -1422,7 +1422,8 @@ jobs:
               esac
               ;;
             *)
-              echo "Display runner is not Depot; skipping Depot identity guard"
+              echo "::error::ui-regressions requires a display-capable Depot runner. Set MACOS_RUNNER_DISPLAY to depot-macos-latest or depot-macos-14."
+              exit 1
               ;;
           esac
 
@@ -1541,12 +1542,12 @@ jobs:
       # The browser UI regressions below (this step and the browser find step)
       # intentionally rely on the runner's native WindowServer display and do
       # NOT self-provision a virtual display. This job is pinned to a display
-      # runner via repo variable MACOS_RUNNER_DISPLAY (e.g. depot-macos-latest),
-      # and the "Validate display runner identity" step above fails the job if a
-      # requested depot-* runner resolves outside Depot. On that display runner
-      # browser XCUITest windows are accessible without a virtual display, which
-      # is why this lane replaced the persistent virtual display it used before.
-      # Keep MACOS_RUNNER_DISPLAY pointed at a display-capable runner. The later
+      # runner via repo variable MACOS_RUNNER_DISPLAY (defaulting to
+      # depot-macos-latest), and the "Validate display runner identity" step above
+      # fails the job if the requested runner is not a Depot display runner or if a
+      # requested depot-* label resolves outside Depot. On that display runner browser
+      # XCUITest windows are accessible without a virtual display, which is why this
+      # lane replaced the persistent virtual display it used before. The later
       # "display resolution churn" step still creates its own scoped virtual
       # display because that test specifically exercises display add/remove
       # churn, not because these browser steps need one.

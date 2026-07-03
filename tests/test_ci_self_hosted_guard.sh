@@ -50,6 +50,24 @@ check_display_runner_identity_guard() {
   echo "PASS: $job in $(basename "$file") validates display runner identity"
 }
 
+check_ui_regressions_display_runner_fail_closed() {
+  if ! awk '
+    /^  ui-regressions:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /runs-on:/ && /vars\.MACOS_RUNNER_DISPLAY/ && /depot-macos-latest/ { saw_runs_on=1 }
+    in_job && /REQUESTED_RUNNER:/ && /vars\.MACOS_RUNNER_DISPLAY/ && /depot-macos-latest/ { saw_requested=1 }
+    in_job && /case "\$REQUESTED_RUNNER" in/ { saw_case=1 }
+    in_job && /depot-\*\)/ { saw_depot_case=1 }
+    in_job && /ui-regressions requires a display-capable Depot runner/ { saw_non_depot_error=1 }
+    END { exit !(saw_runs_on && saw_requested && saw_case && saw_depot_case && saw_non_depot_error) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must fail closed to a display-capable Depot runner when MACOS_RUNNER_DISPLAY is unset or non-Depot"
+    exit 1
+  fi
+
+  echo "PASS: ui-regressions fails closed to a display-capable Depot runner"
+}
+
 check_release_build_runner_disk_capacity() {
   if ! awk '
     /^  release-build:/ { in_job=1; next }
@@ -801,7 +819,7 @@ check_macos_runner "$CI_FILE" "release-build"
 check_macos_runner "$CI_FILE" "ui-regressions"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
-check_display_runner_identity_guard "$CI_FILE" "ui-regressions"
+check_ui_regressions_display_runner_fail_closed
 check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml
