@@ -2,12 +2,28 @@ import Combine
 import CmuxCore
 import Foundation
 import CmuxSidebar
+import SwiftUI
 
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]
 
     init(panels: [UUID: any Panel]) {
         panelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
+    }
+}
+
+extension View {
+    func sidebarAgentRuntimeObservation(
+        id: UUID,
+        model: WorkspaceSidebarAgentRuntimeObservationModel,
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: id) { @MainActor in
+            for await _ in model.changes() {
+                if Task.isCancelled { break }
+                onChange()
+            }
+        }
     }
 }
 
@@ -26,6 +42,7 @@ private struct SidebarObservationState: Equatable {
     let extensionSidebarProjectRootPath: String?
     let panels: SidebarPanelObservationState
     let panelDirectories: [UUID: String]
+    let panelDirectoryDisplayLabels: [UUID: String]
     let statusEntries: [String: SidebarStatusEntry]
     let metadataBlocks: [String: SidebarMetadataBlock]
     let logEntries: [SidebarLogEntry]
@@ -43,6 +60,19 @@ private struct SidebarObservationState: Equatable {
 }
 
 extension Workspace {
+    // Leading-edge coalescing for the immediate sidebar observation stream.
+    // Every subscription (a sidebar row, the MergeMany extension-sidebar
+    // aggregate) fires a full makeWorkspaceSnapshot() rebuild per emission.
+    // Agents (e.g. Codex) rewrite a workspace title every turn, and
+    // removeDuplicates() cannot collapse distinct titles, so without coalescing
+    // each rewrite drives a snapshot rebuild per consumer per workspace.
+    // coalesceLatest (below) keeps the first change in a burst synchronous
+    // (a user pin/color/title edit stays immediate, which Combine's throttle
+    // cannot guarantee because it schedules every emission onto the scheduler)
+    // and collapses the tail of the burst into one trailing emission per window.
+    // See https://github.com/manaflow-ai/cmux/issues/4127.
+    static let sidebarImmediateObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
+
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
             $title,
@@ -70,7 +100,27 @@ extension Workspace {
                 )
             }
             .removeDuplicates()
+            .coalesceLatest(
+                for: Self.sidebarImmediateObservationCoalesceInterval,
+                scheduler: RunLoop.main
+            )
             .map { _ in () }
+            .eraseToAnyPublisher()
+    }
+
+    /// Merged immediate observation across workspaces for the extension
+    /// sidebar. Coalesced again across the merge: per-workspace coalescing
+    /// caps each stream, but N workspaces bursting concurrently would still
+    /// re-render the whole extension sidebar once per workspace per window.
+    /// The leading edge stays synchronous, so a lone change is as immediate
+    /// as before.
+    static func mergedImmediateObservationPublisher(for workspaces: [Workspace]) -> AnyPublisher<Void, Never> {
+        Publishers.MergeMany(workspaces.map { $0.sidebarImmediateObservationPublisher })
+            .receive(on: RunLoop.main)
+            .coalesceLatest(
+                for: sidebarImmediateObservationCoalesceInterval,
+                scheduler: RunLoop.main
+            )
             .eraseToAnyPublisher()
     }
 
@@ -99,15 +149,14 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
-
         return Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts)
-            .compactMap { [weak self] groupedFields, listeningPorts -> SidebarObservationState? in
+            .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
+            .compactMap { [weak self] groupedFields, listeningPorts, panelDirectoryDisplayLabels -> SidebarObservationState? in
                 guard let self else { return nil }
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
@@ -118,6 +167,7 @@ extension Workspace {
                     extensionSidebarProjectRootPath: workspaceFields.1,
                     panels: workspaceFields.2,
                     panelDirectories: workspaceFields.3,
+                    panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
                     statusEntries: metadataFields.0,
                     metadataBlocks: metadataFields.1,
                     logEntries: metadataFields.2,

@@ -37,7 +37,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.rowSpacing == rhs.rowSpacing &&
             lhs.isFirstRow == rhs.isFirstRow &&
             lhs.isBeingDragged == rhs.isBeingDragged &&
-            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible
+            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible
     }
 
     let groupId: UUID
@@ -67,8 +68,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isFirstRow: Bool
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
+    let bottomDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
-    let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
@@ -86,7 +87,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onOpenDocs: () -> Void
 
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State private var rowHeight: CGFloat = 1
+
+#if DEBUG
+    // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
+    // default no-op. See SidebarLazyContractProbe.
+    @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
+#endif
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
         SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
@@ -110,20 +116,26 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         return "\(shortcutModifierSymbol)\(shortcutDigit)"
     }
 
-    private var rowHeightProbe: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear {
-                    rowHeight = max(proxy.size.height, 1)
-                }
-                .onChange(of: proxy.size.height) { _, newHeight in
-                    rowHeight = max(newHeight, 1)
-                }
-        }
+    private var pinnedGroupTooltip: String {
+        String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
     }
 
     var body: some View {
+#if DEBUG
+        let _ = { sidebarLazyContractProbe.groupHeaderRowBody?() }()
+#endif
         HStack(spacing: 4) {
+            if isPinned {
+                CmuxSystemSymbolImage(
+                    magnified: "pin.fill",
+                    pointSize: metrics.pinnedIconFontSize,
+                    weight: .semibold
+                )
+                .foregroundStyle(Color.secondary.opacity(0.8))
+                .frame(width: metrics.iconFrame, height: metrics.iconFrame)
+                .safeHelp(pinnedGroupTooltip)
+                .accessibilityLabel(Text(pinnedGroupTooltip))
+            }
             CmuxSystemSymbolImage(
                 systemName: isCollapsed ? "chevron.right" : "chevron.down",
                 pointSize: metrics.chevronFontSize,
@@ -213,6 +225,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     ),
                     action: onTapPlus
                 )
+                .onAppear {
+                    rowInteractionState.contextMenuDidAppear()
+                }
+                .onDisappear {
+                    rowInteractionState.contextMenuDidDisappear()
+                }
                 if !cwdContextMenuItems.isEmpty {
                     Divider()
                     ForEach(cwdContextMenuItems) { item in
@@ -259,8 +277,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             offsetY: shortcutHintYOffset
         )
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
-        .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+        .onHover { hovering in
+            rowInteractionState.setPointerHovering(hovering)
+        }
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
@@ -269,12 +289,30 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 rowSpacing: rowSpacing
             )
         }
-        .overlay {
-            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+        .overlay(alignment: .bottom) {
+            SidebarWorkspaceTopDropIndicator(
+                isVisible: bottomDropIndicatorVisible,
+                isFirstRow: false,
+                rowSpacing: rowSpacing,
+                isBottomEdge: true,
+                leadingInset: metrics.groupScopedBottomDropIndicatorLeadingInset
+            )
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
+        .overlay {
+            if rowInteractionState.contextMenuVisible {
+                SidebarWorkspaceRowMenuTrackingReconciler { pointerInsideRow in
+                    rowInteractionState.contextMenuTrackingDidEnd(pointerInsideRow: pointerInsideRow)
+                }
+                .onAppear {
+                    rowInteractionState.contextMenuTrackingObserverDidInstall()
+                }
+            }
+        }
+        .onDisappear {
+            rowInteractionState.setPointerHovering(false)
+        }
         .contextMenu {
             Button(
                 String(
@@ -283,6 +321,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 ),
                 action: onTapPlus
             )
+            .onAppear {
+                rowInteractionState.contextMenuDidAppear()
+            }
+            .onDisappear {
+                rowInteractionState.contextMenuDidDisappear()
+            }
             Divider()
             Button(
                 String(
