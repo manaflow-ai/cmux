@@ -45,5 +45,28 @@ final class SettingReadDriver<Value: Sendable> {
         }
     }
 
+    /// Starts forwarding an asynchronously-created stream into `sink`.
+    ///
+    /// Use this when stream creation itself must cross an isolation boundary
+    /// before the returned stream can be iterated.
+    ///
+    /// - Parameters:
+    ///   - makeStream: Builds the store change stream. Called at most once.
+    ///   - sink: Receives each value on the main actor. Capture the consumer
+    ///     weakly here so the forwarding task does not retain it.
+    func activateAsync(
+        _ makeStream: @escaping @MainActor @Sendable () async -> AsyncStream<Value>,
+        sink: @escaping @MainActor @Sendable (Value) -> Void
+    ) {
+        guard task == nil else { return }
+        task = Task { @MainActor in
+            let stream = await makeStream()
+            for await value in stream {
+                if Task.isCancelled { break }
+                sink(value)
+            }
+        }
+    }
+
     deinit { task?.cancel() }
 }
