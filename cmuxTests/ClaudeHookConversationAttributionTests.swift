@@ -64,6 +64,28 @@ final class ClaudeHookConversationAttributionTests: XCTestCase {
         )
     }
 
+    /// A stale or malformed caller workspace value may still make the resolver
+    /// fall back to the focused workspace, but that fallback must not become feed
+    /// telemetry attribution just because the original env value was non-empty.
+    func testStopWithInvalidCallerWorkspaceDoesNotAttributeToFocusedFallback() throws {
+        let capture = try runClaudeStopHook(
+            callerWorkspaceId: "not-a-workspace",
+            surfaceEnvId: Self.strayEnvSurfaceId
+        )
+        let event = try XCTUnwrap(
+            capture.feedEvent,
+            "Expected the Stop hook to emit a feed.push, saw \(capture.commands)"
+        )
+        XCTAssertNil(
+            event["workspace_id"] as? String,
+            "Invalid caller workspace must not make focused fallback authoritative; got \(String(describing: event["workspace_id"]))"
+        )
+        XCTAssertTrue(
+            capture.commands.contains { $0.contains("\"workspace.current\"") },
+            "Invalid caller workspace should still exercise the focused fallback; saw \(capture.commands)"
+        )
+    }
+
     /// The caller's own `CMUX_WORKSPACE_ID` stays an authoritative attribution
     /// source: the normal per-surface case must keep recording the conversation
     /// subtitle on the caller's workspace. Guards against the fix over-dropping.
