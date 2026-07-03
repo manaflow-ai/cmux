@@ -32,7 +32,8 @@ extension DockSplitStore {
     }
 
     static func makeAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
-        let sharesWindowBackdrop = Workspace.usesWindowRootTerminalBackdrop()
+        let chromeColorResolver = BonsplitChromeColorResolver()
+        let sharesWindowBackdrop = chromeColorResolver.usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
@@ -50,7 +51,7 @@ extension DockSplitStore {
             splitButtonBackdropEffect: Workspace.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Workspace.currentSplitButtonTooltips(),
             enableAnimations: false,
-            chromeColors: Workspace.bonsplitChromeColors(
+            chromeColors: chromeColorResolver.bonsplitChromeColors(
                 backgroundColor: config.backgroundColor,
                 backgroundOpacity: config.backgroundOpacity,
                 sharesWindowBackdrop: sharesWindowBackdrop,
