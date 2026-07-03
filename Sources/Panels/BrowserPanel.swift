@@ -5292,7 +5292,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelPendingInteractiveBrowserPrompts(reason: "webContentProcessTerminated")
 
         if wasRenderable, hasRecoveryTarget, let recoveryURL {
-            webViewObservationGeneration &+= 1
+            detachTerminatedWebViewCallbacks(terminatedWebView)
             pendingWebContentRecoveryURL = recoveryURL
             hasRecoverableWebContentTermination = true
             hideBrowserPortalView(source: "webContentRecovery", recordHiddenVisibility: false)
@@ -5315,6 +5315,22 @@ final class BrowserPanel: Panel, ObservableObject {
             "manualRecovery=\(hasRecoverableWebContentTermination ? 1 : 0)"
         )
 #endif
+    }
+
+    private func detachTerminatedWebViewCallbacks(_ terminatedWebView: WKWebView) {
+        detachWebViewObservers()
+        tearDownReactGrabMessageHandler(for: terminatedWebView)
+        tearDownMediaPlaybackMessageHandler(for: terminatedWebView)
+        webAuthnCoordinator.tearDown(from: terminatedWebView)
+        terminatedWebView.configuration.userContentController.removeScriptMessageHandler(
+            forName: BrowserSSLTrustBypassMessageHandler.name
+        )
+        terminatedWebView.navigationDelegate = nil
+        terminatedWebView.uiDelegate = nil
+        if let terminatedCmuxWebView = terminatedWebView as? CmuxWebView {
+            terminatedCmuxWebView.cmuxDownloadDelegate = nil
+            terminatedCmuxWebView.clearBrowserDownloadCallbacks()
+        }
     }
 
     @discardableResult
