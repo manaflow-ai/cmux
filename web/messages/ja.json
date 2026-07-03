@@ -1081,6 +1081,14 @@
           "agentTurnComplete": "エージェントがターンを終えたことを通知するタイミングです。whenIdle（既定）は、実行中のバックグラウンドタスクや保留中のスケジュール再開が残っている間は通知を抑制し、作業が完全に片付いてから通知します。always はターン終了ごとに通知し、never は通知しません。",
           "agentIdleReminder": "エージェントがあなたの入力を待って待機状態になったとき（ターン終了の約60秒後）に通知します。前のターンのバックグラウンド作業がまだ実行中の間は抑制されるため、ビルドやウォッチャーの実行中に誤った待機通知が出ることはありません。"
         },
+        "badge": {
+          "enabled": "iTerm2 のセッションバッジのように、各ターミナルサーフェスの内側にスクロールしても固定される透かしを表示し、所属するワークスペースとタブを示します。",
+          "template": "自由入力のバッジテキストです。プレースホルダー {workspace}、{tab}、{tabIndex}、{workspaceIndex} はサーフェスごとに置換され、その他のテキストはそのまま表示されます。",
+          "position": "バッジをターミナルサーフェスのどの隅（または中央）に固定するかを指定します。",
+          "opacity": "バッジの不透明度です。0（透明）から 1（完全に不透明）まで指定します。",
+          "color": "バッジのテキスト色を、SwiftUI のカラー名（red、orange、yellow、green、mint、teal、cyan、blue、indigo、purple、pink、brown、black、white、gray）または #RRGGBB の16進数で指定します。空の場合はターミナルの前景色（テキスト色）に従います。",
+          "fontSize": "バッジのフォントサイズ（ポイント）です。"
+        },
         "browser": {
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",

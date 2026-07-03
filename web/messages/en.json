@@ -1111,6 +1111,14 @@
           "agentTurnComplete": "When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it.",
           "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert."
         },
+        "badge": {
+          "enabled": "Show a scroll-fixed watermark inside every terminal surface identifying its workspace and tab, similar to iTerm2's session badge.",
+          "template": "Free-form badge text. The placeholders {workspace}, {tab}, {tabIndex}, and {workspaceIndex} are substituted per surface; any other text is shown as-is.",
+          "position": "Which corner (or center) of the terminal surface the badge anchors to.",
+          "opacity": "Badge opacity, from 0 (invisible) to 1 (fully opaque).",
+          "color": "Badge text color, given as a SwiftUI color name (red, orange, yellow, green, mint, teal, cyan, blue, indigo, purple, pink, brown, black, white, gray) or a #RRGGBB hex string. Empty means follow the terminal's foreground/text color.",
+          "fontSize": "Badge font size in points."
+        },
         "browser": {
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",

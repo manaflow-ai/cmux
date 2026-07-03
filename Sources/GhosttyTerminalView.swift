@@ -5,6 +5,7 @@ import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
 import CmuxSettings
+import CmuxSettingsUI
 import CmuxWorkspaces
 import CmuxTestSupport
 import SwiftUI
@@ -7965,6 +7966,12 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
+    /// Scroll-fixed badge watermark (iTerm2-style), pinned to the surface bounds
+    /// beneath the copy-mode/image-transfer overlay cluster. Driven by the
+    /// `badge.*` settings; click-through and decorative.
+    private let badgeOverlayView = TerminalBadgeOverlayView(frame: .zero)
+    /// Long-lived observation of the `badge.*` config streams; cancelled in `deinit`.
+    private var badgeConfigObservationTask: Task<Void, Never>?
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
     private var deferredSearchOverlayMutationWorkItem: DispatchWorkItem?
     private var imageTransferIndicatorShowWorkItem: DispatchWorkItem?
@@ -8227,6 +8234,18 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = false
         addSubview(backgroundView)
         addSubview(scrollView)
+        // Mount the scroll-fixed badge watermark directly above the terminal
+        // content and beneath every functional overlay (drop zones, copy-mode
+        // HUD, inactive dimming). Pinned to the surface bounds so it stays put
+        // regardless of scroll position or scrollback volume.
+        badgeOverlayView.isHidden = true
+        addSubview(badgeOverlayView, positioned: .above, relativeTo: scrollView)
+        NSLayoutConstraint.activate([
+            badgeOverlayView.topAnchor.constraint(equalTo: topAnchor),
+            badgeOverlayView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            badgeOverlayView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            badgeOverlayView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
         mobileViewportBorderOverlayView.isHidden = true
         addSubview(mobileViewportBorderOverlayView, positioned: .above, relativeTo: scrollView)
         paneDropTargetView.hostedView = self
@@ -8341,6 +8360,9 @@ final class GhosttySurfaceScrollView: NSView {
             keyboardCopyModeBadgeContainerView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             keyboardCopyModeBadgeContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
+
+        ensureBadgeConfigObservationStarted()
+        observeBadgeIdentityChanges()
 
         imageTransferIndicatorContainerView.translatesAutoresizingMaskIntoConstraints = false
         imageTransferIndicatorContainerView.wantsLayer = true
@@ -8547,6 +8569,7 @@ final class GhosttySurfaceScrollView: NSView {
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
+        badgeConfigObservationTask?.cancel()
         dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
     }
@@ -8890,10 +8913,139 @@ final class GhosttySurfaceScrollView: NSView {
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
         surfaceView.attachSurface(terminalSurface)
+        refreshBadge()
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
         _ = synchronizeGeometryAndContent()
+    }
+
+    // MARK: - Badge watermark
+
+    /// Recomputes the badge text and appearance for the currently attached
+    /// surface and applies it to ``badgeOverlayView``.
+    ///
+    /// Cheap and safe to call on any model/config change: it reads a config
+    /// snapshot, resolves this surface's identity, renders the template, and
+    /// hands both to the overlay (which hides itself when disabled or empty).
+    /// This is **not** on the typing-latency path; it fires only on attach,
+    /// workspace/tab identity changes, and `badge.*` config edits.
+    private func refreshBadge() {
+        // The runtime may not have existed when this view was first created, so
+        // (re)attempt config-stream observation here; it no-ops once attached.
+        ensureBadgeConfigObservationStarted()
+        let configuration = TerminalBadgeConfiguration.snapshot(runtime: AppDelegate.shared?.settingsRuntime)
+        guard configuration.enabled, let surface = surfaceView.terminalSurface else {
+            badgeOverlayView.apply(configuration: configuration, text: "")
+            return
+        }
+        let context = TerminalBadgeContextResolver(surface: surface).resolve()
+        // Fail closed: with no resolvable workspace/tab identity (e.g. a
+        // transiently-unattached surface) the template's literal separators
+        // would render as a stray watermark, so render nothing instead.
+        guard context.hasIdentity else {
+            badgeOverlayView.apply(configuration: configuration, text: "")
+            return
+        }
+        let text = configuration.template.render(context: context)
+        badgeOverlayView.apply(configuration: configuration, text: text)
+    }
+
+    /// Starts observing the `badge.*` config streams (refreshing the badge on
+    /// any change, including the initial value yielded on subscription), unless
+    /// observation is already running.
+    ///
+    /// Idempotent and retryable: it bails when the task already exists, and
+    /// bails *without* marking itself started when the settings runtime is not
+    /// yet available. The runtime can be absent when a surface is created during
+    /// very early startup, so ``refreshBadge()`` calls this again on each refresh
+    /// to attach the live subscription once the runtime appears — otherwise a
+    /// one-time guard would leave that surface unable to react to later
+    /// `badge.*` edits until it was recreated.
+    private func ensureBadgeConfigObservationStarted() {
+        guard badgeConfigObservationTask == nil,
+              let runtime = AppDelegate.shared?.settingsRuntime else { return }
+        let store = runtime.jsonStore
+        let catalog = runtime.catalog
+        badgeConfigObservationTask = Task { @MainActor [weak self] in
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.enabled)) { [weak self] in self?.refreshBadge() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.template)) { [weak self] in self?.refreshBadge() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.position)) { [weak self] in self?.refreshBadge() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.opacity)) { [weak self] in self?.refreshBadge() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.color)) { [weak self] in self?.refreshBadge() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.fontSize)) { [weak self] in self?.refreshBadge() } }
+                await group.waitForAll()
+            }
+        }
+    }
+
+    /// Drains a single `badge.*` config stream, invoking `refresh` on every
+    /// yielded value (including the initial one) until the task is cancelled.
+    ///
+    /// This is a `static` helper and `refresh` captures the owning view weakly,
+    /// so draining a stream never holds a strong reference to the view across
+    /// the unbounded `for await` loop. The view is the sole strong owner of
+    /// ``badgeConfigObservationTask``; calling a long-lived *instance* method
+    /// here instead would retain the view for the loop's lifetime and form a
+    /// retain cycle (view → task → in-flight call → view) that keeps the view,
+    /// its observers, and its surface alive until the process exits, because
+    /// ``deinit`` — which cancels the task — could then never run.
+    @MainActor
+    private static func refreshBadgeOnChanges<Value: Sendable>(
+        of stream: AsyncStream<Value>,
+        refresh: @MainActor () -> Void
+    ) async {
+        for await _ in stream {
+            if Task.isCancelled { break }
+            refresh()
+        }
+    }
+
+    /// Registers notification observers for workspace/tab identity changes that
+    /// affect the rendered badge text, refreshing the badge when they fire.
+    ///
+    /// Surface *focus* is intentionally not observed: it changes none of the
+    /// badge placeholders (`{workspace}`, `{tab}`, `{tabIndex}`,
+    /// `{workspaceIndex}`), and the attach-time refresh is already handled by
+    /// ``attachSurface(_:)``. Observing `.ghosttyDidFocusSurface` here (with
+    /// `object: nil`) would make every open surface re-render its badge on every
+    /// click — O(open surfaces) work per focus change for no content change.
+    private func observeBadgeIdentityChanges() {
+        let names: [Notification.Name] = [
+            .workspaceOrderDidChange,
+            .workspaceTitleDidChange,
+        ]
+        for name in names {
+            observers.append(
+                NotificationCenter.default.addObserver(
+                    forName: name,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    self?.refreshBadge()
+                }
+            )
+        }
+
+        // A surface's own `set_title` (OSC) change updates its bonsplit tab title
+        // — the badge's `{tab}` source — without altering the workspace display
+        // title, so it does *not* post `.workspaceTitleDidChange`. Observe title
+        // changes directly, filtered to this surface's id so another surface's
+        // title churn never re-renders this (or every) badge.
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: .ghosttyDidSetTitle,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                      let change = GhosttyTitleChange(notification: notification),
+                      change.surfaceId == self.surfaceView.terminalSurface?.id
+                else { return }
+                self.refreshBadge()
+            }
+        )
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {

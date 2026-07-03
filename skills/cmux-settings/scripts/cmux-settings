@@ -217,6 +217,7 @@ def supported_paths_from_source(source: Path) -> list[str]:
     known_sections = (
         "app.",
         "terminal.",
+        "badge.",
         "notifications.",
         "sidebar.",
         "workspaceColors.",

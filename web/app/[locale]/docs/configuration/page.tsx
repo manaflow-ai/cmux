@@ -39,6 +39,7 @@ const schemaSourceUrl =
 const sectionOrder = [
   "app",
   "terminal",
+  "badge",
   "notifications",
   "sidebar",
   "workspaceGroups",
@@ -85,6 +86,15 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //     "maxLiveTerminals": 12
   //   },
   //   "textBoxMaxLines": 10
+  // },
+
+  // "badge": {
+  //   "enabled": true,
+  //   "template": "{workspace} · {tab}",
+  //   "position": "topTrailing",
+  //   "opacity": 0.18,
+  //   "color": "",
+  //   "fontSize": 28
   // },
 
   // "browser": {

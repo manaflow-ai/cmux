@@ -37,6 +37,19 @@ Terminal presentation settings from Settings > Terminal.
 | `terminal.showScrollBar` | boolean | `true` | Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces. |
 | `terminal.autoResumeAgentSessions` | boolean | `true` | Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually. |
 
+## badge
+
+Scroll-fixed terminal badge watermark from Settings > Terminal > Terminal Badge.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `badge.enabled` | boolean | `false` | Show a scroll-fixed watermark inside every terminal surface identifying its workspace and tab, similar to iTerm2's session badge. |
+| `badge.template` | string | `"{workspace} · {tab}"` | Free-form badge text. The placeholders {workspace}, {tab}, {tabIndex}, and {workspaceIndex} are substituted per surface; any other text is shown as-is. |
+| `badge.position` | `"topLeading"` or `"topTrailing"` or `"bottomLeading"` or `"bottomTrailing"` or `"center"` | `"topTrailing"` | Which corner (or center) of the terminal surface the badge anchors to. |
+| `badge.opacity` | number | `0.18` | Badge opacity, from 0 (invisible) to 1 (fully opaque). |
+| `badge.color` | string | `""` | Badge text color, given as a SwiftUI color name (red, orange, yellow, green, mint, teal, cyan, blue, indigo, purple, pink, brown, black, white, gray) or a #RRGGBB hex string. Empty means follow the terminal's foreground/text color. |
+| `badge.fontSize` | number | `28` | Badge font size in points. |
+
 ## notifications
 
 Notification behavior from Settings > Notifications.
