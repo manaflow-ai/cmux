@@ -588,7 +588,7 @@ struct BrowserPanelView: View {
 
     private var shouldRenderOmnibarSuggestionsInPortal: Bool {
         hasVisibleOmnibarSuggestions &&
-            panel.shouldRenderWebView &&
+            panel.shouldAttachWebViewInUI &&
             !panel.shouldUseLocalInlineDeveloperToolsHosting()
     }
 
