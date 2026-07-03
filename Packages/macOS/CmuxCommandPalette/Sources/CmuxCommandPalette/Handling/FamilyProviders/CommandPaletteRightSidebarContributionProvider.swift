@@ -79,7 +79,7 @@ public struct CommandPaletteRightSidebarContributionProvider {
             return "palette.openFindPane"
         case .sessions:
             return "palette.openVaultPane"
-        case .feed, .dock:
+        case .feed, .dock, .customSidebar:
             return nil
         }
     }
