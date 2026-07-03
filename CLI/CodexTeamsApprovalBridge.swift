@@ -243,13 +243,6 @@ enum CodexTeamsApprovalBridge {
         return nil
     }
 
-    /// The spawning (parent) thread id and the newly spawned child thread ids
-    /// carried by a Codex app-server `spawnAgent` collab-agent tool call.
-    struct CodexTeamsSpawnedSubagents: Equatable {
-        let parentThreadId: String
-        let childThreadIds: [String]
-    }
-
     /// Parses a Codex app-server `item/completed` notification for a successful
     /// `spawnAgent` collab-agent tool call. Codex carries the spawned child
     /// thread id(s) in `receiverThreadIds` (populated only when the spawn
