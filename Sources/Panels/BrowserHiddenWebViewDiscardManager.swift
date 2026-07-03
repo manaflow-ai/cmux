@@ -42,6 +42,50 @@ final class BrowserHiddenWebViewDiscardManager {
         let hasPopups: Bool
         let isCapturingMedia: Bool
         let isPlayingMedia: Bool
+
+        init(
+            isClosing: Bool,
+            isVisibleInUI: Bool,
+            shouldRenderWebView: Bool,
+            hasPendingRemoteNavigation: Bool,
+            hasCurrentURL: Bool,
+            isLoading: Bool,
+            webViewIsLoading: Bool,
+            hasActiveMainFrameProvisionalNavigation: Bool,
+            hasRecoverableWebContentTermination: Bool = false,
+            hasPendingMediaCapturePermission: Bool = false,
+            isDownloading: Bool,
+            activeDownloadCount: Int,
+            preferredDeveloperToolsVisible: Bool,
+            isDeveloperToolsVisible: Bool,
+            isElementFullscreenActive: Bool,
+            isReactGrabActive: Bool,
+            isVisualAutomationCaptureActive: Bool,
+            hasPopups: Bool,
+            isCapturingMedia: Bool,
+            isPlayingMedia: Bool
+        ) {
+            self.isClosing = isClosing
+            self.isVisibleInUI = isVisibleInUI
+            self.shouldRenderWebView = shouldRenderWebView
+            self.hasPendingRemoteNavigation = hasPendingRemoteNavigation
+            self.hasCurrentURL = hasCurrentURL
+            self.isLoading = isLoading
+            self.webViewIsLoading = webViewIsLoading
+            self.hasActiveMainFrameProvisionalNavigation = hasActiveMainFrameProvisionalNavigation
+            self.hasRecoverableWebContentTermination = hasRecoverableWebContentTermination
+            self.hasPendingMediaCapturePermission = hasPendingMediaCapturePermission
+            self.isDownloading = isDownloading
+            self.activeDownloadCount = activeDownloadCount
+            self.preferredDeveloperToolsVisible = preferredDeveloperToolsVisible
+            self.isDeveloperToolsVisible = isDeveloperToolsVisible
+            self.isElementFullscreenActive = isElementFullscreenActive
+            self.isReactGrabActive = isReactGrabActive
+            self.isVisualAutomationCaptureActive = isVisualAutomationCaptureActive
+            self.hasPopups = hasPopups
+            self.isCapturingMedia = isCapturingMedia
+            self.isPlayingMedia = isPlayingMedia
+        }
     }
 
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?
