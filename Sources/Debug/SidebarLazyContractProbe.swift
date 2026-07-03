@@ -15,15 +15,4 @@ struct SidebarLazyContractProbe {
     var workspaceRowBody: (() -> Void)?
     var groupHeaderRowBody: (() -> Void)?
 }
-
-struct SidebarLazyContractProbeKey: EnvironmentKey {
-    static let defaultValue = SidebarLazyContractProbe()
-}
-
-extension EnvironmentValues {
-    var sidebarLazyContractProbe: SidebarLazyContractProbe {
-        get { self[SidebarLazyContractProbeKey.self] }
-        set { self[SidebarLazyContractProbeKey.self] = newValue }
-    }
-}
 #endif
