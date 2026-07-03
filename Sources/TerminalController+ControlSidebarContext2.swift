@@ -433,7 +433,7 @@ extension TerminalController {
         case .ok:
             return .ok
         case .state(let state):
-            return .state(visible: state.visible, modeRawValue: state.modeRawValue)
+            return .state(visible: state.visible, modeRawValue: state.mode.rawValue)
         case .failure(let message):
             return .failure(message: message)
         }
