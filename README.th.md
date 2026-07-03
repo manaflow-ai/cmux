@@ -20,11 +20,6 @@
 </p>
 
 <p align="center">
-  <strong>WeChat:</strong> สแกนคิวอาร์โค้ดเพื่อเข้าร่วมชุมชน<br />
-  <img src="./docs/assets/wechat-community-qr.jpg" alt="คิวอาร์โค้ด WeChat สำหรับเข้าร่วมชุมชน cmux" width="240" />
-</p>
-
-<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="ภาพหน้าจอ cmux" width="900" />
 </p>
 

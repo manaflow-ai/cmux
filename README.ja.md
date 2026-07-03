@@ -20,11 +20,6 @@
 </p>
 
 <p align="center">
-  <strong>WeChat:</strong> QRコードをスキャンしてコミュニティに参加してください。<br />
-  <img src="./docs/assets/wechat-community-qr.jpg" alt="cmuxコミュニティに参加するためのWeChat QRコード" width="240" />
-</p>
-
-<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="cmuxスクリーンショット" width="900" />
 </p>
 

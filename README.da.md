@@ -20,11 +20,6 @@
 </p>
 
 <p align="center">
-  <strong>WeChat:</strong> Scan QR-koden for at blive en del af fællesskabet.<br />
-  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-kode til at blive en del af cmux-fællesskabet" width="240" />
-</p>
-
-<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="cmux skærmbillede" width="900" />
 </p>
 

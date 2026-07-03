@@ -20,11 +20,6 @@
 </p>
 
 <p align="center">
-  <strong>WeChat:</strong> Topluluğa katılmak için QR kodunu tarayın.<br />
-  <img src="./docs/assets/wechat-community-qr.jpg" alt="cmux topluluğuna katılmak için WeChat QR kodu" width="240" />
-</p>
-
-<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="cmux ekran görüntüsü" width="900" />
 </p>
 
