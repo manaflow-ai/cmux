@@ -946,6 +946,7 @@ final class TerminalNotificationStore: ObservableObject {
                 effects: TerminalNotificationPolicyEffects(),
                 now: now,
                 cooldownReservation: cooldownReservation,
+                scrollPosition: policyContext.scrollPosition,
                 clickAction: clickAction
             )
             return
@@ -963,6 +964,7 @@ final class TerminalNotificationStore: ObservableObject {
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
+                    scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction
                 )
                 return
@@ -979,6 +981,7 @@ final class TerminalNotificationStore: ObservableObject {
                     envelope: envelope,
                     now: Date(),
                     cooldownReservation: cooldownReservation,
+                    scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction
                 )
             case .failure(let failure):
@@ -987,6 +990,7 @@ final class TerminalNotificationStore: ObservableObject {
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
+                    scrollPosition: policyContext.scrollPosition,
                     clickAction: clickAction
                 )
                 self.reportNotificationHookFailure(failure)
@@ -1001,6 +1005,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private struct NotificationPolicyContext: Sendable {
         let request: TerminalNotificationPolicyRequest
+        let scrollPosition: TerminalNotificationScrollPosition?
         let hooks: [CmuxResolvedNotificationHook]
         let globalConfigPath: String?
     }
@@ -1059,6 +1064,16 @@ final class TerminalNotificationStore: ObservableObject {
             }
             return workspace?.panelIdFromSurfaceId(TabID(uuid: surfaceId))
         }
+        let scrollPosition: TerminalNotificationScrollPosition?
+        if surfaceId != nil {
+            scrollPosition = appDelegate?.terminalNotificationScrollPosition(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                panelId: panelId
+            )
+        } else {
+            scrollPosition = nil
+        }
 
         return NotificationPolicyContext(
             request: TerminalNotificationPolicyRequest(
@@ -1072,6 +1087,7 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel
             ),
+            scrollPosition: scrollPosition,
             hooks: cmuxConfigStore?.notificationHooks(startingFrom: workspace?.isRemoteWorkspace == true ? nil : cwd) ?? [],
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
@@ -1082,6 +1098,7 @@ final class TerminalNotificationStore: ObservableObject {
         envelope: TerminalNotificationPolicyEnvelope,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
+        scrollPosition: TerminalNotificationScrollPosition?,
         clickAction: TerminalNotificationClickAction?
     ) {
         let payload = envelope.notification
@@ -1100,6 +1117,7 @@ final class TerminalNotificationStore: ObservableObject {
             effects: envelope.effects,
             now: now,
             cooldownReservation: cooldownReservation,
+            scrollPosition: scrollPosition,
             clickAction: clickAction
         )
     }
@@ -1109,6 +1127,7 @@ final class TerminalNotificationStore: ObservableObject {
         effects: TerminalNotificationPolicyEffects,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
+        scrollPosition: TerminalNotificationScrollPosition?,
         clickAction: TerminalNotificationClickAction?
     ) {
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
@@ -1126,11 +1145,7 @@ final class TerminalNotificationStore: ObservableObject {
             createdAt: now,
             isRead: !effects.markUnread,
             paneFlash: effects.paneFlash,
-            scrollPosition: AppDelegate.shared?.terminalNotificationScrollPosition(
-                tabId: request.tabId,
-                surfaceId: request.surfaceId,
-                panelId: request.panelId
-            ),
+            scrollPosition: scrollPosition,
             clickAction: clickAction
         )
 
