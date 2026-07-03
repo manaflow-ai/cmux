@@ -1053,12 +1053,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         focusFlashToken += 1
     }
 
-    func attachTextView(_ textView: NSTextView) {
-        self.textView = textView
-        focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
-        applyPendingTextNavigationIfReady()
-    }
-
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
         guard previewMode == .text, let textView else { return false }
         let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
@@ -1329,7 +1323,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         }
     }
 
-    private func applyPendingTextNavigationIfReady() {
+    func applyPendingTextNavigationIfReady() {
         guard previewMode == .text,
               hasLoadedTextContent,
               let textView,
