@@ -16,6 +16,10 @@ public struct AppearanceSection: View {
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
     @State private var selectionHex: DefaultsValueModel<String>
     @State private var badgeHex: DefaultsValueModel<String>
+    @State private var selectionHexReconcileRevision = 0
+    @State private var badgeHexReconcileRevision = 0
+    @State private var trackedSelectionHex: String?
+    @State private var trackedBadgeHex: String?
 
     @State private var terminalFontFamily: String
     @State private var terminalFontSize: SettingsFontSize
@@ -67,7 +71,14 @@ public struct AppearanceSection: View {
         }
         .task {
             startObservingSettings()
+            startTrackingColorRowsIfNeeded()
             await loadTerminalFontFamiliesIfNeeded()
+        }
+        .onChange(of: selectionHex.current) { _, newHex in
+            reconcileSelectionHex(newHex)
+        }
+        .onChange(of: badgeHex.current) { _, newHex in
+            reconcileBadgeHex(newHex)
         }
     }
 
@@ -124,6 +135,57 @@ public struct AppearanceSection: View {
         globalFontMagnification.set(clamped) {
             NotificationCenter.default.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
         }
+    }
+
+    private func startTrackingColorRowsIfNeeded() {
+        if trackedSelectionHex == nil {
+            trackedSelectionHex = selectionHex.current
+        }
+        if trackedBadgeHex == nil {
+            trackedBadgeHex = badgeHex.current
+        }
+    }
+
+    private func setSelectionHex(_ hex: String) {
+        selectionHex.set(hex)
+        trackedSelectionHex = hex
+        selectionHexReconcileRevision &+= 1
+    }
+
+    private func resetSelectionHex() {
+        selectionHex.reset()
+        reconcileSelectionHex(selectionHex.current)
+    }
+
+    private func reconcileSelectionHex(_ hex: String) {
+        guard let trackedSelectionHex else {
+            self.trackedSelectionHex = hex
+            return
+        }
+        guard trackedSelectionHex != hex else { return }
+        self.trackedSelectionHex = hex
+        selectionHexReconcileRevision &+= 1
+    }
+
+    private func setBadgeHex(_ hex: String) {
+        badgeHex.set(hex)
+        trackedBadgeHex = hex
+        badgeHexReconcileRevision &+= 1
+    }
+
+    private func resetBadgeHex() {
+        badgeHex.reset()
+        reconcileBadgeHex(badgeHex.current)
+    }
+
+    private func reconcileBadgeHex(_ hex: String) {
+        guard let trackedBadgeHex else {
+            self.trackedBadgeHex = hex
+            return
+        }
+        guard trackedBadgeHex != hex else { return }
+        self.trackedBadgeHex = hex
+        badgeHexReconcileRevision &+= 1
     }
 
     private func saveTerminalFontFamily(_ family: String) {
@@ -373,7 +435,10 @@ public struct AppearanceSection: View {
                 searchAnchorID: "setting:appearance:workspace-selection-highlight",
                 json: "workspaceColors.selectionColor",
                 resetLabel: String(localized: "settings.workspaceColors.selectionColor.reset", defaultValue: "Reset"),
-                model: selectionHex
+                model: selectionHex,
+                reconcileRevision: selectionHexReconcileRevision,
+                onPickerChange: setSelectionHex,
+                onReset: resetSelectionHex
             )
             SettingsCardDivider()
 
@@ -383,7 +448,10 @@ public struct AppearanceSection: View {
                 searchAnchorID: "setting:appearance:workspace-notification-badge",
                 json: "workspaceColors.notificationBadgeColor",
                 resetLabel: String(localized: "settings.workspaceColors.notificationBadgeColor.reset", defaultValue: "Reset"),
-                model: badgeHex
+                model: badgeHex,
+                reconcileRevision: badgeHexReconcileRevision,
+                onPickerChange: setBadgeHex,
+                onReset: resetBadgeHex
             )
         }
     }
@@ -432,7 +500,17 @@ public struct AppearanceSection: View {
     }
 
     @ViewBuilder
-    private func colorRow(title: String, subtitle: String, searchAnchorID: String, json: String, resetLabel: String, model: DefaultsValueModel<String>) -> some View {
+    private func colorRow(
+        title: String,
+        subtitle: String,
+        searchAnchorID: String,
+        json: String,
+        resetLabel: String,
+        model: DefaultsValueModel<String>,
+        reconcileRevision: Int,
+        onPickerChange: @escaping (String) -> Void,
+        onReset: @escaping () -> Void
+    ) -> some View {
         let isCustom = !model.current.isEmpty
         SettingsCardRow(
             configurationReview: .json(json),
@@ -442,16 +520,16 @@ public struct AppearanceSection: View {
         ) {
             HStack(spacing: 8) {
                 if isCustom {
-                    Button(resetLabel) { model.reset() }
+                    Button(resetLabel) { onReset() }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 }
-                ColorPicker("", selection: Binding(
-                    get: { Color(cmuxHex: model.current) ?? Self.cmuxAccentColor() },
-                    set: { newColor in model.set(newColor.cmuxHexString) }
-                ), supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: 38)
+                HexColorPicker(
+                    storedHex: model.current,
+                    fallback: Self.cmuxAccentColor(),
+                    reconcileRevision: reconcileRevision,
+                    onChange: onPickerChange
+                )
                 Text(isCustom ? model.current : String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
                     .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                     .foregroundStyle(.secondary)
