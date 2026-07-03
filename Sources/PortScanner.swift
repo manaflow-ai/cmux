@@ -271,13 +271,14 @@ final class PortScanner: @unchecked Sendable {
     ) -> ScanJoinResult {
         var portsByTTY: [String: Set<Int>] = [:]
         for (pid, ports) in pidToPorts {
-            guard let tty = pidToTTY[pid] else { continue }
+            guard !agentRootPIDs.contains(pid), let tty = pidToTTY[pid] else { continue }
             portsByTTY[tty, default: []].formUnion(ports)
         }
 
         var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
         for (pid, ports) in pidToPorts {
-            guard let workspaceIdsForPid = agentPidToWorkspaces[pid] else { continue }
+            guard !agentRootPIDs.contains(pid),
+                  let workspaceIdsForPid = agentPidToWorkspaces[pid] else { continue }
             for workspaceId in workspaceIdsForPid {
                 agentPortsByWorkspace[workspaceId, default: []].formUnion(ports)
             }
