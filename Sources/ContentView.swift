@@ -3209,7 +3209,6 @@ struct ContentView: View {
             .union(tabManager.mountedBackgroundWorkspaceLoadIds)
             .union(tabManager.debugPinnedWorkspaceLoadIds)
         var activeWorkspaceIds = Set(currentTabs.map(\.id))
-            .union(pinnedIds)
         var renderingSyncWorkspaces = currentTabs
         // Close clears ownership before removing from tabs; a selected workspace
         // still owned by this manager is live even if a transient order snapshot omits it.
@@ -3220,18 +3219,20 @@ struct ContentView: View {
             activeWorkspaceIds.insert(effectiveSelectedId)
             renderingSyncWorkspaces.append(selectedWorkspace)
         }
+        let livePinnedIds = pinnedIds.intersection(activeWorkspaceIds)
+        let liveHandoffPinnedIds = handoffPinnedIds.intersection(activeWorkspaceIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
-        let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
+        let shouldKeepHandoffPair = isCycleHot && !liveHandoffPinnedIds.isEmpty
         let baseMaxMounted = shouldKeepHandoffPair
             ? WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
             : WorkspaceMountPlan.maxMountedWorkspaces
         let selectedCount = effectiveSelectedId == nil ? 0 : 1
-        let maxMounted = max(baseMaxMounted, selectedCount + pinnedIds.count)
+        let maxMounted = max(baseMaxMounted, selectedCount + livePinnedIds.count)
         let previousMountedIds = mountedWorkspaceIds
         mountedWorkspaceIds = WorkspaceMountPlan(
             current: mountedWorkspaceIds,
             selected: effectiveSelectedId,
-            pinnedIds: pinnedIds,
+            pinnedIds: livePinnedIds,
             orderedTabIds: orderedTabIds,
             activeWorkspaceIds: activeWorkspaceIds,
             isCycleHot: isCycleHot,
