@@ -422,9 +422,9 @@ public final class ShortcutListModel {
         pendingWriteGeneration += 1
         let generation = pendingWriteGeneration
         pendingBindings = updated
+        bindings = updated
         do {
             try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
-            bindings = updated
             if pendingWriteGeneration == generation {
                 pendingBindings = nil
             }
