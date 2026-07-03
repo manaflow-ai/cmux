@@ -3758,8 +3758,12 @@ private struct BackgroundDebugView: View {
             })
         }()
         guard let window else { return }
-        let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
-        AppWindowChromeComposition().backdropController.updateGlassTint(to: window, color: tintColor)
+        let windowChrome = AppWindowChromeComposition()
+        windowChrome.backdropController.updateGlassTint(
+            to: window,
+            snapshot: windowChrome.appearanceSnapshotFromUserDefaults(),
+            windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+        )
     }
 
     private var tintColorBinding: Binding<Color> {

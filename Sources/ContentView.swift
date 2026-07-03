@@ -3264,8 +3264,11 @@ struct ContentView: View {
     private func updateWindowGlassTint() {
         // Find this view's main window by identifier (keyWindow might be a debug panel/settings).
         guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else { return }
-        let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
-        windowChrome.backdropController.updateGlassTint(to: window, color: tintColor)
+        windowChrome.backdropController.updateGlassTint(
+            to: window,
+            snapshot: windowAppearanceSnapshot,
+            windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+        )
     }
 
     private func startWorkspaceHandoffIfNeeded(newSelectedId: UUID?) {

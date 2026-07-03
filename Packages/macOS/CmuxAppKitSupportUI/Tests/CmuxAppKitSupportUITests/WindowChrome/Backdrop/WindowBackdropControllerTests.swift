@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Testing
 
 @testable import CmuxAppKitSupportUI
@@ -89,6 +90,42 @@ import Testing
         #expect(!window.isOpaque)
     }
 
+    @Test func snapshotGlassTintUpdateSuppressesNativeTerminalGlassTint() {
+        let dependencies = FakeBackdropDependencies()
+        dependencies.glass.isAvailable = true
+        let controller = WindowBackdropController(dependencies: dependencies)
+        let window = makeWindow()
+
+        controller.updateGlassTint(
+            to: window,
+            snapshot: makeSnapshot(backgroundBlur: .macosGlassRegular),
+            windowBackgroundPolicy: makeWindowBackgroundPolicy(),
+            suppressNativeTerminalGlassTint: true
+        )
+
+        #expect(dependencies.glass.updateTintCalls.count == 1)
+        #expect(dependencies.glass.updateTintCalls.first?.window === window)
+        #expect(dependencies.glass.updateTintCalls.first?.color == nil)
+    }
+
+    @Test func snapshotGlassTintUpdatePreservesFallbackTerminalGlassTint() {
+        let dependencies = FakeBackdropDependencies()
+        dependencies.glass.isAvailable = false
+        let controller = WindowBackdropController(dependencies: dependencies)
+        let window = makeWindow()
+
+        controller.updateGlassTint(
+            to: window,
+            snapshot: makeSnapshot(backgroundBlur: .macosGlassRegular),
+            windowBackgroundPolicy: makeWindowBackgroundPolicy(),
+            suppressNativeTerminalGlassTint: true
+        )
+
+        #expect(dependencies.glass.updateTintCalls.count == 1)
+        #expect(dependencies.glass.updateTintCalls.first?.window === window)
+        #expect(dependencies.glass.updateTintCalls.first?.color?.hexString(includeAlpha: true) == "#272822FF")
+    }
+
     private func makeWindow() -> NSWindow {
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
         let window = NSWindow(
@@ -100,6 +137,42 @@ import Testing
         window.contentView = contentView
         return window
     }
+
+    private func makeSnapshot(backgroundBlur: GhosttyBackgroundBlur) -> WindowAppearanceSnapshot {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: "#272822") ?? .black,
+                backgroundOpacity: 1,
+                backgroundBlur: backgroundBlur,
+                usesHostLayerBackground: true
+            )
+        )
+        return resolver.current(settings: WindowAppearanceUserSettingsSnapshot(
+            unifySurfaceBackdrops: true,
+            colorScheme: .dark,
+            sidebarMaterial: WindowChromeSidebarMaterialOption.sidebar.rawValue,
+            sidebarBlendMode: WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
+            sidebarState: WindowChromeSidebarStateOption.followWindow.rawValue,
+            sidebarTintHex: WindowChromeSidebarTintDefaults().hex,
+            sidebarTintHexLight: nil,
+            sidebarTintHexDark: nil,
+            sidebarTintOpacity: WindowChromeSidebarTintDefaults().opacity,
+            sidebarCornerRadius: 0,
+            sidebarBlurOpacity: 1,
+            bgGlassEnabled: false,
+            bgGlassTintHex: "#000000",
+            bgGlassTintOpacity: 0.03
+        ))
+    }
+
+    private func makeWindowBackgroundPolicy() -> WindowBackgroundPolicy {
+        WindowBackgroundPolicy(settings: FakeWindowBackgroundSettings())
+    }
+}
+
+private struct FakeWindowBackgroundSettings: WindowBackgroundSettingsReading {
+    var sidebarBlendModeRawValue = "withinWindow"
+    var isBackgroundGlassEnabled = false
 }
 
 @MainActor

@@ -70,6 +70,29 @@ public final class WindowBackdropController {
     }
 
     /// Updates the glass tint for a window.
+    ///
+    /// - Parameters:
+    ///   - window: Window whose glass root should receive the tint update.
+    ///   - snapshot: Appearance snapshot used to resolve the active glass plan.
+    ///   - windowBackgroundPolicy: Window background settings used for non-terminal glass.
+    ///   - suppressNativeTerminalGlassTint: Whether native Ghostty glass styles should omit terminal tint.
+    public func updateGlassTint(
+        to window: NSWindow,
+        snapshot: WindowAppearanceSnapshot,
+        windowBackgroundPolicy: WindowBackgroundPolicy,
+        suppressNativeTerminalGlassTint: Bool = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+        )
+    ) {
+        let plan = snapshot.backdropPlan(
+            glassEffectAvailable: dependencies.glassEffect.isAvailable,
+            windowBackgroundPolicy: windowBackgroundPolicy,
+            suppressNativeTerminalGlassTint: suppressNativeTerminalGlassTint
+        )
+        updateGlassTint(to: window, color: plan.glass?.tintColor)
+    }
+
+    /// Updates the glass tint for a window with an already-resolved color.
     public func updateGlassTint(to window: NSWindow, color: NSColor?) {
         dependencies.glassEffect.updateTint(to: window, color: color)
     }
