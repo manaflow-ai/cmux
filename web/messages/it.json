@@ -812,7 +812,11 @@
           "warnBeforeClosingTabXButton": "Mostra una conferma prima di chiudere una scheda con il pulsante di chiusura scheda.",
           "hideTabCloseButton": "Nasconde i pulsanti di chiusura scheda nella barra delle schede del riquadro.",
           "forkConversationDefaultDestination": "Destinazione predefinita per l'azione principale Fork Conversation nel menu contestuale della scheda. Il sottomenu mostra comunque tutte le destinazioni.",
-          "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso."
+          "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso.",
+          "paneBorderColor": "Sovrascrive il colore del divisore e del bordo dei pannelli cmux. Imposta null o ometti la chiave per derivarlo dal terminale attivo o dal chrome della finestra.",
+          "activePaneBorderColor": "Disegna questo colore intorno al pannello terminale focalizzato o al pannello ospitato da SwiftUI quando un workspace o Dock contiene più pannelli. I pannelli browser ospitati tramite portale mantengono il chrome esistente. Imposta null o ometti la chiave per disattivare il bordo del pannello attivo.",
+          "notificationRingColor": "Sovrascrive il colore dell’anello per notifiche non lette. Imposta null o ometti la chiave per mantenere il blu di accento cmux predefinito.",
+          "unfocusedPaneOpacity": "Sovrascrittura opzionale dell’opacità dei pannelli terminale inattivi o ospitati da SwiftUI nei layout divisi. I pannelli browser ospitati tramite portale mantengono l’opacità esistente. Ometti la chiave per conservare l’attenuazione esistente derivata da Ghostty; 1 mantiene i pannelli inattivi completamente opachi."
         },
         "terminal": {
           "copyOnSelect": "Quando è true, il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata. Quando è false, cmux non emette un override Ghostty copy-on-select; configurazione e valori predefiniti di Ghostty controllano il comportamento degli appunti di selezione.",

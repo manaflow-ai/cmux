@@ -812,7 +812,11 @@
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
           "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder.",
-          "globalFontMagnification": "cmux'a ait terminalleri, sekme başlıklarını, kenar çubuklarını, ayarları, katmanları ve uygulama chrome'unu bu yüzdeyle ölçekler. Render edilen tarayıcı sayfası içeriği hariçtir."
+          "globalFontMagnification": "cmux'a ait terminalleri, sekme başlıklarını, kenar çubuklarını, ayarları, katmanları ve uygulama chrome'unu bu yüzdeyle ölçekler. Render edilen tarayıcı sayfası içeriği hariçtir.",
+          "paneBorderColor": "cmux panel ayırıcı ve kenarlık rengini geçersiz kılar. Rengi etkin terminalden veya pencere chromeundan türetmek için null yapın ya da atlayın.",
+          "activePaneBorderColor": "Bir workspace veya Dock birden çok panel içerdiğinde odaktaki terminal paneli ya da SwiftUI tarafından barındırılan panelin çevresine bu rengi çizer. Portal tarafından barındırılan tarayıcı panelleri mevcut chromeu korur. Etkin panel kenarlığını kapatmak için null yapın ya da atlayın.",
+          "notificationRingColor": "Okunmamış bildirim halkasının rengini geçersiz kılar. Varsayılan cmux vurgu mavisini korumak için null yapın ya da atlayın.",
+          "unfocusedPaneOpacity": "Bölünmüş düzenlerde etkin olmayan terminal panelleri veya SwiftUI tarafından barındırılan paneller için isteğe bağlı opaklık geçersiz kılması. Portal tarafından barındırılan tarayıcı panelleri mevcut opaklığını korur. Mevcut Ghostty kaynaklı karartmayı korumak için atlayın; 1 etkin olmayan panelleri tamamen opak tutar."
         },
         "terminal": {
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",

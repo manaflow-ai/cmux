@@ -1086,7 +1086,11 @@
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
-          "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
+          "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded.",
+          "paneBorderColor": "Override the cmux pane divider and border color. Set null or omit to derive it from the active terminal or window chrome.",
+          "activePaneBorderColor": "Draw this color around the focused terminal or SwiftUI-hosted pane when a workspace or Dock has multiple panes. Portal-hosted browser panes keep their existing chrome. Set null or omit to disable the active-pane border.",
+          "notificationRingColor": "Override the unread-notification ring color. Set null or omit to keep the default cmux accent blue.",
+          "unfocusedPaneOpacity": "Optional opacity override for inactive terminal or SwiftUI-hosted panes in split layouts. Portal-hosted browser panes keep their existing opacity. Omit to preserve the existing Ghostty-derived dimming; 1 keeps inactive panes fully opaque."
         },
         "terminal": {
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",

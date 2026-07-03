@@ -30,6 +30,7 @@ struct CanvasHostedPanelContentView: View {
             isVisibleInUI: isVisibleInUI,
             portalPriority: portalPriority,
             isSplit: false,
+            hasMultiplePanes: false,
             appearance: appearance,
             windowAppearance: windowAppearance,
             customSidebarTabManager: customSidebarTabManager,

@@ -812,7 +812,11 @@
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
           "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta.",
-          "globalFontMagnification": "Skalira cmux terminale, naslove kartica, bočne trake, postavke, preklapanja i app chrome za ovaj procenat. Renderovani sadržaj stranica u pregledniku nije uključen."
+          "globalFontMagnification": "Skalira cmux terminale, naslove kartica, bočne trake, postavke, preklapanja i app chrome za ovaj procenat. Renderovani sadržaj stranica u pregledniku nije uključen.",
+          "paneBorderColor": "Nadjačava boju razdjelnika i obruba cmux panela. Postavite null ili izostavite za boju izvedenu iz aktivnog terminala ili prozorskog chromea.",
+          "activePaneBorderColor": "Crta ovu boju oko fokusiranog terminalskog ili SwiftUI-hostovanog panela kada workspace ili Dock ima više panela. Portal-hostovani browser paneli zadržavaju postojeći chrome. Postavite null ili izostavite za isključivanje obruba aktivnog panela.",
+          "notificationRingColor": "Nadjačava boju prstena za nepročitane notifikacije. Postavite null ili izostavite za zadanu plavu cmux akcent boju.",
+          "unfocusedPaneOpacity": "Opcionalno nadjačava neprozirnost neaktivnih terminalskih ili SwiftUI-hostovanih panela u podijeljenim rasporedima. Portal-hostovani browser paneli zadržavaju postojeću neprozirnost. Izostavite za postojeće Ghostty zatamnjenje; 1 ostavlja neaktivne panele potpuno neprozirnim."
         },
         "terminal": {
           "copyOnSelect": "Kada je true, odabrani tekst terminala kopira se u sistemski međuspremnik kada se odabir potvrdi. Kada je false, cmux ne emitira Ghostty copy-on-select nadjačavanje; Ghostty konfiguracija i zadane vrijednosti kontrolišu ponašanje međuspremnika odabira.",

@@ -42,6 +42,7 @@ private struct WorkspacePanelContentHostView: View {
             isVisibleInUI: isVisibleInUI,
             portalPriority: portalPriority,
             isSplit: isSplit,
+            hasMultiplePanes: workspace.bonsplitController.allPaneIds.count > 1,
             appearance: appearance,
             windowAppearance: windowAppearance,
             customSidebarTabManager: customSidebarTabManager,
@@ -103,15 +104,6 @@ final class TmuxWorkspacePaneOverlayModel {
 
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
-    private struct DeferredThemeRefresh {
-        let reason: String
-        let backgroundOverride: NSColor?
-        let backgroundEventId: UInt64?
-        let backgroundSource: String?
-        let notificationPayloadHex: String?
-        let forceInitialApply: Bool
-    }
-
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
@@ -132,7 +124,8 @@ struct WorkspaceContentView: View {
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
-    @State private var deferredThemeRefresh: DeferredThemeRefresh?
+    @State private var paneAppearanceSignature = PaneAppearanceSettings.signature()
+    @State private var deferredThemeRefresh: WorkspaceDeferredThemeRefresh?
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
@@ -154,9 +147,9 @@ struct WorkspaceContentView: View {
 #if DEBUG
         let _ = { minimalModeInvalidationProbe.workspaceContentBody?() }()
 #endif
+        let _ = paneAppearanceSignature
         let appearance = PanelAppearance.fromConfig(config)
-        let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
-            workspace.panels.count > 1
+        let isSplit = workspace.bonsplitController.allPaneIds.count > 1 || workspace.panels.count > 1
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
@@ -183,8 +176,7 @@ struct WorkspaceContentView: View {
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
                 // Un-gated "is this the workspace's focused panel". Used for the
-                // visibility fallback so the focused panel stays rendered during
-                // transient Bonsplit selection churn (selected=false) EVEN while
+                // visibility fallback so the focused panel stays rendered during transient selection churn, even while
                 // the right sidebar owns focus — gating this would reintroduce
                 // blank frames.
                 let isFocusedPanel = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
@@ -538,7 +530,7 @@ struct WorkspaceContentView: View {
     ) {
         guard isWorkspaceVisible else {
             let existing = deferredThemeRefresh
-            deferredThemeRefresh = DeferredThemeRefresh(
+            deferredThemeRefresh = WorkspaceDeferredThemeRefresh(
                 reason: reason,
                 backgroundOverride: backgroundOverride,
                 backgroundEventId: backgroundEventId,
@@ -556,6 +548,8 @@ struct WorkspaceContentView: View {
             config,
             usesHostLayerBackground: lastAppliedUsesHostLayerBackground
         )
+        let previousPaneAppearanceSignature = paneAppearanceSignature
+        let nextPaneAppearanceSignature = PaneAppearanceSettings.signature()
         let previousBackgroundHex = config.backgroundColor.hexString()
         let next = Self.resolveGhosttyAppearanceConfig(
             reason: reason,
@@ -573,9 +567,10 @@ struct WorkspaceContentView: View {
         let backgroundChanged = previousBackgroundHex != next.backgroundColor.hexString()
         let opacityChanged = abs(config.backgroundOpacity - next.backgroundOpacity) > 0.0001
         let blurChanged = config.backgroundBlur != next.backgroundBlur
+        let paneAppearanceChanged = previousPaneAppearanceSignature != nextPaneAppearanceSignature
         let shouldForceInitialApply = forceInitialApply || reason == "onAppear"
         let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || blurChanged || shouldForceInitialApply
-        let shouldApplyChrome = configChanged || shouldForceInitialApply
+        let shouldApplyChrome = configChanged || paneAppearanceChanged || shouldForceInitialApply
         let shouldRefreshWindowBackground = backgroundChanged || opacityChanged || blurChanged || shouldForceInitialApply
         if !shouldApplyChrome && !shouldRefreshWindowBackground && !shouldRequestTitlebarRefresh {
             logTheme(
@@ -589,6 +584,9 @@ struct WorkspaceContentView: View {
         withTransaction(Transaction(animation: nil)) {
             if configChanged {
                 config = next
+            }
+            if paneAppearanceChanged {
+                paneAppearanceSignature = nextPaneAppearanceSignature
             }
             if shouldApplyChrome {
                 lastAppliedUsesHostLayerBackground = nextUsesHostLayerBackground

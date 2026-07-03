@@ -812,7 +812,11 @@
           "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
           "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。",
-          "globalFontMagnification": "按此百分比缩放 cmux 拥有的终端、标签标题、侧边栏、设置、覆盖层和应用 chrome。渲染后的浏览器页面内容不包含在内。"
+          "globalFontMagnification": "按此百分比缩放 cmux 拥有的终端、标签标题、侧边栏、设置、覆盖层和应用 chrome。渲染后的浏览器页面内容不包含在内。",
+          "paneBorderColor": "覆盖 cmux 窗格分隔线和边框颜色。设为 null 或省略时，将从当前终端或窗口 chrome 推导颜色。",
+          "activePaneBorderColor": "当 workspace 或 Dock 有多个窗格时，用此颜色描绘聚焦的终端窗格或 SwiftUI 托管窗格。通过门户托管的浏览器窗格会保留现有 chrome。设为 null 或省略可关闭活动窗格边框。",
+          "notificationRingColor": "覆盖未读通知环颜色。设为 null 或省略时，保留 cmux 默认蓝色强调色。",
+          "unfocusedPaneOpacity": "可选覆盖分割布局中非活动终端窗格或 SwiftUI 托管窗格的不透明度。通过门户托管的浏览器窗格会保留现有不透明度。省略时保留现有 Ghostty 派生的变暗效果；1 会让非活动窗格完全不透明。"
         },
         "terminal": {
           "copyOnSelect": "为 true 时，在确认选择后将所选终端文本复制到系统剪贴板。为 false 时，cmux 不会输出 Ghostty copy-on-select 覆盖项；选择剪贴板行为由 Ghostty 配置和默认值控制。",

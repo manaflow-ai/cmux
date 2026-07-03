@@ -812,7 +812,11 @@
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
           "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe.",
-          "globalFontMagnification": "Skaluje o ten procent należące do cmux terminale, tytuły kart, paski boczne, ustawienia, nakładki i chrome aplikacji. Renderowana zawartość stron przeglądarki jest wyłączona."
+          "globalFontMagnification": "Skaluje o ten procent należące do cmux terminale, tytuły kart, paski boczne, ustawienia, nakładki i chrome aplikacji. Renderowana zawartość stron przeglądarki jest wyłączona.",
+          "paneBorderColor": "Nadpisuje kolor separatora i obramowania paneli cmux. Ustaw null albo pomiń, aby wyprowadzić kolor z aktywnego terminala lub chrome okna.",
+          "activePaneBorderColor": "Rysuje ten kolor wokół aktywnego panelu terminala albo panelu hostowanego przez SwiftUI, gdy workspace lub Dock ma wiele paneli. Panele przeglądarki hostowane przez portal zachowują istniejący chrome. Ustaw null albo pomiń, aby wyłączyć obramowanie aktywnego panelu.",
+          "notificationRingColor": "Nadpisuje kolor pierścienia nieprzeczytanych powiadomień. Ustaw null albo pomiń, aby zachować domyślny niebieski akcent cmux.",
+          "unfocusedPaneOpacity": "Opcjonalne nadpisanie nieprzezroczystości nieaktywnych paneli terminala albo paneli hostowanych przez SwiftUI w układach dzielonych. Panele przeglądarki hostowane przez portal zachowują istniejącą nieprzezroczystość. Pomiń, aby zachować istniejące przyciemnienie z Ghostty; 1 pozostawia nieaktywne panele w pełni nieprzezroczyste."
         },
         "terminal": {
           "copyOnSelect": "Gdy wartość to true, zaznaczony tekst terminala jest kopiowany do schowka systemowego po zatwierdzeniu zaznaczenia. Gdy wartość to false, cmux nie emituje nadpisania Ghostty copy-on-select; konfiguracja i wartości domyślne Ghostty sterują zachowaniem schowka zaznaczenia.",

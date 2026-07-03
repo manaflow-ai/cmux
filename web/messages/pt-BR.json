@@ -812,7 +812,11 @@
           "warnBeforeClosingTabXButton": "Mostrar uma confirmação antes de fechar uma aba com o botão de fechar aba.",
           "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel.",
           "forkConversationDefaultDestination": "Destino padrão da ação principal Fork Conversation no menu de contexto da aba. O submenu ainda mostra todos os destinos.",
-          "globalFontMagnification": "Escala por esta porcentagem os terminais, títulos de abas, barras laterais, ajustes, sobreposições e chrome do app pertencentes ao cmux. O conteúdo renderizado das páginas do navegador fica excluído."
+          "globalFontMagnification": "Escala por esta porcentagem os terminais, títulos de abas, barras laterais, ajustes, sobreposições e chrome do app pertencentes ao cmux. O conteúdo renderizado das páginas do navegador fica excluído.",
+          "paneBorderColor": "Substitui a cor do divisor e da borda dos painéis do cmux. Defina como null ou omita para derivar a cor do terminal ativo ou do chrome da janela.",
+          "activePaneBorderColor": "Desenha esta cor ao redor do painel de terminal em foco ou do painel hospedado por SwiftUI quando um workspace ou Dock tem vários painéis. Painéis de navegador hospedados por portal mantêm o chrome existente. Defina como null ou omita para desativar a borda do painel ativo.",
+          "notificationRingColor": "Substitui a cor do anel de notificações não lidas. Defina como null ou omita para manter o azul de destaque padrão do cmux.",
+          "unfocusedPaneOpacity": "Substituição opcional de opacidade para painéis de terminal inativos ou hospedados por SwiftUI em layouts divididos. Painéis de navegador hospedados por portal mantêm a opacidade existente. Omita para preservar o escurecimento existente derivado do Ghostty; 1 mantém painéis inativos totalmente opacos."
         },
         "terminal": {
           "copyOnSelect": "Quando true, copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada. Quando false, o cmux não emite uma substituição copy-on-select do Ghostty; a configuração e os padrões do Ghostty controlam o comportamento da área de transferência de seleção.",

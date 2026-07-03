@@ -812,7 +812,11 @@
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",
           "forkConversationDefaultDestination": "Standarddestinationen for fanens primære Fork Conversation-handling i genvejsmenuen. Undermenuen viser stadig alle destinationer.",
-          "globalFontMagnification": "Skalerer cmux-ejede terminaler, fanetitler, sidepaneler, indstillinger, overlejringer og app-chrome med denne procent. Renderet browserindhold er ikke inkluderet."
+          "globalFontMagnification": "Skalerer cmux-ejede terminaler, fanetitler, sidepaneler, indstillinger, overlejringer og app-chrome med denne procent. Renderet browserindhold er ikke inkluderet.",
+          "paneBorderColor": "Tilsidesæt farven på cmux-paneldelere og -kanter. Angiv null eller udelad feltet for at udlede farven fra den aktive terminal eller vinduets chrome.",
+          "activePaneBorderColor": "Tegn denne farve omkring det fokuserede terminalpanel eller SwiftUI-hostede panel, når et workspace eller Dock har flere paneler. Portal-hostede browserpaneler beholder deres eksisterende chrome. Angiv null eller udelad feltet for at slå aktiv panelkant fra.",
+          "notificationRingColor": "Tilsidesæt farven på ringen for ulæste notifikationer. Angiv null eller udelad feltet for at beholde cmuxs standard blå accent.",
+          "unfocusedPaneOpacity": "Valgfri tilsidesættelse af opacitet for inaktive terminalpaneler eller SwiftUI-hostede paneler i split-layouts. Portal-hostede browserpaneler beholder deres eksisterende opacitet. Udelad feltet for at bevare eksisterende Ghostty-baseret dæmpning; 1 holder inaktive paneler helt opake."
         },
         "terminal": {
           "copyOnSelect": "Når værdien er true, kopieres markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes. Når værdien er false, udsender cmux ikke en Ghostty copy-on-select-tilsidesættelse; Ghostty-konfiguration og standarder styrer markeringsudklipsholderens adfærd.",

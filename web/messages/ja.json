@@ -1056,7 +1056,11 @@
           "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
           "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。",
           "forkConversationDefaultDestination": "タブのコンテキストメニューにある主要な「会話をフォーク」操作のデフォルトのフォーク先です。サブメニューには引き続きすべてのフォーク先が表示されます。",
-          "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。"
+          "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。",
+          "paneBorderColor": "cmux のペイン区切り線と境界線の色を上書きします。null または未指定の場合は、アクティブなターミナルまたはウィンドウ chrome から決定します。",
+          "activePaneBorderColor": "ワークスペースまたは Dock に複数ペインがあるとき、フォーカス中のターミナルまたは SwiftUI ホストのペインの周囲にこの色を描画します。ポータルホストのブラウザペインは既存の chrome を維持します。null または未指定の場合は無効です。",
+          "notificationRingColor": "未読通知リングの色を上書きします。null または未指定の場合は、既定の cmux アクセントブルーを維持します。",
+          "unfocusedPaneOpacity": "分割レイアウト内の非アクティブなターミナルまたは SwiftUI ホストのペインの任意の不透明度上書きです。ポータルホストのブラウザペインは既存の不透明度を維持します。未指定の場合は既存の Ghostty 由来の減光表示を維持し、1 は完全に不透明にします。"
         },
         "terminal": {
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",

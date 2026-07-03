@@ -812,7 +812,11 @@
           "warnBeforeClosingTabXButton": "Vor dem Schließen eines Tabs über die Tab-Schließen-Schaltfläche eine Bestätigung anzeigen.",
           "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden.",
           "forkConversationDefaultDestination": "Standardziel für die primäre Fork Conversation-Aktion im Tab-Kontextmenü. Das Untermenü zeigt weiterhin alle Ziele.",
-          "globalFontMagnification": "Skaliert cmux-eigene Terminals, Tab-Titel, Seitenleisten, Einstellungen, Overlays und App-Chrome um diesen Prozentsatz. Gerenderte Browserseiteninhalte sind ausgeschlossen."
+          "globalFontMagnification": "Skaliert cmux-eigene Terminals, Tab-Titel, Seitenleisten, Einstellungen, Overlays und App-Chrome um diesen Prozentsatz. Gerenderte Browserseiteninhalte sind ausgeschlossen.",
+          "paneBorderColor": "Überschreibt die Farbe der cmux-Bereichstrenner und -Rahmen. Auf null setzen oder weglassen, um die Farbe vom aktiven Terminal oder Fenster-Chrome abzuleiten.",
+          "activePaneBorderColor": "Zeichnet diese Farbe um den fokussierten Terminalbereich oder SwiftUI-gehosteten Bereich, wenn ein Workspace oder Dock mehrere Bereiche enthält. Portal-gehostete Browserbereiche behalten ihr vorhandenes Chrome. Auf null setzen oder weglassen, um den Rahmen des aktiven Bereichs zu deaktivieren.",
+          "notificationRingColor": "Überschreibt die Farbe des Rings für ungelesene Benachrichtigungen. Auf null setzen oder weglassen, um das standardmäßige blaue cmux-Akzent zu behalten.",
+          "unfocusedPaneOpacity": "Optionale Deckkraft-Überschreibung für inaktive Terminalbereiche oder SwiftUI-gehostete Bereiche in Split-Layouts. Portal-gehostete Browserbereiche behalten ihre vorhandene Deckkraft. Weglassen, um die bestehende von Ghostty abgeleitete Dimmung beizubehalten; 1 hält inaktive Bereiche vollständig deckend."
         },
         "terminal": {
           "copyOnSelect": "Bei true wird ausgewählter Terminaltext in die Systemzwischenablage kopiert, sobald die Auswahl bestätigt wird. Bei false gibt cmux keine Ghostty-copy-on-select-Überschreibung aus; Ghostty-Konfiguration und Standardwerte steuern das Verhalten der Auswahlzwischenablage.",

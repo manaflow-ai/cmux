@@ -812,7 +812,11 @@
           "warnBeforeClosingTabXButton": "Afficher une confirmation avant de fermer un onglet avec le bouton de fermeture d’onglet.",
           "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet.",
           "forkConversationDefaultDestination": "Destination par défaut de l'action principale Fork Conversation dans le menu contextuel de l'onglet. Le sous-menu affiche toujours toutes les destinations.",
-          "globalFontMagnification": "Met à l'échelle, selon ce pourcentage, les terminaux, titres d'onglets, barres latérales, réglages, superpositions et chrome d'app appartenant à cmux. Le contenu rendu des pages du navigateur est exclu."
+          "globalFontMagnification": "Met à l'échelle, selon ce pourcentage, les terminaux, titres d'onglets, barres latérales, réglages, superpositions et chrome d'app appartenant à cmux. Le contenu rendu des pages du navigateur est exclu.",
+          "paneBorderColor": "Remplace la couleur du séparateur et de la bordure des panneaux cmux. Définissez null ou omettez la clé pour la dériver du terminal actif ou du chrome de la fenêtre.",
+          "activePaneBorderColor": "Dessine cette couleur autour du panneau de terminal focalisé ou du panneau hébergé par SwiftUI lorsqu’un workspace ou Dock contient plusieurs panneaux. Les panneaux de navigateur hébergés par portail conservent leur chrome existant. Définissez null ou omettez la clé pour désactiver la bordure du panneau actif.",
+          "notificationRingColor": "Remplace la couleur de l’anneau de notification non lue. Définissez null ou omettez la clé pour conserver le bleu d’accent cmux par défaut.",
+          "unfocusedPaneOpacity": "Remplacement facultatif de l’opacité des panneaux de terminal inactifs ou hébergés par SwiftUI dans les dispositions scindées. Les panneaux de navigateur hébergés par portail conservent leur opacité existante. Omettez la clé pour conserver l’atténuation existante dérivée de Ghostty ; 1 garde les panneaux inactifs entièrement opaques."
         },
         "terminal": {
           "copyOnSelect": "Lorsque la valeur est true, le texte sélectionné dans le terminal est copié dans le presse-papiers système quand la sélection est validée. Lorsque la valeur est false, cmux n’émet pas de remplacement Ghostty copy-on-select; la configuration et les valeurs par défaut de Ghostty contrôlent le comportement du presse-papiers de sélection.",

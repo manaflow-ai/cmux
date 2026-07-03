@@ -812,7 +812,11 @@
           "warnBeforeClosingTabXButton": "使用分頁關閉按鈕關閉分頁前顯示確認。",
           "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。",
           "forkConversationDefaultDestination": "分頁內容選單中主要 Fork Conversation 動作的預設目標。子選單仍會顯示所有目標。",
-          "globalFontMagnification": "依此百分比縮放 cmux 擁有的終端機、分頁標題、側邊欄、設定、覆蓋層和應用程式 chrome。不包含已算繪的瀏覽器頁面內容。"
+          "globalFontMagnification": "依此百分比縮放 cmux 擁有的終端機、分頁標題、側邊欄、設定、覆蓋層和應用程式 chrome。不包含已算繪的瀏覽器頁面內容。",
+          "paneBorderColor": "覆寫 cmux 窗格分隔線與邊框顏色。設為 null 或省略時，會從目前終端機或視窗 chrome 推導顏色。",
+          "activePaneBorderColor": "當 workspace 或 Dock 有多個窗格時，以此顏色繪製聚焦的終端機窗格或 SwiftUI 託管窗格。透過入口託管的瀏覽器窗格會保留既有 chrome。設為 null 或省略可停用作用中窗格邊框。",
+          "notificationRingColor": "覆寫未讀通知環顏色。設為 null 或省略時，保留 cmux 預設藍色強調色。",
+          "unfocusedPaneOpacity": "可選擇覆寫分割版面中非作用中終端機窗格或 SwiftUI 託管窗格的不透明度。透過入口託管的瀏覽器窗格會保留既有不透明度。省略時保留既有 Ghostty 衍生的變暗效果；1 會讓非作用中窗格完全不透明。"
         },
         "terminal": {
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",

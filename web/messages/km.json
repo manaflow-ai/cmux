@@ -812,7 +812,11 @@
           "warnBeforeClosingTabXButton": "បង្ហាញការបញ្ជាក់ មុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទផ្ទាំង។",
           "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
-          "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
+          "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded.",
+          "paneBorderColor": "កំណត់ពណ៌បន្ទាត់បំបែក និងស៊ុម pane របស់ cmux។ កំណត់ជា null ឬមិនដាក់ ដើម្បីយកពណ៌ពី terminal សកម្ម ឬ chrome របស់បង្អួច។",
+          "activePaneBorderColor": "គូរពណ៌នេះជុំវិញ terminal pane ដែលកំពុងផ្តោត ឬ pane ដែល host ដោយ SwiftUI នៅពេល workspace ឬ Dock មាន pane ច្រើន។ Browser pane ដែល host ដោយ portal រក្សា chrome បច្ចុប្បន្ន។ កំណត់ជា null ឬមិនដាក់ ដើម្បីបិទស៊ុម pane សកម្ម។",
+          "notificationRingColor": "កំណត់ពណ៌រង្វង់ជូនដំណឹងមិនទាន់អាន។ កំណត់ជា null ឬមិនដាក់ ដើម្បីរក្សាពណ៌ខៀវ accent លំនាំដើមរបស់ cmux។",
+          "unfocusedPaneOpacity": "ជម្រើសកំណត់ opacity សម្រាប់ terminal pane ឬ pane ដែល host ដោយ SwiftUI ដែលមិនសកម្មក្នុង layout បំបែក។ Browser pane ដែល host ដោយ portal រក្សា opacity បច្ចុប្បន្ន។ មិនដាក់ ដើម្បីរក្សាការបន្ថយពន្លឺដែលមកពី Ghostty; 1 ធ្វើឱ្យ pane មិនសកម្ម opaque ទាំងស្រុង។"
         },
         "terminal": {
           "copyOnSelect": "នៅពេល true អត្ថបទ terminal ដែលបានជ្រើសនឹងត្រូវចម្លងទៅ clipboard របស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់។ នៅពេល false cmux មិនបញ្ចេញការកំណត់ជាន់លើ Ghostty copy-on-select ទេ; ការកំណត់ និងលំនាំដើមរបស់ Ghostty គ្រប់គ្រងអាកប្បកិរិយា clipboard សម្រាប់ការជ្រើស។",
