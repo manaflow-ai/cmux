@@ -24,22 +24,6 @@ import CmuxTerminalCore
         #expect(surface.snapshotNeedsConfirmClose() == false)
     }
 
-#if DEBUG
-    /// Both queries honor the shared testing override, so a snapshot built in a
-    /// test reflects the same forced close-confirmation state as a close prompt.
-    @Test func bothQueriesHonorTestingOverride() {
-        let surface = Self.makeSurface()
-
-        surface.setNeedsConfirmCloseOverrideForTesting(true)
-        #expect(surface.needsConfirmClose() == true)
-        #expect(surface.snapshotNeedsConfirmClose() == true)
-
-        surface.setNeedsConfirmCloseOverrideForTesting(false)
-        #expect(surface.needsConfirmClose() == false)
-        #expect(surface.snapshotNeedsConfirmClose() == false)
-    }
-#endif
-
     // MARK: - Helpers
 
     private static func makeSurface() -> TerminalSurface {

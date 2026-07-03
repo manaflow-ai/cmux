@@ -118,12 +118,6 @@ extension TerminalSurface {
 #endif
 
 #if DEBUG
-    /// Overrides `needsConfirmClose()` for tests.
-    @MainActor
-    public func setNeedsConfirmCloseOverrideForTesting(_ value: Bool?) {
-        needsConfirmCloseOverrideForTesting = value
-    }
-
     /// How many runtime-surface create attempts ran (test hook).
     @MainActor
     public func debugRuntimeSurfaceCreateAttemptCountForTesting() -> Int {

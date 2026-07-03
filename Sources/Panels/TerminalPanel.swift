@@ -785,13 +785,10 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func needsConfirmClose() -> Bool {
-        surface.needsConfirmClose()
-    }
-
-    func shouldPersistScrollbackForSessionSnapshot() -> Bool {
-        // Session restore only replays terminal output into a fresh shell. If Ghostty
-        // says we are not safely at a prompt, replaying that state later is misleading.
-        !surface.snapshotNeedsConfirmClose()
+        if shellActivity.state == .commandRunning {
+            return true
+        }
+        return surface.needsConfirmClose()
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
