@@ -799,6 +799,8 @@
       "exampleConfig": "ឧទាហរណ៍កំណត់រចនាសម្ព័ន្ធ",
       "metaTitle": "ការកំណត់រចនាសម្ព័ន្ធ",
       "schemaDescriptions": {
+        "paneBorderColor": "ប្ដូរពណ៌ខ្សែបំបែក pane របស់ cmux នៅក្នុង workspace ដែលបានបំបែក។ វាប៉ះពាល់ដល់ព្រំដែន pane របស់ cmux មិនមែនការបំបែកខាងក្នុងរបស់ Ghostty ទេ។",
+        "activePaneBorderColor": "ពណ៌ស៊ុមជាជម្រើស ដែលគូរជុំវិញ pane របស់ cmux ដែលកំពុងផ្តោត នៅក្នុង workspace ដែលបានបំបែក។",
         "automation": {
           "ampIntegration": "បើកដំណើរ cmux integration hooks សម្រាប់ Amp។ ពេលបិទ កម្មវិធីបន្ថែមដែលរួមបញ្ចូលនឹងនៅអសកម្ម ដោយមិនចាំបាច់ដកវាចេញ។",
           "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។",
