@@ -226,6 +226,49 @@ final class PortScanner: @unchecked Sendable {
         let pidToPorts = runLsof(pidsCsv: pidsCsv)
 
         // 3. Join: PID→TTY + PID→ports → TTY→ports
+        let join = Self.joinScanResults(
+            pidToPorts: pidToPorts,
+            pidToTTY: pidToTTY,
+            agentPidToWorkspaces: agentPidToWorkspaces,
+            agentRootPIDs: Self.agentRootPIDs(in: agentPIDsByWorkspace)
+        )
+
+        // 4. Map to per-panel port lists.
+        var results: [(PanelKey, [Int])] = []
+        for (key, tty) in panelSnapshot {
+            let ports = join.portsByTTY[tty].map { Array($0).sorted() } ?? []
+            results.append((key, ports))
+        }
+
+        deliverResults(
+            results,
+            workspaceIds: workspaceIds,
+            agentPortsByWorkspace: join.agentPortsByWorkspace,
+            agentRevisions: agentRevisions
+        )
+    }
+
+    /// Output of ``joinScanResults(pidToPorts:pidToTTY:agentPidToWorkspaces:agentRootPIDs:)``.
+    struct ScanJoinResult {
+        /// Listening ports grouped by the TTY of the owning process.
+        let portsByTTY: [String: Set<Int>]
+        /// Listening ports grouped by the workspaces tracking the owning agent process tree.
+        let agentPortsByWorkspace: [UUID: Set<Int>]
+    }
+
+    /// Joins per-PID listening ports onto panel TTYs and agent workspaces.
+    ///
+    /// Ports owned by an agent *root* process (a PID in `agentRootPIDs`) are
+    /// excluded from both groupings: agent binaries like Claude Code hold
+    /// loopback sandbox-proxy listeners in their own process, which are noise
+    /// on the workspace card. Real dev servers an agent launches run as child
+    /// processes and keep their badges.
+    static func joinScanResults(
+        pidToPorts: [Int: Set<Int>],
+        pidToTTY: [Int: String],
+        agentPidToWorkspaces: [Int: Set<UUID>],
+        agentRootPIDs: Set<Int>
+    ) -> ScanJoinResult {
         var portsByTTY: [String: Set<Int>] = [:]
         for (pid, ports) in pidToPorts {
             guard let tty = pidToTTY[pid] else { continue }
@@ -240,19 +283,12 @@ final class PortScanner: @unchecked Sendable {
             }
         }
 
-        // 4. Map to per-panel port lists.
-        var results: [(PanelKey, [Int])] = []
-        for (key, tty) in panelSnapshot {
-            let ports = portsByTTY[tty].map { Array($0).sorted() } ?? []
-            results.append((key, ports))
-        }
+        return ScanJoinResult(portsByTTY: portsByTTY, agentPortsByWorkspace: agentPortsByWorkspace)
+    }
 
-        deliverResults(
-            results,
-            workspaceIds: workspaceIds,
-            agentPortsByWorkspace: agentPortsByWorkspace,
-            agentRevisions: agentRevisions
-        )
+    /// The union of tracked agent root PIDs across all scanned workspaces.
+    static func agentRootPIDs(in agentPIDsByWorkspace: [UUID: Set<Int>]) -> Set<Int> {
+        agentPIDsByWorkspace.values.reduce(into: Set<Int>()) { $0.formUnion($1) }
     }
 
     private func refreshAgentPortsLocked(workspaceId: UUID, agentPIDs: Set<Int>) {
@@ -370,17 +406,16 @@ final class PortScanner: @unchecked Sendable {
 
         let pidsCsv = agentPidToWorkspaces.keys.sorted().map(String.init).joined(separator: ",")
         let pidToPorts = runLsof(pidsCsv: pidsCsv)
-        var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
-        for (pid, ports) in pidToPorts {
-            guard let workspaceIdsForPid = agentPidToWorkspaces[pid] else { continue }
-            for targetWorkspaceId in workspaceIdsForPid {
-                agentPortsByWorkspace[targetWorkspaceId, default: []].formUnion(ports)
-            }
-        }
+        let join = Self.joinScanResults(
+            pidToPorts: pidToPorts,
+            pidToTTY: [:],
+            agentPidToWorkspaces: agentPidToWorkspaces,
+            agentRootPIDs: Self.agentRootPIDs(in: agentPIDsByWorkspace)
+        )
 
         deliverAgentResults(
             workspaceIds: workspaceIds,
-            agentPortsByWorkspace: agentPortsByWorkspace,
+            agentPortsByWorkspace: join.agentPortsByWorkspace,
             agentRevisions: agentRevisions
         )
     }

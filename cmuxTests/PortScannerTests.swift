@@ -1,3 +1,4 @@
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -5,6 +6,57 @@ import XCTest
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+/// Regression coverage for https://github.com/manaflow-ai/cmux port-badge noise:
+/// Claude Code's sandbox network proxies listen from the agent binary's own
+/// PID, so ports owned by agent *root* processes must not badge the card,
+/// while dev servers launched as agent children must keep theirs.
+@Suite struct PortScannerScanJoinTests {
+    private let workspaceId = UUID()
+    private let agentRootPID = 100
+    private let devServerPID = 200
+    private let tty = "ttys004"
+
+    private func join(agentRootPIDs: Set<Int>) -> PortScanner.ScanJoinResult {
+        PortScanner.joinScanResults(
+            pidToPorts: [
+                agentRootPID: [55936, 55937],
+                devServerPID: [5173],
+            ],
+            pidToTTY: [
+                agentRootPID: tty,
+                devServerPID: tty,
+            ],
+            agentPidToWorkspaces: [
+                agentRootPID: [workspaceId],
+                devServerPID: [workspaceId],
+            ],
+            agentRootPIDs: agentRootPIDs
+        )
+    }
+
+    @Test func agentRootProxyPortsAreExcludedFromPanelPorts() {
+        let result = join(agentRootPIDs: [agentRootPID])
+        #expect(result.portsByTTY[tty] == [5173])
+    }
+
+    @Test func agentRootProxyPortsAreExcludedFromWorkspaceAgentPorts() {
+        let result = join(agentRootPIDs: [agentRootPID])
+        #expect(result.agentPortsByWorkspace[workspaceId] == [5173])
+    }
+
+    @Test func nonAgentScansKeepAllPorts() {
+        let result = join(agentRootPIDs: [])
+        #expect(result.portsByTTY[tty] == [5173, 55936, 55937])
+        #expect(result.agentPortsByWorkspace[workspaceId] == [5173, 55936, 55937])
+    }
+
+    @Test func agentRootPIDsUnionsAcrossWorkspaces() {
+        let other = UUID()
+        let roots = PortScanner.agentRootPIDs(in: [workspaceId: [100, 101], other: [200]])
+        #expect(roots == [100, 101, 200])
+    }
+}
 
 final class PortScannerProcessCaptureTests: XCTestCase {
     private func openFDCount() -> Int? {
