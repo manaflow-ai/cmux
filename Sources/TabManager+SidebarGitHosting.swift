@@ -85,9 +85,9 @@ extension TabManager: SidebarGitHosting {
     // MARK: Projection writes
 
     @discardableResult
-    func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String) -> Bool {
+    func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
-        return workspace.updatePanelDirectory(panelId: panelId, directory: directory)
+        return workspace.updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel)
     }
 
     func updatePanelGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool) {
