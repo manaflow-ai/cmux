@@ -258,9 +258,11 @@ def capture_agent(tag, sim, key, out_dir, device_name, font):
         print(f"  !! workspace '{info['title']}' not visible on device; skipping {key}")
         return False
     idb_tap(sim, hit[1], hit[2])
-    time.sleep(3)
-    set_font(tag, font)
-    time.sleep(2)
+    # Font is set ONCE up front (see main) so the terminal opens at its final
+    # grid: a late per-agent set_font resize left agents like OpenCode with
+    # unpainted bottom rows (its black bg exposes the terminal-default gap). Give
+    # the surface time to fully paint the (already-final) grid after opening.
+    time.sleep(6)
     status_bar_941(sim)
     time.sleep(1)
     os.makedirs(out_dir, exist_ok=True)
@@ -293,6 +295,11 @@ def main():
     print("== prepare device ==")
     run(["xcrun", "simctl", "ui", args.sim_id, "appearance", "dark"])
     status_bar_941(args.sim_id)
+    # Set the terminal font ONCE, before opening any agent terminal, so every
+    # surface opens at its final grid (no per-agent resize while shown). Then let
+    # the daemon settle the new grid across the paired surfaces.
+    set_font(args.tag, args.font)
+    time.sleep(4)
     print("== capture ==")
     ok = 0
     for key in agents:
