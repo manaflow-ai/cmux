@@ -430,6 +430,7 @@ final class ClaudeHookSessionStore {
         previousActivePromptTurnIsTerminal: Bool = false,
         terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
+        pidIsFreshCapture: Bool = true,
         launchCommand: AgentHookLaunchCommandRecord?,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
@@ -461,6 +462,7 @@ final class ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
+                pidIsFreshCapture: pidIsFreshCapture,
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: agentLifecycle,
@@ -536,6 +538,7 @@ final class ClaudeHookSessionStore {
         turnId: String? = nil,
         terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
+        pidIsFreshCapture: Bool = true,
         launchCommand: AgentHookLaunchCommandRecord?,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         lastSubtitle: String?,
@@ -566,6 +569,7 @@ final class ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
+                pidIsFreshCapture: pidIsFreshCapture,
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: depthAfterStop == 0 ? agentLifecycle : .running,
@@ -682,6 +686,7 @@ final class ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String? = nil,
         pid: Int? = nil,
+        pidIsFreshCapture: Bool = true,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         isRestorable: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
@@ -731,6 +736,7 @@ final class ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
+                pidIsFreshCapture: pidIsFreshCapture,
                 launchCommand: launchCommand,
                 isRestorable: isRestorable,
                 agentLifecycle: agentLifecycle,
@@ -769,6 +775,7 @@ final class ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String? = nil,
         pid: Int? = nil,
+        pidIsFreshCapture: Bool = true,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
@@ -796,6 +803,7 @@ final class ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
+                pidIsFreshCapture: pidIsFreshCapture,
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: agentLifecycle,
@@ -821,6 +829,7 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         turnId: String? = nil,
         pid: Int? = nil,
+        pidIsFreshCapture: Bool = true,
         launchCommand: AgentHookLaunchCommandRecord? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
@@ -845,6 +854,7 @@ final class ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
+                pidIsFreshCapture: pidIsFreshCapture,
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: .running,
@@ -894,6 +904,7 @@ final class ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String? = nil,
         pid: Int? = nil,
+        pidIsFreshCapture: Bool = true,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil
@@ -916,6 +927,7 @@ final class ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
+                pidIsFreshCapture: pidIsFreshCapture,
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: agentLifecycle,
@@ -1102,6 +1114,7 @@ final class ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String?,
         pid: Int?,
+        pidIsFreshCapture: Bool,
         launchCommand: AgentHookLaunchCommandRecord?,
         isRestorable: Bool?,
         agentLifecycle: AgentHibernationLifecycleState?,
@@ -1125,7 +1138,11 @@ final class ClaudeHookSessionStore {
             record.transcriptPath = transcriptPath
         }
         if let pid {
-            record.pidCapturedAt = now
+            if pidIsFreshCapture {
+                record.pidCapturedAt = now
+            } else if record.pid != pid {
+                record.pidCapturedAt = nil
+            }
             record.pid = pid
         }
         if let launchCommand {
@@ -29554,6 +29571,12 @@ export default CMUXSessionRestore;
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
         let inferredPID = agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID()
+        func storedHookPID(mapped: ClaudeHookSessionRecord?) -> (pid: Int?, isFreshCapture: Bool) {
+            if let pid = mapped?.pid {
+                return (pid, false)
+            }
+            return (inferredPID, inferredPID != nil)
+        }
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
@@ -30089,7 +30112,8 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            let pid = mapped?.pid ?? inferredPID
+            let storedPID = storedHookPID(mapped: mapped)
+            let pid = storedPID.pid
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -30236,6 +30260,7 @@ export default CMUXSessionRestore;
                         previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
                         terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                         pid: pid,
+                        pidIsFreshCapture: storedPID.isFreshCapture,
                         launchCommand: launchCommand,
                         agentLifecycle: .running,
                         autoNameMessages: autoNamingMessages(
@@ -30293,6 +30318,7 @@ export default CMUXSessionRestore;
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         turnId: input.turnId,
                         pid: pid,
+                        pidIsFreshCapture: storedPID.isFreshCapture,
                         launchCommand: launchCommand
                     )) ?? false
                 } else {
@@ -30303,6 +30329,7 @@ export default CMUXSessionRestore;
                         cwd: hookCwd ?? mapped?.cwd,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
+                        pidIsFreshCapture: storedPID.isFreshCapture,
                         launchCommand: launchCommand,
                         agentLifecycle: .running,
                         runtimeStatus: .running,
@@ -30430,7 +30457,8 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let storedPID = storedHookPID(mapped: mapped)
+            let pid = storedPID.pid
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
             if def.name == "codex" {
@@ -30554,6 +30582,7 @@ export default CMUXSessionRestore;
                     turnId: input.turnId,
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
+                    pidIsFreshCapture: storedPID.isFreshCapture,
                     launchCommand: launchCommand,
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
@@ -30581,6 +30610,7 @@ export default CMUXSessionRestore;
                 try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                                   pid: pid,
+                                  pidIsFreshCapture: storedPID.isFreshCapture,
                                   launchCommand: launchCommand,
                                   agentLifecycle: lifecycleAfterStop,
                                   lastSubtitle: subtitle,
@@ -30765,7 +30795,8 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let storedPID = storedHookPID(mapped: mapped)
+            let pid = storedPID.pid
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -30781,6 +30812,7 @@ export default CMUXSessionRestore;
                     cwd: hookCwd ?? mapped?.cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
+                    pidIsFreshCapture: storedPID.isFreshCapture,
                     launchCommand: launchCommand ?? mapped?.launchCommand,
                     agentLifecycle: .running,
                     runtimeStatus: .running
@@ -30956,7 +30988,8 @@ export default CMUXSessionRestore;
             }
 
             if !sessionId.isEmpty {
-                let pid = mapped?.pid ?? inferredPID
+                let storedPID = storedHookPID(mapped: mapped)
+                let pid = storedPID.pid
                 let launchCommand = agentLaunchCommandFromEnvironment(
                     env,
                     fallbackPID: pid,
@@ -30976,6 +31009,7 @@ export default CMUXSessionRestore;
                         cwd: notificationCwd,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
+                        pidIsFreshCapture: storedPID.isFreshCapture,
                         launchCommand: launchCommand,
                         agentLifecycle: lifecycle,
                         lastSubtitle: summary.subtitle,
@@ -30999,6 +31033,7 @@ export default CMUXSessionRestore;
                         cwd: notificationCwd,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
+                        pidIsFreshCapture: storedPID.isFreshCapture,
                         launchCommand: launchCommand,
                         agentLifecycle: lifecycle,
                         lastSubtitle: summary.subtitle,
@@ -31134,6 +31169,7 @@ export default CMUXSessionRestore;
                         cwd: hookCwd ?? mapped.cwd,
                         transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
                         pid: mapped.pid,
+                        pidIsFreshCapture: false,
                         launchCommand: mapped.launchCommand,
                         lastSubtitle: nil,
                         lastBody: nil,

@@ -497,6 +497,85 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(pidCapturedAt > previousPidCapturedAt)
     }
 
+    @Test func codexPromptSubmitDoesNotRefreshCarriedForwardPidCapture() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-carried-pid-prompt-\(UUID().uuidString)", isDirectory: true)
+        let socketPath = makeSocketPath("codex-carried")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let commands = CapturedSocketCommands()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-carried-pid-session"
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let now = Date().timeIntervalSince1970
+        let previousPidCapturedAt = now - 3_600
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": root.path,
+                    "pid": 4242,
+                    "pidCapturedAt": previousPidCapturedAt,
+                    "agentLifecycle": "idle",
+                    "runtimeStatus": "idle",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateURL, options: .atomic)
+        startMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 8
+        )
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-new","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"hello"}"#,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+
+        let saved = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: stateURL)
+            ) as? [String: Any]
+        )
+        let sessions = try #require(saved["sessions"] as? [String: Any])
+        let session = try #require(sessions[sessionId] as? [String: Any])
+        #expect(session["pid"] as? Int == 4242)
+        let pidCapturedAt = try #require(session["pidCapturedAt"] as? TimeInterval)
+        #expect(pidCapturedAt == previousPidCapturedAt)
+    }
+
     /// https://github.com/manaflow-ai/cmux/issues/5676: remote/no-TTY Codex hooks can inherit another
     /// live session's `CMUX_SURFACE_ID`. With no process binding to correct that leak, the hook must
     /// decline the whole route rather than publishing the newcomer's binding, PID, or lifecycle there.
