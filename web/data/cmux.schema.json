@@ -1181,8 +1181,9 @@
             },
             "port": {
               "type": "integer",
-              "minimum": 1,
+              "minimum": 0,
               "maximum": 65535,
+              "default": 0,
               "descriptionKey": "schemaDescriptions.browser.proxy.port",
               "description": "Proxy server port, e.g. 1080."
             },
@@ -1193,7 +1194,23 @@
               "descriptionKey": "schemaDescriptions.browser.proxy.bypass",
               "description": "Hostname suffixes that connect directly instead of through the proxy, e.g. localhost, *.localhost, 127.0.0.1. Loopback and link-local hosts are always bypassed."
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": ["type"],
+                "properties": {
+                  "type": { "enum": ["socks5", "httpConnect"] }
+                }
+              },
+              "then": {
+                "required": ["port"],
+                "properties": {
+                  "port": { "minimum": 1 }
+                }
+              }
+            }
+          ]
         },
         "discardHiddenWebViews": {
           "type": "boolean",
