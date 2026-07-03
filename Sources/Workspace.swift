@@ -4583,6 +4583,17 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         )
     }
 
+    /// The canonical filesystem directories in panel display order (raw paths,
+    /// not git display labels). Alias kept for the control-extension sidebar
+    /// snapshot which names the filesystem variant explicitly.
+    func sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [UUID], includeFallback: Bool = true) -> [String] {
+        sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds, includeFallback: includeFallback)
+    }
+
+    func sidebarFilesystemDirectoriesInDisplayOrder() -> [String] {
+        sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
+    }
+
     func sidebarDirectoriesInDisplayOrder() -> [String] {
         sidebarDisplayOrderProjection.directoriesInDisplayOrder()
     }
