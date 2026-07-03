@@ -61,8 +61,9 @@ public struct VaultPathMapping: Sendable, Hashable, Codable, SettingCodable {
     }
 
     /// Decodes a mapping from a loose property-list object.
-    public static func decodeFromUserDefaults(_ raw: Any?) -> VaultPathMapping? {
-        decodeFromLooseObject(raw)
+    public static
+    func decodeFromUserDefaults(_ raw: Any?) -> VaultPathMapping? {
+        VaultPathMapping(looseObject: raw)
     }
 
     /// Encodes a property-list-compatible object for storage.
@@ -71,8 +72,9 @@ public struct VaultPathMapping: Sendable, Hashable, Codable, SettingCodable {
     }
 
     /// Decodes a mapping from a `JSONSerialization` object.
-    public static func decodeFromJSON(_ raw: Any?) -> VaultPathMapping? {
-        decodeFromLooseObject(raw)
+    public static
+    func decodeFromJSON(_ raw: Any?) -> VaultPathMapping? {
+        VaultPathMapping(looseObject: raw)
     }
 
     /// Encodes a `JSONSerialization`-compatible object for `cmux.json`.
@@ -87,7 +89,7 @@ public struct VaultPathMapping: Sendable, Hashable, Codable, SettingCodable {
         !remotePrefix.isEmpty && !localPrefix.isEmpty
     }
 
-    private static func decodeFromLooseObject(_ raw: Any?) -> VaultPathMapping? {
+    private init?(looseObject raw: Any?) {
         guard let object = raw as? [String: Any] else { return nil }
         let remote = object["remotePrefix"] as? String
             ?? object["remote"] as? String
@@ -95,7 +97,7 @@ public struct VaultPathMapping: Sendable, Hashable, Codable, SettingCodable {
         let local = object["localPrefix"] as? String
             ?? object["local"] as? String
             ?? ""
-        let mapping = VaultPathMapping(remotePrefix: remote, localPrefix: local)
-        return mapping.isUsable ? mapping : nil
+        self.init(remotePrefix: remote, localPrefix: local)
+        guard isUsable else { return nil }
     }
 }

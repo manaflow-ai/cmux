@@ -797,38 +797,12 @@ final class SessionIndexStore: ObservableObject {
         var permissionMode: String?
     }
 
-    struct ClaudeSessionRoot: Hashable {
-        let configDir: String
-        let resumeConfigDirectory: String?
-
-        var projectsRoot: String {
-            (configDir as NSString).appendingPathComponent("projects")
-        }
-    }
-
     private struct ClaudeSessionCandidate: Sendable {
         let url: URL
         let mtime: Date
         let dirName: String
         let resumeConfigDirectory: String?
         let prefilteredByRipgrep: Bool
-    }
-
-    struct ClaudeVaultConfiguration: Sendable, Equatable {
-        let extraSessionRoots: [String]
-        let pathMappings: [VaultPathMapping]
-
-        func merging(registry: CmuxVaultAgentRegistry) -> ClaudeVaultConfiguration {
-            ClaudeVaultConfiguration(
-                extraSessionRoots: Self.unique(extraSessionRoots + registry.claudeSessionRoots),
-                pathMappings: Self.unique(pathMappings + registry.pathMappings)
-            )
-        }
-
-        private static func unique<Value: Hashable>(_ values: [Value]) -> [Value] {
-            var seen = Set<Value>()
-            return values.filter { seen.insert($0).inserted }
-        }
     }
 
     nonisolated private static func claudeVaultConfiguration(

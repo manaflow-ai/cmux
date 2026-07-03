@@ -18,5 +18,6 @@ public struct VaultCatalogSection: SettingCatalogSection {
         defaultValue: []
     )
 
+    /// Creates the Vault setting catalog section.
     public init() {}
 }
