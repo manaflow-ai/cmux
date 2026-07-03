@@ -1,5 +1,6 @@
 import AppKit
 import CmuxTerminal
+import CmuxWindowing
 import CmuxTestSupport
 import CmuxCommandPalette
 
