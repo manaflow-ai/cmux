@@ -97,17 +97,22 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// arguments: ``codexUpdateCheckSuppressionOverride`` unless `preserved` already
     /// sets `check_for_update_on_startup` (either value).
     static func codexResumeConfigOverrides(preserved: [String]) -> [String] {
-        for (index, argument) in preserved.enumerated() {
+        hasExplicitCheckForUpdateOnStartupOverride(in: preserved) ? [] : codexUpdateCheckSuppressionOverride
+    }
+
+    /// Returns true when an argv already carries an explicit codex startup update-check setting.
+    public static func hasExplicitCheckForUpdateOnStartupOverride(in arguments: [String]) -> Bool {
+        for (index, argument) in arguments.enumerated() {
             if argument == "-c" || argument == "--config",
-               index + 1 < preserved.count,
-               preserved[index + 1].hasPrefix("check_for_update_on_startup=") {
-                return []
+               index + 1 < arguments.count,
+               arguments[index + 1].hasPrefix("check_for_update_on_startup=") {
+                return true
             }
             if argument.hasPrefix("--config=check_for_update_on_startup=") {
-                return []
+                return true
             }
         }
-        return codexUpdateCheckSuppressionOverride
+        return false
     }
 
     /// Wraps a rendered claude resume/fork command so it parses in any login shell.

@@ -183,16 +183,6 @@ extension SurfaceResumeCommandCanonicalizer {
     }
 
     private static func codexResumeConfigOverrideAlreadyPresent(in arguments: [String]) -> Bool {
-        for (index, argument) in arguments.enumerated() {
-            if argument == "-c" || argument == "--config",
-               index + 1 < arguments.count,
-               arguments[index + 1].hasPrefix("check_for_update_on_startup=") {
-                return true
-            }
-            if argument.hasPrefix("--config=check_for_update_on_startup=") {
-                return true
-            }
-        }
-        return false
+        AgentResumeArgv.hasExplicitCheckForUpdateOnStartupOverride(in: arguments)
     }
 }
