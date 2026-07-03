@@ -106,15 +106,14 @@ final class MainWindowScreenChangeRescue {
             thresholds = .constrainVeto
         }
 
-        // All main terminal windows, including miniaturized (the frame is the
-        // deminiaturize target) and soft-hidden ones (they re-show later and
-        // would re-strand). Fullscreen windows are skipped: Spaces migrates
-        // them itself and clamping would fight the transition.
+        // All live main terminal windows, including miniaturized (the frame is
+        // the deminiaturize target), app-hidden, and soft-hidden ones (they
+        // re-show later and would re-strand). Fullscreen windows are skipped:
+        // Spaces migrates them itself and clamping would fight the transition.
         let windows = NSApp.windows
             .compactMap { $0 as? CmuxMainWindow }
             .filter { window in
-                guard !window.styleMask.contains(.fullScreen) else { return false }
-                return window.isVisible || window.isMiniaturized
+                !window.styleMask.contains(.fullScreen)
             }
         guard !windows.isEmpty else { return }
 
