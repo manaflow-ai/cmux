@@ -20,13 +20,24 @@ extension CmuxExtensionSidebarSelection {
     }
     #endif
 
+    /// Resolves the custom-sidebars directory. Our refactor made
+    /// `customSidebarsDirectory`/`customSidebarFileURL(forProviderId:)` instance
+    /// members on the package type, so these static helpers reach them through a
+    /// throwaway instance (honoring the DEBUG test override).
+    private static var resolvedCustomSidebarsDirectory: URL {
+        #if DEBUG
+        if let override = customSidebarsDirectoryOverrideForTesting { return override }
+        #endif
+        return CmuxExtensionSidebarSelection().customSidebarsDirectory
+    }
+
     static func customSidebarFileURL(forName name: String) -> URL? {
-        customSidebarFileURL(forName: name, sidebarsDirectory: customSidebarsDirectory)
+        customSidebarFileURL(forName: name, sidebarsDirectory: resolvedCustomSidebarsDirectory)
     }
 
     static func customSidebarFileURL(forName name: String, sidebarsDirectory: URL) -> URL? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return customSidebarFileURL(
+        return CmuxExtensionSidebarSelection().customSidebarFileURL(
             forProviderId: customSidebarProviderPrefix + trimmed,
             sidebarsDirectory: sidebarsDirectory
         )
