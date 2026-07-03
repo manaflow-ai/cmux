@@ -16,6 +16,7 @@ final class MobileTerminalRenderObserver {
     private var hasPendingGlobalUpdate = false
     private var isEmitFlushScheduled = false
     private var renderGridStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
+    private var pendingByteEventsBySurfaceID: [UUID: [[String: Any]]] = [:]
 
     private init() {}
 
@@ -73,6 +74,7 @@ final class MobileTerminalRenderObserver {
         hasPendingGlobalUpdate = false
         isEmitFlushScheduled = false
         renderGridStatesBySurfaceID.removeAll()
+        pendingByteEventsBySurfaceID.removeAll()
     }
 
     func noteTerminalBytes(surfaceID: UUID) {
@@ -83,6 +85,11 @@ final class MobileTerminalRenderObserver {
         // notification already fired. Schedule a fresh Ghostty tick so every
         // byte-backed pending surface gets one post-parser render-grid flush.
         GhosttyApp.shared.scheduleTick()
+    }
+
+    func enqueueTerminalBytesEventAfterRender(surfaceID: UUID, payload: [String: Any]) {
+        pendingByteEventsBySurfaceID[surfaceID, default: []].append(payload)
+        noteTerminalBytes(surfaceID: surfaceID)
     }
 
     deinit {
@@ -108,6 +115,9 @@ final class MobileTerminalRenderObserver {
                 releaseTickDemand = GhosttyApp.retainTickNotifications()
             }
         } else {
+            for surfaceID in Array(pendingByteEventsBySurfaceID.keys) {
+                emitPendingTerminalBytes(surfaceID: surfaceID)
+            }
             releaseFrameDemand?()
             releaseFrameDemand = nil
             releaseTickDemand?()
@@ -138,13 +148,14 @@ final class MobileTerminalRenderObserver {
 
     private func flushTerminalUpdates() {
         isEmitFlushScheduled = false
-        guard hasAnyRenderEventSubscribers else {
+        guard hasAnyRenderEventSubscribers || !pendingByteEventsBySurfaceID.isEmpty else {
             refreshNotificationDemand()
             return
         }
         let shouldEmitUpdatedEvents = MobileHostService.hasEventSubscribers(topic: "terminal.updated")
         let shouldEmitRenderGridEvents = MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
         let surfaceIDs = pendingSurfaceIDs
+        let pendingByteSurfaceIDs = Set(pendingByteEventsBySurfaceID.keys)
         let shouldEmitGlobal = hasPendingGlobalUpdate
         pendingSurfaceIDs.removeAll()
         hasPendingGlobalUpdate = false
@@ -160,15 +171,29 @@ final class MobileTerminalRenderObserver {
             }
         }
 
-        guard shouldEmitRenderGridEvents else { return }
-        let renderSurfaceIDs: Set<UUID>
-        if surfaceIDs.isEmpty, shouldEmitGlobal {
-            renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
-        } else {
-            renderSurfaceIDs = surfaceIDs
+        if shouldEmitRenderGridEvents {
+            let renderSurfaceIDs: Set<UUID>
+            if surfaceIDs.isEmpty, shouldEmitGlobal {
+                renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
+            } else {
+                renderSurfaceIDs = surfaceIDs
+            }
+            for surfaceID in renderSurfaceIDs {
+                emitRenderGrid(surfaceID: surfaceID)
+            }
         }
-        for surfaceID in renderSurfaceIDs {
-            emitRenderGrid(surfaceID: surfaceID)
+
+        for surfaceID in surfaceIDs.union(pendingByteSurfaceIDs) {
+            emitPendingTerminalBytes(surfaceID: surfaceID)
+        }
+    }
+
+    private func emitPendingTerminalBytes(surfaceID: UUID) {
+        guard let payloads = pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID) else {
+            return
+        }
+        for payload in payloads {
+            MobileHostService.shared.emitEvent(topic: "terminal.bytes", payload: payload)
         }
     }
 

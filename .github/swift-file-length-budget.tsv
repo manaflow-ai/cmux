@@ -65,11 +65,11 @@
 1433	Sources/RemoteTmuxControlConnection.swift
 1428	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 1420	cmuxTests/AppDelegateIssue2907RoutingTests.swift
+1395	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridOversizedViewportTests.swift
 1384	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1363	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
-1331	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridOversizedViewportTests.swift
 1317	Sources/FileExplorerStore.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift
 1291	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift

@@ -76,12 +76,26 @@ extension MobileShellComposite {
         guard let reported = reportedTerminalViewportGridsBySurfaceID[surfaceID] else {
             return true
         }
+        return producerGridFitsReportedViewport(
+            columns: columns,
+            rows: rows,
+            reportedColumns: reported.columns,
+            reportedRows: reported.rows
+        )
+    }
+
+    func producerGridFitsReportedViewport(
+        columns: Int,
+        rows: Int,
+        reportedColumns: Int,
+        reportedRows: Int
+    ) -> Bool {
         let columnsLimit = min(
-            max(reported.columns, Self.macMobileViewportColumnsRange.lowerBound),
+            max(reportedColumns, Self.macMobileViewportColumnsRange.lowerBound),
             Self.macMobileViewportColumnsRange.upperBound
         )
         let rowsLimit = min(
-            max(reported.rows, Self.macMobileViewportRowsRange.lowerBound),
+            max(reportedRows, Self.macMobileViewportRowsRange.lowerBound),
             Self.macMobileViewportRowsRange.upperBound
         )
         return columns <= columnsLimit && rows <= rowsLimit

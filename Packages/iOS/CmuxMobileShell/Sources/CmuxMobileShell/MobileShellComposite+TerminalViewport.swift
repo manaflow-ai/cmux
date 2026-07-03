@@ -83,7 +83,18 @@ extension MobileShellComposite {
                 )
                 return nil
             }
-            terminalViewportRPCConfirmedClientID = ObjectIdentifier(client)
+            let returnedGridFitsReport = producerGridFitsReportedViewport(
+                columns: grid.columns,
+                rows: grid.rows,
+                reportedColumns: reportedGrid.columns,
+                reportedRows: reportedGrid.rows
+            )
+            if supportedHostCapabilities.contains(Self.terminalViewportCapability)
+                || returnedGridFitsReport {
+                terminalViewportRPCConfirmedClientID = ObjectIdentifier(client)
+            } else if terminalViewportRPCConfirmedClientID == ObjectIdentifier(client) {
+                terminalViewportRPCConfirmedClientID = nil
+            }
             reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
             let effectiveGrid = MobileTerminalViewportSize(columns: grid.columns, rows: grid.rows)
             let previousGrid = effectiveViewportSizesBySurfaceID[surfaceID]
