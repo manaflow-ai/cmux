@@ -81,6 +81,6 @@ cmux sr credits --hosted --token "$CODEX_AUTH_TOKEN"
 cmux sr credits consume --hosted --token "$CODEX_AUTH_TOKEN" --credit-id "<credit-id>" --redeem-request-id "<request-id>"
 ```
 
-`cmux sr credits` defaults to the hosted control plane when neither
-`SUBROUTER_CONTROL_PLANE_URL` nor a local Subrouter endpoint is configured.
-Pass `--control-plane-url <url>` for local Worker development.
+`cmux sr credits` defaults to the hosted control plane unless
+`SUBROUTER_CONTROL_PLANE_URL` or `--control-plane-url <url>` points at a local
+Worker for development.

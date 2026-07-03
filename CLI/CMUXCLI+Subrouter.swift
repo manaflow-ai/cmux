@@ -281,7 +281,9 @@ extension CMUXCLI {
         ]
         for candidate in candidates {
             guard let value = normalizedSubrouterEnvValue(candidate.value) else { continue }
-            return try normalizeSubrouterEndpoint(value, source: candidate.source)
+            if let endpoint = try? normalizeSubrouterEndpoint(value, source: candidate.source) {
+                return endpoint
+            }
         }
         return nil
     }
@@ -466,8 +468,6 @@ extension CMUXCLI {
             controlPlaneInput = (explicit, "--control-plane-url")
         } else if let explicit = environment["SUBROUTER_CONTROL_PLANE_URL"] {
             controlPlaneInput = (explicit, "environment")
-        } else if let endpoint = try configuredSubrouterEndpoint(environment: environment) {
-            controlPlaneInput = (endpoint.originURL, endpoint.source)
         } else {
             controlPlaneInput = (Self.hostedSubrouterOriginURL, "hosted default")
         }
@@ -507,7 +507,7 @@ extension CMUXCLI {
         }
 
         guard let wrapper = result["rate_limit_reset_credits"] as? [String: Any],
-              let availableCount = wrapper["available_count"] as? Int,
+              let availableCount = subrouterInteger(wrapper["available_count"]),
               let credits = wrapper["credits"] as? [[String: Any]] else {
             throw CLIError(message: SubrouterText.creditsUnexpectedResponse)
         }
@@ -573,5 +573,15 @@ extension CMUXCLI {
         } catch let error as URLError where error.code == .timedOut {
             throw CLIError(message: SubrouterText.creditsTimeout)
         }
+    }
+
+    private func subrouterInteger(_ value: Any?) -> Int? {
+        if let intValue = value as? Int {
+            return intValue
+        }
+        if let numberValue = value as? NSNumber {
+            return numberValue.intValue
+        }
+        return nil
     }
 }
