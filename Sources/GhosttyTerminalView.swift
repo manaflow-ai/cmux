@@ -7971,7 +7971,13 @@ final class GhosttySurfaceScrollView: NSView {
         let visibleRows = Int(clamping: scrollbar.len)
         let anchorRow = max(0, position.row)
         let rowFromBottom = max(0, totalRows - anchorRow - visibleRows)
-        return surfaceView.performBindingAction("scroll_to_row:\(rowFromBottom)")
+        allowExplicitScrollbarSync = true
+        userScrolledAwayFromBottom = rowFromBottom > 0
+        let didRestore = surfaceView.performBindingAction("scroll_to_row:\(rowFromBottom)")
+        if !didRestore {
+            allowExplicitScrollbarSync = false
+        }
+        return didRestore
     }
 
     private var lastFlashStyle: FlashStyle = .navigation
