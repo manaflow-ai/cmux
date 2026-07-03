@@ -83,18 +83,20 @@ final class MainWindowScreenChangeRescue {
         guard !displays.isEmpty else { return }
 
         let signature = rescueCore.topologySignature(of: displays)
-        let signatureDiffers = signature != cachedSignature
-        let dirtyOnly = topologyDirty && !signatureDiffers
+        let arrangementDiffers = !rescueCore.signaturesHaveSameArrangement(signature, cachedSignature)
+        let reachabilityBoundsDiffer = signature != cachedSignature
+        let dirtyOnly = topologyDirty && !arrangementDiffers
         cachedSignature = signature
         topologyDirty = false
-        guard signatureDiffers || dirtyOnly else { return }
+        guard arrangementDiffers || dirtyOnly || reachabilityBoundsDiffer else { return }
 
         // Settled arrangement change: the drag band must end up usably
-        // visible (strict). Settled-back transient (wake flap, KVM bounce):
-        // only rescue what the constrain veto itself would abandon, so
-        // veto-protected placements never move on a flap.
+        // visible (strict). Settled-back transient (wake flap, KVM bounce), or
+        // a visible-frame-only change such as a side/bottom Dock move: only
+        // rescue what the constrain veto itself would abandon, so
+        // veto-protected placements never move on those flaps.
         let thresholds: WindowTitlebarReachabilityThresholds
-        if signatureDiffers {
+        if arrangementDiffers {
             thresholds = WindowTitlebarReachabilityThresholds(
                 topStripHeight: WindowChromeMetrics.sharedChromeBarHeight,
                 minimumVisibleWidth: 120,

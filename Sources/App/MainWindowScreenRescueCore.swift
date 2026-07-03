@@ -13,11 +13,11 @@ struct MainWindowScreenRescueCore {
         self.frameGeometry = frameGeometry
     }
 
-    /// Order-independent signature of the current display topology. Two
-    /// signatures compare equal exactly when the same frame arrangement has
-    /// the same top insets — the gate that keeps sleep/wake (same topology,
-    /// same notification), display-ID churn, and Dock resizes from ever
-    /// triggering a rescue.
+    /// Order-independent signature of the current display topology and visible
+    /// reachability bounds. Full-frame/top-inset differences select strict
+    /// rescue; visible-frame-only differences select the lenient constrain-veto
+    /// thresholds so Dock side/bottom changes can rescue newly unreachable
+    /// edge-parked windows without disturbing veto-protected placements.
     func topologySignature(
         of displays: [SessionDisplayGeometry]
     ) -> [MainWindowDisplayTopologySignatureEntry] {
@@ -25,7 +25,7 @@ struct MainWindowScreenRescueCore {
             .map { display in
                 MainWindowDisplayTopologySignatureEntry(
                     frame: display.frame,
-                    topInset: display.frame.maxY - display.visibleFrame.maxY
+                    visibleFrame: display.visibleFrame
                 )
             }
             .sorted { lhs, rhs in
@@ -33,8 +33,28 @@ struct MainWindowScreenRescueCore {
                 if lhs.frame.minY != rhs.frame.minY { return lhs.frame.minY < rhs.frame.minY }
                 if lhs.frame.width != rhs.frame.width { return lhs.frame.width < rhs.frame.width }
                 if lhs.frame.height != rhs.frame.height { return lhs.frame.height < rhs.frame.height }
-                return lhs.topInset < rhs.topInset
+                if lhs.topInset != rhs.topInset { return lhs.topInset < rhs.topInset }
+                if lhs.visibleFrame.minX != rhs.visibleFrame.minX {
+                    return lhs.visibleFrame.minX < rhs.visibleFrame.minX
+                }
+                if lhs.visibleFrame.minY != rhs.visibleFrame.minY {
+                    return lhs.visibleFrame.minY < rhs.visibleFrame.minY
+                }
+                if lhs.visibleFrame.width != rhs.visibleFrame.width {
+                    return lhs.visibleFrame.width < rhs.visibleFrame.width
+                }
+                return lhs.visibleFrame.height < rhs.visibleFrame.height
             }
+    }
+
+    func signaturesHaveSameArrangement(
+        _ lhs: [MainWindowDisplayTopologySignatureEntry],
+        _ rhs: [MainWindowDisplayTopologySignatureEntry]
+    ) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        return zip(lhs, rhs).allSatisfy { lhsEntry, rhsEntry in
+            lhsEntry.hasSameArrangement(as: rhsEntry)
+        }
     }
 
     /// For each window frame, the frame the window should move to so its drag

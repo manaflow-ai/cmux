@@ -47,9 +47,11 @@ struct MainWindowScreenChangeRescueTests {
         #expect(both != one)
     }
 
-    @Test func signatureIgnoresVisibleFrameOnlyChanges() {
+    @Test func signatureChangesWhenVisibleFrameSideOrBottomInsetChanges() {
         // A Dock resize changes visibleFrame but not the display's frame or
-        // top inset — it must not read as a topology change.
+        // top inset. It must run a lenient reachability pass because a
+        // side/bottom Dock can newly cover an edge-parked titlebar, but it is
+        // not a strict display-arrangement change.
         let dockResized = SessionDisplayGeometry(
             displayID: 1,
             frame: Self.builtIn.frame,
@@ -57,7 +59,8 @@ struct MainWindowScreenChangeRescueTests {
         )
         let before = core.topologySignature(of: [Self.builtIn])
         let after = core.topologySignature(of: [dockResized])
-        #expect(before == after)
+        #expect(before != after)
+        #expect(core.signaturesHaveSameArrangement(before, after))
     }
 
     @Test func signatureIgnoresDisplayIDRenumbering() {
@@ -218,6 +221,7 @@ struct MainWindowScreenChangeRescueTests {
         let before = core.topologySignature(of: [withoutMenuBar])
         let after = core.topologySignature(of: [Self.builtIn]) // 38pt inset
         #expect(before != after)
+        #expect(!core.signaturesHaveSameArrangement(before, after))
     }
 
     // MARK: - Settled-back transient (dirty-only) uses veto thresholds
