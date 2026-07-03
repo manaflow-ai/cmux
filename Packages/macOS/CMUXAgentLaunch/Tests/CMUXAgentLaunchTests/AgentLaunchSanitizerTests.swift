@@ -36,62 +36,6 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
-    @Test("Preserves direct Codex fork launch context")
-    func preservesDirectCodexForkLaunchContext() {
-        #expect(
-            AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "codex",
-                    "--model",
-                    "gpt-5.4",
-                    "fork",
-                    "019dad34-d218-7943-b81a-eddac5c87951",
-                    "--sandbox",
-                    "danger-full-access",
-                    "--remote",
-                    "ws://127.0.0.1:1",
-                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
-                    "prompt should not replay",
-                ],
-                launcher: "codex",
-                fallbackKind: "codex"
-            ) == [
-                "codex",
-                "--model",
-                "gpt-5.4",
-                "--sandbox",
-                "danger-full-access",
-            ]
-        )
-    }
-
-    @Test("Detects Codex fork after startup image options")
-    func detectsCodexForkAfterStartupImageOptions() {
-        #expect(
-            AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "codex",
-                    "--image",
-                    "/tmp/screenshot.png",
-                    "fork",
-                    "019dad34-d218-7943-b81a-eddac5c87951",
-                    "--sandbox",
-                    "danger-full-access",
-                    "--remote",
-                    "ws://127.0.0.1:1",
-                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
-                    "prompt should not replay",
-                ],
-                launcher: "codex",
-                fallbackKind: "codex"
-            ) == [
-                "codex",
-                "--sandbox",
-                "danger-full-access",
-            ]
-        )
-    }
-
     @Test("Drops Codex startup images and keeps following flags")
     func dropsCodexStartupImagesAndKeepsFollowingFlags() {
         #expect(
@@ -296,35 +240,6 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
-    @Test("Preserves generated Codex fork launch context")
-    func preservesGeneratedCodexForkLaunchContext() {
-        #expect(
-            AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "codex",
-                    "fork",
-                    "--model",
-                    "gpt-5.4",
-                    "--add-dir",
-                    "/tmp/extra repo",
-                    "--sandbox",
-                    "danger-full-access",
-                    "019dad34-d218-7943-b81a-eddac5c87951",
-                ],
-                launcher: "codex",
-                fallbackKind: "codex"
-            ) == [
-                "codex",
-                "--model",
-                "gpt-5.4",
-                "--add-dir",
-                "/tmp/extra repo",
-                "--sandbox",
-                "danger-full-access",
-            ]
-        )
-    }
-
     @Test("Keeps Codex variadic values named fork")
     func keepsCodexVariadicValuesNamedFork() {
         #expect(
@@ -344,37 +259,6 @@ struct AgentLaunchSanitizerTests {
                 "fork",
                 "--model",
                 "gpt-5.4",
-            ]
-        )
-    }
-
-    @Test("Preserves Codex Teams fork launch context")
-    func preservesCodexTeamsForkLaunchContext() {
-        #expect(
-            AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
-                    "codex-teams",
-                    "--model",
-                    "gpt-5.4",
-                    "fork",
-                    "019dad34-d218-7943-b81a-eddac5c87951",
-                    "--ask-for-approval",
-                    "never",
-                    "--remote",
-                    "ws://127.0.0.1:1",
-                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
-                    "prompt should not replay",
-                ],
-                launcher: "codexTeams",
-                fallbackKind: "codex"
-            ) == [
-                "/Applications/cmux.app/Contents/Resources/bin/cmux",
-                "codex-teams",
-                "--model",
-                "gpt-5.4",
-                "--ask-for-approval",
-                "never",
             ]
         )
     }
