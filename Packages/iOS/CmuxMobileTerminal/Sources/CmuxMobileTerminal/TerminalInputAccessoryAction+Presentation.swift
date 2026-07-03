@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import Foundation
 
+/// Presentation metadata for icon-backed terminal accessory actions.
 public extension TerminalInputAccessoryAction {
     /// VoiceOver label for icon-only accessory actions.
     var accessibilityLabel: String? {
