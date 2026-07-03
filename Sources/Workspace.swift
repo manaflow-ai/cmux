@@ -7316,6 +7316,19 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     /// Check if any panel needs close confirmation
+    /// Discards every hidden browser WebView in this workspace under system
+    /// memory pressure. Returns the number of WebViews discarded.
+    @discardableResult
+    func discardHiddenBrowserWebViewsForSystemMemoryPressure(now: Date = Date()) -> Int {
+        var discardedCount = 0
+        for browserPanel in panels.values.compactMap({ $0 as? BrowserPanel }) {
+            if browserPanel.discardHiddenWebViewForSystemMemoryPressure(now: now) {
+                discardedCount += 1
+            }
+        }
+        return discardedCount
+    }
+
     func needsConfirmClose() -> Bool {
         // The workspace's own Dock (#7144) counts toward the close/quit warning:
         // a busy Dock terminal is just as unsaved as a main-area one.

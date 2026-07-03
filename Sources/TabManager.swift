@@ -2599,6 +2599,15 @@ class TabManager {
         surfaceMetadata.flushPendingPanelTitleUpdates()
     }
 
+    /// Discards hidden browser WebViews across all workspaces under system
+    /// memory pressure. Returns the total number discarded.
+    @discardableResult
+    func discardHiddenBrowserWebViewsForSystemMemoryPressure(now: Date = Date()) -> Int {
+        tabs.reduce(0) { count, workspace in
+            count + workspace.discardHiddenBrowserWebViewsForSystemMemoryPressure(now: now)
+        }
+    }
+
     // MARK: SurfaceMetadataTitleHosting (panel-title app effects)
     // Witnesses live here in the class body because they touch the selected
     // workspace's `NSWindow` title chrome and the DEBUG id/title formatters; the

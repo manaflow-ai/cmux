@@ -940,6 +940,13 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason)
     }
 
+    /// Immediately discards this panel's hidden WebView when safe, in response to
+    /// system memory pressure. Returns `true` when a discard happened.
+    @discardableResult
+    func discardHiddenWebViewForSystemMemoryPressure(now: Date = Date()) -> Bool {
+        hiddenWebViewDiscardManager.requestImmediateDiscardIfSafe(reason: "system_memory_pressure", now: now)
+    }
+
     private func cancelHiddenWebViewDiscard() {
         hiddenWebViewDiscardManager.cancel()
     }
