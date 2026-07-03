@@ -143,6 +143,59 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
         #expect(livePID == 101)
     }
 
+    @Test func mobileChatObserverDetectsClaudeExeRuntimeProcess() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "1258bb73-b1b8-469e-910a-61266f4dfc44"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 96441,
+                    parentPID: 93888,
+                    name: "claude.exe",
+                    path: "/Users/example/.local/share/claude/versions/2.1.199/claude.exe",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 1258),
+            includesProcessDetails: true
+        )
+        let details: (Int) -> CmuxTopProcessArguments? = { pid in
+            guard pid == 96441 else { return nil }
+            return CmuxTopProcessArguments(
+                arguments: ["claude.exe"],
+                environment: [
+                    "CLAUDE_CODE_SESSION_ID": sessionID,
+                    "PWD": "/Users/example/project",
+                ]
+            )
+        }
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: details,
+            codexRolloutPath: { _ in nil }
+        )
+        let livePID = AgentChatSessionRegistry.liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID.uuidString,
+            kind: .claude,
+            matchingSessionIDs: [sessionID],
+            processArgumentsAndEnvironment: details
+        )
+
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(session.sessionID == sessionID)
+        #expect(session.agentKind == .claude)
+        #expect(session.workspaceID == workspaceID.uuidString)
+        #expect(session.surfaceID == surfaceID.uuidString)
+        #expect(session.pid == 96441)
+        #expect(session.workingDirectory == "/Users/example/project")
+        #expect(livePID == 96441)
+    }
+
     private func topProcess(
         pid: Int,
         parentPID: Int,
