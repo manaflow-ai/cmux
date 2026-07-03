@@ -27,6 +27,7 @@ import CmuxTerminalCore
         let replies = [
             "\u{1B}[?1;2c",
             "\u{1B}[>0;95;0c",
+            "\u{1B}[0n",
             "\u{1B}[?997;1n",
             "\u{1B}[?0u",
             "\u{1B}[?12;2$y",
