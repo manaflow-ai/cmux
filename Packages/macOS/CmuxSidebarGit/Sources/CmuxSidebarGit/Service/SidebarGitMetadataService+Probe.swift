@@ -85,7 +85,8 @@ extension SidebarGitMetadataService {
                 self.beginWorkspaceGitMetadataProbeAttempt(
                     probeKey: key,
                     expectedDirectory: normalizedDirectory,
-                    isLastAttempt: isLastAttempt
+                    isLastAttempt: isLastAttempt,
+                    reason: reason
                 )
             }
         }
@@ -94,7 +95,8 @@ extension SidebarGitMetadataService {
     private func beginWorkspaceGitMetadataProbeAttempt(
         probeKey: WorkspaceGitProbeKey,
         expectedDirectory: String,
-        isLastAttempt: Bool
+        isLastAttempt: Bool,
+        reason: String
     ) {
         guard host?.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) != true else {
             workspaceGitProbeStateByKey[probeKey] = .idle
@@ -121,14 +123,16 @@ extension SidebarGitMetadataService {
         enqueueWorkspaceGitMetadataSnapshotRequest(
             probeKey: probeKey,
             expectedDirectory: expectedDirectory,
-            isLastAttempt: isLastAttempt
+            isLastAttempt: isLastAttempt,
+            reason: reason
         )
     }
 
     private func enqueueWorkspaceGitMetadataSnapshotRequest(
         probeKey: WorkspaceGitProbeKey,
         expectedDirectory: String,
-        isLastAttempt: Bool
+        isLastAttempt: Bool,
+        reason: String
     ) {
         let request = WorkspaceGitSnapshotProbeRequest(
             probeKey: probeKey,
@@ -139,14 +143,17 @@ extension SidebarGitMetadataService {
             removeWorkspaceGitSnapshotRequest(for: probeKey)
         }
         workspaceGitSnapshotDirectoryByProbeKey[probeKey] = expectedDirectory
-        if var requests = workspaceGitSnapshotRequestsByDirectory[expectedDirectory],
-           let existingRequestIndex = requests.firstIndex(where: { $0.probeKey == probeKey }) {
-            requests[existingRequestIndex] = request
-            workspaceGitSnapshotRequestsByDirectory[expectedDirectory] = requests
-        } else {
-            workspaceGitSnapshotRequestsByDirectory[expectedDirectory, default: []].append(request)
-        }
+        workspaceGitSnapshotRequestsByDirectory[expectedDirectory, default: [:]][probeKey] = request
+        let taskContext = WorkspaceGitSnapshotTaskContext(
+            trackedPathEventGeneration: trackedPathEventGenerationForSnapshot(
+                directory: expectedDirectory,
+                reason: reason
+            )
+        )
         guard workspaceGitSnapshotTasksByDirectory[expectedDirectory] == nil else {
+            if workspaceGitSnapshotTaskContextByDirectory[expectedDirectory] != taskContext {
+                markWorkspaceGitSnapshotRerunPending(directory: expectedDirectory)
+            }
 #if DEBUG
             debugLog(
                 "workspace.gitProbe.joinSnapshot dir=\(expectedDirectory) " +
@@ -158,6 +165,7 @@ extension SidebarGitMetadataService {
 
         let reader = workspaceGitMetadataReader
         let probeLimiter = probeLimiter
+        workspaceGitSnapshotTaskContextByDirectory[expectedDirectory] = taskContext
         workspaceGitSnapshotTasksByDirectory[expectedDirectory] = Task.detached(priority: .utility) { [weak self] in
             let didAcquirePermit = await probeLimiter.acquire()
             guard didAcquirePermit else { return }
@@ -170,7 +178,8 @@ extension SidebarGitMetadataService {
             guard !Task.isCancelled else { return }
             let snapshot = await InitialWorkspaceGitMetadataSnapshot(
                 probing: expectedDirectory,
-                reader: reader
+                reader: reader,
+                trackedPathEventGeneration: taskContext.trackedPathEventGeneration
             )
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
@@ -188,8 +197,9 @@ extension SidebarGitMetadataService {
         expectedDirectory: String
     ) {
         workspaceGitSnapshotTasksByDirectory.removeValue(forKey: expectedDirectory)
-        let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? []
-        for request in requests {
+        workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: expectedDirectory)
+        let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? [:]
+        for request in requests.values {
             workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)
             applyWorkspaceGitMetadataSnapshot(
                 snapshot,
@@ -198,29 +208,6 @@ extension SidebarGitMetadataService {
                 isLastAttempt: request.isLastAttempt
             )
         }
-    }
-
-    func removeWorkspaceGitSnapshotRequest(for key: WorkspaceGitProbeKey) {
-        guard let directory = workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: key),
-              var requests = workspaceGitSnapshotRequestsByDirectory[directory] else {
-            return
-        }
-        requests.removeAll { $0.probeKey == key }
-        if requests.isEmpty {
-            workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: directory)
-            workspaceGitSnapshotTasksByDirectory.removeValue(forKey: directory)?.cancel()
-        } else {
-            workspaceGitSnapshotRequestsByDirectory[directory] = requests
-        }
-    }
-
-    func cancelAllWorkspaceGitSnapshotTasks() {
-        for task in workspaceGitSnapshotTasksByDirectory.values {
-            task.cancel()
-        }
-        workspaceGitSnapshotTasksByDirectory.removeAll()
-        workspaceGitSnapshotRequestsByDirectory.removeAll()
-        workspaceGitSnapshotDirectoryByProbeKey.removeAll()
     }
 
     func cancelWorkspaceGitProbeTask(for key: WorkspaceGitProbeKey) {
@@ -319,7 +306,8 @@ extension SidebarGitMetadataService {
         host.updatePanelDirectory(
             workspaceId: probeKey.workspaceId,
             panelId: probeKey.panelId,
-            directory: expectedDirectory
+            directory: expectedDirectory,
+            displayLabel: nil
         )
 
         if shouldTrackGitDirectory {
