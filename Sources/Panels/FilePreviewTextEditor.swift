@@ -93,8 +93,6 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             context.coordinator.isApplyingPanelUpdate = false
         }
 
-        // Programmatic `string` assignments and config/theme changes do not fire
-        // `didChangeText()`, so re-highlight explicitly when either occurs.
         if textChanged || highlightConfigChanged {
             textView.refreshSyntaxHighlighting()
         }
@@ -262,12 +260,10 @@ final class SavingTextView: NSTextView {
     private var syntaxPrefersDarkPalette = true
     private var syntaxHighlightingEnabled = FilePreviewSyntaxHighlightSettings.defaultEnabled
     private var syntaxHighlightGeneration = 0
+    private var hasSyntaxHighlightingAttributes = false
     private var pendingSyntaxHighlightTask: Task<Void, Never>?
 
-    /// Files larger than this skip highlighting and render as plain text, keeping
-    /// the large-document performance contract (see ``makeFilePreviewTextView``).
     private static let maximumHighlightedUTF16Length = 600_000
-    /// Coalesces re-highlighting after rapid edits so typing stays responsive.
     private static let syntaxHighlightDebounceNanoseconds: UInt64 = 180_000_000
 
     convenience init() {
@@ -377,13 +373,16 @@ final class SavingTextView: NSTextView {
 
     override func didChangeText() {
         super.didChangeText()
+        guard canApplySyntaxHighlighting || hasSyntaxHighlightingAttributes else { return }
         scheduleSyntaxHighlightRefresh()
     }
 
     // MARK: - Syntax highlighting
 
-    /// Updates the highlighting inputs. Returns `true` when any of them changed,
-    /// so the caller can trigger a refresh only when needed.
+    private var canApplySyntaxHighlighting: Bool {
+        syntaxHighlightingEnabled && syntaxLanguage != nil && (string as NSString).length <= Self.maximumHighlightedUTF16Length
+    }
+
     @discardableResult
     func configureSyntaxHighlighting(
         language: FilePreviewSyntaxLanguage?,
@@ -446,14 +445,12 @@ final class SavingTextView: NSTextView {
     }
 
     private func applySyntaxTokens(_ tokens: [FilePreviewSyntaxToken], prefersDark: Bool) {
-        // Reach the layout manager through the text container so we never touch
-        // the `.layoutManager` accessor that would flip an otherwise TextKit 1
-        // view into TextKit 2 compatibility mode (see ``makeFilePreviewTextView``).
         guard let layoutManager = textContainer?.layoutManager else { return }
         let theme = FilePreviewSyntaxTheme.theme(prefersDark: prefersDark)
         let length = (string as NSString).length
-        let fullRange = NSRange(location: 0, length: length)
-        layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
+        if hasSyntaxHighlightingAttributes {
+            layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: NSRange(location: 0, length: length))
+        }
         for token in tokens {
             let range = token.range
             guard range.length > 0,
@@ -464,15 +461,18 @@ final class SavingTextView: NSTextView {
                 forCharacterRange: range
             )
         }
+        hasSyntaxHighlightingAttributes = !tokens.isEmpty
     }
 
     private func clearSyntaxHighlighting() {
+        guard hasSyntaxHighlightingAttributes else { return }
         guard let layoutManager = textContainer?.layoutManager else { return }
         let length = (string as NSString).length
         layoutManager.removeTemporaryAttribute(
             .foregroundColor,
             forCharacterRange: NSRange(location: 0, length: length)
         )
+        hasSyntaxHighlightingAttributes = false
     }
 
     private func clearPendingShortcutChordPrefixes() {
