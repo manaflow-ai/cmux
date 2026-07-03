@@ -130,16 +130,38 @@ function renderPage(url: URL): string {
   const css = `:root { --bg: ${theme.background}; --fg: ${theme.foreground}; ` +
     `--bg-body: rgba(${rgb}, ${opacity}); --bg-html: ${bgHtml}; --accent: ${accent}; ` +
     `--green: ${green}; --red: ${red}; --amber: ${amber}; }`;
-  const html = readPageTemplate();
-  return html.replace("/*__THEME__*/", css);
+  // Shell: theme vars first (so the first paint is the terminal bg), the
+  // static stylesheet, a mount point, and the bundled React app (Base UI).
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cmux agent</title>
+<link rel="stylesheet" href="/app.css">
+<style>${css}</style>
+</head><body>
+<div id="root"></div>
+<script type="module" src="/app.js"></script>
+</body></html>`;
 }
 
-let pageTemplate: string | null = null;
-function readPageTemplate(): string {
-  // Re-read in dev so UI edits show on reload; cache under launchd.
-  if (pageTemplate && process.env.CMUX_AGENT_UI_CACHE === "1") return pageTemplate;
-  pageTemplate = readFileSync(`${ROOT}/public/index.html`, "utf8");
-  return pageTemplate;
+// Bundle the React + Base UI frontend with Bun. Built once at startup and
+// cached; rebuilt on each request only when CMUX_AGENT_UI_CACHE != "1" (dev).
+let bundleCache: string | null = null;
+async function buildBundle(): Promise<string> {
+  if (bundleCache && process.env.CMUX_AGENT_UI_CACHE === "1") return bundleCache;
+  const out = await Bun.build({
+    entrypoints: [`${ROOT}/src/main.tsx`],
+    target: "browser",
+    minify: true,
+    define: { "process.env.NODE_ENV": '"production"' },
+  });
+  if (!out.success) {
+    const msg = out.logs.map((l) => String(l)).join("\n");
+    throw new Error("bundle failed:\n" + msg);
+  }
+  bundleCache = await out.outputs[0].text();
+  return bundleCache;
 }
 
 const server = Bun.serve<WsData>({
@@ -152,6 +174,23 @@ const server = Bun.serve<WsData>({
         : new Response("upgrade failed", { status: 400 });
     }
     if (url.pathname === "/healthz") return new Response("ok");
+    if (url.pathname === "/app.js") {
+      try {
+        return new Response(await buildBundle(), {
+          headers: { "content-type": "application/javascript; charset=utf-8" },
+        });
+      } catch (err) {
+        return new Response(`console.error(${JSON.stringify(String(err))})`, {
+          status: 500,
+          headers: { "content-type": "application/javascript; charset=utf-8" },
+        });
+      }
+    }
+    if (url.pathname === "/app.css") {
+      return new Response(Bun.file(`${ROOT}/public/app.css`), {
+        headers: { "content-type": "text/css; charset=utf-8" },
+      });
+    }
     if (url.pathname === "/api/theme") return Response.json(resolveGhosttyTheme());
     // REST for the CLI: create a session (optionally with a first prompt) and
     // get back its id/url; list sessions.
@@ -271,5 +310,12 @@ process.on("SIGINT", () => {
   for (const sess of sessions.values()) sess.adapter.dispose(sess);
   process.exit(0);
 });
+
+// Warm the bundle so the first page load doesn't pay the build cost, and so a
+// build error surfaces at startup rather than as a blank page.
+buildBundle().then(
+  () => console.log("bundle ready"),
+  (err) => console.error(String(err)),
+);
 
 console.log(`cmux-agent-ui listening on http://127.0.0.1:${server.port}`);
