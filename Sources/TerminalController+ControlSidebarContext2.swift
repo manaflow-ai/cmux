@@ -372,7 +372,7 @@ extension TerminalController {
         return ControlSidebarStateSnapshot(
             tabID: tab.id,
             customColor: tab.customColor,
-            currentDirectory: tab.currentDirectory,
+            currentDirectory: tab.presentedCurrentDirectory ?? "",
             focusedPanel: focusedPanel,
             gitBranch: gitBranch,
             firstPullRequest: firstPullRequest,

@@ -1207,6 +1207,7 @@
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */; };
 		9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */; };
+		C7268001000000000000001 /* Workspace+CustomSidebarSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */; };
 		D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */; };
 		DCDC1000000000000000B013 /* Workspace+DockBrowserLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B014 /* Workspace+DockBrowserLookup.swift */; };
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
@@ -2484,6 +2485,7 @@
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPane.swift"; sourceTree = "<group>"; };
 		42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPullRequests.swift"; sourceTree = "<group>"; };
+		C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarSnapshot.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DetachedSurfaceTransfer.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B014 /* Workspace+DockBrowserLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DockBrowserLookup.swift"; sourceTree = "<group>"; };
 		E3309A06 /* Workspace+EqualizeSplitsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+EqualizeSplitsSupport.swift"; sourceTree = "<group>"; };
@@ -3036,6 +3038,7 @@
 				F0ACC0DE0000000000000004 /* Workspace+ForkConversationContextMenu.swift */,
 				C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
 				42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */,
+				C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */,
 				DCDC1000000000000000B014 /* Workspace+DockBrowserLookup.swift */,
 				E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */,
 				EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */,
@@ -5107,6 +5110,7 @@
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */,
 				9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */,
+				C7268001000000000000001 /* Workspace+CustomSidebarSnapshot.swift in Sources */,
 				D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */,
 				DCDC1000000000000000B013 /* Workspace+DockBrowserLookup.swift in Sources */,
 				E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */,

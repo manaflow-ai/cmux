@@ -1,4 +1,5 @@
 import Foundation
+import CmuxControlSocket
 import CmuxCore
 import Testing
 
@@ -182,11 +183,58 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(workspace.isRemoteTerminalSurface(remotePanelId))
         #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
         #expect(workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
+        #expect(workspace.presentedCurrentDirectory == nil)
 
         workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
 
+        #expect(workspace.presentedCurrentDirectory == remoteDirectory)
         #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [remoteDirectory])
         #expect(workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [remoteDirectory])
+    }
+
+    @MainActor
+    @Test("control sidebar state hides inherited local cwd for remote ssh workspaces")
+    func controlSidebarStateHidesInheritedLocalDirectoryForRemoteSSHWorkspace() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: localDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "seepine@192.168.5.20",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: "relay-\(UUID().uuidString)",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-issue-7268-sidebar-state.sock",
+                terminalStartupCommand: sshCommand
+            ),
+            autoConnect: false
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let preReportSnapshot = try #require(TerminalController.shared.controlSidebarStateSnapshot(tabArg: nil))
+        #expect(preReportSnapshot.currentDirectory == "")
+        #expect(preReportSnapshot.focusedPanel == nil)
+
+        workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+
+        let postReportSnapshot = try #require(TerminalController.shared.controlSidebarStateSnapshot(tabArg: nil))
+        #expect(postReportSnapshot.currentDirectory == remoteDirectory)
+        #expect(postReportSnapshot.focusedPanel?.directory == remoteDirectory)
     }
 
     @MainActor

@@ -235,7 +235,11 @@ extension ContentView {
     func rightSidebarCustomSidebarDataContext(now: Date) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
-            rightSidebarCustomSidebarWorkspaceSnapshot(workspace, index: index, selectedId: selectedId)
+            workspace.customSidebarWorkspaceSnapshot(
+                index: index,
+                selectedId: selectedId,
+                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
+            )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
         let snapshot = CustomSidebarContextSnapshot(
@@ -248,70 +252,4 @@ extension ContentView {
         return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
     }
 
-    private func rightSidebarCustomSidebarWorkspaceSnapshot(
-        _ workspace: Workspace,
-        index: Int,
-        selectedId: UUID?
-    ) -> CustomSidebarWorkspaceSnapshot {
-        let focusedPanelId = workspace.focusedPanelId
-        let firstBranch = workspace.sidebarGitBranchesInDisplayOrder().first
-        let progress = workspace.progress.map {
-            CustomSidebarWorkspaceSnapshot.Progress(value: $0.value, label: $0.label)
-        }
-        let remote = workspace.remoteDisplayTarget.map { target in
-            CustomSidebarWorkspaceSnapshot.Remote(
-                target: target,
-                stateRawValue: workspace.remoteConnectionState.rawValue,
-                isConnected: workspace.remoteConnectionState == .connected
-            )
-        }
-        return CustomSidebarWorkspaceSnapshot(
-            id: workspace.id,
-            title: workspace.customTitle ?? workspace.title,
-            isSelected: workspace.id == selectedId,
-            isPinned: workspace.isPinned,
-            index: index,
-            directory: workspace.presentedCurrentDirectory ?? "",
-            listeningPorts: workspace.listeningPorts,
-            unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
-            surfaces: rightSidebarCustomSidebarSurfaceSnapshots(workspace, focusedPanelId: focusedPanelId),
-            surfaceCount: workspace.bonsplitController.allPaneIds.reduce(0) { $0 + workspace.bonsplitController.tabs(inPane: $1).count },
-            customDescription: workspace.customDescription,
-            customColor: workspace.customColor,
-            gitBranch: firstBranch?.branch,
-            gitIsDirty: firstBranch?.isDirty ?? false,
-            pullRequestValues: workspace.customSidebarPullRequestValues(),
-            progress: progress,
-            latestConversationMessage: workspace.latestConversationMessage,
-            latestSubmittedMessage: workspace.latestSubmittedMessage,
-            latestSubmittedAt: workspace.latestSubmittedAt,
-            remote: remote
-        )
-    }
-
-    private func rightSidebarCustomSidebarSurfaceSnapshots(
-        _ workspace: Workspace,
-        focusedPanelId: UUID?
-    ) -> [CustomSidebarSurfaceSnapshot] {
-        var surfaces: [CustomSidebarSurfaceSnapshot] = []
-        for paneId in workspace.bonsplitController.allPaneIds {
-            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
-                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-                let git = workspace.panelGitBranches[panelId]
-                surfaces.append(
-                    CustomSidebarSurfaceSnapshot(
-                        panelId: panelId,
-                        title: tab.title,
-                        isFocused: panelId == focusedPanelId,
-                        isPinned: workspace.pinnedPanelIds.contains(panelId),
-                        directory: workspace.panelDirectories[panelId],
-                        gitBranch: git?.branch,
-                        gitIsDirty: git?.isDirty ?? false,
-                        listeningPorts: workspace.surfaceListeningPorts[panelId] ?? []
-                    )
-                )
-            }
-        }
-        return surfaces
-    }
 }

@@ -50,7 +50,7 @@ extension TabManager {
             resolvedWorkspaceDisplayTitle(for: $0)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         } ?? ""
-        let activeDirectory = tab?.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let activeDirectory = tab?.presentedCurrentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let resolvedTitle = template.resolved(context: WindowTitleTemplateContext(
             defaultTitle: defaultTitle,
             activeWorkspace: workspaceTitle.isEmpty ? defaultTitle : workspaceTitle,
@@ -66,7 +66,7 @@ extension TabManager {
         guard let tab else { return "cmux" }
         let trimmedTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty { return trimmedTitle }
-        let trimmedDirectory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDirectory = tab.presentedCurrentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
     }
 }

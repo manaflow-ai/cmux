@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CmuxCore
 import CmuxSettings
 import Testing
 
@@ -211,6 +212,65 @@ struct WindowTitleTemplateTests {
         #expect(workspace.updatePanelDirectory(panelId: panelId, directory: "/tmp/new"))
         manager.workspaceCurrentDirectoryDidChange(workspaceId: workspace.id)
         #expect(window.title == "[cmux:01234567] /tmp/new")
+    }
+
+    @MainActor
+    @Test func remoteWorkspaceTitleUsesReportedDirectoryForActiveDirectoryTemplate() throws {
+        let defaults = UserDefaults.standard
+        let previousValues: [String: Any?] = [
+            WindowTitleTemplate.userDefaultsKey: defaults.object(forKey: WindowTitleTemplate.userDefaultsKey),
+        ]
+        defer {
+            restore(previousValues, defaults: defaults)
+        }
+        defaults.set("[cmux:{windowToken}] {activeDirectory}", forKey: WindowTitleTemplate.userDefaultsKey)
+
+        let windowId = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: localDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        manager.windowId = windowId
+        let workspace = try #require(manager.selectedWorkspace)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "seepine@192.168.5.20",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: "relay-\(UUID().uuidString)",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-issue-7268-window-title.sock",
+                terminalStartupCommand: sshCommand
+            ),
+            autoConnect: false
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        manager.window = window
+        defer {
+            manager.window = nil
+            window.close()
+        }
+
+        manager.refreshWindowTitle()
+        #expect(window.title == "[cmux:01234567]")
+
+        workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        manager.workspaceCurrentDirectoryDidChange(workspaceId: workspace.id)
+        #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
     }
 
     private func isolatedDefaults() throws -> UserDefaults {
