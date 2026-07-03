@@ -1,4 +1,6 @@
 import Darwin
+import Dispatch
+import Foundation
 import class XCTest.XCTestCase
 import func XCTest.XCTAssertEqual
 import func XCTest.XCTAssertFalse
