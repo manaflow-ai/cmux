@@ -21,9 +21,14 @@ extension UpdateController {
     /// interrupting a user-initiated flow.
     func startSilentDownloadIfKickPending() {
         guard pendingSilentDownloadKick else { return }
-        pendingSilentDownloadKick = false
-        guard !isDevLikeBundle else { return }
-        guard updater.automaticallyDownloadsUpdates else { return }
+        guard !isDevLikeBundle else {
+            pendingSilentDownloadKick = false
+            return
+        }
+        guard updater.automaticallyDownloadsUpdates else {
+            pendingSilentDownloadKick = false
+            return
+        }
         silentDownloadKickTask?.cancel()
         silentDownloadKickTask = Task { @MainActor [weak self] in
             defer { self?.silentDownloadKickTask = nil }
@@ -32,7 +37,12 @@ extension UpdateController {
             guard !Task.isCancelled else { return }
             guard self.model.state.isIdle, self.model.overrideState == nil else { return }
             guard self.updater.canCheckForUpdates else { return }
-            self.silentDownloadKickedVersion = self.model.detectedUpdateVersion
+            let version = self.model.detectedUpdateVersion
+            if version != self.silentDownloadKickedVersion {
+                self.backgroundRetryCount = 0
+            }
+            self.pendingSilentDownloadKick = false
+            self.silentDownloadKickedVersion = version
             self.log.append("starting silent background download of detected update")
             self.updater.checkForUpdatesInBackground()
         }

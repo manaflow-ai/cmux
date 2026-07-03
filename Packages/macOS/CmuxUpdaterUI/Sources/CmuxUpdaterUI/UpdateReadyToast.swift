@@ -42,12 +42,12 @@ public struct UpdateReadyToast: View {
     }
 
     /// The mute choices offered by the bell menu.
-    private static let muteOptions: [(label: String, duration: TimeInterval)] = [
-        (String(localized: "update.toast.mute.oneHour", defaultValue: "For 1 Hour"), 60 * 60),
-        (String(localized: "update.toast.mute.eightHours", defaultValue: "For 8 Hours"), 8 * 60 * 60),
-        (String(localized: "update.toast.mute.oneDay", defaultValue: "For 1 Day"), 24 * 60 * 60),
-        (String(localized: "update.toast.mute.threeDays", defaultValue: "For 3 Days"), 3 * 24 * 60 * 60),
-        (String(localized: "update.toast.mute.oneWeek", defaultValue: "For 1 Week"), 7 * 24 * 60 * 60),
+    private static let muteOptions: [(label: String, accessibilityIdentifier: String, duration: TimeInterval)] = [
+        (String(localized: "update.toast.mute.oneHour", defaultValue: "For 1 Hour"), "UpdateReadyToastMuteOneHour", 60 * 60),
+        (String(localized: "update.toast.mute.eightHours", defaultValue: "For 8 Hours"), "UpdateReadyToastMuteEightHours", 8 * 60 * 60),
+        (String(localized: "update.toast.mute.oneDay", defaultValue: "For 1 Day"), "UpdateReadyToastMuteOneDay", 24 * 60 * 60),
+        (String(localized: "update.toast.mute.threeDays", defaultValue: "For 3 Days"), "UpdateReadyToastMuteThreeDays", 3 * 24 * 60 * 60),
+        (String(localized: "update.toast.mute.oneWeek", defaultValue: "For 1 Week"), "UpdateReadyToastMuteOneWeek", 7 * 24 * 60 * 60),
     ]
 
     public var body: some View {
@@ -80,6 +80,7 @@ public struct UpdateReadyToast: View {
                         Button(option.label) {
                             model.muteUpdateReadyToast(for: option.duration)
                         }
+                        .accessibilityIdentifier(option.accessibilityIdentifier)
                     }
                 } label: {
                     Image(systemName: "bell.slash")
@@ -168,7 +169,8 @@ public struct UpdateReadyToast: View {
 
     private func title(for installing: UpdateState.Installing) -> String {
         if let version = installing.stagedVersion, !version.isEmpty {
-            return String(localized: "update.toast.title.withVersion", defaultValue: "cmux \(version) is ready")
+            let format = String(localized: "update.toast.title.withVersion", defaultValue: "cmux %@ is ready")
+            return String(format: format, version)
         }
         return String(localized: "update.toast.title", defaultValue: "Update ready")
     }

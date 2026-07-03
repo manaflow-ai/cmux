@@ -37,6 +37,9 @@ public final class UpdateStateModel {
     /// The deadline until which the update-ready toast is muted (any version). Persisted so a
     /// multi-day mute survives relaunches; the pill remains the ambient affordance meanwhile.
     public private(set) var updateReadyToastMutedUntil: Date?
+    /// Tracks an in-memory dismissal for a staged update whose version is unavailable. Known
+    /// versions use ``dismissedUpdateReadyToastVersion`` so newer versions can re-surface.
+    public private(set) var dismissedUnknownVersionUpdateReadyToast = false
     #if DEBUG
     /// A debug override for the pill's title text.
     public var debugOverrideText: String?
@@ -93,6 +96,7 @@ public final class UpdateStateModel {
     public func setState(_ newState: UpdateState) {
         state = newState
         disarmRestartWhenIdleIfNotInstalling()
+        resetUnknownVersionToastDismissalIfNeeded()
         notifyStateChanged()
     }
 
@@ -100,6 +104,7 @@ public final class UpdateStateModel {
     public func setOverrideState(_ newState: UpdateState?) {
         overrideState = newState
         disarmRestartWhenIdleIfNotInstalling()
+        resetUnknownVersionToastDismissalIfNeeded()
         notifyStateChanged()
     }
 
@@ -108,6 +113,14 @@ public final class UpdateStateModel {
     private func disarmRestartWhenIdleIfNotInstalling() {
         if isRestartWhenIdleArmed, !effectiveState.isInstalling {
             isRestartWhenIdleArmed = false
+        }
+    }
+
+    private func resetUnknownVersionToastDismissalIfNeeded() {
+        guard dismissedUnknownVersionUpdateReadyToast else { return }
+        guard case .installing(let installing) = effectiveState, installing.stagedVersion == nil else {
+            dismissedUnknownVersionUpdateReadyToast = false
+            return
         }
     }
 
@@ -128,6 +141,8 @@ public final class UpdateStateModel {
         // (avoids two redundant stateChanges() emissions for one logical reset).
         state = .idle
         overrideState = nil
+        disarmRestartWhenIdleIfNotInstalling()
+        resetUnknownVersionToastDismissalIfNeeded()
         notifyStateChanged()
     }
 
@@ -201,7 +216,11 @@ public final class UpdateStateModel {
         if let mutedUntil = updateReadyToastMutedUntil, now() < mutedUntil {
             return nil
         }
-        guard dismissedUpdateReadyToastVersion != Self.toastVersionKey(for: installing) else {
+        if let versionKey = Self.toastVersionKey(for: installing) {
+            guard dismissedUpdateReadyToastVersion != versionKey else {
+                return nil
+            }
+        } else if dismissedUnknownVersionUpdateReadyToast {
             return nil
         }
         return installing
@@ -227,7 +246,11 @@ public final class UpdateStateModel {
     /// different version is staged.
     public func dismissUpdateReadyToast() {
         guard case .installing(let installing) = effectiveState else { return }
-        dismissedUpdateReadyToastVersion = Self.toastVersionKey(for: installing)
+        if let versionKey = Self.toastVersionKey(for: installing) {
+            dismissedUpdateReadyToastVersion = versionKey
+        } else {
+            dismissedUnknownVersionUpdateReadyToast = true
+        }
     }
 
     /// Arms or disarms the deferred "restart when idle" for the staged update.
@@ -237,8 +260,9 @@ public final class UpdateStateModel {
         notifyStateChanged()
     }
 
-    private static func toastVersionKey(for installing: UpdateState.Installing) -> String {
-        installing.stagedVersion ?? ""
+    private static func toastVersionKey(for installing: UpdateState.Installing) -> String? {
+        guard let stagedVersion = installing.stagedVersion, !stagedVersion.isEmpty else { return nil }
+        return stagedVersion
     }
 
     // MARK: - Derived display state

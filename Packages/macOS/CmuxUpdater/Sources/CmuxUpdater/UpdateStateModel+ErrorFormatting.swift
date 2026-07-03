@@ -7,6 +7,26 @@ public import Foundation
 /// message, optional manual-download recovery URL, and copyable technical detail block that
 /// ``UpdateStateModel`` and the error popover render.
 extension UpdateStateModel {
+    nonisolated static let sparkleInvalidFeedURLCode = 4
+    nonisolated static let sparkleInsecureFeedCode = 3
+    nonisolated static let sparkleAppcastParseCode = 1000
+    nonisolated static let sparkleAppcastCode = 1002
+    nonisolated static let sparkleRunningFromDiskImageCode = 1003
+    nonisolated static let sparkleRunningTranslocatedCode = 1005
+    nonisolated static let sparkleResumeAppcastCode = 1004
+    nonisolated static let sparkleTempDirectoryCode = 2000
+    nonisolated static let sparkleDownloadCode = 2001
+    nonisolated static let sparkleUnarchivingCode = 3000
+    nonisolated static let sparkleInitialInstallationCode = 1
+    nonisolated static let sparkleInitialInstallationNoUpdateCode = 2
+    nonisolated static let sparkleSignatureCode = 3001
+    nonisolated static let sparkleValidationCode = 3002
+    nonisolated static let sparkleAuthenticationFailureCode = 4001
+    nonisolated static let sparkleInstallationCode = 4005
+    nonisolated static let sparkleAgentInvalidationCode = 4010
+    nonisolated static let sparkleInstallationWriteNoPermissionCode = 4012
+    nonisolated static let sparkleInternalAgentConnectionTimeoutCode = 10
+
     // MARK: - Error formatting
 
     /// A short, user-facing title for an update error.
@@ -39,19 +59,19 @@ extension UpdateStateModel {
         }
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
-            case 4005:
+            case Self.sparkleInstallationCode:
                 return String(localized: "update.error.permissionError.title", defaultValue: "Updater Permission Error")
-            case 2001:
+            case Self.sparkleDownloadCode:
                 return String(localized: "update.error.downloadFailed.title", defaultValue: "Couldn't Download Update")
-            case 1000, 1002:
+            case Self.sparkleAppcastParseCode, Self.sparkleAppcastCode:
                 return String(localized: "update.error.feedError.title", defaultValue: "Update Feed Error")
-            case 4:
+            case Self.sparkleInvalidFeedURLCode:
                 return String(localized: "update.error.invalidFeed.title", defaultValue: "Invalid Update Feed")
-            case 3:
+            case Self.sparkleInsecureFeedCode:
                 return String(localized: "update.error.insecureFeed.title", defaultValue: "Insecure Update Feed")
-            case 1, 2, 3001, 3002:
+            case Self.sparkleInitialInstallationCode, Self.sparkleInitialInstallationNoUpdateCode, Self.sparkleSignatureCode, Self.sparkleValidationCode:
                 return String(localized: "update.error.signatureError.title", defaultValue: "Update Signature Error")
-            case 1003, 1005:
+            case Self.sparkleRunningFromDiskImageCode, Self.sparkleRunningTranslocatedCode:
                 return String(localized: "update.error.appLocation.title", defaultValue: "App Location Issue")
             default:
                 break
@@ -87,19 +107,19 @@ extension UpdateStateModel {
         }
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
-            case 2001:
+            case Self.sparkleDownloadCode:
                 return String(localized: "update.error.feedDownload.message", defaultValue: "cmux couldn't download the update feed. Check your connection and try again.")
-            case 1000, 1002:
+            case Self.sparkleAppcastParseCode, Self.sparkleAppcastCode:
                 return String(localized: "update.error.feedRead.message", defaultValue: "The update feed could not be read. Please try again later.")
-            case 4:
+            case Self.sparkleInvalidFeedURLCode:
                 return String(localized: "update.error.invalidFeed.message", defaultValue: "The update feed URL is invalid. Please contact support.")
-            case 3:
+            case Self.sparkleInsecureFeedCode:
                 return String(localized: "update.error.insecureFeed.message", defaultValue: "The update feed is insecure. Please contact support.")
-            case 1, 2, 3001, 3002:
+            case Self.sparkleInitialInstallationCode, Self.sparkleInitialInstallationNoUpdateCode, Self.sparkleSignatureCode, Self.sparkleValidationCode:
                 return String(localized: "update.error.signatureError.message", defaultValue: "The update's signature could not be verified. Please try again later.")
-            case 1003, 1005:
+            case Self.sparkleRunningFromDiskImageCode, Self.sparkleRunningTranslocatedCode:
                 return String(localized: "update.error.permissionError.message", defaultValue: "Move cmux into Applications and relaunch to enable updates.")
-            case 4005, 4010:
+            case Self.sparkleInstallationCode, Self.sparkleAgentInvalidationCode:
                 return String(localized: "update.error.installRecovery.message", defaultValue: "Move cmux into Applications and relaunch to enable updates. If it’s already in Applications, restart your Mac and try again, or download the latest version below.")
             default:
                 break
@@ -122,11 +142,13 @@ extension UpdateStateModel {
         let nsError = error as NSError
         guard nsError.domain == SUSparkleErrorDomain else { return nil }
         switch nsError.code {
-        case 1004,                                    // SUResumeAppcastError
-             2000, 2001,                              // temp-directory / download failures
-             3000,                                    // SUUnarchivingError
-             4000, 4001, 4002, 4003, 4004, 4005, 4006, // file copy / auth / installer failures
-             4010, 4012:                              // agent invalidation / write-permission failures
+        case Self.sparkleResumeAppcastCode,
+             Self.sparkleTempDirectoryCode,
+             Self.sparkleDownloadCode,
+             Self.sparkleUnarchivingCode,
+             4000, Self.sparkleAuthenticationFailureCode, 4002, 4003, 4004, Self.sparkleInstallationCode, 4006,
+             Self.sparkleAgentInvalidationCode,
+             Self.sparkleInstallationWriteNoPermissionCode:
             return URL(string: manualDownloadURLString)
         default:
             return nil
@@ -207,9 +229,9 @@ extension UpdateStateModel {
         }
         guard nsError.domain == SUSparkleErrorDomain else { return false }
         switch nsError.code {
-        case 1002,       // SUAppcastError (feed fetch failed)
-             1004,       // SUResumeAppcastError
-             2001:       // SUDownloadError
+        case Self.sparkleAppcastCode,
+             Self.sparkleResumeAppcastCode,
+             Self.sparkleDownloadCode:
             return true
         default:
             return false
@@ -235,12 +257,14 @@ extension UpdateStateModel {
     /// agent failure, so it falls through to the generic "couldn't install" path.
     private static func isUpdaterAgentConnectionFailure(_ error: NSError) -> Bool {
         guard error.domain == SUSparkleErrorDomain else { return false }
-        if error.code == 4010 { return true }
-        guard error.code == 4005 else { return false }
+        if error.code == Self.sparkleAgentInvalidationCode { return true }
+        guard error.code == Self.sparkleInstallationCode else { return false }
         let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
         // Sparkle's internal "agent connection was never initiated" timeout is code 10 in its own
         // domain; that is the precise wedged-launchd signal.
-        if let underlying, underlying.domain == SUSparkleErrorDomain, underlying.code == 10 {
+        if let underlying,
+           underlying.domain == SUSparkleErrorDomain,
+           underlying.code == Self.sparkleInternalAgentConnectionTimeoutCode {
             return true
         }
         return mentionsAgentConnectionFailure(error)

@@ -44,7 +44,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
             stagedVersion: version,
             retryTerminatingApplication: immediateInstallHandler,
             dismiss: { [weak self] in
-                self?.model.setState(.idle)
+                self?.model.dismissUpdateReadyToast()
             }
         )))
         return true
@@ -59,6 +59,13 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         // genuinely unexpected aborts to keep the update log readable.
         guard nsError.domain != SUSparkleErrorDomain || nsError.code != 1001 else { return }
         log.append("update session aborted: \(formatErrorForLog(error))")
+        if !hasUserInitiatedSession {
+            onBackgroundSessionError?(error)
+        }
+    }
+
+    func updater(_ updater: SPUUpdater, failedToDownloadUpdate item: SUAppcastItem, error: any Error) {
+        log.append("update download failed for \(item.displayVersionString): \(formatErrorForLog(error))")
         if !hasUserInitiatedSession {
             onBackgroundSessionError?(error)
         }
@@ -111,12 +118,15 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         } else {
             log.append("valid update found: \(version) (\(fileURL))")
         }
-        // Kick the silent download now instead of waiting for Sparkle's next scheduled check,
-        // so the "update ready" toast appears shortly after a release is detected.
-        onBackgroundUpdateDetected?()
+        if !hasUserInitiatedSession {
+            // Kick the silent download now instead of waiting for Sparkle's next scheduled check,
+            // so the toast appears shortly after a background release detection.
+            onBackgroundUpdateDetected?()
+        }
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: any Error) {
+        hasUserInitiatedSession = false
         model.dismissDetectedAvailableUpdate()
         let nsError = error as NSError
         let reasonValue = (nsError.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue
@@ -133,6 +143,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, userDidMake _: SPUUserUpdateChoice, forUpdate _: SUAppcastItem, state _: SPUUserUpdateState) {
+        hasUserInitiatedSession = false
         model.clearDetectedUpdate()
     }
 

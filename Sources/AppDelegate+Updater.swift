@@ -46,7 +46,7 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
             tabManagers.append(tabManager)
         }
         if tabManagers.contains(where: { manager in
-            manager.tabs.contains(where: { $0.hasRunningForegroundCommand })
+            manager.tabs.contains(where: { $0.blocksUpdateRestart })
         }) {
             return false
         }
@@ -71,10 +71,13 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 }
 
 extension Workspace {
-    /// Whether any terminal panel in this workspace reports a foreground command running
-    /// (shell-integration classification). Used to block the deferred update restart while
-    /// agents or long-running commands are mid-flight.
-    var hasRunningForegroundCommand: Bool {
-        panelShellActivityStates.values.contains(.commandRunning)
+    /// Whether any terminal panel in this workspace may be mid-command. This deliberately reuses
+    /// the close-confirmation path, which treats unknown shell state and remote tmux activity as
+    /// blocking rather than relying only on shell-integration `.commandRunning`.
+    var blocksUpdateRestart: Bool {
+        panels.contains { panelId, panel in
+            guard panel is TerminalPanel else { return false }
+            return panelNeedsConfirmClose(panelId: panelId)
+        }
     }
 }

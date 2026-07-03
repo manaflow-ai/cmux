@@ -95,7 +95,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showUpdateNotFoundWithError(_ error: any Error,
                                      acknowledgement: @escaping () -> Void) {
         log.append("show update not found: \(formatErrorForLog(error))")
-        setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)))
+        setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: { [weak self] in
+            self?.hasUserInitiatedSession = false
+            acknowledgement()
+        })))
     }
 
     func showUpdaterError(_ error: any Error,
@@ -114,15 +117,18 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         setState(.error(.init(
             error: error,
             retry: { [weak self] in
+                self?.hasUserInitiatedSession = false
                 self?.model.setState(.idle)
                 self?.actionDelegate?.updaterRequestsRetryCheckForUpdates()
             },
             dismiss: { [weak self] in
+                self?.hasUserInitiatedSession = false
                 self?.model.setState(.idle)
             },
             technicalDetails: details,
             feedURLString: lastFeedURLString
         )))
+        hasUserInitiatedSession = false
         acknowledgement()
     }
 
@@ -338,7 +344,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         case .extracting(let extracting):
             return String(format: "extracting(%.0f%%)", extracting.progress * 100)
         case .installing(let installing):
-            return "installing(auto=\(installing.isAutoUpdate))"
+            return "installing(auto=\(installing.isAutoUpdate), version=\(installing.stagedVersion ?? "unknown"))"
         }
     }
 }

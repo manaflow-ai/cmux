@@ -131,6 +131,7 @@ public final class UpdateController {
             guard let version = self.model.detectedUpdateVersion,
                   version != self.silentDownloadKickedVersion else { return }
             self.pendingSilentDownloadKick = true
+            self.backgroundRetryCount = 0
         }
         driver.onUpdateSessionFinished = { [weak self] in
             self?.startSilentDownloadIfKickPending()
@@ -176,6 +177,9 @@ public final class UpdateController {
             performAttemptAction(attemptCoordinator.handleStateChange(state))
         }
         scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
+        if state.isIdle, overrideState == nil {
+            startSilentDownloadIfKickPending()
+        }
 
         if case .installing = state {
             // A staged install supersedes any pending silent-download retry.

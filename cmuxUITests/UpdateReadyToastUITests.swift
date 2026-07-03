@@ -80,14 +80,20 @@ final class UpdateReadyToastUITests: XCTestCase {
     func testMuteForOneHourHidesToastButKeepsPill() {
         let app = launchWithStagedAutoUpdate()
 
-        let mute = app.otherElements["UpdateReadyToastMute"].firstMatch.exists
-            ? app.otherElements["UpdateReadyToastMute"].firstMatch
-            : app.popUpButtons["UpdateReadyToastMute"].firstMatch
-        let muteControl = mute.exists ? mute : app.menuButtons["UpdateReadyToastMute"].firstMatch
+        let muteCandidates = [
+            app.otherElements["UpdateReadyToastMute"].firstMatch,
+            app.popUpButtons["UpdateReadyToastMute"].firstMatch,
+            app.menuButtons["UpdateReadyToastMute"].firstMatch,
+        ]
+        XCTAssertTrue(
+            pollUntil(timeout: 8.0) { muteCandidates.contains(where: \.exists) },
+            "Expected the mute menu on the toast"
+        )
+        let muteControl = muteCandidates.first(where: \.exists) ?? app.menuButtons["UpdateReadyToastMute"].firstMatch
         XCTAssertTrue(muteControl.waitForExistence(timeout: 8.0), "Expected the mute menu on the toast")
         muteControl.click()
 
-        let oneHour = app.menuItems["For 1 Hour"]
+        let oneHour = app.menuItems["UpdateReadyToastMuteOneHour"]
         XCTAssertTrue(oneHour.waitForExistence(timeout: 4.0), "Expected mute duration options")
         oneHour.click()
 

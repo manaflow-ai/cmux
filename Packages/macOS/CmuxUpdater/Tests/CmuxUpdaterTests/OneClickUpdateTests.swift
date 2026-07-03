@@ -84,6 +84,19 @@ import Testing
         #expect(model.updateReadyToastInstalling?.stagedVersion == "1.2.4")
     }
 
+    @Test func dismissUnknownVersionToastDoesNotSuppressFutureUnknownVersionInstalls() {
+        let model = UpdateStateModel()
+        model.setState(.installing(stagedInstalling(version: nil)))
+        #expect(model.updateReadyToastInstalling != nil)
+
+        model.dismissUpdateReadyToast()
+        #expect(model.updateReadyToastInstalling == nil)
+
+        model.setState(.idle)
+        model.setState(.installing(stagedInstalling(version: nil)))
+        #expect(model.updateReadyToastInstalling != nil)
+    }
+
     @Test func armingRestartWhenIdleHidesToastAndLeavingInstallingDisarms() {
         let model = UpdateStateModel()
         model.setState(.installing(stagedInstalling()))
@@ -93,6 +106,37 @@ import Testing
 
         model.setState(.idle)
         #expect(!model.isRestartWhenIdleArmed)
+    }
+
+    @Test func freshCheckDisarmsRestartWhenIdle() {
+        let model = UpdateStateModel()
+        model.setState(.installing(stagedInstalling()))
+        model.setRestartWhenIdleArmed(true)
+
+        model.cancelActiveStateForNewCheck()
+
+        #expect(model.state.isIdle)
+        #expect(!model.isRestartWhenIdleArmed)
+    }
+
+    @Test func restartLaterOnAutoStagedInstallDismissesToastButKeepsPill() {
+        let model = UpdateStateModel()
+        model.setState(.installing(.init(
+            isAutoUpdate: true,
+            stagedVersion: "1.2.3",
+            retryTerminatingApplication: {},
+            dismiss: { model.dismissUpdateReadyToast() }
+        )))
+
+        guard case .installing(let installing) = model.state else {
+            Issue.record("Expected installing state")
+            return
+        }
+        installing.dismiss()
+
+        #expect(model.state.isInstalling)
+        #expect(model.updateReadyToastInstalling == nil)
+        #expect(model.showsPill)
     }
 
     @Test func muteHidesToastUntilDeadlineAcrossVersions() throws {
