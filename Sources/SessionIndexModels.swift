@@ -262,7 +262,7 @@ struct SessionEntry: Identifiable, Hashable {
         guard let cwd = resumeWorkingDirectory else {
             return command
         }
-        return TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: cwd)
+        return TerminalStartupWorkingDirectoryPrefix().prefix(command, workingDirectory: cwd)
     }
 
     private var resumeCommandWithoutWorkingDirectory: String? {
