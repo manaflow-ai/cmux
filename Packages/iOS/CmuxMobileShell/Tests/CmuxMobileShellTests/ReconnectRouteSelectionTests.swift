@@ -100,8 +100,11 @@ import Testing
         #expect(MobileShellComposite.isIPLiteralHost("100.82.214.112"))
         #expect(MobileShellComposite.isIPLiteralHost("127.0.0.1"))
         #expect(MobileShellComposite.isIPLiteralHost("fd7a:115c:a1e0::4b36:d670"))
+        #expect(MobileShellComposite.isIPLiteralHost("::ffff:192.168.0.1"))
+        #expect(MobileShellComposite.isIPLiteralHost("[fd7a:115c:a1e0::4b36:d670]"))
         #expect(!MobileShellComposite.isIPLiteralHost("lawrences-macbook-pro-2.tail137216.ts.net"))
         #expect(!MobileShellComposite.isIPLiteralHost("example.com"))
+        #expect(!MobileShellComposite.isIPLiteralHost("my:host"))
         #expect(!MobileShellComposite.isIPLiteralHost("100.82.214")) // too few octets
         #expect(!MobileShellComposite.isIPLiteralHost("256.1.1.1")) // out of range
     }

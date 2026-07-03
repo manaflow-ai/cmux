@@ -121,13 +121,25 @@ import Testing
             port: 58465,
             stackUserID: "user-a"
         ))
+        let ipv4MappedIPv6 = try #require(MobileManualHostTrustScope(
+            host: "::ffff:192.168.0.1",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+        let bracketedIPv4MappedIPv6 = try #require(MobileManualHostTrustScope(
+            host: "[::ffff:192.168.0.1]",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
 
         #expect(!await store.isTrusted(approved))
         await store.trust(approved)
         await store.trust(normalizedIPv6)
+        await store.trust(ipv4MappedIPv6)
 
         #expect(await store.isTrusted(sameHostDifferentCase))
         #expect(await store.isTrusted(bracketedIPv6))
+        #expect(await store.isTrusted(bracketedIPv4MappedIPv6))
         #expect(!await store.isTrusted(differentPort))
         #expect(!await store.isTrusted(differentAccount))
     }

@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShellModel
+import Darwin
 import Foundation
 
 @MainActor
@@ -69,12 +70,19 @@ extension MobileShellComposite {
     /// that needs DNS resolution. Used to prefer directly-dialable IP routes over
     /// MagicDNS hostnames, which fail to resolve on some clients.
     static func isIPLiteralHost(_ host: String) -> Bool {
-        if host.contains(":") { return true }
-        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
-        return octets.count == 4 && octets.allSatisfy { part in
-            guard let value = Int(part), (0...255).contains(value), !part.isEmpty else { return false }
-            return String(value) == part
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unbracketed = if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+            String(trimmed.dropFirst().dropLast())
+        } else {
+            trimmed
         }
+
+        var ipv4 = in_addr()
+        if unbracketed.withCString({ inet_pton(AF_INET, $0, &ipv4) }) == 1 {
+            return true
+        }
+        var ipv6 = in6_addr()
+        return unbracketed.withCString { inet_pton(AF_INET6, $0, &ipv6) } == 1
     }
 
     /// `true` on a physical iPhone/iPad; `false` in the simulator and in

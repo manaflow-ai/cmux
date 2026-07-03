@@ -60,7 +60,7 @@ public struct MobileManualHostTrustScope: Equatable, Hashable, Sendable {
             return manualHost
         }
         let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let ipv6Characters = CharacterSet(charactersIn: "0123456789abcdefABCDEF:")
+        let ipv6Characters = CharacterSet(charactersIn: "0123456789abcdefABCDEF:.")
         guard trimmed.contains(":"),
               trimmed.unicodeScalars.allSatisfy({ ipv6Characters.contains($0) }) else {
             return nil
