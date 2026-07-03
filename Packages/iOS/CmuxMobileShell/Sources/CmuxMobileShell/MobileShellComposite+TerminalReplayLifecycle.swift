@@ -89,6 +89,7 @@ extension MobileShellComposite {
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
         if !preservingFollowUpCount {
             terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
@@ -170,6 +171,7 @@ extension MobileShellComposite {
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
