@@ -245,7 +245,20 @@ def navigate_back(sim):
     return _terminal_row_count(sim) >= 2
 
 
-def capture_agent(tag, sim, key, out_dir, device_name, font):
+def _grid_dims(tag, ws):
+    """Approx Mac PTY grid (cols x rows) from read-screen, for diagnosing why an
+    agent's streamed terminal appears larger/smaller than the others."""
+    try:
+        sc = read_screen(tag, ws)
+        lines = sc.splitlines()
+        cols = max((len(l.rstrip()) for l in lines), default=0)
+        rows = len(lines)
+        return cols, rows
+    except Exception:
+        return -1, -1
+
+
+def capture_agent(tag, sim, key, out_dir, device_name, font, ws=None):
     info = AGENTS[key]
     # ensure connected + on the workspace list
     for _ in range(6):
@@ -266,6 +279,9 @@ def capture_agent(tag, sim, key, out_dir, device_name, font):
     # fills — a short settle left OpenCode's bottom rows unpainted.
     set_font(tag, font)
     time.sleep(6)
+    if ws:
+        c, r = _grid_dims(tag, ws)
+        print(f"  {key} MAC grid ~ {c} cols x {r} rows (font {font})")
     status_bar_941(sim)
     time.sleep(1)
     os.makedirs(out_dir, exist_ok=True)
@@ -293,15 +309,16 @@ def main():
     print("== ensure Mac app ==")
     ensure_mac(args.tag)
     print("== set up agent workspaces ==")
+    wsmap = {}
     for key in agents:
-        setup_agent(args.tag, key, f"/tmp/cmux-stream-{key}")
+        wsmap[key] = setup_agent(args.tag, key, f"/tmp/cmux-stream-{key}")
     print("== prepare device ==")
     run(["xcrun", "simctl", "ui", args.sim_id, "appearance", "dark"])
     status_bar_941(args.sim_id)
     print("== capture ==")
     ok = 0
     for key in agents:
-        if capture_agent(args.tag, args.sim_id, key, args.out, args.device_name, args.font):
+        if capture_agent(args.tag, args.sim_id, key, args.out, args.device_name, args.font, ws=wsmap.get(key)):
             ok += 1
     print(f"captured {ok}/{len(agents)} agent shots")
 
