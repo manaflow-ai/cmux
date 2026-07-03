@@ -14,6 +14,9 @@ public enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case sessions
     case feed
     case dock
+    /// Transient custom-sidebar mode (main-merge feature). Consumers normalize it
+    /// to `.files`; it is not independently selectable.
+    case customSidebar
 }
 
 extension RightSidebarMode {
@@ -47,6 +50,8 @@ extension RightSidebarMode {
             return feedEnabled
         case .dock:
             return dockEnabled
+        case .customSidebar:
+            return false
         }
     }
 
