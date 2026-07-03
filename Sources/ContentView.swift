@@ -2664,6 +2664,10 @@ struct ContentView: View {
             refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
         })
 
+        view = AnyView(view.onChange(of: activePaneBorderColorHex) { _, _ in
+            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
+        })
+
         view = AnyView(view.onChange(of: titlebarThemeGeneration) { oldValue, newValue in
             guard GhosttyApp.shared.backgroundLogEnabled else { return }
             GhosttyApp.shared.logBackground(
