@@ -425,7 +425,7 @@ enum AgentResumeCommandBuilder {
                 parts: sanitizedCommandParts,
                 quote: shellSingleQuoted
             )
-            // Only wrap in the `/bin/zsh -lc` retry launcher for local launches, which can write a
+            // Only wrap in the `/bin/zsh -c` retry launcher for local launches, which can write a
             // launcher script and are guaranteed `/bin/zsh`. Remote/inline dispatch passes
             // `applyCodexRetryWrapper: false` (see `forkStartupInput`/`resumeStartupInput`) so the
             // command stays small enough for inline startup input and portable to hosts without zsh.
@@ -776,7 +776,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     ) -> String? {
         // Retry-wrap the codex launch only when a launcher script can be written (local dispatch,
         // guaranteed `/bin/zsh`). Remote/inline callers pass `allowLauncherScript: false`, where the
-        // multi-KB `/bin/zsh -lc` retry script would blow past `maxInlineStartupInputBytes` and cannot
+        // multi-KB `/bin/zsh -c` retry script would blow past `maxInlineStartupInputBytes` and cannot
         // assume zsh on the target host, so they get the compact unwrapped command instead.
         startupInput(
             command: AgentResumeCommandBuilder.resumeShellCommand(

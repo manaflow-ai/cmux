@@ -3274,7 +3274,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertFalse(supportsFork)
     }
 
-    // Regression: the Codex retry launcher (`/bin/zsh -lc '<multi-KB script>'`) must stay on local
+    // Regression: the Codex retry launcher (`/bin/zsh -c '<multi-KB script>'`) must stay on local
     // dispatch. A remote fork (`allowLauncherScript: false`) cannot ship a locally written launcher
     // script and may not have `/bin/zsh`, and the wrapped command also blows past
     // `maxInlineStartupInputBytes`, so wrapping it there returned nil and dropped the remote fork.
@@ -3304,7 +3304,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             snapshot.forkStartupInput(allowLauncherScript: false),
             "remote codex fork must produce a compact inline command, not nil"
         )
-        XCTAssertFalse(remoteInput.contains("/bin/zsh -lc"), remoteInput)
+        XCTAssertFalse(remoteInput.contains("/bin/zsh -c"), remoteInput)
         XCTAssertFalse(remoteInput.contains("_cmux_codex_retry_limit"), remoteInput)
         XCTAssertTrue(remoteInput.contains("019dad34-d218-7943-b81a-eddac5c87951"), remoteInput)
     }

@@ -7898,7 +7898,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let request = try XCTUnwrap(resumeBindingRequests.first)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(request["auto_resume"] as? Bool, true)
-        // The published/stored resume binding stays compact and portable (no `/bin/zsh -lc` retry
+        // The published/stored resume binding stays compact and portable (no `/bin/zsh -c` retry
         // launcher): the retry launcher is applied only on the local repair path at restore time
         // (`SurfaceResumeCommandCanonicalizer.resolvedStartupCommand(repairPortableAgentExecutable: true)`),
         // so remote restoration can reuse this binding without assuming zsh or overflowing the inline budget.

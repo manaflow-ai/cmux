@@ -27049,7 +27049,7 @@ struct CMUXCLI {
         var command = kind == "claude"
             ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: resumeCommandParts, quote: cliShellQuote)
             : resumeCommandParts.map(cliShellQuote).joined(separator: " ")
-        // Do NOT wrap codex in the `/bin/zsh -lc` retry launcher here: this command is stored/published
+        // Do NOT wrap codex in the `/bin/zsh -c` retry launcher here: this command is stored/published
         // as a surface resume binding and later reused for remote restoration via
         // `remoteStartupInputWithLauncherScript(allowLauncherScript: false)`, where the launcher is
         // intentionally skipped (remote hosts may lack `/bin/zsh`; the multi-KB script overflows the

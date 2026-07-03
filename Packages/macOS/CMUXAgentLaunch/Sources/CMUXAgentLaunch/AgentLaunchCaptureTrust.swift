@@ -52,7 +52,7 @@ public enum AgentLaunchCaptureTrust {
     }
 
     /// True when a captured argv describes a shell dispatcher (`sh -c …`,
-    /// `zsh -lc …`) rather than an agent launch. This happens when the
+    /// `zsh -c …`) rather than an agent launch. This happens when the
     /// launch-capture PID fallback resolves to the hook's own dispatch shell
     /// instead of the agent process. Requires both a shell argv[0] basename and
     /// a command-string flag, so an agent that merely shares a shell's name

@@ -20,7 +20,7 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
         self.maxAttempts = max(1, maxAttempts)
     }
 
-    /// Wraps a rendered Codex command in a retrying `/bin/zsh -lc` launcher.
+    /// Wraps a rendered Codex command in a retrying `/bin/zsh -c` launcher.
     ///
     /// - Parameters:
     ///   - command: The already shell-rendered Codex command to execute.
@@ -31,12 +31,12 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard maxAttempts > 1, !trimmed.isEmpty else { return command }
         guard !trimmed.contains("_cmux_codex_retry_limit") else { return trimmed }
-        return "/bin/zsh -lc \(quote(retryScript(command: trimmed)))"
+        return "/bin/zsh -c \(quote(retryScript(command: trimmed)))"
     }
 
     /// Renders the retry loop as a **single-line** POSIX script.
     ///
-    /// The wrapper emits `/bin/zsh -lc '<script>'`, and that whole command is copy-pasted into — and
+    /// The wrapper emits `/bin/zsh -c '<script>'`, and that whole command is copy-pasted into — and
     /// dispatched through — the user's login shell, which may be csh/tcsh (a supported restore path,
     /// https://github.com/manaflow-ai/cmux/issues/5639). csh/tcsh reject a single-quoted argument that
     /// contains literal newlines ("Unmatched '") before `/bin/zsh` ever starts, so the statements are

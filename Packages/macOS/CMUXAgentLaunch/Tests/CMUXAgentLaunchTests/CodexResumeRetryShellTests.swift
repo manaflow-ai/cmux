@@ -124,6 +124,58 @@ struct CodexResumeRetryShellTests {
         #expect(!FileManager.default.fileExists(atPath: successURL.path))
     }
 
+    @Test("Nested retry shell preserves caller working directory")
+    func nestedRetryShellPreservesCallerWorkingDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-retry-shell-\(UUID().uuidString)", isDirectory: true)
+        let expectedDirectory = root.appendingPathComponent("expected workspace", isDirectory: true)
+        let profileDirectory = root.appendingPathComponent("profile cwd", isDirectory: true)
+        let zDotDirectory = root.appendingPathComponent("zdotdir", isDirectory: true)
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: expectedDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: profileDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: zDotDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let zprofileURL = zDotDirectory.appendingPathComponent(".zprofile", isDirectory: false)
+        try "cd -- \(Self.shellSingleQuoted(profileDirectory.path))\n"
+            .write(to: zprofileURL, atomically: true, encoding: .utf8)
+
+        let recordURL = root.appendingPathComponent("record.txt", isDirectory: false)
+        let fakeCodexURL = binDirectory.appendingPathComponent("codex fake", isDirectory: false)
+        try """
+        #!/bin/zsh
+        printf 'cwd=%s\\n' "$PWD" > \(Self.shellSingleQuoted(recordURL.path))
+        """.write(to: fakeCodexURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCodexURL.path)
+
+        let wrapped = CodexResumeRetryShell(maxAttempts: 4).wrappedCommand(
+            Self.shellSingleQuoted(fakeCodexURL.path),
+            quote: Self.shellSingleQuoted
+        )
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [
+            "-lc",
+            "cd -- \(Self.shellSingleQuoted(expectedDirectory.path)) && \(wrapped)",
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZDOTDIR"] = zDotDirectory.path
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderr = Pipe()
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+
+        let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        #expect(process.terminationStatus == 0, "stderr: \(stderrText)")
+        #expect(try String(contentsOf: recordURL, encoding: .utf8) == "cwd=\(expectedDirectory.path)\n")
+    }
+
     private static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }

@@ -159,7 +159,7 @@ final class SessionIndexViewTests: XCTestCase {
         )
 
         let command = entry.resumeCommand ?? ""
-        XCTAssertTrue(command.hasPrefix("/bin/zsh -lc "), command)
+        XCTAssertTrue(command.hasPrefix("/bin/zsh -c "), command)
         let inner = Self.unwrapPortableShellCommand(Self.unwrapRetryWrappedShellCommand(command))
         XCTAssertTrue(inner.hasPrefix(AgentResumeArgv.codexWrapperShellExecutableToken), inner)
         XCTAssertEqual(
@@ -192,7 +192,7 @@ final class SessionIndexViewTests: XCTestCase {
         )
 
         let command = entry.resumeCommand ?? ""
-        XCTAssertTrue(command.hasPrefix("/bin/zsh -lc "), command)
+        XCTAssertTrue(command.hasPrefix("/bin/zsh -c "), command)
         let inner = Self.unwrapPortableShellCommand(Self.unwrapRetryWrappedShellCommand(command))
         XCTAssertEqual(
             inner,
@@ -246,12 +246,12 @@ final class SessionIndexViewTests: XCTestCase {
     }
 
     /// Reverses `CodexResumeRetryShell.wrappedCommand`, recovering the inner
-    /// launched command from the `/bin/zsh -lc '<retry script>'` wrapper. The
+    /// launched command from the `/bin/zsh -c '<retry script>'` wrapper. The
     /// retry script runs the wrapped command as a single
     /// `{ <command>; } 2>"$_cmux_codex_retry_pipe"` launch line, so we strip the
     /// outer zsh quoting and then extract `<command>` from that line.
     static func unwrapRetryWrappedShellCommand(_ command: String) -> String {
-        let prefix = "/bin/zsh -lc "
+        let prefix = "/bin/zsh -c "
         guard command.hasPrefix(prefix) else { return command }
         var quoted = String(command.dropFirst(prefix.count))
         guard quoted.hasPrefix("'"), quoted.hasSuffix("'") else { return quoted }
