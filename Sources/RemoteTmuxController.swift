@@ -447,13 +447,17 @@ final class RemoteTmuxController {
                .first(where: { $0.host.connectionHash == host.connectionHash })?
                .mirroredWorkspaceId,
            let manager = appDelegate.tabManagerFor(tabId: workspaceId) {
+            // Resolve the real window id up front. A nil here means the mirror's
+            // workspace is registered but its window isn't - an inconsistent state
+            // we surface as an error rather than masking with a fabricated UUID the
+            // caller would treat as a live window id.
+            guard let windowId = appDelegate.windowId(for: manager) else {
+                throw RemoteTmuxError.unreachable("could not resolve window for existing \(host.destination) mirror")
+            }
             if activateWindow {
                 manager.selectWorkspace(workspaceId)  // TabManager+FocusHistoryHosting:40
-                if let realWindowId = appDelegate.windowId(for: manager) {
-                    appDelegate.windowForMainWindowId(realWindowId)?.makeKeyAndOrderFront(nil)
-                }
+                appDelegate.windowForMainWindowId(windowId)?.makeKeyAndOrderFront(nil)
             }
-            let windowId = appDelegate.windowId(for: manager) ?? UUID()
             return .mirrored(windowId: windowId)
         }
 
@@ -524,13 +528,16 @@ final class RemoteTmuxController {
             throw RemoteTmuxError.unreachable("could not mirror any tmux session on \(host.destination)")
         }
 
+        // Resolve the real window id; a nil here (the mirror workspaces exist but
+        // the window isn't registered) is an inconsistent state we surface as an
+        // error instead of fabricating a UUID the caller would treat as live.
+        guard let windowId = appDelegate.windowId(for: manager) else {
+            throw RemoteTmuxError.unreachable("could not resolve window for \(host.destination) mirror")
+        }
         if activateWindow, let firstMirroredWorkspaceId {
             manager.selectWorkspace(firstMirroredWorkspaceId)  // TabManager+FocusHistoryHosting:40
-            if let realWindowId = appDelegate.windowId(for: manager) {
-                appDelegate.windowForMainWindowId(realWindowId)?.makeKeyAndOrderFront(nil)
-            }
+            appDelegate.windowForMainWindowId(windowId)?.makeKeyAndOrderFront(nil)
         }
-        let windowId = appDelegate.windowId(for: manager) ?? UUID()
         return .mirrored(windowId: windowId)
     }
 

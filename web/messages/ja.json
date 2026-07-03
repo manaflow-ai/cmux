@@ -684,7 +684,7 @@
       "attachIntro": "ターミナルで cmux ssh-tmux <宛先>（~/.ssh/config のエイリアスまたは user@host）を実行します。cmux はそのホストの tmux セッションを、現在のウィンドウ内のワークスペースとしてミラーリングします。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはタブ内の分割になります。",
       "attachNewWindow": "--new-window を指定すると、現在のウィンドウの代わりに専用の新しいウィンドウでミラーを開きます（従来のデフォルトの挙動です）。",
       "attachSockets": "remote.tmux.* のソケットコマンド（下記）でより細かく制御できます。たとえば remote.tmux.window は、現在のウィンドウの代わりに、ホストのセッションを専用の新しいウィンドウにミラーリングします。",
-      "attachCli": "非対話で認証されるホスト（ssh-agent や ~/.ssh/config の鍵）はプロンプトなしで接続されます。対話的な認証（パスワード、ホストキーの確認、多要素認証）が必要なホストでは、cmux がそのターミナル内で ssh を実行するため、その場で認証でき、その後セッションをミラーリングします。--port、--identity、--new-window を指定できます。",
+      "attachCli": "非対話で認証されるホスト（ssh-agent や ~/.ssh/config の鍵）はプロンプトなしで接続されます。対話的な認証（パスワード、ホストキーの確認、多要素認証）が必要なホストでは、cmux がそのターミナル内で ssh を実行するため、その場で認証でき、その後セッションをミラーリングします。--port、--identity、--no-focus、--new-window を指定できます。",
       "troubleshootTitle": "「Permission denied」が出る場合",
       "troubleshootDesc": "宛先はそのまま ssh に渡されるため、エイリアスにはログインに必要な設定をすべて含める必要があります。特に User（未指定だと ssh はローカルのユーザー名を使います）と IdentityFile です:",
       "troubleshootFallback": "または cmux ssh-tmux dev@my-ssh-alias のようにユーザーを明示指定してください。素の ssh <宛先> でログインできない場合は、cmux ssh-tmux <宛先> でも接続できません。",

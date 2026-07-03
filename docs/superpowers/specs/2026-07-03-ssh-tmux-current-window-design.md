@@ -1,7 +1,7 @@
 # Design: `cmux ssh-tmux` mirrors into the current window (no group, no new window)
 
 **Date:** 2026-07-03
-**Status:** Draft (awaiting user review)
+**Status:** Implemented (PR #7264)
 **Branch:** `feat/sub-workspace`
 **Feature area:** Remote tmux beta (`cmux ssh-tmux`)
 
@@ -75,9 +75,9 @@ workspaces the existing per-session mirror/teardown code already manages.
 
 - Add a `--new-window` flag to the `ssh-tmux` arg parser (today parses `--port`,
   `--identity`, `--no-focus`, destination).
-- Default (no `--new-window`) → **new socket method `remote.tmux.attach-here`**
-  (name TBD in impl; a distinct method from `remote.tmux.mirror` so it can carry
-  the hardened auth/no-window/idempotency contract and a proper return payload).
+- Default (no `--new-window`) → **new socket method `remote.tmux.attach_here`**
+  (a distinct method from the retired `remote.tmux.mirror` so it can carry the
+  hardened auth/no-window/idempotency contract and a proper return payload).
 - `--new-window` → existing `remote.tmux.window` (verbatim).
 - The auth-retry loop (BatchMode fails → run returned `ssh_argv` in the user's
   tty → retry once, bounded by `didAuthenticate`) is shared: both methods return
