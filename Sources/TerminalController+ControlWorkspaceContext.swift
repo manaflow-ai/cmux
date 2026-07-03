@@ -176,11 +176,16 @@ extension TerminalController: ControlWorkspaceContext {
         guard let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowID) else {
             return .windowNotFound
         }
+        // Carry per-window input-broadcast state across the move.
+        let wasBroadcasting = srcTM.isBroadcastInputEnabled(for: workspaceID)
         guard let ws = srcTM.detachWorkspace(tabId: workspaceID) else {
             return .workspaceNotFound
         }
         let focus = v2FocusAllowed(requested: focusRequested)
         dstTM.attachWorkspace(ws, select: focus)
+        if wasBroadcasting {
+            dstTM.setBroadcastInputEnabled(true, for: workspaceID)
+        }
         if focus {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
             setActiveTabManager(dstTM)

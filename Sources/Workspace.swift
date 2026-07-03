@@ -3738,6 +3738,12 @@ final class Workspace: Identifiable, ObservableObject {
             guard let self, let terminalPanel else { return false }
             return self.resumeAgentHibernation(panelId: terminalPanel.id, focus: focus)
         }
+        // Seed the input-broadcast hot-path cache so a pane created (or
+        // re-attached) while the workspace is broadcasting starts mirroring
+        // immediately. The authoritative state is TabManager's set.
+        terminalPanel.surface.setInputBroadcastEnabled(
+            owningTabManager?.isBroadcastInputEnabled(for: id) ?? false
+        )
     }
 
     private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
@@ -10869,6 +10875,64 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return visiblePanelIds
+    }
+
+    // MARK: - Input broadcast
+
+    /// Pushes the workspace-level input-broadcast flag down to every terminal
+    /// surface so the `keyDown`/IME/paste hooks can gate on a cheap per-surface
+    /// `Bool`. Called by the single mutation path (`TabManager`).
+    func applyInputBroadcastEnabled(_ enabled: Bool) {
+        for panel in panels.values {
+            (panel as? TerminalPanel)?.surface.setInputBroadcastEnabled(enabled)
+        }
+    }
+
+    /// Replays a captured input event from the focused pane onto every other
+    /// visible terminal pane in this workspace (iTerm2-style broadcast).
+    ///
+    /// Honors the current layout: in split layouts only rendered panes
+    /// (respecting zoom) receive input; in canvas layout each pane's selected
+    /// terminal does. The source pane is always excluded. Browser/non-terminal
+    /// panes are skipped.
+    func broadcastTerminalInput(_ payload: TerminalBroadcastInputPayload, from sourcePanelId: UUID) {
+        for panel in visibleTerminalPanelsForBroadcast(excluding: sourcePanelId) {
+            payload.deliver(to: panel.surface)
+        }
+    }
+
+    /// The visible peer terminal panes that should receive broadcast input,
+    /// excluding the source pane and de-duplicated across panes.
+    ///
+    /// Mirrors `renderedVisiblePanelIdsForCurrentLayout()`'s zoom/canvas logic
+    /// but is intentionally NOT gated on `portalRenderingEnabled` (broadcast
+    /// targets logically-visible panes regardless of portal rendering) and
+    /// resolves directly to `TerminalPanel`s.
+    private func visibleTerminalPanelsForBroadcast(excluding sourcePanelId: UUID) -> [TerminalPanel] {
+        var seen: Set<UUID> = [sourcePanelId]
+        var peers: [TerminalPanel] = []
+
+        func consider(_ panelId: UUID?) {
+            guard let panelId,
+                  seen.insert(panelId).inserted,
+                  let panel = terminalPanel(for: panelId) else { return }
+            peers.append(panel)
+        }
+
+        if layoutMode == .canvas {
+            for pane in canvasModel.layout.panes {
+                consider(pane.selectedPanelId.rawValue)
+            }
+            return peers
+        }
+
+        let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
+        for paneId in renderedPaneIds {
+            let selectedTab = bonsplitController.selectedTab(inPane: paneId)
+                ?? bonsplitController.tabs(inPane: paneId).first
+            consider(selectedTab.flatMap { panelIdFromSurfaceId($0.id) })
+        }
+        return peers
     }
 
     func agentHibernationVisiblePanelIdsForCurrentLayout() -> Set<UUID> {

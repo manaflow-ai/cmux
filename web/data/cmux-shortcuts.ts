@@ -251,6 +251,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },
       { id: "reopenClosedBrowserPanel", combos: [["⌘", "⇧", "T"]], description: { en: "Reopen last closed", ja: "最後に閉じた項目を再度開く" } },
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
+      { id: "toggleWorkspaceInputBroadcast", combos: [["⌘", "⇧", "B"]], description: { en: "Broadcast input to all panes", ja: "すべてのペインに入力をブロードキャスト" } },
       { id: "clearScreenKeepScrollback", combos: [["⌘", "⇧", "K"]], description: { en: "Clear screen (keep scrollback)", ja: "画面をクリア（スクロールバックを保持）" } },
       { id: "focusTextBoxInput", combos: [["⌘", "⇧", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
       { id: "cycleTextBoxSubmitAction", combos: [["⇧", "Tab"]], description: { en: "Cycle TextBox submit action", ja: "TextBoxの送信アクションを切り替え" } },

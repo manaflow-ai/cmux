@@ -3924,3 +3924,49 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
         XCTAssertTrue(destination.tabs.contains { $0.id == moving.id })
     }
 }
+
+@MainActor
+final class TabManagerInputBroadcastTests: XCTestCase {
+    func testToggleSelectedWorkspaceInputBroadcastPushesFlagToSurfaces() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace()
+        manager.selectWorkspace(workspace)
+
+        XCTAssertFalse(manager.isBroadcastInputEnabled(for: workspace.id))
+
+        let terminalSurfaces = workspace.panels.values
+            .compactMap { $0 as? TerminalPanel }
+            .map(\.surface)
+        XCTAssertFalse(terminalSurfaces.isEmpty, "A new workspace should have at least one terminal surface")
+        XCTAssertTrue(terminalSurfaces.allSatisfy { !$0.inputBroadcastEnabled })
+
+        // Single mutation path shared by the menu, the Cmd+Shift+B shortcut, and the CLI.
+        XCTAssertTrue(manager.toggleSelectedWorkspaceInputBroadcast())
+        XCTAssertTrue(manager.isBroadcastInputEnabled(for: workspace.id))
+        XCTAssertTrue(
+            terminalSurfaces.allSatisfy { $0.inputBroadcastEnabled },
+            "Enabling broadcast must push the cached flag down to every terminal surface"
+        )
+
+        XCTAssertTrue(manager.toggleSelectedWorkspaceInputBroadcast())
+        XCTAssertFalse(manager.isBroadcastInputEnabled(for: workspace.id))
+        XCTAssertTrue(
+            terminalSurfaces.allSatisfy { !$0.inputBroadcastEnabled },
+            "Disabling broadcast must clear the cached flag on every terminal surface"
+        )
+    }
+
+    func testClosingBroadcastingWorkspaceClearsBroadcastState() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace()
+
+        manager.setBroadcastInputEnabled(true, for: workspace.id)
+        XCTAssertTrue(manager.isBroadcastInputEnabled(for: workspace.id))
+
+        manager.closeWorkspace(workspace)
+        XCTAssertFalse(
+            manager.isBroadcastInputEnabled(for: workspace.id),
+            "Closing a workspace must drop it from the broadcast set"
+        )
+    }
+}

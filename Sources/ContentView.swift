@@ -1738,6 +1738,7 @@ struct ContentView: View {
                         isWorkspaceVisible: presentation.isPanelVisible,
                         isWorkspaceInputActive: isInputActive,
                         rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
+                        isInputBroadcastActive: tabManager.isBroadcastInputEnabled(for: tab.id),
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
                         windowAppearance: appearance,
@@ -12361,6 +12362,7 @@ struct VerticalTabsSidebar: View {
             notificationStore: notificationStore,
             tab: tab,
             index: index,
+            isBroadcasting: tabManager.isBroadcastInputEnabled(for: tab.id),
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
                 workspaceCount: renderContext.workspaceCount
@@ -13207,6 +13209,7 @@ struct TabItemView: View, Equatable {
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
+        lhs.isBroadcasting == rhs.isBroadcasting &&
         lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
         lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
@@ -13251,6 +13254,11 @@ struct TabItemView: View, Equatable {
 #endif
     let tab: Tab
     let index: Int
+    /// Whether iTerm2-style input broadcast is enabled for this workspace.
+    /// Drives the small broadcast dot on the row. Precomputed from the observed
+    /// `TabManager.broadcastInputWorkspaceIds` by the parent (snapshot-boundary
+    /// rule: a value, not a store reference).
+    let isBroadcasting: Bool
     let workspaceShortcutDigit: Int?
     let workspaceShortcutModifierSymbol: String
     let canCloseWorkspace: Bool
@@ -13714,6 +13722,16 @@ struct TabItemView: View, Equatable {
                         .foregroundColor(.green)
                         .safeHelp(cameraInUseTooltip)
                         .accessibilityLabel(cameraInUseTooltip)
+                }
+
+                if isBroadcasting {
+                    // Small accent dot signalling iTerm2-style input broadcast is
+                    // on for this workspace. Reuses the menu string for its tooltip.
+                    Circle()
+                        .fill(Color(nsColor: .systemOrange))
+                        .frame(width: 7 * fontScale, height: 7 * fontScale)
+                        .padding(.top, 3 * fontScale)
+                        .safeHelp(String(localized: "menu.view.broadcastInput", defaultValue: "Broadcast Input to All Panes"))
                 }
 
                 Text(displayedTitle)

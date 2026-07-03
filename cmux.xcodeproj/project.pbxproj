@@ -256,6 +256,9 @@
 		B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */; };
 		B900001BA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900001CA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift */; };
 		C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00020000000000000002 /* CloudVMActionLauncher.swift */; };
+		C55541A00000000000000001 /* ClusterSSHLayoutBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C55541A0000000000000000F /* ClusterSSHLayoutBuilder.swift */; };
+		C55541A00000000000000002 /* ClusterSSHLayoutBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C55541A0000000000000000F /* ClusterSSHLayoutBuilder.swift */; };
+		C55541A00000000000000003 /* ClusterSSHLayoutBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C55541A00000000000000004 /* ClusterSSHLayoutBuilderTests.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
 		C1ADE20002A1B2C3D4E5F719 /* cmux-claude-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */; };
 		C1ADE30002A1B2C3D4E5F719 /* cmux-codex-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE30001A1B2C3D4E5F719 /* cmux-codex-wrapper */; };
@@ -1059,6 +1062,7 @@
 		C7A507000000000000004529 /* TaskManagerViewSnapshotBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A507000000000000004530 /* TaskManagerViewSnapshotBoundaryTests.swift */; };
 		C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A502000000000000000001 /* TaskManagerWindowController.swift */; };
 		46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
+		BC0ADCA570010000000000F1 /* TerminalBroadcastInputPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC0ADCA570010000000000F2 /* TerminalBroadcastInputPayload.swift */; };
 		E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
 		C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */; };
@@ -1604,6 +1608,8 @@
 		B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceConfirmDialogUITests.swift; sourceTree = "<group>"; };
 		B900001CA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspacesConfirmDialogUITests.swift; sourceTree = "<group>"; };
 		C10D00020000000000000002 /* CloudVMActionLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMActionLauncher.swift; sourceTree = "<group>"; };
+		C55541A0000000000000000F /* ClusterSSHLayoutBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterSSHLayoutBuilder.swift; sourceTree = "<group>"; };
+		C55541A00000000000000004 /* ClusterSSHLayoutBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterSSHLayoutBuilderTests.swift; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-claude-wrapper"; sourceTree = SOURCE_ROOT; };
@@ -2340,6 +2346,7 @@
 		C7A507000000000000004530 /* TaskManagerViewSnapshotBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerViewSnapshotBoundaryTests.swift; sourceTree = "<group>"; };
 		C7A502000000000000000001 /* TaskManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerWindowController.swift; sourceTree = "<group>"; };
 		02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
+		BC0ADCA570010000000000F2 /* TerminalBroadcastInputPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBroadcastInputPayload.swift; sourceTree = "<group>"; };
 		F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClearScreenKeepScrollbackTests.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
 		C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlAppFocusContext.swift"; sourceTree = "<group>"; };
@@ -3086,6 +3093,7 @@
 				B35750000000000000000001 /* VaultAgentRegistry.swift */,
 				D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */,
 				77F5AB36771F1414A95E3330 /* GhosttyKeyModifiers.swift */,
+				BC0ADCA570010000000000F2 /* TerminalBroadcastInputPayload.swift */,
 				C5D0DEC0CF00000000000B1 /* CmuxConfigStore+ConfigStoreReloading.swift */,
 				F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */,
 				D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */,
@@ -3593,6 +3601,7 @@
 				E60610300000000000000001 /* SSHPTYAttachReconnectInputFilterState.swift */,
 				C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */,
 				FEEDC1A50000000000000002 /* FeedEventClassifier.swift */,
+				C55541A0000000000000000F /* ClusterSSHLayoutBuilder.swift */,
 				B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
 				6379A0036379A0036379A003 /* SSHPTYResizeMonitor.swift */,
@@ -3900,6 +3909,7 @@
 				C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */,
 				C9A57402C9A57402C9A57402 /* WorkspaceGroupMoveToMenuStateTests.swift */,
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
+				C55541A00000000000000004 /* ClusterSSHLayoutBuilderTests.swift */,
 				42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */,
 				F1C3F1DBF6BF5D7223C4A30C /* SidebarMarkdownRendererTests.swift */,
 				14A7DC53B9CA33BE2A421711 /* WorkspacePullRequestSidebarTests.swift */,
@@ -5005,6 +5015,7 @@
 				C7A504000000000000000002 /* TaskManagerTypes.swift in Sources */,
 				C7A506000000000000000002 /* TaskManagerView.swift in Sources */,
 				C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */,
+				BC0ADCA570010000000000F1 /* TerminalBroadcastInputPayload.swift in Sources */,
 				C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */,
 				C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */,
 				CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */,
@@ -5178,6 +5189,7 @@
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				C12985000000000000000002 /* CLISocketSentryTelemetry.swift in Sources */,
+				C55541A00000000000000001 /* ClusterSSHLayoutBuilder.swift in Sources */,
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
 				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
 				B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */,
@@ -5362,15 +5374,17 @@
 				6379A0016379A0016379A001 /* CLISSHPTYResizeInputTests.swift in Sources */,
 				C12984000000000000000004 /* CLIStdioSIGPIPERegressionTests.swift in Sources */,
 				B05553B10000000000000001 /* CLITmuxCompatRemoteSplitTests.swift in Sources */,
-					0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */,
-					C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */,
-					C12985000000000000000004 /* CMUXCLISentryTelemetryRegressionTests.swift in Sources */,
-					C0DE64950000000000000009 /* CMUXCLISessionsListForkDiagnosticsTests.swift in Sources */,
-					C0DE64970000000000000001 /* CMUXCLISessionsListOpenCodeTrustTests.swift in Sources */,
-					C0DE64970000000000000003 /* CMUXCLISessionsListProcessArgumentTests.swift in Sources */,
-					C0DE64950000000000000005 /* CMUXCLISessionsListTests.swift in Sources */,
-					C0DE6495000000000000000B /* CMUXCLISessionsListTranscriptPidTests.swift in Sources */,
-					C0DE64950000000000000003 /* CMUXCLITestAssertions.swift in Sources */,
+				C55541A00000000000000002 /* ClusterSSHLayoutBuilder.swift in Sources */,
+				C55541A00000000000000003 /* ClusterSSHLayoutBuilderTests.swift in Sources */,
+				0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */,
+				C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */,
+				C12985000000000000000004 /* CMUXCLISentryTelemetryRegressionTests.swift in Sources */,
+				C0DE64950000000000000009 /* CMUXCLISessionsListForkDiagnosticsTests.swift in Sources */,
+				C0DE64970000000000000001 /* CMUXCLISessionsListOpenCodeTrustTests.swift in Sources */,
+				C0DE64970000000000000003 /* CMUXCLISessionsListProcessArgumentTests.swift in Sources */,
+				C0DE64950000000000000005 /* CMUXCLISessionsListTests.swift in Sources */,
+				C0DE6495000000000000000B /* CMUXCLISessionsListTranscriptPidTests.swift in Sources */,
+				C0DE64950000000000000003 /* CMUXCLITestAssertions.swift in Sources */,
 				C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */,
 				E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */,
 				C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */,
