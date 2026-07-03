@@ -4129,8 +4129,19 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     @discardableResult
-    func updatePanelDirectory(panelId: UUID, directory: String) -> Bool {
-        surfaceDirectoryMetadata.updatePanelDirectory(panelId: panelId, directory: directory)
+    func updatePanelDirectory(panelId: UUID, directory: String, displayLabel: String? = nil) -> Bool {
+        // A non-nil `displayLabel` updates the sidebar's directory display label
+        // for this panel (empty clears it); `nil` leaves any existing label
+        // untouched, so plain directory updates don't wipe it.
+        if let displayLabel {
+            let trimmed = displayLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                sidebarMetadata.panelDirectoryDisplayLabels.removeValue(forKey: panelId)
+            } else {
+                sidebarMetadata.panelDirectoryDisplayLabels[panelId] = trimmed
+            }
+        }
+        return surfaceDirectoryMetadata.updatePanelDirectory(panelId: panelId, directory: directory)
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
