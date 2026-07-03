@@ -1,5 +1,4 @@
 import Foundation
-import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
@@ -19,6 +18,7 @@ struct WorkspaceShellView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
+    private let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
@@ -97,6 +97,7 @@ struct WorkspaceShellView: View {
                 host: store.connectedHostName,
                 connectionStatus: listConnectionStatus,
                 navigationStyle: .push,
+                showsNavigationToolbar: compactNavigationPath.isEmpty,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 previewLineLimit: displaySettings.workspacePreviewLineCount,
                 unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
@@ -145,10 +146,7 @@ struct WorkspaceShellView: View {
             }
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
-            MobileDebugLog.anchormux(
-                "toolbar.shell.selected workspace=\(selectedWorkspaceID?.rawValue ?? "nil") path=\(debugCompactNavigationPath) pendingCreate=\(pendingCompactCreateNavigationWorkspaceIDs != nil)"
-            )
-            if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
+            if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
                 currentPath: compactNavigationPath,
                 selectedWorkspaceID: selectedWorkspaceID,
                 existingWorkspaceIDs: pendingCompactCreateNavigationWorkspaceIDs
@@ -158,16 +156,14 @@ struct WorkspaceShellView: View {
                 autoOpenSelectedWorkspaceForSoakIfNeeded()
                 return
             }
-            compactNavigationPath = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
+            compactNavigationPath = compactNavigationPolicy.pathForSelectionChange(
                 currentPath: compactNavigationPath,
-                selectedWorkspaceID: selectedWorkspaceID
+                selectedWorkspaceID: selectedWorkspaceID,
+                visibleWorkspaceIDs: Set(store.workspaces.map(\.id))
             )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onChange(of: compactNavigationPath) { _, path in
-            MobileDebugLog.anchormux(
-                "toolbar.shell.path path=\(path.map(\.rawValue).joined(separator: ",")) selected=\(store.selectedWorkspaceID?.rawValue ?? "nil")"
-            )
             guard let selectedWorkspaceID = path.last else {
                 return
             }
@@ -178,11 +174,11 @@ struct WorkspaceShellView: View {
             store.selectedWorkspaceID = selectedWorkspaceID
         }
         .onChange(of: store.workspaces.map(\.id)) { _, workspaceIDs in
-            MobileDebugLog.anchormux(
-                "toolbar.shell.workspaceIDs ids=\(workspaceIDs.map(\.rawValue).joined(separator: ",")) pathBefore=\(debugCompactNavigationPath)"
+            compactNavigationPath = compactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
+                currentPath: compactNavigationPath,
+                visibleWorkspaceIDs: Set(workspaceIDs),
+                selectedWorkspaceID: store.selectedWorkspaceID
             )
-            compactNavigationPath.removeAll { !workspaceIDs.contains($0) }
-            MobileDebugLog.anchormux("toolbar.shell.workspaceIDs pathAfter=\(debugCompactNavigationPath)")
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onAppear {
@@ -239,10 +235,6 @@ struct WorkspaceShellView: View {
         .onAppear {
             hasPresentedSplitDetail = true
         }
-    }
-
-    private var debugCompactNavigationPath: String {
-        compactNavigationPath.map(\.rawValue).joined(separator: ",")
     }
 
     /// Apply (and clear) a pending deep-link navigation intent. On the compact
@@ -375,7 +367,7 @@ struct WorkspaceShellView: View {
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         store.createWorkspace()
-        if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
+        if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
             currentPath: compactNavigationPath,
             selectedWorkspaceID: store.selectedWorkspaceID,
             existingWorkspaceIDs: existingWorkspaceIDs
