@@ -397,6 +397,11 @@ Načini da se uključite:
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
+<p>
+  <strong>WeChat:</strong> Skenirajte QR kod da se pridružite zajednici.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR kod za pridruživanje cmux zajednici" width="240" />
+</p>
+
 ## Osnivačko izdanje
 
 cmux je besplatan, otvorenog koda i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što dolazi:
