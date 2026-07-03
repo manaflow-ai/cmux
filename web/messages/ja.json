@@ -563,18 +563,11 @@
         "workflowPreview": "ターミナルの横にブラウザペインを開き、dev serverがローカルにあるかのようにlocalhost URLを使います。",
         "workflowNotify": "Claude Code、Codex、OpenCodeなどのエージェントをリモートマシン上で動かし、通知はcmux経由でMacへ戻します。",
         "workflowUpload": "エージェントにローカルの文脈やテスト用ファイルが必要なときは、ファイルや画像をリモートターミナルへドラッグします。",
-        "featureTitle": "SSHにcmuxが追加するもの",
-        "featureBrowser": "ブラウザペインはリモートマシン経由でルーティングされるため、<code>localhost:3000</code> がポートフォワーディングなしでリモートのdev serverに届きます。",
-        "featureUpload": "画像をリモートターミナルへドラッグすると、scpでアップロードできます。",
-        "featureNotify": "リモート上のコーディングエージェントからローカルサイドバーへ通知できます。",
-        "featureAgents": "<code>cmux claude-teams</code> と <code>cmux omo</code> はSSH越しにも動き、計算はリモートで行いながらteammateペインをローカルに生成します。",
-        "featureSidebar": "サイドバーには接続状態と検出されたlisten中のポートが表示されます。",
         "faqTitle": "FAQ",
         "faqPortTitle": "localhostにはssh -Lが必要ですか？",
         "faqPortBody": "通常は不要です。リモートワークスペース内のブラウザペインはHTTPとWebSocketの通信をリモートマシン経由でルーティングするため、ローカルプレビューURLはリモートホスト基準で解決されます。",
         "faqConfigTitle": "既存のSSH設定を使いますか？",
-        "faqConfigBody": "はい。cmuxは~/.ssh/configからエイリアス、identity file、proxy設定、host optionを読み取り、その上にcmux固有のルーティングと再接続動作を追加します。",
-        "docsCta": "フラグ、ディープリンク、ブラウザルーティング、ドラッグアンドドロップアップロード、再接続動作は<link>SSHドキュメント</link>をご覧ください。"
+        "faqConfigBody": "はい。cmuxは~/.ssh/configからエイリアス、identity file、proxy設定、host optionを読み取り、その上にcmux固有のルーティングと再接続動作を追加します。"
       },
       "cmuxHome": {
         "title": "cmux home",
@@ -864,7 +857,6 @@
       "underHoodItemHooks": "エージェントフックは ~/.cmuxterm/<agent>-hook-sessions.json に、エージェントセッションID、cmuxワークスペースID、サーフェスID、cwd、利用可能な場合はプロセスID、サニタイズ済み起動コマンドを書き込みます。",
       "underHoodItemResume": "復元時、cmuxはまずウィンドウとペインを再構築します。エージェント自動復元が有効な場合、保存されたセッションIDでエージェント固有の復元コマンドを実行する一度限りのシェルコマンドを起動します。",
       "underHoodMore": "通常の<configLink>設定ドキュメント</configLink>ではcmux.jsonを扱います。セッション復元は、アプリのレイアウトをGhosttyのターミナル描画設定とは別に保存します。",
-      "blogCta": "ワークフローと製品上の文脈は<link>セッション復元の機能紹介</link>をご覧ください。",
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
@@ -1872,8 +1864,7 @@
       "daemonRelayHow": "HMAC-SHA256 認証を使用したリバース TCP トンネルにより、リモート プロセスが cmux コマンドをローカルに呼び出すことができます",
       "daemonSession": "セッション管理",
       "daemonSessionHow": "再接続後もセッションを維持し、複数の添付ファイル間で PTY のサイズ変更を調整します",
-      "daemonPath": "デーモン バイナリはリモート ホストの ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote に保存され、アプリに埋め込まれた SHA-256 マニフェストに対して検証されます。",
-      "blogCta": "ワークフローとデモは<link>cmux SSHの機能紹介</link>をご覧ください。"
+      "daemonPath": "デーモン バイナリはリモート ホストの ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote に保存され、アプリに埋め込まれた SHA-256 マニフェストに対して検証されます。"
     },
     "textBox": {
       "title": "TextBox（ベータ）",

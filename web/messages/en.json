@@ -545,18 +545,11 @@
         "workflowPreview": "Open a browser pane next to the terminal and use localhost URLs as if the dev server were local.",
         "workflowNotify": "Run Claude Code, Codex, OpenCode, or another agent on the remote machine and let cmux route notifications back to your Mac.",
         "workflowUpload": "Drag files or images into the remote terminal when the agent needs local context or test fixtures.",
-        "featureTitle": "What cmux adds on top of SSH",
-        "featureBrowser": "Browser panes route through the remote machine, so <code>localhost:3000</code> reaches the remote dev server without port forwarding.",
-        "featureUpload": "Drag an image into a remote terminal to upload it with scp.",
-        "featureNotify": "Coding agents on the remote box send notifications to your local sidebar.",
-        "featureAgents": "<code>cmux claude-teams</code> and <code>cmux omo</code> work over SSH, spawning teammate panes locally while computation runs remote.",
-        "featureSidebar": "The sidebar shows connection state and detected listening ports.",
         "faqTitle": "FAQ",
         "faqPortTitle": "Do I still need ssh -L for localhost?",
         "faqPortBody": "Usually no. Browser panes inside the remote workspace route HTTP and WebSocket traffic through the remote machine, so local preview URLs resolve from the remote host.",
         "faqConfigTitle": "Does it use my existing SSH config?",
-        "faqConfigBody": "Yes. cmux reads ~/.ssh/config for aliases, identity files, proxy settings, and host options, then adds cmux-specific routing and reconnect behavior.",
-        "docsCta": "Read the <link>SSH docs</link> for flags, deep links, browser routing, drag-and-drop uploads, and reconnect behavior."
+        "faqConfigBody": "Yes. cmux reads ~/.ssh/config for aliases, identity files, proxy settings, and host options, then adds cmux-specific routing and reconnect behavior."
       },
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
@@ -895,8 +888,7 @@
       "underHoodItemScrollback": "Terminal scrollback is stored as bounded text and replayed through a temporary file on restore. This is best effort because terminal apps can redraw or clear their screen.",
       "underHoodItemHooks": "Agent hooks write ~/.cmuxterm/<agent>-hook-sessions.json with the agent session ID, cmux workspace ID, surface ID, cwd, process ID when available, and a sanitized launch command.",
       "underHoodItemResume": "On restore, cmux rebuilds windows and panes first. If automatic agent resume is enabled, it launches a one-shot shell command that runs the agent's native resume command with the saved session ID.",
-      "underHoodMore": "The regular <configLink>configuration docs</configLink> cover cmux.json. Session restore keeps app layout separate from Ghostty terminal rendering settings.",
-      "blogCta": "Read the <link>session restore feature story</link> for the workflow and product context."
+      "underHoodMore": "The regular <configLink>configuration docs</configLink> cover cmux.json. Session restore keeps app layout separate from Ghostty terminal rendering settings."
     },
     "vault": {
       "title": "Vault",
@@ -1697,8 +1689,7 @@
       "daemonRelayHow": "Reverse TCP tunnel with HMAC-SHA256 auth so remote processes can call cmux commands locally",
       "daemonSession": "Session management",
       "daemonSessionHow": "Persists sessions across reconnects, coordinates PTY resize across multiple attachments",
-      "daemonPath": "The daemon binary is stored at ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote on the remote host and verified against a SHA-256 manifest embedded in the app.",
-      "blogCta": "Read the <link>cmux SSH feature story</link> for the workflow and demo."
+      "daemonPath": "The daemon binary is stored at ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote on the remote host and verified against a SHA-256 manifest embedded in the app."
     },
     "changelog": {
       "title": "Changelog",
