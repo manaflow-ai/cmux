@@ -22,15 +22,20 @@ extension RemoteSessionCoordinator {
                 timeout: 60
             )
         } catch {
+            debugLog("remote.upload.execChannel.error remoteTemp=\(remoteTempPath) error=\(error.localizedDescription)")
             throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
-                NSLocalizedDescriptionKey: "failed to upload cmuxd-remote (scp: \(scpFailureDetail)): \(error.localizedDescription)",
+                NSLocalizedDescriptionKey: strings.daemonUploadUnavailableDescription,
+                NSUnderlyingErrorKey: error,
+                NSDebugDescriptionErrorKey: "scp failed: \(scpFailureDetail); exec-channel upload error: \(error.localizedDescription)",
             ])
         }
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
                 ?? "ssh exited \(result.status)"
+            debugLog("remote.upload.execChannel.failed status=\(result.status) detail=\(detail) remoteTemp=\(remoteTempPath)")
             throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
-                NSLocalizedDescriptionKey: "failed to upload cmuxd-remote (scp: \(scpFailureDetail)): \(detail)",
+                NSLocalizedDescriptionKey: strings.daemonUploadUnavailableDescription,
+                NSDebugDescriptionErrorKey: "scp failed: \(scpFailureDetail); exec-channel upload exited \(result.status): \(detail)",
             ])
         }
         debugLog("remote.upload.execChannel.ok remoteTemp=\(remoteTempPath)")

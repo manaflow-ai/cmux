@@ -92,6 +92,48 @@ struct RemoteDaemonUploadFallbackTests {
         coordinator.stop()
     }
 
+    @Test("Exec-channel fallback failure keeps raw process output out of the user-visible error")
+    func execChannelFallbackFailureUsesSanitizedDescription() throws {
+        let runner = ScriptedUploadRunner(
+            scpResult: RemoteCommandResult(
+                status: 255,
+                stdout: "",
+                stderr: "subsystem request failed on channel 0"
+            ),
+            execChannelUploadResult: RemoteCommandResult(
+                status: 126,
+                stdout: "",
+                stderr: "remote shell refused cat"
+            )
+        )
+        let coordinator = Self.makeCoordinator(runner: runner)
+
+        let localBinary = try Self.makeTemporaryBinary()
+        defer { try? FileManager.default.removeItem(at: localBinary) }
+        let location = RemoteDaemonInstallLocation(
+            relativePath: ".cmux/bin/cmuxd-remote/dev/linux-arm64/cmuxd-remote",
+            absolutePath: "/home/seepine/.cmux/bin/cmuxd-remote/dev/linux-arm64/cmuxd-remote"
+        )
+
+        do {
+            try coordinator.queue.sync {
+                try coordinator.uploadRemoteDaemonBinaryLocked(localBinary: localBinary, location: location)
+            }
+            Issue.record("expected exec-channel upload failure")
+        } catch {
+            let nsError = error as NSError
+            #expect(nsError.domain == "cmux.remote.daemon")
+            #expect(nsError.code == 31)
+            #expect(nsError.localizedDescription == "Remote file transfer is unavailable.")
+            #expect(!nsError.localizedDescription.contains("subsystem request failed"))
+            #expect(!nsError.localizedDescription.contains("remote shell refused cat"))
+            let debugDescription = nsError.userInfo[NSDebugDescriptionErrorKey] as? String
+            #expect(debugDescription?.contains("subsystem request failed") == true)
+            #expect(debugDescription?.contains("remote shell refused cat") == true)
+        }
+        coordinator.stop()
+    }
+
     // MARK: - Harness
 
     private static func makeTemporaryBinary() throws -> URL {
@@ -133,7 +175,8 @@ struct RemoteDaemonUploadFallbackTests {
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                daemonUploadUnavailableDescription: "Remote file transfer is unavailable."
             )
         )
     }
@@ -154,10 +197,15 @@ private final class ScriptedUploadRunner: RemoteSessionProcessRunning, @unchecke
 
     private let lock = NSLock()
     private let scpResult: RemoteCommandResult
+    private let execChannelUploadResult: RemoteCommandResult
     private var _execChannelUpload: ExecChannelUpload?
 
-    init(scpResult: RemoteCommandResult) {
+    init(
+        scpResult: RemoteCommandResult,
+        execChannelUploadResult: RemoteCommandResult = RemoteCommandResult(status: 0, stdout: "", stderr: "")
+    ) {
         self.scpResult = scpResult
+        self.execChannelUploadResult = execChannelUploadResult
     }
 
     var execChannelUpload: ExecChannelUpload? { lock.withLock { _execChannelUpload } }
@@ -181,6 +229,7 @@ private final class ScriptedUploadRunner: RemoteSessionProcessRunning, @unchecke
                     stdin: request.stdin
                 )
             }
+            return execChannelUploadResult
         }
         return RemoteCommandResult(status: 0, stdout: "", stderr: "")
     }
