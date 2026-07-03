@@ -20,11 +20,6 @@
 </p>
 
 <p align="center">
-  <strong>WeChat:</strong> отсканируйте QR-код, чтобы присоединиться к сообществу.<br />
-  <img src="./docs/assets/wechat-community-qr.jpg" alt="QR-код WeChat для присоединения к сообществу cmux" width="240" />
-</p>
-
-<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="Скриншот cmux" width="900" />
 </p>
 
@@ -401,6 +396,11 @@ cmux бесплатен и с открытым исходным кодом, и �
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat:</strong> отсканируйте QR-код, чтобы присоединиться к сообществу.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="QR-код WeChat для присоединения к сообществу cmux" width="240" />
+</p>
 
 ## Издание основателя
 
