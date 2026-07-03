@@ -17,7 +17,7 @@ import Testing
 /// the child launched unguarded and could hang. These tests pin both orderings.
 @Suite struct RemoteTmuxProcessCancellationTests {
     /// cancel() before launch() must prevent the child from ever starting.
-    @Test func cancelBeforeLaunchPreventsProcessStart() throws {
+    @Test func cancelBeforeLaunchPreventsProcessStart() async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sleep")
         process.arguments = ["30"]
@@ -29,17 +29,17 @@ import Testing
             stderr: errPipe.fileHandleForReading
         )
 
-        cancellation.cancel()
+        await cancellation.cancel()
 
-        #expect(throws: CancellationError.self) {
-            try cancellation.launch()
+        await #expect(throws: CancellationError.self) {
+            try await cancellation.launch()
         }
         // The child must never have been spawned.
         #expect(process.isRunning == false)
     }
 
     /// launch() before cancel() must still terminate the running child promptly.
-    @Test func launchThenCancelTerminatesRunningProcess() throws {
+    @Test func launchThenCancelTerminatesRunningProcess() async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sleep")
         process.arguments = ["30"]
@@ -51,10 +51,16 @@ import Testing
             stderr: errPipe.fileHandleForReading
         )
 
-        try cancellation.launch()
+        let launchTask = Task {
+            try await cancellation.launch()
+        }
+        let launchDeadline = Date().addingTimeInterval(1)
+        while !process.isRunning, Date() < launchDeadline {
+            usleep(20_000)
+        }
         #expect(process.isRunning == true)
 
-        cancellation.cancel()
+        await cancellation.cancel()
 
         // SIGTERM from cancel() should stop `sleep` well within this bound; poll so the
         // test never blocks indefinitely if termination were to regress.
@@ -70,6 +76,7 @@ import Testing
             kill(process.processIdentifier, SIGKILL)
             process.waitUntilExit()
         }
+        _ = try await launchTask.value
         #expect(stoppedByCancel)
     }
 }

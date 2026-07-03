@@ -425,41 +425,12 @@ actor RemoteTmuxSSHTransport {
 
         do {
             return try await withTaskCancellationHandler {
-                // Install the termination handler BEFORE launching, then launch inside
-                // the continuation. If `run()` and the handler assignment were separate
-                // steps, a process that exits in the window between them would terminate
-                // before the handler is installed — and Foundation does not invoke a
-                // terminationHandler assigned after the process has already ended, so the
-                // continuation would never resume and the caller would hang until its
-                // timeout. This matters for the fast auth-failure exits the
-                // `cmux ssh-tmux` flow classifies.
-                try Task.checkCancellation()
-                let exitCode: Int32 = try await withCheckedThrowingContinuation { continuation in
-                    process.terminationHandler = { proc in
-                        continuation.resume(returning: proc.terminationStatus)
-                    }
-                    do {
-                        // Launch under the cancellation lock. `checkCancellation()` above
-                        // only proves we were not cancelled a moment ago; a timeout firing
-                        // in the window before `run()` starts the child would otherwise see
-                        // `isRunning == false`, do nothing, and let a hung ssh child outlive
-                        // the requested timeout. Under the lock the two orderings are safe:
-                        // cancel-first makes `launch()` throw `CancellationError` (no child
-                        // starts), launch-first guarantees `cancel()` observes and kills it.
-                        try cancellation.launch()
-                    } catch is CancellationError {
-                        // Cancellation won the race; no child started, so resume here — the
-                        // termination handler will never fire for a process that never ran.
-                        process.terminationHandler = nil
-                        continuation.resume(throwing: CancellationError())
-                    } catch {
-                        // The process never started, so the handler will not fire; resume
-                        // exactly once here with the launch failure.
-                        process.terminationHandler = nil
-                        continuation.resume(throwing: RemoteTmuxError.launchFailed(error.localizedDescription))
-                    }
-                }
-
+                // The coordinator installs the termination handler before launching.
+                // If those were separate steps, a process that exits in the window
+                // between them would terminate before the handler is installed, and
+                // Foundation does not invoke a terminationHandler assigned after exit.
+                // That would hang fast auth-failure exits until the caller timeout.
+                let exitCode = try await cancellation.launch()
                 try Task.checkCancellation()
                 let outData = await outRead.value
                 try Task.checkCancellation()
@@ -471,12 +442,15 @@ actor RemoteTmuxSSHTransport {
                     stderr: String(decoding: errData, as: UTF8.self)
                 )
             } onCancel: {
-                cancellation.cancel()
+                // `onCancel` is synchronous; bridge into the actor and do not wait
+                // for the throwing path below to close pipes before the child sees
+                // termination.
+                Task.detached { await cancellation.cancel() }
                 outRead.cancel()
                 errRead.cancel()
             }
         } catch {
-            cancellation.cancel()
+            await cancellation.cancel()
             outRead.cancel()
             errRead.cancel()
             // The drains poll for readability on a fixed tick and observe cancellation
