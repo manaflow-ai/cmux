@@ -13,8 +13,9 @@ final class AgentChatTranscriptService {
 
     let registry: AgentChatSessionRegistry
     let resolver: AgentChatTranscriptResolver
-    private let coding = ChatWireCoding()
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
+    private let hasEventSubscribers: @MainActor () -> Bool
+    private let emitEventPayload: @MainActor ([String: Any]) -> Void
     /// Drives the live agent-prose streaming preview.
     private var proseStreamer: AgentChatProseStreamer!
     /// Sessions whose transcript could not be resolved; skipped until an
@@ -37,10 +38,18 @@ final class AgentChatTranscriptService {
     ///   - resolver: Transcript path resolver.
     init(
         registry: AgentChatSessionRegistry,
-        resolver: AgentChatTranscriptResolver = AgentChatTranscriptResolver()
+        resolver: AgentChatTranscriptResolver = AgentChatTranscriptResolver(),
+        hasEventSubscribers: @escaping @MainActor () -> Bool = {
+            MobileHostService.hasEventSubscribers(topic: AgentChatTranscriptService.eventTopic)
+        },
+        emitEventPayload: @escaping @MainActor ([String: Any]) -> Void = { payload in
+            MobileHostService.emitEvent(topic: AgentChatTranscriptService.eventTopic, payload: payload)
+        }
     ) {
         self.registry = registry
         self.resolver = resolver
+        self.hasEventSubscribers = hasEventSubscribers
+        self.emitEventPayload = emitEventPayload
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
         }
@@ -50,7 +59,7 @@ final class AgentChatTranscriptService {
         self.proseStreamer = AgentChatProseStreamer(
             emit: { [weak self] frame in self?.emit(frame: frame) },
             snapshot: { surfaceID in Self.screenRows(surfaceID: surfaceID) },
-            hasSubscribers: { MobileHostService.hasEventSubscribers(topic: Self.eventTopic) }
+            hasSubscribers: { [weak self] in self?.hasEventSubscribers() ?? false }
         )
     }
 
@@ -233,7 +242,7 @@ final class AgentChatTranscriptService {
         case .codex:
             return true
         case .claude, .other:
-            return endedListability.shouldList(record)
+            return endedListability.shouldList(record, resolver: resolver)
         }
     }
 
@@ -424,7 +433,13 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
-        endedListability.update(record, previous: previous, resolver: resolver)
+        let endedRecordIsListable: Bool
+        if record.state == .ended {
+            endedRecordIsListable = endedListability.update(record, previous: previous, resolver: resolver)
+        } else {
+            endedListability.remove(sessionID: record.sessionID)
+            endedRecordIsListable = true
+        }
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
         if stateChanged, record.state == .ended {
@@ -439,9 +454,13 @@ final class AgentChatTranscriptService {
                 Task { await tailer.stop() }
             }
         }
-        guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
+        guard hasEventSubscribers() else { return }
         if transcriptBecameAvailable, record.state != .ended {
             ensureTailer(for: record)
+        }
+        if record.state == .ended, !endedRecordIsListable {
+            emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
+            return
         }
         if stateChanged {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .stateChanged(record.state)))
@@ -461,31 +480,12 @@ final class AgentChatTranscriptService {
         }
         failedResolutions.remove(record.sessionID)
         endedListability.remove(sessionID: record.sessionID)
-        guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
+        guard hasEventSubscribers() else { return }
         emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
-    }
-
-    private static func descriptorChangedMeaningfully(
-        previous: AgentChatSessionRecord?,
-        current: AgentChatSessionRecord
-    ) -> Bool {
-        guard var normalizedPrevious = previous else { return true }
-        normalizedPrevious.lastActivityAt = current.lastActivityAt
-        return normalizedPrevious.descriptor != current.descriptor
     }
 
     private func emit(frame: ChatSessionEventFrame) {
         guard let payload = wirePayload(frame) else { return }
-        MobileHostService.emitEvent(topic: Self.eventTopic, payload: payload)
-    }
-
-    /// Encodes a wire value into the `[String: Any]` payload shape the
-    /// event fan-out expects.
-    func wirePayload<T: Encodable>(_ value: T) -> [String: Any]? {
-        guard let data = try? coding.encode(value),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
-        return object
+        emitEventPayload(payload)
     }
 }

@@ -237,8 +237,13 @@ extension AgentChatSessionRegistry {
         processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?,
         codexRolloutPath: (Int) -> String?
     ) -> [ObservedAgentSession] {
-        var result: [ObservedAgentSession] = []
-        var seen = Set<String>()
+        struct Candidate {
+            let session: ObservedAgentSession
+            let depth: Int
+        }
+
+        var candidateBySessionID: [String: Candidate] = [:]
+        var rootPIDsBySurfaceID: [UUID: Set<Int>] = [:]
         for process in snapshot.cmuxScopedProcesses() {
             var details: CmuxTopProcessArguments?
             func loadDetails() -> CmuxTopProcessArguments? {
@@ -270,20 +275,38 @@ extension AgentChatSessionRegistry {
                let argv = loadDetails()?.arguments {
                 sessionID = sessionIDFromArguments(argv)
             }
-            guard let resolved = sessionID, !seen.contains(resolved) else { continue }
-            seen.insert(resolved)
-            result.append(ObservedAgentSession(
-                sessionID: resolved,
-                agentKind: ChatAgentKind(source: def.id),
-                surfaceID: surfaceID.uuidString,
-                workspaceID: process.cmuxWorkspaceID?.uuidString,
-                pid: process.pid,
-                workingDirectory: observedWorkingDirectory(details?.environment),
-                transcriptPath: transcriptPath,
-                sampledAt: snapshot.sampledAt
-            ))
+            guard let resolved = sessionID else { continue }
+            let rootPIDs = rootPIDsBySurfaceID[surfaceID] ?? {
+                let roots = cmuxSurfaceRootPIDs(surfaceID: surfaceID, snapshot: snapshot)
+                rootPIDsBySurfaceID[surfaceID] = roots
+                return roots
+            }()
+            let candidate = Candidate(
+                session: ObservedAgentSession(
+                    sessionID: resolved,
+                    agentKind: ChatAgentKind(source: def.id),
+                    surfaceID: surfaceID.uuidString,
+                    workspaceID: process.cmuxWorkspaceID?.uuidString,
+                    pid: process.pid,
+                    workingDirectory: observedWorkingDirectory(details?.environment),
+                    transcriptPath: transcriptPath,
+                    sampledAt: snapshot.sampledAt
+                ),
+                depth: processTreeDepth(pid: process.pid, rootPIDs: rootPIDs, snapshot: snapshot)
+            )
+            if let current = candidateBySessionID[resolved] {
+                let preferred = preferredLiveAgentPID(
+                    current: (current.session.pid, current.depth),
+                    candidate: (candidate.session.pid, candidate.depth)
+                )
+                if preferred.pid == candidate.session.pid {
+                    candidateBySessionID[resolved] = candidate
+                }
+            } else {
+                candidateBySessionID[resolved] = candidate
+            }
         }
-        return result
+        return candidateBySessionID.values.map(\.session).sorted { $0.pid < $1.pid }
     }
 
     nonisolated static func codingAgentDefinition(

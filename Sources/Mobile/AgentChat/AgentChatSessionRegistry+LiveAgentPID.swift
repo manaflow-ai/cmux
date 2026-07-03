@@ -62,7 +62,7 @@ extension AgentChatSessionRegistry {
         processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?
     ) -> Int? {
         guard let surfaceUUID = UUID(uuidString: surfaceID) else { return nil }
-        let rootPIDs = snapshot.pids(forCMUXSurfaceID: surfaceUUID)
+        let rootPIDs = cmuxSurfaceRootPIDs(surfaceID: surfaceUUID, snapshot: snapshot)
         guard !rootPIDs.isEmpty else { return nil }
         let wantedID = kind.sourceName
         var matchedPID: (pid: Int, depth: Int)?
@@ -123,7 +123,7 @@ extension AgentChatSessionRegistry {
         return nil
     }
 
-    private nonisolated static func preferredLiveAgentPID(
+    nonisolated static func preferredLiveAgentPID(
         current: (pid: Int, depth: Int)?,
         candidate: (pid: Int, depth: Int)
     ) -> (pid: Int, depth: Int) {
@@ -138,7 +138,20 @@ extension AgentChatSessionRegistry {
         return current
     }
 
-    private nonisolated static func processTreeDepth(
+    nonisolated static func cmuxSurfaceRootPIDs(
+        surfaceID: UUID,
+        snapshot: CmuxTopProcessSnapshot
+    ) -> Set<Int> {
+        let pids = snapshot.pids(forCMUXSurfaceID: surfaceID)
+        return Set(pids.filter { pid in
+            guard let parentPID = snapshot.process(pid: pid)?.parentPID else {
+                return true
+            }
+            return !pids.contains(parentPID)
+        })
+    }
+
+    nonisolated static func processTreeDepth(
         pid: Int,
         rootPIDs: Set<Int>,
         snapshot: CmuxTopProcessSnapshot
