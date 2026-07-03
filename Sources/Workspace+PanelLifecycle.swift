@@ -335,9 +335,9 @@ extension Workspace {
         untrackRemoteTerminalSurface(panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         if let tabId {
-            surfaceIdToPanelId.removeValue(forKey: tabId)
+            paneTree.removeSurfaceMapping(forSurfaceId: tabId)
         } else {
-            surfaceIdToPanelId = surfaceIdToPanelId.filter { $0.value != panelId }
+            paneTree.removeSurfaceMappings(forPanelId: panelId)
         }
 
         panelDirectories.removeValue(forKey: panelId)
