@@ -71,14 +71,18 @@ actor LivenessHostRouter {
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
     private var replayRequestCount = 0
+    private var replayResponseCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
     private var heldReplayResponsesRemaining = 0
+    private var viewportRequestCount = 0
+    private var heldViewportRequestNumbers: Set<Int> = []
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
-    private var emptyReplayResponsesRemaining = 0
+    private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -87,6 +91,10 @@ actor LivenessHostRouter {
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
+    }
+
+    func replayResponsesServed() -> Int {
+        replayResponseCount
     }
 
     @discardableResult
@@ -178,6 +186,20 @@ actor LivenessHostRouter {
         replayTexts.append(contentsOf: texts)
     }
 
+    func enqueueReplayPayload(text: String?, sequence: UInt64?) {
+        replayPayloads.append((text: text, sequence: sequence, renderGrid: nil))
+    }
+
+    func enqueueReplayRenderGrid(_ renderGrid: MobileTerminalRenderGridFrame) {
+        replayPayloads.append((text: nil, sequence: nil, renderGrid: renderGrid))
+    }
+
+    func enqueueReplayRenderGridFrames(_ frames: [MobileTerminalRenderGridFrame]) {
+        for frame in frames {
+            enqueueReplayRenderGrid(frame)
+        }
+    }
+
     func failNextReplay(count: Int = 1) {
         replayFailuresRemaining += count
     }
@@ -215,6 +237,14 @@ actor LivenessHostRouter {
         heldReplayResponsesRemaining += count
     }
 
+    /// Hold the Nth `mobile.terminal.viewport` response (1-based), allowing a
+    /// later viewport report to acknowledge before an older one.
+    func holdViewportRequest(number: Int) {
+        heldViewportRequestNumbers.insert(number)
+    }
+
+    func setViewportEffectiveGrid(columns: Int, rows: Int) { viewportEffectiveGridOverride = .init(columns: columns, rows: rows) }; func emptyNextViewportResponses(count: Int = 1) { emptyViewportResponsesRemaining += count }
+
     /// Forget the host-side registration, modeling a lost subscription behind
     /// a live RPC channel: the next subscribe reports
     /// `already_subscribed: false`.
@@ -230,6 +260,7 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers = []
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
+        heldViewportRequestNumbers = []
         let continuations = heldContinuations
         heldContinuations = []
         for continuation in continuations {
@@ -237,7 +268,7 @@ actor LivenessHostRouter {
         }
     }
 
-    func response(method: String?, id: String?) async -> Data? {
+    func response(method: String?, id: String?, viewportReport: LivenessViewportReport? = nil) async -> Data? {
         switch method {
         case "workspace.list", "mobile.workspace.list":
             return try? Self.resultFrame(id: id, result: [
@@ -290,6 +321,9 @@ actor LivenessHostRouter {
             } else if heldReplayRequestNumbers.contains(replayRequestCount) {
                 await park()
             }
+            defer {
+                replayResponseCount += 1
+            }
             if replayFailuresRemaining > 0 {
                 replayFailuresRemaining -= 1
                 return try? Self.errorFrame(id: id, message: "replay failed")
@@ -298,6 +332,26 @@ actor LivenessHostRouter {
                 emptyReplayResponsesRemaining -= 1
                 return try? Self.resultFrame(id: id, result: [:])
             }
+            if !replayPayloads.isEmpty {
+                let payload = replayPayloads.removeFirst()
+                var result: [String: Any] = [:]
+                if let text = payload.text {
+                    result["data_b64"] = Data(text.utf8).base64EncodedString()
+                }
+                if let sequence = payload.sequence {
+                    result["seq"] = sequence
+                }
+                if let renderGrid = payload.renderGrid,
+                   let renderGridObject = try? renderGrid.jsonObject() {
+                    result["render_grid"] = renderGridObject
+                    result["columns"] = renderGrid.columns
+                    result["rows"] = renderGrid.rows
+                    if result["seq"] == nil {
+                        result["seq"] = renderGrid.stateSeq
+                    }
+                }
+                return try? Self.resultFrame(id: id, result: result)
+            }
             guard !replayTexts.isEmpty else {
                 return try? Self.resultFrame(id: id, result: [:])
             }
@@ -305,8 +359,20 @@ actor LivenessHostRouter {
             return try? Self.resultFrame(id: id, result: [
                 "data_b64": Data(text.utf8).base64EncodedString(),
             ])
-        case "mobile.events.unsubscribe", "mobile.terminal.viewport":
+        case "mobile.events.unsubscribe":
             return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.terminal.viewport":
+            viewportRequestCount += 1
+            if heldViewportRequestNumbers.contains(viewportRequestCount) {
+                await park()
+            }
+            if emptyViewportResponsesRemaining > 0 { emptyViewportResponsesRemaining -= 1; return try? Self.resultFrame(id: id, result: [:]) }
+            // Mirror the Mac host: acknowledge the report with the effective
+            // shared grid. Echoing the reported viewport models a single
+            // attached device, whose report is always the effective minimum.
+            var result: [String: Any] = [:]
+            if let viewportReport = viewportEffectiveGridOverride ?? viewportReport { result["columns"] = viewportReport.columns; result["rows"] = viewportReport.rows }
+            return try? Self.resultFrame(id: id, result: result)
         case "terminal.input":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_seq": 100,
@@ -398,13 +464,22 @@ actor LivenessTransport: CmxByteTransport {
             let parsed = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
             let method = parsed?["method"] as? String
             let id = parsed?["id"] as? String
-            let topics = (parsed?["params"] as? [String: Any])?["topics"] as? [String]
+            let params = parsed?["params"] as? [String: Any]
+            let topics = params?["topics"] as? [String]
+            let viewportReport: LivenessViewportReport? = {
+                guard method == "mobile.terminal.viewport",
+                      let columns = (params?["viewport_columns"] as? NSNumber)?.intValue,
+                      let rows = (params?["viewport_rows"] as? NSNumber)?.intValue else {
+                    return nil
+                }
+                return LivenessViewportReport(columns: columns, rows: rows)
+            }()
             await router.record(method: method, topics: topics)
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
             Task { [router, weak self] in
-                guard let response = await router.response(method: method, id: id) else {
+                guard let response = await router.response(method: method, id: id, viewportReport: viewportReport) else {
                     return
                 }
                 await self?.deliver(response)
@@ -488,73 +563,6 @@ func attachURL(for ticket: CmxAttachTicket) throws -> String {
     return "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"
 }
 
-func renderGridEventFrame(
-    surfaceID: String,
-    seq: UInt64,
-    text: String,
-    activeScreen: MobileTerminalRenderGridFrame.Screen = .primary,
-    full: Bool = true
-) throws -> Data {
-    let frame = try MobileTerminalRenderGridFrame(
-        surfaceID: surfaceID,
-        stateSeq: seq,
-        columns: 16,
-        rows: 4,
-        full: full,
-        rowSpans: [
-            MobileTerminalRenderGridFrame.RowSpan(
-                row: 0,
-                column: 0,
-                styleID: 0,
-                text: text
-            ),
-        ],
-        activeScreen: activeScreen
-    )
-    let envelope: [String: Any] = [
-        "kind": "event",
-        "topic": "terminal.render_grid",
-        "payload": try frame.jsonObject(),
-    ]
-    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
-}
-
-func terminalBytesEventFrame(surfaceID: String, seq: UInt64, text: String) throws -> Data {
-    let envelope: [String: Any] = [
-        "kind": "event",
-        "topic": "terminal.bytes",
-        "payload": [
-            "surface_id": surfaceID,
-            "seq": seq,
-            "data_b64": Data(text.utf8).base64EncodedString(),
-        ],
-    ]
-    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
-}
-
-func emptyRenderGridEventFrame(
-    surfaceID: String,
-    seq: UInt64,
-    activeScreen: MobileTerminalRenderGridFrame.Screen,
-    full: Bool = false
-) throws -> Data {
-    let frame = try MobileTerminalRenderGridFrame(
-        surfaceID: surfaceID,
-        stateSeq: seq,
-        columns: 16,
-        rows: 4,
-        full: full,
-        rowSpans: [],
-        activeScreen: activeScreen
-    )
-    let envelope: [String: Any] = [
-        "kind": "event",
-        "topic": "terminal.render_grid",
-        "payload": try frame.jsonObject(),
-    ]
-    return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
-}
-
 /// Poll until `condition` is true, bounded at `attempts` x 10ms. Returns the
 /// final value so tests can assert both presence and (bounded) absence.
 @MainActor
@@ -569,6 +577,18 @@ func pollUntil(
         try await Task.sleep(nanoseconds: 10_000_000)
     }
     return await condition()
+}
+
+@MainActor
+func waitForReplayResponsesServed(
+    _ expectedCount: Int,
+    router: LivenessHostRouter,
+    _ message: String
+) async throws {
+    let settled = try await pollUntil {
+        await router.replayResponsesServed() >= expectedCount
+    }
+    #expect(settled, "\(message)")
 }
 
 @MainActor
@@ -588,6 +608,10 @@ func makeConnectedStore(
     let ticket = try makeTicket(clock: clock)
     let connected = await store.connectPairingURL(try attachURL(for: ticket))
     #expect(connected, "scripted connect must succeed")
+    let capabilitiesResolved = try await pollUntil {
+        !store.supportedHostCapabilities.isEmpty
+    }
+    #expect(capabilitiesResolved, "scripted connect must resolve host capabilities")
     return store
 }
 
