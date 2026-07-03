@@ -20,11 +20,6 @@
 </p>
 
 <p align="center">
-  <strong>WeChat：</strong>掃描 QR 碼加入社群。<br />
-  <img src="./docs/assets/wechat-community-qr.jpg" alt="用於加入 cmux 社群的 WeChat QR 碼" width="240" />
-</p>
-
-<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="cmux 螢幕截圖" width="900" />
 </p>
 
@@ -401,6 +396,11 @@ cmux 免費且開放原始碼，並將一直如此。如果您想支持開發並
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat：</strong>掃描 QR 碼加入社群。<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="用於加入 cmux 社群的 WeChat QR 碼" width="240" />
+</p>
 
 ## Founder's Edition
 

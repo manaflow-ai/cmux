@@ -18,11 +18,6 @@
 </p>
 
 <p align="center">
-  <strong>WeChat:</strong> Scan the QR code to join the community.<br />
-  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR code to join the cmux community" width="240" />
-</p>
-
-<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="cmux screenshot" width="900" />
 </p>
 
@@ -421,6 +416,11 @@ Ways to get involved:
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat:</strong> Scan the QR code to join the community.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR code to join the cmux community" width="240" />
+</p>
 
 ## Founder's Edition
 
