@@ -10114,7 +10114,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard agentHibernationAutoResumePresentationVisible != isVisible else { return }
         agentHibernationAutoResumePresentationVisible = isVisible
         guard isVisible else { return }
-        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        _ = resumeVisibleAgentHibernationPanels(panelIds: agentHibernationVisiblePanelIdsForCurrentLayout())
     }
 
     // MARK: - Utility
