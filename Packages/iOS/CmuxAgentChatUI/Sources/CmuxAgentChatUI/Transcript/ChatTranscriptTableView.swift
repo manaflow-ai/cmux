@@ -83,6 +83,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private var isHandlingLayout = false
         private var isApplyingDataUpdate = false
         private var pendingContentUpdateAnchor: ChatTranscriptTableAnchor?
+        private var isExplicitBottomFollowActive = false
+        private var lastObservedScrollContentHeight: CGFloat?
+        private var lastObservedScrollOffsetY: CGFloat?
         private weak var tableView: ChatTranscriptUITableView?
         private var isAtBottom: Binding<Bool>
         #if DEBUG
@@ -124,13 +127,17 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 || configuration.agentState != agentState
             let shouldScrollToBottom = scrollToBottomRequest != lastScrollToBottomRequest
             lastScrollToBottomRequest = scrollToBottomRequest
+            if shouldScrollToBottom {
+                isExplicitBottomFollowActive = true
+                recordObservedScrollPosition(in: tableView)
+            }
             let wasAtBottom = distanceFromBottom(in: tableView) <= chatTranscriptAtBottomThreshold
             let anchor = firstVisibleAnchor(in: tableView)
 
             guard shouldReload else {
-                if shouldScrollToBottom {
+                if isExplicitBottomFollowActive && (shouldScrollToBottom || !wasAtBottom) {
                     pendingContentUpdateAnchor = nil
-                    scrollToBottom(in: tableView, animated: true)
+                    scrollToBottom(in: tableView, animated: shouldScrollToBottom)
                 }
                 updateBottomState(from: tableView)
                 return
@@ -145,9 +152,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             defer { isApplyingDataUpdate = false }
             tableView.reloadData()
             tableView.layoutIfNeeded()
-            if shouldScrollToBottom || (wasAtBottom && !tableView.isUserScrollMomentumActive) {
+            if isExplicitBottomFollowActive || (wasAtBottom && !tableView.isUserScrollMomentumActive) {
                 pendingContentUpdateAnchor = nil
-                scrollToBottom(in: tableView, animated: false)
+                scrollToBottom(in: tableView, animated: shouldScrollToBottom)
             } else if let anchor, !tableView.isUserScrollMomentumActive {
                 restore(anchor, in: tableView)
                 pendingContentUpdateAnchor = anchor
@@ -180,7 +187,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             guard let tableView = scrollView as? UITableView else { return }
+            cancelBottomFollowForStableContentUpwardScroll(in: tableView)
             updateBottomState(from: tableView)
+            recordObservedScrollPosition(in: tableView)
             #if DEBUG
             (tableView as? ChatTranscriptUITableView)?.updateDebugAccessibilityValue()
             #endif
@@ -189,6 +198,27 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             pendingContentUpdateAnchor = nil
+            isExplicitBottomFollowActive = false
+        }
+
+        private func cancelBottomFollowForStableContentUpwardScroll(in tableView: UITableView) {
+            // Streaming content growth can increase distance from bottom; stable-content upward offsets mean scrolling took over.
+            guard isExplicitBottomFollowActive,
+                  !isHandlingLayout,
+                  !isApplyingDataUpdate,
+                  let lastObservedScrollContentHeight,
+                  let lastObservedScrollOffsetY,
+                  abs(tableView.contentSize.height - lastObservedScrollContentHeight) <= 0.5,
+                  tableView.contentOffset.y < lastObservedScrollOffsetY - 1
+            else {
+                return
+            }
+            isExplicitBottomFollowActive = false
+        }
+
+        private func recordObservedScrollPosition(in tableView: UITableView) {
+            lastObservedScrollContentHeight = tableView.contentSize.height
+            lastObservedScrollOffsetY = tableView.contentOffset.y
         }
 
         private func handleLayoutChange(
@@ -214,16 +244,25 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             defer { isHandlingLayout = false }
 
             if tableView.isUserScrollMomentumActive {
+                if isExplicitBottomFollowActive {
+                    scrollToBottom(in: tableView, animated: false)
+                }
                 pendingContentUpdateAnchor = nil
                 updateBottomState(from: tableView)
                 return
             }
             if tableView.isViewportInsetsExternallyDriven || isApplyingDataUpdate {
+                if isExplicitBottomFollowActive {
+                    scrollToBottom(in: tableView, animated: false)
+                    return
+                }
                 updateBottomState(from: tableView)
                 return
             }
 
-            if boundsChanged, let oldViewport {
+            if isExplicitBottomFollowActive {
+                scrollToBottom(in: tableView, animated: false)
+            } else if boundsChanged, let oldViewport {
                 restoreKeyboardViewport(snapshot: oldViewport, in: tableView)
             } else if contentChanged, let pendingContentUpdateAnchor {
                 restore(pendingContentUpdateAnchor, in: tableView)
@@ -262,10 +301,16 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
         private func scrollToBottom(in tableView: UITableView, animated: Bool) {
             tableView.layoutIfNeeded()
+            cancelUserScrollMomentumIfNeeded(in: tableView)
             let targetY = maxOffsetY(in: tableView)
             tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: targetY), animated: animated)
             (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
-            setAtBottom(true)
+            updateBottomState(from: tableView)
+        }
+
+        private func cancelUserScrollMomentumIfNeeded(in tableView: UITableView) {
+            guard tableView.isTracking || tableView.isDragging || tableView.isDecelerating else { return }
+            tableView.setContentOffset(tableView.contentOffset, animated: false)
         }
 
         private func requestOlderHistoryIfNeeded(in tableView: UITableView) {
@@ -351,161 +396,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             )
             (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
             setAtBottom(snapshot.wasAtBottom)
-        }
-    }
-}
-
-private struct ChatTranscriptTableConfiguration {
-    let rows: [ChatTranscriptRow]
-    let expandedIDs: Set<String>
-    let agentState: ChatAgentState
-    let hasMoreHistory: Bool
-    let hasLoadedInitialHistory: Bool
-    let initialLoadFailed: Bool
-    let historyTruncatedAtHead: Bool
-    let actions: ChatRowActions
-    let onReachTop: () -> Void
-    let onRetryInitialLoad: () -> Void
-    let theme: ChatTheme
-    let markdownRenderer: ChatMarkdownRenderer?
-    let contentCache: ChatContentCache?
-
-    func makeItems() -> [ChatTranscriptTableItem] {
-        var items: [ChatTranscriptTableItem] = []
-        if hasMoreHistory {
-            items.append(.loadingMore)
-        } else if historyTruncatedAtHead {
-            items.append(.historyTruncated)
-        }
-        if rows.isEmpty {
-            if initialLoadFailed {
-                items.append(.loadFailed)
-            } else if hasLoadedInitialHistory {
-                items.append(.empty)
-            } else {
-                items.append(.initialLoading)
-            }
-        }
-        items.append(contentsOf: rows.map(ChatTranscriptTableItem.row))
-        if case .working = agentState {
-            items.append(.typing)
-        }
-        items.append(.bottomAnchor)
-        return items
-    }
-
-    @ViewBuilder
-    func view(for item: ChatTranscriptTableItem, tableWidth: CGFloat) -> some View {
-        itemView(for: item)
-            .padding(.horizontal, theme.horizontalMargin)
-            .environment(\.chatTheme, theme)
-            .environment(\.chatMarkdownRenderer, markdownRenderer)
-            .environment(\.chatContentCache, contentCache)
-            .environment(
-                \.chatBubbleMaxWidth,
-                tableWidth > 0 ? tableWidth * theme.bubbleMaxWidthFraction : .infinity
-            )
-    }
-
-    @ViewBuilder
-    private func itemView(for item: ChatTranscriptTableItem) -> some View {
-        switch item {
-        case .loadingMore:
-            ProgressView()
-                .controlSize(.small)
-                .padding(.vertical, 12)
-        case .historyTruncated:
-            Text(
-                String(
-                    localized: "chat.history.truncated",
-                    defaultValue: "Earlier history is on your Mac",
-                    bundle: .module
-                )
-            )
-            .font(.caption)
-            .foregroundStyle(.tertiary)
-            .padding(.vertical, 12)
-        case .loadFailed:
-            VStack(spacing: 12) {
-                Text(
-                    String(
-                        localized: "chat.transcript.load_failed",
-                        defaultValue: "Couldn't load this conversation",
-                        bundle: .module
-                    )
-                )
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                Button(action: onRetryInitialLoad) {
-                    Text(
-                        String(localized: "chat.transcript.retry", defaultValue: "Retry", bundle: .module)
-                    )
-                    .font(.subheadline.weight(.medium))
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("ChatTranscriptRetry")
-            }
-            .padding(.vertical, 48)
-        case .empty:
-            Text(
-                String(
-                    localized: "chat.transcript.empty",
-                    defaultValue: "No messages yet",
-                    bundle: .module
-                )
-            )
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .padding(.vertical, 48)
-        case .initialLoading:
-            ProgressView()
-                .controlSize(.regular)
-                .padding(.vertical, 48)
-        case .row(let row):
-            ChatTranscriptRowView(
-                row: row,
-                isExpanded: expandedIDs.contains(row.id),
-                actions: actions
-            )
-            .equatable()
-        case .typing:
-            ChatTypingIndicatorView(agentState: agentState)
-                .padding(.top, theme.intraGroupSpacing)
-        case .bottomAnchor:
-            Color.clear
-                .frame(height: 9)
-        }
-    }
-}
-
-private enum ChatTranscriptTableItem: Equatable {
-    case loadingMore
-    case historyTruncated
-    case loadFailed
-    case empty
-    case initialLoading
-    case row(ChatTranscriptRow)
-    case typing
-    case bottomAnchor
-
-    var id: String {
-        switch self {
-        case .loadingMore:
-            return "loading-more"
-        case .historyTruncated:
-            return "history-truncated"
-        case .loadFailed:
-            return "load-failed"
-        case .empty:
-            return "empty"
-        case .initialLoading:
-            return "initial-loading"
-        case .row(let row):
-            return row.id
-        case .typing:
-            return "typing"
-        case .bottomAnchor:
-            return "bottom-anchor"
         }
     }
 }
