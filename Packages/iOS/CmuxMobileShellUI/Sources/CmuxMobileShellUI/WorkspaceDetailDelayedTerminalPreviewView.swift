@@ -10,17 +10,17 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     private static let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-delayed")
     private static let longWorkspaceTitle = "Extremely Long Workspace Title That Should Truncate Before Toolbar Buttons Overflow"
     private static let longTerminalTitle = "Long Agent Session Subtitle That Should Also Truncate First"
+    private static let actionCapabilities = MobileWorkspaceActionCapabilities(
+        supportsWorkspaceActions: true,
+        supportsReadStateActions: true
+    )
 
     @State private var store = MobileShellComposite(
         isSignedIn: true,
         connectionState: .connected,
         connectedHostName: "UI Test Mac",
         workspaces: [
-            MobileWorkspacePreview(
-                id: workspaceID,
-                name: workspaceTitle,
-                terminals: []
-            ),
+            Self.workspace(terminals: []),
         ]
     )
     @State private var browserStore = BrowserSurfaceStore()
@@ -39,13 +39,9 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             store.selectedWorkspaceID = Self.workspaceID
             try? await ContinuousClock().sleep(for: .milliseconds(1_500))
             guard !Task.isCancelled else { return }
-            let workspace = MobileWorkspacePreview(
-                id: Self.workspaceID,
-                name: Self.workspaceTitle,
-                terminals: [
-                    MobileTerminalPreview(id: Self.terminalID, name: Self.terminalTitle),
-                ]
-            )
+            let workspace = Self.workspace(terminals: [
+                MobileTerminalPreview(id: Self.terminalID, name: Self.terminalTitle),
+            ])
             store.replaceForegroundWorkspaceState([workspace])
             store.selectedWorkspaceID = Self.workspaceID
             store.selectedTerminalID = Self.terminalID
@@ -82,6 +78,16 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
 
     private static var terminalTitle: String {
         usesLongTitle ? longTerminalTitle : "Terminal 1"
+    }
+
+    private static func workspace(terminals: [MobileTerminalPreview]) -> MobileWorkspacePreview {
+        var workspace = MobileWorkspacePreview(
+            id: workspaceID,
+            name: workspaceTitle,
+            terminals: terminals
+        )
+        workspace.actionCapabilities = actionCapabilities
+        return workspace
     }
 }
 #endif

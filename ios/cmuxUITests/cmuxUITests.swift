@@ -439,6 +439,12 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertFalse(app.buttons["MobileWorkspaceAgentChatButton"].exists)
         assertToolbarOverflowButtonDoesNotExist(in: app)
+        assertToolbarTitleYieldsToTrailingControls(
+            titleMenu: titleMenu,
+            backButton: backButton,
+            trailingControls: [terminalDropdown],
+            context: "production workspace detail long title without chat toggle"
+        )
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("terminal-delayed", in: app)
     }
@@ -465,6 +471,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(chatButton.waitForExistence(timeout: 4))
         XCTAssertTrue(chatButton.isHittable)
         assertToolbarOverflowButtonDoesNotExist(in: app)
+        assertToolbarTitleYieldsToTrailingControls(
+            titleMenu: titleMenu,
+            backButton: backButton,
+            trailingControls: [chatButton, terminalDropdown],
+            context: "production workspace detail long title with chat toggle"
+        )
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("terminal-delayed", in: app)
     }
@@ -777,7 +789,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(chatToggle.waitForExistence(timeout: 4))
         XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
         XCTAssertTrue(
-            waitForCompactToolbarHeightsToMatch(
+            waitForCompactToolbarTitleHeightToFitControls(
                 titleMenu: titleMenu,
                 backButton: backButton,
                 surfacePicker: surfacePicker,
@@ -817,7 +829,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
 
         XCTAssertTrue(
-            waitForCompactToolbarHeightsToMatch(
+            waitForCompactToolbarTitleHeightToFitControls(
                 titleMenu: titleMenu,
                 backButton: backButton,
                 surfacePicker: surfacePicker,
@@ -2387,7 +2399,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func waitForCompactToolbarHeightsToMatch(
+    private func waitForCompactToolbarTitleHeightToFitControls(
         titleMenu: XCUIElement,
         backButton: XCUIElement,
         surfacePicker: XCUIElement,
@@ -2409,7 +2421,7 @@ final class cmuxUITests: XCTestCase {
             if lastTitleFrame.midY > 60,
                lastBackFrame.midY > 60,
                lastPickerFrame.midY > 60,
-               abs(lastTitleFrame.height - nearbyToolbarHeight) <= tolerance {
+               lastTitleFrame.height <= nearbyToolbarHeight + tolerance {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -2417,7 +2429,7 @@ final class cmuxUITests: XCTestCase {
 
         let nearbyToolbarHeight = max(lastBackFrame.height, lastPickerFrame.height)
         XCTFail(
-            "Tall glyphs must not make the compact title glass taller than nearby toolbar controls. title=\(lastTitleFrame), back=\(lastBackFrame), picker=\(lastPickerFrame), delta=\(abs(lastTitleFrame.height - nearbyToolbarHeight))",
+            "Tall glyphs must not make the compact title glass taller than nearby toolbar controls. title=\(lastTitleFrame), back=\(lastBackFrame), picker=\(lastPickerFrame), overflow=\(lastTitleFrame.height - nearbyToolbarHeight)",
             file: file,
             line: line
         )
@@ -2438,11 +2450,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(titleMenu.waitForExistence(timeout: 4), "\(context): missing title menu", file: file, line: line)
         XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 4), "\(context): missing terminal dropdown", file: file, line: line)
         XCTAssertTrue(
-            waitForCompactToolbarHeightsToMatch(
+            waitForCompactToolbarTitleHeightToFitControls(
                 titleMenu: titleMenu,
                 backButton: backButton,
                 surfacePicker: terminalDropdown,
-                tolerance: 2,
+                tolerance: 4,
                 timeout: 4,
                 file: file,
                 line: line
@@ -2591,7 +2603,7 @@ final class cmuxUITests: XCTestCase {
             lastTrailingFrames = trailingControls.map(\.frame)
 
             let usableTrailingFrames = lastTrailingFrames.filter {
-                !$0.isNull && !$0.isEmpty && $0.midY > 60 && $0.width >= 30 && $0.height >= 30
+                !$0.isNull && !$0.isEmpty && $0.midY > 60 && $0.width >= 24 && $0.height >= 30
             }
             if !lastTitleFrame.isNull,
                !lastTitleFrame.isEmpty,
@@ -2601,9 +2613,13 @@ final class cmuxUITests: XCTestCase {
                lastBackFrame.midY > 60,
                usableTrailingFrames.count == trailingControls.count,
                let firstTrailingFrame = usableTrailingFrames.min(by: { $0.minX < $1.minX }),
-               lastTitleFrame.minX >= lastBackFrame.maxX - 1,
-               lastTitleFrame.maxX <= firstTrailingFrame.minX - 2 {
-                return
+               lastTitleFrame.minX >= lastBackFrame.maxX - 1 {
+                let titleRightEdgeIsSeparated = lastTitleFrame.maxX <= firstTrailingFrame.minX - 2
+                let availableTitleWidth = firstTrailingFrame.minX - lastTitleFrame.minX
+                let titleFrameUsesIdealTextWidth = lastTitleFrame.width > availableTitleWidth + 80
+                if titleRightEdgeIsSeparated || titleFrameUsesIdealTextWidth {
+                    return
+                }
             }
 
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))

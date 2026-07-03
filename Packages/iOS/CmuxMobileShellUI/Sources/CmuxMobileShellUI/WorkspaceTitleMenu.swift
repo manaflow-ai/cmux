@@ -1,3 +1,4 @@
+import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
@@ -30,6 +31,8 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
         label()
             .layoutPriority(MobileToolbarItemLayoutRole.compressibleTitle.swiftUILayoutPriority)
             .fixedSize(horizontal: false, vertical: true)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .center)
+            .clipped()
     }
 }
 
@@ -60,5 +63,32 @@ struct MobileToolbarPriorityHost<Content: View>: View {
     var body: some View {
         content
             .layoutPriority(role.swiftUILayoutPriority)
+    }
+}
+
+struct MobileWorkspacePriorityToolbar<Back: View, Title: View, Trailing: View>: View {
+    @ViewBuilder let back: () -> Back
+    @ViewBuilder let title: () -> Title
+    @ViewBuilder let trailing: () -> Trailing
+
+    var body: some View {
+        HStack(spacing: 8) {
+            back()
+                .layoutPriority(MobileToolbarItemLayoutRole.fixedTrailingControls.swiftUILayoutPriority)
+                .fixedSize()
+                .mobileGlassCompactToolbarControl()
+
+            title()
+                .layoutPriority(MobileToolbarItemLayoutRole.compressibleTitle.swiftUILayoutPriority)
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                .mobileGlassCompactToolbarControl()
+                .clipped()
+
+            trailing()
+                .layoutPriority(MobileToolbarItemLayoutRole.fixedTrailingControls.swiftUILayoutPriority)
+                .fixedSize()
+                .mobileGlassCompactToolbarControl()
+        }
+        .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .center)
     }
 }

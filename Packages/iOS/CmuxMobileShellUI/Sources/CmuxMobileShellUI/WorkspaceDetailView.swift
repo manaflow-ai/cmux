@@ -117,19 +117,14 @@ struct WorkspaceDetailView: View {
     #if os(iOS)
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {
-        if backButtonConfiguration != nil {
-            ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
-                workspaceBackToolbarButton
-            }
-            if #available(iOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .topBarLeading)
-            }
-        }
-        ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
-            workspaceTitleToolbarMenu
-        }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            MobileToolbarPriorityHost(role: .fixedTrailingControls) {
+        ToolbarItem(id: "workspace-priority-toolbar", placement: .principal) {
+            MobileWorkspacePriorityToolbar {
+                if backButtonConfiguration != nil {
+                    workspaceBackToolbarButton
+                }
+            } title: {
+                workspaceTitleToolbarMenu
+            } trailing: {
                 toolbarTrailingCluster
             }
         }
