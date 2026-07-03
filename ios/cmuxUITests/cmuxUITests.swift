@@ -469,6 +469,84 @@ final class cmuxUITests: XCTestCase {
         assertTerminalMenuItemExists("terminal-delayed", in: app)
     }
 
+    // Issue #7225 report shape: a short workspace name, a long live-agent
+    // session name, and the chat toggle visible. When the trailing toolbar
+    // overflows, the system folds the trailing item into a "More" menu; a
+    // single item wrapping BOTH the chat toggle and the picker melts into one
+    // phantom row (chat icon + picker Menu title + disclosure chevron) that
+    // duplicates the current session above the flat picker content and takes
+    // two taps to reach the terminals. Both trailing controls must stay in
+    // the bar, and ONE tap must open the full flat picker with the session
+    // listed exactly once.
+    @MainActor
+    func testWorkspaceDetailTerminalMenuOpensFlatInOneTapWithChatToggleAndLongSessionTitle() throws {
+        let sessionTitle = "✳ Iterate PR 6947 to green"
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_LONG_SESSION_TITLE": "1",
+            "CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE": "1",
+        ])
+        let chatButton = app.buttons["MobileWorkspaceAgentChatButton"]
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        XCTAssertTrue(chatButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(chatButton.isHittable)
+        XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 4))
+        XCTAssertTrue(terminalDropdown.isHittable)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemExists("terminal-delayed", in: app)
+        XCTAssertTrue(app.buttons["MobileNewWorkspaceMenuItem"].exists)
+        XCTAssertTrue(app.buttons["MobileNewTerminalMenuItem"].exists)
+        XCTAssertTrue(app.buttons["MobileNewBrowserMenuItem"].exists)
+
+        let sessionLabeledButtons = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", sessionTitle)
+        )
+        XCTAssertEqual(
+            sessionLabeledButtons.count,
+            1,
+            "The open terminal menu must list the current session exactly once; a second session-labeled row is the #7225 phantom header."
+        )
+        XCTAssertEqual(
+            sessionLabeledButtons.firstMatch.identifier,
+            "MobileTerminalMenuItem-terminal-delayed",
+            "The only session-labeled row must be the real picker row; the #7225 phantom header row carries no identifier."
+        )
+    }
+
+    // The bar shows the terminal picker icon-only, but a system overflow fold
+    // renders the picker Menu's label TITLE as the folded row's text. If that
+    // title is the selected session name, the folded row masquerades as a
+    // duplicate session row (#7225). The title must stay the static picker
+    // name; the selected session reads through the accessibility value.
+    @MainActor
+    func testTerminalDropdownLabelStaysStaticWithLiveAgentSessionSelected() throws {
+        let sessionTitle = "✳ Iterate PR 6947 to green"
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_LONG_SESSION_TITLE": "1",
+            "CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE": "1",
+        ])
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 4))
+        XCTAssertEqual(terminalDropdown.label, "Terminals")
+        XCTAssertEqual(
+            terminalDropdown.value as? String,
+            sessionTitle,
+            "The selected session must stay exposed through the picker's accessibility value."
+        )
+
+        let dropdownIcon = terminalDropdown.images.firstMatch
+        XCTAssertTrue(dropdownIcon.exists)
+        XCTAssertFalse(
+            dropdownIcon.label.contains("Iterate PR 6947"),
+            "The picker's icon-only Label must not carry the selected session name as its title: a toolbar overflow fold renders that title as a menu row, duplicating the session (#7225)."
+        )
+    }
+
     @MainActor
     func testWorkspaceDetailToolbarSurvivesCreateWorkspaceDelayedTerminalLifecycle() throws {
         let app = launchWorkspaceDetailCreateDelayedTerminalPreviewApp()

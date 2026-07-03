@@ -10,6 +10,9 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     private static let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-delayed")
     private static let longWorkspaceTitle = "Extremely Long Workspace Title That Should Truncate Before Toolbar Buttons Overflow"
     private static let longTerminalTitle = "Long Agent Session Subtitle That Should Also Truncate First"
+    /// The https://github.com/manaflow-ai/cmux/issues/7225 report shape: a short
+    /// workspace name over a long agent-session tab name.
+    private static let longSessionTerminalTitle = "✳ Iterate PR 6947 to green"
 
     @State private var store = MobileShellComposite(
         isSignedIn: true,
@@ -72,16 +75,23 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE"] == "1"
     }
 
+    /// Short workspace name + long agent-session terminal name (issue #7225).
+    private static var usesLongSessionTitle: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_LONG_SESSION_TITLE"] == "1"
+    }
+
     private static var showsChatToggle: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE"] == "1"
     }
 
     private static var workspaceTitle: String {
-        usesLongTitle ? longWorkspaceTitle : "New Workspace"
+        if usesLongSessionTitle { return "cmux146" }
+        return usesLongTitle ? longWorkspaceTitle : "New Workspace"
     }
 
     private static var terminalTitle: String {
-        usesLongTitle ? longTerminalTitle : "Terminal 1"
+        if usesLongSessionTitle { return longSessionTerminalTitle }
+        return usesLongTitle ? longTerminalTitle : "Terminal 1"
     }
 }
 #endif
