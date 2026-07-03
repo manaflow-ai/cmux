@@ -26,9 +26,11 @@ import Testing
 
     /// The reply forwards the first choice only; the consumption bit flips exactly then.
     @Test func replySendsAtMostOnce() {
-        let received = Box()
-        let reply = UpdateState.PromptReply { choice in
-            received.append(choice)
+        let received = PromptReplyChoiceBox()
+        let reply = UpdatePromptReply { choice in
+            MainActor.assumeIsolated {
+                received.append(choice)
+            }
         }
         #expect(!reply.isConsumed)
 
@@ -39,12 +41,6 @@ import Testing
 
         #expect(received.choices == [.install])
     }
-
-    private final class Box: @unchecked Sendable {
-        private(set) var choices: [SPUUserUpdateChoice] = []
-        func append(_ choice: SPUUserUpdateChoice) { choices.append(choice) }
-    }
-
     /// A stale session's dismissal must not clobber a live prompt nobody has answered yet —
     /// exactly the late `dismissUpdateInstallation` that would otherwise cancel the freshly
     /// resolved update out from under the attempt coordinator.

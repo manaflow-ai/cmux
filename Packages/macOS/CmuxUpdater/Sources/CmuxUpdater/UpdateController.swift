@@ -135,7 +135,7 @@ public final class UpdateController {
             defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         }
 
-        self.installWatchdog = InstallWatchdog(clock: clock, timeout: UpdateTiming.installWatchdogTimeout)
+        self.installWatchdog = InstallWatchdog(clock: clock, timeout: installWatchdogTimeout)
         let model = UpdateStateModel()
         let driver = UpdateDriver(model: model, log: log, clock: clock, isDevLikeBundle: isDevLikeBundle)
         self.driver = driver
@@ -175,7 +175,7 @@ public final class UpdateController {
     }
 
     /// Runs the three state reactions for one observed transition. Invoked once on start with
-    /// the current model values and then for every drained ``UpdateStateModel/StateChange``
+    /// the current model values and then for every drained ``UpdateStateChange``
     /// (the merge of the old `$state.sink`, the attempt sink, and the `CombineLatest` dismiss
     /// observer).
     private func handleStateChange(_ state: UpdateState, overrideState: UpdateState?) {
@@ -188,7 +188,7 @@ public final class UpdateController {
             // spurious "Update Didn't Start" over a later, unrelated check. A `.confirmInstall`
             // hand-off keeps the deadline armed until a resolved state below disarms it.
             if installWatchdog.isArmed,
-               InstallWatchdog.attemptEndedWithoutInstall(
+               installWatchdog.attemptEndedWithoutInstall(
                    action: action,
                    isCoordinatorMonitoring: attemptCoordinator.isMonitoring
                ) {
@@ -198,7 +198,7 @@ public final class UpdateController {
         }
         // Disarm the install watchdog the moment the flow progresses the install or shows a clear
         // outcome, so a healthy install (or a real error / "no updates") never trips it.
-        if installWatchdog.isArmed, InstallWatchdog.installAttemptResolved(state) {
+        if installWatchdog.isArmed, installWatchdog.installAttemptResolved(state) {
             installWatchdog.disarm()
         }
         scheduleNoUpdateDismiss(for: state, overrideState: overrideState)

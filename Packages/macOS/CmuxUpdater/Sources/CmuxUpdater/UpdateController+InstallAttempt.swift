@@ -29,7 +29,7 @@ extension UpdateController {
         // The attempt is over regardless of what shows below: a coordinator left monitoring past
         // its deadline would silently auto-confirm an install off a later, unrelated check.
         attemptCoordinator.cancel()
-        guard InstallWatchdog.installAttemptStalled(model.state) else { return }
+        guard installWatchdog.installAttemptStalled(model.state) else { return }
         log.append("install watchdog fired: update did not start within \(Int(installWatchdog.timeoutSeconds))s")
         if attemptWasMonitoring {
             // Resolve the in-flight Sparkle session (reply .dismiss to a pending "Update

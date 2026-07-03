@@ -3,7 +3,7 @@ import Foundation
 /// Guards against the update flow silently stalling after the user asks to install.
 ///
 /// When the user clicks Install, ``UpdateController`` arms this watchdog with a bounded,
-/// cancellable deadline (``UpdateTiming/installWatchdogTimeout``). If the flow reaches a state
+/// cancellable deadline (``installWatchdogTimeout``). If the flow reaches a state
 /// that either progresses the install or communicates a clear outcome, the controller disarms it.
 /// If the deadline elapses while the flow is still merely checking or showing "Update Available"
 /// with nothing downloading, the controller surfaces a visible "Update Didn't Start" error rather
@@ -64,7 +64,7 @@ final class InstallWatchdog {
     /// is the pre-check stall where the delayed re-check was dropped and `.checking` never came.
     /// `.permissionRequest` stays not-stalled (a state cmux never surfaces; erroring over it
     /// would be wrong if Sparkle ever did).
-    static func installAttemptStalled(_ state: UpdateState) -> Bool {
+    func installAttemptStalled(_ state: UpdateState) -> Bool {
         switch state {
         case .checking, .updateAvailable, .idle:
             return true
@@ -75,7 +75,7 @@ final class InstallWatchdog {
 
     /// Whether `state` resolves the attempt — either it is actively progressing the install or it
     /// is a clearly-communicated terminal outcome — so the watchdog can be disarmed.
-    static func installAttemptResolved(_ state: UpdateState) -> Bool {
+    func installAttemptResolved(_ state: UpdateState) -> Bool {
         switch state {
         case .downloading, .extracting, .installing, .notFound, .error:
             return true
@@ -91,8 +91,8 @@ final class InstallWatchdog {
     /// the controller disarms on this — a deadline that outlives its attempt would otherwise fire
     /// a spurious "Update Didn't Start" over a later, unrelated check that happens to be sitting
     /// in `.checking`/`.updateAvailable`.
-    static func attemptEndedWithoutInstall(action: AttemptUpdateCoordinator.Action,
-                                           isCoordinatorMonitoring: Bool) -> Bool {
+    func attemptEndedWithoutInstall(action: AttemptUpdateCoordinator.Action,
+                                    isCoordinatorMonitoring: Bool) -> Bool {
         !isCoordinatorMonitoring && action != .confirmInstall
     }
 }

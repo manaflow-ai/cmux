@@ -73,28 +73,22 @@ public final class UpdateStateModel {
         }
     }
 
-    /// One recorded transition: the ``state``/``overrideState`` pair as it was at emission time.
-    public struct StateChange {
-        public let state: UpdateState
-        public let overrideState: UpdateState?
-    }
-
     /// Transitions recorded since the last ``drainPendingChanges()``, oldest first. There is one
     /// reaction consumer (``UpdateController``); the mailbox exists for it.
     @ObservationIgnored
-    private var pendingChanges: [StateChange] = []
+    private var pendingChanges: [UpdateStateChange] = []
 
     /// Removes and returns every transition recorded since the last drain, oldest first.
     ///
     /// Call once per ``stateChanges()`` wakeup. Extra wakeups drain empty and are harmless.
-    public func drainPendingChanges() -> [StateChange] {
+    public func drainPendingChanges() -> [UpdateStateChange] {
         let drained = pendingChanges
         pendingChanges.removeAll()
         return drained
     }
 
     private func notifyStateChanged() {
-        pendingChanges.append(StateChange(state: state, overrideState: overrideState))
+        pendingChanges.append(UpdateStateChange(state: state, overrideState: overrideState))
         for continuation in changeObservers.values {
             continuation.yield(())
         }
@@ -358,8 +352,8 @@ public final class UpdateStateModel {
 /// variant (title, message, and whether the manual-download button shows) can be previewed
 /// without reproducing the real failure.
 ///
-/// Cases map one-to-one to the branches in ``UpdateStateModel/userFacingErrorTitle(for:)`` /
-/// ``UpdateStateModel/userFacingErrorMessage(for:)`` / ``UpdateStateModel/manualDownloadURL(for:)``.
+/// Cases map one-to-one to the branches in ``UpdateStateModel/userFacingErrorTitle(for:)`` and
+/// ``UpdateStateModel/userFacingErrorMessage(for:)`` plus ``UpdateManualDownloadRecovery``.
 public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
     /// 4005 wrapping the internal IPC-timeout (the wedged-launchd case): "Couldn't Start Updater".
     case installerAgentFailure

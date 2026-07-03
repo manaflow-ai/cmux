@@ -51,7 +51,7 @@ public enum UpdateState: Equatable {
     }
 
     /// Invokes the phase-appropriate cancellation/acknowledgement callback.
-    public func cancel() {
+    @MainActor public func cancel() {
         switch self {
         case .checking(let checking):
             checking.cancel()
@@ -69,7 +69,7 @@ public enum UpdateState: Equatable {
     }
 
     /// Confirms the current phase, installing the update when one is available.
-    public func confirm() {
+    @MainActor public func confirm() {
         switch self {
         case .updateAvailable(let available):
             available.reply(.install)
@@ -139,50 +139,17 @@ public enum UpdateState: Equatable {
         }
     }
 
-    /// A Sparkle prompt reply that can be sent at most once, with its consumption observable.
-    ///
-    /// Sparkle's update-choice callback must be invoked exactly once per prompt; double-replying
-    /// is an API misuse. Wrapping it also gives the update flow the one bit the raw closure
-    /// can't: whether this prompt was already answered. That bit is what disambiguates
-    /// "the user answered this prompt" from "the model state was clobbered by an unrelated
-    /// emission" (e.g. a stale prompt's Sparkle dismiss callback landing after a fresh check
-    /// already resolved) — the ambiguity family behind the NIGHTLY install loop.
-    public final class PromptReply: @unchecked Sendable {
-        private let lock = NSLock()
-        private var handler: (@Sendable (SPUUserUpdateChoice) -> Void)?
-
-        /// Wraps `handler` so it runs on the first call only.
-        public init(_ handler: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
-            self.handler = handler
-        }
-
-        /// Whether a choice has already been sent.
-        public var isConsumed: Bool {
-            lock.withLock { handler == nil }
-        }
-
-        /// Sends `choice` to Sparkle; subsequent calls are no-ops.
-        public func callAsFunction(_ choice: SPUUserUpdateChoice) {
-            let handler = lock.withLock {
-                let taken = self.handler
-                self.handler = nil
-                return taken
-            }
-            handler?(choice)
-        }
-    }
-
     /// Payload for ``UpdateState/updateAvailable(_:)``.
     public struct UpdateAvailable {
         /// The appcast item describing the available update.
         public let appcastItem: SUAppcastItem
         /// Replies to Sparkle with the user's install/dismiss choice (at most once).
-        public let reply: PromptReply
+        public let reply: UpdatePromptReply
 
         /// Creates the payload.
-        public init(appcastItem: SUAppcastItem, reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        @MainActor public init(appcastItem: SUAppcastItem, reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
             self.appcastItem = appcastItem
-            self.reply = PromptReply(reply)
+            self.reply = UpdatePromptReply(reply)
         }
 
         /// A link to the release notes for this update, derived from its version string.

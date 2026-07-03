@@ -7,11 +7,13 @@ import Testing
 ///
 /// The watchdog exists to guarantee the user is never left staring at a silent "Update Available"
 /// pill after clicking Install: if the flow never reaches downloading/installing (or another
-/// visible outcome) within ``UpdateTiming/installWatchdogTimeout``, a visible "Update Didn't
+/// visible outcome) within ``installWatchdogTimeout``, a visible "Update Didn't
 /// Start" error is surfaced. These tests pin the two pure predicates that drive arming/firing so
 /// the classification can't silently drift.
 @MainActor
 @Suite struct InstallWatchdogTests {
+    private let watchdog = InstallWatchdog(clock: SystemUpdateClock(), timeout: installWatchdogTimeout)
+
     private func updateAvailable(_ version: String = "0.64.16") -> UpdateState {
         let item = SUAppcastItem(dictionary: [
             "title": "cmux \(version)",
@@ -46,7 +48,7 @@ import Testing
     /// was dropped — every benign idle disarms before the deadline can fire).
     @Test func stalledForNonProgressingStates() {
         for state in everyState {
-            let stalled = InstallWatchdog.installAttemptStalled(state)
+            let stalled = watchdog.installAttemptStalled(state)
             switch state {
             case .checking, .updateAvailable, .idle:
                 #expect(stalled, "\(state) should count as stalled")
@@ -60,7 +62,7 @@ import Testing
     /// disarm the watchdog; idle/permissionRequest/checking/updateAvailable do not.
     @Test func resolvedForProgressAndVisibleTerminals() {
         for state in everyState {
-            let resolved = InstallWatchdog.installAttemptResolved(state)
+            let resolved = watchdog.installAttemptResolved(state)
             switch state {
             case .downloading, .extracting, .installing, .notFound, .error:
                 #expect(resolved, "\(state) should resolve/disarm the watchdog")
@@ -74,7 +76,7 @@ import Testing
     /// overlap, or arming and firing would race.
     @Test func stalledAndResolvedAreMutuallyExclusive() {
         for state in everyState {
-            #expect(!(InstallWatchdog.installAttemptStalled(state) && InstallWatchdog.installAttemptResolved(state)))
+            #expect(!(watchdog.installAttemptStalled(state) && watchdog.installAttemptResolved(state)))
         }
     }
 
@@ -86,9 +88,9 @@ import Testing
         let actions: [AttemptUpdateCoordinator.Action] = [.none, .startFreshCheck, .confirmInstall]
         for action in actions {
             // While the coordinator is still monitoring, the attempt is alive regardless of action.
-            #expect(!InstallWatchdog.attemptEndedWithoutInstall(action: action, isCoordinatorMonitoring: true))
+            #expect(!watchdog.attemptEndedWithoutInstall(action: action, isCoordinatorMonitoring: true))
             let expected = action != .confirmInstall
-            #expect(InstallWatchdog.attemptEndedWithoutInstall(action: action, isCoordinatorMonitoring: false) == expected)
+            #expect(watchdog.attemptEndedWithoutInstall(action: action, isCoordinatorMonitoring: false) == expected)
         }
     }
 
@@ -102,7 +104,7 @@ import Testing
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
         let action = coordinator.handleStateChange(.idle)
         #expect(action == .none)
-        #expect(InstallWatchdog.attemptEndedWithoutInstall(
+        #expect(watchdog.attemptEndedWithoutInstall(
             action: action,
             isCoordinatorMonitoring: coordinator.isMonitoring
         ))
@@ -117,7 +119,7 @@ import Testing
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
         let action = coordinator.handleStateChange(updateAvailable())
         #expect(action == .confirmInstall)
-        #expect(!InstallWatchdog.attemptEndedWithoutInstall(
+        #expect(!watchdog.attemptEndedWithoutInstall(
             action: action,
             isCoordinatorMonitoring: coordinator.isMonitoring
         ))
@@ -128,8 +130,9 @@ import Testing
     @Test func watchdogErrorOffersManualDownload() {
         let didNotStart = NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode)
         let notReady = NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.updaterNotReadyCode)
-        #expect(UpdateStateModel.manualDownloadURL(for: didNotStart) != nil)
-        #expect(UpdateStateModel.manualDownloadURL(for: notReady) == nil)
+        let recovery = UpdateManualDownloadRecovery()
+        #expect(recovery.url(for: didNotStart) != nil)
+        #expect(recovery.url(for: notReady) == nil)
     }
 
     /// The manual-download recovery routes to the failing build's own channel: a nightly feed
@@ -138,17 +141,18 @@ import Testing
     @Test func manualDownloadRoutesToTheActiveChannel() throws {
         let didNotStart = NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode)
         let nightlyFeed = "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
+        let recovery = UpdateManualDownloadRecovery()
 
-        let nightlyURL = try #require(UpdateStateModel.manualDownloadURL(for: didNotStart, feedURLString: nightlyFeed))
+        let nightlyURL = try #require(recovery.url(for: didNotStart, feedURLString: nightlyFeed))
         #expect(nightlyURL.absoluteString.contains("/nightly"))
         #expect(!nightlyURL.absoluteString.contains("latest/download"))
 
-        let stableURL = try #require(UpdateStateModel.manualDownloadURL(for: didNotStart, feedURLString: "https://cmux.com/appcast.xml"))
+        let stableURL = try #require(recovery.url(for: didNotStart, feedURLString: "https://cmux.com/appcast.xml"))
         #expect(stableURL.absoluteString.contains("latest/download"))
 
         // Sparkle's own install failures route by channel the same way.
         let sparkleInstallFailure = NSError(domain: SUSparkleErrorDomain, code: 4005)
-        let sparkleNightlyURL = try #require(UpdateStateModel.manualDownloadURL(for: sparkleInstallFailure, feedURLString: nightlyFeed))
+        let sparkleNightlyURL = try #require(recovery.url(for: sparkleInstallFailure, feedURLString: nightlyFeed))
         #expect(sparkleNightlyURL.absoluteString.contains("/nightly"))
     }
 
