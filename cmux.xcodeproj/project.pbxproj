@@ -1265,7 +1265,6 @@
 		E3B7A4000000000000000D10 /* Workspace+SplitDetachHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000D11 /* Workspace+SplitDetachHosting.swift */; };
 		E3B7A4000000000000000A10 /* Workspace+SplitMoveReorderHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */; };
 		E3B7A40000000000000005C0 /* Workspace+SurfaceLifecycleHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */; };
-		CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */; };
 		E3D000000000000000000001 /* Workspace+SurfaceSplitWorkspaceHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D000000000000000000002 /* Workspace+SurfaceSplitWorkspaceHandle.swift */; };
 		E3C9F1000000000000000A10 /* Workspace+SurfaceTeardownHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3C9F1000000000000000A11 /* Workspace+SurfaceTeardownHosting.swift */; };
 		F62F663E1DE5BB85478EDC8F /* Workspace+TerminalAgentContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F42D21104E0E25CA24F370 /* Workspace+TerminalAgentContext.swift */; };
@@ -2600,7 +2599,6 @@
 		E3B7A4000000000000000D11 /* Workspace+SplitDetachHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitDetachHosting.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitMoveReorderHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceLifecycleHosting.swift"; sourceTree = "<group>"; };
-		CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceNavigation.swift"; sourceTree = "<group>"; };
 		E3D000000000000000000002 /* Workspace+SurfaceSplitWorkspaceHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceSplitWorkspaceHandle.swift"; sourceTree = "<group>"; };
 		E3C9F1000000000000000A11 /* Workspace+SurfaceTeardownHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceTeardownHosting.swift"; sourceTree = "<group>"; };
 		D7F42D21104E0E25CA24F370 /* Workspace+TerminalAgentContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalAgentContext.swift"; sourceTree = "<group>"; };
@@ -3112,7 +3110,6 @@
 				C0DE5A420000000000000002 /* TextBoxSubmitAvailability.swift */,
 				C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */,
 				DCDC1000000000000000B014 /* Workspace+DockBrowserLookup.swift */,
-				CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */,
 					5732B0045732B0045732B004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift */,
 				C9A57205C9A57205C9A57205 /* WorkspaceGroupMoveToMenuState.swift */,
 					5732B0055732B0055732B005 /* WorkspacePresentationModeChangeObserver.swift */,
@@ -5448,7 +5445,6 @@
 				E3B7A4000000000000000D10 /* Workspace+SplitDetachHosting.swift in Sources */,
 				E3B7A4000000000000000A10 /* Workspace+SplitMoveReorderHosting.swift in Sources */,
 				E3B7A40000000000000005C0 /* Workspace+SurfaceLifecycleHosting.swift in Sources */,
-				CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */,
 				E3D000000000000000000001 /* Workspace+SurfaceSplitWorkspaceHandle.swift in Sources */,
 				E3C9F1000000000000000A10 /* Workspace+SurfaceTeardownHosting.swift in Sources */,
 				F62F663E1DE5BB85478EDC8F /* Workspace+TerminalAgentContext.swift in Sources */,
