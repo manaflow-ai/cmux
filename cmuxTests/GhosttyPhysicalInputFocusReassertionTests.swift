@@ -17,6 +17,10 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         let window: NSWindow
     }
 
+    private final class OverlayResponderView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
     func testPrintableKeyDownReassertsGhosttyFocusWhenFirstResponderSurfaceFocusDrifted() throws {
 #if DEBUG
         let terminal = try makeHostedTerminal()
@@ -99,6 +103,39 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         XCTAssertTrue(
             terminal.surface.debugDesiredFocusState(),
             "Direct committed text should restore Ghostty focus before sending text"
+        )
+#else
+        throw XCTSkip("DEBUG-only desired Ghostty focus assertion")
+#endif
+    }
+
+    func testDirectCommittedTextDoesNotReassertGhosttyFocusWhenDescendantOverlayOwnsFirstResponder() throws {
+#if DEBUG
+        let terminal = try makeHostedTerminal()
+        defer { terminal.window.orderOut(nil) }
+
+        try focusTerminal(terminal)
+        terminal.surface.recordExternalFocusState(false)
+
+        let overlayResponder = OverlayResponderView(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+        terminal.surfaceView.addSubview(overlayResponder)
+        defer { overlayResponder.removeFromSuperview() }
+
+        XCTAssertTrue(terminal.window.makeFirstResponder(overlayResponder))
+        XCTAssertTrue(overlayResponder.isDescendant(of: terminal.surfaceView))
+        XCTAssertFalse(
+            terminal.surface.debugDesiredFocusState(),
+            "Regression setup should simulate an overlay keeping Ghostty focus false while it owns AppKit focus"
+        )
+
+        terminal.surfaceView.insertText(
+            "overlay-owned",
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        XCTAssertFalse(
+            terminal.surface.debugDesiredFocusState(),
+            "Input readiness should not restore Ghostty focus for descendant overlay responders"
         )
 #else
         throw XCTSkip("DEBUG-only desired Ghostty focus assertion")
