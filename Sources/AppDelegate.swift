@@ -16184,7 +16184,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 panelId: notification.panelId,
                 isRead: notification.isRead,
                 clickAction: notification.clickAction.map(Self.navClickAction),
-                scrollRow: notification.scrollPosition?.row
+                scrollRow: notification.scrollPosition?.row,
+                scrollTotalRows: notification.scrollPosition?.totalRows
             )
         )
     }

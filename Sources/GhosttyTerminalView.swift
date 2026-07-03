@@ -7958,19 +7958,19 @@ final class GhosttySurfaceScrollView: NSView {
 
     var notificationScrollPosition: TerminalNotificationScrollPosition? {
         guard let scrollbar = surfaceView.scrollbar else { return nil }
-        let rowsAboveBottomOffset = scrollbar.total > scrollbar.offset ? scrollbar.total - scrollbar.offset : 0
-        let anchorRow = rowsAboveBottomOffset > scrollbar.len ? rowsAboveBottomOffset - scrollbar.len : 0
-        return TerminalNotificationScrollPosition(row: Int(clamping: anchorRow))
+        return TerminalNotificationScrollPosition(
+            row: Int(clamping: scrollbar.offset),
+            totalRows: Int(clamping: scrollbar.total)
+        )
     }
 
     @discardableResult
     func restoreNotificationScrollPosition(_ position: TerminalNotificationScrollPosition?) -> Bool {
         guard let position else { return false }
         guard let scrollbar = surfaceView.scrollbar else { return false }
-        let totalRows = Int(clamping: scrollbar.total)
-        let visibleRows = Int(clamping: scrollbar.len)
-        let anchorRow = max(0, position.row)
-        let rowFromBottom = max(0, totalRows - anchorRow - visibleRows)
+        let currentTotalRows = Int(clamping: scrollbar.total)
+        let capturedTotalRows = position.totalRows ?? currentTotalRows
+        let rowFromBottom = max(0, position.row + currentTotalRows - capturedTotalRows)
         allowExplicitScrollbarSync = true
         userScrolledAwayFromBottom = rowFromBottom > 0
         let didRestore = surfaceView.performBindingAction("scroll_to_row:\(rowFromBottom)")

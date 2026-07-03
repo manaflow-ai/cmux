@@ -155,7 +155,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             surfaceId: panelId,
             panelId: nil,
             notificationId: nil,
-            scrollRow: nil
+            scrollRow: nil,
+            scrollTotalRows: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -172,7 +173,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             surfaceId: panelId,
             panelId: nil,
             notificationId: nil,
-            scrollRow: nil
+            scrollRow: nil,
+            scrollTotalRows: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -207,7 +209,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             surfaceId: notification.surfaceId,
             panelId: notification.panelId,
             notificationId: notification.id,
-            scrollRow: notification.scrollRow
+            scrollRow: notification.scrollRow,
+            scrollTotalRows: notification.scrollTotalRows
         )
     }
 
@@ -226,7 +229,14 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     /// (the routing decision and its `#if DEBUG` recorders live behind the seam).
     @discardableResult
     public func open(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        open(tabId: tabId, surfaceId: surfaceId, panelId: nil, notificationId: notificationId, scrollRow: nil)
+        open(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: nil,
+            notificationId: notificationId,
+            scrollRow: nil,
+            scrollTotalRows: nil
+        )
     }
 
     /// Focuses `tabId`/`surfaceId`, marks `notificationId` read on success, and
@@ -238,17 +248,27 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     ///   - panelId: App-target terminal panel id used only to restore scroll
     ///     context when it differs from, or is more precise than, `surfaceId`.
     ///   - notificationId: Notification id to mark read after focus succeeds.
-    ///   - scrollRow: Top-relative terminal scrollback row captured when the
-    ///     notification was recorded. The app-side router converts it to the
-    ///     live bottom-relative Ghostty scroll action after focus.
+    ///   - scrollRow: Bottom-relative terminal scrollback row captured when the
+    ///     notification was recorded.
+    ///   - scrollTotalRows: Total terminal scrollback rows at capture time. The
+    ///     app-side router uses this to adjust `scrollRow` for output appended
+    ///     after the notification was recorded.
     @discardableResult
-    public func open(tabId: UUID, surfaceId: UUID?, panelId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
+    public func open(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?
+    ) -> Bool {
         openRouting.openRouted(
             tabId: tabId,
             surfaceId: surfaceId,
             panelId: panelId,
             notificationId: notificationId,
-            scrollRow: scrollRow
+            scrollRow: scrollRow,
+            scrollTotalRows: scrollTotalRows
         )
     }
 

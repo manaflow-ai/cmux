@@ -23,8 +23,10 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
     /// opens via ``NotificationClickRouting`` (a side effect such as revealing a
     /// path in Finder) rather than focusing a terminal surface.
     public let clickAction: NotificationNavClickAction?
-    /// Top-relative terminal scrollback row captured when the notification was recorded.
+    /// Bottom-relative terminal scrollback row captured when the notification was recorded.
     public let scrollRow: Int?
+    /// Total terminal scrollback rows visible to Ghostty when `scrollRow` was captured.
+    public let scrollTotalRows: Int?
 
     /// Creates a navigation snapshot of a notification.
     public init(
@@ -34,7 +36,8 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         panelId: UUID? = nil,
         isRead: Bool,
         clickAction: NotificationNavClickAction?,
-        scrollRow: Int? = nil
+        scrollRow: Int? = nil,
+        scrollTotalRows: Int? = nil
     ) {
         self.id = id
         self.tabId = tabId
@@ -43,6 +46,7 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         self.isRead = isRead
         self.clickAction = clickAction
         self.scrollRow = scrollRow
+        self.scrollTotalRows = scrollTotalRows
     }
 
     /// Whether the notification carries a click action.

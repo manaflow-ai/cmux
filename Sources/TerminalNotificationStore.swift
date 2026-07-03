@@ -175,6 +175,12 @@ enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
 
 struct TerminalNotificationScrollPosition: Codable, Hashable, Sendable {
     let row: Int
+    let totalRows: Int?
+
+    init(row: Int, totalRows: Int? = nil) {
+        self.row = row
+        self.totalRows = totalRows
+    }
 }
 
 struct TerminalNotification: Identifiable, Hashable, Sendable {
