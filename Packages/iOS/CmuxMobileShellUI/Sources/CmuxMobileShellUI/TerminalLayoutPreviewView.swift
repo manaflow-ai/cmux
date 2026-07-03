@@ -46,6 +46,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
             delegate: context.coordinator,
             fontSize: MobileTerminalFontPreference.defaultSize
         )
+        context.coordinator.surfaceView = view
         // Leave the keyboard down on first appearance; the screenshot harness
         // taps to focus when it wants the keyboard-up layout.
         view.autoFocusOnWindowAttach = false
@@ -63,13 +64,15 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {}
 
-    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
-        (uiView as? GhosttySurfaceView)?.prepareForDismantle()
-    }
-
     /// Retained delegate (the surface holds it weakly). No-op: the preview only
     /// exercises layout, not input/resize round-trips.
     final class Coordinator: GhosttySurfaceViewDelegate {
+        var surfaceView: GhosttySurfaceView?
+
+        deinit {
+            surfaceView?.prepareForDismantle()
+        }
+
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {}
     }
