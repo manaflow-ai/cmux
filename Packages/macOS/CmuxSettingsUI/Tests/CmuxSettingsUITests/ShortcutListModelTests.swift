@@ -285,6 +285,39 @@ import CmuxSettings
         #expect(model.conflictRejections[targetAction.rawValue] == nil)
     }
 
+    @Test func externalConflictMoveRefreshesConflictTarget() async throws {
+        // WHY: if cmux.json moves the rejected shortcut to a different action,
+        // the banner should name the current conflicting action, not the old one.
+        let (store, catalog, errorLog) = makeStore()
+        let firstConflict = ShortcutAction.closeWindow
+        let secondConflict = ShortcutAction.toggleFullScreen
+        let targetAction = ShortcutAction.openSettings
+        let stroke = ShortcutStroke(key: "u", command: true, shift: true, option: true, control: true)
+
+        try await store.set(
+            [firstConflict.rawValue: StoredShortcut(first: stroke)],
+            for: catalog.shortcuts.bindings
+        )
+
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings[firstConflict.rawValue] != nil })
+
+        await model.assign(stroke: stroke, to: targetAction)
+        #expect(model.conflictRejections[targetAction.rawValue] == firstConflict)
+
+        try await store.set(
+            [
+                firstConflict.rawValue: StoredShortcut.unbound,
+                secondConflict.rawValue: StoredShortcut(first: stroke),
+            ],
+            for: catalog.shortcuts.bindings
+        )
+        await spin(until: { model.conflictRejections[targetAction.rawValue] == secondConflict })
+
+        #expect(model.conflictRejections[targetAction.rawValue] == secondConflict)
+    }
+
     @Test func whenOverrideChangePrunesResolvedConflictRejection() async throws {
         // WHY: shortcuts.when edits can make a rejected shortcut non-conflicting
         // without changing any binding, so the when observer must prune banners too.

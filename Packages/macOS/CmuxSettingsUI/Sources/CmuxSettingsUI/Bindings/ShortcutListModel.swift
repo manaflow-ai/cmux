@@ -474,7 +474,9 @@ final class ShortcutListModel {
                 rejectedConflictShortcuts.removeValue(forKey: key)
                 continue
             }
-            if detectConflict(for: action, stroke: rejected) == nil {
+            if let conflict = detectConflict(for: action, stroke: rejected) {
+                conflictRejections[key] = conflict
+            } else {
                 conflictRejections.removeValue(forKey: key)
                 rejectedConflictShortcuts.removeValue(forKey: key)
             }
@@ -484,13 +486,9 @@ final class ShortcutListModel {
     /// Drops cached restore strokes for actions that are no longer unbound.
     private func pruneRestoreShortcuts() {
         guard !restoreShortcuts.isEmpty else { return }
-        // Iterate a key snapshot — the loop mutates `restoreShortcuts`, and
-        // mutating a dictionary mid-iteration is undefined (see sibling prunes).
+        // Iterate a key snapshot because the loop mutates `restoreShortcuts`.
         for key in Array(restoreShortcuts.keys) {
             let override = latestBindings[key]
-            // If there is no override at all, the action is back to its
-            // default stroke (also non-unbound for most actions), so the
-            // restore cache is no longer meaningful.
             if let override, override.isUnbound { continue }
             restoreShortcuts.removeValue(forKey: key)
         }

@@ -1,14 +1,6 @@
 import CmuxSettings
 import SwiftUI
 
-private struct ShortcutListHeightPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 /// Lazy inline rendering of shortcut-recorder rows. It records the largest
 /// measured list height and keeps that as a minimum so app activation changes
 /// cannot shrink the Settings document while off-screen rows are de-realized.
@@ -50,18 +42,12 @@ struct ShortcutListStableLazyView: View {
             }
         }
         .background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: ShortcutListHeightPreferenceKey.self,
-                    value: proxy.size.height
-                )
+            ShortcutListHeightReader { height in
+                if height > measuredHeight {
+                    measuredHeight = height
+                }
             }
         }
         .frame(minHeight: measuredHeight, alignment: .top)
-        .onPreferenceChange(ShortcutListHeightPreferenceKey.self) { height in
-            if height > measuredHeight {
-                measuredHeight = height
-            }
-        }
     }
 }
