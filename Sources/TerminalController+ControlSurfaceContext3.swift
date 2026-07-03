@@ -570,7 +570,7 @@ extension TerminalController {
             ) else {
                 return .internalError(message: "Failed to read terminal text")
             }
-            switch Self.terminalTextPayload(
+            switch TerminalTextPayload.make(
                 from: rawSnapshot,
                 includeScrollback: includeScrollback,
                 lineLimit: lineLimit
