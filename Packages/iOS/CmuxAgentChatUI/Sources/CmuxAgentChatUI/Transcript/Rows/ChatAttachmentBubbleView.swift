@@ -10,6 +10,7 @@ public struct ChatAttachmentBubbleView: View {
     private let timestamp: Date
 
     @Environment(\.chatTheme) private var theme
+    @Environment(\.chatBubbleMaxWidth) private var bubbleMaxWidth
 
     /// Creates an attachment bubble.
     ///
@@ -36,6 +37,7 @@ public struct ChatAttachmentBubbleView: View {
             Spacer(minLength: 64)
             VStack(alignment: .trailing, spacing: 3) {
                 bubble
+                    .frame(maxWidth: bubbleMaxWidth, alignment: .trailing)
                 if showsTimestamp {
                     Text(timestamp.formatted(.dateTime.hour().minute()))
                         .font(.caption2)

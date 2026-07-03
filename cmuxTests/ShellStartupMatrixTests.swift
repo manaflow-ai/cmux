@@ -207,6 +207,80 @@ struct ShellStartupMatrixTests {
         )
     }
 
+    /// Regression for #6352: running Claude Code (or any full-screen TUI) inside
+    /// a `cmux ssh` remote workspace garbled the output because the remote
+    /// bootstrap installed the bundled `xterm-ghostty` terminfo in a *background*
+    /// job while `TERM` was decided synchronously. On a host without the entry,
+    /// the bootstrap therefore had to either fall back to `xterm-256color` (losing
+    /// ghostty) or — on a later shell pass — pick `xterm-ghostty` while the
+    /// background `tic` was still writing the database, so the TUI rendered
+    /// against a missing/half-written terminfo entry.
+    ///
+    /// The install must be synchronous: once the bundled terminfo source is
+    /// available and `tic` exists, the very first shell pass must resolve and
+    /// select `xterm-ghostty` before exporting `TERM`. This test runs the
+    /// generated setup lines against an isolated `$HOME`/terminfo search path so
+    /// the host's own `xterm-ghostty` cannot mask the behavior.
+    @Test
+    func remoteTerminalSetupInstallsGhosttyTerminfoBeforeChoosingTerm() throws {
+        let fileManager = FileManager.default
+        guard fileManager.isExecutableFile(atPath: "/usr/bin/tic"),
+              fileManager.isExecutableFile(atPath: "/usr/bin/infocmp")
+        else {
+            // Host lacks the terminfo toolchain; the synchronous install path
+            // cannot be exercised here. cmux CI runners ship both binaries.
+            return
+        }
+
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-terminfo-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let emptyTerminfoDirs = root.appendingPathComponent("empty-terminfo")
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: emptyTerminfoDirs, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        // A minimal but valid `xterm-ghostty` entry: enough for `tic -x` to
+        // accept it and for `infocmp xterm-ghostty` to resolve it once installed.
+        let terminfoSource = """
+        xterm-ghostty|cmux ghostty regression terminfo,
+        \tam, colors#256, cols#80, lines#24,
+        \tcup=\\E[%i%p1%d;%p2%dH, clear=\\E[H\\E[2J, cr=^M, cud1=^J,
+        """
+
+        let lines = RemoteInteractiveShellBootstrapBuilder.terminalSetupLines(
+            terminfoSource: terminfoSource
+        )
+        let script = lines.joined(separator: "\n")
+            + "\nprintf 'CMUX_TERMINFO_TEST_TERM=%s\\n' \"$TERM\"\n"
+
+        // Isolate the terminfo search path so the host's real `xterm-ghostty`
+        // entry can't be found: ncurses consults $TERMINFO, then $HOME/.terminfo,
+        // then $TERMINFO_DIRS. Point all of them at fresh, empty directories so
+        // the only way to resolve `xterm-ghostty` is the in-script install.
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "TERMINFO=\(home.path)/.terminfo",
+                "TERMINFO_DIRS=\(emptyTerminfoDirs.path)",
+                "PATH=/usr/bin:/bin",
+                "/bin/sh",
+                "-c",
+                script,
+            ],
+            timeout: 10
+        )
+
+        expectEqual(result.status, 0, result.stderr)
+        expectFalse(result.timedOut, result.stderr)
+        expectTrue(
+            result.stdout.contains("CMUX_TERMINFO_TEST_TERM=xterm-ghostty"),
+            "remote bootstrap did not install xterm-ghostty terminfo before "
+                + "choosing TERM (stdout: \(result.stdout))"
+        )
+    }
+
     struct RemoteShellCase: Sendable, CustomTestStringConvertible {
         let name: String
         let expectedArgs: String
