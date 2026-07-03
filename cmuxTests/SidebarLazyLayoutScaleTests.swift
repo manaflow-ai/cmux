@@ -84,6 +84,22 @@ final class SidebarLazyLayoutScaleTests {
             }
         }
 
+        // Group the first workspaces (top of the list, inside the viewport) so
+        // group-header rows — assembled by sidebarWorkspaceGroupHeader(...) in
+        // VerticalTabsSidebar+WorkspaceGroups.swift, a historical regression
+        // site (#4385) — are exercised by the same realization bounds.
+        let groupCandidates = Array(tabManager.tabs.prefix(20).map(\.id))
+        for chunkStart in stride(from: 0, to: groupCandidates.count, by: 4) {
+            let children = Array(groupCandidates[chunkStart..<min(chunkStart + 4, groupCandidates.count)])
+            _ = tabManager.createWorkspaceGroup(
+                name: "Group \(chunkStart / 4)",
+                childWorkspaceIds: children,
+                selectAnchor: false,
+                collapseSidebarSelection: false
+            )
+        }
+        Self.turnMainRunLoopOnce(layingOut: nil)
+
         let unread = SidebarUnreadModel()
         let counter = RowBodyCounter()
 
@@ -176,6 +192,23 @@ final class SidebarLazyLayoutScaleTests {
             force-measuring Layout; see scripts/check-sidebar-lazy-layout.py.
             """
         )
+
+        let headerRealized = harness.counter.groupHeaderBodies
+        #expect(
+            headerRealized > 0,
+            """
+            Groups were created at the top of the list but no group-header body ran; the \
+            grouped-workspace coverage is broken.
+            """
+        )
+        #expect(
+            headerRealized < Self.realizedRowCeiling,
+            """
+            \(headerRealized) group-header bodies evaluated for 5 groups in one viewport. \
+            The group-header row wrapper (sidebarWorkspaceGroupHeader) is defeating \
+            virtualization or re-evaluating without bound — the #4385 regression site.
+            """
+        )
     }
 
     /// A burst of unread-model updates (the agent-notification churn path,
@@ -225,13 +258,13 @@ final class SidebarLazyLayoutScaleTests {
 
         harness.counter.reset()
         await Self.drainMainRunLoop(for: harness.window, iterations: 30)
-        let quietEvals = harness.counter.workspaceRowBodies
+        let quietEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
         #expect(
             quietEvals < 20,
             """
-            \(quietEvals) workspace row bodies evaluated with no state changes at all. The \
-            sidebar is re-invalidating itself — a layout/state feedback loop (the #6556 \
-            signature). This livelocks the main thread at scale.
+            \(quietEvals) row bodies (workspace + group header) evaluated with no state \
+            changes at all. The sidebar is re-invalidating itself — a layout/state feedback \
+            loop (the #6556 signature). This livelocks the main thread at scale.
             """
         )
     }

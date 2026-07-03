@@ -339,6 +339,48 @@ def main():
             False, "--file row-view source with GeometryReader still fails",
         ) else 1
 
+        # (o) Whole-file row-wrapper scan (VerticalTabsSidebar+WorkspaceGroups):
+        # clean passes, GeometryReader at the wrapper site fails, and a missing
+        # required marker fails loudly. (Codex review on #7221.)
+        guard_mod_rows = load_guard_module()
+        wrapper_clean = (
+            "import SwiftUI\nextension VerticalTabsSidebar {\n"
+            "    func sidebarWorkspaceGroupHeader(item: Item) -> some View {\n"
+            "        SidebarWorkspaceGroupHeaderView(item: item)\n"
+            "            .contentShape(Rectangle())\n"
+            "    }\n}\n"
+        )
+        v = guard_mod_rows.check_source(
+            wrapper_clean, set(), require_functions=False,
+            scan_all_rows=True, required_markers=("sidebarWorkspaceGroupHeader",),
+        )
+        ok = not v
+        print("[{0}] clean row-wrapper file passes whole-file scan".format(
+            "PASS" if ok else "FAIL"))
+        failures += 0 if ok else 1
+
+        v = guard_mod_rows.check_source(
+            wrapper_clean.replace(
+                ".contentShape(Rectangle())",
+                ".background { GeometryReader { p in Color.clear } }",
+            ),
+            set(), require_functions=False,
+            scan_all_rows=True, required_markers=("sidebarWorkspaceGroupHeader",),
+        )
+        ok = any("GeometryReader" in x for x in v)
+        print("[{0}] GeometryReader at wrapper site fails whole-file scan".format(
+            "PASS" if ok else "FAIL"))
+        failures += 0 if ok else 1
+
+        v = guard_mod_rows.check_source(
+            "import SwiftUI\n", set(), require_functions=False,
+            scan_all_rows=True, required_markers=("sidebarWorkspaceGroupHeader",),
+        )
+        ok = any("could not locate" in x for x in v)
+        print("[{0}] missing wrapper marker fails loudly".format(
+            "PASS" if ok else "FAIL"))
+        failures += 0 if ok else 1
+
         # (m) A required row type missing from its file must fail loudly.
         guard_mod = load_guard_module()
         missing_row_violations = guard_mod.check_source(

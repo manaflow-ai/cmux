@@ -384,6 +384,8 @@ def check_source(
     custom_layout_names=None,
     require_functions=True,
     required_row_types=(),
+    scan_all_rows=False,
+    required_markers=(),
 ):
     """Return a list of human-readable violation strings (empty == clean).
 
@@ -396,6 +398,14 @@ def check_source(
     ``required_row_types`` names GUARDED_ROW_TYPES that must exist in this
     source -- a rename fails loudly instead of silently skipping the region.
     Row types that are merely present are always scanned.
+
+    ``scan_all_rows`` applies the row-forbidden patterns to the ENTIRE
+    neutralized source instead of extracted type regions. Used for row-wrapper
+    files (e.g. VerticalTabsSidebar+WorkspaceGroups.swift) whose modifier
+    sites wrap a row before it enters the LazyVStack: a GeometryReader or
+    anchorPreference added around the header there defeats laziness exactly
+    like one inside the row view. ``required_markers`` are substrings that
+    must appear in the source so a rename/move fails loudly.
     """
     custom_layout_names = custom_layout_names or set()
     neutralized = neutralize_swift(source)
@@ -451,6 +461,29 @@ def check_source(
                 )
             )
 
+    for marker in required_markers:
+        if marker not in neutralized:
+            violations.append(
+                "could not locate `{0}` in the source. The sidebar lazy-layout "
+                "guard must be updated to track the renamed/moved row wrapper "
+                "(refusing to pass as a no-op).".format(marker)
+            )
+
+    if scan_all_rows:
+        for pattern, description in ROW_FORBIDDEN_PATTERNS:
+            if pattern.search(neutralized):
+                violations.append(
+                    "row-wrapper file contains forbidden per-row geometry "
+                    "feedback: {0}".format(description)
+                )
+        for name in sorted(custom_layout_names):
+            if re.search(r"\b" + re.escape(name) + r"\b", neutralized):
+                violations.append(
+                    "row-wrapper file applies the custom Layout `{0}` (the "
+                    "#6210 force-measure shape); row wrappers must stay "
+                    "measurement-free.".format(name)
+                )
+
     # Row-view regions: rows must never measure or publish their own geometry.
     for type_name in GUARDED_ROW_TYPES:
         body = extract_type_body(neutralized, type_name)
@@ -486,10 +519,14 @@ def repo_root_dir():
 
 
 def default_targets():
-    """(path, require_functions, required_row_types) per scanned file.
+    """(path, require_functions, required_row_types, scan_all_rows,
+    required_markers) per scanned file.
 
     ContentView.swift holds the container functions and TabItemView; the group
-    header row view lives in its own file with neither container function.
+    header row view lives in its own file with neither container function; the
+    group-header ROW WRAPPER (`sidebarWorkspaceGroupHeader(...)`) lives in a
+    third file whose modifier sites wrap the header before it enters the
+    LazyVStack, so the whole file is scanned for the row-forbidden shapes.
     """
     root = repo_root_dir()
     return (
@@ -497,11 +534,22 @@ def default_targets():
             os.path.join(root, "Sources", "ContentView.swift"),
             True,
             ("TabItemView",),
+            False,
+            (),
         ),
         (
             os.path.join(root, "Sources", "SidebarWorkspaceGroupHeaderView.swift"),
             False,
             ("SidebarWorkspaceGroupHeaderView",),
+            False,
+            (),
+        ),
+        (
+            os.path.join(root, "Sources", "VerticalTabsSidebar+WorkspaceGroups.swift"),
+            False,
+            (),
+            True,
+            ("sidebarWorkspaceGroupHeader",),
         ),
     )
 
@@ -520,7 +568,7 @@ def main(argv=None):
         # "auto": ad-hoc scans of a row-view file (no container functions)
         # skip the container checks instead of failing on their absence; a
         # source containing any guarded function still has both enforced.
-        targets = ((args.file, "auto", ()),)
+        targets = ((args.file, "auto", (), False, ()),)
     else:
         targets = default_targets()
 
@@ -528,12 +576,12 @@ def main(argv=None):
     # repo-owned Swift source (Sources/ and Packages/), so a renamed
     # force-measuring layout defined in any app file or package is still banned
     # from the guarded regions.
-    layout_scan_paths = [target for target, _, _ in targets]
+    layout_scan_paths = [target[0] for target in targets]
     layout_scan_paths.extend(sorted(repo_owned_swift_files(repo_root_dir())))
     custom_layout_names = find_custom_layout_type_names(layout_scan_paths)
 
     exit_code = 0
-    for target, require_functions, required_row_types in targets:
+    for target, require_functions, required_row_types, scan_all_rows, required_markers in targets:
         try:
             with open(target, "r", encoding="utf-8") as handle:
                 source = handle.read()
@@ -548,6 +596,8 @@ def main(argv=None):
             custom_layout_names,
             require_functions=require_functions,
             required_row_types=required_row_types,
+            scan_all_rows=scan_all_rows,
+            required_markers=required_markers,
         )
         if violations:
             print("check-sidebar-lazy-layout: FAILED for {0}".format(target),
