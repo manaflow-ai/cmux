@@ -17,6 +17,8 @@ struct ShortcutScopeCaptionTests {
     // the app's `Localizable.xcstrings` is not bundled with the package test
     // target, so the English defaults are the source of truth here.
     private let browserCaption = "Only while a browser pane is focused"
+    private let filePreviewTextEditorCaption = "Only while a text file preview is focused"
+    private let browserOrFilePreviewTextEditorCaption = "Only while a browser pane or text file preview is focused"
     private let markdownCaption = "Only while a markdown preview is focused"
     private let sidebarCaption = "Only while the right sidebar is focused"
     private let terminalCaption = "Only while a terminal pane is focused"
@@ -31,7 +33,16 @@ struct ShortcutScopeCaptionTests {
     @Test func focusAtomClausesMapToTheirCaption() {
         #expect(builtInScopeCaption(for: .atom(.sidebarFocus)) == sidebarCaption)
         #expect(builtInScopeCaption(for: .atom(.browserFocus)) == browserCaption)
+        #expect(builtInScopeCaption(for: .atom(.filePreviewTextEditorFocus)) == filePreviewTextEditorCaption)
         #expect(builtInScopeCaption(for: .atom(.markdownFocus)) == markdownCaption)
+    }
+
+    @Test func browserOrFilePreviewTextEditorClauseMapsToCombinedCaption() {
+        let browserFirst = ShortcutWhenClause.or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
+        let filePreviewFirst = ShortcutWhenClause.or(.atom(.filePreviewTextEditorFocus), .atom(.browserFocus))
+
+        #expect(builtInScopeCaption(for: browserFirst) == browserOrFilePreviewTextEditorCaption)
+        #expect(builtInScopeCaption(for: filePreviewFirst) == browserOrFilePreviewTextEditorCaption)
     }
 
     @Test func terminalPredicateMapsToTerminalCaption() {
