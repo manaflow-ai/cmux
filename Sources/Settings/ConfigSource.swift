@@ -106,7 +106,7 @@ struct ConfigSourceEnvironment {
 
     func writeCmuxConfigSetting(key: String, value: String) throws {
         let url = try materializeCmuxConfigFileIfNeeded()
-        try CmuxGhosttyConfigSettingEditor().writeSetting(
+        try CmuxGhosttyConfigSettingEditor().writeEditableSetting(
             key: key,
             value: value,
             to: url,

@@ -147,13 +147,7 @@ public struct CmuxGhosttyConfigSettingEditor {
     /// Returns `contents` with every assignment to `key` replaced by `value`,
     /// appending a new assignment when the key is absent.
     public func updatedContents(_ contents: String, setting key: String, value: String) -> String {
-        var lines = contents.components(separatedBy: "\n")
-        if contents.hasSuffix("\n") {
-            lines.removeLast()
-        }
-        if lines.count == 1, lines[0].isEmpty {
-            lines = []
-        }
+        var lines = configLines(from: contents)
 
         var didReplace = false
         for index in lines.indices {
@@ -167,7 +161,19 @@ public struct CmuxGhosttyConfigSettingEditor {
         if !didReplace {
             lines.append("\(key) = \(value)")
         }
-        return lines.joined(separator: "\n") + "\n"
+        return serializedConfigLines(lines)
+    }
+
+    /// Returns `contents` with the effective primary terminal `font-family`
+    /// assignment replaced by `value`, preserving later fallback entries.
+    public func updatedTerminalFontFamilyContents(_ contents: String, value: String) -> String {
+        var lines = configLines(from: contents)
+        if let primaryIndex = primaryTerminalFontFamilyIndex(in: lines) {
+            lines[primaryIndex] = "\(Self.terminalFontFamilyKey) = \(value)"
+        } else {
+            lines.append("\(Self.terminalFontFamilyKey) = \(value)")
+        }
+        return serializedConfigLines(lines)
     }
 
     /// Writes `value` for `key` to the config at `url`, following symlinks and
@@ -189,6 +195,81 @@ public struct CmuxGhosttyConfigSettingEditor {
             attributes: nil
         )
         try updated.write(to: writeURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Writes `value` for `key`, preserving terminal `font-family` fallback
+    /// chains while retaining single-value replacement for other settings.
+    public func writeEditableSetting(
+        key: String,
+        value: String,
+        to url: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        if key == Self.terminalFontFamilyKey {
+            try writeTerminalFontFamily(value: value, to: url, fileManager: fileManager)
+        } else {
+            try writeSetting(key: key, value: value, to: url, fileManager: fileManager)
+        }
+    }
+
+    /// Writes the primary terminal `font-family` to the config at `url`,
+    /// following symlinks and preserving repeated fallback entries.
+    public func writeTerminalFontFamily(
+        value: String,
+        to url: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        let writeURL = configWriteURL(for: url, fileManager: fileManager)
+        let contents = (try? String(contentsOf: writeURL, encoding: .utf8))
+            ?? (try? String(contentsOf: url, encoding: .utf8))
+            ?? ""
+        let updated = updatedTerminalFontFamilyContents(contents, value: value)
+        try fileManager.createDirectory(
+            at: writeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try updated.write(to: writeURL, atomically: true, encoding: .utf8)
+    }
+
+    private func configLines(from contents: String) -> [String] {
+        var lines = contents.components(separatedBy: "\n")
+        if contents.hasSuffix("\n") {
+            lines.removeLast()
+        }
+        if lines.count == 1, lines[0].isEmpty {
+            lines = []
+        }
+        return lines
+    }
+
+    private func serializedConfigLines(_ lines: [String]) -> String {
+        lines.joined(separator: "\n") + "\n"
+    }
+
+    private func primaryTerminalFontFamilyIndex(in lines: [String]) -> Int? {
+        var lastResetIndex: Int?
+        for index in lines.indices {
+            guard let setting = parsedSetting(in: lines[index]),
+                  setting.key == Self.terminalFontFamilyKey,
+                  setting.value.isEmpty else {
+                continue
+            }
+            lastResetIndex = index
+        }
+
+        for index in lines.indices {
+            guard let setting = parsedSetting(in: lines[index]),
+                  setting.key == Self.terminalFontFamilyKey,
+                  !setting.value.isEmpty else {
+                continue
+            }
+            if let lastResetIndex, index <= lastResetIndex {
+                continue
+            }
+            return index
+        }
+        return nil
     }
 
     private func parsedSetting(in line: String) -> (key: String, value: String)? {

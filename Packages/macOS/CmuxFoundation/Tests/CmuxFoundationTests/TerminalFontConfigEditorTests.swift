@@ -64,11 +64,6 @@ struct TerminalFontConfigEditorTests {
         let updated = CmuxGhosttyConfigSettingEditor()
             .updatedTerminalFontFamilyContents(contents, value: "SF Mono")
 
-        #expect(updated == """
-        font-family = SF Mono
-        font-family = LXGW WenKai Mono TC
-        font-size = 12
-
-        """)
+        #expect(updated == "font-family = SF Mono\nfont-family = LXGW WenKai Mono TC\nfont-size = 12\n")
     }
 }
