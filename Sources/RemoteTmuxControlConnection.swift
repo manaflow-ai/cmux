@@ -126,6 +126,13 @@ final class RemoteTmuxControlConnection {
     /// after a reconnect so the resumed session keeps the mirror's grid instead of
     /// reverting to ssh's default 80×24.
     private var lastClientSize: (columns: Int, rows: Int)?
+    /// The last size ANY writer requested via ``setClientSize(columns:rows:)`` —
+    /// the shared dedup baseline for every sizing writer on this connection. A
+    /// writer must never dedup against a private cache of what IT last pushed:
+    /// the client size is shared session state, and after another writer moves
+    /// it, a stale private cache swallows exactly the re-push that would
+    /// reconcile the window (the mismatch then persists with no recovery path).
+    var lastRequestedClientSize: (columns: Int, rows: Int)? { lastClientSize }
     private var pendingPostAttachAction: PostAttachAction?
 
     /// Trailing-edge debounce for `refresh-client -C`. SwiftUI layout settle makes the
