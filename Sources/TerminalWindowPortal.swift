@@ -1838,20 +1838,12 @@ enum TerminalWindowPortalRegistry {
         hostWindowAttachmentDepth -= 1
     }
 
-    enum HostWindowAttachmentBindAction: Equatable {
-        /// Safe to reparent the hosted terminal view synchronously.
-        case bindImmediately
-        /// A terminal host is mid `viewDidMoveToWindow`; defer the structural reparent to the
-        /// next run-loop turn so AppKit can finish its `_setWindow:` enumeration first.
-        case deferUntilHostWindowAttachmentCompletes
-    }
-
-    /// Decide whether a portal bind requested right now may mutate the view hierarchy
-    /// synchronously, or must be deferred because a terminal host is mid window-attachment.
-    static func hostWindowAttachmentBindAction(
+    /// Decide whether a portal bind requested right now must be deferred because a terminal host
+    /// is mid window-attachment and AppKit is still enumerating the view tree.
+    static func shouldDeferHostWindowAttachmentBind(
         hostWindowAttachmentInProgress: Bool
-    ) -> HostWindowAttachmentBindAction {
-        hostWindowAttachmentInProgress ? .deferUntilHostWindowAttachmentCompletes : .bindImmediately
+    ) -> Bool {
+        hostWindowAttachmentInProgress
     }
 
     static var isInteractiveGeometryResizeActive: Bool {
@@ -2039,14 +2031,11 @@ enum TerminalWindowPortalRegistry {
     ) {
         // A bind issued while a terminal host is mid `viewDidMoveToWindow` (AppKit's
         // `_setWindow:` enumeration) would reparent the surface and corrupt the in-flight
-        // view-tree walk. Defer the structural bind to the next run-loop turn instead.
+        // view-tree walk. Defer the structural bind to the next MainActor turn instead.
         // See https://github.com/manaflow-ai/cmux/issues/5704.
-        switch hostWindowAttachmentBindAction(
+        if shouldDeferHostWindowAttachmentBind(
             hostWindowAttachmentInProgress: isHostWindowAttachmentInProgress
         ) {
-        case .bindImmediately:
-            break
-        case .deferUntilHostWindowAttachmentCompletes:
             scheduleDeferredHostWindowAttachmentBind(
                 hostedView: hostedView,
                 to: anchorView,
@@ -2110,7 +2099,7 @@ enum TerminalWindowPortalRegistry {
         pruneHostedMappings(for: windowId, validHostedIds: nextPortal.hostedIds())
     }
 
-    /// Re-issue a portal bind on the next main run-loop turn, after AppKit has unwound the
+    /// Re-issue a portal bind on the next MainActor turn, after AppKit has unwound the
     /// `_setWindow:` enumeration that delivered the host's `viewDidMoveToWindow`. The hosted
     /// and anchor views are captured weakly and the bind is re-validated (anchor still in a
     /// window, surface still accepts the binding) before it runs.
@@ -2134,7 +2123,7 @@ enum TerminalWindowPortalRegistry {
             "anchor=\(portalDebugToken(anchorView)) visible=\(visibleInUI ? 1 : 0) z=\(zPriority)"
         )
 #endif
-        DispatchQueue.main.async { [weak hostedView, weak anchorView] in
+        Task { @MainActor [weak hostedView, weak anchorView] in
             guard let hostedView, let anchorView, anchorView.window != nil else { return }
             // Bail if a newer SwiftUI update generation has superseded this deferred bind; its
             // captured presentation params would otherwise clobber the fresh ones. See #5704.
@@ -2157,7 +2146,7 @@ enum TerminalWindowPortalRegistry {
         // `synchronizeHostedViewForAnchor` runs `ensureInstalled`, both of which `addSubview`
         // and reorder portal views. That structural mutation is unsafe while a terminal host is
         // mid `viewDidMoveToWindow` (AppKit's `_setWindow:` enumeration), so defer it to the next
-        // run-loop turn just like `bind`. See https://github.com/manaflow-ai/cmux/issues/5704.
+        // MainActor turn just like `bind`. See https://github.com/manaflow-ai/cmux/issues/5704.
         if isHostWindowAttachmentInProgress {
             scheduleDeferredHostWindowAttachmentSynchronize(anchorView, syncLayout: syncLayout)
             return
@@ -2166,13 +2155,13 @@ enum TerminalWindowPortalRegistry {
         portal.synchronizeHostedViewForAnchor(anchorView, syncLayout: syncLayout)
     }
 
-    /// Re-issue an anchor geometry reconcile on the next main run-loop turn, after AppKit has
+    /// Re-issue an anchor geometry reconcile on the next MainActor turn, after AppKit has
     /// unwound the `_setWindow:` enumeration that delivered the host's `viewDidMoveToWindow`.
     private static func scheduleDeferredHostWindowAttachmentSynchronize(
         _ anchorView: NSView,
         syncLayout: Bool
     ) {
-        DispatchQueue.main.async { [weak anchorView] in
+        Task { @MainActor [weak anchorView] in
             guard let anchorView, anchorView.window != nil else { return }
             synchronizeForAnchor(anchorView, syncLayout: syncLayout)
         }

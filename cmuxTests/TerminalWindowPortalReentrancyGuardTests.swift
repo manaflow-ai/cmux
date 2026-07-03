@@ -29,17 +29,17 @@ struct TerminalWindowPortalReentrancyGuardTests {
 
     @Test func bindDefersWhileHostWindowAttachmentInProgress() {
         #expect(
-            TerminalWindowPortalRegistry.hostWindowAttachmentBindAction(
+            TerminalWindowPortalRegistry.shouldDeferHostWindowAttachmentBind(
                 hostWindowAttachmentInProgress: true
-            ) == .deferUntilHostWindowAttachmentCompletes
+            )
         )
     }
 
     @Test func bindIsImmediateOutsideHostWindowAttachment() {
         #expect(
-            TerminalWindowPortalRegistry.hostWindowAttachmentBindAction(
+            !TerminalWindowPortalRegistry.shouldDeferHostWindowAttachmentBind(
                 hostWindowAttachmentInProgress: false
-            ) == .bindImmediately
+            )
         )
     }
 
