@@ -81,6 +81,21 @@ struct MacKeepAwakeStatusParserTests {
         #expect(status.holders.first?.processName == "Google Chrome")
     }
 
+    /// Process names may themselves contain parentheses; the `pid N(name):`
+    /// delimiter is the final `): ` head terminator, not the first `)`.
+    @Test func processNameWithParenthesesPreservesNameAndAssertion() throws {
+        let output = """
+        Listed by owning process:
+           pid 367(Google Chrome Helper (Renderer)): [0x000b] 00:00:01 PreventUserIdleDisplaySleep named: "playing audio"
+        """
+        let status = MacKeepAwakeStatus.parse(pmsetAssertions: output)
+        let holder = try #require(status.holders.first)
+        #expect(holder.processName == "Google Chrome Helper (Renderer)")
+        #expect(holder.assertionTypes == ["PreventUserIdleDisplaySleep"])
+        #expect(holder.detail == "playing audio")
+        #expect(status.preventsDisplaySleep)
+    }
+
     /// Multiple assertion lines for the same pid merge into one holder with the
     /// union of its assertion types (deduplicated, order preserved).
     @Test func multipleAssertionsForSamePidMerge() throws {
