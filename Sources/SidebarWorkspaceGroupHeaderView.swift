@@ -142,6 +142,31 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         }
     }
 
+    private var anchorRow: some View {
+        HStack(spacing: 6) {
+            CmuxSystemSymbolImage(
+                systemName: displayedIconSymbol,
+                pointSize: metrics.iconFontSize,
+                weight: .semibold,
+                appliesGlobalFontMagnification: true
+            )
+                .foregroundStyle(iconColor)
+                .frame(width: metrics.iconFrame, height: metrics.iconFrame)
+                .accessibilityHidden(true)
+            anchorNameText
+            anchorUnreadBadge
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture { onFocusAnchor() }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(Text(name))
+        .accessibilityHint(Text(String(
+            localized: "workspaceGroup.focusAnchor.a11y",
+            defaultValue: "Focus the group's anchor workspace"
+        )))
+    }
+
     var body: some View {
         HStack(spacing: 4) {
             if isPinned {
@@ -174,28 +199,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     )
                 )
 
-            HStack(spacing: 6) {
-                CmuxSystemSymbolImage(
-                    systemName: displayedIconSymbol,
-                    pointSize: metrics.iconFontSize,
-                    weight: .semibold,
-                    appliesGlobalFontMagnification: true
-                )
-                    .foregroundStyle(iconColor)
-                    .frame(width: metrics.iconFrame, height: metrics.iconFrame)
-                    .accessibilityHidden(true)
-                anchorNameText
-                anchorUnreadBadge
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture { onFocusAnchor() }
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(Text(name))
-            .accessibilityHint(Text(String(
-                localized: "workspaceGroup.focusAnchor.a11y",
-                defaultValue: "Focus the group's anchor workspace"
-            )))
+            anchorRow
 
             let plusVisible = rowInteractionState.shouldShowCloseButton(
                 canCloseWorkspace: true,
