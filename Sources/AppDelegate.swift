@@ -880,6 +880,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var updateController = UpdateController(log: updateLog)
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
     private let windowDecorationsController = WindowDecorationsController()
+    private let mainWindowScreenChangeRescue = MainWindowScreenChangeRescue()
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
@@ -2075,7 +2076,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
-        MainWindowScreenChangeRescue.shared.install()
+        mainWindowScreenChangeRescue.install()
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
@@ -3680,8 +3681,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
+        let frameGeometry = WindowFrameGeometry()
         let overlaps = displays.map { display -> (display: SessionDisplayGeometry, area: CGFloat) in
-            (display, intersectionArea(referenceRect, display.visibleFrame))
+            (display, frameGeometry.intersectionArea(referenceRect, display.visibleFrame))
         }
         if let bestOverlap = overlaps.max(by: { $0.area < $1.area }), bestOverlap.area > 0 {
             return bestOverlap.display
@@ -3689,8 +3691,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let referenceCenter = CGPoint(x: referenceRect.midX, y: referenceRect.midY)
         return displays.min { lhs, rhs in
-            let lhsDistance = distanceSquared(lhs.visibleFrame, referenceCenter)
-            let rhsDistance = distanceSquared(rhs.visibleFrame, referenceCenter)
+            let lhsDistance = frameGeometry.distanceSquared(lhs.visibleFrame, referenceCenter)
+            let rhsDistance = frameGeometry.distanceSquared(rhs.visibleFrame, referenceCenter)
             return lhsDistance < rhsDistance
         }
     }
@@ -3744,51 +3746,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return clampFrame(centered, within: visibleFrame, minWidth: minWidth, minHeight: minHeight)
     }
 
-    // Internal (not private): MainWindowScreenRescueCore reuses this exact
-    // clamp so the live display-change rescue and session restore can never
-    // disagree on placement math.
-    nonisolated static func clampFrame(
+    // Placement math shared with MainWindowScreenRescueCore lives in
+    // CmuxWindowing's WindowFrameGeometry so the live display-change rescue
+    // and session restore can never disagree.
+    private nonisolated static func clampFrame(
         _ frame: CGRect,
         within visibleFrame: CGRect,
         minWidth: CGFloat,
         minHeight: CGFloat
     ) -> CGRect {
-        guard visibleFrame.width.isFinite,
-              visibleFrame.height.isFinite,
-              visibleFrame.width > 0,
-              visibleFrame.height > 0 else {
-            return frame
-        }
-
-        let maxWidth = max(visibleFrame.width, 1)
-        let maxHeight = max(visibleFrame.height, 1)
-        let widthFloor = min(minWidth, maxWidth)
-        let heightFloor = min(minHeight, maxHeight)
-
-        let width = min(max(frame.width, widthFloor), maxWidth)
-        let height = min(max(frame.height, heightFloor), maxHeight)
-        let maxX = visibleFrame.maxX - width
-        let maxY = visibleFrame.maxY - height
-        let x = min(max(frame.minX, visibleFrame.minX), maxX)
-        let y = min(max(frame.minY, visibleFrame.minY), maxY)
-
-        return CGRect(x: x, y: y, width: width, height: height)
-    }
-
-    // Internal (not private): shared with MainWindowScreenRescueCore's
-    // target-display selection.
-    nonisolated static func intersectionArea(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
-        let intersection = lhs.intersection(rhs)
-        guard !intersection.isNull else { return 0 }
-        return max(0, intersection.width) * max(0, intersection.height)
-    }
-
-    // Internal (not private): shared with MainWindowScreenRescueCore's
-    // target-display selection.
-    nonisolated static func distanceSquared(_ rect: CGRect, _ point: CGPoint) -> CGFloat {
-        let dx = rect.midX - point.x
-        let dy = rect.midY - point.y
-        return (dx * dx) + (dy * dy)
+        WindowFrameGeometry().clampFrame(
+            frame,
+            within: visibleFrame,
+            minWidth: minWidth,
+            minHeight: minHeight
+        )
     }
 
     private nonisolated static func shouldPreserveExactFrame(

@@ -13,6 +13,8 @@ import Testing
 // 38pt of the 982pt-tall frame) and a taller external display to its right.
 @Suite("Main window screen-change rescue")
 struct MainWindowScreenChangeRescueTests {
+    private let core = MainWindowScreenRescueCore()
+
     private static let builtIn = SessionDisplayGeometry(
         displayID: 1,
         frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
@@ -25,18 +27,23 @@ struct MainWindowScreenChangeRescueTests {
     )
     private static let minWidth: CGFloat = 300
     private static let minHeight: CGFloat = 200
+    private static let strictThresholds = WindowTitlebarReachabilityThresholds(
+        topStripHeight: WindowChromeMetrics.sharedChromeBarHeight,
+        minimumVisibleWidth: 120,
+        minimumVisibleHeight: 20
+    )
 
     // MARK: - Topology signature
 
     @Test func signatureIsOrderIndependent() {
-        let a = MainWindowScreenRescueCore.topologySignature(of: [Self.builtIn, Self.external])
-        let b = MainWindowScreenRescueCore.topologySignature(of: [Self.external, Self.builtIn])
+        let a = core.topologySignature(of: [Self.builtIn, Self.external])
+        let b = core.topologySignature(of: [Self.external, Self.builtIn])
         #expect(a == b)
     }
 
     @Test func signatureChangesWhenDisplayDisconnects() {
-        let both = MainWindowScreenRescueCore.topologySignature(of: [Self.builtIn, Self.external])
-        let one = MainWindowScreenRescueCore.topologySignature(of: [Self.builtIn])
+        let both = core.topologySignature(of: [Self.builtIn, Self.external])
+        let one = core.topologySignature(of: [Self.builtIn])
         #expect(both != one)
     }
 
@@ -48,8 +55,8 @@ struct MainWindowScreenChangeRescueTests {
             frame: Self.builtIn.frame,
             visibleFrame: CGRect(x: 0, y: 90, width: 1512, height: 854)
         )
-        let before = MainWindowScreenRescueCore.topologySignature(of: [Self.builtIn])
-        let after = MainWindowScreenRescueCore.topologySignature(of: [dockResized])
+        let before = core.topologySignature(of: [Self.builtIn])
+        let after = core.topologySignature(of: [dockResized])
         #expect(before == after)
     }
 
@@ -59,30 +66,27 @@ struct MainWindowScreenChangeRescueTests {
         // The window lived high on the (now disconnected) external display;
         // its entire titlebar sits above the built-in screen's top.
         let stranded = CGRect(x: 200, y: 800, width: 1000, height: 700)
-        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+        let rescued = core.rescuedFrames(
             for: [stranded],
             displays: [Self.builtIn],
-            thresholds: .strict,
+            thresholds: Self.strictThresholds,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
         let frame = try #require(rescued[0], "stranded window must be rescued")
         #expect(Self.builtIn.visibleFrame.contains(frame))
         #expect(
-            WindowTitlebarReachability.isTopStripReachable(
-                frame,
-                onAnyOf: [Self.builtIn.visibleFrame],
-                thresholds: .strict
-            )
+            WindowTitlebarReachability(thresholds: Self.strictThresholds)
+                .isTopStripReachable(frame, onAnyOf: [Self.builtIn.visibleFrame])
         )
     }
 
     @Test func reachableWindowIsNotMoved() {
         let fine = CGRect(x: 100, y: 100, width: 800, height: 600)
-        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+        let rescued = core.rescuedFrames(
             for: [fine],
             displays: [Self.builtIn],
-            thresholds: .strict,
+            thresholds: Self.strictThresholds,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
@@ -92,10 +96,10 @@ struct MainWindowScreenChangeRescueTests {
     @Test func onlyStrandedWindowMovesInMixedSet() throws {
         let stranded = CGRect(x: 200, y: 800, width: 1000, height: 700)
         let fine = CGRect(x: 100, y: 100, width: 800, height: 600)
-        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+        let rescued = core.rescuedFrames(
             for: [stranded, fine],
             displays: [Self.builtIn],
-            thresholds: .strict,
+            thresholds: Self.strictThresholds,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
@@ -109,30 +113,27 @@ struct MainWindowScreenChangeRescueTests {
         // lenient-reachable, but the drag band itself is covered — after a real
         // topology change the rescue pulls it fully into the visible area.
         let tucked = CGRect(x: 320, y: 372, width: 800, height: 600) // maxY 972
-        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+        let rescued = core.rescuedFrames(
             for: [tucked],
             displays: [Self.builtIn],
-            thresholds: .strict,
+            thresholds: Self.strictThresholds,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
         let frame = try #require(rescued[0], "tucked window must be rescued on topology change")
         #expect(frame.maxY <= Self.builtIn.visibleFrame.maxY)
         #expect(
-            WindowTitlebarReachability.isTopStripReachable(
-                frame,
-                onAnyOf: [Self.builtIn.visibleFrame],
-                thresholds: .strict
-            )
+            WindowTitlebarReachability(thresholds: Self.strictThresholds)
+                .isTopStripReachable(frame, onAnyOf: [Self.builtIn.visibleFrame])
         )
     }
 
     @Test func oversizedWindowIsClampedIntoVisibleFrame() throws {
         let huge = CGRect(x: -200, y: -200, width: 3000, height: 2000)
-        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+        let rescued = core.rescuedFrames(
             for: [huge],
             displays: [Self.builtIn],
-            thresholds: .strict,
+            thresholds: Self.strictThresholds,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
@@ -144,10 +145,10 @@ struct MainWindowScreenChangeRescueTests {
 
     @Test func emptyDisplayListRescuesNothing() {
         let stranded = CGRect(x: 200, y: 800, width: 1000, height: 700)
-        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+        let rescued = core.rescuedFrames(
             for: [stranded],
             displays: [],
-            thresholds: .strict,
+            thresholds: Self.strictThresholds,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
@@ -158,10 +159,10 @@ struct MainWindowScreenChangeRescueTests {
         // Stranded above both screens, but its body overlaps the external
         // display — the rescue should land it there, not on the built-in.
         let stranded = CGRect(x: 2000, y: 1400, width: 800, height: 600)
-        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+        let rescued = core.rescuedFrames(
             for: [stranded],
             displays: [Self.builtIn, Self.external],
-            thresholds: .strict,
+            thresholds: Self.strictThresholds,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
@@ -173,10 +174,10 @@ struct MainWindowScreenChangeRescueTests {
         // Far beyond both screens — zero overlap anywhere, so the rescue must
         // use the nearest-by-center-distance fallback (external is closer).
         let stranded = CGRect(x: 6000, y: 3000, width: 800, height: 600)
-        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+        let rescued = core.rescuedFrames(
             for: [stranded],
             displays: [Self.builtIn, Self.external],
-            thresholds: .strict,
+            thresholds: Self.strictThresholds,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
@@ -195,8 +196,8 @@ struct MainWindowScreenChangeRescueTests {
             frame: Self.builtIn.frame,
             visibleFrame: Self.builtIn.frame // no top inset
         )
-        let before = MainWindowScreenRescueCore.topologySignature(of: [withoutMenuBar])
-        let after = MainWindowScreenRescueCore.topologySignature(of: [Self.builtIn]) // 38pt inset
+        let before = core.topologySignature(of: [withoutMenuBar])
+        let after = core.topologySignature(of: [Self.builtIn]) // 38pt inset
         #expect(before != after)
     }
 
@@ -207,7 +208,7 @@ struct MainWindowScreenChangeRescueTests {
         // a titlebar tucked under the menu bar: at the constrain veto's
         // thresholds the tucked window is still reachable, so no rescue.
         let tucked = CGRect(x: 320, y: 372, width: 800, height: 600) // maxY 972
-        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+        let rescued = core.rescuedFrames(
             for: [tucked],
             displays: [Self.builtIn],
             thresholds: .constrainVeto,
@@ -222,7 +223,7 @@ struct MainWindowScreenChangeRescueTests {
         // is entirely above the screen — the shape a real transient strand
         // produces.
         let stranded = CGRect(x: 200, y: 800, width: 1000, height: 700)
-        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+        let rescued = core.rescuedFrames(
             for: [stranded],
             displays: [Self.builtIn],
             thresholds: .constrainVeto,

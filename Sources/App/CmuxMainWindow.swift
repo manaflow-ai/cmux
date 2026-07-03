@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWindowing
 import SwiftUI
 
 final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
@@ -50,90 +51,6 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
 func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
     window.isMovableByWindowBackground = false
     window.isMovable = false
-}
-
-/// Shared geometry for deciding whether a window's titlebar band is usably
-/// reachable on some screen. Because cmux main windows set `isMovable = false`,
-/// the only way a user can move one is the drag handle living in the top
-/// titlebar band — so "reachable" is a property of the window's *top strip*,
-/// not of the frame as a whole. This is the single reachability definition
-/// shared by the constrain-pass veto in `CmuxMainWindow.constrainFrameRect`
-/// and the display-topology-change rescue in `MainWindowScreenChangeRescue`,
-/// mirroring the top-strip test session restore already applies
-/// (`AppDelegate.shouldPreserveAccessibleFrame`).
-enum WindowTitlebarReachability {
-    struct Thresholds {
-        /// Height of the top-of-window strip that is inspected.
-        let topStripHeight: CGFloat
-        /// Minimum visible width of that strip (or the full window width when
-        /// the window is narrower).
-        let minimumVisibleWidth: CGFloat
-        /// Minimum visible height of that strip (or the full strip height when
-        /// the strip is shorter).
-        let minimumVisibleHeight: CGFloat
-
-        /// The constrain-pass veto's thresholds: a 64pt strip (the band
-        /// session restore's `AppDelegate.shouldPreserveAccessibleFrame` also
-        /// inspects) with at least 60x24pt visible. The 60pt width floor
-        /// intentionally retains the historical veto tolerance (the pre-2026-07
-        /// rule accepted any 60x60pt overlap), so a window deliberately parked
-        /// with only 60-119pt of titlebar showing keeps its anti-creep
-        /// protection across sleep/wake — as does a titlebar tucked under the
-        /// menu bar (>=24pt of the strip stays visible below the bar).
-        static let constrainVeto = Thresholds(
-            topStripHeight: 64,
-            minimumVisibleWidth: 60,
-            minimumVisibleHeight: 24
-        )
-
-        /// The drag-band thresholds used by the display-change rescue: the
-        /// strip is the actual drag-handle band
-        /// (`WindowChromeMetrics.sharedChromeBarHeight`), and at least
-        /// 120x20pt of it must be visible — enough band to actually grab. A
-        /// band fully covered by the menu bar fails this, which is exactly the
-        /// case the rescue exists to fix.
-        static let strict = Thresholds(
-            topStripHeight: WindowChromeMetrics.sharedChromeBarHeight,
-            minimumVisibleWidth: 120,
-            minimumVisibleHeight: 20
-        )
-    }
-
-    /// Whether the top strip of `frame` is usably visible on at least one of
-    /// `visibleFrames`. Pure and screen-agnostic so tests run deterministically
-    /// on CI regardless of the host's display configuration.
-    nonisolated static func isTopStripReachable(
-        _ frame: CGRect,
-        onAnyOf visibleFrames: [CGRect],
-        thresholds: Thresholds
-    ) -> Bool {
-        let standardized = frame.standardized
-        guard standardized.width.isFinite,
-              standardized.height.isFinite,
-              standardized.width > 0,
-              standardized.height > 0 else {
-            return false
-        }
-
-        let stripHeight = min(thresholds.topStripHeight, standardized.height)
-        let topStrip = CGRect(
-            x: standardized.minX,
-            y: standardized.maxY - stripHeight,
-            width: standardized.width,
-            height: stripHeight
-        )
-        let requiredWidth = min(thresholds.minimumVisibleWidth, standardized.width)
-        let requiredHeight = min(thresholds.minimumVisibleHeight, stripHeight)
-
-        for visibleFrame in visibleFrames {
-            let visibleStrip = topStrip.intersection(visibleFrame)
-            guard !visibleStrip.isNull else { continue }
-            if visibleStrip.width >= requiredWidth, visibleStrip.height >= requiredHeight {
-                return true
-            }
-        }
-        return false
-    }
 }
 
 @MainActor
@@ -282,10 +199,9 @@ final class CmuxMainWindow: NSWindow {
         _ proposedFrame: NSRect,
         visibleFrames: [NSRect]
     ) -> Bool {
-        WindowTitlebarReachability.isTopStripReachable(
+        WindowTitlebarReachability(thresholds: .constrainVeto).isTopStripReachable(
             proposedFrame,
-            onAnyOf: visibleFrames,
-            thresholds: .constrainVeto
+            onAnyOf: visibleFrames
         )
     }
 }

@@ -21,21 +21,30 @@ import CmuxWindowing
 /// veto deliberately protects (e.g. a titlebar tucked under the menu bar).
 @MainActor
 final class MainWindowScreenChangeRescue {
-    static let shared = MainWindowScreenChangeRescue()
-
     private var observer: NSObjectProtocol?
     private var cachedSignature: [MainWindowScreenRescueCore.TopologySignatureEntry] = []
     private var topologyDirty = false
     private var pendingRescue: Task<Void, Never>?
-    private let debounceInterval: Duration = .milliseconds(400)
+    private let debounceInterval: Duration
+    private let rescueCore: MainWindowScreenRescueCore
 
-    private init() {}
+    /// Owned and installed by `AppDelegate`. The debounce interval is
+    /// injectable so tests can cover the burst-settling path without
+    /// wall-clock waits; 400 ms covers the 2-4 notification bursts AppKit
+    /// fires during a reconfiguration.
+    init(
+        debounceInterval: Duration = .milliseconds(400),
+        rescueCore: MainWindowScreenRescueCore = MainWindowScreenRescueCore()
+    ) {
+        self.debounceInterval = debounceInterval
+        self.rescueCore = rescueCore
+    }
 
     func install() {
         guard observer == nil else { return }
         // Seed the cache so the first notification after launch is compared
         // against the launch topology instead of reading as a change.
-        cachedSignature = Self.currentTopologySignature()
+        cachedSignature = currentTopologySignature()
         observer = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -51,11 +60,13 @@ final class MainWindowScreenChangeRescue {
         // Reconfigurations fire this notification 2-4 times; compare eagerly
         // (so a transient A->B->A still marks the burst dirty) but act only
         // once, after the burst settles.
-        if Self.currentTopologySignature() != cachedSignature {
+        if currentTopologySignature() != cachedSignature {
             topologyDirty = true
         }
         pendingRescue?.cancel()
         pendingRescue = Task { [weak self, debounceInterval] in
+            // Intentional cancellable debounce: AppKit emits a burst but no
+            // settled-display signal for screen-parameter changes.
             guard (try? await Task.sleep(for: debounceInterval)) != nil else { return }
             self?.performRescueIfNeeded()
         }
@@ -68,7 +79,7 @@ final class MainWindowScreenChangeRescue {
         // the cache and dirty flag so the follow-up notification re-evaluates.
         guard !displays.isEmpty else { return }
 
-        let signature = MainWindowScreenRescueCore.topologySignature(of: displays)
+        let signature = rescueCore.topologySignature(of: displays)
         let signatureDiffers = signature != cachedSignature
         let dirtyOnly = topologyDirty && !signatureDiffers
         cachedSignature = signature
@@ -79,8 +90,16 @@ final class MainWindowScreenChangeRescue {
         // visible (strict). Settled-back transient (wake flap, KVM bounce):
         // only rescue what the constrain veto itself would abandon, so
         // veto-protected placements never move on a flap.
-        let thresholds: WindowTitlebarReachability.Thresholds =
-            signatureDiffers ? .strict : .constrainVeto
+        let thresholds: WindowTitlebarReachabilityThresholds
+        if signatureDiffers {
+            thresholds = WindowTitlebarReachabilityThresholds(
+                topStripHeight: WindowChromeMetrics.sharedChromeBarHeight,
+                minimumVisibleWidth: 120,
+                minimumVisibleHeight: 20
+            )
+        } else {
+            thresholds = .constrainVeto
+        }
 
         // All main terminal windows, including miniaturized (the frame is the
         // deminiaturize target) and soft-hidden ones (they re-show later and
@@ -94,7 +113,7 @@ final class MainWindowScreenChangeRescue {
             }
         guard !windows.isEmpty else { return }
 
-        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+        let rescued = rescueCore.rescuedFrames(
             for: windows.map(\.frame),
             displays: displays,
             thresholds: thresholds,
@@ -132,8 +151,8 @@ final class MainWindowScreenChangeRescue {
         }
     }
 
-    private static func currentTopologySignature() -> [MainWindowScreenRescueCore.TopologySignatureEntry] {
-        MainWindowScreenRescueCore.topologySignature(of: currentDisplays())
+    private func currentTopologySignature() -> [MainWindowScreenRescueCore.TopologySignatureEntry] {
+        rescueCore.topologySignature(of: Self.currentDisplays())
     }
 
     private static func rectDescription(_ rect: CGRect) -> String {
