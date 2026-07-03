@@ -5,7 +5,11 @@ extension CMUXMobileRootView {
     func showManualHostTrustWarningIfNeeded(
         _ warning: MobileManualHostTrustWarning? = nil
     ) {
-        guard warning ?? store.manualHostTrustWarning != nil else {
+        guard warning ?? store.manualHostTrustWarning != nil,
+              isAuthenticated,
+              !authManager.isRestoringSession,
+              !shouldShowOnboarding,
+              !isShowingAddDeviceSheet else {
             return
         }
         showAddDevice()

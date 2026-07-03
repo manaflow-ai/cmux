@@ -2001,6 +2001,32 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func teamSwitchClearsPendingManualHostTrustWarning() async throws {
+    let responses = ScriptedTransportResponses([])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.manualHost],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-team-switch-manual-warning"
+    )
+    let store = CMUXMobileShellStore.preview(
+        runtime: runtime,
+        manualHostTrustStore: InMemoryMobileManualHostTrustStore()
+    )
+
+    store.signIn()
+    let firstResult = await store.connectPairingURLResult(
+        "cmux-ios://attach?v=3&pc=1&m=studio-mac.local:61234"
+    )
+    store.currentTeamDidChange()
+    let staleApprovalResult = await store.acceptManualHostTrustWarning()
+
+    #expect(firstResult == .needsUserApproval)
+    #expect(staleApprovalResult == .failed)
+    #expect(store.manualHostTrustWarning == nil)
+    #expect(try await responses.sentRequests().isEmpty)
+}
+
+@MainActor
 @Test func manualHostTrustWarningSupersedesPendingVersionWarning() async throws {
     let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(

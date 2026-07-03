@@ -14,7 +14,7 @@ import AppKit
 struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(AuthCoordinator.self) private var authManager
+    @Environment(AuthCoordinator.self) var authManager
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     /// The persisted first-run onboarding "seen" flag store. The one-time
@@ -30,7 +30,7 @@ struct CMUXMobileRootView: View {
     @State private var pendingAttachURL: String?
     @State private var didConsumeUITestAttachURL = false
     @State private var didAuthenticateWithAttachTicket = false
-    @State private var isShowingAddDeviceSheet = false
+    @State var isShowingAddDeviceSheet = false
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -171,15 +171,15 @@ struct CMUXMobileRootView: View {
             guard isAuthenticated else {
                 return
             }
-            if consumePendingURLIfReady() {
-                return
+            if !consumePendingURLIfReady() {
+                showManualHostTrustWarningIfNeeded()
+                reconnectStoredMacIfNeeded()
             }
-            reconnectStoredMacIfNeeded()
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
             syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
             guard !isRestoringSession else { return }
-            _ = consumePendingURLIfReady()
+            if !consumePendingURLIfReady() { showManualHostTrustWarningIfNeeded() }
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
@@ -301,7 +301,7 @@ struct CMUXMobileRootView: View {
 
     /// Whether the one-time first-run onboarding should be presented. Always
     /// `false` off iOS (onboarding is iOS-only).
-    private var shouldShowOnboarding: Bool {
+    var shouldShowOnboarding: Bool {
         #if os(iOS)
         return MobileOnboardingGate.shouldShowOnboarding(
             hasSeenOnboarding: hasSeenOnboarding
@@ -327,10 +327,10 @@ struct CMUXMobileRootView: View {
     private func completeOnboarding() {
         onboardingStore.markSeen()
         hasSeenOnboarding = true
+        showManualHostTrustWarningIfNeeded()
     }
     #endif
-
-    private var isAuthenticated: Bool {
+    var isAuthenticated: Bool {
         MobileRootAuthGate.isAuthenticated(
             stackAuthenticated: authManager.isAuthenticated,
             attachTicketAuthenticated: hasActiveAttachTicketAuthentication

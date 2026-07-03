@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-private let manualHostTrustStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "ManualHostTrust")
+nonisolated private let manualHostTrustStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "ManualHostTrust")
 
 /// UserDefaults-backed manual-host trust store for production.
 public actor UserDefaultsMobileManualHostTrustStore: MobileManualHostTrustStoring {
