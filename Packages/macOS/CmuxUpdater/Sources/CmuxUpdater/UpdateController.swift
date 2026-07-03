@@ -289,7 +289,7 @@ public final class UpdateController {
             performCheckForUpdates()
             return
         }
-        if model.state.isIdle {
+        if model.state.isIdle, !attemptCoordinator.isMonitoring {
             model.setState(.checking(.init(cancel: {})))
         }
         waitForReadinessThenCheck()

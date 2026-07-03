@@ -27,7 +27,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var pendingCheckTransitionTask: Task<Void, Never>?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
-    private var pendingPromptDismissCallbacks: [ObjectIdentifier] = []
+    private var pendingPromptDismissCallbacks: [UUID] = []
 
     init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock, isDevLikeBundle: Bool = false) {
         self.model = model
@@ -212,14 +212,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func recordPromptDismissCallbackExpected(for reply: UpdatePromptReply) {
-        pendingPromptDismissCallbacks.append(ObjectIdentifier(reply))
+        pendingPromptDismissCallbacks.append(reply.id)
     }
 
     private func takePromptDismissCallbackForCurrentState() -> (expected: Bool, currentPrompt: Bool) {
         guard !pendingPromptDismissCallbacks.isEmpty else { return (false, false) }
         if case .updateAvailable(let available) = model.state {
-            let currentID = ObjectIdentifier(available.reply)
-            if let index = pendingPromptDismissCallbacks.firstIndex(of: currentID) {
+            if let index = pendingPromptDismissCallbacks.firstIndex(of: available.reply.id) {
                 pendingPromptDismissCallbacks.remove(at: index)
                 return (true, true)
             }

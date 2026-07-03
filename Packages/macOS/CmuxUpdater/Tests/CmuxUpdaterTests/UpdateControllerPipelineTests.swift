@@ -96,6 +96,26 @@ import Testing
         #expect(!harness.controller.attemptCoordinator.isMonitoring)
     }
 
+    /// When Sparkle is not ready yet, the readiness placeholder must not look like the fresh check
+    /// start to the install coordinator. The attempt should stay alive until the real check resolves.
+    @Test func installAttemptSurvivesUpdaterReadinessWait() async {
+        let harness = Harness()
+        let freshPrompt = ChoiceBox()
+
+        harness.updater.canCheckForUpdates = false
+        harness.controller.attemptUpdate()
+        #expect(harness.updater.checkForUpdatesCallCount == 0)
+        #expect(harness.controller.attemptCoordinator.isMonitoring)
+
+        harness.updater.canCheckForUpdates = true
+        await waitUntil("ready check to run") { harness.updater.checkForUpdatesCallCount == 1 }
+        harness.model.setState(.checking(.init(cancel: {})))
+        harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
+
+        await waitUntil("fresh prompt to be confirmed") { freshPrompt.choice == .install }
+        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+    }
+
     /// If the fresh check never restarts (no `.checking` ever arrives), the watchdog must turn
     /// the silent stall into a visible "Update Didn't Start" error, resolve the re-emitted stale
     /// prompt with a proper dismiss reply, and kill the attempt so a later unrelated resolution

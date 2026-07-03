@@ -1,3 +1,4 @@
+import Foundation
 @preconcurrency public import Sparkle
 
 /// A Sparkle prompt reply that can be sent at most once, with its consumption observable.
@@ -9,6 +10,7 @@
 /// prompt's Sparkle dismiss callback landing after a fresh check already resolved).
 @MainActor
 public final class UpdatePromptReply {
+    let id = UUID()
     private var handler: (@Sendable (SPUUserUpdateChoice) -> Void)?
     var onDismissConsumed: ((UpdatePromptReply) -> Void)?
 
