@@ -336,13 +336,14 @@ final class SavingTextView: NSTextView {
     }
 
     private func handleEditorShortcut(_ event: NSEvent) -> Bool {
-        let candidates = editorShortcutCandidates(for: event)
+        let candidates = editorShortcutCandidates()
         if let pendingPrefix = pendingEditorShortcutChordPrefix {
             pendingEditorShortcutChordPrefix = nil
             for candidate in candidates {
                 guard candidate.shortcut.firstStroke == pendingPrefix,
                       let secondStroke = candidate.shortcut.secondStroke,
                       secondStroke.matches(event: event) else { continue }
+                guard candidate.isAllowed(event) else { return false }
                 candidate.perform()
                 return true
             }
@@ -353,12 +354,14 @@ final class SavingTextView: NSTextView {
             let shortcut = candidate.shortcut
             if shortcut.secondStroke != nil {
                 if shortcut.firstStroke.matches(event: event) {
+                    guard candidate.isAllowed(event) else { return false }
                     pendingEditorShortcutChordPrefix = shortcut.firstStroke
                     return true
                 }
                 continue
             }
             if shortcut.matches(event: event) {
+                guard candidate.isAllowed(event) else { return false }
                 candidate.perform()
                 return true
             }
@@ -366,17 +369,24 @@ final class SavingTextView: NSTextView {
         return false
     }
 
-    private func editorShortcutCandidates(for event: NSEvent) -> [(shortcut: StoredShortcut, perform: () -> Void)] {
-        var candidates: [(shortcut: StoredShortcut, perform: () -> Void)] = []
+    private func editorShortcutCandidates() -> [
+        (shortcut: StoredShortcut, isAllowed: (NSEvent) -> Bool, perform: () -> Void)
+    ] {
+        var candidates: [(shortcut: StoredShortcut, isAllowed: (NSEvent) -> Bool, perform: () -> Void)] = []
         let saveShortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
         if !saveShortcut.isUnbound {
-            candidates.append((saveShortcut, { [weak self] in self?.panel?.saveTextContent() }))
+            candidates.append((saveShortcut, { _ in true }, { [weak self] in self?.panel?.saveTextContent() }))
         }
         for action in Self.previewFontZoomShortcutActions {
             let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-            guard !shortcut.isUnbound,
-                  previewFontZoomShortcutWhenClauseAllows(action: action, event: event) else { continue }
-            candidates.append((shortcut, { [weak self] in self?.performPreviewFontZoomShortcutAction(action) }))
+            guard !shortcut.isUnbound else { continue }
+            candidates.append((
+                shortcut,
+                { [weak self] event in
+                    self?.previewFontZoomShortcutWhenClauseAllows(action: action, event: event) ?? false
+                },
+                { [weak self] in self?.performPreviewFontZoomShortcutAction(action) }
+            ))
         }
         return candidates
     }
@@ -412,5 +422,33 @@ final class SavingTextView: NSTextView {
         default:
             break
         }
+    }
+}
+
+extension FilePreviewPanel {
+    func attachTextView(_ textView: NSTextView) {
+        self.textView = textView
+        focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
+    }
+
+    @discardableResult
+    func zoomTextPreviewIn() -> Bool {
+        guard previewMode == .text,
+              let textView = textView as? SavingTextView else { return false }
+        return textView.zoomPreviewFontIn()
+    }
+
+    @discardableResult
+    func zoomTextPreviewOut() -> Bool {
+        guard previewMode == .text,
+              let textView = textView as? SavingTextView else { return false }
+        return textView.zoomPreviewFontOut()
+    }
+
+    @discardableResult
+    func resetTextPreviewZoom() -> Bool {
+        guard previewMode == .text,
+              let textView = textView as? SavingTextView else { return false }
+        return textView.resetPreviewFontSize()
     }
 }

@@ -74,4 +74,80 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(!KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext.forwardsMenuEquivalentToFocusedTerminal)
         #expect(!KeyboardShortcutSettings.Action.renameTab.shortcutContext.forwardsMenuEquivalentToFocusedTerminal)
     }
+
+    @MainActor
+    @Test("view zoom route prefers text preview before browser fallback")
+    func viewZoomRoutePrefersTextPreviewBeforeBrowserFallback() {
+        let manager = ZoomRouteRecordingTabManager(browserResult: true, textPreviewResult: true)
+
+        #expect(manager.zoomInFocusedBrowserOrTextFilePreview())
+        #expect(manager.calls == ["text"])
+    }
+
+    @MainActor
+    @Test("view zoom route does not fall back when text preview reports no-op")
+    func viewZoomRouteDoesNotFallBackWhenTextPreviewReportsNoOp() {
+        let manager = ZoomRouteRecordingTabManager(browserResult: true, textPreviewResult: false)
+
+        #expect(!manager.zoomInFocusedBrowserOrTextFilePreview())
+        #expect(manager.calls == ["text"])
+    }
+
+    @MainActor
+    @Test("view zoom route falls back to browser when no text preview target exists")
+    func viewZoomRouteFallsBackToBrowserWhenNoTextPreviewTargetExists() {
+        let manager = ZoomRouteRecordingTabManager(browserResult: true, textPreviewResult: nil)
+
+        #expect(manager.zoomInFocusedBrowserOrTextFilePreview())
+        #expect(manager.calls == ["browser"])
+    }
+
+    @MainActor
+    @Test("view zoom route propagates unhandled browser result when text preview target is absent")
+    func viewZoomRoutePropagatesUnhandledBrowserResultWhenTextPreviewTargetIsAbsent() {
+        let manager = ZoomRouteRecordingTabManager(browserResult: false, textPreviewResult: nil)
+
+        #expect(!manager.zoomInFocusedBrowserOrTextFilePreview())
+        #expect(!manager.zoomOutFocusedBrowserOrTextFilePreview())
+        #expect(!manager.resetZoomFocusedBrowserOrTextFilePreview())
+        #expect(manager.calls == [
+            "browser",
+            "browser",
+            "browser",
+        ])
+    }
+
+    @MainActor
+    @Test("view zoom route uses text preview target for every zoom action")
+    func viewZoomRouteUsesTextPreviewTargetForEveryZoomAction() {
+        let manager = ZoomRouteRecordingTabManager(browserResult: true, textPreviewResult: false)
+
+        #expect(!manager.zoomOutFocusedBrowserOrTextFilePreview())
+        #expect(!manager.resetZoomFocusedBrowserOrTextFilePreview())
+        #expect(manager.calls == ["text", "text"])
+    }
+}
+
+private final class ZoomRouteRecordingTabManager: TabManager {
+    private let browserResult: Bool?
+    private let textPreviewResult: Bool?
+    var calls: [String] = []
+
+    init(browserResult: Bool?, textPreviewResult: Bool?) {
+        self.browserResult = browserResult
+        self.textPreviewResult = textPreviewResult
+        super.init(autoWelcomeIfNeeded: false)
+    }
+
+    override func performFocusedBrowserZoom(_ action: (BrowserPanel) -> Bool) -> Bool? {
+        guard let browserResult else { return nil }
+        calls.append("browser")
+        return browserResult
+    }
+
+    override func performFocusedTextFilePreviewZoom(_ action: (FilePreviewPanel) -> Bool) -> Bool? {
+        guard let textPreviewResult else { return nil }
+        calls.append("text")
+        return textPreviewResult
+    }
 }

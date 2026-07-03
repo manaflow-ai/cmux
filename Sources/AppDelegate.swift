@@ -13877,32 +13877,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
-            let focusContext = shortcutEventFocusContext(event)
-            if focusContext.filePreviewTextEditorFocused {
-                let targetTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-                return targetTabs?.zoomInFocusedTextFilePreview() ?? false
-            }
-            return focusContext.browserPanel?.zoomIn() ?? false
-        }
+        if matchConfiguredShortcut(event: event, action: .browserZoomIn) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomIn) }
 
-        if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
-            let focusContext = shortcutEventFocusContext(event)
-            if focusContext.filePreviewTextEditorFocused {
-                let targetTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-                return targetTabs?.zoomOutFocusedTextFilePreview() ?? false
-            }
-            return focusContext.browserPanel?.zoomOut() ?? false
-        }
+        if matchConfiguredShortcut(event: event, action: .browserZoomOut) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomOut) }
 
-        if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
-            let focusContext = shortcutEventFocusContext(event)
-            if focusContext.filePreviewTextEditorFocused {
-                let targetTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-                return targetTabs?.resetZoomFocusedTextFilePreview() ?? false
-            }
-            return focusContext.browserPanel?.resetZoom() ?? false
-        }
+        if matchConfiguredShortcut(event: event, action: .browserZoomReset) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomReset) }
 
         if matchConfiguredShortcut(event: event, action: .markdownZoomIn) {
             return shortcutEventMarkdownPanel(event)?.zoomIn() ?? false

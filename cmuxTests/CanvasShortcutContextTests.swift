@@ -98,12 +98,7 @@ struct CanvasShortcutContextTests {
         browserCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
         var markdownCanvasContext = ShortcutFocusState(browser: false, markdown: true, sidebar: false).context
         markdownCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
-        var filePreviewTextEditorCanvasContext = ShortcutFocusState(
-            browser: false,
-            markdown: false,
-            sidebar: false,
-            filePreviewTextEditor: true
-        ).context
+        var filePreviewTextEditorCanvasContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false, filePreviewTextEditor: true).context
         filePreviewTextEditorCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
         let browserActualSizeWhen = KeyboardShortcutSettings.effectiveWhenClause(for: .browserZoomReset)
 

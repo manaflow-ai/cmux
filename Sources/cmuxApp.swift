@@ -968,21 +968,15 @@ struct cmuxApp: App {
             .disabled(!browserFocusModeMenu.canToggle)
 
             splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
-                if !activeTabManager.zoomInFocusedTextFilePreview() {
-                    _ = activeTabManager.zoomInFocusedBrowser()
-                }
+                _ = activeTabManager.zoomInFocusedBrowserOrTextFilePreview()
             }
 
             splitCommandButton(title: String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out"), shortcut: menuShortcut(for: .browserZoomOut)) {
-                if !activeTabManager.zoomOutFocusedTextFilePreview() {
-                    _ = activeTabManager.zoomOutFocusedBrowser()
-                }
+                _ = activeTabManager.zoomOutFocusedBrowserOrTextFilePreview()
             }
 
             splitCommandButton(title: String(localized: "menu.view.actualSize", defaultValue: "Actual Size"), shortcut: menuShortcut(for: .browserZoomReset)) {
-                if !activeTabManager.resetZoomFocusedTextFilePreview() {
-                    _ = activeTabManager.resetZoomFocusedBrowser()
-                }
+                _ = activeTabManager.resetZoomFocusedBrowserOrTextFilePreview()
             }
 
             Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {

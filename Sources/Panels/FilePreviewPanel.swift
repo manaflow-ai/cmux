@@ -999,8 +999,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
-    private weak var textView: NSTextView?
-    private let focusCoordinator: FilePreviewFocusCoordinator
+    weak var textView: NSTextView?
+    let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
     var fileURL: URL {
@@ -1049,32 +1049,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         _ = reason
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken += 1
-    }
-
-    func attachTextView(_ textView: NSTextView) {
-        self.textView = textView
-        focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
-    }
-
-    @discardableResult
-    func zoomTextPreviewIn() -> Bool {
-        guard previewMode == .text,
-              let textView = textView as? SavingTextView else { return false }
-        return textView.zoomPreviewFontIn()
-    }
-
-    @discardableResult
-    func zoomTextPreviewOut() -> Bool {
-        guard previewMode == .text,
-              let textView = textView as? SavingTextView else { return false }
-        return textView.zoomPreviewFontOut()
-    }
-
-    @discardableResult
-    func resetTextPreviewZoom() -> Bool {
-        guard previewMode == .text,
-              let textView = textView as? SavingTextView else { return false }
-        return textView.resetPreviewFontSize()
     }
 
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
