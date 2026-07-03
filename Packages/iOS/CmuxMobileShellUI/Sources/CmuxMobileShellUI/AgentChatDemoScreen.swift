@@ -14,7 +14,6 @@ struct AgentChatDemoScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var stack: DemoStack?
-    @State private var contentWidth: CGFloat = 0
 
     init(style: AgentChatDemoScreenStyle = .standalone) {
         self.style = style
@@ -60,7 +59,6 @@ struct AgentChatDemoScreen: View {
                 }
         case .inlineWorkspace:
             baseChatScreen(for: stack)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         WorkspaceBackButton(
@@ -70,12 +68,7 @@ struct AgentChatDemoScreen: View {
                         )
                     }
                     ToolbarItem(placement: .principal) {
-                        WorkspaceTitleMenu(
-                            contentWidth: contentWidth,
-                            hasBackButton: true,
-                            hasTrailingCluster: true,
-                            hasChatToggle: true
-                        ) {
+                        WorkspaceTitleMenu {
                             Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
                                 .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
                             Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
@@ -89,15 +82,23 @@ struct AgentChatDemoScreen: View {
                 .mobileChatTopScrollEdgeLayout(legacyTopPadding: 4)
                 .mobileTerminalNavigationChrome()
                 .toolbar {
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button(action: {}) {
-                            Image(systemName: "bubble.left.and.bubble.right.fill")
+                    ToolbarItem(placement: .topBarTrailing) {
+                        MobileToolbarPriorityHost(role: .fixedTrailingControls) {
+                            HStack(spacing: 8) {
+                                Button(action: {}) {
+                                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                                }
+                                .frame(width: 44, height: 44)
+                                .accessibilityIdentifier("AgentChatInlinePreviewChatToggle")
+
+                                Button(action: {}) {
+                                    Image(systemName: "rectangle.stack")
+                                }
+                                .frame(width: 44, height: 44)
+                                .accessibilityIdentifier("AgentChatInlinePreviewTerminalPicker")
+                            }
+                            .frame(width: 96, height: 44, alignment: .trailing)
                         }
-                        .accessibilityIdentifier("AgentChatInlinePreviewChatToggle")
-                        Button(action: {}) {
-                            Image(systemName: "rectangle.stack")
-                        }
-                        .accessibilityIdentifier("AgentChatInlinePreviewTerminalPicker")
                     }
                 }
         }

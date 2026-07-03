@@ -46,8 +46,6 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
-    /// Live pane width for capping the leading glass title pill.
-    @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State private var terminalPickerRows: [TerminalPickerMenuRow] = []
@@ -80,7 +78,6 @@ struct WorkspaceDetailView: View {
 
         #if os(iOS)
         content
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()
             .toolbar { workspaceDetailToolbar }
@@ -132,16 +129,14 @@ struct WorkspaceDetailView: View {
             workspaceTitleToolbarMenu
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            toolbarTrailingCluster
+            MobileToolbarPriorityHost(role: .fixedTrailingControls) {
+                toolbarTrailingCluster
+            }
         }
     }
 
     private var workspaceTitleToolbarMenu: some View {
         WorkspaceTitleMenu(
-            contentWidth: contentWidth,
-            hasBackButton: backButtonConfiguration != nil,
-            hasTrailingCluster: true,
-            hasChatToggle: shouldShowChatToggle,
             isEnabled: hasTitleMenuActions,
             menuContent: { titleMenuContent }
         ) {

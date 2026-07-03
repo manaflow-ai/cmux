@@ -1,46 +1,64 @@
 import SwiftUI
 
 struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
-    let contentWidth: CGFloat
-    let hasBackButton: Bool
-    let hasTrailingCluster: Bool
-    let hasChatToggle: Bool
     var isEnabled = true
     @ViewBuilder let menuContent: () -> MenuContent
     @ViewBuilder let label: () -> Label
 
     @ViewBuilder
     var body: some View {
-        if isEnabled {
-            Menu {
-                menuContent()
-            } label: {
-                fittedLabel
+        MobileToolbarPriorityHost(role: .compressibleTitle) {
+            if isEnabled {
+                Menu {
+                    menuContent()
+                } label: {
+                    fittedLabel
+                }
+                .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+            } else {
+                Button {} label: {
+                    fittedLabel
+                }
+                .allowsHitTesting(false)
+                .accessibilityRemoveTraits(.isButton)
+                .accessibilityIdentifier("MobileWorkspaceTitleMenu")
             }
-            .accessibilityIdentifier("MobileWorkspaceTitleMenu")
-        } else {
-            Button {} label: {
-                fittedLabel
-            }
-            .allowsHitTesting(false)
-            .accessibilityRemoveTraits(.isButton)
-            .accessibilityIdentifier("MobileWorkspaceTitleMenu")
         }
     }
 
     private var fittedLabel: some View {
-        let cap = MobileLeadingToolbarTitleWidth(
-            contentWidth: contentWidth,
-            hasBackButton: hasBackButton,
-            hasTrailingCluster: hasTrailingCluster,
-            hasChatToggle: hasChatToggle
-        ).cap
+        label()
+            .layoutPriority(MobileToolbarItemLayoutRole.compressibleTitle.swiftUILayoutPriority)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
 
-        return label()
-            .frame(
-                minWidth: min(MobileLeadingToolbarTitleWidth.floor, cap),
-                maxWidth: cap,
-                alignment: .leading
-            )
+enum MobileToolbarItemLayoutRole {
+    case compressibleTitle
+    case fixedTrailingControls
+
+    var swiftUILayoutPriority: Double {
+        switch self {
+        case .compressibleTitle:
+            return -1
+        case .fixedTrailingControls:
+            return 1
+        }
+    }
+}
+
+struct MobileToolbarPriorityHost<Content: View>: View {
+    let role: MobileToolbarItemLayoutRole
+    let content: Content
+
+    init(role: MobileToolbarItemLayoutRole, @ViewBuilder content: () -> Content) {
+        self.role = role
+        self.content = content()
+    }
+
+    @ViewBuilder
+    var body: some View {
+        content
+            .layoutPriority(role.swiftUILayoutPriority)
     }
 }
