@@ -2802,6 +2802,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     private var pendingWebContentRecoveryURL: URL?
+    private(set) var hasPendingMediaCapturePermission = false
 
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
@@ -3049,6 +3050,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var loadingStartedAt: Date?
     private var loadingEndWorkItem: DispatchWorkItem?
     private var loadingGeneration: Int = 0
+    private let mediaCapturePermissionPendingTimeout: TimeInterval = 300
+    // WebKit has no denial/dismiss callback after `.prompt`, so bound this blocker with a one-shot deadline.
+    private var mediaCapturePermissionFallbackTimer: DispatchSourceTimer?
 
     private var faviconTask: Task<Void, Never>?
     private var faviconRefreshGeneration: Int = 0
@@ -3101,10 +3105,58 @@ final class BrowserPanel: Panel, ObservableObject {
         if let isPlayingAudio { next.isPlayingAudio = isPlayingAudio }
         if let isUsingMicrophone { next.isUsingMicrophone = isUsingMicrophone }
         if let isUsingCamera { next.isUsingCamera = isUsingCamera }
-        guard next != mediaActivity else { return }
+        let clearedPendingPermission = (next.isUsingMicrophone || next.isUsingCamera)
+            && setPendingMediaCapturePermission(false, reason: "media_capture_started", reevaluate: false)
+        guard next != mediaActivity else {
+            if clearedPendingPermission {
+                reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_started")
+            }
+            return
+        }
         mediaActivity = next
         onMediaActivityChanged?(next)
-        reevaluateHiddenWebViewDiscardScheduling(reason: reason)
+        reevaluateHiddenWebViewDiscardScheduling(reason: clearedPendingPermission ? "media_capture_started" : reason)
+    }
+
+    private func noteMediaCapturePermissionRequested(for requestedWebView: WKWebView) {
+        guard isCurrentWebView(requestedWebView) else { return }
+        setPendingMediaCapturePermission(true, reason: "media_permission_requested")
+    }
+
+    @discardableResult
+    private func clearPendingMediaCapturePermission(reason: String) -> Bool {
+        setPendingMediaCapturePermission(false, reason: reason)
+    }
+
+    @discardableResult
+    private func setPendingMediaCapturePermission(_ pending: Bool, reason: String, reevaluate: Bool = true) -> Bool {
+        guard hasPendingMediaCapturePermission != pending else { return false }
+        hasPendingMediaCapturePermission = pending
+        if pending {
+            armMediaCapturePermissionFallbackTimer()
+        } else {
+            mediaCapturePermissionFallbackTimer?.cancel()
+            mediaCapturePermissionFallbackTimer = nil
+        }
+        if reevaluate {
+            reevaluateHiddenWebViewDiscardScheduling(reason: reason)
+        }
+        return true
+    }
+
+    private func armMediaCapturePermissionFallbackTimer() {
+        mediaCapturePermissionFallbackTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + mediaCapturePermissionPendingTimeout)
+        timer.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.mediaCapturePermissionFallbackTimer = nil
+                self.setPendingMediaCapturePermission(false, reason: "media_permission_timeout")
+            }
+        }
+        mediaCapturePermissionFallbackTimer = timer
+        timer.resume()
     }
 
     /// Folds a per-frame playback report into retention and audio-glyph state.
@@ -3312,6 +3364,7 @@ final class BrowserPanel: Panel, ObservableObject {
             isWebViewVisibleInUI = false
         }
         hiddenWebViewDiscardManager.resetMetadata()
+        setPendingMediaCapturePermission(false, reason: "lifecycle_reset", reevaluate: false)
         isClosingWebViewLifecycle = false
     }
 
@@ -3820,6 +3873,7 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = true
+                self.clearPendingMediaCapturePermission(reason: "navigation_started")
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
             }
@@ -4044,7 +4098,7 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
         }
         navDelegate.didTerminateWebContentProcess = { [weak self] webView in
-            self?.replaceWebViewAfterContentProcessTermination(for: webView)
+            self?.handleWebContentProcessTermination(for: webView)
         }
         // Set up download delegate for navigation-based downloads.
         // Downloads save to a temp file synchronously (no UI during WebKit
@@ -4174,6 +4228,9 @@ final class BrowserPanel: Panel, ObservableObject {
             cmuxDebugLog("browser.webViewDidClose panel=\(self.id.uuidString.prefix(5))")
 #endif
             self.webViewDidRequestClose?()
+        }
+        browserUIDelegate.mediaCapturePermissionRequested = { [weak self] webView in
+            self?.noteMediaCapturePermissionRequested(for: webView)
         }
         self.uiDelegate = browserUIDelegate
 
@@ -5134,35 +5191,68 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
-    private func replaceWebViewAfterContentProcessTermination(for terminatedWebView: WKWebView) {
-        replaceWebViewPreservingState(
-            from: terminatedWebView,
-            websiteDataStore: websiteDataStore,
-            reason: "webcontent_process_terminated",
-            waitForManualRecovery: true
+    private func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
+        guard terminatedWebView === webView else { return }
+
+        let wasRenderable = shouldRenderWebView
+        let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
+            ?? navigationDelegate?.lastAttemptedURL
+        let liveURL = restorableDisplayURLForCurrentErrorPage(liveURL: terminatedWebView.url)
+        let recoveryURL = (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
+            ?? liveURL
+            ?? attemptedURL
+            ?? resolvedCurrentSessionHistoryURL()
+        let recoveryURLString = recoveryURL?.absoluteString
+        let hasRecoveryTarget = recoveryURLString != nil && recoveryURLString != blankURLString
+
+        loadingGeneration &+= 1
+        loadingEndWorkItem?.cancel()
+        loadingEndWorkItem = nil
+        isMainFrameProvisionalNavigationActive = false
+        isLoading = false
+        estimatedProgress = 0
+
+        if wasRenderable, hasRecoveryTarget, let recoveryURL {
+            pendingWebContentRecoveryURL = recoveryURL
+            hasRecoverableWebContentTermination = true
+            hideBrowserPortalView(source: "webContentRecovery")
+        } else {
+            clearWebContentTerminationRecovery()
+        }
+        refreshNavigationAvailability()
+        refreshWebViewLifecycleState()
+
+#if DEBUG
+        cmuxDebugLog(
+            "browser.webcontent.terminated panel=\(id.uuidString.prefix(5)) " +
+            "renderable=\(wasRenderable ? 1 : 0) recoveryURL=\(recoveryURLString ?? "nil") " +
+            "manualRecovery=\(hasRecoverableWebContentTermination ? 1 : 0)"
         )
+#endif
     }
 
+    @discardableResult
     private func replaceWebViewPreservingState(
         from oldWebView: WKWebView,
         websiteDataStore: WKWebsiteDataStore,
         reason: String,
-        waitForManualRecovery: Bool = false
-    ) {
-        guard oldWebView === webView else { return }
+        overrideRestoreURL: URL? = nil,
+        restoreAfterReplacement: Bool = true
+    ) -> Bool {
+        guard oldWebView === webView else { return false }
 
         let wasRenderable = shouldRenderWebView
         let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
             ?? navigationDelegate?.lastAttemptedURL
         let liveURL = restorableDisplayURLForCurrentErrorPage(liveURL: oldWebView.url)
-        let restoreURL = (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
+        let restoreURL = overrideRestoreURL
+            ?? (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
             ?? liveURL
             ?? attemptedURL
             ?? resolvedCurrentSessionHistoryURL()
         let restoreURLString = restoreURL?.absoluteString
         let hasRecoveryTarget = restoreURLString != nil && restoreURLString != blankURLString
         let shouldRestoreURL = wasRenderable && hasRecoveryTarget
-        let shouldShowManualRecovery = waitForManualRecovery && wasRenderable && hasRecoveryTarget
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar()
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
@@ -5223,9 +5313,8 @@ final class BrowserPanel: Panel, ObservableObject {
             )
         }
 
-        if shouldShowManualRecovery, let restoreURL {
-            pendingWebContentRecoveryURL = restoreURL
-            hasRecoverableWebContentTermination = true
+        if !restoreAfterReplacement {
+            clearWebContentTerminationRecovery()
             refreshNavigationAvailability()
         } else {
             clearWebContentTerminationRecovery()
@@ -5252,6 +5341,7 @@ final class BrowserPanel: Panel, ObservableObject {
             "restoreURL=\(restoreURLString ?? "nil") shouldRestore=\(shouldRestoreURL ? 1 : 0)"
         )
 #endif
+        return true
     }
 
     @discardableResult
@@ -5261,13 +5351,24 @@ final class BrowserPanel: Panel, ObservableObject {
     ) -> Bool {
         guard hasRecoverableWebContentTermination else { return false }
         let recoveryURL = pendingWebContentRecoveryURL
-        clearWebContentTerminationRecovery()
+        let terminatedWebView = webView
 #if DEBUG
         cmuxDebugLog(
             "browser.webcontent.recover panel=\(id.uuidString.prefix(5)) " +
             "reason=\(reason) url=\(recoveryURL?.absoluteString ?? "nil")"
         )
 #endif
+        guard replaceWebViewPreservingState(
+            from: terminatedWebView,
+            websiteDataStore: websiteDataStore,
+            reason: "webcontent_recovery.\(reason)",
+            overrideRestoreURL: recoveryURL,
+            restoreAfterReplacement: false
+        ) else {
+            clearWebContentTerminationRecovery()
+            refreshNavigationAvailability()
+            return true
+        }
         guard let recoveryURL else {
             refreshNavigationAvailability()
             return true
@@ -5285,12 +5386,6 @@ final class BrowserPanel: Panel, ObservableObject {
         pendingWebContentRecoveryURL = nil
         hasRecoverableWebContentTermination = false
     }
-
-#if DEBUG
-    func debugSimulateWebContentProcessTermination() {
-        replaceWebViewAfterContentProcessTermination(for: webView)
-    }
-#endif
 
     // MARK: - Panel Protocol
 
@@ -6025,6 +6120,8 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.stop()
         developerToolsRestoreRetryWorkItem?.cancel()
         developerToolsRestoreRetryWorkItem = nil
+        mediaCapturePermissionFallbackTimer?.cancel()
+        mediaCapturePermissionFallbackTimer = nil
         developerToolsTransitionSettleWorkItem?.cancel()
         developerToolsTransitionSettleWorkItem = nil
         developerToolsVisibilityLossCheckWorkItem?.cancel()
@@ -6056,6 +6153,8 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isLoading: isLoading,
             webViewIsLoading: webView.isLoading,
             hasActiveMainFrameProvisionalNavigation: isMainFrameProvisionalNavigationActive,
+            hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
+            hasPendingMediaCapturePermission: hasPendingMediaCapturePermission,
             isDownloading: isDownloading,
             activeDownloadCount: activeDownloadCount,
             preferredDeveloperToolsVisible: preferredDeveloperToolsVisible,
@@ -8694,6 +8793,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
     var closeRequested: ((WKWebView) -> Void)?
+    var mediaCapturePermissionRequested: ((WKWebView) -> Void)?
 
     func webViewDidClose(_ webView: WKWebView) {
         closeRequested?(webView)
@@ -8859,6 +8959,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         type: WKMediaCaptureType,
         decisionHandler: @escaping (WKPermissionDecision) -> Void
     ) {
+        mediaCapturePermissionRequested?(webView)
         decisionHandler(.prompt)
     }
 

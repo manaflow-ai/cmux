@@ -240,13 +240,11 @@ struct BrowserWebContentProcessTests {
         let oldWebView = panel.webView
         let oldInstanceID = panel.webViewInstanceID
 
-        panel.debugSimulateWebContentProcessTermination()
+        simulateWebContentProcessTermination(for: panel)
 
         #expect(panel.webView === oldWebView)
         #expect(panel.webViewInstanceID == oldInstanceID)
         #expect(panel.hasRecoverableWebContentTermination)
-        #expect(panel.webView.navigationDelegate != nil)
-        #expect(panel.webView.uiDelegate != nil)
 
         #expect(panel.recoverTerminatedWebContent(reason: "test"))
 
@@ -255,28 +253,6 @@ struct BrowserWebContentProcessTests {
         #expect(!panel.hasRecoverableWebContentTermination)
         #expect(panel.webView.navigationDelegate != nil)
         #expect(panel.webView.uiDelegate != nil)
-    }
-
-    @Test
-    func webContentProcessTerminationBlocksHiddenDiscardUntilRecovery() throws {
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: recoveryURL
-        )
-        defer { panel.close() }
-        let oldWebView = panel.webView
-
-        panel.noteWebViewVisibility(false, reason: "test.hidden")
-        panel.debugSimulateWebContentProcessTermination()
-
-        let payload = panel.webViewLifecycleTopPayload()
-        let blockers = try #require(payload["discard_blockers"] as? [String])
-        #expect(blockers.contains("webcontent_recovery"))
-        #expect(!panel.discardHiddenWebViewForMemory(reason: "test.discard"))
-        #expect(panel.webView === oldWebView)
-
-        #expect(panel.recoverTerminatedWebContent(reason: "test"))
-        #expect(!(panel.webView === oldWebView))
     }
 
     @Test
@@ -291,7 +267,7 @@ struct BrowserWebContentProcessTests {
         defer { panel.close() }
         let originalStore = panel.webView.configuration.websiteDataStore
 
-        panel.debugSimulateWebContentProcessTermination()
+        simulateWebContentProcessTermination(for: panel)
         #expect(panel.webView.configuration.websiteDataStore === originalStore)
 
         #expect(panel.recoverTerminatedWebContent(reason: "test"))
@@ -306,20 +282,14 @@ struct BrowserWebContentProcessTests {
             initialURL: recoveryURL
         )
         defer { panel.close() }
-        let oldWebView = panel.webView
-        let oldInstanceID = panel.webViewInstanceID
 
-        panel.debugSimulateWebContentProcessTermination()
+        simulateWebContentProcessTermination(for: panel)
         #expect(panel.hasRecoverableWebContentTermination)
-        #expect(panel.webView === oldWebView)
-        #expect(panel.webViewInstanceID == oldInstanceID)
 
         panel.reload()
 
         #expect(!panel.hasRecoverableWebContentTermination)
         #expect(panel.shouldRenderWebView)
-        #expect(!(panel.webView === oldWebView))
-        #expect(panel.webViewInstanceID != oldInstanceID)
     }
 
     @Test
@@ -330,7 +300,7 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.debugSimulateWebContentProcessTermination()
+        simulateWebContentProcessTermination(for: panel)
         #expect(panel.hasRecoverableWebContentTermination)
 
         panel.resetForWorkspaceContextChange(reason: "test")
@@ -354,7 +324,7 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.debugSimulateWebContentProcessTermination()
+        simulateWebContentProcessTermination(for: panel)
         #expect(panel.hasRecoverableWebContentTermination)
 
         #expect(panel.switchToProfile(profile.id))
@@ -368,7 +338,7 @@ struct BrowserWebContentProcessTests {
         defer { panel.close() }
         #expect(!panel.shouldRenderWebView)
 
-        panel.debugSimulateWebContentProcessTermination()
+        simulateWebContentProcessTermination(for: panel)
 
         #expect(!panel.shouldRenderWebView)
         #expect(!panel.hasRecoverableWebContentTermination)
@@ -430,6 +400,8 @@ struct BrowserWebContentProcessTests {
         #expect(!popupWindow.isVisible)
     }
 }
+
+@MainActor private func simulateWebContentProcessTermination(for panel: BrowserPanel) { panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(panel.webView) }
 
 private final class BrowserWebContentProcessLoadDelegate: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Error>?

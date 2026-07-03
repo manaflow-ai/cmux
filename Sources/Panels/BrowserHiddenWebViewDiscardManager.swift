@@ -28,6 +28,8 @@ final class BrowserHiddenWebViewDiscardManager {
         let isLoading: Bool
         let webViewIsLoading: Bool
         let hasActiveMainFrameProvisionalNavigation: Bool
+        let hasRecoverableWebContentTermination: Bool
+        let hasPendingMediaCapturePermission: Bool
         let isDownloading: Bool
         let activeDownloadCount: Int
         let preferredDeveloperToolsVisible: Bool
@@ -71,12 +73,15 @@ final class BrowserHiddenWebViewDiscardManager {
         discardTimer != nil
     }
 
-    func blockers(for snapshot: BlockerSnapshot) -> [String] {
+    func blockers(for snapshot: BlockerSnapshot, now: Date = Date()) -> [String] {
         var blockers: [String] = []
         if !BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: policyDefaults) {
             blockers.append("policy_disabled")
         }
         if isSystemSleeping { blockers.append("system_sleeping") }
+        if snapshot.hasRecoverableWebContentTermination {
+            blockers.append("webcontent_recovery")
+        }
         if snapshot.isClosing { blockers.append("closing") }
         if isDiscardedForMemory { blockers.append("already_discarded") }
         if snapshot.isVisibleInUI { blockers.append("visible") }
@@ -85,6 +90,7 @@ final class BrowserHiddenWebViewDiscardManager {
         if !snapshot.hasCurrentURL { blockers.append("no_url") }
         if snapshot.isLoading || snapshot.webViewIsLoading { blockers.append("loading") }
         if snapshot.hasActiveMainFrameProvisionalNavigation { blockers.append("provisional_navigation") }
+        if snapshot.hasPendingMediaCapturePermission { blockers.append("media_permission") }
         if snapshot.isDownloading || snapshot.activeDownloadCount != 0 { blockers.append("download") }
         if snapshot.isCapturingMedia { blockers.append("media_capture") }
         if snapshot.isPlayingMedia { blockers.append("media_playback") }
@@ -104,7 +110,7 @@ final class BrowserHiddenWebViewDiscardManager {
         discardTimer = nil
 
         guard let delegate else { return }
-        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return }
+        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot, now: now).isEmpty else { return }
 
         let observedWebViewInstanceID = delegate.hiddenWebViewDiscardWebViewInstanceID
         let generation = scheduleGeneration
@@ -143,7 +149,7 @@ final class BrowserHiddenWebViewDiscardManager {
     @discardableResult
     func requestImmediateDiscardIfSafe(reason: String, now: Date = Date()) -> Bool {
         guard let delegate else { return false }
-        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return false }
+        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot, now: now).isEmpty else { return false }
         guard delegate.hiddenWebViewDiscardHiddenAt != nil else {
             scheduleIfNeeded(reason: reason, now: now)
             return false

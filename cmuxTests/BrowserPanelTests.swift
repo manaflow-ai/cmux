@@ -97,7 +97,6 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
         reason: String
     ) {}
 }
-
 @MainActor
 private func makeHiddenWebViewDiscardBlockerSnapshot(
     hasActiveMainFrameProvisionalNavigation: Bool = false,
@@ -114,6 +113,7 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
         isLoading: false,
         webViewIsLoading: false,
         hasActiveMainFrameProvisionalNavigation: hasActiveMainFrameProvisionalNavigation,
+        hasRecoverableWebContentTermination: false, hasPendingMediaCapturePermission: false,
         isDownloading: false,
         activeDownloadCount: 0,
         preferredDeveloperToolsVisible: false,

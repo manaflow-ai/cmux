@@ -1809,7 +1809,7 @@ struct BrowserPanelView: View {
             canvasInlineBrowserHosting
 
         return Group {
-            if panel.shouldRenderWebView {
+            if panel.shouldRenderWebView && !panel.hasRecoverableWebContentTermination {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,
