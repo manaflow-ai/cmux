@@ -18,7 +18,9 @@ public struct MobileMacPowerHolder: Decodable, Sendable, Equatable, Identifiable
     public let detail: String?
 
     /// Stable per-row identity for SwiftUI lists.
-    public var id: Int { pid }
+    public var id: String {
+        "\(pid)|\(processName)|\(assertionTypes.joined(separator: ","))|\(detail ?? "")"
+    }
 
     private enum CodingKeys: String, CodingKey {
         case pid
