@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+@preconcurrency import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -75,7 +76,7 @@ struct TabManagerRedrawSurfacesTests {
 
         #expect(panel.surface.debugForceRefreshCount() == 1)
 #else
-        Issue.record("DEBUG-only terminal surface refresh instrumentation is required")
+        throw XCTSkip("DEBUG-only terminal surface refresh instrumentation is required")
 #endif
     }
 
