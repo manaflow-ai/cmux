@@ -11,20 +11,28 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     private static let longWorkspaceTitle = "Extremely Long Workspace Title That Should Truncate Before Toolbar Buttons Overflow"
     private static let longTerminalTitle = "Long Agent Session Subtitle That Should Also Truncate First"
 
-    @State private var store = MobileShellComposite(
-        isSignedIn: true,
-        connectionState: .connected,
-        connectedHostName: "UI Test Mac",
-        workspaces: [
-            workspaceDetailDelayedTerminalPreviewWorkspace(
-                id: Self.workspaceID,
-                name: Self.workspaceTitle,
-                terminals: []
-            ),
-        ]
-    )
+    private let previewWorkspaceBuilder: WorkspaceDetailDelayedTerminalPreviewWorkspaceBuilder
+
+    @State private var store: MobileShellComposite
     @State private var browserStore = BrowserSurfaceStore()
     @State private var didInjectTerminal = false
+
+    init() {
+        let previewWorkspaceBuilder = WorkspaceDetailDelayedTerminalPreviewWorkspaceBuilder()
+        self.previewWorkspaceBuilder = previewWorkspaceBuilder
+        _store = State(initialValue: MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            connectedHostName: "UI Test Mac",
+            workspaces: [
+                previewWorkspaceBuilder.make(
+                    id: Self.workspaceID,
+                    name: Self.workspaceTitle,
+                    terminals: []
+                ),
+            ]
+        ))
+    }
 
     var body: some View {
         WorkspaceShellView(
@@ -39,7 +47,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             store.selectedWorkspaceID = Self.workspaceID
             try? await ContinuousClock().sleep(for: .milliseconds(1_500))
             guard !Task.isCancelled else { return }
-            let workspace = workspaceDetailDelayedTerminalPreviewWorkspace(
+            let workspace = previewWorkspaceBuilder.make(
                 id: Self.workspaceID,
                 name: Self.workspaceTitle,
                 terminals: [
@@ -85,22 +93,24 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     }
 }
 
-private let workspaceDetailDelayedTerminalActionCapabilities = MobileWorkspaceActionCapabilities(
-    supportsWorkspaceActions: true,
-    supportsReadStateActions: true
-)
-
-private func workspaceDetailDelayedTerminalPreviewWorkspace(
-    id: MobileWorkspacePreview.ID,
-    name: String,
-    terminals: [MobileTerminalPreview]
-) -> MobileWorkspacePreview {
-    var workspace = MobileWorkspacePreview(
-        id: id,
-        name: name,
-        terminals: terminals
+private struct WorkspaceDetailDelayedTerminalPreviewWorkspaceBuilder {
+    private let actionCapabilities = MobileWorkspaceActionCapabilities(
+        supportsWorkspaceActions: true,
+        supportsReadStateActions: true
     )
-    workspace.actionCapabilities = workspaceDetailDelayedTerminalActionCapabilities
-    return workspace
+
+    func make(
+        id: MobileWorkspacePreview.ID,
+        name: String,
+        terminals: [MobileTerminalPreview]
+    ) -> MobileWorkspacePreview {
+        var workspace = MobileWorkspacePreview(
+            id: id,
+            name: name,
+            terminals: terminals
+        )
+        workspace.actionCapabilities = actionCapabilities
+        return workspace
+    }
 }
 #endif
