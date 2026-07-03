@@ -1723,7 +1723,10 @@ struct TextBoxInputContainer: View {
         let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
         let foreground = Color(nsColor: terminalForegroundColor)
         let background = Color(nsColor: terminalBackgroundColor)
-        let canSend = TextBoxInputInteractionPolicy().shouldEnableSubmit(
+        // Base submit availability (our interaction-policy check), then main's
+        // submit-button wrapper folds in provider-launch / force-text-entry /
+        // command-template overrides.
+        let baseCanSend = TextBoxInputInteractionPolicy().shouldEnableSubmit(
             text: text,
             attachmentCount: attachments.count + pendingCommentCount,
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
