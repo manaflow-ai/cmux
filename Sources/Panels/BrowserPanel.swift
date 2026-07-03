@@ -3177,6 +3177,18 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshAudioMediaActivity(reason: "media_playback_reset")
     }
 
+    private func resetMediaStateAfterWebContentTermination() {
+        setPendingMediaCapturePermission(false, reason: "webContentProcessTerminated", reevaluate: false)
+        (playingMediaFrameIDs, audibleMediaFrameIDs) = ([], [])
+        isPlayingMedia = false
+        setMediaActivity(
+            isPlayingAudio: false,
+            isUsingMicrophone: false,
+            isUsingCamera: false,
+            reason: "webContentProcessTerminated"
+        )
+    }
+
     private func refreshAudioMediaActivity(reason: String) { setMediaActivity(isPlayingAudio: !audibleMediaFrameIDs.isEmpty && !isMuted, reason: reason) }
     var pendingReactGrabReturnTargetPanelId: UUID?
     var pendingReactGrabRoundTripToken: String?
@@ -5232,6 +5244,7 @@ final class BrowserPanel: Panel, ObservableObject {
         isLoading = false
         estimatedProgress = 0
         cancelPendingInteractiveBrowserPrompts(reason: "webContentProcessTerminated")
+        resetMediaStateAfterWebContentTermination()
 
         if wasRenderable, hasRecoveryTarget, let recoveryURL {
             pendingWebContentRecoveryURL = recoveryURL
@@ -6183,8 +6196,9 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isReactGrabActive: isReactGrabActive,
             isVisualAutomationCaptureActive: activeVisualAutomationCaptureCount > 0,
             hasPopups: !popupControllers.isEmpty,
-            isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none,
-            isPlayingMedia: isPlayingMedia
+            isCapturingMedia: !hasRecoverableWebContentTermination &&
+                (webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none),
+            isPlayingMedia: !hasRecoverableWebContentTermination && isPlayingMedia
         )
     }
 
@@ -8193,6 +8207,12 @@ extension BrowserPanel {
     }
 
     private func refreshNavigationAvailability() {
+        if hasRecoverableWebContentTermination {
+            if canGoBack { canGoBack = false }
+            if canGoForward { canGoForward = false }
+            return
+        }
+
         let availability = restoredSessionHistory.availability(
             nativeCanGoBack: nativeCanGoBack,
             nativeCanGoForward: nativeCanGoForward

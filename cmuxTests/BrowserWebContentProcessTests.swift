@@ -267,6 +267,9 @@ struct BrowserWebContentProcessTests {
         let oldWebView = panel.webView
         let oldInstanceID = panel.webViewInstanceID
         let now = Date(timeIntervalSince1970: 3_000)
+        panel.applyMediaPlaybackReport(frameID: "main", isPlaying: true, isAudible: true)
+        #expect(panel.isPlayingMedia)
+        #expect(panel.isPlayingAudio)
 
         simulateWebContentProcessTermination(for: panel)
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: now)
@@ -275,6 +278,8 @@ struct BrowserWebContentProcessTests {
         #expect(panel.webViewInstanceID == oldInstanceID)
         #expect(panel.hasRecoverableWebContentTermination)
         #expect(!panel.shouldAttachWebViewInUI)
+        #expect(!panel.isPlayingMedia)
+        #expect(!panel.isPlayingAudio)
 
         #expect(panel.discardHiddenWebViewForSystemMemoryPressure(now: now.addingTimeInterval(1)))
 
@@ -287,6 +292,35 @@ struct BrowserWebContentProcessTests {
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.visible"))
         #expect(panel.shouldAttachWebViewInUI)
+    }
+
+    @Test
+    func webContentProcessTerminationDisablesHistoryTraversalUntilRecovery() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL
+        )
+        defer { panel.close() }
+        let oldWebView = panel.webView
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: ["https://example.com/a"],
+            forwardHistoryURLStrings: ["https://example.com/d"],
+            currentURLString: "https://example.com/c"
+        )
+        #expect(panel.canGoBack)
+        #expect(panel.canGoForward)
+
+        simulateWebContentProcessTermination(for: panel)
+
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.canGoBack)
+        #expect(!panel.canGoForward)
+
+        panel.goBack()
+        panel.goForward()
+
+        #expect(panel.webView === oldWebView)
+        #expect(panel.hasRecoverableWebContentTermination)
     }
 
     @Test
