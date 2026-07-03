@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shortcut Gap Proof</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f7f4;
+      --ink: #202124;
+      --muted: #61646b;
+      --line: #d7d8d2;
+      --panel: #ffffff;
+      --accent: #0b6bcb;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111315;
+        --ink: #f3f4f6;
+        --muted: #a4a7ae;
+        --line: #34373c;
+        --panel: #1b1e22;
+        --accent: #68a9ff;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      line-height: 1.2;
+    }
+
+    h1 {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    h2 {
+      font-size: 18px;
+      margin: 28px 0 12px;
+    }
+
+    h3 {
+      font-size: 14px;
+      margin: 12px 0 8px;
+    }
+
+    p {
+      margin: 0 0 10px;
+    }
+
+    code {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    a {
+      color: var(--accent);
+    }
+
+    .summary {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 16px;
+      margin: 16px 0 24px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+    }
+
+    figure {
+      margin: 0;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #111;
+    }
+
+    figcaption {
+      padding: 10px 12px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th, td {
+      text-align: left;
+      vertical-align: top;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    th {
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .files {
+      columns: 2 300px;
+      padding-left: 18px;
+    }
+
+    .files li {
+      break-inside: avoid;
+      margin-bottom: 6px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Shortcut Gap Proof</h1>
+    <p>PR <a href="https://github.com/manaflow-ai/cmux/pull/7241">https://github.com/manaflow-ai/cmux/pull/7241</a>, commit <code>d3caf5bab1</code>, tag <code>sgap</code>.</p>
+
+    <section class="summary">
+      <p>The reported defect was a black vertical block between the leading attachment and mic buttons, the shortcut row, and the keyboard/composer material.</p>
+      <p>The fix removes the 14 pt solid <code>systemBackground</code> hard-stop overlay from <code>ChatAccessoryChipRow</code>. The scroll region now relies on its existing rectangular clipping and keeps only the trailing fade when content overflows.</p>
+      <p>Result: SE and Pro simulator screenshots show the keyboard-up composer row without the black block. The tap-based XCUITest captured bottom, middle, and top scroll positions with <code>presentationGap=0.0</code> after the keyboard appeared.</p>
+    </section>
+
+    <h2>Steady Keyboard Screenshots</h2>
+    <div class="grid">
+      <figure>
+        <img src="screenshots/se-keyboard-up.png" alt="iPhone SE keyboard-up composer with no black block">
+        <figcaption>iPhone SE, keyboard up. The prior bad region between leading controls and shortcut strip is continuous.</figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/pro-keyboard-up.png" alt="iPhone Pro keyboard-up composer with no black block">
+        <figcaption>iPhone Pro, keyboard up. The shortcut strip clips without a solid leading block.</figcaption>
+      </figure>
+    </div>
+
+    <h2>Tap-Based XCUITest States</h2>
+    <div class="grid">
+      <figure>
+        <img src="screenshots/pro-bottom-keyboard.png" alt="Bottom scroll position after tapping composer">
+        <figcaption>Bottom scroll position after a real composer tap.</figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/pro-middle-keyboard.png" alt="Middle scroll position after tapping composer">
+        <figcaption>Middle scroll position after a real composer tap.</figcaption>
+      </figure>
+      <figure>
+        <img src="screenshots/pro-top-keyboard.png" alt="Top scroll position after tapping composer">
+        <figcaption>Top scroll position after a real composer tap.</figcaption>
+      </figure>
+    </div>
+
+    <h2>Motion Contact Sheet</h2>
+    <figure>
+      <img src="media/tap-toggle-overlap-contact-sheet.png" alt="Tap-toggle overlap contact sheet">
+      <figcaption>Supplemental tap-toggle frames showing before, keyboard-up, and typed states around the affected composer row.</figcaption>
+    </figure>
+
+    <h2>Metric Checks</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>State</th>
+          <th>Keyboard Overlap</th>
+          <th>Composer Presentation Min Y</th>
+          <th>Presentation Gap</th>
+          <th>Metric File</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Bottom</td>
+          <td><code>301.0</code></td>
+          <td><code>449.0</code></td>
+          <td><code>0.0</code></td>
+          <td><a href="metrics/pro-bottom.txt"><code>metrics/pro-bottom.txt</code></a></td>
+        </tr>
+        <tr>
+          <td>Middle</td>
+          <td><code>301.0</code></td>
+          <td><code>449.0</code></td>
+          <td><code>0.0</code></td>
+          <td><a href="metrics/pro-middle.txt"><code>metrics/pro-middle.txt</code></a></td>
+        </tr>
+        <tr>
+          <td>Top</td>
+          <td><code>301.0</code></td>
+          <td><code>449.0</code></td>
+          <td><code>0.0</code></td>
+          <td><a href="metrics/pro-top.txt"><code>metrics/pro-top.txt</code></a></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Verification</h2>
+    <table>
+      <tbody>
+        <tr>
+          <th>Package tests</th>
+          <td><code>swift test --package-path Packages/iOS/CmuxAgentChatUI</code> passed.</td>
+        </tr>
+        <tr>
+          <th>Build</th>
+          <td><code>xcodebuild -scheme CmuxAgentChatUI -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/cmux-ios-shortcut-gap-agentchatui build</code> passed.</td>
+        </tr>
+        <tr>
+          <th>Tagged reloads</th>
+          <td>macOS tag <code>sgap</code> built. iOS tag <code>sgap</code> installed on isolated SE and Pro simulators.</td>
+        </tr>
+        <tr>
+          <th>UI test</th>
+          <td><code>testAgentChatTranscriptKeepsTopEdgeVisibleWithKeyboardAcrossScrollPositions</code> passed on the isolated Pro simulator.</td>
+        </tr>
+        <tr>
+          <th>Review</th>
+          <td>Autoreview reported no actionable findings. Greptile and CodeRabbit were green on the PR.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Included Files</h2>
+    <ul class="files">
+      <li><a href="screenshots/se-keyboard-up.png"><code>screenshots/se-keyboard-up.png</code></a></li>
+      <li><a href="screenshots/pro-keyboard-up.png"><code>screenshots/pro-keyboard-up.png</code></a></li>
+      <li><a href="screenshots/pro-bottom-keyboard.png"><code>screenshots/pro-bottom-keyboard.png</code></a></li>
+      <li><a href="screenshots/pro-middle-keyboard.png"><code>screenshots/pro-middle-keyboard.png</code></a></li>
+      <li><a href="screenshots/pro-top-keyboard.png"><code>screenshots/pro-top-keyboard.png</code></a></li>
+      <li><a href="media/tap-toggle-overlap-contact-sheet.png"><code>media/tap-toggle-overlap-contact-sheet.png</code></a></li>
+      <li><a href="metrics/pro-bottom.txt"><code>metrics/pro-bottom.txt</code></a></li>
+      <li><a href="metrics/pro-middle.txt"><code>metrics/pro-middle.txt</code></a></li>
+      <li><a href="metrics/pro-top.txt"><code>metrics/pro-top.txt</code></a></li>
+    </ul>
+  </main>
+</body>
+</html>
