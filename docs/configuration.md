@@ -2,6 +2,22 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## `paneBorderColor` and `activePaneBorderColor`
+
+Customize split-workspace pane boundaries controlled by cmux.
+
+```json
+{
+  "paneBorderColor": "#6B7280",
+  "activePaneBorderColor": "#3B82F6"
+}
+```
+
+- `paneBorderColor`: overrides the divider color between cmux panes in split workspaces.
+- `activePaneBorderColor`: draws a border around the focused cmux pane in split workspaces.
+
+Both settings accept 6-digit hex colors (`#RRGGBB`). Omit a key, or set it to `null`, to keep the built-in appearance. These settings apply to cmux's multi-surface pane layout, not Ghostty's internal splits; Ghostty settings such as `split-divider-color` still only affect splits inside one Ghostty instance.
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
