@@ -1760,7 +1760,8 @@
       "amp": "Терминал для Amp",
       "cursorCli": "Терминал для Cursor CLI",
       "keyboardShortcuts": "Клавиатурные сокращения",
-      "browserAutomation": "Автоматизация браузера"
+      "browserAutomation": "Автоматизация браузера",
+      "compare": "Сравнить cmux"
     },
     "agents": {
       "metaTitle": "Терминал для агентов кодирования: cmux",

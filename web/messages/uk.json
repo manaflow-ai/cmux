@@ -2276,7 +2276,8 @@
       "amp": "Термінал для Amp",
       "cursorCli": "Термінал для Cursor CLI",
       "keyboardShortcuts": "Клавіатурні скорочення",
-      "browserAutomation": "Автоматизація браузера"
+      "browserAutomation": "Автоматизація браузера",
+      "compare": "Порівняти cmux"
     },
     "agents": {
       "metaTitle": "Термінал для агентів кодування: cmux",

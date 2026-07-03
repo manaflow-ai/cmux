@@ -2028,7 +2028,8 @@
       "amp": "為 Amp 打造的終端機",
       "cursorCli": "為 Cursor CLI 打造的終端機",
       "keyboardShortcuts": "鍵盤快捷鍵",
-      "browserAutomation": "瀏覽器自動化"
+      "browserAutomation": "瀏覽器自動化",
+      "compare": "比較 cmux"
     },
     "agents": {
       "metaTitle": "為編程 agent 打造的終端機 | cmux",

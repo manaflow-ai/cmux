@@ -2193,7 +2193,8 @@
       "amp": "เทอร์มินัลสำหรับ Amp",
       "cursorCli": "เทอร์มินัลสำหรับ Cursor CLI",
       "keyboardShortcuts": "คีย์ลัด",
-      "browserAutomation": "ระบบอัตโนมัติของเบราว์เซอร์"
+      "browserAutomation": "ระบบอัตโนมัติของเบราว์เซอร์",
+      "compare": "เปรียบเทียบ cmux"
     },
     "agents": {
       "metaTitle": "เทอร์มินัลสำหรับเอเจนต์เขียนโค้ด | cmux",

@@ -2395,7 +2395,8 @@
       "amp": "Amp のためのターミナル",
       "cursorCli": "Cursor CLI のためのターミナル",
       "keyboardShortcuts": "キーボードショートカット",
-      "browserAutomation": "ブラウザ自動化"
+      "browserAutomation": "ブラウザ自動化",
+      "compare": "cmuxを比較"
     },
     "agents": {
       "metaTitle": "コーディングエージェントのためのターミナル | cmux",

@@ -1760,7 +1760,8 @@
       "amp": "Um terminal para o Amp",
       "cursorCli": "Um terminal para o Cursor CLI",
       "keyboardShortcuts": "Atalhos de teclado",
-      "browserAutomation": "Automação de navegador"
+      "browserAutomation": "Automação de navegador",
+      "compare": "Comparar cmux"
     },
     "agents": {
       "metaTitle": "Um terminal para agentes de código: cmux",

@@ -2193,7 +2193,8 @@
       "amp": "En terminal til Amp",
       "cursorCli": "En terminal til Cursor CLI",
       "keyboardShortcuts": "Tastaturgenveje",
-      "browserAutomation": "Browserautomatisering"
+      "browserAutomation": "Browserautomatisering",
+      "compare": "Sammenlign cmux"
     },
     "agents": {
       "metaTitle": "En terminal til kodningsagenter: cmux",

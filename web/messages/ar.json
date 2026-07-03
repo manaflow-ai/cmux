@@ -1760,7 +1760,8 @@
       "amp": "محطة طرفية لتشغيل Amp",
       "cursorCli": "محطة طرفية لتشغيل Cursor CLI",
       "keyboardShortcuts": "اختصارات لوحة المفاتيح",
-      "browserAutomation": "أتمتة المتصفح"
+      "browserAutomation": "أتمتة المتصفح",
+      "compare": "قارن cmux"
     },
     "agents": {
       "metaTitle": "محطة طرفية لوكلاء البرمجة: cmux",

@@ -1760,7 +1760,8 @@
       "amp": "En terminal for Amp",
       "cursorCli": "En terminal for Cursor CLI",
       "keyboardShortcuts": "Hurtigtaster",
-      "browserAutomation": "Browser-automatisering"
+      "browserAutomation": "Browser-automatisering",
+      "compare": "Sammenlign cmux"
     },
     "agents": {
       "metaTitle": "En terminal for kodeagenter: cmux",

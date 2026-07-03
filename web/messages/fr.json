@@ -2193,7 +2193,8 @@
       "amp": "Un terminal pour Amp",
       "cursorCli": "Un terminal pour Cursor CLI",
       "keyboardShortcuts": "Raccourcis clavier",
-      "browserAutomation": "Automatisation du navigateur"
+      "browserAutomation": "Automatisation du navigateur",
+      "compare": "Comparer cmux"
     },
     "agents": {
       "metaTitle": "Un terminal pour agents de programmation : cmux",

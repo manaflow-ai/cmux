@@ -2193,7 +2193,8 @@
       "amp": "Terminal dla Amp",
       "cursorCli": "Terminal dla Cursor CLI",
       "keyboardShortcuts": "Skróty klawiszowe",
-      "browserAutomation": "Automatyzacja przeglądarki"
+      "browserAutomation": "Automatyzacja przeglądarki",
+      "compare": "Porównaj cmux"
     },
     "agents": {
       "metaTitle": "Terminal dla agentów kodujących: cmux",

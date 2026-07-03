@@ -2193,7 +2193,8 @@
       "amp": "Amp için bir terminal",
       "cursorCli": "Cursor CLI için bir terminal",
       "keyboardShortcuts": "Klavye kısayolları",
-      "browserAutomation": "Tarayıcı otomasyonu"
+      "browserAutomation": "Tarayıcı otomasyonu",
+      "compare": "cmux'u karşılaştır"
     },
     "agents": {
       "metaTitle": "Kodlama ajanları için bir terminal: cmux",

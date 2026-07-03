@@ -1760,7 +1760,8 @@
       "amp": "Terminal za Amp",
       "cursorCli": "Terminal za Cursor CLI",
       "keyboardShortcuts": "Prečice tastature",
-      "browserAutomation": "Automatizacija browsera"
+      "browserAutomation": "Automatizacija browsera",
+      "compare": "Uporedi cmux"
     },
     "agents": {
       "metaTitle": "Terminal za agente za kodiranje: cmux",

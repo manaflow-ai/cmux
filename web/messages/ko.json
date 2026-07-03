@@ -2028,7 +2028,8 @@
       "amp": "Amp를 위한 터미널",
       "cursorCli": "Cursor CLI를 위한 터미널",
       "keyboardShortcuts": "키보드 단축키",
-      "browserAutomation": "브라우저 자동화"
+      "browserAutomation": "브라우저 자동화",
+      "compare": "cmux 비교"
     },
     "agents": {
       "metaTitle": "코딩 에이전트를 위한 터미널 | cmux",

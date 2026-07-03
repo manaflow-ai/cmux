@@ -2028,7 +2028,8 @@
       "amp": "为 Amp 打造的终端",
       "cursorCli": "为 Cursor CLI 打造的终端",
       "keyboardShortcuts": "键盘快捷键",
-      "browserAutomation": "浏览器自动化"
+      "browserAutomation": "浏览器自动化",
+      "compare": "比较 cmux"
     },
     "agents": {
       "metaTitle": "为编程 agent 打造的终端 | cmux",
