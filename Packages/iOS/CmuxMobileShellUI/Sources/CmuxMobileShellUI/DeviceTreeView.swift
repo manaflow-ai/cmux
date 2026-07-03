@@ -36,33 +36,11 @@ struct DeviceTreeView: View {
     /// actually removes. (Building from `deviceTreeDevices`, which prefers the team
     /// registry, would make Remove ineffective: a registry-backed row reappears on
     /// the next registry load.) Each is enriched with presence, live status, and how
-    /// many aggregated workspaces it contributes.
+    /// many aggregated workspaces it contributes. Built by the shared
+    /// ``MacComputerSnapshot/snapshots(from:)`` so the disconnected reconnect
+    /// list shows exactly the same computer set.
     private var computers: [MacComputerSnapshot] {
-        let colorIndex = store.machineColorIndex
-        // The PHONE's own per-Mac connection (foreground or live secondary) — the
-        // source of truth for the dot, distinct from presence.
-        let connectionStatuses = store.macConnectionStatuses
-        return store.displayPairedMacs.map { mac in
-            let aliases = store.pairedMacAliasIDs(for: mac.macDeviceID)
-            let summary = store.presenceSummary(for: mac.macDeviceID)
-            let presence: DeviceTreePresence? = summary
-                .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
-            return MacComputerSnapshot(
-                deviceId: mac.macDeviceID,
-                title: mac.resolvedName,
-                platform: "mac",
-                colorIndex: aliases.compactMap { colorIndex[$0] }.first,
-                customColor: mac.customColor,
-                customIcon: mac.customIcon,
-                connectionStatus: connectionStatuses[mac.macDeviceID],
-                presence: presence,
-                buildLabel: summary?.buildLabel,
-                routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
-                lastSeenAt: mac.lastSeenAt,
-                workspaceCount: store.workspaceCount(for: mac.macDeviceID),
-                aliasIDs: aliases
-            )
-        }
+        MacComputerSnapshot.snapshots(from: store)
     }
 
     var body: some View {
@@ -80,10 +58,13 @@ struct DeviceTreeView: View {
                                 confirmRemove: { _ in confirmComputerRemoval() }
                             )
                         }
+                        if showAddDevice != nil {
+                            addComputerRow
+                        }
                     } footer: {
                         Text(L10n.string(
                             "mobile.computers.footer",
-                            defaultValue: "The Macs signed in to your account. Use the workspace title picker to focus one Mac or show All Macs."
+                            defaultValue: "The computers signed in to your account. Use the workspace title picker to focus one computer or show All Computers."
                         ))
                     }
                 }
@@ -97,10 +78,7 @@ struct DeviceTreeView: View {
             .toolbar {
                 if showAddDevice != nil {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            showAddDevice?()
-                            dismiss()
-                        } label: {
+                        Button(action: addComputer) {
                             Image(systemName: "plus")
                         }
                         .accessibilityLabel(L10n.string("mobile.computers.add", defaultValue: "Add Computer"))
@@ -132,6 +110,26 @@ struct DeviceTreeView: View {
             }
         }
         .accessibilityIdentifier("MobileDeviceTree")
+    }
+
+    /// End-of-list affordance mirroring the top-left toolbar button, so users who
+    /// scroll past their Macs can add another without scrolling back up. Same
+    /// action path (`addComputer`) as the toolbar button.
+    private var addComputerRow: some View {
+        Button(action: addComputer) {
+            Label(
+                L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                systemImage: "plus"
+            )
+        }
+        .accessibilityIdentifier("MobileComputersAddRow")
+    }
+
+    /// Present the add-device (pairing) flow, then dismiss this screen. Shared by
+    /// the top-left toolbar button and the end-of-list row.
+    private func addComputer() {
+        showAddDevice?()
+        dismiss()
     }
 
     @ViewBuilder
