@@ -20,6 +20,7 @@ struct DockPanelView: View {
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
     @State private var visibilityHostId = UUID()
+    @Environment(\.colorScheme) private var colorScheme
 
     private var appearance: PanelAppearance {
         PanelAppearance.fromConfig(appearanceConfig)
@@ -54,6 +55,11 @@ struct DockPanelView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")
+        }
+        .onChange(of: colorScheme) { _, _ in
+            // Dock chrome hexes are scheme-dependent (Linear dark vs light
+            // palettes), so recompute them when macOS appearance flips.
+            refreshAppearance(reason: "colorSchemeChanged")
         }
     }
 

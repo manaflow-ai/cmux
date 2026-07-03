@@ -64,15 +64,19 @@ public struct SidebarBackdropSettingsSnapshot {
         let materialOption = WindowChromeSidebarMaterialOption(rawValue: materialRawValue)
         let blendingMode = WindowChromeSidebarBlendModeOption(rawValue: blendModeRawValue)?.mode ?? .behindWindow
         let state = WindowChromeSidebarStateOption(rawValue: stateRawValue)?.state ?? .active
+        let tintDefaults = WindowChromeSidebarTintDefaults()
         let resolvedHex: String
-        if colorScheme == .dark, let tintHexDark {
-            resolvedHex = tintHexDark
-        } else if colorScheme == .light, let tintHexLight {
-            resolvedHex = tintHexLight
+        if colorScheme == .dark {
+            resolvedHex = tintHexDark ?? tintHex
         } else {
-            resolvedHex = tintHex
+            // Light mode must not fall back to the *default* dark base tint
+            // (#000000) — that black-washes the light sidebar material. A
+            // user-customized base tint still applies; only the legacy default
+            // is swapped for Linear's light chrome neutral.
+            resolvedHex = tintHexLight ?? (tintHex == tintDefaults.hex ? tintDefaults.lightHex : tintHex)
         }
-        let tintColor = (NSColor(hex: resolvedHex) ?? NSColor(hex: tintHex) ?? .black)
+        let fallbackHex = colorScheme == .light ? tintDefaults.lightHex : tintHex
+        let tintColor = (NSColor(hex: resolvedHex) ?? NSColor(hex: fallbackHex) ?? .black)
             .withAlphaComponent(tintOpacity)
         let preferLiquidGlass = materialOption?.usesLiquidGlass ?? false
         let usesWindowLevelGlass = preferLiquidGlass && blendingMode == .behindWindow

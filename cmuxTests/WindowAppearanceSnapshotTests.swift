@@ -159,17 +159,42 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(cmuxReadableColorScheme(for: composited), .light)
     }
 
-    func testSidebarContentColorSchemeUsesTerminalOnlyForUnifiedBackdrops() {
+    func testSidebarContentColorSchemeFollowsAppLightModeEvenWhenUnified() {
+        // Light app appearance always wins: even with unify on over a dark
+        // terminal, the sidebar stays light (no terminal-derived dark scheme).
         XCTAssertEqual(
             makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#101820", sidebarColorScheme: .light)
                 .sidebarContentColorScheme,
-            .dark
+            .light
         )
         XCTAssertEqual(
             makeSnapshot(unifySurfaceBackdrops: false, backgroundHex: "#101820", sidebarColorScheme: .light)
                 .sidebarContentColorScheme,
             .light
         )
+        // Dark app appearance + unify still follows the terminal luminance so the
+        // shared dark backdrop reads correctly.
+        XCTAssertEqual(
+            makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#101820", sidebarColorScheme: .dark)
+                .sidebarContentColorScheme,
+            .dark
+        )
+    }
+
+    func testLightModeSidebarKeepsOwnMaterialEvenWhenUnified() {
+        // Unify shares the dark terminal backdrop only in Dark mode; in Light
+        // mode the sidebar must render its own material, not go transparent.
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundHex: "#101820",
+            sidebarColorScheme: .light
+        )
+        guard case let .sidebarMaterial(policy) = snapshot.policy(for: .leftSidebar) else {
+            XCTFail("light-mode sidebar should keep its own material even when unified")
+            return
+        }
+        // The light material tint must not be the dark #000000 wash.
+        XCTAssertNotEqual(policy.tintColor.hexString(includeAlpha: false), "#000000")
     }
 
     func testMatchedLeftAndRightSidebarBackdropsShareTerminalRootBackdrop() {

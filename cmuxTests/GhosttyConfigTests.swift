@@ -1394,32 +1394,34 @@ final class GhosttyConfigTests: XCTestCase {
 }
 
 final class WorkspaceChromeThemeTests: XCTestCase {
-    func testResolvedChromeColorsUsesLightGhosttyBackground() {
+    func testResolvedChromeColorsPinLightLinearChromeRegardlessOfGhosttyBackground() {
         guard let backgroundColor = NSColor(hex: "#FDF6E3") else {
             XCTFail("Expected valid test color")
             return
         }
 
-        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
+        let colors = Workspace.resolvedChromeColors(from: backgroundColor, colorScheme: .light)
         XCTAssertEqual(colors.backgroundHex, "#FDF6E3")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#FDF6E3")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#FDF6E3")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#F3F3F4")
+        XCTAssertEqual(colors.activeTabBackgroundHex, "#FCFCFD")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#F3F3F4")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
-        XCTAssertEqual(colors.borderHex, "#DED7C442")
+        XCTAssertEqual(colors.borderHex, "#E1E1E1")
     }
 
-    func testResolvedChromeColorsUsesDarkGhosttyBackground() {
+    func testResolvedChromeColorsPinDarkLinearChromeRegardlessOfGhosttyBackground() {
         guard let backgroundColor = NSColor(hex: "#272822") else {
             XCTFail("Expected valid test color")
             return
         }
 
-        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
+        let colors = Workspace.resolvedChromeColors(from: backgroundColor, colorScheme: .dark)
         XCTAssertEqual(colors.backgroundHex, "#272822")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#13141C")
+        XCTAssertEqual(colors.activeTabBackgroundHex, "#191A23")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#13141C")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
-        XCTAssertEqual(colors.borderHex, "#4F504A5B")
+        XCTAssertEqual(colors.borderHex, "#24252D")
     }
 
     func testResolvedChromeColorsKeepSemanticBackgroundButClearLocalBackdropsWhenSharingWindowBackdrop() {
@@ -1430,13 +1432,14 @@ final class WorkspaceChromeThemeTests: XCTestCase {
 
         let colors = Workspace.resolvedChromeColors(
             from: backgroundColor,
-            sharesWindowBackdrop: true
+            sharesWindowBackdrop: true,
+            colorScheme: .dark
         )
         XCTAssertEqual(colors.backgroundHex, "#272822")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
-        XCTAssertEqual(colors.borderHex, "#4F504A5B")
+        XCTAssertEqual(colors.borderHex, "#24252D")
     }
 
     func testResolvedChromeColorsKeepPaneClearForRendererOwnedBackgrounds() {
@@ -1447,13 +1450,15 @@ final class WorkspaceChromeThemeTests: XCTestCase {
 
         let colors = Workspace.resolvedChromeColors(
             from: backgroundColor,
-            renderingMode: .ghosttyRendererOwnedBackgroundImage
+            renderingMode: .ghosttyRendererOwnedBackgroundImage,
+            colorScheme: .dark
         )
         XCTAssertEqual(colors.backgroundHex, "#272822")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#13141C")
+        XCTAssertEqual(colors.activeTabBackgroundHex, "#191A23")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#13141C")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
-        XCTAssertEqual(colors.borderHex, "#4F504A5B")
+        XCTAssertEqual(colors.borderHex, "#24252D")
     }
 }
 
@@ -1510,7 +1515,15 @@ final class WorkspaceChromeColorTests: XCTestCase {
         )
 
         let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
-        XCTAssertEqual(hex, "#1122337F")
+        // Since PR #3166 bonsplitChromeHex composites the translucent terminal
+        // color over the opaque window base (`.windowBackgroundColor`), so the
+        // result is opaque. Assert against that same API so the expectation
+        // stays independent of the host appearance's exact window background.
+        let expected = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: color,
+            opacity: 0.5
+        )
+        XCTAssertEqual(hex, expected.hexString(includeAlpha: expected.alphaComponent < 0.999))
     }
 
     func testBonsplitChromeHexOmitsAlphaWhenOpaque() {
@@ -1538,7 +1551,13 @@ final class WorkspaceChromeColorTests: XCTestCase {
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true
         )
-        XCTAssertEqual(hex, "#1122337F")
+        // Composited over the opaque window base (see #3166); shared mode does
+        // not change the surface hex, so it matches the non-shared result.
+        let expected = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: color,
+            opacity: 0.5
+        )
+        XCTAssertEqual(hex, expected.hexString(includeAlpha: expected.alphaComponent < 0.999))
     }
 
     func testBonsplitChromeColorsKeepPaneClearWhenTerminalUsesHostLayerBackground() {
@@ -1552,12 +1571,19 @@ final class WorkspaceChromeColorTests: XCTestCase {
         let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
-            renderingMode: .windowHostBackdrop
+            renderingMode: .windowHostBackdrop,
+            colorScheme: .dark
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
+        // backgroundHex is the composited terminal surface (see #3166); tie it
+        // to the same helper so it's independent of the host window background.
+        XCTAssertEqual(
+            colors.backgroundHex,
+            Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
+        )
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#13141C")
+        XCTAssertEqual(colors.activeTabBackgroundHex, "#191A23")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#13141C")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
 
@@ -1573,12 +1599,24 @@ final class WorkspaceChromeColorTests: XCTestCase {
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true,
-            renderingMode: .windowHostBackdrop
+            renderingMode: .windowHostBackdrop,
+            colorScheme: .dark
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
+        // Even under a shared window backdrop the tab bar keeps the fixed
+        // Linear chrome; only the pane stays transparent. backgroundHex is the
+        // composited terminal surface (see #3166).
+        XCTAssertEqual(
+            colors.backgroundHex,
+            Workspace.bonsplitChromeHex(
+                backgroundColor: color,
+                backgroundOpacity: 0.5,
+                sharesWindowBackdrop: true
+            )
+        )
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#13141C")
+        XCTAssertEqual(colors.activeTabBackgroundHex, "#191A23")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#13141C")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
 }

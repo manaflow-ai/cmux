@@ -2829,26 +2829,43 @@ final class Workspace: Identifiable, ObservableObject {
         return false
     }
 
+    /// Scheme driving the fixed Linear chrome palette. Defaults to the app's
+    /// effective appearance so chrome tracks macOS light/dark; tests pass an
+    /// explicit value.
+    nonisolated static func currentChromeColorScheme(
+        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+    ) -> ColorScheme {
+        appAppearance?.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? .light : .dark
+    }
+
     nonisolated static func bonsplitChromeColors(
         backgroundColor: NSColor,
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
+        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
+        colorScheme: ColorScheme = currentChromeColorScheme()
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
-        let borderHex = WindowChromeColorResolver()
-            .separatorColor(forChromeBackground: backgroundColor)
-            .hexString(includeAlpha: true)
+        // Fixed Linear border for all bonsplit hairlines (tab separators, the
+        // bar's bottom hairline, pane dividers) — matches the pinned chrome
+        // rather than deriving a translucent tone from the terminal bg.
+        let borderHex = SidebarChromeColors.borderHex(for: colorScheme)
 
         if sharesWindowBackdrop {
+            // Even when the window shares one translucent terminal backdrop, the
+            // tab bar keeps Linear's fixed chrome for the current scheme (dark:
+            // #13141C strip + #191A23 active tab; light: #F3F3F4 + #FCFCFD).
+            // Only the pane stays transparent so the terminal backdrop shows
+            // through below the bar.
             return .init(
                 backgroundHex: surfaceHex,
-                tabBarBackgroundHex: "#00000000",
-                splitButtonBackdropHex: "#00000000",
+                tabBarBackgroundHex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme),
+                activeTabBackgroundHex: SidebarChromeColors.activeTabBackgroundHex(for: colorScheme),
+                splitButtonBackdropHex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme),
                 paneBackgroundHex: "#00000000",
                 borderHex: borderHex
             )
@@ -2860,13 +2877,14 @@ final class Workspace: Identifiable, ObservableObject {
         )
             ? surfaceHex
             : "#00000000"
-        // Tab-bar chrome is pinned to Linear's #13141C (darker than the terminal
-        // surface) so the strip and inactive tabs read as one calm dark bar; the
-        // active tab auto-lightens off this and the terminal pane keeps its own bg.
+        // Tab-bar chrome is pinned to Linear's scheme palette (dark: #13141C bar
+        // with #191A23 active tab; light: #F3F3F4 with #FCFCFD) so the strip and
+        // inactive tabs read as one calm bar; the terminal pane keeps its own bg.
         return .init(
             backgroundHex: surfaceHex,
-            tabBarBackgroundHex: SidebarChromeColors.tabBarBackgroundHex,
-            splitButtonBackdropHex: SidebarChromeColors.tabBarBackgroundHex,
+            tabBarBackgroundHex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme),
+            activeTabBackgroundHex: SidebarChromeColors.activeTabBackgroundHex(for: colorScheme),
+            splitButtonBackdropHex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme),
             paneBackgroundHex: paneBackgroundHex,
             borderHex: borderHex
         )
@@ -2875,14 +2893,13 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated static func resolvedChromeColors(
         from backgroundColor: NSColor,
         sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
+        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
+        colorScheme: ColorScheme = currentChromeColorScheme()
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         // Keep this signature aligned with bonsplitChromeHex for settings tests
         // and future background-image handling.
         let backgroundHex = backgroundColor.hexString()
-        let borderHex = WindowChromeColorResolver()
-            .separatorColor(forChromeBackground: backgroundColor)
-            .hexString(includeAlpha: true)
+        let borderHex = SidebarChromeColors.borderHex(for: colorScheme)
 
         if sharesWindowBackdrop {
             return .init(
@@ -2902,8 +2919,9 @@ final class Workspace: Identifiable, ObservableObject {
             : "#00000000"
         return .init(
             backgroundHex: backgroundHex,
-            tabBarBackgroundHex: SidebarChromeColors.tabBarBackgroundHex,
-            splitButtonBackdropHex: SidebarChromeColors.tabBarBackgroundHex,
+            tabBarBackgroundHex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme),
+            activeTabBackgroundHex: SidebarChromeColors.activeTabBackgroundHex(for: colorScheme),
+            splitButtonBackdropHex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme),
             paneBackgroundHex: paneBackgroundHex,
             borderHex: borderHex
         )
@@ -2915,6 +2933,7 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> Bool {
         lhs.backgroundHex == rhs.backgroundHex &&
             lhs.tabBarBackgroundHex == rhs.tabBarBackgroundHex &&
+            lhs.activeTabBackgroundHex == rhs.activeTabBackgroundHex &&
             lhs.splitButtonBackdropHex == rhs.splitButtonBackdropHex &&
             lhs.paneBackgroundHex == rhs.paneBackgroundHex &&
             lhs.borderHex == rhs.borderHex

@@ -19,14 +19,61 @@ enum SidebarTabItemFontScale {
 
 extension View {
     // Web-style affordance: clickable sidebar chrome shows the pointing hand.
+    //
+    // Prefer `.pointerStyle(.link)` on macOS 15+: it registers a proper cursor
+    // rect with AppKit, so it survives the `cursorUpdate` events that the
+    // overlapping portal/web/terminal views fire to reassert `NSCursor.arrow`.
+    // The manual `push()`/`pop()` fallback below is used only on older systems;
+    // it is easily clobbered by those reasserts (and unbalanced if the hovered
+    // view is removed mid-hover), which is why it "stopped working".
+    @ViewBuilder
     func cmuxPointingHandCursor() -> some View {
-        onHover { hovering in
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
+        if #available(macOS 15, *) {
+            backport.pointerStyle(.link)
+        } else {
+            modifier(CmuxLegacyPointingHandCursorModifier())
         }
+    }
+
+    // Link affordance: underline the text inside a clickable sidebar control
+    // while the pointer hovers it.
+    func cmuxHoverUnderline() -> some View {
+        modifier(CmuxHoverUnderlineModifier())
+    }
+}
+
+/// Pre-macOS-15 fallback for `cmuxPointingHandCursor()`. Tracks hover state so
+/// the `push()`/`pop()` pair stays balanced even if hover-exit is missed.
+private struct CmuxLegacyPointingHandCursorModifier: ViewModifier {
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                guard hovering != isHovering else { return }
+                isHovering = hovering
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .onDisappear {
+                if isHovering {
+                    isHovering = false
+                    NSCursor.pop()
+                }
+            }
+    }
+}
+
+private struct CmuxHoverUnderlineModifier: ViewModifier {
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .underline(isHovering)
+            .onHover { isHovering = $0 }
     }
 }
 
@@ -136,12 +183,32 @@ enum SidebarMutedText {
     })
 }
 
-/// Fixed chrome colors for the Linear-style dark shell.
+/// Fixed chrome colors for the Linear-style shell, one set per scheme.
+/// Light values come from Linear's light theme tokens (lch → sRGB).
 enum SidebarChromeColors {
-    /// Tab-bar / inactive-row surface (#13141C), darker than the terminal bg.
-    static let tabBarBackgroundHex = "#13141C"
-    /// Active workspace-row selection block (#282833).
-    static let selectedRowHex = "#282833"
+    /// Tab-bar / inactive-row surface. Dark #13141C sits below the terminal
+    /// bg; light #F3F3F4 is lch(95.94% 0.5 282).
+    static func tabBarBackgroundHex(for colorScheme: ColorScheme) -> String {
+        colorScheme == .dark ? "#13141C" : "#F3F3F4"
+    }
+
+    /// Active (selected) tab fill. Dark #191A23 is a hair lighter than the
+    /// bar; light #FCFCFD is lch(98.94% 0.5 282), Linear's light app bg.
+    static func activeTabBackgroundHex(for colorScheme: ColorScheme) -> String {
+        colorScheme == .dark ? "#191A23" : "#FCFCFD"
+    }
+
+    /// Active workspace-row selection block. Dark #282833; light #ECECED is
+    /// lch(93.44% 0.5 282).
+    static func selectedRowHex(for colorScheme: ColorScheme) -> String {
+        colorScheme == .dark ? "#282833" : "#ECECED"
+    }
+
+    /// Chrome hairlines/borders (tab separators, bar↔pane divider). Dark
+    /// #24252D; light #E1E1E1 is lch(89.49% 0 282) from Linear's light tokens.
+    static func borderHex(for colorScheme: ColorScheme) -> String {
+        colorScheme == .dark ? "#24252D" : "#E1E1E1"
+    }
 }
 
 /// Renders a bundled blode-icons SVG (template imageset under
@@ -295,13 +362,6 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
     return cmuxAccentNSColor(for: colorScheme)
 }
 
-func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
-    sidebarSelectedWorkspaceForegroundNSColor(
-        on: sidebarSelectedWorkspaceBackgroundNSColor(for: .dark),
-        opacity: opacity
-    )
-}
-
 func sidebarSelectedWorkspaceForegroundNSColor(
     on backgroundColor: NSColor,
     opacity: CGFloat
@@ -362,10 +422,9 @@ func sidebarWorkspaceRowBackgroundStyle(
     switch activeTabIndicatorStyle {
     case .leftRail:
         if isActive {
-            // Linear selection (dark): a solid neutral #282833 block with
-            // white text. Light mode keeps the subtle selected wash — the
-            // fixed dark hexes would read as broken blocks on light chrome.
-            if colorScheme == .dark, let selected = NSColor(hex: SidebarChromeColors.selectedRowHex) {
+            // Linear selection: a solid neutral block (dark #282833, light
+            // #ECECED) with scheme-native text — no accent wash.
+            if let selected = NSColor(hex: SidebarChromeColors.selectedRowHex(for: colorScheme)) {
                 return SidebarWorkspaceRowBackgroundStyle(color: selected, opacity: 1)
             }
             return SidebarWorkspaceRowBackgroundStyle(
@@ -389,8 +448,9 @@ func sidebarWorkspaceRowBackgroundStyle(
             )
         }
         // Non-focused rows (dark) sit on a flat #13141C block so the focused
-        // row's fill clearly stands out; light mode stays transparent.
-        if colorScheme == .dark, let base = NSColor(hex: SidebarChromeColors.tabBarBackgroundHex) {
+        // row's fill clearly stands out; light mode stays transparent so the
+        // light sidebar material shows through (Linear light rows are bare).
+        if colorScheme == .dark, let base = NSColor(hex: SidebarChromeColors.tabBarBackgroundHex(for: colorScheme)) {
             return SidebarWorkspaceRowBackgroundStyle(color: base, opacity: 1)
         }
         return .clear

@@ -44,27 +44,38 @@ func makeTemporaryBrowserProfile(named prefix: String) throws -> BrowserProfileD
 }
 
 final class SidebarSelectedWorkspaceColorTests: XCTestCase {
-    func testLightModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
-        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .light).usingColorSpace(.sRGB) else {
+    func testLightModeDefaultSelectedWorkspaceBackgroundUsesLinearAccent() {
+        // With no configured selection hex the selection block is Linear's
+        // magic-blue accent, deepened for light — #4A6AD8. Passing an explicit
+        // nil keeps this deterministic regardless of the host's persisted
+        // `sidebarSelectionColorHex`.
+        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .light,
+            sidebarSelectionColorHex: nil
+        ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
 
-        XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
-        XCTAssertEqual(color.greenComponent, 136.0 / 255.0, accuracy: 0.001)
-        XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.redComponent, 74.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 106.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 216.0 / 255.0, accuracy: 0.001)
         XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
     }
 
-    func testDarkModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
-        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .dark).usingColorSpace(.sRGB) else {
+    func testDarkModeDefaultSelectedWorkspaceBackgroundUsesLinearAccent() {
+        // Dark accent is Linear magic blue #6786FF.
+        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .dark,
+            sidebarSelectionColorHex: nil
+        ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
 
-        XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
-        XCTAssertEqual(color.greenComponent, 145.0 / 255.0, accuracy: 0.001)
-        XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.redComponent, 103.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 134.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 255.0 / 255.0, accuracy: 0.001)
         XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
     }
 
@@ -141,9 +152,12 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             sidebarSelectionColorHex: nil
         )
 
+        // Active solid-fill rows use the selection background (accent when no
+        // hex is configured), not the workspace's custom color. Both sides pass
+        // nil so the comparison is independent of the host's persisted hex.
         XCTAssertEqual(
             background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+            sidebarSelectedWorkspaceBackgroundNSColor(for: .light, sidebarSelectionColorHex: nil).hexString()
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}
@@ -177,9 +191,11 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             sidebarSelectionColorHex: nil
         )
 
+        // Left-rail selection is the neutral Linear block (light #ECECED),
+        // never the workspace's custom color.
         XCTAssertEqual(
             background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+            SidebarChromeColors.selectedRowHex(for: .light)
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}

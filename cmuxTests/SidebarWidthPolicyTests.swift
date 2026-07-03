@@ -21,12 +21,12 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             SessionPersistencePolicy.defaultMinimumSidebarWidth,
-            216,
+            196,
             accuracy: 0.001
         )
         XCTAssertEqual(
             SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults),
-            216,
+            196,
             accuracy: 0.001
         )
     }

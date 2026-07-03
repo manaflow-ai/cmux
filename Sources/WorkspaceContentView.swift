@@ -328,8 +328,14 @@ struct WorkspaceContentView: View {
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
         }
         .onChange(of: colorScheme) { oldValue, newValue in
-            // Keep split overlay color/opacity in sync with light/dark theme transitions.
-            refreshGhosttyAppearanceConfig(reason: "colorSchemeChanged:\(oldValue)->\(newValue)")
+            // Keep split overlay color/opacity in sync with light/dark theme
+            // transitions. Chrome hexes are scheme-dependent (Linear dark vs
+            // light palettes), so force the apply — the ghostty config itself
+            // is unchanged and the diff would otherwise skip it.
+            refreshGhosttyAppearanceConfig(
+                reason: "colorSchemeChanged:\(oldValue)->\(newValue)",
+                forceInitialApply: true
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
             let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"

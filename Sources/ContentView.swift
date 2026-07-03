@@ -13457,7 +13457,7 @@ struct TabItemView: View, Equatable {
     // braille spinner frames, middle dots) are decoration, not title — the
     // semantic status dot already carries state.
     private static let decorativeTitlePrefixCharacters: CharacterSet = {
-        var set = CharacterSet(charactersIn: "✳✻✽✢✶✣✤∗❊⏺●◉○◌◍◎◐◑◒◓·•∙⋅*")
+        var set = CharacterSet(charactersIn: "✳✻✽✢✶✣✤∗❊⏺●◉○◌◍◎◐◑◒◓·•∙⋅◦∘‧・･․⸱⁘⁙⋯…°˚*")
         set.insert(charactersIn: Unicode.Scalar(0x2800)!...Unicode.Scalar(0x28FF)!)
         set.formUnion(.whitespaces)
         return set
@@ -13536,7 +13536,7 @@ struct TabItemView: View, Equatable {
         // title is full-strength; inactive rows use Linear's muted grey #5F5F66
         // so the focused row and the terminal lead.
         // Focused row: pure white on the dark #282833 selection block; in
-        // light mode the block is a subtle wash, so primary text stays primary.
+        // light mode the block is Linear's #ECECED, so primary text stays primary.
         if isActive {
             return colorScheme == .dark ? .white : .primary
         }
@@ -13655,7 +13655,7 @@ struct TabItemView: View, Equatable {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(remoteWorkspaceSidebarText)
-                        .font(magnifiedFont(scaledFontSize(11), design: .monospaced))
+                        .font(magnifiedFont(scaledFontSize(11)))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -13983,7 +13983,7 @@ struct TabItemView: View, Equatable {
                                         }
                                         if let branch = line.branch {
                                             Text(branch)
-                                                .font(magnifiedFont(scaledFontSize(11), design: .monospaced))
+                                                .font(magnifiedFont(scaledFontSize(11)))
                                                 .foregroundColor(activeSecondaryColor(0.6))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
@@ -14004,7 +14004,7 @@ struct TabItemView: View, Equatable {
                                             }
                                             if let branch = line.branch {
                                                 Text(branch)
-                                                    .font(magnifiedFont(scaledFontSize(11), design: .monospaced))
+                                                    .font(magnifiedFont(scaledFontSize(11)))
                                                     .foregroundColor(activeSecondaryColor(0.6))
                                                     .lineLimit(1)
                                                     .truncationMode(.tail)
@@ -14026,7 +14026,7 @@ struct TabItemView: View, Equatable {
                         VStack(alignment: .leading, spacing: 1) {
                             if let branchRow = workspaceSnapshot.compactGitBranchSummaryText {
                                 Text(branchRow)
-                                    .font(magnifiedFont(scaledFontSize(11), design: .monospaced))
+                                    .font(magnifiedFont(scaledFontSize(11)))
                                     .foregroundColor(activeSecondaryColor(0.75))
                                     .lineLimit(1)
                                     .truncationMode(.tail)
@@ -14075,6 +14075,7 @@ struct TabItemView: View, Equatable {
                         if settings.makesPullRequestsClickable {
                             Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
                                 .buttonStyle(.plain)
+                                .cmuxHoverUnderline()
                                 .cmuxPointingHandCursor()
                                 .tint(pullRequestForegroundColor)
                                 .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
@@ -14104,7 +14105,7 @@ struct TabItemView: View, Equatable {
                     }
                     Spacer(minLength: 0)
                 }
-                .font(magnifiedFont(scaledFontSize(11), design: .monospaced))
+                .font(magnifiedFont(scaledFontSize(11)))
                 .foregroundColor(activeSecondaryColor(0.75))
                 .lineLimit(1)
             }
@@ -14145,6 +14146,7 @@ struct TabItemView: View, Equatable {
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .contentShape(Rectangle())
+        .cmuxPointingHandCursor()
         .onHover { hovering in
             rowInteractionState.setPointerHovering(hovering)
         }
@@ -15012,7 +15014,7 @@ struct TabItemView: View, Equatable {
 
     private func gitBranchSummaryLines(orderedPanelIds: [UUID]) -> [String] {
         tab.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).map { branch in
-            "\(branch.branch)\(branch.isDirty ? "*" : "")"
+            branch.branch
         }
     }
 
@@ -15022,7 +15024,7 @@ struct TabItemView: View, Equatable {
         return entries.compactMap { entry in
             let branchText: String? = {
                 guard sidebarShowGitBranch, let branch = entry.branch else { return nil }
-                return "\(branch)\(entry.isDirty ? "*" : "")"
+                return branch
             }()
 
             let directoryCandidates: [String] = {

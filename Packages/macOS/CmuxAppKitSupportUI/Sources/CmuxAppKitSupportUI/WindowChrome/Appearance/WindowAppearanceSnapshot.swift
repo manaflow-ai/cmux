@@ -83,8 +83,16 @@ public struct WindowAppearanceSnapshot {
     }
 
     /// Color scheme used for sidebar content.
+    ///
+    /// In Light mode the sidebar always follows the app appearance, even with
+    /// `unifySurfaceBackdrops` on over a dark terminal — light mode must win.
+    /// Only Dark mode + unify derives the scheme from the terminal so the
+    /// shared dark backdrop reads correctly.
     public var sidebarContentColorScheme: ColorScheme {
-        unifySurfaceBackdrops ? chromeColorScheme : sidebarSettings.colorScheme
+        if sidebarSettings.colorScheme == .light {
+            return .light
+        }
+        return unifySurfaceBackdrops ? chromeColorScheme : sidebarSettings.colorScheme
     }
 
     /// Returns the backdrop policy for one chrome role.
@@ -95,7 +103,10 @@ public struct WindowAppearanceSnapshot {
         case .terminalCanvas, .bonsplitChrome, .titlebar, .browserSurface:
             return .clear
         case .leftSidebar, .rightSidebar:
-            if unifySurfaceBackdrops {
+            // Share the single terminal root backdrop only in Dark mode + unify.
+            // In Light mode the sidebar keeps its own (light) material so it
+            // never shows the dark terminal backdrop through a transparent panel.
+            if unifySurfaceBackdrops, sidebarSettings.colorScheme == .dark {
                 return .clear
             }
             return .sidebarMaterial(sidebarSettings.materialPolicy)
