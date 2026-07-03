@@ -42,6 +42,7 @@ extension RemoteTmuxController {
                 sessions = preparedSessions
             }
 
+            var createdFallbackWindowId: UUID?
             let manager: TabManager
             if let existingMirrorManager = currentWindowMirrorManager(
                 host: host,
@@ -59,6 +60,7 @@ extension RemoteTmuxController {
                 guard let created = appDelegate.tabManagerFor(windowId: windowId) else {
                     throw RemoteTmuxError.unreachable("could not create window")
                 }
+                createdFallbackWindowId = windowId
                 manager = created
             }
 
@@ -86,6 +88,10 @@ extension RemoteTmuxController {
                     && mirror.mirroredWorkspaceId.map(mirroredWorkspaceIds.contains) == true
             }
             guard hasMirrorForHost else {
+                if let createdFallbackWindowId {
+                    appDelegate.discardMainWindowWithoutClosedHistory(windowId: createdFallbackWindowId)
+                }
+                closeControlMasterIfIdle(host: host)
                 throw RemoteTmuxError.unreachable("could not mirror any tmux session on \(host.destination)")
             }
             guard let windowId = appDelegate.windowId(for: manager) else {

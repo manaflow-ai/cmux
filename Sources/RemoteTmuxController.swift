@@ -59,6 +59,15 @@ final class RemoteTmuxController {
         await transportRegistry.disconnectMaster(host: host)
     }
 
+    /// Closes a warmed shared SSH master when no mirror or control stream still uses it.
+    func closeControlMasterIfIdle(host: RemoteTmuxHost) {
+        let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
+            || connectionsByHostSession.values.contains { $0.host.connectionHash == host.connectionHash }
+        guard !stillUsed else { return }
+        transportRegistry.remove(connectionHash: host.connectionHash)
+        RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+    }
+
     /// Warms and confirms the host's shared SSH ControlMaster before a per-session
     /// `tmux -CC attach` burst (the single shared gate for every bulk-mirror
     /// entrypoint), so the `ControlMaster=auto` attaches ride a ready master instead
