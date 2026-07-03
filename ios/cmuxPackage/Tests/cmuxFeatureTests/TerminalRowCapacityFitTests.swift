@@ -47,6 +47,20 @@ struct TerminalRowCapacityFitTests {
         #expect(Int((1902 / fittedCell).rounded(.down)) == 54)
     }
 
+    @Test("row fit cap preserves base-font column share")
+    func rowFitCapPreservesBaseFontColumnShare() throws {
+        let uncapped = try #require(TerminalRowCapacityFit(
+            containerPixelHeight: 2412, cellPixelHeight: 35, liveFontSize: 10
+        )?.fitFontSize(forEffectiveRows: 22))
+        let capped = try #require(TerminalRowCapacityFit(
+            containerPixelHeight: 2412, cellPixelHeight: 35, liveFontSize: 10
+        )?.fitFontSize(forEffectiveRows: 22, baseFontSize: 10, renderedColumns: 66))
+        #expect(uncapped > 28)
+        #expect(capped < uncapped)
+        let preservedColumns = Int((CGFloat(66) * 10 / CGFloat(capped)).rounded(.down))
+        #expect(preservedColumns >= 49)
+    }
+
     @Test("hysteresis ignores one-row mismatches and acts on two")
     func refitHysteresis() {
         #expect(!TerminalRowCapacityFit.shouldRefit(renderedRows: 45, effectiveRows: 45))
