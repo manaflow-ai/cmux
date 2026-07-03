@@ -33,18 +33,22 @@ struct WorkspacePullRequestGraphQLRepository: Decodable, Sendable {
             forKey: .pullRequests
         )
         let container = try decoder.container(keyedBy: DynamicCodingKey.self)
-        self.aliasedPullRequests = container.allKeys.compactMap { key in
+        var aliasedPullRequests: [WorkspacePullRequestGraphQLPullRequestNode] = []
+        for key in container.allKeys {
             guard key.stringValue.hasPrefix("pr"),
                   key.stringValue.dropFirst(2).allSatisfy(\.isNumber) else {
-                return nil
+                continue
             }
-            // Tolerate a single malformed alias (e.g. a PR closed or renamed
-            // mid-fetch returns `null`) so one bad node doesn't drop CI status
-            // for the rest of the batch; the affected PR falls back to `.neutral`.
-            return try? container.decodeIfPresent(
-                WorkspacePullRequestGraphQLPullRequestNode.self,
-                forKey: key
+            if try container.decodeNil(forKey: key) {
+                continue
+            }
+            aliasedPullRequests.append(
+                try container.decode(
+                    WorkspacePullRequestGraphQLPullRequestNode.self,
+                    forKey: key
+                )
             )
         }
+        self.aliasedPullRequests = aliasedPullRequests
     }
 }

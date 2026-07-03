@@ -64,6 +64,8 @@ public struct GitHubPullRequestProbeItem: Decodable, Equatable, Sendable {
         self.mergedAt = try container.decodeIfPresent(String.self, forKey: .mergedAt)
         self.headRefName = try container.decodeIfPresent(String.self, forKey: .headRefName)
         self.baseRefName = try container.decodeIfPresent(String.self, forKey: .baseRefName)
-        self.ciStatus = try container.decodeIfPresent(PullRequestCheckStatus.self, forKey: .ciStatus) ?? .neutral
+        self.ciStatus = (
+            try? container.decodeIfPresent(PullRequestCheckStatus.self, forKey: .ciStatus)
+        ) ?? .neutral
     }
 }
