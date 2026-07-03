@@ -221,4 +221,19 @@ import CmuxSettings
 
         #expect(model.whenOverrideRawStrings[action.rawValue] == "sidebarFocus")
     }
+
+    @Test func scopeCaptionDescribesBrowserOrFilePreviewTextEditorFocus() {
+        // WHY: browser zoom shortcuts also route to focused text file previews;
+        // the settings row should not describe them as browser-only.
+        let (store, catalog, errorLog) = makeStore()
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+
+        #expect(
+            model.scopeCaption(for: .browserZoomIn)
+                == String(
+                    localized: "shortcut.when.caption.browserOrFilePreviewTextEditorFocus",
+                    defaultValue: "Only while a browser pane or text file preview is focused"
+                )
+        )
+    }
 }

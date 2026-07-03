@@ -40,6 +40,7 @@ final class ChatTranscriptUITableView: UITableView {
     private var debugTopEdgeEffectSoft = false
     private var debugBottomEdgeEffectSoft = false
     private var debugTopContentScrollViewRegistered = false
+    private var debugBottomEdgeElementContainerRegistered = false
     #endif
 
     #if DEBUG
@@ -87,6 +88,11 @@ final class ChatTranscriptUITableView: UITableView {
     #if DEBUG
     func recordTopContentScrollViewRegistration(_ isRegistered: Bool) {
         debugTopContentScrollViewRegistered = isRegistered
+        updateDebugAccessibilityValue()
+    }
+
+    func recordBottomEdgeElementContainerRegistration(_ isRegistered: Bool) {
+        debugBottomEdgeElementContainerRegistered = isRegistered
         updateDebugAccessibilityValue()
     }
     #endif
@@ -246,7 +252,7 @@ final class ChatTranscriptUITableView: UITableView {
         let presentationGap = composerPresentationMinY - presentationFrameMaxY
         recordKeyboardAnimationGap(presentationGap)
         return String(
-            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;presentationFrameMaxY=%.2f;boundsHeight=%.2f;offsetY=%.2f;adjustedTopInset=%.2f;adjustedBottomInset=%.2f;visibleTopY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardTargetOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f;composerMinY=%.2f;composerPresentationMinY=%.2f;presentationGap=%.2f;topChromeOverlayInset=%.2f;composerOverlayBottomInset=%.2f;keyboardAnimationActive=%d;keyboardAnimationProgress=%.2f;keyboardTransitionDuration=%.3f;maxAnimationPresentationGap=%.2f;keyboardAnimationSamples=%d;topEdgeEffectSoft=%d;bottomEdgeEffectSoft=%d;topContentScrollViewRegistered=%d;scrollTracking=%d;scrollDragging=%d;scrollDecelerating=%d",
+            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;presentationFrameMaxY=%.2f;boundsHeight=%.2f;offsetY=%.2f;adjustedTopInset=%.2f;adjustedBottomInset=%.2f;visibleTopY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardTargetOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f;composerMinY=%.2f;composerPresentationMinY=%.2f;presentationGap=%.2f;topChromeOverlayInset=%.2f;composerOverlayBottomInset=%.2f;keyboardAnimationActive=%d;keyboardAnimationProgress=%.2f;keyboardTransitionDuration=%.3f;maxAnimationPresentationGap=%.2f;keyboardAnimationSamples=%d;topEdgeEffectSoft=%d;bottomEdgeEffectSoft=%d;topContentScrollViewRegistered=%d;bottomEdgeElementContainerRegistered=%d;scrollTracking=%d;scrollDragging=%d;scrollDecelerating=%d",
             locale: Locale(identifier: "en_US_POSIX"),
             frameInWindow.minY,
             frameInWindow.maxY,
@@ -278,6 +284,7 @@ final class ChatTranscriptUITableView: UITableView {
             debugTopEdgeEffectSoft ? 1 : 0,
             debugBottomEdgeEffectSoft ? 1 : 0,
             debugTopContentScrollViewRegistered ? 1 : 0,
+            debugBottomEdgeElementContainerRegistered ? 1 : 0,
             isTracking ? 1 : 0,
             isDragging ? 1 : 0,
             isDecelerating ? 1 : 0
