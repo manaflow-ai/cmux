@@ -223,8 +223,7 @@ final class SavingTextView: NSTextView {
 
     weak var panel: (any FilePreviewTextEditingPanel)?
     private var previewFontSize: CGFloat = 13
-    private var pendingSaveShortcutChordPrefix: ShortcutStroke?
-    private var pendingPreviewFontZoomShortcutChordPrefix: ShortcutStroke?
+    private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
 
     convenience init() {
@@ -268,13 +267,7 @@ final class SavingTextView: NSTextView {
         guard event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
         }
-        if let shouldSave = saveShortcutMatch(for: event) {
-            if shouldSave {
-                panel?.saveTextContent()
-            }
-            return true
-        }
-        if handlePreviewFontZoomShortcut(event) {
+        if handleEditorShortcut(event) {
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -339,65 +332,72 @@ final class SavingTextView: NSTextView {
     }
 
     private func clearPendingShortcutChordPrefixes() {
-        pendingSaveShortcutChordPrefix = nil
-        pendingPreviewFontZoomShortcutChordPrefix = nil
+        pendingEditorShortcutChordPrefix = nil
     }
 
-    private func saveShortcutMatch(for event: NSEvent) -> Bool? {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
-        guard shortcut.hasChord else {
-            pendingSaveShortcutChordPrefix = nil
-            return shortcut.matches(event: event) ? true : nil
-        }
-
-        if let pendingPrefix = pendingSaveShortcutChordPrefix {
-            pendingSaveShortcutChordPrefix = nil
-            guard pendingPrefix == shortcut.firstStroke,
-                  let secondStroke = shortcut.secondStroke else {
-                return nil
-            }
-            return secondStroke.matches(event: event) ? true : nil
-        }
-
-        if shortcut.firstStroke.matches(event: event) {
-            pendingSaveShortcutChordPrefix = shortcut.firstStroke
-            return false
-        }
-        return nil
+    private enum EditorShortcutIntent {
+        case save
+        case previewFontZoom(KeyboardShortcutSettings.Action)
     }
 
-    private func handlePreviewFontZoomShortcut(_ event: NSEvent) -> Bool {
-        if let pendingPrefix = pendingPreviewFontZoomShortcutChordPrefix {
-            pendingPreviewFontZoomShortcutChordPrefix = nil
-            for action in Self.previewFontZoomShortcutActions {
-                let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-                guard previewFontZoomShortcutWhenClauseAllows(action: action, event: event),
-                      shortcut.firstStroke == pendingPrefix,
-                      let secondStroke = shortcut.secondStroke,
+    private struct EditorShortcutCandidate {
+        let intent: EditorShortcutIntent
+        let shortcut: StoredShortcut
+    }
+
+    private func handleEditorShortcut(_ event: NSEvent) -> Bool {
+        let candidates = editorShortcutCandidates(for: event)
+        if let pendingPrefix = pendingEditorShortcutChordPrefix {
+            pendingEditorShortcutChordPrefix = nil
+            for candidate in candidates {
+                guard candidate.shortcut.firstStroke == pendingPrefix,
+                      let secondStroke = candidate.shortcut.secondStroke,
                       secondStroke.matches(event: event) else { continue }
-                performPreviewFontZoomShortcutAction(action)
+                performEditorShortcut(candidate.intent)
                 return true
             }
             return false
         }
 
-        for action in Self.previewFontZoomShortcutActions {
-            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-            guard !shortcut.isUnbound,
-                  previewFontZoomShortcutWhenClauseAllows(action: action, event: event) else { continue }
+        for candidate in candidates {
+            let shortcut = candidate.shortcut
             if shortcut.secondStroke != nil {
                 if shortcut.firstStroke.matches(event: event) {
-                    pendingPreviewFontZoomShortcutChordPrefix = shortcut.firstStroke
+                    pendingEditorShortcutChordPrefix = shortcut.firstStroke
                     return true
                 }
                 continue
             }
             if shortcut.matches(event: event) {
-                performPreviewFontZoomShortcutAction(action)
+                performEditorShortcut(candidate.intent)
                 return true
             }
         }
         return false
+    }
+
+    private func editorShortcutCandidates(for event: NSEvent) -> [EditorShortcutCandidate] {
+        var candidates: [EditorShortcutCandidate] = []
+        let saveShortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
+        if !saveShortcut.isUnbound {
+            candidates.append(EditorShortcutCandidate(intent: .save, shortcut: saveShortcut))
+        }
+        for action in Self.previewFontZoomShortcutActions {
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard !shortcut.isUnbound,
+                  previewFontZoomShortcutWhenClauseAllows(action: action, event: event) else { continue }
+            candidates.append(EditorShortcutCandidate(intent: .previewFontZoom(action), shortcut: shortcut))
+        }
+        return candidates
+    }
+
+    private func performEditorShortcut(_ intent: EditorShortcutIntent) {
+        switch intent {
+        case .save:
+            panel?.saveTextContent()
+        case .previewFontZoom(let action):
+            performPreviewFontZoomShortcutAction(action)
+        }
     }
 
     private func previewFontZoomShortcutWhenClauseAllows(

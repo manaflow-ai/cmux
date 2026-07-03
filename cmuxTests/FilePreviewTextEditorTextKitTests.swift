@@ -127,6 +127,49 @@ struct FilePreviewTextEditorTextKitTests {
         }
     }
 
+    @Test("text preview editor allows save and zoom chords to share a prefix")
+    func editorAllowsSaveAndZoomChordsToSharePrefix() throws {
+        try withDefaultShortcutSettings {
+            KeyboardShortcutSettings.setShortcut(
+                Self.controlKChord(secondKey: "s", secondKeyCode: UInt16(kVK_ANSI_S)),
+                for: .saveFilePreview
+            )
+            KeyboardShortcutSettings.setShortcut(
+                Self.controlKChord(secondKey: "=", secondKeyCode: UInt16(kVK_ANSI_Equal)),
+                for: .browserZoomIn
+            )
+
+            let panel = TextEditingPanelSpy()
+            let textView = SavingTextView.makeFilePreviewTextView()
+            textView.panel = panel
+            let initialPointSize = try #require(textView.font?.pointSize)
+
+            let zoomPrefix = try #require(Self.keyEvent(
+                characters: "k",
+                modifierFlags: [.control],
+                keyCode: UInt16(kVK_ANSI_K)
+            ))
+            #expect(textView.performKeyEquivalent(with: zoomPrefix))
+
+            let zoomSuffix = try #require(Self.keyEvent(characters: "=", keyCode: UInt16(kVK_ANSI_Equal)))
+            #expect(textView.performKeyEquivalent(with: zoomSuffix))
+            let zoomedPointSize = try #require(textView.font?.pointSize)
+            #expect(zoomedPointSize > initialPointSize)
+            #expect(panel.saveCount == 0)
+
+            let savePrefix = try #require(Self.keyEvent(
+                characters: "k",
+                modifierFlags: [.control],
+                keyCode: UInt16(kVK_ANSI_K)
+            ))
+            #expect(textView.performKeyEquivalent(with: savePrefix))
+
+            let saveSuffix = try #require(Self.keyEvent(characters: "s", keyCode: UInt16(kVK_ANSI_S)))
+            #expect(textView.performKeyEquivalent(with: saveSuffix))
+            #expect(panel.saveCount == 1)
+        }
+    }
+
     @Test("text preview editor clears pending chord shortcuts when leaving a window")
     func editorClearsPendingShortcutChordsWhenLeavingWindow() throws {
         try withDefaultShortcutSettings {
@@ -237,6 +280,27 @@ struct FilePreviewTextEditorTextKitTests {
         try body()
     }
 
+    private static func controlKChord(secondKey: String, secondKeyCode: UInt16) -> StoredShortcut {
+        StoredShortcut(
+            first: ShortcutStroke(
+                key: "k",
+                command: false,
+                shift: false,
+                option: false,
+                control: true,
+                keyCode: UInt16(kVK_ANSI_K)
+            ),
+            second: ShortcutStroke(
+                key: secondKey,
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: secondKeyCode
+            )
+        )
+    }
+
     private static func keyEvent(
         characters: String,
         modifierFlags: NSEvent.ModifierFlags = [.command],
@@ -254,5 +318,21 @@ struct FilePreviewTextEditorTextKitTests {
             isARepeat: false,
             keyCode: keyCode
         )
+    }
+
+    private final class TextEditingPanelSpy: FilePreviewTextEditingPanel {
+        var textContent = ""
+        var saveCount = 0
+
+        func attachTextView(_: NSTextView) {}
+        func retryPendingFocus() {}
+        func updateTextContent(_ nextContent: String) {
+            textContent = nextContent
+        }
+
+        func saveTextContent() -> Task<Void, Never>? {
+            saveCount += 1
+            return nil
+        }
     }
 }
