@@ -166,6 +166,23 @@ import Testing
         #expect(PullRequestCheckStatus(githubStatusCheckRollupState: nil) == .neutral)
     }
 
+    @Test func probeItemDecodingDefaultsUnknownCIStatusToNeutral() throws {
+        let json = """
+        {
+          "number": 7,
+          "state": "OPEN",
+          "url": "https://github.com/manaflow-ai/cmux/pull/7",
+          "updatedAt": "2026-06-03T10:00:00Z",
+          "ciStatus": "future-status"
+        }
+        """
+        let item = try JSONDecoder().decode(
+            GitHubPullRequestProbeItem.self,
+            from: Data(json.utf8)
+        )
+        #expect(item.ciStatus == .neutral)
+    }
+
     @Test func decodesGraphQLCheckRollupStatuses() throws {
         let json = """
         {
@@ -308,6 +325,62 @@ import Testing
         let statuses = PullRequestProbeService.checkStatusesByPullRequestNumber(from: response)
         #expect(statuses[7] == .success)
         #expect(statuses[108] == .failure)
+    }
+
+    @Test func aliasedGraphQLCheckRollupToleratesNullAliases() throws {
+        let json = """
+        {
+          "data": {
+            "repository": {
+              "pr0": null,
+              "pr1": {
+                "number": 108,
+                "headRefName": "feature/fail",
+                "commits": {
+                  "nodes": [
+                    {"commit": {"statusCheckRollup": {"state": "FAILURE"}}}
+                  ]
+                }
+              }
+            }
+          }
+        }
+        """
+        let response = try #require(
+            PullRequestProbeService.decodeJSON(
+                WorkspacePullRequestGraphQLResponse.self,
+                from: Data(json.utf8)
+            )
+        )
+
+        let statuses = PullRequestProbeService.checkStatusesByPullRequestNumber(from: response)
+        #expect(statuses[108] == .failure)
+    }
+
+    @Test func aliasedGraphQLCheckRollupRejectsMalformedAliasObjects() {
+        let json = """
+        {
+          "data": {
+            "repository": {
+              "pr0": {
+                "number": "not-a-number",
+                "headRefName": "feature/bad",
+                "commits": {
+                  "nodes": [
+                    {"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}
+                  ]
+                }
+              }
+            }
+          }
+        }
+        """
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(
+                WorkspacePullRequestGraphQLResponse.self,
+                from: Data(json.utf8)
+            )
+        }
     }
 
     @Test func checkStatusQueryTargetsExactOpenPullRequestNumbers() {
