@@ -421,13 +421,13 @@ final class MarkdownPanelTests: XCTestCase {
         coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
         coordinator.webViewWebContentProcessDidTerminate(webView)
 
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
-        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, 1)
+        XCTAssertTrue(coordinator.isShellLoading)
 
         coordinator.webView(webView, didFinish: nil)
 
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
-        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, 1)
+        XCTAssertFalse(coordinator.isShellLoading)
     }
 
     func testMarkdownRendererRestartsShellWhenContentChangesAfterRecoveryBudgetExhausted() {
@@ -442,13 +442,13 @@ final class MarkdownPanelTests: XCTestCase {
             coordinator.webViewWebContentProcessDidTerminate(webView)
         }
 
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
-        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, 2)
+        XCTAssertFalse(coordinator.isShellLoading)
 
         coordinator.update(markdown: "# Replacement\n", theme: theme)
 
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
-        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, 0)
+        XCTAssertTrue(coordinator.isShellLoading)
     }
 
     func testMarkdownRendererCapsRecoveryWhenPayloadCrashesAfterShellFinish() {
@@ -462,22 +462,22 @@ final class MarkdownPanelTests: XCTestCase {
 
         for expectedAttempt in 1...2 {
             coordinator.webViewWebContentProcessDidTerminate(webView)
-            XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, expectedAttempt)
-            XCTAssertTrue(coordinator.isShellLoadingForTesting)
+            XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, expectedAttempt)
+            XCTAssertTrue(coordinator.isShellLoading)
 
             coordinator.webView(webView, didFinish: nil)
-            XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, expectedAttempt)
+            XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, expectedAttempt)
         }
 
         coordinator.webViewWebContentProcessDidTerminate(webView)
 
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
-        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, 2)
+        XCTAssertFalse(coordinator.isShellLoading)
 
         coordinator.update(markdown: "# Existing\n", theme: theme)
 
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
-        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, 2)
+        XCTAssertFalse(coordinator.isShellLoading)
     }
 
     func testMarkdownRendererReentersWindowReloadsShellAfterRecoveryBudgetExhausted() {
@@ -497,15 +497,15 @@ final class MarkdownPanelTests: XCTestCase {
         for _ in 0...2 {
             coordinator.webViewWebContentProcessDidTerminate(webView)
         }
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
-        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, 2)
+        XCTAssertFalse(coordinator.isShellLoading)
 
         // Re-parenting the pane back into a window must recover the blank
         // panel: reset the recovery budget and reload the shell.
         coordinator.handleViewReenteredWindow()
 
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
-        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, 0)
+        XCTAssertTrue(coordinator.isShellLoading)
     }
 
     func testMarkdownRendererReentersWindowKeepsLoadedShell() {
@@ -522,8 +522,8 @@ final class MarkdownPanelTests: XCTestCase {
         // successful reload so the shell is loaded again.
         coordinator.webViewWebContentProcessDidTerminate(webView)
         coordinator.webView(webView, didFinish: nil)
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
-        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, 1)
+        XCTAssertFalse(coordinator.isShellLoading)
 
         coordinator.handleViewLeftWindow()
         coordinator.handleViewReenteredWindow()
@@ -531,8 +531,8 @@ final class MarkdownPanelTests: XCTestCase {
         // Re-entry on a loaded shell must not reload it, and must preserve the
         // per-payload crash budget so reparent/layout churn can't grant a
         // crashing payload extra recovery cycles.
-        XCTAssertFalse(coordinator.isShellLoadingForTesting)
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+        XCTAssertFalse(coordinator.isShellLoading)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, 1)
     }
 
     func testMarkdownRendererReentersWindowDoesNotReviveCrashLoopingPayload() {
@@ -549,16 +549,16 @@ final class MarkdownPanelTests: XCTestCase {
         for _ in 0...2 {
             coordinator.webViewWebContentProcessDidTerminate(webView)
         }
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
-        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, 2)
+        XCTAssertFalse(coordinator.isShellLoading)
 
         // Dragging the pane (detach while already blank) then re-entering must
         // NOT grant the crashing payload a fresh budget or reload it.
         coordinator.handleViewLeftWindow()
         coordinator.handleViewReenteredWindow()
 
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
-        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttempts, 2)
+        XCTAssertFalse(coordinator.isShellLoading)
     }
 
     func testMarkdownRendererNavigationFailureUnblocksFutureShellReload() {
@@ -569,16 +569,16 @@ final class MarkdownPanelTests: XCTestCase {
         defer { coordinator.close() }
 
         coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
-        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+        XCTAssertTrue(coordinator.isShellLoading)
 
         let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotLoadFromNetwork)
         coordinator.webView(webView, didFail: nil, withError: error)
 
-        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertFalse(coordinator.isShellLoading)
 
         coordinator.update(markdown: "# Replacement\n", theme: theme)
 
-        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+        XCTAssertTrue(coordinator.isShellLoading)
     }
 
     func testMarkdownRendererNavigationFailureReloadsSameContentUpdate() {
@@ -590,17 +590,17 @@ final class MarkdownPanelTests: XCTestCase {
 
         coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
         coordinator.webView(webView, didFinish: nil)
-        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertFalse(coordinator.isShellLoading)
 
         let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotLoadFromNetwork)
         coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
         coordinator.webView(webView, didFail: nil, withError: error)
 
-        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertFalse(coordinator.isShellLoading)
 
         coordinator.update(markdown: "# Existing\n", theme: theme)
 
-        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+        XCTAssertTrue(coordinator.isShellLoading)
     }
 
     func testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate() async throws {

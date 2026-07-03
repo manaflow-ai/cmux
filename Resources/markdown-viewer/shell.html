@@ -1123,8 +1123,20 @@ html { scroll-behavior: smooth; }
     var sel = libErrorSelectors[libName] || ('.cmux-' + libName);
     contentEl.querySelectorAll(sel + ':not([data-rendered])').forEach(function(el) {
       el.setAttribute('data-rendered', '1');
+      if (libName === 'katex') {
+        renderMathError(el);
+        return;
+      }
       el.innerHTML = '<div class="cmux-render-error">' + libName + ': ' + escapeHtml(msg) + '</div>';
     });
+  }
+
+  function renderMathError(el) {
+    var errorEl = document.createElement('span');
+    errorEl.className = 'cmux-math-error';
+    errorEl.textContent = cmuxString('mathRenderFailed', 'Unable to render math');
+    el.textContent = '';
+    el.appendChild(errorEl);
   }
 
   function markdownScroller() {
@@ -1550,11 +1562,7 @@ html { scroll-behavior: smooth; }
         // Build via DOM with a generic message — never surface raw upstream
         // exception text in the document. cmuxString keys are the bare dict
         // keys from MarkdownViewerAssets.localizedStringsJSON, not catalog keys.
-        var errorEl = document.createElement('span');
-        errorEl.className = 'cmux-math-error';
-        errorEl.textContent = cmuxString('mathRenderFailed', 'Unable to render math');
-        el.textContent = '';
-        el.appendChild(errorEl);
+        renderMathError(el);
       }
     });
   }
