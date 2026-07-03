@@ -239,7 +239,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Mac's ``workspacesByMac`` key. A stale `workspace.list` snapshot can still
     /// list a just-closed row; any match is filtered from the derived list. Scoped
     /// by Mac because aggregated row ids are only Mac-local (two Macs can share an
-    /// id). Persists for the connection; cleared on disconnect. See issue #6349.
+    /// id). Persists while that Mac's snapshot is retained; cleared once the Mac's
+    /// list catches up or the stale snapshot is discarded. See issue #6349.
     var confirmedClosedWorkspaceIDsByMac: [String: Set<String>] = [:]
     private let workspaceAggregation = MobileWorkspaceAggregation()
     /// The flat aggregated workspace list the UI renders. A materialized
@@ -5274,12 +5275,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Drop the foreground entry from the connection pool (P2). Secondary
         // read-only connections (P3) are torn down separately.
         let offlineForegroundKey = foregroundMacKey
+        let retainedWorkspaceSnapshotKeys: Set<String> =
+            preservingOtherMacWorkspaceState
+                ? Set(workspacesByMac.keys)
+                : (workspacesByMac[offlineForegroundKey] == nil ? [] : [offlineForegroundKey])
         if let foreground = foregroundMacDeviceID {
             connections[foreground] = nil
         }
         foregroundMacDeviceID = nil
-        // A fresh connection gets its own authoritative list; drop stale tombstones.
-        confirmedClosedWorkspaceIDsByMac.removeAll()
+        // Retain close tombstones only for Mac snapshots that remain visible after
+        // teardown. Dropping a tombstone while keeping its stale snapshot would
+        // resurrect a workspace the Mac already confirmed closed.
+        if !confirmedClosedWorkspaceIDsByMac.isEmpty {
+            confirmedClosedWorkspaceIDsByMac = confirmedClosedWorkspaceIDsByMac.reduce(into: [:]) { kept, entry in
+                if retainedWorkspaceSnapshotKeys.contains(entry.key) {
+                    kept[entry.key] = entry.value
+                }
+            }
+        }
         if !preservingOtherMacWorkspaceState {
             // Cancel the live secondary subscriptions (slice 3) and keep only the
             // now-offline foreground Mac's last-known workspaces for the offline
