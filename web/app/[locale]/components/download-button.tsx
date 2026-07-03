@@ -110,7 +110,13 @@ export function DownloadButton({
   return (
     <>
       <div
-        className={`inline-flex items-stretch overflow-hidden whitespace-nowrap rounded-full bg-foreground font-medium ${
+        // `[transform:translateZ(0)]` gives the rounded pill its own backing
+        // layer. Without it, Safari fails to clip the zones' `transition-colors`
+        // hover tint to the `rounded-full` corners once the tint animates into
+        // its own compositing layer, so on hover the tint leaks past the
+        // corners as square edges (Chrome clips correctly). Promoting the
+        // clipping container makes the children composite inside its clip.
+        className={`inline-flex items-stretch overflow-hidden whitespace-nowrap rounded-full bg-foreground font-medium [transform:translateZ(0)] ${
           className ?? ""
         }`}
         style={ctaButtonStyle}
