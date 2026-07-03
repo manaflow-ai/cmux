@@ -30,7 +30,7 @@
 3926	cmuxTests/TabManagerUnitTests.swift
 3896	cmuxTests/WindowAndDragTests.swift
 3668	cmuxTests/CLIGenericHookPersistenceTests.swift
-3455	Sources/CmuxConfig.swift
+3469	Sources/CmuxConfig.swift
 3364	cmuxTests/TabManagerSessionSnapshotTests.swift
 3058	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
@@ -43,7 +43,7 @@
 2328	cmuxTests/CJKIMEInputTests.swift
 2242	Sources/TerminalNotificationStore.swift
 2229	Sources/TerminalWindowPortal.swift
-2126	cmuxTests/CmuxConfigTests.swift
+2213	cmuxTests/CmuxConfigTests.swift
 2085	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2078	Sources/SessionPersistence.swift
 2011	Sources/KeyboardShortcutSettingsFileStore.swift
@@ -210,9 +210,9 @@
 560	cmuxTests/CLISSHPTYResizeInputTests.swift
 558	Packages/macOS/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 553	Sources/RightSidebarPanelView.swift
-551	Sources/CmuxConfigExecutor.swift
 549	Sources/Panels/BrowserAutomation.swift
 547	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
+547	Sources/CmuxConfigExecutor.swift
 546	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 544	cmuxUITests/DisplayResolutionRegressionUITests.swift
 540	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGridReplay.swift

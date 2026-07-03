@@ -77,11 +77,7 @@ struct CmuxConfigExecutor {
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
         if let commandReference = action.workspaceCommandName,
-           // Resolve by the folder-aware id first (self-generated custom-command
-           // actions store it) and fall back to the display name (user config
-           // references commands by name).
-           let command = commands.first(where: { $0.id == commandReference })
-               ?? commands.first(where: { $0.name == commandReference }) {
+           let command = CmuxCommandDefinition.command(matching: commandReference, in: commands) {
             guard command.workspace != nil else { return false }
             return execute(
                 command: command,

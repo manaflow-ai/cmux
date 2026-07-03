@@ -22,6 +22,8 @@ import Foundation
 ///   existing template commands are not intercepted. This also means the
 ///   substituted value is always inserted at an unquoted position, where it can
 ///   be safely POSIX-quoted as a single argument.
+/// - Prefix an unquoted placeholder with `\` (`\{{name}}`) to pass a literal
+///   `{{name}}` through to the shell without prompting.
 struct CmuxCommandTemplate {
     /// The raw command string, exactly as written in `cmux.json`.
     let rawValue: String
@@ -63,17 +65,22 @@ struct CmuxCommandTemplate {
     func substituting(_ values: [String: String]) -> String {
         guard rawValue.contains("{{") else { return rawValue }
         let chars = Array(rawValue)
-        let matches = Self.variableMatches(in: chars)
+        let matches = Self.templateMatches(in: chars)
         guard !matches.isEmpty else { return rawValue }
         var result = ""
         result.reserveCapacity(chars.count)
         var cursor = 0
         for match in matches {
             result.append(String(chars[cursor..<match.range.lowerBound]))
-            if let value = values[match.variable.name] {
-                result.append(Self.shellQuote(value))
-            } else {
-                result.append(String(chars[match.range]))
+            switch match {
+            case .variable(let variable, let range):
+                if let value = values[variable.name] {
+                    result.append(Self.shellQuote(value))
+                } else {
+                    result.append(String(chars[range]))
+                }
+            case .escapedPlaceholder(let range):
+                result.append(String(chars[(range.lowerBound + 1)..<range.upperBound]))
             }
             cursor = match.range.upperBound
         }
@@ -81,39 +88,31 @@ struct CmuxCommandTemplate {
         return result
     }
 
-    /// Wraps `value` in POSIX single quotes so it is a single literal shell
-    /// argument, escaping any embedded single quotes as `'\''`.
-    ///
-    /// The resolved command is delivered as interactive terminal input, so the
-    /// line editor (readline/zle) interprets control bytes — Ctrl-U, ESC, an
-    /// embedded newline — *before* the shell parses the quotes. A value such as
-    /// `\u{15}rm -rf ~ #` could otherwise clear the quoted prefix and run as its
-    /// own command. Drop C0/C1 control characters and DEL from the value first
-    /// so quoting is actually sufficient; legitimate argument values never need
-    /// them.
-    static func shellQuote(_ value: String) -> String {
-        let stripped = value.unicodeScalars.filter { scalar in
-            !(scalar.value <= 0x1F || scalar.value == 0x7F
-                || (scalar.value >= 0x80 && scalar.value <= 0x9F))
+    private enum TemplateMatch {
+        case variable(CmuxCommandVariable, Range<Int>)
+        case escapedPlaceholder(Range<Int>)
+
+        var range: Range<Int> {
+            switch self {
+            case .variable(_, let range), .escapedPlaceholder(let range):
+                return range
+            }
         }
-        let escaped = String(String.UnicodeScalarView(stripped))
-            .replacingOccurrences(of: "'", with: "'\\''")
-        return "'" + escaped + "'"
     }
 
-    // MARK: - Scanning
-
-    /// Finds the `{{identifier}}` placeholders that sit at unquoted shell-word
-    /// positions, returning each variable with its character range in `chars`.
-    ///
-    /// The scan tracks single/double shell-quote state (honouring backslash
-    /// escapes outside single quotes), here-doc bodies (`<<EOF … EOF`), and `#`
-    /// comments, so quoted text, here-doc bodies, and comments are left
-    /// untouched and existing template commands run unchanged.
     private static func variableMatches(
         in chars: [Character]
     ) -> [(variable: CmuxCommandVariable, range: Range<Int>)] {
-        var matches: [(variable: CmuxCommandVariable, range: Range<Int>)] = []
+        templateMatches(in: chars).compactMap { match in
+            guard case .variable(let variable, let range) = match else { return nil }
+            return (variable, range)
+        }
+    }
+
+    private static func templateMatches(
+        in chars: [Character]
+    ) -> [TemplateMatch] {
+        var matches: [TemplateMatch] = []
         let count = chars.count
         var index = 0
         var inSingleQuote = false
@@ -131,6 +130,24 @@ struct CmuxCommandTemplate {
                 if character == "'" { inSingleQuote = false }
                 index += 1
                 continue
+            }
+
+            if character == "\\", !inDoubleQuote,
+               index + 2 < count,
+               chars[index + 1] == "{",
+               chars[index + 2] == "{" {
+                let innerStart = index + 3
+                if let close = indexOfCloseBraces(chars, from: innerStart) {
+                    let inner = chars[innerStart..<close]
+                    let innerHasIllegalCharacter = inner.contains { c in
+                        c == "{" || c == "}" || c == "\n" || c == "\r"
+                    }
+                    if !innerHasIllegalCharacter, parse(inner: String(inner)) != nil {
+                        matches.append(.escapedPlaceholder(index..<(close + 2)))
+                        index = close + 2
+                        continue
+                    }
+                }
             }
 
             if character == "\\" {
@@ -184,7 +201,7 @@ struct CmuxCommandTemplate {
                         c == "{" || c == "}" || c == "\n" || c == "\r"
                     }
                     if !innerHasIllegalCharacter, let parsed = parse(inner: String(inner)) {
-                        matches.append((
+                        matches.append(.variable(
                             CmuxCommandVariable(name: parsed.name, defaultValue: parsed.defaultValue),
                             index..<(close + 2)
                         ))
@@ -206,6 +223,26 @@ struct CmuxCommandTemplate {
         }
 
         return matches
+    }
+
+    /// Wraps `value` in POSIX single quotes so it is a single literal shell
+    /// argument, escaping any embedded single quotes as `'\''`.
+    ///
+    /// The resolved command is delivered as interactive terminal input, so the
+    /// line editor (readline/zle) interprets control bytes — Ctrl-U, ESC, an
+    /// embedded newline — *before* the shell parses the quotes. A value such as
+    /// `\u{15}rm -rf ~ #` could otherwise clear the quoted prefix and run as its
+    /// own command. Drop C0/C1 control characters and DEL from the value first
+    /// so quoting is actually sufficient; legitimate argument values never need
+    /// them.
+    static func shellQuote(_ value: String) -> String {
+        let stripped = value.unicodeScalars.filter { scalar in
+            !(scalar.value <= 0x1F || scalar.value == 0x7F
+                || (scalar.value >= 0x80 && scalar.value <= 0x9F))
+        }
+        let escaped = String(String.UnicodeScalarView(stripped))
+            .replacingOccurrences(of: "'", with: "'\\''")
+        return "'" + escaped + "'"
     }
 
     /// Whether `chars[i]` (a `#`) begins a shell comment: it must sit at a word

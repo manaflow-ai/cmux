@@ -1334,6 +1334,52 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarButtons.last?.workspaceCommandName, "Dev Environment")
     }
 
+    @MainActor
+    func testSurfaceTabBarDropsAmbiguousWorkspaceCommandNameFallback() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "action": "newTerminal" },
+                { "id": "dev", "type": "workspaceCommand", "commandName": "Dev Environment" }
+              ]
+            }
+          },
+          "commands": [
+            {
+              "name": "Dev Environment",
+              "folder": "Frontend",
+              "workspace": { "name": "Frontend Dev" }
+            },
+            {
+              "name": "Dev Environment",
+              "folder": "Backend",
+              "workspace": { "name": "Backend Dev" }
+            }
+          ]
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), ["newTerminal"])
+    }
+
     func testDecodeEmptySurfaceTabBarButtons() throws {
         let json = """
         {
@@ -1875,6 +1921,47 @@ final class CmuxCommandIdentityTests: XCTestCase {
 
 @MainActor
 final class CmuxConfigWorkspaceCommandExecutionTests: XCTestCase {
+
+    func testWorkspaceCommandActionNameFallbackFailsClosedWhenAmbiguous() {
+        let manager = TabManager()
+        let action = CmuxResolvedConfigAction(
+            id: "open-dev",
+            title: "Open Dev",
+            subtitle: nil,
+            keywords: [],
+            palette: true,
+            shortcut: nil,
+            icon: nil,
+            tooltip: nil,
+            action: .workspaceCommand("Dev command"),
+            confirm: nil,
+            terminalCommandTarget: nil,
+            actionSourcePath: nil,
+            iconSourcePath: nil
+        )
+        let commands = [
+            CmuxCommandDefinition(
+                name: "Dev command",
+                workspace: CmuxWorkspaceDefinition(name: "Frontend Dev"),
+                folder: "Frontend"
+            ),
+            CmuxCommandDefinition(
+                name: "Dev command",
+                workspace: CmuxWorkspaceDefinition(name: "Backend Dev"),
+                folder: "Backend"
+            ),
+        ]
+
+        XCTAssertFalse(CmuxConfigExecutor.execute(
+            action: action,
+            commands: commands,
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            globalConfigPath: "/tmp/cmux-test-global-config.json"
+        ))
+        XCTAssertEqual(manager.tabs.count, 1)
+    }
 
     func testWorkspaceCommandCreatesNewWorkspaceByDefaultWhenNameAlreadyExists() {
         let manager = TabManager()

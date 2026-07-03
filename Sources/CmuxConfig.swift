@@ -1637,6 +1637,22 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         return "cmux.config.command." + key
     }
 
+    static func command(
+        matching reference: String,
+        in commands: [CmuxCommandDefinition]
+    ) -> CmuxCommandDefinition? {
+        if let byID = commands.first(where: { $0.id == reference }) {
+            return byID
+        }
+
+        var nameMatch: CmuxCommandDefinition?
+        for command in commands where command.name == reference {
+            guard nameMatch == nil else { return nil }
+            nameMatch = command
+        }
+        return nameMatch
+    }
+
     /// The trimmed, non-empty components of ``folder`` split on `/`.
     var folderComponents: [String] {
         guard let folder else { return [] }
@@ -3046,8 +3062,7 @@ final class CmuxConfigStore: ObservableObject {
     ) -> NewWorkspaceCommandResolution {
         // The reference may be a folder-aware command id (from a generated
         // action) or a display name (from user config); match id first.
-        guard let command = commands.first(where: { $0.id == commandName })
-            ?? commands.first(where: { $0.name == commandName }) else {
+        guard let command = CmuxCommandDefinition.command(matching: commandName, in: commands) else {
             return newWorkspaceResolutionIssue(
                 kind: .newWorkspaceCommandNotFound,
                 settingName: settingName,
@@ -3103,9 +3118,8 @@ final class CmuxConfigStore: ObservableObject {
         commands: [CmuxCommandDefinition],
         sourcePaths: [String: String]
     ) -> CmuxResolvedCommand? {
-        // Accept a folder-aware command id or a display name (id first).
-        guard let command = commands.first(where: { $0.id == commandName })
-            ?? commands.first(where: { $0.name == commandName }) else {
+        // Accept a folder-aware command id or a unique display name (id first).
+        guard let command = CmuxCommandDefinition.command(matching: commandName, in: commands) else {
             NSLog("[CmuxConfig] %@ '%@' does not match any loaded command", settingName, commandName)
             return nil
         }

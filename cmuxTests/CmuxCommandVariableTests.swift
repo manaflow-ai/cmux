@@ -96,6 +96,13 @@ import Testing
         #expect(substitute(command, ["env": "prod"]) == "deploy 'prod' --label '{{env}}'")
     }
 
+    @Test func escapedUnquotedPlaceholderIsLiteral() {
+        let command = "deploy \\{{template_var}} {{real}}"
+        #expect(variables(command).map(\.name) == ["real"])
+        #expect(substitute(command, ["template_var": "wrong", "real": "prod"])
+            == "deploy {{template_var}} 'prod'")
+    }
+
     @Test func escapedQuoteKeepsPlaceholderQuoted() {
         // A backslash-escaped quote does not close the surrounding quote, so a
         // placeholder after it is still quoted and must not be substituted.
@@ -240,6 +247,28 @@ import Testing
         let a = CmuxCommandDefinition(name: "C", command: "x", folder: "A/B")
         let b = CmuxCommandDefinition(name: "B/C", command: "x", folder: "A")
         #expect(a.id != b.id)
+    }
+
+    @Test func commandReferenceMatchesIDOrUniqueNameOnly() {
+        let frontend = CmuxCommandDefinition(
+            name: "Build",
+            workspace: CmuxWorkspaceDefinition(name: "Frontend"),
+            folder: "Frontend"
+        )
+        let backend = CmuxCommandDefinition(
+            name: "Build",
+            workspace: CmuxWorkspaceDefinition(name: "Backend"),
+            folder: "Backend"
+        )
+        let deploy = CmuxCommandDefinition(
+            name: "Deploy",
+            workspace: CmuxWorkspaceDefinition(name: "Deploy")
+        )
+        let commands = [frontend, backend, deploy]
+
+        #expect(CmuxCommandDefinition.command(matching: backend.id, in: commands)?.id == backend.id)
+        #expect(CmuxCommandDefinition.command(matching: "Deploy", in: commands)?.id == deploy.id)
+        #expect(CmuxCommandDefinition.command(matching: "Build", in: commands)?.id == nil)
     }
 
     @Test func sameLeafNameInDifferentFoldersBothResolve() throws {
