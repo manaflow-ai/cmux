@@ -413,9 +413,13 @@ import Testing
         // Force interactive mode so the prompt works even under ssh_config BatchMode yes…
         #expect(consecutive(argv, "-o", "BatchMode=no"))
         #expect(!argv.contains("BatchMode=yes"))
-        // …and -f so ssh backgrounds AFTER auth: the persistent ControlMaster then
-        // detaches its fds and won't freeze the terminal on window/app close.
-        #expect(argv.contains("-f"))
+        // No -f: foreground auth keeps the post-auth ControlMaster retry deterministic.
+        #expect(!argv.contains("-f"))
+        // Keep -n explicitly; -f used to imply stdin from /dev/null.
+        #expect(argv.contains("-n"))
+        // The master must persist after the foreground client exits so discovery / the
+        // -CC client can multiplex over it.
+        #expect(argv.contains(where: { $0.hasPrefix("ControlPersist=") }))
         // …but do NOT pin StrictHostKeyChecking — honor the user's host-key policy.
         #expect(!argv.contains(where: { $0.hasPrefix("StrictHostKeyChecking=") }))
         // Opens the SAME shared master that discovery / the -CC client multiplex over.

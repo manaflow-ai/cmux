@@ -238,7 +238,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
             var tail = parts.tail
             if tail.first == "codex-teams" { tail.removeFirst() }
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: tail) else {
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-restore", args: tail) else {
                 return .resolved(nil)
             }
             return .resolved([parts.executable, "codex-teams", "resume", sessionId] + preserved)
@@ -276,7 +276,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return claudeResumeArgv(sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "codex":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: parts.tail) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-restore", args: parts.tail) else { return nil }
             return [parts.executable, "resume", sessionId] + preserved
         case "grok":
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
