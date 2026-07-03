@@ -2011,13 +2011,13 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     private static func notificationHookCacheKey(for directory: String?) -> String? {
-        notificationHookSearchDirectory(for: directory).map { ($0 as NSString).standardizingPath }
+        notificationHookSearchDirectory(for: directory)
     }
 
     private static func notificationHookSearchDirectory(for directory: String?) -> String? {
         guard let directory else { return nil }
         guard !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return directory
+        return (directory as NSString).standardizingPath
     }
 
     init(
