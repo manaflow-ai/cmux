@@ -25,7 +25,7 @@ export async function generateMetadata({
       description: t("metaDescription"),
       type: "article",
       publishedTime: "2026-05-13T00:00:00Z",
-      modifiedTime: "2026-05-22T00:00:00Z",
+      modifiedTime: "2026-07-03T00:00:00Z",
     },
     twitter: {
       card: "summary_large_image",
@@ -85,6 +85,20 @@ export default function SessionRestoreBlogPage() {
 
       <h2>{t("limitsTitle")}</h2>
       <p>{t("limitsP")}</p>
+
+      <h2>{t("workflowTitle")}</h2>
+      <ol>
+        <li>{t("workflowInstall")}</li>
+        <li>{t("workflowWork")}</li>
+        <li>{t("workflowRelaunch")}</li>
+        <li>{t("workflowVerify")}</li>
+      </ol>
+
+      <h2>{t("faqTitle")}</h2>
+      <h3>{t("faqCrashTitle")}</h3>
+      <p>{t("faqCrashBody")}</p>
+      <h3>{t("faqTmuxTitle")}</h3>
+      <p>{t("faqTmuxBody")}</p>
 
       <p className="mt-6">
         {t.rich("docsCta", {

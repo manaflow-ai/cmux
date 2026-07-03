@@ -20,6 +20,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
       description: t("metaDescription"),
       type: "article",
       publishedTime: "2026-03-30T00:00:00Z",
+      modifiedTime: "2026-07-03T00:00:00Z",
     },
     twitter: {
       card: "summary_large_image",
@@ -68,12 +69,21 @@ export default function CmuxSshPage() {
         className="my-6 rounded-lg w-full h-auto"
       />
 
+      <h2>{t("workflowTitle")}</h2>
+      <ol>
+        <li>{t("workflowConnect")}</li>
+        <li>{t("workflowPreview")}</li>
+        <li>{t("workflowNotify")}</li>
+        <li>{t("workflowUpload")}</li>
+      </ol>
+
+      <h2>{t("featureTitle")}</h2>
       <ul className="mt-4 space-y-1">
-        <li>Browser panes route through the remote machine, so <code>localhost:3000</code> reaches the remote dev server without port forwarding</li>
-        <li>Drag an image into a remote terminal to upload via scp</li>
-        <li>Coding agents on the remote box send notifications to your local sidebar</li>
-        <li><code>cmux claude-teams</code> and <code>cmux omo</code> work over SSH, spawning teammate panes locally while computation runs remote</li>
-        <li>The sidebar shows connection state and detected listening ports</li>
+        <li>{t.rich("featureBrowser", { code: (chunks) => <code>{chunks}</code> })}</li>
+        <li>{t("featureUpload")}</li>
+        <li>{t("featureNotify")}</li>
+        <li>{t.rich("featureAgents", { code: (chunks) => <code>{chunks}</code> })}</li>
+        <li>{t("featureSidebar")}</li>
       </ul>
 
       <iframe
@@ -84,8 +94,16 @@ export default function CmuxSshPage() {
         allowFullScreen
       />
 
-      <p className="mt-4">
-        <Link href="/docs/ssh">Read the SSH docs &rarr;</Link>
+      <h2>{t("faqTitle")}</h2>
+      <h3>{t("faqPortTitle")}</h3>
+      <p>{t("faqPortBody")}</p>
+      <h3>{t("faqConfigTitle")}</h3>
+      <p>{t("faqConfigBody")}</p>
+
+      <p className="mt-6">
+        {t.rich("docsCta", {
+          link: (chunks) => <Link href="/docs/ssh">{chunks}</Link>,
+        })}
       </p>
     </>
   );

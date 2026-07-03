@@ -4,6 +4,7 @@ import { buildAlternates } from "../../../../i18n/seo";
 import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "../../components/code-block";
 import { DocsHeading } from "../../components/docs-heading";
+import { Link } from "../../../../i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -134,6 +135,11 @@ cmux omo`}</CodeBlock>
         </tbody>
       </table>
       <p>{t("daemonPath")}</p>
+      <p className="mt-6">
+        {t.rich("blogCta", {
+          link: (chunks) => <Link href="/blog/cmux-ssh">{chunks}</Link>,
+        })}
+      </p>
     </>
   );
 }

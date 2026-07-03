@@ -197,6 +197,11 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
           configLink: (chunks) => <Link href="/docs/configuration">{chunks}</Link>,
         })}
       </p>
+      <p>
+        {t.rich("blogCta", {
+          link: (chunks) => <Link href="/blog/session-restore">{chunks}</Link>,
+        })}
+      </p>
     </>
   );
 }
