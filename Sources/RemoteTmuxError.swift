@@ -32,7 +32,8 @@ extension RemoteTmuxError {
     /// so a noisy or hostile remote can't inject control bytes or unbounded output into
     /// our error bodies. Only the rendered `message` is sanitized — the stored
     /// associated `stderr`/`detail` are left untouched for the stderr-classification
-    /// paths that pattern-match them (`indicatesNoServer`, `indicatesAuthRequired`).
+    /// paths that pattern-match them (`indicatesNoServer`, `indicatesAuthRequired`,
+    /// `indicatesProxyCommandTransportClosed`).
     var message: String {
         switch self {
         case let .commandFailed(exitCode, stderr):
