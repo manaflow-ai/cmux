@@ -331,10 +331,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             bottomSafeAreaUnderlap: safeAreaUnderlap
         )
         let adjustedBottomInset = overlayBottomInset + keyboardOverlap
-        let clipBottomConstant = transcriptClipBottomConstant(
-            composerHeight: composerHeight,
-            bottomSafeAreaUnderlap: safeAreaUnderlap
-        )
+        let clipBottomConstant = transcriptClipBottomConstant(bottomSafeAreaUnderlap: safeAreaUnderlap)
         let fullTranscriptHeight = max(0, layoutHeight)
         updateConstraint(composerHeightConstraint, to: composerHeight)
         updateConstraint(transcriptClipTopConstraint, to: 0)
@@ -393,14 +390,15 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         return max(0, ceil(visibleComposerHeight + bottomSafeAreaUnderlap))
     }
 
-    private func transcriptClipBottomConstant(
-        composerHeight: CGFloat,
-        bottomSafeAreaUnderlap: CGFloat
-    ) -> CGFloat {
+    private func transcriptClipBottomConstant(bottomSafeAreaUnderlap: CGFloat) -> CGFloat {
         guard keyboardOverlap > 0.5 else {
             return max(0, ceil(bottomSafeAreaUnderlap))
         }
-        return -max(0, ceil(keyboardOverlap + composerHeight))
+        // The composer follows the full keyboard reservation. The transcript
+        // clip stops at the visual keyboard chrome so bottom chrome can overlay
+        // live rows without letting rows enter the key plane.
+        let visualKeyboardChromeOverlap = max(0, keyboardOverlap - bottomSafeAreaUnderlap)
+        return -ceil(visualKeyboardChromeOverlap)
     }
 
     private func updateConstraint(_ constraint: NSLayoutConstraint?, to constant: CGFloat) {
