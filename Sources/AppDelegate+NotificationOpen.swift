@@ -86,7 +86,8 @@ extension AppDelegate {
 
         context.sidebarSelectionState.selection = .tabs
         bringToFront(window)
-        guard context.tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
+        let focusSurfaceId = panelId ?? surfaceId
+        guard context.tabManager.focusTabFromNotification(tabId, surfaceId: focusSurfaceId) else {
 #if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(
                 tabId: tabId,
@@ -105,7 +106,7 @@ extension AppDelegate {
         recordJumpUnreadFocusFromModelIfNeeded(
             tabManager: context.tabManager,
             tabId: tabId,
-            expectedSurfaceId: surfaceId
+            expectedSurfaceId: focusSurfaceId
         )
 #endif
 
@@ -168,7 +169,8 @@ extension AppDelegate {
 
         sidebarSelectionState?.selection = .tabs
         bringToFront(window)
-        guard tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
+        let focusSurfaceId = panelId ?? surfaceId
+        guard tabManager.focusTabFromNotification(tabId, surfaceId: focusSurfaceId) else {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
                 writeJumpUnreadTestData([
@@ -184,7 +186,7 @@ extension AppDelegate {
         recordJumpUnreadFocusFromModelIfNeeded(
             tabManager: tabManager,
             tabId: tabId,
-            expectedSurfaceId: surfaceId
+            expectedSurfaceId: focusSurfaceId
         )
 #endif
 
