@@ -1,4 +1,3 @@
-import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -18,10 +17,17 @@ struct WorkspaceDetailContainer: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
+    @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
 
     private var workspace: MobileWorkspacePreview? {
         if let workspaceID {
-            return store.workspaces.first { $0.id == workspaceID } ?? store.selectedWorkspace
+            if let liveWorkspace = store.workspaces.first(where: { $0.id == workspaceID }) {
+                return liveWorkspace
+            }
+            if routeWorkspaceSnapshot?.id == workspaceID {
+                return routeWorkspaceSnapshot
+            }
+            return nil
         }
         return store.selectedWorkspace
     }
@@ -67,22 +73,14 @@ struct WorkspaceDetailContainer: View {
                     signOut: signOut
                 )
                 .onAppear {
-                    #if DEBUG
-                    MobileDebugLog.anchormux(
-                        "toolbar.container.detailAppear requested=\(workspaceID?.rawValue ?? "nil") resolved=\(workspace.id.rawValue) selected=\(store.selectedWorkspaceID?.rawValue ?? "nil") terminals=\(workspace.terminals.count) back=\(backButtonConfiguration != nil)"
-                    )
-                    #endif
+                    rememberRouteWorkspace(workspace)
                     if store.selectedWorkspaceID != workspace.id {
                         store.selectedWorkspaceID = workspace.id
                     }
                 }
-                #if DEBUG
-                .onDisappear {
-                    MobileDebugLog.anchormux(
-                        "toolbar.container.detailDisappear requested=\(workspaceID?.rawValue ?? "nil") resolved=\(workspace.id.rawValue) selected=\(store.selectedWorkspaceID?.rawValue ?? "nil")"
-                    )
+                .onChange(of: workspace) { _, workspace in
+                    rememberRouteWorkspace(workspace)
                 }
-                #endif
                 .task(id: workspace.id) {
                     await store.openWorkspace(workspace.id)
                 }
@@ -93,26 +91,10 @@ struct WorkspaceDetailContainer: View {
                 )
             }
         }
-        #if DEBUG
-        .onAppear {
-            MobileDebugLog.anchormux("toolbar.container.appear \(debugSignature)")
-        }
-        .onChange(of: debugSignature) { _, signature in
-            MobileDebugLog.anchormux("toolbar.container.change \(signature)")
-        }
-        #endif
     }
 
-    #if DEBUG
-    private var debugSignature: String {
-        [
-            "requested=\(workspaceID?.rawValue ?? "nil")",
-            "resolved=\(workspace?.id.rawValue ?? "nil")",
-            "selected=\(store.selectedWorkspaceID?.rawValue ?? "nil")",
-            "selectedTerminal=\(store.selectedTerminalID?.rawValue ?? "nil")",
-            "workspaces=\(store.workspaces.map(\.id.rawValue).joined(separator: ","))",
-            "back=\(backButtonConfiguration != nil)",
-        ].joined(separator: " ")
+    private func rememberRouteWorkspace(_ workspace: MobileWorkspacePreview) {
+        guard workspaceID == workspace.id else { return }
+        routeWorkspaceSnapshot = workspace
     }
-    #endif
 }
