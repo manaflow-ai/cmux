@@ -1,4 +1,5 @@
 import Foundation
+import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
@@ -144,6 +145,9 @@ struct WorkspaceShellView: View {
             }
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
+            MobileDebugLog.anchormux(
+                "toolbar.shell.selected workspace=\(selectedWorkspaceID?.rawValue ?? "nil") path=\(debugCompactNavigationPath) pendingCreate=\(pendingCompactCreateNavigationWorkspaceIDs != nil)"
+            )
             if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
                 currentPath: compactNavigationPath,
                 selectedWorkspaceID: selectedWorkspaceID,
@@ -161,6 +165,9 @@ struct WorkspaceShellView: View {
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onChange(of: compactNavigationPath) { _, path in
+            MobileDebugLog.anchormux(
+                "toolbar.shell.path path=\(path.map(\.rawValue).joined(separator: ",")) selected=\(store.selectedWorkspaceID?.rawValue ?? "nil")"
+            )
             guard let selectedWorkspaceID = path.last else {
                 return
             }
@@ -171,7 +178,11 @@ struct WorkspaceShellView: View {
             store.selectedWorkspaceID = selectedWorkspaceID
         }
         .onChange(of: store.workspaces.map(\.id)) { _, workspaceIDs in
+            MobileDebugLog.anchormux(
+                "toolbar.shell.workspaceIDs ids=\(workspaceIDs.map(\.rawValue).joined(separator: ",")) pathBefore=\(debugCompactNavigationPath)"
+            )
             compactNavigationPath.removeAll { !workspaceIDs.contains($0) }
+            MobileDebugLog.anchormux("toolbar.shell.workspaceIDs pathAfter=\(debugCompactNavigationPath)")
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onAppear {
@@ -228,6 +239,10 @@ struct WorkspaceShellView: View {
         .onAppear {
             hasPresentedSplitDetail = true
         }
+    }
+
+    private var debugCompactNavigationPath: String {
+        compactNavigationPath.map(\.rawValue).joined(separator: ",")
     }
 
     /// Apply (and clear) a pending deep-link navigation intent. On the compact
