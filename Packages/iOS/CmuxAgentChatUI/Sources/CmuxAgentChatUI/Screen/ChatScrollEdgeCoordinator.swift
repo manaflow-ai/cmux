@@ -11,11 +11,11 @@ final class ChatScrollEdgeCoordinator {
     func configure(
         tableView: ChatTranscriptUITableView?,
         owner: UIViewController,
-        composerView: UIView
+        bottomChromeView: UIView
     ) {
         configureEdgeEffect(for: tableView)
         configureContentScrollView(tableView, owner: owner)
-        configureBottomInteraction(tableView, composerView: composerView)
+        configureBottomInteraction(tableView, bottomChromeView: bottomChromeView)
     }
 
     func reset() {
@@ -59,7 +59,7 @@ final class ChatScrollEdgeCoordinator {
 
     private func configureBottomInteraction(
         _ tableView: ChatTranscriptUITableView?,
-        composerView: UIView
+        bottomChromeView: UIView
     ) {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
@@ -74,14 +74,20 @@ final class ChatScrollEdgeCoordinator {
             } else {
                 interaction = UIScrollEdgeElementContainerInteraction()
                 interaction.edge = .bottom
-                composerView.addInteraction(interaction)
+                bottomChromeView.addInteraction(interaction)
                 bottomInteraction = interaction
             }
 
             if bottomInteractionTableView !== tableView {
+                #if DEBUG
+                bottomInteractionTableView?.recordBottomEdgeElementContainerRegistration(false)
+                #endif
                 interaction.scrollView = tableView
                 bottomInteractionTableView = tableView
             }
+            #if DEBUG
+            tableView.recordBottomEdgeElementContainerRegistration(true)
+            #endif
         }
         #endif
     }
@@ -90,6 +96,9 @@ final class ChatScrollEdgeCoordinator {
         if let interaction = bottomInteraction {
             interaction.view?.removeInteraction(interaction)
         }
+        #if DEBUG
+        bottomInteractionTableView?.recordBottomEdgeElementContainerRegistration(false)
+        #endif
         bottomInteraction = nil
         bottomInteractionTableView = nil
     }
