@@ -422,27 +422,97 @@ final class RemoteTmuxController {
     }
 
     /// Discovers every tmux session on `host` and mirrors each as its own
-    /// workspace in the active window's sidebar (Option 2 — used by the
-    /// `remote.tmux.mirror` socket command). Prefer
-    /// ``mirrorHostInNewWindow(host:)`` for the user-facing attach.
-    func mirrorHost(host: RemoteTmuxHost) async throws {
-        guard let tabManager = AppDelegate.shared?.tabManager else {
+    /// workspace in the CURRENT window's sidebar (the `cmux ssh-tmux` default —
+    /// no group, no dedicated window). Hardened sibling of
+    /// ``mirrorHostInNewWindow(host:activateWindow:)``:
+    /// - returns ``RemoteTmuxAttachOutcome/authRequired(sshArgv:)`` on a
+    ///   recoverable BatchMode auth failure (the CLI then authenticates and retries),
+    /// - falls back to creating a plain window when no main window exists,
+    /// - reuses an existing mirror for the host instead of duplicating,
+    /// - never discards the window on failure (it may hold local workspaces).
+    @discardableResult
+    func mirrorHostInCurrentWindow(
+        host: RemoteTmuxHost,
+        activateWindow: Bool = true
+    ) async throws -> RemoteTmuxAttachOutcome {
+        guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
-        let sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: false)
-        // Confirm the shared ControlMaster before the per-session attach burst, so
-        // concurrent `ControlMaster=auto` attaches don't race to create it (#6732).
+
+        // Reuse: if the host already has a live mirror workspace, reveal it and
+        // return instead of mirroring twice. The mirror struct's `tabManager`
+        // is private/weak, so resolve the manager from the workspace id via the
+        // confirmed `tabManagerFor(tabId:)` (Sources/AppDelegate+RecoverableMainWindowRoutes.swift:385).
+        if let workspaceId = sessionMirrors.values
+               .first(where: { $0.host.connectionHash == host.connectionHash })?
+               .mirroredWorkspaceId,
+           let manager = appDelegate.tabManagerFor(tabId: workspaceId) {
+            if activateWindow {
+                manager.selectWorkspace(workspaceId)  // TabManager+FocusHistoryHosting:40
+            }
+            let windowId = appDelegate.windowId(for: manager) ?? UUID()
+            return .mirrored(windowId: windowId)
+        }
+
+        // Guard the await gap so a concurrent attach can't double-mirror.
+        guard windowRegistry.beginAttach(hostHash: host.connectionHash) else {
+            throw RemoteTmuxError.unreachable("already attaching \(host.destination)")
+        }
+        defer { windowRegistry.endAttach(hostHash: host.connectionHash) }
+
+        // Discover over the shared ControlMaster (BatchMode). A recoverable auth
+        // failure hands back the interactive ssh argv (same classification as the
+        // window path) so the CLI authenticates and retries.
+        let sessions: [RemoteTmuxSession]
+        do {
+            sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: false)
+        } catch let error as RemoteTmuxError {
+            if case .commandFailed(_, let stderr) = error,
+               RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr) {
+                return .authRequired(sshArgv: host.interactiveAuthInvocation())
+            }
+            throw error
+        }
+        guard !sessions.isEmpty else {
+            throw RemoteTmuxError.unreachable("no tmux sessions on \(host.destination)")
+        }
+
+        // Bail before mutating UI if the caller already timed out/cancelled.
+        try Task.checkCancellation()
         try await ensureControlMasterReadyForBurst(host: host)
+
+        // Target the current window; create a plain window if none exists (D3).
+        let manager: TabManager
+        if let current = appDelegate.tabManager {
+            manager = current
+        } else {
+            let windowId = appDelegate.createMainWindow(shouldActivate: activateWindow)
+            guard let created = appDelegate.tabManagerFor(windowId: windowId) else {
+                throw RemoteTmuxError.unreachable("could not create window")
+            }
+            manager = created
+        }
+
+        var firstMirroredWorkspaceId: UUID?
         for session in sessions {
-            // One session failing to attach must not abort mirroring the rest.
             do {
-                try mirrorSession(host: host, sessionName: session.name, into: tabManager)
+                try mirrorSession(host: host, sessionName: session.name, into: manager)
+                if firstMirroredWorkspaceId == nil {
+                    let key = Self.connectionKey(host: host, sessionName: session.name)
+                    firstMirroredWorkspaceId = sessionMirrors[key]?.mirroredWorkspaceId
+                }
             } catch {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: mirror session \(session.name) on \(host.destination) failed: \(error)")
                 #endif
             }
         }
+
+        if activateWindow, let firstMirroredWorkspaceId {
+            manager.selectWorkspace(firstMirroredWorkspaceId)  // TabManager+FocusHistoryHosting:40
+        }
+        let windowId = appDelegate.windowId(for: manager) ?? UUID()
+        return .mirrored(windowId: windowId)
     }
 
     /// Mirrors a single tmux session into a new workspace in `tabManager` (idempotent).
