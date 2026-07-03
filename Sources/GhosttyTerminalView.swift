@@ -4185,20 +4185,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     private func ensureSurfaceReadyForInput() -> ghostty_surface_t? {
         if let surface = surface {
-            reassertTerminalFocusForInputIfFirstResponder()
+            _ = reassertTerminalFocusForInputIfFirstResponder()
             return surface
         }
         guard window != nil else { return nil }
         terminalSurface?.attachToViewForInputDemand(self)
         updateSurfaceSize(size: bounds.size)
         applySurfaceColorScheme(force: true)
-        reassertTerminalFocusForInputIfFirstResponder()
+        _ = reassertTerminalFocusForInputIfFirstResponder()
         return surface
     }
-
-    private func reassertTerminalFocusForInputIfFirstResponder() {
-        guard let terminalSurface, window?.firstResponder === self else { return }
-        terminalSurface.setFocus(true)
+    private func reassertTerminalFocusForInputIfFirstResponder(forceNative: Bool = false) -> Bool {
+        guard let terminalSurface, window?.firstResponder === self, !suppressingReparentFocus,
+              isVisibleInUI, hasUsableFocusGeometry, !isHiddenOrHasHiddenAncestor,
+              AppDelegate.shared?.allowsTerminalKeyboardFocus(workspaceId: terminalSurface.tabId, panelId: terminalSurface.id, in: window) != false else { return false }
+        terminalSurface.setFocus(true); if forceNative, let surface { terminalSurface.recordExternalFocusState(true); ghostty_surface_set_focus(surface, true) }
+        return true
     }
     private func requestInputRecoveryAfterSurfaceMiss(reason: String) {
         terminalSurface?.requestInputDemandSurfaceStartIfNeeded()
@@ -5688,9 +5690,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             increments: ["probeKeyDownCount": 1]
         )
 #endif
-
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
-            terminalSurface?.recordExternalFocusState(true); ghostty_surface_set_focus(surface, true)
+            _ = reassertTerminalFocusForInputIfFirstResponder(forceNative: true)
             var keyEvent = ghostty_input_key_s()
             keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
             keyEvent.keycode = UInt32(event.keyCode)
@@ -5698,7 +5699,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEvent.consumed_mods = GHOSTTY_MODS_NONE
             keyEvent.composing = false
             keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
-
             let text = (event.charactersIgnoringModifiers ?? event.characters ?? "")
             let handled: Bool
             if text.isEmpty {
