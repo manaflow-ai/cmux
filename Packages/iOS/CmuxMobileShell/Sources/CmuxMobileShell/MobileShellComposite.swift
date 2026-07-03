@@ -745,6 +745,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// min(all device reports, pane size), so a faithful producer frame can
     /// never exceed this (after the Mac-side clamp floors); the render-grid
     /// ingest uses it to detect a diverged producer grid (issue #7202).
+    ///
+    /// Deliberately phone-side state, not connection state: recording happens
+    /// before the remote-client guard so the map tracks the view's latest
+    /// natural grid even while disconnected, and it intentionally survives
+    /// `resetTerminalOutputTracking()`. The Mac clears its sticky caps when a
+    /// connection closes, so the post-reconnect producer grid is exactly the
+    /// case the guard must still catch; clearing this map there would disable
+    /// the guard until a manual resize re-reports. Per-surface entries are
+    /// removed on unmount (`unregisterTerminalOutput`).
     var reportedTerminalViewportGridsBySurfaceID: [String: (columns: Int, rows: Int)] = [:]
     /// Last oversized-grid recovery attempt per surface, pacing viewport
     /// re-assertion and barrier re-arming while a producer stays diverged.
