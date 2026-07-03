@@ -23,7 +23,7 @@ cargo test                      # unit + integration tests
 
 Detach with prefix-d while attached; the headless session keeps running and `attach` reconnects with full screen state (VT replay + live stream). A local (non-attach) `cmux-mux` ends its session on quit.
 
-Keys (prefix Ctrl-b, tmux-style): `c` new tab, `n`/`p`/`1`-`9` switch tab, `%` split right, `"` split down, `h j k l`/arrows move focus, `x` kill pane, `w` next workspace, `W` new workspace, PageUp/PageDown scrollback, `d` quit, `Ctrl-b` twice sends a literal Ctrl-b. Mouse: click focuses, wheel scrolls (arrow keys on the alternate screen).
+Keys (prefix Ctrl-b, tmux-style): `c` new tab, `n`/`p`/`1`-`9` switch tab, `%` split right, `"` split down, `h j k l`/arrows move focus, `x` kill pane, `w` next workspace, `W` new workspace, `s` toggle the workspace sidebar, PageUp/PageDown scrollback, `d` quit, `Ctrl-b` twice sends a literal Ctrl-b. Mouse: click focuses panes, click a sidebar entry to switch workspaces (or `+ new workspace` to create one), wheel scrolls (arrow keys on the alternate screen).
 
 ## Control socket
 

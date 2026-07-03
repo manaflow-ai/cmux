@@ -91,6 +91,27 @@ text = output.decode("utf-8", "replace")
 assert SESSION.split("-")[0] in text, text[-300:]
 print("TUI rendered status bar ok")
 
+# Sidebar rendered (new-workspace row is only drawn by the sidebar).
+assert "+ new workspace" in text, text[-500:]
+print("sidebar rendered ok")
+
+# Prefix-W: create a second workspace; it becomes active.
+os.write(fd, b"\x02W")
+drain(1.0)
+ws = rpc({"id": 8, "cmd": "list-workspaces"})
+workspaces = ws["data"]["workspaces"]
+assert len(workspaces) == 2, ws
+assert workspaces[1]["active"], ws
+print("prefix-W new workspace ok")
+
+# Click the first workspace's sidebar entry (row y=1, 0-based; SGR is
+# 1-based): switches back to workspace 1.
+os.write(fd, b"\x1b[<0;2;2M\x1b[<0;2;2m")
+drain(1.0)
+ws = rpc({"id": 9, "cmd": "list-workspaces"})
+assert ws["data"]["workspaces"][0]["active"], ws
+print("sidebar click switches workspace ok")
+
 # Prefix + d: quit.
 os.write(fd, b"\x02d")
 deadline = time.time() + 5

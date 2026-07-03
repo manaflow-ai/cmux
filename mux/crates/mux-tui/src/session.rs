@@ -186,11 +186,12 @@ impl Session {
         }
     }
 
-    pub fn select_workspace(&self, delta: isize) {
+    pub fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) {
         match self {
-            Session::Local(mux) => mux.select_workspace(None, Some(delta)),
+            Session::Local(mux) => mux.select_workspace(index, delta),
             Session::Remote(remote) => {
-                let _ = remote.request(json!({"cmd": "select-workspace", "delta": delta}));
+                let _ = remote
+                    .request(json!({"cmd": "select-workspace", "index": index, "delta": delta}));
             }
         }
     }

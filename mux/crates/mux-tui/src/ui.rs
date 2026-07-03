@@ -16,6 +16,12 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
 
     let (active_pane, status) = gather_status(app);
 
+    if app.sidebar_width > 0 {
+        draw_sidebar(app, frame);
+    } else {
+        app.sidebar_hits.clear();
+    }
+
     // Panes.
     let panes = app.layout.panes.clone();
     let mut cursor: Option<(u16, u16, CursorShape)> = None;
@@ -70,6 +76,76 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
 
     if let Some((x, y, _shape)) = cursor {
         frame.set_cursor_position(Position::new(x, y));
+    }
+}
+
+/// Left sidebar: one entry per workspace (name plus the active tab's
+/// title), the active workspace highlighted, and a new-workspace row.
+/// Rebuilds the click hit map as it draws.
+fn draw_sidebar(app: &mut App, frame: &mut Frame) {
+    let area = frame.area();
+    let width = app.sidebar_width;
+    let height = area.height.saturating_sub(1); // status bar
+    if width < 3 || height == 0 {
+        app.sidebar_hits.clear();
+        return;
+    }
+    app.sidebar_hits.clear();
+    let content_w = (width - 1) as usize; // last column is the border
+    let buf = frame.buffer_mut();
+
+    let base = Style::default().bg(Color::Indexed(233)).fg(Color::Indexed(248));
+    let dim = base.fg(Color::Indexed(242));
+    let active_style = Style::default()
+        .bg(Color::Indexed(236))
+        .fg(Color::Indexed(255))
+        .add_modifier(Modifier::BOLD);
+    let border = Style::default().bg(Color::Indexed(233)).fg(Color::Indexed(237));
+
+    for y in 0..height {
+        for x in 0..width - 1 {
+            buf[(x, y)].set_symbol(" ").set_style(base);
+        }
+        buf[(width - 1, y)].set_symbol("│").set_style(border);
+    }
+
+    let mut set_line = |buf: &mut ratatui::buffer::Buffer, y: u16, text: &str, style: Style| {
+        buf.set_stringn(0, y, text, content_w, style);
+    };
+
+    set_line(buf, 0, &format!(" {}", app.session_label), dim.add_modifier(Modifier::BOLD));
+
+    let mut y: u16 = 1;
+    for (i, ws) in app.tree.workspaces.iter().enumerate() {
+        if y + 1 >= height {
+            break;
+        }
+        let active = i == app.tree.active_workspace;
+        let style = if active { active_style } else { base };
+        let marker = if active { "▎" } else { " " };
+        set_line(buf, y, &format!("{marker}{}", truncate(&ws.name, content_w - 1)), style);
+        app.sidebar_hits.push((y, crate::app::SidebarAction::SelectWorkspace(i)));
+
+        let title = ws
+            .tabs
+            .get(ws.active_tab)
+            .map(|tab| if tab.title.is_empty() { "shell" } else { tab.title.as_str() })
+            .unwrap_or("shell");
+        let subtitle = if ws.tabs.len() > 1 {
+            format!("  {} ({} tabs)", truncate(title, content_w.saturating_sub(10)), ws.tabs.len())
+        } else {
+            format!("  {}", truncate(title, content_w.saturating_sub(3)))
+        };
+        let sub_style = if active { active_style.add_modifier(Modifier::DIM) } else { dim };
+        set_line(buf, y + 1, &subtitle, sub_style);
+        app.sidebar_hits.push((y + 1, crate::app::SidebarAction::SelectWorkspace(i)));
+        y += 2;
+    }
+
+    if y + 1 < height {
+        y += 1;
+        set_line(buf, y, " + new workspace", dim);
+        app.sidebar_hits.push((y, crate::app::SidebarAction::NewWorkspace));
     }
 }
 

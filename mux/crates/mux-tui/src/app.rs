@@ -30,6 +30,14 @@ pub enum AppEvent {
     Input(Event),
 }
 
+/// What a click on a sidebar row does. Rebuilt by the sidebar renderer
+/// each frame so hit-testing always matches what is on screen.
+#[derive(Debug, Clone, Copy)]
+pub enum SidebarAction {
+    SelectWorkspace(usize),
+    NewWorkspace,
+}
+
 pub struct App {
     pub session: Session,
     pub tree: TreeView,
@@ -37,6 +45,11 @@ pub struct App {
     pub layout: LayoutResult,
     pub prefix_armed: bool,
     pub session_label: String,
+    pub sidebar_visible: bool,
+    /// Width of the sidebar in the current frame (0 when hidden).
+    pub sidebar_width: u16,
+    /// (row, action) hit map for the current frame's sidebar.
+    pub sidebar_hits: Vec<(u16, SidebarAction)>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
@@ -112,6 +125,9 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         layout: LayoutResult::default(),
         prefix_armed: false,
         session_label,
+        sidebar_visible: true,
+        sidebar_width: 0,
+        sidebar_hits: Vec::new(),
         encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
@@ -173,14 +189,25 @@ impl App {
         Ok(())
     }
 
+    /// Sidebar width for a given terminal width: fixed, but it hides on
+    /// narrow terminals where panes need every column.
+    fn sidebar_width_for(&self, width: u16) -> u16 {
+        if !self.sidebar_visible || width < 70 {
+            0
+        } else {
+            22
+        }
+    }
+
     /// Refresh the tree snapshot, recompute the active tab's layout, and
     /// push sizes to its panes.
     fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
+        self.sidebar_width = self.sidebar_width_for(width);
         let area = Rect {
-            x: 0,
+            x: self.sidebar_width,
             y: 0,
-            width,
+            width: width.saturating_sub(self.sidebar_width),
             height: height.saturating_sub(1), // status bar
         };
         self.tree = self.session.tree();
@@ -285,8 +312,12 @@ impl App {
                 self.session.select_tab(Some(c as usize - '1' as usize), None);
                 Ok(true)
             }
+            (KeyCode::Char('s'), _) => {
+                self.sidebar_visible = !self.sidebar_visible;
+                Ok(true)
+            }
             (KeyCode::Char('w'), m) if !m.contains(KeyModifiers::SHIFT) => {
-                self.session.select_workspace(1);
+                self.session.select_workspace(None, Some(1));
                 Ok(true)
             }
             (KeyCode::Char('W'), _) => {
@@ -377,6 +408,24 @@ impl App {
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<bool> {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
+                if self.sidebar_width > 0 && mouse.column < self.sidebar_width {
+                    let action = self
+                        .sidebar_hits
+                        .iter()
+                        .find(|(row, _)| *row == mouse.row)
+                        .map(|(_, action)| *action);
+                    match action {
+                        Some(SidebarAction::SelectWorkspace(i)) => {
+                            self.session.select_workspace(Some(i), None);
+                            return Ok(true);
+                        }
+                        Some(SidebarAction::NewWorkspace) => {
+                            self.session.new_workspace()?;
+                            return Ok(true);
+                        }
+                        None => return Ok(false),
+                    }
+                }
                 if let Some(pane) = self.layout.pane_at(mouse.column, mouse.row) {
                     self.session.focus_pane(pane);
                     return Ok(true);

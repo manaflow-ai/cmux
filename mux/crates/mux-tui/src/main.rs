@@ -35,7 +35,7 @@ KEYS (prefix: Ctrl-b)
   c  new tab           n/p  next/prev tab      1-9  select tab
   %  split right       \"  split down          x    kill pane
   h/j/k/l or arrows    move focus              d    quit (attach: detach)
-  w  next workspace    W    new workspace
+  w  next workspace    W    new workspace       s    toggle sidebar
   Ctrl-b  send a literal Ctrl-b
 ";
 
