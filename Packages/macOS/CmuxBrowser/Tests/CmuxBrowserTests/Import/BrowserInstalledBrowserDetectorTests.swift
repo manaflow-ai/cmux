@@ -91,6 +91,11 @@ struct BrowserInstalledBrowserDetectorTests {
 
         let arcUserDataRoot = home
             .appendingPathComponent("Library/Application Support/Arc/User Data", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: arcUserDataRoot.appendingPathComponent("Network", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: arcUserDataRoot.appendingPathComponent("Network/Cookies"))
         let defaultProfile = arcUserDataRoot.appendingPathComponent("Default", isDirectory: true)
         let workProfile = arcUserDataRoot.appendingPathComponent("Arc Work", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -132,6 +137,7 @@ struct BrowserInstalledBrowserDetectorTests {
         #expect(arc.dataRootURL == arcUserDataRoot)
         #expect(arc.profiles.map(\.displayName) == ["Personal", "Work"])
         #expect(arc.profiles.map(\.rootURL.lastPathComponent) == ["Default", "Arc Work"])
+        #expect(!arc.profiles.contains { $0.rootURL == arcUserDataRoot })
         #expect(arc.profiles.allSatisfy {
             FileManager.default.fileExists(atPath: $0.rootURL.appendingPathComponent("Network/Cookies").path)
         })
