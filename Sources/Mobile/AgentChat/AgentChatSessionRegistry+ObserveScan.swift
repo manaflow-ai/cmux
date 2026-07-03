@@ -168,8 +168,23 @@ extension AgentChatSessionRegistry {
             return
         }
         observeInFlight = nil
+        resumeAgentProcessObservationWaiters(inFlight, returning: true)
+    }
+
+    func replaceAgentProcessObservation(with inFlight: AgentChatObservationInFlight) {
+        if let current = observeInFlight {
+            observeInFlight = nil
+            resumeAgentProcessObservationWaiters(current, returning: false)
+        }
+        observeInFlight = inFlight
+    }
+
+    private func resumeAgentProcessObservationWaiters(
+        _ inFlight: AgentChatObservationInFlight,
+        returning value: Bool
+    ) {
         for continuation in inFlight.waiters.values {
-            continuation.resume(returning: true)
+            continuation.resume(returning: value)
         }
     }
 
@@ -198,7 +213,7 @@ extension AgentChatSessionRegistry {
             }
         }
         let inFlight = AgentChatObservationInFlight(id: id, scope: scope, task: task)
-        observeInFlight = inFlight
+        replaceAgentProcessObservation(with: inFlight)
         return inFlight.handle
     }
 

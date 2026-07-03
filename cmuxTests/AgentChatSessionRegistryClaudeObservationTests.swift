@@ -280,6 +280,56 @@ struct AgentChatSessionRegistryClaudeObservationTests {
         #expect(registry.observeInFlight?.waiters.isEmpty == true)
     }
 
+    @MainActor
+    @Test func replacingObservationResumesPreviousWaitersAsStale() async {
+        let surfaceA = UUID()
+        let surfaceB = UUID()
+        let oldTask = Task<Void, Never> {
+            do {
+                try await Task.sleep(for: .seconds(5))
+            } catch {}
+        }
+        let newTask = Task<Void, Never> {
+            do {
+                try await Task.sleep(for: .seconds(5))
+            } catch {}
+        }
+        defer {
+            oldTask.cancel()
+            newTask.cancel()
+        }
+        let registry = AgentChatSessionRegistry()
+        let oldID = UUID()
+        registry.observeInFlight = AgentChatObservationInFlight(
+            id: oldID,
+            scope: AgentChatObservationScope(surfaceIDs: [surfaceA]),
+            task: oldTask
+        )
+        let waiter = Task { @MainActor in
+            await registry.waitForObservation(
+                AgentChatObservationHandle(id: oldID, task: oldTask),
+                upTo: .seconds(5)
+            )
+        }
+        for _ in 0..<10 where registry.observeInFlight?.waiters.isEmpty == true {
+            await Task.yield()
+        }
+        #expect(registry.observeInFlight?.waiters.count == 1)
+
+        registry.replaceAgentProcessObservation(
+            with: AgentChatObservationInFlight(
+                id: UUID(),
+                scope: AgentChatObservationScope(surfaceIDs: [surfaceB]),
+                task: newTask
+            )
+        )
+
+        let completed = await waiter.value
+        #expect(!completed)
+        #expect(registry.observeInFlight?.scope == AgentChatObservationScope(surfaceIDs: [surfaceB]))
+        #expect(registry.observeInFlight?.waiters.isEmpty == true)
+    }
+
     private func topProcess(
         pid: Int,
         name: String,
