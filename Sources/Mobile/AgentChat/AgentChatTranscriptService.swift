@@ -201,9 +201,15 @@ final class AgentChatTranscriptService {
         await registry.observeAgentProcesses()
     }
 
+    /// Waits briefly for one coalesced observe-floor scan before a list pull.
+    /// Returns false when the scan is still running at the deadline; the caller
+    /// can return the current registry snapshot and let the scan push deltas.
+    func observeAgentProcessesForListing(surfaceIDs: Set<UUID>?, waitUpTo timeout: Duration) async -> Bool {
+        await registry.observeAgentProcessesForListing(surfaceIDs: surfaceIDs, waitUpTo: timeout)
+    }
+
     /// Starts one observe-floor scan without blocking the caller. Use this for
-    /// proactive refreshes where a later `descriptorChanged` push is enough;
-    /// authoritative pull paths should call ``observeAgentProcesses()``.
+    /// proactive refreshes where a later `descriptorChanged` push is enough.
     func scheduleAgentProcessObservation() {
         registry.scheduleAgentProcessObservation()
     }
@@ -222,6 +228,18 @@ final class AgentChatTranscriptService {
     /// ended sessions with missing JSONL only open to an unrecoverable error.
     func hasBoundedReadableTranscript(_ record: AgentChatSessionRecord) -> Bool {
         resolver.boundedTranscriptPath(for: record) != nil
+    }
+
+    /// Whether an ended session should remain visible in the list. Claude can be
+    /// checked cheaply from cwd/recorded path; Codex fallback scans its sessions
+    /// tree, so Codex rows stay listable and resolve fallback history on open.
+    func shouldListEndedSession(_ record: AgentChatSessionRecord) -> Bool {
+        switch record.agentKind {
+        case .codex:
+            return true
+        case .claude, .other:
+            return hasBoundedReadableTranscript(record)
+        }
     }
 
     /// Re-adopts one session's terminal bindings from the hook store; see

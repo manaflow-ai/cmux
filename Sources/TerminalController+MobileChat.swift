@@ -78,14 +78,16 @@ extension TerminalController {
         guard let service = agentChatTranscriptService else {
             return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
         }
-        // Observe-floor detection: await one single-flight process-table scan
-        // before this authoritative pull filters records. The scan itself runs
-        // off-main in the registry, so a fresh idle Claude prompt is present in
-        // the first response instead of depending on a later best-effort push.
-        await service.observeAgentProcesses()
         guard let workspaceID else {
-            // No filter: return all current-agent sessions across workspaces,
-            // resolving each via its stored binding as before.
+            let observedBeforeListing = await service.observeAgentProcessesForListing(
+                surfaceIDs: nil,
+                waitUpTo: .milliseconds(750)
+            )
+            #if DEBUG
+            if !observedBeforeListing {
+                cmuxDebugLog("agentChat.list observeTimedOut workspace=nil")
+            }
+            #endif
             let descriptors = service.sessionRecords(workspaceID: nil)
                 .filter { mobileChatBindingIsCurrentAgent($0) }
                 .map(\.descriptor)
@@ -107,6 +109,17 @@ extension TerminalController {
             return .ok(["sessions": []])
         }
         let workspace = resolved.workspace
+        let terminalSurfaceIDs = Set(workspace.panels.compactMap { panelID, panel in panel is TerminalPanel ? panelID : nil })
+        // Workspace GUI pulls force a scoped scan and wait only to a local deadline.
+        let observedBeforeListing = await service.observeAgentProcessesForListing(
+            surfaceIDs: terminalSurfaceIDs,
+            waitUpTo: .milliseconds(750)
+        )
+        #if DEBUG
+        if !observedBeforeListing {
+            cmuxDebugLog("agentChat.list observeTimedOut workspace=\(workspaceID.prefix(8))")
+        }
+        #endif
         var encoded: [[String: Any]] = []
         #if DEBUG
         var dropNotInWorkspace = 0, dropDeadPID = 0, dropEndedMissingTranscript = 0, kept = 0
@@ -121,13 +134,8 @@ extension TerminalController {
                 #endif
                 continue
             }
-            // A LIVE session must still be the current agent on the terminal, so
-            // a reused/restored terminal never exposes a false live toggle. An
-            // ENDED session is RETAINED whenever its surface is a live terminal
-            // in W, regardless of what the terminal runs now: the GUI keeps a
-            // finished conversation visible read-only (input bar disabled), so a
-            // fresh pull must not drop it — dropping it is what made the toggle
-            // go stale and vanish on tap after the agent exited.
+            // Live sessions must match the terminal's current agent. Ended
+            // sessions stay visible read-only while their surface is still in W.
             if record.state != .ended,
                !mobileChatRecordMatchesAgent(record: record) {
                 #if DEBUG
@@ -137,7 +145,7 @@ extension TerminalController {
                 continue
             }
             if record.state == .ended,
-               !service.hasBoundedReadableTranscript(record) {
+               !service.shouldListEndedSession(record) {
                 #if DEBUG
                 dropEndedMissingTranscript += 1
                 cmuxDebugLog("agentChat.list drop=endedMissingTranscript session=\(record.sessionID.prefix(8)) kind=\(record.agentKind.sourceName) surface=\(record.surfaceID?.prefix(8) ?? "nil")")
@@ -147,9 +155,7 @@ extension TerminalController {
             #if DEBUG
             kept += 1
             #endif
-            // Re-stamp stale-workspace records to W so the seed and live pushes
-            // both scope to the current workspace, then encode the re-stamped
-            // descriptor.
+            // Re-stamp stale-workspace records so seeds and pushes scope to W.
             if record.workspaceID != workspaceID {
                 service.updateSessionWorkspace(sessionID: record.sessionID, workspaceID: workspaceID)
             }

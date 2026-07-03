@@ -69,11 +69,39 @@ extension AgentChatSessionRegistry {
         }
     }
 
+    func observeAgentProcessesForListing(surfaceIDs: Set<UUID>?, waitUpTo timeout: Duration) async -> Bool {
+        let force = surfaceIDs?.isEmpty == false
+        guard let task = observeAgentProcessesTask(force: force, surfaceIDs: surfaceIDs) else {
+            return true
+        }
+        return await waitForObservation(task, upTo: timeout)
+    }
+
     func scheduleAgentProcessObservation() {
         _ = observeAgentProcessesTask(force: false)
     }
 
-    private func observeAgentProcessesTask(force: Bool) -> Task<Void, Never>? {
+    private func waitForObservation(_ task: Task<Void, Never>, upTo timeout: Duration) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await task.value
+                return true
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(for: timeout)
+                    return false
+                } catch {
+                    return true
+                }
+            }
+            let completedBeforeTimeout = await group.next() ?? false
+            group.cancelAll()
+            return completedBeforeTimeout
+        }
+    }
+
+    private func observeAgentProcessesTask(force: Bool, surfaceIDs: Set<UUID>? = nil) -> Task<Void, Never>? {
         if let inFlight = observeInFlight {
             return inFlight.task
         }
@@ -87,7 +115,9 @@ extension AgentChatSessionRegistry {
         observeLastStartedAt = Date()
         let id = UUID()
         let task = Task { @MainActor [weak self] in
-            let observed = await Task.detached { Self.scanObservedAgentSessions() }.value
+            let observed = await Task.detached {
+                Self.scanObservedAgentSessions(onlySurfaceIDs: surfaceIDs)
+            }.value
             guard let self else { return }
             self.applyObservedSessions(observed)
             if self.observeInFlight?.id == id {
@@ -100,13 +130,16 @@ extension AgentChatSessionRegistry {
 
     /// Off-main: one entry per distinct live codex/claude session under any cmux
     /// surface, identity resolved without hooks.
-    private nonisolated static func scanObservedAgentSessions() -> [ObservedAgentSession] {
+    private nonisolated static func scanObservedAgentSessions(
+        onlySurfaceIDs surfaceIDs: Set<UUID>? = nil
+    ) -> [ObservedAgentSession] {
         let snapshot = CmuxTopProcessSnapshot.capture(
             includeProcessDetails: true,
             includeCMUXScope: true
         )
         return scanObservedAgentSessions(
             in: snapshot,
+            onlySurfaceIDs: surfaceIDs,
             processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:),
             codexRolloutPath: openCodexRolloutPath(pid:)
         )
@@ -114,6 +147,7 @@ extension AgentChatSessionRegistry {
 
     nonisolated static func scanObservedAgentSessions(
         in snapshot: CmuxTopProcessSnapshot,
+        onlySurfaceIDs surfaceIDs: Set<UUID>? = nil,
         processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?,
         codexRolloutPath: (Int) -> String?
     ) -> [ObservedAgentSession] {
@@ -128,6 +162,7 @@ extension AgentChatSessionRegistry {
                 return details
             }
             guard let surfaceID = process.cmuxSurfaceID,
+                  surfaceIDs.map({ $0.contains(surfaceID) }) ?? true,
                   let def = codingAgentDefinition(
                       for: process,
                       processArgumentsAndEnvironment: { _ in loadDetails() }

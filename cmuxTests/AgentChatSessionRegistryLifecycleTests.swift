@@ -249,7 +249,7 @@ struct AgentChatSessionRegistryLifecycleTests {
     }
 
     @MainActor
-    @Test func endedCodexSessionListabilityDoesNotScanCodexHistory() throws {
+    @Test func endedCodexSessionListabilityKeepsFallbackRowsWithoutScanningHistory() throws {
         let home = try temporaryHomeDirectory()
         let service = AgentChatTranscriptService(
             registry: AgentChatSessionRegistry(),
@@ -278,6 +278,7 @@ struct AgentChatSessionRegistryLifecycleTests {
         )
 
         #expect(!service.hasBoundedReadableTranscript(record))
+        #expect(service.shouldListEndedSession(record))
     }
 
     private func temporaryHomeDirectory() throws -> URL {
