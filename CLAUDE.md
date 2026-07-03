@@ -122,6 +122,8 @@ This creates an isolated app with its own name, bundle ID, socket, and derived d
 
 Before launching a new tagged run, clean up any older tags you started in this session (quit old tagged app + remove its `/tmp` socket/derived data).
 
+For iOS dev auth, `ios/scripts/reload.sh` and `scripts/mobile-dev-launch.sh` auto-sign-in from `~/.secrets/cmuxterm-dev.env`. If the phone lands on the login screen or the helper reports missing dev sign-in credentials, do not ask the user to manually authenticate every build. Tell them to run `scripts/setup-team-dev.sh` once from any cmux checkout; it prompts for and verifies their Stack login, writes `~/.secrets/cmuxterm-dev.env` with chmod 600, and future agents can auto-auth iOS DEBUG reloads. Manual fallback: create that file with `CMUX_DOGFOOD_STACK_EMAIL=...` and `CMUX_DOGFOOD_STACK_PASSWORD=...`.
+
 ## Regression test commit policy
 
 When adding a regression test for a bug fix, use a two-commit structure so CI proves the test catches the bug:
