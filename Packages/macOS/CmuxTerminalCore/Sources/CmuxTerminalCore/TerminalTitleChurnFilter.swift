@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Collapses frame-by-frame terminal-title churn at the source so an animated
 /// spinner title — e.g. an agent cycling `⠋ Working…`, `⠙ Working…`, `⠹ Working…`
@@ -29,16 +29,26 @@ import Foundation
 /// corrupt it. Braille patterns never legitimately *lead* a human-readable
 /// terminal title. Behavior is covered by `TerminalTitleChurnFilterTests`.
 @MainActor
-struct TerminalTitleChurnFilter {
+public struct TerminalTitleChurnFilter {
     private var lastSurfaceID: UUID?
     private var lastDispatchedTitle: String?
 
+    /// Creates an empty title churn filter with no previously dispatched title.
+    public init() {}
+
     /// Returns the stable title to post for `rawTitle` on `surfaceID`, or `nil`
-    /// when this is a redundant spinner frame / duplicate that should not be
-    /// posted at all. `surfaceID` is part of the dedup key so a view reused for
-    /// a new surface always dispatches that surface's first title — even when
-    /// its collapsed label matches the previous surface's last one.
-    mutating func titleToDispatch(for rawTitle: String, surfaceID: UUID) -> String? {
+    /// when this is a redundant spinner frame or duplicate that should not be
+    /// posted at all.
+    ///
+    /// `surfaceID` is part of the dedup key so a view reused for a new surface
+    /// always dispatches that surface's first title, even when its collapsed
+    /// label matches the previous surface's last one.
+    ///
+    /// - Parameters:
+    ///   - rawTitle: The title exactly as emitted by Ghostty.
+    ///   - surfaceID: The terminal surface that emitted `rawTitle`.
+    /// - Returns: The title to post, or `nil` when the frame should be dropped.
+    public mutating func titleToDispatch(for rawTitle: String, surfaceID: UUID) -> String? {
         let stable = Self.collapseSpinnerFrames(rawTitle)
         // A frame that is *only* a spinner glyph (no label survives the
         // collapse) carries no title of its own; dropping it avoids blanking a

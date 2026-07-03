@@ -1,11 +1,6 @@
+import CmuxTerminalCore
 import Foundation
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 /// Regression coverage for the terminal-title spinner churn that drives the
 /// reentrant `NSHostingView` layout faults in #6507 / #4735: an agent or CLI

@@ -3357,7 +3357,7 @@ extension TerminalSurface {
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Per-surface spinner-frame title dedup (``TerminalTitleChurnFilter``;
     /// #6507 / #4735). Main-actor only, used in the deferred title post below.
-    var titleChurnFilter = TerminalTitleChurnFilter()
+    private var titleChurnFilter = TerminalTitleChurnFilter()
 
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
