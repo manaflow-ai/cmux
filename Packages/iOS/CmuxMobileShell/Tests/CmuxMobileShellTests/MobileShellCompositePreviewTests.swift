@@ -175,11 +175,23 @@ import Testing
         store.pairingCode = "debug"
         store.connectPreviewHost()
 
-        store.createTerminal()
+        #expect(store.createTerminal() == true)
 
         #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
         #expect(store.selectedWorkspace?.terminals.count == 4)
         #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-4")
+    }
+
+    @Test func createTerminalReportsFalseForMissingWorkspace() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        #expect(store.createTerminal(in: "workspace-missing") == false)
+        #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
+        #expect(store.selectedWorkspace?.terminals.count == 3)
+        #expect(store.selectedTerminalID?.rawValue == "terminal-build")
     }
 
     @Test func createTerminalUsesExplicitWorkspaceContextOverStaleSelection() {
@@ -190,7 +202,7 @@ import Testing
         // Selection drifts to a different workspace than the one the "+" was tapped on.
         store.selectedWorkspaceID = "workspace-docs"
 
-        store.createTerminal(in: "workspace-main")
+        #expect(store.createTerminal(in: "workspace-main") == true)
 
         // The new terminal lands in the explicitly-targeted workspace, not the selected one.
         #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")

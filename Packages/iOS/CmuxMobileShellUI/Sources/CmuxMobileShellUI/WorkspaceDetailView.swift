@@ -21,7 +21,7 @@ struct WorkspaceDetailView: View {
     @Bindable var store: CMUXMobileShellStore
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
-    let createTerminal: () -> Void
+    let createTerminal: () -> Bool
     /// Close this workspace on the Mac. When `nil` (older Macs without the
     /// `workspace.close.v1` capability, or previews) the close affordance is
     /// hidden from the top-bar menu. Mirrors the workspace list's gating.
@@ -655,15 +655,17 @@ struct WorkspaceDetailView: View {
     #endif
 
     func createTerminalFromToolbar() {
+        guard createTerminal() else { return }
         dismissTerminalKeyboardForChrome()
         // Creating a terminal from the (shared) chrome must surface it, so leave
         // any overlay pane that would otherwise hide it: close the browser and
         // exit agent-chat mode. `detailSurfaceContent` then falls through to the
         // freshly-created terminal instead of staying on the browser or chat.
         browserStore.closeBrowser(for: workspace.id.rawValue)
-        isChatMode = false
+        withAnimation(.snappy(duration: 0.28)) {
+            isChatMode = false
+        }
         pinnedChatSessionID = nil
-        createTerminal()
     }
 
     private func openBrowserFromToolbar() {
