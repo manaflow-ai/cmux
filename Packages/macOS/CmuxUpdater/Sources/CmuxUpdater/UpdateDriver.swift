@@ -14,6 +14,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let model: UpdateStateModel
     let log: any UpdateLogging
     private let clock: any UpdateClock
+    /// Whether the running build is a cmux DEV/staging build that is not on the public release
+    /// train. When `true`, the driver must never surface the public appcast's update pill (see
+    /// ``UpdateController/isDevLikeBundleIdentifier(_:)``).
+    let isDevLikeBundle: Bool
     /// Host actions the driver delegates upward. Held weak; set by ``UpdateController``.
     weak var actionDelegate: (any UpdateActionDelegate)?
 
@@ -24,10 +28,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
 
-    init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock) {
+    init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock, isDevLikeBundle: Bool = false) {
         self.model = model
         self.log = log
         self.clock = clock
+        self.isDevLikeBundle = isDevLikeBundle
         super.init()
     }
 

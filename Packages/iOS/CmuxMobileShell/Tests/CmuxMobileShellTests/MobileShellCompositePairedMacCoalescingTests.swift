@@ -176,6 +176,53 @@ import Testing
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-fresh", "mac-other"])
     }
 
+    @Test func switchRestoreTargetUsesLiveForegroundInsteadOfPersistedActiveMac() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-live",
+                        displayName: "Live Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 30),
+                        isActive: false
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-stale-active",
+                        displayName: "Stale Active Mac",
+                        host: "100.82.214.113",
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: true
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-target",
+                        displayName: "Target Mac",
+                        host: "100.82.214.114",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        await store.loadPairedMacs()
+        let storeMacs = try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a")
+
+        let restoreTarget = store.previousForegroundMacForSwitchRestore(
+            previousForegroundMacDeviceID: "mac-live",
+            switchingTo: "mac-target",
+            storeMacs: storeMacs
+        )
+
+        #expect(restoreTarget?.macDeviceID == "mac-live")
+    }
+
     @Test func presenceRouteWriteFinishingAfterForgetDoesNotReviveDeletedMac() async throws {
         let oldRoute = try CmxAttachRoute(
             id: "old",
