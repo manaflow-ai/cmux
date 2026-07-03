@@ -63,7 +63,7 @@ INTERNAL_COMMANDS = {
     "ssh-session-end",
 }
 
-REGISTRY_RE = re.compile(r'^\s*"([^"]+)",\s*$')
+REGISTRY_RE = re.compile(r'^\s*"([^"]+)",?\s*$')
 FLAG_RE = re.compile(r"(--[a-z][a-z0-9-]*|-[A-Za-z])\b")
 # `<a|b|c>` or `[a|b|c]` grammar groups (enum choices).
 CHOICE_RE = re.compile(r"[<\[]([a-z][a-z0-9-]*(?:\|[a-z][a-z0-9-]*)+)[>\]]")
@@ -269,10 +269,13 @@ def parse_help(help_text: str, known: set[str]) -> dict[str, CommandSpec]:
             continue
 
         # Subcommand: a bare word, an unbracketed `a|b|c` group, or a bracketed
-        # choice group immediately after a single command.
+        # choice group immediately after a single command. Only inspect the
+        # command portion before the help-description spacing, so prose does
+        # not become a phantom subcommand.
         sub: set[str] = set()
-        if len(targets) == 1 and len(tokens) > 1:
-            nxt = tokens[1]
+        cmd_portion = line.split("  ")[0].split()
+        if len(targets) == 1 and len(cmd_portion) > 1:
+            nxt = cmd_portion[1]
             pipe_parts = nxt.split("|")
             if re.fullmatch(r"[a-z][a-z0-9-]*", nxt) and nxt not in METAVARS:
                 sub.add(nxt)
@@ -284,7 +287,7 @@ def parse_help(help_text: str, known: set[str]) -> dict[str, CommandSpec]:
                 # `browser url|get-url`). Placeholders are conventionally
                 # bracketed, so the METAVARS filter does not apply here.
                 sub.update(pipe_parts)
-            for grp in CHOICE_RE.findall(" ".join(tokens[1:2])):
+            for grp in CHOICE_RE.findall(" ".join(cmd_portion[1:2])):
                 choices = grp.split("|")
                 if is_real_enum(choices):
                     sub.update(choices)
@@ -357,13 +360,18 @@ HEADER = """# cmux shell completions ({shell}) -- AUTO-GENERATED, DO NOT EDIT.
 
 def emit_bash(commands: list[str], specs: dict[str, CommandSpec]) -> str:
     cmds = " ".join(commands)
-    lines = [HEADER.format(shell="bash"), "_cmux() {"]
-    lines.append("    local cur prev words cword")
-    lines.append("    _init_completion 2>/dev/null || {")
-    lines.append("        cur=\"${COMP_WORDS[COMP_CWORD]}\"")
-    lines.append("        prev=\"${COMP_WORDS[COMP_CWORD-1]}\"")
-    lines.append("        cword=$COMP_CWORD")
-    lines.append("    }")
+    lines = [HEADER.format(shell="bash"), "__cmux_compgen() {"]
+    lines.append("    local wordlist=\"$1\" current=\"$2\" match")
+    lines.append("    COMPREPLY=()")
+    lines.append("    while IFS= read -r match; do")
+    lines.append("        COMPREPLY+=(\"$match\")")
+    lines.append("    done < <(compgen -W \"$wordlist\" -- \"$current\")")
+    lines.append("}")
+    lines.append("")
+    lines.append("_cmux() {")
+    lines.append("    local cur prev")
+    lines.append("    cur=\"${COMP_WORDS[COMP_CWORD]}\"")
+    lines.append("    prev=\"${COMP_WORDS[COMP_CWORD-1]}\"")
     lines.append("    # Locate the command word: first non-option after `cmux`,")
     lines.append("    # skipping value-bearing global options and their values.")
     lines.append("    local i cmd=\"\"")
@@ -376,7 +384,7 @@ def emit_bash(commands: list[str], specs: dict[str, CommandSpec]) -> str:
     lines.append("    done")
     lines.append(f"    local commands=\"{cmds}\"")
     lines.append("    if [[ -z $cmd ]]; then")
-    lines.append("        COMPREPLY=( $(compgen -W \"$commands\" -- \"$cur\") )")
+    lines.append("        __cmux_compgen \"$commands\" \"$cur\"")
     lines.append("        return")
     lines.append("    fi")
     lines.append("    case \"$cmd\" in")
@@ -389,9 +397,9 @@ def emit_bash(commands: list[str], specs: dict[str, CommandSpec]) -> str:
         # Flag value enums.
         for fl, vals in sorted(spec.flag_values.items()):
             lines.append(f"            if [[ $prev == {fl} ]]; then")
-            lines.append(f"                COMPREPLY=( $(compgen -W \"{' '.join(vals)}\" -- \"$cur\") ); return")
+            lines.append(f"                __cmux_compgen \"{' '.join(vals)}\" \"$cur\"; return")
             lines.append("            fi")
-        lines.append(f"            COMPREPLY=( $(compgen -W \"{' '.join(words)}\" -- \"$cur\") ); return ;;")
+        lines.append(f"            __cmux_compgen \"{' '.join(words)}\" \"$cur\"; return ;;")
     lines.append("    esac")
     lines.append("}")
     lines.append("complete -F _cmux cmux")

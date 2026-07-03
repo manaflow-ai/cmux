@@ -14,6 +14,7 @@ Run:  python3 tests/test_cli_completions_contract.py
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -42,6 +43,36 @@ def regenerate(shell: str) -> str:
     return proc.stdout
 
 
+def top_level_commands(shell: str, text: str) -> set[str]:
+    if shell == "bash":
+        match = re.search(r'^\s*local commands="([^"]*)"$', text, re.MULTILINE)
+        if not match:
+            return set()
+        return set(match.group(1).split())
+    if shell == "zsh":
+        match = re.search(
+            r"^\s*commands=\(\n(?P<body>.*?)^\s*\)",
+            text,
+            re.MULTILINE | re.DOTALL,
+        )
+        if not match:
+            return set()
+        return {
+            line.strip().strip("'")
+            for line in match.group("body").splitlines()
+            if line.strip()
+        }
+    if shell == "fish":
+        return set(
+            re.findall(
+                r"^complete -c cmux -n __cmux_needs_command -f -a '([^']+)'$",
+                text,
+                re.MULTILINE,
+            )
+        )
+    raise ValueError(f"unsupported shell: {shell}")
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -67,7 +98,8 @@ def main() -> int:
                 f"{filename} is out of date with CLI/cmux.swift. {REGEN_HINT}"
             )
 
-    # Drift guard: every visible command must appear in the bash command list.
+    # Drift guard: every visible command must appear in each shell's actual
+    # top-level command table.
     expected: list[str] = []
     try:
         proc = subprocess.run(  # noqa: S603
@@ -100,16 +132,19 @@ def main() -> int:
     except (OSError, subprocess.TimeoutExpired) as exc:
         failures.append(f"could not run registry-coverage check: {exc}")
 
-    bash_text = regenerated.get("bash", "")
-    # Normalize quotes/newlines to spaces so first/last tokens against a `"`
-    # boundary still match on whole-word check.
-    haystack = " " + bash_text.replace('"', " ").replace("\n", " ") + " "
-    missing = [c for c in expected if f" {c} " not in haystack]
-    if expected and missing:
-        failures.append(
-            f"{len(missing)} visible command(s) absent from bash completions: "
-            f"{', '.join(missing[:10])}{'...' if len(missing) > 10 else ''}"
-        )
+    if expected:
+        for shell, text in regenerated.items():
+            actual = top_level_commands(shell, text)
+            if not actual:
+                failures.append(f"{shell}: could not parse top-level command table")
+                continue
+            missing = [c for c in expected if c not in actual]
+            if missing:
+                failures.append(
+                    f"{len(missing)} visible command(s) absent from {shell} "
+                    f"top-level completions: "
+                    f"{', '.join(missing[:10])}{'...' if len(missing) > 10 else ''}"
+                )
 
     # Best-effort: the committed scripts must be shell-syntax valid.
     for shell, filename in SHELLS.items():
