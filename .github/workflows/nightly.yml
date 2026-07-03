@@ -283,7 +283,6 @@ jobs:
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Verify no bundled provider runtimes in nightly app
-        if: steps.current_head_prebuild.outputs.still_current != 'false'
         run: |
           set -euo pipefail
           ./scripts/verify-no-bundled-agent-runtimes.sh \
