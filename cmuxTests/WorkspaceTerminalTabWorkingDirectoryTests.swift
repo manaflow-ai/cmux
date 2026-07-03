@@ -195,6 +195,10 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(workspace.presentedCurrentDirectory == remoteDirectory)
         #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [remoteDirectory])
         #expect(workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [remoteDirectory])
+
+        workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
+        #expect(workspace.presentedCurrentDirectory == remoteDirectory)
+        #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [remoteDirectory])
     }
 
     @MainActor
@@ -246,6 +250,48 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let postReportSnapshot = try #require(TerminalController.shared.controlSidebarStateSnapshot(tabArg: nil))
         #expect(postReportSnapshot.currentDirectory == remoteDirectory)
         #expect(postReportSnapshot.focusedPanel?.directory == remoteDirectory)
+
+        workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
+        let postLocalRereportSnapshot = try #require(TerminalController.shared.controlSidebarStateSnapshot(tabArg: nil))
+        #expect(postLocalRereportSnapshot.currentDirectory == remoteDirectory)
+        #expect(postLocalRereportSnapshot.focusedPanel?.directory == remoteDirectory)
+    }
+
+    @MainActor
+    @Test("restored remote ssh cwd remains trusted for the next snapshot")
+    func restoredRemoteSSHDirectoryRemainsTrustedForNextSnapshot() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: sshCommand
+        )
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "seepine@192.168.5.20",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: "relay-\(UUID().uuidString)",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-issue-7268-restored.sock",
+                terminalStartupCommand: sshCommand
+            ),
+            autoConnect: false
+        )
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(workspace.sessionSnapshot(includeScrollback: false))
+        let restoredPanelId = try #require(restoredPanelIds[remotePanelId])
+
+        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == remoteDirectory)
+        #expect(restored.presentedCurrentDirectory == remoteDirectory)
+        #expect(restored.sessionSnapshot(includeScrollback: false).panels.first { $0.id == restoredPanelId }?.directory == remoteDirectory)
     }
 
     @MainActor

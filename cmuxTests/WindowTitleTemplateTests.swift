@@ -276,6 +276,9 @@ struct WindowTitleTemplateTests {
 
         workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
         #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
+
+        workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
+        #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
     }
 
     private func isolatedDefaults() throws -> UserDefaults {

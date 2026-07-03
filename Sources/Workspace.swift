@@ -4594,6 +4594,15 @@ final class Workspace: Identifiable, ObservableObject {
                 return false
             }
         }
+
+        var establishesRemoteProvenance: Bool {
+            switch self {
+            case .remoteReport, .restoredSnapshotMetadata:
+                return true
+            case .liveReport:
+                return false
+            }
+        }
     }
 
     private static func unmountedVolumeRoot(
@@ -4655,9 +4664,12 @@ final class Workspace: Identifiable, ObservableObject {
            shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
             return false
         }
+        if source == .liveReport, isRemoteTerminalSurface(panelId) {
+            return false
+        }
         let directoryChanged = panelDirectories[panelId] != trimmed
         if directoryChanged { panelDirectories[panelId] = trimmed }
-        if source == .remoteReport, isRemoteTerminalSurface(panelId) {
+        if source.establishesRemoteProvenance, isRemoteTerminalSurface(panelId) {
             remoteDirectoryReportPanelIds.insert(panelId)
         }
         let trimmedDisplayLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
