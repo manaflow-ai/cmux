@@ -6,7 +6,6 @@ import Testing
 @testable import cmux
 #endif
 
-#if DEBUG
 @MainActor
 @Suite struct AgentHibernationPortalVisibilityTests {
     @Test func showingAutoResumePresentationDoesNotRestoreNonHibernatedTerminalPortal() throws {
@@ -24,4 +23,3 @@ import Testing
         #expect(!panel.hostedView.debugPortalVisibleInUI)
     }
 }
-#endif
