@@ -34,7 +34,6 @@ enum WorkspaceFinderDirectoryResolver {
 }
 
 enum WorkspaceFinderDirectoryOpener {
-    typealias FinderOpener = @MainActor (URL?) async -> Void
     typealias DirectoryOpener = @MainActor (URL) -> Void
     typealias Beeper = @MainActor () -> Void
 
