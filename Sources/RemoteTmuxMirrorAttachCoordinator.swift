@@ -221,7 +221,8 @@ final class RemoteTmuxMirrorAttachCoordinator {
                 host: host,
                 sessionName: sessionName,
                 connection: connection,
-                workspace: workspace
+                workspace: workspace,
+                tabManager: tabManager
             ),
             forKey: key
         )
