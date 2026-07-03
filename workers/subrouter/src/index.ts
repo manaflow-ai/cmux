@@ -7,6 +7,7 @@
 
 import { controlStatus, normalizeEndpoint } from "./core";
 import { SubrouterControl } from "./do";
+import { json, upstreamErrorResponse } from "./http";
 import {
   consumeRateLimitResetCredit,
   fetchRateLimitResetCredits,
@@ -16,13 +17,6 @@ export { SubrouterControl };
 
 export interface Env {
   SUBROUTER_CONTROL: DurableObjectNamespace<SubrouterControl>;
-}
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
 }
 
 function controlStub(env: Env): DurableObjectStub<SubrouterControl> {
@@ -76,11 +70,8 @@ async function handleRateLimitResetCredits(request: Request): Promise<Response> 
   try {
     const result = await fetchRateLimitResetCredits("https://chatgpt.com", auth.token);
     return json(result);
-  } catch (error) {
-    if (error instanceof Error) {
-      return json({ error: "upstream_error", detail: error.message }, 502);
-    }
-    return json({ error: "upstream_error" }, 502);
+  } catch {
+    return upstreamErrorResponse();
   }
 }
 
@@ -105,11 +96,8 @@ async function handleConsumeRateLimitResetCredit(request: Request): Promise<Resp
       redeem_request_id: consumeRequest.redeem_request_id,
     });
     return json(result);
-  } catch (error) {
-    if (error instanceof Error) {
-      return json({ error: "upstream_error", detail: error.message }, 502);
-    }
-    return json({ error: "upstream_error" }, 502);
+  } catch {
+    return upstreamErrorResponse();
   }
 }
 

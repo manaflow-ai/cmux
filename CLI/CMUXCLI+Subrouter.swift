@@ -442,18 +442,24 @@ extension CMUXCLI {
             throw CLIError(message: String.localizedStringWithFormat(SubrouterText.creditsMissingToken, commandName))
         }
 
-        let controlPlaneURL: String
+        let controlPlaneInput: (url: String, source: String)
         if useHosted {
-            controlPlaneURL = Self.hostedSubrouterOriginURL
-        } else if let explicit = controlPlaneURLOpt ?? environment["SUBROUTER_CONTROL_PLANE_URL"] {
-            controlPlaneURL = explicit
+            controlPlaneInput = (Self.hostedSubrouterOriginURL, "--hosted")
+        } else if let explicit = controlPlaneURLOpt {
+            controlPlaneInput = (explicit, "--control-plane-url")
+        } else if let explicit = environment["SUBROUTER_CONTROL_PLANE_URL"] {
+            controlPlaneInput = (explicit, "SUBROUTER_CONTROL_PLANE_URL")
         } else if let endpoint = try configuredSubrouterEndpoint(environment: environment) {
-            controlPlaneURL = endpoint.originURL
+            controlPlaneInput = (endpoint.originURL, endpoint.source)
         } else {
-            controlPlaneURL = Self.hostedSubrouterOriginURL
+            controlPlaneInput = (Self.hostedSubrouterOriginURL, "hosted default")
         }
+        let controlPlaneEndpoint = try normalizeSubrouterEndpoint(
+            controlPlaneInput.url,
+            source: controlPlaneInput.source
+        )
 
-        let creditsURL = "\(stripSubrouterTrailingSlashes(controlPlaneURL))/v1/subrouter/rate-limit-reset-credits"
+        let creditsURL = "\(controlPlaneEndpoint.originURL)/v1/subrouter/rate-limit-reset-credits"
         let result = try await fetchSubrouterRateLimitResetCredits(url: creditsURL, authToken: authToken)
 
         if jsonOutput {

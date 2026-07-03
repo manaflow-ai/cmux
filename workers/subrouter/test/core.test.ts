@@ -17,17 +17,17 @@ describe("controlStatus", () => {
 describe("normalizeEndpoint", () => {
   test("normalizes supported Subrouter URL forms", () => {
     for (const raw of [
-      "http://subrouter-team.tail41290.ts.net:31415",
-      "http://subrouter-team.tail41290.ts.net:31415/",
-      "http://subrouter-team.tail41290.ts.net:31415/v1",
-      "http://subrouter-team.tail41290.ts.net:31415/backend-api",
-      "http://subrouter-team.tail41290.ts.net:31415/backend-api/codex",
+      "https://subrouter.example.com",
+      "https://subrouter.example.com/",
+      "https://subrouter.example.com/v1",
+      "https://subrouter.example.com/backend-api",
+      "https://subrouter.example.com/backend-api/codex",
     ]) {
       expect(normalizeEndpoint(raw)).toEqual({
-        originUrl: "http://subrouter-team.tail41290.ts.net:31415",
-        customBaseUrl: "http://subrouter-team.tail41290.ts.net:31415/v1",
-        codexBackendUrl: "http://subrouter-team.tail41290.ts.net:31415/backend-api/codex",
-        codexChatGPTBaseUrl: "http://subrouter-team.tail41290.ts.net:31415/backend-api",
+        originUrl: "https://subrouter.example.com",
+        customBaseUrl: "https://subrouter.example.com/v1",
+        codexBackendUrl: "https://subrouter.example.com/backend-api/codex",
+        codexChatGPTBaseUrl: "https://subrouter.example.com/backend-api",
       });
     }
   });
