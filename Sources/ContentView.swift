@@ -7414,6 +7414,22 @@ struct TabItemView: View, Equatable {
     private static let sidebarDescriptionDebugLog: ((_ phase: String, _ markdown: String) -> Void)? = nil
 #endif
 
+    /// DEBUG trace for a debounced sidebar-row invalidation. Extracted from the
+    /// `.onReceive` closure so its string building doesn't push the row's
+    /// modifier-chain body over the SwiftUI type-checker's time budget.
+    static func logSidebarRowInvalidate(tab: Tab) {
+#if DEBUG
+        let description = tab.customDescription ?? ""
+        cmuxDebugLog(
+            "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+            "source=debounced " +
+            "title=\"\((tab.title).commandPaletteDebugPreview())\" " +
+            "descLen=\((description as NSString).length) " +
+            "desc=\"\((description).commandPaletteDebugPreview())\""
+        )
+#endif
+    }
+
     // Closures, Bindings, and object references are excluded from ==
     // because they're recreated every parent eval but don't affect rendering.
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
@@ -7876,16 +7892,7 @@ struct TabItemView: View, Equatable {
                 // row redraws once with the settled state instead of blinking.
                 .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
         ) { _ in
-#if DEBUG
-            let description = tab.customDescription ?? ""
-            cmuxDebugLog(
-                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
-                "source=debounced " +
-                "title=\"\((tab.title).commandPaletteDebugPreview())\" " +
-                "descLen=\((description as NSString).length) " +
-                "desc=\"\((description).commandPaletteDebugPreview())\""
-            )
-#endif
+            Self.logSidebarRowInvalidate(tab: tab)
             refreshWorkspaceSnapshot()
         }
         .onChange(of: settings) { _ in
