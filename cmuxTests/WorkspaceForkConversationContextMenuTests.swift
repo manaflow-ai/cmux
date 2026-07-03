@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,30 +7,30 @@ import XCTest
 #endif
 
 @MainActor
-final class WorkspaceForkConversationContextMenuTests: XCTestCase {
-    func testPanelContextMenuActionUsesClickedPanel() throws {
+@Suite(.serialized)
+struct WorkspaceForkConversationContextMenuTests {
+    @Test
+    func panelContextMenuActionUsesClickedPanel() throws {
         let workspace = Workspace()
-        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let sourcePaneId = try #require(workspace.paneId(forPanelId: sourcePanelId))
         workspace.setRestoredAgentSnapshotForTesting(makeForkableClaudeSnapshot(), panelId: sourcePanelId)
-        let otherPanel = try XCTUnwrap(workspace.newTerminalSurfaceInFocusedPane(focus: true))
-        XCTAssertEqual(workspace.focusedPanelId, otherPanel.id)
+        let otherPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: true))
+        #expect(workspace.focusedPanelId == otherPanel.id)
 
-        XCTAssertTrue(
+        #expect(
             workspace.forkAgentConversationFromContextMenu(
                 fromPanelId: sourcePanelId,
                 destination: .newTab
             )
         )
 
-        XCTAssertEqual(
-            workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
-            3,
+        #expect(
+            workspace.bonsplitController.tabs(inPane: sourcePaneId).count == 3,
             "Fork Conversation from the terminal context menu should fork the clicked panel"
         )
-        XCTAssertEqual(
-            workspace.bonsplitController.allPaneIds.count,
-            1,
+        #expect(
+            workspace.bonsplitController.allPaneIds.count == 1,
             "New Tab destination should stay in the clicked panel's pane"
         )
     }
