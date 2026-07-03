@@ -1327,9 +1327,6 @@ extension Workspace {
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
                 remotePTYAttachStartupCommand(sessionID: $0)
             }
-            let snapshotIsRemoteTerminal =
-                snapshot.terminal?.isRemoteTerminal == true ||
-                shouldRestoreSingleDefaultCloudTerminal
             let restoredStartupCommand =
                 restoredRemotePTYAttachCommand
                 ?? restoredTmuxStartupScript?.path
