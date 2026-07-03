@@ -63,10 +63,20 @@ public final class SidebarWorkspaceListSnapshot<Tab: WorkspaceTabRepresenting> {
         )
         visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         visibleWorkspaceRowIdSet = Set(visibleWorkspaceRowIds)
-        topLevelWorkspaceIds = Self.makeTopLevelWorkspaceIds(
-            tabs: tabs,
-            groupsById: groupsById
-        )
+        var emittedGroupIds = Set<UUID>()
+        var topLevelIds: [UUID] = []
+        topLevelIds.reserveCapacity(tabs.count)
+        for tab in tabs {
+            if let groupId = tab.groupId,
+               let group = groupsById[groupId] {
+                if emittedGroupIds.insert(groupId).inserted {
+                    topLevelIds.append(group.anchorWorkspaceId)
+                }
+            } else {
+                topLevelIds.append(tab.id)
+            }
+        }
+        topLevelWorkspaceIds = topLevelIds
         topLevelPinnedWorkspaceIds = Set(topLevelWorkspaceIds.filter { id in
             if let group = groupsByAnchorId[id] {
                 return group.isPinned
@@ -224,23 +234,4 @@ public final class SidebarWorkspaceListSnapshot<Tab: WorkspaceTabRepresenting> {
         return workspaceById[id]?.isPinned == true
     }
 
-    private static func makeTopLevelWorkspaceIds(
-        tabs: [Tab],
-        groupsById: [UUID: WorkspaceGroup]
-    ) -> [UUID] {
-        var emittedGroupIds = Set<UUID>()
-        var ids: [UUID] = []
-        ids.reserveCapacity(tabs.count)
-        for tab in tabs {
-            if let groupId = tab.groupId,
-               let group = groupsById[groupId] {
-                if emittedGroupIds.insert(groupId).inserted {
-                    ids.append(group.anchorWorkspaceId)
-                }
-            } else {
-                ids.append(tab.id)
-            }
-        }
-        return ids
-    }
 }
