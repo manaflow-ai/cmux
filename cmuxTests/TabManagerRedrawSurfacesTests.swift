@@ -41,4 +41,64 @@ struct TabManagerRedrawSurfacesTests {
         #expect(other.redrawVisibleSurfacesRequestCount == 1)
         #expect(selected.redrawVisibleSurfacesRequestCount == 1)
     }
+
+    @Test func redrawVisibleSurfacesSchedulesGeometryRefreshForSelectedWorkspace() throws {
+#if DEBUG
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelId))
+        let window = Self.makeWindow()
+        defer {
+            panel.hostedView.removeFromSuperview()
+            window.orderOut(nil)
+        }
+        let contentView = try #require(window.contentView)
+
+        panel.hostedView.frame = contentView.bounds
+        panel.hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        panel.hostedView.layoutSubtreeIfNeeded()
+        panel.hostedView.setVisibleInUI(true)
+        panel.hostedView.setActive(true)
+
+        let didCreateSurface = Self.waitUntil(timeout: 1.0) { panel.surface.surface != nil }
+        #expect(didCreateSurface)
+        guard didCreateSurface else { return }
+
+        panel.surface.resetDebugForceRefreshCount()
+        manager.redrawVisibleSurfaces()
+        workspace.debugAttemptEventDrivenLayoutFollowUpForTesting()
+
+        #expect(panel.surface.debugForceRefreshCount() == 1)
+#else
+        Issue.record("DEBUG-only terminal surface refresh instrumentation is required")
+#endif
+    }
+
+    private static func makeWindow() -> NSWindow {
+        let contentRect = NSRect(x: 0, y: 0, width: 480, height: 320)
+        let window = NSWindow(
+            contentRect: contentRect,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = NSView(frame: contentRect)
+        return window
+    }
+
+    private static func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
 }
