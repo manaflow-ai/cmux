@@ -10,10 +10,14 @@ extension Workspace {
 
     private var reportedRemoteCurrentDirectory: String? {
         if let focusedPanelId,
-           let directory = reportedPanelDirectory(panelId: focusedPanelId) {
-            return directory
+           isRemoteTerminalSurface(focusedPanelId) {
+            return reportedPanelDirectory(panelId: focusedPanelId)
         }
-        let directories = Set(panels.keys.compactMap { reportedPanelDirectory(panelId: $0) })
+        let activeRemotePanelIds = panels.keys.filter { isRemoteTerminalSurface($0) }
+        guard !activeRemotePanelIds.isEmpty else { return nil }
+        let reportedDirectories = activeRemotePanelIds.compactMap { reportedPanelDirectory(panelId: $0) }
+        guard reportedDirectories.count == activeRemotePanelIds.count else { return nil }
+        let directories = Set(reportedDirectories)
         return directories.count == 1 ? directories.first : nil
     }
 

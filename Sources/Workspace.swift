@@ -404,12 +404,12 @@ extension Workspace {
             ? (panelCustomTitleSources[panelId] ?? .user)
             : nil
         let directory: String? = {
+            if isRemoteTerminalSurface(panelId) {
+                return reportedPanelDirectory(panelId: panelId)
+            }
             if let directory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !directory.isEmpty {
                 return directory
-            }
-            if isRemoteTerminalSurface(panelId) {
-                return nil
             }
             if let agentPanel = panel as? AgentSessionPanel,
                let agentDirectory = agentPanel.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
