@@ -13239,6 +13239,12 @@ struct TabItemView: View, Equatable {
     // percent here and applying a primitive `.font(...)` keeps magnification
     // working while dropping those per-label modifier bodies.
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
+#if DEBUG
+    // Plain-value environment probe (closure struct, not an object reference):
+    // set only by SidebarLazyLayoutScaleTests, default no-op, excluded from ==
+    // like all closures. See SidebarLazyContractProbe.
+    @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
+#endif
     let tab: Tab
     let index: Int
     let workspaceShortcutDigit: Int?
@@ -13615,6 +13621,9 @@ struct TabItemView: View, Equatable {
     }
 
     var body: some View {
+#if DEBUG
+        let _ = { sidebarLazyContractProbe.workspaceRowBody?() }()
+#endif
         let workspaceSnapshot = self.workspaceSnapshot
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
         let protectedWorkspaceTooltip = String(

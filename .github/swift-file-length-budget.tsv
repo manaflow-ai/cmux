@@ -3,7 +3,7 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34660	CLI/cmux.swift
 17954	Sources/AppDelegate.swift
-16414	Sources/ContentView.swift
+16423	Sources/ContentView.swift
 14270	Sources/TerminalController.swift
 13258	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
