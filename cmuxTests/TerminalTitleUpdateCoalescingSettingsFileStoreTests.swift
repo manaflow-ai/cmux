@@ -83,7 +83,7 @@ struct TerminalTitleUpdateCoalescingSettingsFileStoreTests {
     func settingsFileStoreLeavesDefaultsWhenCoalescingSectionAbsent() throws {
         try loadTerminalSection(
             """
-            "scrollSpeed": 1.0
+            "titleUpdates": {}
             """
         ) { defaults in
             #expect(defaults.object(forKey: PanelTitleUpdateCoalescingSettings.coalescingEnabledKey) == nil)
