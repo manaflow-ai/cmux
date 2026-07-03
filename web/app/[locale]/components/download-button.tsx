@@ -57,13 +57,18 @@ export function DownloadButton({
   // under `dark:` to keep the split affordance equally quiet.
   // Slightly more breathing room after the label than the caret zone's
   // padding, so the divider sits a touch closer to the caret than to "Mac".
-  const downloadZone = `flex items-center transition-colors hover:bg-background/[0.04] dark:hover:bg-background/[0.03] ${
+  // The hover tint is applied without a CSS transition on purpose: animating
+  // background-color/opacity here promotes the sub-pixel-positioned zone into
+  // its own WebKit compositing layer, which snaps to the device-pixel grid and
+  // makes the label/caret visibly jump on hover (Safari only, worst at the
+  // small size). Instant tint avoids the promotion, so nothing shifts.
+  const downloadZone = `flex items-center hover:bg-background/[0.04] dark:hover:bg-background/[0.03] ${
     isSmall
-      ? "gap-2 pl-4 pr-2 py-1.5 text-xs"
-      : "gap-2.5 pl-5 pr-[11px] py-2.5 text-[15px]"
+      ? "gap-2 pl-4 pr-[7px] py-1.5 text-xs"
+      : "gap-2.5 pl-5 pr-2.5 py-2.5 text-[15px]"
   }`;
-  const caretZone = `group flex items-center justify-center transition-colors hover:bg-background/[0.04] dark:hover:bg-background/[0.03] data-[popup-open]:bg-background/[0.04] dark:data-[popup-open]:bg-background/[0.03] ${
-    isSmall ? "pl-1.5 pr-2" : "px-2"
+  const caretZone = `group flex items-center justify-center hover:bg-background/[0.04] dark:hover:bg-background/[0.03] data-[popup-open]:bg-background/[0.04] dark:data-[popup-open]:bg-background/[0.03] ${
+    isSmall ? "pl-[5px] pr-2" : "pl-[7px] pr-2"
   }`;
 
   const captureMac = () =>
@@ -100,7 +105,7 @@ export function DownloadButton({
       strokeWidth="2.25"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="opacity-40 transition-opacity group-hover:opacity-70 group-data-[popup-open]:opacity-70 dark:opacity-30 dark:group-hover:opacity-55 dark:group-data-[popup-open]:opacity-55"
+      className="opacity-40 group-hover:opacity-70 group-data-[popup-open]:opacity-70 dark:opacity-30 dark:group-hover:opacity-55 dark:group-data-[popup-open]:opacity-55"
       aria-hidden="true"
     >
       <path d="m6 9 6 6 6-6" />
@@ -111,11 +116,10 @@ export function DownloadButton({
     <>
       <div
         // `[transform:translateZ(0)]` gives the rounded pill its own backing
-        // layer. Without it, Safari fails to clip the zones' `transition-colors`
-        // hover tint to the `rounded-full` corners once the tint animates into
-        // its own compositing layer, so on hover the tint leaks past the
-        // corners as square edges (Chrome clips correctly). Promoting the
-        // clipping container makes the children composite inside its clip.
+        // layer so Safari reliably clips the zones' hover tint to the
+        // `rounded-full` corners (WebKit otherwise lets a tinted child leak past
+        // the corners as square edges; Chrome clips correctly). Paired with the
+        // transition-free tint above, the pill stays fully stable on hover.
         className={`inline-flex items-stretch overflow-hidden whitespace-nowrap rounded-full bg-foreground font-medium [transform:translateZ(0)] ${
           className ?? ""
         }`}
