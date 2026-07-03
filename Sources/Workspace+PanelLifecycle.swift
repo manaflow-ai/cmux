@@ -205,6 +205,45 @@ extension Workspace {
         Self.structuredAgentHookStatusKeys.contains(agentStatusKey(forAgentPIDKey: key))
     }
 
+    /// Clears any dead agent PIDs recorded for `panelId` (an agent process that
+    /// has exited), so a stale PID no longer influences the panel's agent
+    /// context. Backs the submit-action re-check after an agent prune.
+    ///
+    /// Our refactor keeps per-panel PID keys on the workspace but moved the
+    /// recorded process *identities* (start-time PID-reuse guard) to the sidebar
+    /// observation model, which the workspace does not read, so liveness here is a
+    /// direct `kill(pid, 0)` existence probe rather than main's identity compare.
+    @discardableResult
+    func clearStaleAgentPIDs(panelId: UUID, refreshPorts: Bool = true) -> Bool {
+        let keys = agentPIDKeysByPanelId[panelId] ?? []
+        var didChange = false
+        for key in keys {
+            guard let pid = agentPIDs[key] else {
+                if clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                    didChange = true
+                }
+                continue
+            }
+            if !Self.isAgentProcessAlive(pid),
+               clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        if didChange, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+        return didChange
+    }
+
+    /// Whether a recorded agent PID still names a live process. `kill(pid, 0)`
+    /// returns success while the process exists and `ESRCH` once it is gone; a
+    /// permission error (`EPERM`) still means the process exists.
+    static func isAgentProcessAlive(_ pid: pid_t) -> Bool {
+        guard pid > 0 else { return false }
+        if kill(pid, 0) == 0 { return true }
+        return errno != ESRCH
+    }
+
     @discardableResult
     func clearAgentPID(
         key: String,
