@@ -7958,8 +7958,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     var notificationScrollPosition: TerminalNotificationScrollPosition? {
         guard let scrollbar = surfaceView.scrollbar else { return nil }
+        let rowFromBottom = max(0, scrollbar.total - scrollbar.offset - scrollbar.len)
         return TerminalNotificationScrollPosition(
-            row: Int(clamping: scrollbar.offset),
+            row: Int(clamping: rowFromBottom),
             totalRows: Int(clamping: scrollbar.total)
         )
     }
