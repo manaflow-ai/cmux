@@ -122,6 +122,29 @@ import CmuxSettings
         #expect(model.restoreShortcuts.isEmpty)
     }
 
+    @Test func consecutiveAssignmentsMergeBeforeObserverEcho() async throws {
+        // WHY: row callbacks can arrive before the settings stream echoes a prior
+        // write; the second write must build on the model's latest local snapshot,
+        // not clobber the first action from stale observed bindings.
+        let (store, catalog, errorLog) = makeStore()
+        let firstAction = ShortcutAction.openSettings
+        let secondAction = ShortcutAction.toggleFullScreen
+        let firstShortcut = StoredShortcut(first: ShortcutStroke(
+            key: "j", command: true, shift: true, option: true, control: true
+        ))
+        let secondShortcut = StoredShortcut(first: ShortcutStroke(
+            key: "k", command: true, shift: true, option: true, control: true
+        ))
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+
+        await model.assign(stroke: firstShortcut.first, to: firstAction)
+        await model.assign(stroke: secondShortcut.first, to: secondAction)
+
+        let storeBindings = await store.value(for: catalog.shortcuts.bindings)
+        #expect(storeBindings[firstAction.rawValue] == firstShortcut)
+        #expect(storeBindings[secondAction.rawValue] == secondShortcut)
+    }
+
     @Test func externalChangePrunesStaleConflictRejection() async throws {
         // WHY: a user editing cmux.json externally to remove a conflicting binding
         // must auto-dismiss the stale conflict banner — UI must not get permanently stuck.
