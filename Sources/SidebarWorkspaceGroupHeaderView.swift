@@ -118,6 +118,30 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
     }
 
+    private var anchorNameText: some View {
+        Text(name)
+            .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
+            .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    @ViewBuilder
+    private var anchorUnreadBadge: some View {
+        if anchorUnreadCount > 0 {
+            Text("\(anchorUnreadCount)")
+                .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
+                .foregroundStyle(.white)
+                .padding(.horizontal, metrics.unreadHorizontalPadding)
+                .padding(.vertical, metrics.unreadVerticalPadding)
+                .background(Capsule().fill(Color.accentColor))
+                .accessibilityLabel(Text(String.localizedStringWithFormat(
+                    String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
+                    anchorUnreadCount
+                )))
+        }
+    }
+
     var body: some View {
         HStack(spacing: 4) {
             if isPinned {
@@ -160,23 +184,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .foregroundStyle(iconColor)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
-                Text(name)
-                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
-                    .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if anchorUnreadCount > 0 {
-                    Text("\(anchorUnreadCount)")
-                        .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, metrics.unreadHorizontalPadding)
-                        .padding(.vertical, metrics.unreadVerticalPadding)
-                        .background(Capsule().fill(Color.accentColor))
-                        .accessibilityLabel(Text(String.localizedStringWithFormat(
-                            String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
-                            anchorUnreadCount
-                        )))
-                }
+                anchorNameText
+                anchorUnreadBadge
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
