@@ -97,7 +97,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// arguments: ``codexUpdateCheckSuppressionOverride`` unless `preserved` already
     /// sets `check_for_update_on_startup` (either value).
     func codexResumeConfigOverrides(preserved: [String]) -> [String] {
-        hasExplicitCheckForUpdateOnStartupOverride(in: preserved) ? [] : codexUpdateCheckSuppressionOverride
+        hasExplicitCheckForUpdateOnStartupOverride(in: preserved) ? [] : Self.codexUpdateCheckSuppressionOverride
     }
 
     /// Returns true when an argv already carries an explicit codex startup update-check setting.
