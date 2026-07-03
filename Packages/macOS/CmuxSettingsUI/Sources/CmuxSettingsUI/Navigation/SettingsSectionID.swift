@@ -98,7 +98,11 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini naming auto naming workspace tabs"
-        case .inlineVSCode: return "vscode vs code serve web serve-web inline editor port server data directory persist state extra args code-tunnel"
+        case .inlineVSCode:
+            return String(
+                localized: "settings.search.alias.section.inlineVSCode",
+                defaultValue: "vscode vs code serve web serve-web inline editor port server data directory persist state extra args code-tunnel"
+            )
         case .browser: return "search engine links history theme"
         case .browserImport: return "browser import bookmarks history cookies"
         case .globalHotkey: return "system wide shortcut"

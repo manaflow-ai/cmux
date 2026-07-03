@@ -221,21 +221,21 @@ struct InlineVSCodeServeWebOptionsTests {
         #expect(!result.contains("--server-data-dir"))
     }
 
-    @Test func argumentsUsePinnedPort() {
+    @Test func argumentsUsePinnedPort() throws {
         let result = args(InlineVSCodeServeWebOptions(port: 8123, serverDataDir: nil, persistServeWebState: true, extraArgs: []))
-        let portIndex = try! #require(result.firstIndex(of: "--port"))
+        let portIndex = try #require(result.firstIndex(of: "--port"))
         #expect(result[portIndex + 1] == "8123")
     }
 
-    @Test func argumentsIncludeExplicitServerDataDir() {
+    @Test func argumentsIncludeExplicitServerDataDir() throws {
         let result = args(InlineVSCodeServeWebOptions(port: 0, serverDataDir: "/data/dir", persistServeWebState: true, extraArgs: []))
-        let index = try! #require(result.firstIndex(of: "--server-data-dir"))
+        let index = try #require(result.firstIndex(of: "--server-data-dir"))
         #expect(result[index + 1] == "/data/dir")
     }
 
-    @Test func nonPersistentAlwaysUsesEphemeralDirNeverThePersistentDefault() {
+    @Test func nonPersistentAlwaysUsesEphemeralDirNeverThePersistentDefault() throws {
         let result = args(InlineVSCodeServeWebOptions(port: 0, serverDataDir: nil, persistServeWebState: false, extraArgs: []))
-        let index = try! #require(result.firstIndex(of: "--server-data-dir"))
+        let index = try #require(result.firstIndex(of: "--server-data-dir"))
         #expect(result[index + 1] == "/tmp/ephemeral")
     }
 
@@ -264,7 +264,7 @@ struct InlineVSCodeServeWebOptionsTests {
         #expect(options.effectiveServerDataDir(makeEphemeralServerDataDir: { "/tmp/ephemeral" }) == nil)
     }
 
-    @Test func extraArgsAreAppendedAfterManagedArguments() {
+    @Test func extraArgsAreAppendedAfterManagedArguments() throws {
         let options = InlineVSCodeServeWebOptions(
             port: 5000,
             serverDataDir: "/data",
@@ -273,8 +273,8 @@ struct InlineVSCodeServeWebOptionsTests {
         )
         let result = args(options)
         #expect(Array(result.suffix(3)) == ["--verbose", "--log", "debug"])
-        let dirIndex = try! #require(result.firstIndex(of: "--server-data-dir"))
-        let extraIndex = try! #require(result.firstIndex(of: "--verbose"))
+        let dirIndex = try #require(result.firstIndex(of: "--server-data-dir"))
+        let extraIndex = try #require(result.firstIndex(of: "--verbose"))
         #expect(dirIndex < extraIndex)
         #expect(result.contains("--connection-token-file"))
     }
@@ -304,7 +304,7 @@ struct InlineVSCodeServeWebOptionsTests {
         #expect(cleaned == ["--good=value"])
     }
 
-    @Test func argumentsCannotBeOverriddenByMaliciousExtraArgs() {
+    @Test func argumentsCannotBeOverriddenByMaliciousExtraArgs() throws {
         let options = InlineVSCodeServeWebOptions(
             port: 1234,
             serverDataDir: nil,
@@ -314,7 +314,7 @@ struct InlineVSCodeServeWebOptionsTests {
         let result = args(options)
         // The only host is the managed loopback; the token flag survives; no override leaked in.
         #expect(result.filter { $0 == "--host" }.count == 1)
-        let hostIndex = try! #require(result.firstIndex(of: "--host"))
+        let hostIndex = try #require(result.firstIndex(of: "--host"))
         #expect(result[hostIndex + 1] == "127.0.0.1")
         #expect(!result.contains("0.0.0.0"))
         #expect(!result.contains("--without-connection-token"))

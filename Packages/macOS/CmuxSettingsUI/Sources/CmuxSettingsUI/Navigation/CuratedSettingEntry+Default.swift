@@ -203,28 +203,40 @@ extension Array where Element == CuratedSettingEntry {
                 id: "persist-state",
                 title: String(localized: "settings.inlineVSCode.persistState", defaultValue: "Persist serve-web State"),
                 paths: ["inlineVSCode.persistServeWebState"],
-                synonyms: "inlineVSCode.persistServeWebState vscode vs code serve web serve-web inline persist state sign in auth settings sync session ephemeral throwaway"
+                synonyms: String(
+                    localized: "settings.search.alias.setting.inlineVSCode.persist-state",
+                    defaultValue: "inlineVSCode.persistServeWebState vscode vs code serve web serve-web inline persist state sign in auth settings sync session ephemeral throwaway"
+                )
             ),
             .init(
                 section: .inlineVSCode,
                 id: "port",
                 title: String(localized: "settings.inlineVSCode.port", defaultValue: "Port"),
                 paths: ["inlineVSCode.port"],
-                synonyms: "inlineVSCode.port vscode vs code serve web serve-web inline port localhost 127.0.0.1 pin random free"
+                synonyms: String(
+                    localized: "settings.search.alias.setting.inlineVSCode.port",
+                    defaultValue: "inlineVSCode.port vscode vs code serve web serve-web inline port localhost 127.0.0.1 pin random free"
+                )
             ),
             .init(
                 section: .inlineVSCode,
                 id: "server-data-dir",
                 title: String(localized: "settings.inlineVSCode.serverDataDir", defaultValue: "Server Data Directory"),
                 paths: ["inlineVSCode.serverDataDir"],
-                synonyms: "inlineVSCode.serverDataDir vscode vs code serve web serve-web inline server data dir directory location path storage"
+                synonyms: String(
+                    localized: "settings.search.alias.setting.inlineVSCode.server-data-dir",
+                    defaultValue: "inlineVSCode.serverDataDir vscode vs code serve web serve-web inline server data dir directory location path storage"
+                )
             ),
             .init(
                 section: .inlineVSCode,
                 id: "extra-args",
                 title: String(localized: "settings.inlineVSCode.extraArgs", defaultValue: "Extra serve-web Arguments"),
                 paths: ["inlineVSCode.extraArgs"],
-                synonyms: "inlineVSCode.extraArgs vscode vs code serve web serve-web inline extra arguments args flags upstream advanced code-tunnel"
+                synonyms: String(
+                    localized: "settings.search.alias.setting.inlineVSCode.extra-args",
+                    defaultValue: "inlineVSCode.extraArgs vscode vs code serve web serve-web inline extra arguments args flags upstream advanced code-tunnel"
+                )
             ),
 
             // Browser
