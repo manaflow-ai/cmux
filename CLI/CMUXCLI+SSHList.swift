@@ -249,14 +249,20 @@ extension CMUXCLI {
             }
             var extras: [String] = []
             if let proxyJump = host.proxyJump {
-                extras.append("via \(Self.sanitizeForTerminal(proxyJump))")
+                extras.append(String(
+                    localized: "cli.sshlist.table.proxyJump",
+                    defaultValue: "via \(Self.sanitizeForTerminal(proxyJump))"
+                ))
             }
             let forwards = host.localForwards.map { "L:\($0)" }
                 + host.remoteForwards.map { "R:\($0)" }
                 + host.dynamicForwards.map { "D:\($0)" }
             if !forwards.isEmpty {
                 let rendered = forwards.map(Self.sanitizeForTerminal).joined(separator: ", ")
-                extras.append("forwards=[\(rendered)]")
+                extras.append(String(
+                    localized: "cli.sshlist.table.forwards",
+                    defaultValue: "forwards=[\(rendered)]"
+                ))
             }
             let extraText = extras.isEmpty ? "" : "  \(extras.joined(separator: "  "))"
             print("\(alias)\(target)\(extraText)")
