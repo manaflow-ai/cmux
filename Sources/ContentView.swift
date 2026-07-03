@@ -13761,23 +13761,22 @@ struct TabItemView: View, Equatable {
 
         VStack(alignment: .leading, spacing: SidebarWorkspaceListMetrics.rowContentSpacing) {
             HStack(alignment: .top, spacing: 8) {
-                if unreadCount > 0 {
-                    // Linear badge: a plain count, no filled pill — unless the
-                    // user explicitly configured a badge color.
-                    if sidebarNotificationBadgeColorHex != nil {
-                        ZStack {
-                            Circle()
-                                .fill(activeUnreadBadgeFillColor)
-                            Text("\(unreadCount)")
-                                .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
-                                .foregroundColor(activeUnreadBadgeTextColor)
-                        }
-                        .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
-                    } else {
-                        Text("\(unreadCount)")
-                            .font(magnifiedFont(scaledFontSize(11), weight: .medium))
-                            .foregroundColor(SidebarMutedText.color)
-                    }
+                // Linear-style leading status dot: one semantic dot carries the
+                // state, ranked by urgency (error > needs-input > running >
+                // idle > done) so an error is never masked by "running". Kept
+                // as the first element so the dot anchors the row's leading edge
+                // regardless of pin / media / unread — focusing a row clears its
+                // unread count, which used to sit before the dot and shift it.
+                if let statusColor = SidebarStatusStyle.rankedDotColor(
+                    forEntries: workspaceSnapshot.metadataEntries.map { (key: $0.key, value: $0.value) },
+                    colorScheme: colorScheme
+                ) {
+                    Circle()
+                        .fill(Color(nsColor: statusColor))
+                        .frame(width: scaledFontSize(7), height: scaledFontSize(7))
+                        .padding(.top, scaledFontSize(4.5))
+                        .padding(.trailing, 1)
+                        .accessibilityHidden(true)
                 }
 
                 if workspaceSnapshot.isPinned {
@@ -13823,21 +13822,6 @@ struct TabItemView: View, Equatable {
                         .accessibilityLabel(cameraInUseTooltip)
                 }
 
-                // Linear-style leading status dot: one semantic dot carries the
-                // state, ranked by urgency (error > needs-input > running >
-                // idle > done) so an error is never masked by "running".
-                if let statusColor = SidebarStatusStyle.rankedDotColor(
-                    forEntries: workspaceSnapshot.metadataEntries.map { (key: $0.key, value: $0.value) },
-                    colorScheme: colorScheme
-                ) {
-                    Circle()
-                        .fill(Color(nsColor: statusColor))
-                        .frame(width: scaledFontSize(7), height: scaledFontSize(7))
-                        .padding(.top, scaledFontSize(4.5))
-                        .padding(.trailing, 1)
-                        .accessibilityHidden(true)
-                }
-
                 Text(displayedTitle)
                     .font(magnifiedFont(scaledFontSize(13), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
@@ -13846,6 +13830,28 @@ struct TabItemView: View, Equatable {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
+
+                // Unread count is a trailing muted count (Linear-style). Placed
+                // after the title so clearing it on focus never shifts the
+                // leading status dot or the title.
+                if unreadCount > 0 {
+                    // Linear badge: a plain count, no filled pill — unless the
+                    // user explicitly configured a badge color.
+                    if sidebarNotificationBadgeColorHex != nil {
+                        ZStack {
+                            Circle()
+                                .fill(activeUnreadBadgeFillColor)
+                            Text("\(unreadCount)")
+                                .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
+                                .foregroundColor(activeUnreadBadgeTextColor)
+                        }
+                        .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+                    } else {
+                        Text("\(unreadCount)")
+                            .font(magnifiedFont(scaledFontSize(11), weight: .medium))
+                            .foregroundColor(SidebarMutedText.color)
+                    }
+                }
 
                 // The close button is a sibling that always reserves its width
                 // when the workspace is closable, so the title wraps/truncates
