@@ -201,9 +201,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                if expandedPaths.contains(node.path) && outlineView.isExpandable(node) {
+            for row in sequence(first: 0, next: { $0 + 1 }) {
+                guard row < outlineView.numberOfRows else { break }
+                if let node = outlineView.item(atRow: row) as? FileExplorerNode, expandedPaths.contains(node.path), outlineView.isExpandable(node) {
                     outlineView.expandItem(node)
                 }
             }
