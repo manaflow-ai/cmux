@@ -1,6 +1,5 @@
 import Foundation
 import CMUXAgentLaunch
-import CmuxAgentChat
 import CmuxFoundation
 import CmuxSettings
 import CoreFoundation
@@ -25466,17 +25465,7 @@ struct CMUXCLI {
     }
 
     func findCodexTranscriptPath(sessionId: String, env: [String: String]) -> String? {
-        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedSessionId.isEmpty else { return nil }
-
-        let codexHome = normalizedHookValue(env["CODEX_HOME"]) ?? "~/.codex"
-        let sessionsURL = URL(fileURLWithPath: NSString(string: codexHome).expandingTildeInPath, isDirectory: true)
-            .appendingPathComponent("sessions", isDirectory: true)
-        return CodexTranscriptLocator().transcriptPath(
-            sessionID: normalizedSessionId,
-            sessionsURL: sessionsURL,
-            fileManager: .default
-        )
+        nil
     }
 
     private static let codexMonitorLeaseDirectoryName = "codex-monitor-leases"

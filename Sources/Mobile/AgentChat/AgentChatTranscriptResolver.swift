@@ -3,46 +3,34 @@ import Foundation
 
 /// Resolves the transcript JSONL path for an agent session.
 ///
-/// Preference order: the hook store's recorded `transcriptPath`, then the
-/// agent-specific conventional location (claude: encoded-cwd project dir;
-/// codex: rollout whose confirmed session id matches exactly).
+/// Preference order: the hook store's recorded `transcriptPath`, then Claude's
+/// conventional encoded-cwd project location. Codex transcript binding stays on
+/// the hook-recorded path because scanning rollout directories can bind a pane
+/// to the wrong conversation.
 struct AgentChatTranscriptResolver: Sendable {
     private let homeDirectory: URL
     /// Config-dir root for Claude (`$CLAUDE_CONFIG_DIR` or `~/.claude`).
     private let claudeConfigRoot: URL
-    /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
-    private let codexConfigRoot: URL
-    private let now: @Sendable () -> Date
 
     /// Creates a resolver.
     ///
-    /// The derived-path fallbacks honor the agents' own config-dir env
-    /// overrides so a user who relocates their config (e.g. `CLAUDE_CONFIG_DIR`
-    /// or `CODEX_HOME`, including via a launcher/subrouter) still has transcripts
-    /// resolved. The PRIMARY source remains the hook-recorded absolute
-    /// `transcriptPath`, which already encodes any custom dir; this only fixes
-    /// the fallback used when no path was recorded (e.g. a codex session resumed
-    /// out-of-band, resolved by scanning the sessions dir).
+    /// The Claude derived-path fallback honors `CLAUDE_CONFIG_DIR` so a user who
+    /// relocates their config still has Claude transcripts resolved. Codex uses
+    /// only the hook-recorded absolute `transcriptPath`, which already encodes
+    /// any custom `CODEX_HOME`.
     ///
     /// - Parameters:
     ///   - homeDirectory: Injectable home directory for tests.
     ///   - environment: Injectable environment for tests; defaults to the
     ///     process environment. Empty/whitespace override values are ignored.
-    ///   - now: Injectable clock for bounded Codex rollout scans.
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        now: @escaping @Sendable () -> Date = { Date() }
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.homeDirectory = homeDirectory
-        self.now = now
         self.claudeConfigRoot = Self.configRoot(
             override: environment["CLAUDE_CONFIG_DIR"],
             default: homeDirectory.appendingPathComponent(".claude", isDirectory: true)
-        )
-        self.codexConfigRoot = Self.configRoot(
-            override: environment["CODEX_HOME"],
-            default: homeDirectory.appendingPathComponent(".codex", isDirectory: true)
         )
     }
 
@@ -69,7 +57,7 @@ struct AgentChatTranscriptResolver: Sendable {
         case .claude:
             return claudeFallbackPath(record: record)
         case .codex:
-            return codexFallbackPath(sessionID: record.sessionID)
+            return nil
         case .other:
             return nil
         }
@@ -96,22 +84,5 @@ struct AgentChatTranscriptResolver: Sendable {
             .appendingPathComponent("\(record.sessionID).jsonl", isDirectory: false)
             .path
         return fileManager.fileExists(atPath: path) ? path : nil
-    }
-
-    /// Codex rollout files are named `rollout-<timestamp>-<session-uuid>.jsonl`
-    /// under `~/.codex/sessions/YYYY/MM/DD/`; scan recent day directories for
-    /// the session id.
-    private func codexFallbackPath(sessionID: String) -> String? {
-        let fileManager = FileManager.default
-        let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedSessionID.isEmpty else { return nil }
-        let root = codexConfigRoot
-            .appendingPathComponent("sessions", isDirectory: true)
-        return CodexTranscriptLocator().transcriptPath(
-            sessionID: normalizedSessionID,
-            sessionsURL: root,
-            fileManager: fileManager,
-            now: now()
-        )
     }
 }

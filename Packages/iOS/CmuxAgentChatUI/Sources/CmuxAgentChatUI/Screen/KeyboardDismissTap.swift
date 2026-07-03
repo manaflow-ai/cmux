@@ -33,10 +33,6 @@ struct KeyboardDismissTap: UIViewRepresentable {
         uiView.excludedRegion = excludedRegion
     }
 
-    static func dismantleUIView(_ uiView: TapInstallerView, coordinator: ()) {
-        uiView.uninstallRecognizer()
-    }
-
     /// A non-interactive marker view that adds the recognizer to its window
     /// in `didMoveToWindow` — the only reliable "I'm in a window now" hook
     /// (relying on `updateUIView` timing missed the attach when no input
@@ -78,6 +74,10 @@ struct KeyboardDismissTap: UIViewRepresentable {
             guard installedWindow == nil, let window else { return }
             window.addGestureRecognizer(recognizer)
             installedWindow = window
+        }
+
+        deinit {
+            uninstallRecognizer()
         }
 
         func uninstallRecognizer() {

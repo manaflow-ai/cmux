@@ -75,6 +75,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private var alternateAccessorySticky: Bool { modifierState.isStickyOn(.alternate) }
     private var commandAccessorySticky: Bool { modifierState.isStickyOn(.command) }
     private var shiftAccessorySticky: Bool { modifierState.isStickyOn(.shift) }
+    private let hardwareKeyResolver = TerminalHardwareKeyResolver()
 
     /// The in-progress IME composition string, or `nil` when not composing.
     ///
@@ -127,7 +128,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     override var keyCommands: [UIKeyCommand]? {
         guard markedText == nil else { return nil }
-        var commands = TerminalHardwareKeyResolver.makeKeyCommands(
+        var commands = hardwareKeyResolver.makeKeyCommands(
             target: self,
             action: #selector(handleHardwareKeyCommand(_:))
         )
@@ -696,7 +697,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             if !alternateAccessorySticky {
                 setAlternateAccessoryArmed(false)
             }
-            if let output = TerminalHardwareKeyResolver.data(
+            if let output = hardwareKeyResolver.data(
                 input: UIKeyCommand.inputDelete,
                 modifierFlags: [.alternate]
             ) {
@@ -848,7 +849,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     @discardableResult
     private func handleHardwareKeyInput(input: String, modifierFlags: UIKeyModifierFlags) -> Bool {
-        guard let data = TerminalHardwareKeyResolver.data(input: input, modifierFlags: modifierFlags) else {
+        guard let data = hardwareKeyResolver.data(input: input, modifierFlags: modifierFlags) else {
             return false
         }
         onEscapeSequence?(data)
@@ -961,7 +962,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         armed: Bool,
         sticky: Bool
     ) {
-        var config = Self.accessoryButtonConfiguration(armed: armed, sticky: sticky)
+        var config = accessoryButtonConfiguration(armed: armed, sticky: sticky)
         let symbolName: String?
         let title: String
         switch item {
@@ -996,11 +997,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
         if let actionButton = button as? AccessoryActionButton {
-            // On iOS 26 the armed and sticky states share the same
-            // prominent-glass blue fill, so the double-tap *lock* is
-            // distinguished by a white capsule border drawn over the glass (see
-            // ``AccessoryActionButton/isStickyLocked``). Earlier OSes already
-            // render the locked white stroke through the background style.
+            // On iOS 26 the double-tap lock uses the prominent-glass fill plus
+            // the white capsule border from ``AccessoryActionButton/isStickyLocked``.
+            // Earlier OSes already render the locked stroke through the background style.
             if #available(iOS 26.0, *) {
                 actionButton.isStickyLocked = sticky
             } else {
@@ -1009,7 +1008,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
-    private static func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
+    private func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
@@ -1253,7 +1252,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     private func controlSequence(for text: String) -> Data? {
         guard text.count == 1 else { return nil }
-        return TerminalHardwareKeyResolver.data(input: text, modifierFlags: [.control])
+        return hardwareKeyResolver.data(input: text, modifierFlags: [.control])
     }
 
     private func alternateSequence(for text: String) -> Data? {
@@ -1266,12 +1265,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private func alternateAccessoryOutput(for action: TerminalInputAccessoryAction) -> Data? {
         switch action {
         case .leftArrow:
-            return TerminalHardwareKeyResolver.data(
+            return hardwareKeyResolver.data(
                 input: UIKeyCommand.inputLeftArrow,
                 modifierFlags: [.alternate]
             )
         case .rightArrow:
-            return TerminalHardwareKeyResolver.data(
+            return hardwareKeyResolver.data(
                 input: UIKeyCommand.inputRightArrow,
                 modifierFlags: [.alternate]
             )
@@ -1296,12 +1295,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             return Data([0x05]) // Ctrl+E - end of line
         case .upArrow:
             // Cmd+Up on Mac often scrolls; just send the raw arrow
-            return TerminalHardwareKeyResolver.data(
+            return hardwareKeyResolver.data(
                 input: UIKeyCommand.inputUpArrow,
                 modifierFlags: []
             )
         case .downArrow:
-            return TerminalHardwareKeyResolver.data(
+            return hardwareKeyResolver.data(
                 input: UIKeyCommand.inputDownArrow,
                 modifierFlags: []
             )
@@ -1322,7 +1321,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private func shiftAccessoryOutput(for action: TerminalInputAccessoryAction) -> Data? {
         switch action {
         case .tab:
-            return TerminalHardwareKeyResolver.data(input: "\t", modifierFlags: [.shift])
+            return hardwareKeyResolver.data(input: "\t", modifierFlags: [.shift])
         default:
             return action.output
         }

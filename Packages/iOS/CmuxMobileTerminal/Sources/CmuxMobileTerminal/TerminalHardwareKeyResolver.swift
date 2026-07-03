@@ -5,8 +5,6 @@ import Foundation
 import UIKit
 
 struct TerminalHardwareKeyResolver {
-    private init() {}
-
     private static let supportedModifierFlags: UIKeyModifierFlags = [.shift, .control, .alternate]
     private static let keyCommands: [TerminalHardwareKeyCommand] = {
         let navigation = [
@@ -33,8 +31,8 @@ struct TerminalHardwareKeyResolver {
         return navigation + controlInputs + shiftedControlInputs
     }()
 
-    @MainActor static func makeKeyCommands(target: Any, action: Selector) -> [UIKeyCommand] {
-        keyCommands.map { command in
+    @MainActor func makeKeyCommands(target: Any, action: Selector) -> [UIKeyCommand] {
+        Self.keyCommands.map { command in
             UIKeyCommand(
                 input: command.input,
                 modifierFlags: command.modifierFlags,
@@ -45,7 +43,7 @@ struct TerminalHardwareKeyResolver {
 
     /// Maps a `UIKeyCommand.input*` string to a platform-neutral special key.
     /// Returns `nil` for ordinary character inputs.
-    private static func specialKey(for input: String) -> TerminalSpecialKey? {
+    private func specialKey(for input: String) -> TerminalSpecialKey? {
         switch input {
         case UIKeyCommand.inputUpArrow: return .upArrow
         case UIKeyCommand.inputDownArrow: return .downArrow
@@ -63,7 +61,7 @@ struct TerminalHardwareKeyResolver {
     }
 
     /// Translates `UIKeyModifierFlags` into the kit's platform-neutral set.
-    private static func kitModifiers(_ flags: UIKeyModifierFlags) -> TerminalKeyModifier {
+    private func kitModifiers(_ flags: UIKeyModifierFlags) -> TerminalKeyModifier {
         var result: TerminalKeyModifier = []
         if flags.contains(.shift) { result.insert(.shift) }
         if flags.contains(.control) { result.insert(.control) }
@@ -71,7 +69,7 @@ struct TerminalHardwareKeyResolver {
         return result
     }
 
-    static func data(input: String, modifierFlags: UIKeyModifierFlags) -> Data? {
+    func data(input: String, modifierFlags: UIKeyModifierFlags) -> Data? {
         let modifiers = kitModifiers(modifierFlags)
         if let key = specialKey(for: input) {
             return TerminalKeyEncoder.encode(specialKey: key, modifiers: modifiers)

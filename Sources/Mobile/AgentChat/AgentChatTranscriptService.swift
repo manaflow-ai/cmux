@@ -21,8 +21,6 @@ final class AgentChatTranscriptService {
     /// explicit history request retries, so per-hook-event resolution
     /// failures don't rescan the filesystem during tool storms.
     private var failedResolutions: Set<String> = []
-    private var codexTranscriptResolutionTasks: [String: Task<Void, Never>] = [:]
-    private var codexTranscriptResolutionKeys: [String: CodexTranscriptResolutionKey] = [:]
 
     /// Creates the service with a hook-store-backed registry.
     ///
@@ -265,16 +263,10 @@ final class AgentChatTranscriptService {
         // A user opening the chat is the right moment to retry a previously
         // failed transcript resolution.
         failedResolutions.remove(sessionID)
-        if record.agentKind == .codex,
-           resolver.recordedTranscriptPath(for: record) == nil {
-            let resolved = await codexTranscriptPathOffMain(for: record)
-            applyDirectCodexTranscriptResolution(resolved, sessionID: sessionID)
-        }
-        guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
-        guard let tailer = ensureTailer(for: currentRecord) else { return nil }
+        guard let tailer = ensureTailer(for: record) else { return nil }
         await tailer.start()
         let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
-        if currentRecord.title == nil, let title = await tailer.title {
+        if record.title == nil, let title = await tailer.title {
             registry.update(sessionID: sessionID) { $0.title = title }
         }
         return page
@@ -304,28 +296,13 @@ final class AgentChatTranscriptService {
 
     // MARK: - Internals
 
-    private typealias CodexTranscriptResolutionKey = (
-        sessionID: String,
-        transcriptPath: String?
-    )
-
     @discardableResult
     private func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
         if let existing = tailers[record.sessionID] {
             return existing
         }
         guard !failedResolutions.contains(record.sessionID) else { return nil }
-        let resolvedPath: String?
-        if record.agentKind == .codex {
-            guard let recordedPath = resolver.recordedTranscriptPath(for: record) else {
-                scheduleCodexTranscriptResolution(for: record)
-                return nil
-            }
-            resolvedPath = recordedPath
-        } else {
-            resolvedPath = resolver.transcriptPath(for: record)
-        }
-        guard let path = resolvedPath else {
+        guard let path = resolver.transcriptPath(for: record) else {
             failedResolutions.insert(record.sessionID)
             #if DEBUG
             cmuxDebugLog(
@@ -430,7 +407,6 @@ final class AgentChatTranscriptService {
                 // discovery while paging an ended session) from churning it.
                 Task { await tailer.stop() }
             }
-            clearCodexTranscriptResolution(sessionID: record.sessionID)
         }
         guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
         if transcriptBecameAvailable, record.state != .ended {
@@ -459,126 +435,6 @@ final class AgentChatTranscriptService {
     private func emit(frame: ChatSessionEventFrame) {
         guard let payload = wirePayload(frame) else { return }
         MobileHostService.emitEvent(topic: Self.eventTopic, payload: payload)
-    }
-
-    private func scheduleCodexTranscriptResolution(for record: AgentChatSessionRecord) {
-        let key: CodexTranscriptResolutionKey = (
-            sessionID: record.sessionID,
-            transcriptPath: record.transcriptPath
-        )
-        if let currentKey = codexTranscriptResolutionKeys[record.sessionID],
-           currentKey.sessionID == key.sessionID,
-           currentKey.transcriptPath == key.transcriptPath {
-            return
-        }
-
-        clearCodexTranscriptResolution(sessionID: record.sessionID)
-        codexTranscriptResolutionKeys[record.sessionID] = key
-        let scanTask = detachedCodexTranscriptResolutionTask(for: record)
-        codexTranscriptResolutionTasks[record.sessionID] = Task { @MainActor [
-            weak self,
-            scanTask,
-            key
-        ] in
-            let resolved = await withTaskCancellationHandler {
-                await scanTask.value
-            } onCancel: {
-                scanTask.cancel()
-            }
-            guard !Task.isCancelled else { return }
-            self?.applyCodexTranscriptResolution(resolved, key: key)
-        }
-    }
-
-    private func clearCodexTranscriptResolution(sessionID: String) {
-        codexTranscriptResolutionTasks[sessionID]?.cancel()
-        codexTranscriptResolutionTasks[sessionID] = nil
-        codexTranscriptResolutionKeys[sessionID] = nil
-    }
-
-    private func codexTranscriptPathOffMain(for record: AgentChatSessionRecord) async -> String? {
-        let scanTask = detachedCodexTranscriptResolutionTask(for: record)
-        return await withTaskCancellationHandler {
-            await scanTask.value
-        } onCancel: {
-            scanTask.cancel()
-        }
-    }
-
-    private func detachedCodexTranscriptResolutionTask(
-        for record: AgentChatSessionRecord
-    ) -> Task<String?, Never> {
-        let resolver = self.resolver
-        #if compiler(>=6.2)
-        let resolveOperation: @concurrent @Sendable () async -> String? = { [resolver, record] in
-            resolver.transcriptPath(for: record)
-        }
-        #else
-        let resolveOperation: @Sendable () async -> String? = { [resolver, record] in
-            resolver.transcriptPath(for: record)
-        }
-        #endif
-        return Task.detached(priority: .utility, operation: resolveOperation)
-    }
-
-    private func applyCodexTranscriptResolution(
-        _ resolved: String?,
-        key: CodexTranscriptResolutionKey
-    ) {
-        guard let currentKey = codexTranscriptResolutionKeys[key.sessionID],
-              currentKey.sessionID == key.sessionID,
-              currentKey.transcriptPath == key.transcriptPath else {
-            return
-        }
-        codexTranscriptResolutionTasks[key.sessionID] = nil
-        codexTranscriptResolutionKeys[key.sessionID] = nil
-        applyDirectCodexTranscriptResolution(resolved, sessionID: key.sessionID)
-    }
-
-    /// Applies a resolved Codex transcript path to the registry.
-    ///
-    /// `internal` (not `private`) so a regression test can drive the
-    /// recorded-path guard directly: the race it protects against — a hook
-    /// recording the authoritative path while an off-main fallback scan is in
-    /// flight — cannot be reproduced deterministically through `history(...)`
-    /// alone. Both real callers (`history(...)` and the scheduled resolution)
-    /// reach here only after awaiting that scan.
-    func applyDirectCodexTranscriptResolution(_ resolved: String?, sessionID: String) {
-        guard let record = registry.record(sessionID: sessionID),
-              record.agentKind == .codex else {
-            return
-        }
-        // A hook may record the authoritative transcript path while an off-main
-        // fallback scan is still in flight. Once that recorded path exists on
-        // disk it wins: never overwrite it with this (possibly stale) scan
-        // result, and treat resolution as succeeded. Both `history(...)` and the
-        // scheduled wrapper funnel through here, so the guard lives on this
-        // shared path rather than being duplicated per caller.
-        if resolver.recordedTranscriptPath(for: record) != nil {
-            failedResolutions.remove(sessionID)
-            return
-        }
-        guard let resolved else {
-            failedResolutions.insert(sessionID)
-            return
-        }
-        failedResolutions.remove(sessionID)
-        if record.transcriptPath != resolved {
-            registry.update(sessionID: sessionID) { $0.transcriptPath = resolved }
-        }
-    }
-
-    /// Stops every active tailer and cancels in-flight Codex resolution work so
-    /// their file watchers and background tasks do not outlive the service. The
-    /// live singleton normally runs for the app's lifetime; callers that own a
-    /// transient instance (e.g. tests) call this at teardown so kqueue file
-    /// watchers and detached tasks are released deterministically.
-    func shutdown() async {
-        for task in codexTranscriptResolutionTasks.values { task.cancel() }
-        codexTranscriptResolutionTasks.removeAll()
-        codexTranscriptResolutionKeys.removeAll()
-        for tailer in tailers.values { await tailer.stop() }
-        tailers.removeAll()
     }
 
     /// Encodes a wire value into the `[String: Any]` payload shape the
