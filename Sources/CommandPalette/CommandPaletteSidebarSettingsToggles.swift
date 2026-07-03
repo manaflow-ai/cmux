@@ -1,10 +1,19 @@
 import CmuxSettings
 import Foundation
 
-extension CommandPaletteSettingsToggleCommands {
-    static func sidebarDescriptors(
+struct CommandPaletteSidebarSettingsToggles: Sendable {
+    private let commandIdPrefix: String
+    private let sidebar: @Sendable () -> String
+
+    init(
+        commandIdPrefix: String,
         sectionTitle sidebar: @escaping @Sendable () -> String
-    ) -> [CommandPaletteSettingToggleDescriptor] {
+    ) {
+        self.commandIdPrefix = commandIdPrefix
+        self.sidebar = sidebar
+    }
+
+    func descriptors() -> [CommandPaletteSettingToggleDescriptor] {
         let sidebarDetailsAvailable: @Sendable (UserDefaults) -> Bool = { defaults in
             !UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.hideAllDetails)
         }

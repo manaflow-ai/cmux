@@ -498,7 +498,7 @@ enum CommandPaletteSettingsToggleCommands {
                     )
                 }
             ),
-        ] + sidebarDescriptors(sectionTitle: sidebar) + [
+        ] + CommandPaletteSidebarSettingsToggles(commandIdPrefix: commandIdPrefix, sectionTitle: sidebar).descriptors() + [
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "rightSidebarFeed",
                 settingsKey: "betaFeatures.feed",
