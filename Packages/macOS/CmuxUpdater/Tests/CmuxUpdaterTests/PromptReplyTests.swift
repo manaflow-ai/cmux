@@ -53,6 +53,7 @@ import Testing
             isDevLikeBundle: false
         )
 
+        driver.recordPromptDismissCallbackExpected()
         model.setState(.updateAvailable(.init(appcastItem: makeItem("0.64.16"), reply: { _ in })))
         driver.dismissUpdateInstallation()
 
@@ -60,6 +61,23 @@ import Testing
             Issue.record("unanswered prompt was clobbered to \(model.state)")
             return
         }
+    }
+
+    /// An untracked Sparkle dismissal is the active UI teardown signal and must still clear a
+    /// visible prompt instead of stranding it.
+    @Test func unexpectedDismissalClearsUnansweredPrompt() {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+
+        model.setState(.updateAvailable(.init(appcastItem: makeItem("0.64.16"), reply: { _ in })))
+        driver.dismissUpdateInstallation()
+
+        #expect(model.state.isIdle)
     }
 
     /// A stale dismissal arriving after the fresh prompt was confirmed must not reset active

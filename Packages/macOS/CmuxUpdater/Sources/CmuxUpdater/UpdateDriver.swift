@@ -195,18 +195,14 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             log.append("dismiss update installation ignored (checking)")
             return
         }
-        if case .updateAvailable(let available) = model.state, !available.reply.isConsumed {
-            // An unanswered prompt cannot be the one this dismissal belongs to: Sparkle dismisses
-            // a session after its reply (or abort), so this callback is a stale session's — for
-            // example the pre-attempt prompt's dismissal landing after the fresh check already
-            // resolved. Dropping to idle here would clobber a live prompt the user (or the
-            // attempt coordinator) is about to answer. Once the prompt IS answered, its own
-            // dismissal passes through and clears the state as usual.
-            log.append("dismiss update installation ignored (unanswered prompt visible)")
-            return
-        }
         if isExpectedPromptDismissCallback {
             switch model.state {
+            case .updateAvailable(let available) where !available.reply.isConsumed:
+                // Sparkle can deliver a dismissed old prompt's teardown after a fresh check has
+                // already resolved a new prompt. Only this tracked callback may leave the new
+                // prompt alive; unexpected dismissals still clear it below.
+                log.append("dismiss update installation ignored (superseded prompt dismissal)")
+                return
             case .downloading, .extracting, .installing:
                 log.append("dismiss update installation ignored (superseded prompt dismissal)")
                 return
