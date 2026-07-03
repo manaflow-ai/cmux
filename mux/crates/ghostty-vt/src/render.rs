@@ -72,25 +72,23 @@ impl RenderState {
         let mut raw: sys::GhosttyRenderState = ptr::null_mut();
         check(unsafe { sys::ghostty_render_state_new(ptr::null(), &mut raw) })?;
         let mut rows: sys::GhosttyRenderStateRowIterator = ptr::null_mut();
-        if let Err(e) = check(unsafe { sys::ghostty_render_state_row_iterator_new(ptr::null(), &mut rows) }) {
+        if let Err(e) =
+            check(unsafe { sys::ghostty_render_state_row_iterator_new(ptr::null(), &mut rows) })
+        {
             unsafe { sys::ghostty_render_state_free(raw) };
             return Err(e);
         }
         let mut cells: sys::GhosttyRenderStateRowCells = ptr::null_mut();
-        if let Err(e) = check(unsafe { sys::ghostty_render_state_row_cells_new(ptr::null(), &mut cells) }) {
+        if let Err(e) =
+            check(unsafe { sys::ghostty_render_state_row_cells_new(ptr::null(), &mut cells) })
+        {
             unsafe {
                 sys::ghostty_render_state_row_iterator_free(rows);
                 sys::ghostty_render_state_free(raw);
             }
             return Err(e);
         }
-        Ok(RenderState {
-            raw,
-            rows,
-            cells,
-            row_buf: Vec::new(),
-            grapheme_buf: Vec::new(),
-        })
+        Ok(RenderState { raw, rows, cells, row_buf: Vec::new(), grapheme_buf: Vec::new() })
     }
 
     /// Snapshot the terminal's viewport into this render state.
@@ -150,9 +148,8 @@ impl RenderState {
     /// viewport (e.g. scrolled back).
     pub fn cursor(&self) -> Option<CursorInfo> {
         let visible: bool = self.get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE).ok()?;
-        let in_viewport: bool = self
-            .get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE)
-            .ok()?;
+        let in_viewport: bool =
+            self.get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE).ok()?;
         if !visible || !in_viewport {
             return None;
         }
@@ -169,9 +166,8 @@ impl RenderState {
             sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
             _ => CursorShape::Block,
         };
-        let blinking: bool = self
-            .get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_BLINKING)
-            .unwrap_or(false);
+        let blinking: bool =
+            self.get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_BLINKING).unwrap_or(false);
         Some(CursorInfo { x, y, shape, blinking })
     }
 
@@ -254,11 +250,7 @@ impl RenderState {
     }
 }
 
-fn fill_cell(
-    cells: sys::GhosttyRenderStateRowCells,
-    cell: &mut Cell,
-    grapheme_buf: &mut Vec<u32>,
-) {
+fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_buf: &mut Vec<u32>) {
     cell.text.clear();
 
     let mut grapheme_len: u32 = 0;
@@ -286,10 +278,8 @@ fn fill_cell(
         }
     }
 
-    let mut style = sys::GhosttyStyle {
-        size: std::mem::size_of::<sys::GhosttyStyle>(),
-        ..Default::default()
-    };
+    let mut style =
+        sys::GhosttyStyle { size: std::mem::size_of::<sys::GhosttyStyle>(), ..Default::default() };
     let style_ok = unsafe {
         sys::ghostty_render_state_row_cells_get(
             cells,

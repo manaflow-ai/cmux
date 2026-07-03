@@ -88,11 +88,7 @@ pub fn key_input_from(event: &KeyEvent) -> Option<KeyInput> {
     };
     let mods = mods_from(event.modifiers);
 
-    let mut input = KeyInput {
-        mods,
-        action: Some(action),
-        ..Default::default()
-    };
+    let mut input = KeyInput { mods, action: Some(action), ..Default::default() };
 
     match event.code {
         KeyCode::Char(c) => {

@@ -23,14 +23,8 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
-    println!(
-        "cargo:rerun-if-changed={}",
-        ghostty_dir.join("include").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        ghostty_dir.join("build.zig").display()
-    );
+    println!("cargo:rerun-if-changed={}", ghostty_dir.join("include").display());
+    println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig").display());
     println!("cargo:rerun-if-changed={}", ghostty_dir.join("src").display());
 
     // Build libghostty-vt.a with zig. ReleaseFast regardless of the cargo
@@ -47,15 +41,14 @@ fn main() {
         .arg("--prefix")
         .arg(&prefix)
         .status()
-        .unwrap_or_else(|e| panic!("failed to run `{zig} build` in {}: {e}", ghostty_dir.display()));
+        .unwrap_or_else(|e| {
+            panic!("failed to run `{zig} build` in {}: {e}", ghostty_dir.display())
+        });
     if !status.success() {
         panic!("zig build of libghostty-vt failed with {status}");
     }
 
-    println!(
-        "cargo:rustc-link-search=native={}",
-        prefix.join("lib").display()
-    );
+    println!("cargo:rustc-link-search=native={}", prefix.join("lib").display());
     println!("cargo:rustc-link-lib=static=ghostty-vt");
 
     // Generate bindings from the public C header.
@@ -71,7 +64,5 @@ fn main() {
         .layout_tests(false)
         .generate()
         .expect("bindgen failed for ghostty/vt.h");
-    bindings
-        .write_to_file(out_dir.join("bindings.rs"))
-        .expect("failed to write bindings.rs");
+    bindings.write_to_file(out_dir.join("bindings.rs")).expect("failed to write bindings.rs");
 }

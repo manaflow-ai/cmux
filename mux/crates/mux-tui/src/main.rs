@@ -1,10 +1,10 @@
 //! cmux-mux: a tmux-like terminal multiplexer TUI.
 //!
-//! Runs the mux core (workspaces → tabs → panes on real PTYs, terminal
-//! state from libghostty-vt) with a Ratatui frontend, and always exposes
-//! the JSON control socket so external frontends can attach. `cmux-mux
-//! attach` connects the same TUI to an existing (usually headless)
-//! session over that socket, which is how detach/reattach works.
+//! Runs the mux core (workspaces → split panes → tabs on real PTYs,
+//! terminal state from libghostty-vt) with a Ratatui frontend, and always
+//! exposes the JSON control socket so external frontends can attach.
+//! `cmux-mux attach` connects the same TUI to an existing (usually
+//! headless) session over that socket, which is how detach/reattach works.
 
 mod app;
 mod keys;
@@ -14,7 +14,7 @@ mod ui;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mux_core::{Mux, PaneOptions};
+use mux_core::{Mux, SurfaceOptions};
 use session::{RemoteSession, Session};
 
 const USAGE: &str = "\
@@ -32,11 +32,17 @@ OPTIONS:
   -h, --help         Show this help.
 
 KEYS (prefix: Ctrl-b)
-  c  new tab           n/p  next/prev tab      1-9  select tab
-  %  split right       \"  split down          x    kill pane
+  c  new tab in pane   n/p  next/prev tab      1-9  select tab
+  %  split right       \"  split down          x    close tab
+  ,  rename pane       $    rename workspace
   h/j/k/l or arrows    move focus              d    quit (attach: detach)
   w  next workspace    W    new workspace       s    toggle sidebar
   Ctrl-b  send a literal Ctrl-b
+
+MOUSE
+  Right-click a pane for rename/new tab/split/close; right-click a
+  sidebar workspace for rename/close. Click tab-bar entries to switch
+  tabs, and the trailing + for a new tab.
 ";
 
 struct Args {
@@ -66,9 +72,8 @@ fn parse_args() -> Args {
                 out.session = args.next().unwrap_or_else(|| usage_exit("--session needs a value"))
             }
             "--socket" => {
-                out.socket = Some(
-                    args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into(),
-                )
+                out.socket =
+                    Some(args.next().unwrap_or_else(|| usage_exit("--socket needs a value")).into())
             }
             "--headless" => out.headless = true,
             "--term" => {
@@ -86,11 +91,7 @@ fn parse_args() -> Args {
 
 fn main() {
     let args = parse_args();
-    let result = if args.attach {
-        run_attach(args)
-    } else {
-        run_server(args)
-    };
+    let result = if args.attach { run_attach(args) } else { run_server(args) };
     if let Err(e) = result {
         eprintln!("cmux-mux: {e}");
         std::process::exit(1);
@@ -98,27 +99,23 @@ fn main() {
 }
 
 fn run_attach(args: Args) -> anyhow::Result<()> {
-    let socket_path = args
-        .socket
-        .unwrap_or_else(|| mux_core::server::default_socket_path(&args.session));
+    let socket_path =
+        args.socket.unwrap_or_else(|| mux_core::server::default_socket_path(&args.session));
     let remote = RemoteSession::connect(&socket_path)?;
     app::run(Session::Remote(remote), args.session)
 }
 
 fn run_server(args: Args) -> anyhow::Result<()> {
-    let mut pane_options = PaneOptions::default();
+    let mut surface_options = SurfaceOptions::default();
     if let Some(term) = args.term {
-        pane_options.term = term;
+        surface_options.term = term;
     }
-    // Compute the socket path up front so pane children inherit it.
-    let socket_path = args
-        .socket
-        .unwrap_or_else(|| mux_core::server::default_socket_path(&args.session));
-    pane_options
-        .extra_env
-        .push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
+    // Compute the socket path up front so surface children inherit it.
+    let socket_path =
+        args.socket.unwrap_or_else(|| mux_core::server::default_socket_path(&args.session));
+    surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
-    let mux = Mux::new(args.session.clone(), pane_options);
+    let mux = Mux::new(args.session.clone(), surface_options);
     mux_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
 
     let result = if args.headless {
@@ -131,19 +128,13 @@ fn run_server(args: Args) -> anyhow::Result<()> {
 }
 
 fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result<()> {
-    eprintln!(
-        "cmux-mux: headless, control socket at {}",
-        socket_path.display()
-    );
-    // Keep the process alive; the control socket drives everything. Dead
-    // panes still need reaping out of the tree (the TUI does this when
-    // attached).
+    eprintln!("cmux-mux: headless, control socket at {}", socket_path.display());
+    // Keep the process alive; the control socket drives everything and
+    // the mux reaps exited surfaces itself.
     let events = mux.subscribe();
     loop {
-        match events.recv() {
-            Ok(mux_core::MuxEvent::PaneExited(id)) => mux.close_pane(id),
-            Ok(_) => {}
-            Err(_) => std::thread::park(),
+        if events.recv().is_err() {
+            std::thread::park();
         }
     }
 }

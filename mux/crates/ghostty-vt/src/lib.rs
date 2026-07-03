@@ -13,7 +13,7 @@ pub use ghostty_vt_sys as sys;
 
 pub use key::{KeyAction, KeyEncoder, KeyInput, Mods};
 pub use render::{Cell, CursorInfo, CursorShape, Dirty, RenderState};
-pub use terminal::{Callbacks, Rgb, Screen, Terminal};
+pub use terminal::{Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Terminal};
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {
     match result {

@@ -1,4 +1,4 @@
-//! Pure layout math shared by frontends: a tab's split tree plus a
+//! Pure layout math shared by frontends: a workspace's split tree plus a
 //! rectangle produce pane rects and separator segments.
 
 use crate::{Node, PaneId, SplitDir};
@@ -17,10 +17,7 @@ impl Rect {
     }
 
     fn center(&self) -> (i32, i32) {
-        (
-            self.x as i32 + self.width as i32 / 2,
-            self.y as i32 + self.height as i32 / 2,
-        )
+        (self.x as i32 + self.width as i32 / 2, self.y as i32 + self.height as i32 / 2)
     }
 }
 
@@ -43,10 +40,7 @@ impl LayoutResult {
     }
 
     pub fn pane_at(&self, x: u16, y: u16) -> Option<PaneId> {
-        self.panes
-            .iter()
-            .find(|(_, r)| r.contains(x, y))
-            .map(|(id, _)| *id)
+        self.panes.iter().find(|(_, r)| r.contains(x, y)).map(|(id, _)| *id)
     }
 
     /// The nearest pane in a direction from `from`, judged by center
@@ -79,8 +73,8 @@ impl LayoutResult {
     }
 }
 
-/// Compute pane rects for a tab, reserving one cell for each divider.
-pub fn layout_tab(root: &Node, area: Rect) -> LayoutResult {
+/// Compute pane rects for a workspace, reserving one cell per divider.
+pub fn layout_workspace(root: &Node, area: Rect) -> LayoutResult {
     let mut result = LayoutResult::default();
     walk(root, area, &mut result);
     result
@@ -107,59 +101,26 @@ fn walk(node: &Node, area: Rect, out: &mut LayoutResult) {
     }
 }
 
-fn walk_split(
-    dir: SplitDir,
-    ratio: f32,
-    a: &Node,
-    b: &Node,
-    area: Rect,
-    out: &mut LayoutResult,
-) {
+fn walk_split(dir: SplitDir, ratio: f32, a: &Node, b: &Node, area: Rect, out: &mut LayoutResult) {
     match dir {
-            SplitDir::Right => {
-                let usable = area.width.saturating_sub(1);
-                let a_w = ((usable as f32) * ratio).round() as u16;
-                let a_w = a_w.clamp(1, usable.saturating_sub(1).max(1));
-                let sep = Rect {
-                    x: area.x + a_w,
-                    y: area.y,
-                    width: 1,
-                    height: area.height,
-                };
-                out.separators.push(Separator { rect: sep, vertical: true });
-                walk(a, Rect { width: a_w, ..area }, out);
-                walk(
-                    b,
-                    Rect {
-                        x: area.x + a_w + 1,
-                        width: usable - a_w,
-                        ..area
-                    },
-                    out,
-                );
-            }
-            SplitDir::Down => {
-                let usable = area.height.saturating_sub(1);
-                let a_h = ((usable as f32) * ratio).round() as u16;
-                let a_h = a_h.clamp(1, usable.saturating_sub(1).max(1));
-                let sep = Rect {
-                    x: area.x,
-                    y: area.y + a_h,
-                    width: area.width,
-                    height: 1,
-                };
-                out.separators.push(Separator { rect: sep, vertical: false });
-                walk(a, Rect { height: a_h, ..area }, out);
-                walk(
-                    b,
-                    Rect {
-                        y: area.y + a_h + 1,
-                        height: usable - a_h,
-                        ..area
-                    },
-                    out,
-                );
-            }
+        SplitDir::Right => {
+            let usable = area.width.saturating_sub(1);
+            let a_w = ((usable as f32) * ratio).round() as u16;
+            let a_w = a_w.clamp(1, usable.saturating_sub(1).max(1));
+            let sep = Rect { x: area.x + a_w, y: area.y, width: 1, height: area.height };
+            out.separators.push(Separator { rect: sep, vertical: true });
+            walk(a, Rect { width: a_w, ..area }, out);
+            walk(b, Rect { x: area.x + a_w + 1, width: usable - a_w, ..area }, out);
+        }
+        SplitDir::Down => {
+            let usable = area.height.saturating_sub(1);
+            let a_h = ((usable as f32) * ratio).round() as u16;
+            let a_h = a_h.clamp(1, usable.saturating_sub(1).max(1));
+            let sep = Rect { x: area.x, y: area.y + a_h, width: area.width, height: 1 };
+            out.separators.push(Separator { rect: sep, vertical: false });
+            walk(a, Rect { height: a_h, ..area }, out);
+            walk(b, Rect { y: area.y + a_h + 1, height: usable - a_h, ..area }, out);
+        }
     }
 }
 
@@ -175,7 +136,7 @@ mod tests {
             a: Box::new(Node::Leaf(1)),
             b: Box::new(Node::Leaf(2)),
         };
-        let layout = layout_tab(&root, Rect { x: 0, y: 0, width: 81, height: 24 });
+        let layout = layout_workspace(&root, Rect { x: 0, y: 0, width: 81, height: 24 });
         let r1 = layout.rect_of(1).unwrap();
         let r2 = layout.rect_of(2).unwrap();
         assert_eq!(r1.width, 40);
@@ -203,7 +164,7 @@ mod tests {
         };
         for w in 0..5u16 {
             for h in 0..5u16 {
-                let layout = layout_tab(&root, Rect { x: 0, y: 0, width: w, height: h });
+                let layout = layout_workspace(&root, Rect { x: 0, y: 0, width: w, height: h });
                 assert_eq!(layout.panes.len(), 3, "{w}x{h}");
             }
         }
@@ -222,7 +183,7 @@ mod tests {
                 b: Box::new(Node::Leaf(3)),
             }),
         };
-        let layout = layout_tab(&root, Rect { x: 0, y: 0, width: 80, height: 24 });
+        let layout = layout_workspace(&root, Rect { x: 0, y: 0, width: 80, height: 24 });
         assert_eq!(layout.neighbor(1, 1, 0), Some(2));
         assert_eq!(layout.neighbor(2, 0, 1), Some(3));
         assert_eq!(layout.neighbor(3, 0, -1), Some(2));

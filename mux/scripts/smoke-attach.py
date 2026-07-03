@@ -107,10 +107,10 @@ try:
 
     assert server.poll() is None, "server died on client detach"
 
-    # Server still has the pane and the marker on screen.
+    # Server still has the surface and the marker on screen.
     ws = rpc({"id": 1, "cmd": "list-workspaces"})
-    pane_id = ws["data"]["workspaces"][0]["tabs"][0]["panes"][0]["id"]
-    screen = rpc({"id": 2, "cmd": "read-screen", "pane": pane_id})
+    surface_id = ws["data"]["workspaces"][0]["panes"][0]["tabs"][0]["surface"]
+    screen = rpc({"id": 2, "cmd": "read-screen", "surface": surface_id})
     assert MARKER in screen["data"]["text"], "marker lost server-side after detach"
     print("server survived detach with state intact")
 

@@ -41,6 +41,14 @@ jobs:
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           fi
 
+      - name: cargo fmt
+        working-directory: mux
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        working-directory: mux
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
       - name: cargo test
         working-directory: mux
         run: cargo test --workspace --locked

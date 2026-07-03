@@ -26,6 +26,11 @@ pub enum Screen {
     Alternate,
 }
 
+/// Callback invoked with bytes the terminal wants written to the pty.
+pub type PtyWriteFn = Box<dyn FnMut(&[u8]) + Send>;
+/// Parameterless notification callback (title changed, bell).
+pub type NotifyFn = Box<dyn FnMut() + Send>;
+
 /// Host callbacks invoked synchronously during [`Terminal::vt_write`].
 ///
 /// Callbacks must not touch the [`Terminal`] that invoked them (the C API
@@ -34,12 +39,12 @@ pub enum Screen {
 pub struct Callbacks {
     /// The terminal needs to write bytes back to the pty (query responses,
     /// device status reports, ...).
-    pub on_pty_write: Option<Box<dyn FnMut(&[u8]) + Send>>,
+    pub on_pty_write: Option<PtyWriteFn>,
     /// The terminal title changed (OSC 0/2). Read it with
     /// [`Terminal::title`] after `vt_write` returns.
-    pub on_title_changed: Option<Box<dyn FnMut() + Send>>,
+    pub on_title_changed: Option<NotifyFn>,
     /// BEL received.
-    pub on_bell: Option<Box<dyn FnMut() + Send>>,
+    pub on_bell: Option<NotifyFn>,
 }
 
 /// A terminal instance: VT parser plus full screen/scrollback state.
@@ -62,11 +67,7 @@ unsafe extern "C" fn write_pty_trampoline(
 ) {
     let callbacks = unsafe { &mut *(userdata as *mut Callbacks) };
     if let Some(f) = callbacks.on_pty_write.as_mut() {
-        let bytes = if len == 0 {
-            &[]
-        } else {
-            unsafe { std::slice::from_raw_parts(data, len) }
-        };
+        let bytes = if len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(data, len) } };
         f(bytes);
     }
 }
@@ -91,11 +92,8 @@ unsafe extern "C" fn bell_trampoline(_terminal: sys::GhosttyTerminal, userdata: 
 impl Terminal {
     pub fn new(cols: u16, rows: u16, max_scrollback: usize, callbacks: Callbacks) -> Result<Self> {
         let mut raw: sys::GhosttyTerminal = ptr::null_mut();
-        let opts = sys::GhosttyTerminalOptions {
-            cols: cols.max(1),
-            rows: rows.max(1),
-            max_scrollback,
-        };
+        let opts =
+            sys::GhosttyTerminalOptions { cols: cols.max(1), rows: rows.max(1), max_scrollback };
         check(unsafe { sys::ghostty_terminal_new(ptr::null(), &mut raw, opts) })?;
 
         let mut term = Terminal { raw, callbacks: Box::new(callbacks) };
@@ -133,7 +131,13 @@ impl Terminal {
         unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) }
     }
 
-    pub fn resize(&mut self, cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) -> Result<()> {
+    pub fn resize(
+        &mut self,
+        cols: u16,
+        rows: u16,
+        cell_width_px: u32,
+        cell_height_px: u32,
+    ) -> Result<()> {
         check(unsafe {
             sys::ghostty_terminal_resize(
                 self.raw,
@@ -202,11 +206,7 @@ impl Terminal {
     pub fn mode(&self, mode: u16, ansi: bool) -> bool {
         let mut out = false;
         let result = unsafe {
-            sys::ghostty_terminal_mode_get(
-                self.raw,
-                sys::ghostty_mode_new(mode, ansi),
-                &mut out,
-            )
+            sys::ghostty_terminal_mode_get(self.raw, sys::ghostty_mode_new(mode, ansi), &mut out)
         };
         result == sys::GHOSTTY_SUCCESS && out
     }
@@ -271,7 +271,6 @@ impl Terminal {
                     protection: true,
                     kitty_keyboard: true,
                     charsets: true,
-                    ..Default::default()
                 },
             },
             selection: ptr::null(),
@@ -295,7 +294,12 @@ impl Terminal {
             let mut buf = vec![0u8; needed.max(1)];
             let mut written: usize = 0;
             check(unsafe {
-                sys::ghostty_formatter_format_buf(formatter, buf.as_mut_ptr(), buf.len(), &mut written)
+                sys::ghostty_formatter_format_buf(
+                    formatter,
+                    buf.as_mut_ptr(),
+                    buf.len(),
+                    &mut written,
+                )
             })?;
             buf.truncate(written);
             Ok(buf)
@@ -311,7 +315,11 @@ impl Drop for Terminal {
             // Clear callbacks first so a hypothetical late invocation can't
             // touch the freed Box.
             sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_WRITE_PTY, ptr::null());
-            sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_TITLE_CHANGED, ptr::null());
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_TITLE_CHANGED,
+                ptr::null(),
+            );
             sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_BELL, ptr::null());
             sys::ghostty_terminal_free(self.raw);
         }

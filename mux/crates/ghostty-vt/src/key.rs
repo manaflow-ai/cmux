@@ -176,10 +176,7 @@ mod tests {
         // the terminal, syncing makes it ESC O A.
         let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         let mut enc = KeyEncoder::new().unwrap();
-        let up = KeyInput {
-            key: sys::GHOSTTY_KEY_ARROW_UP,
-            ..Default::default()
-        };
+        let up = KeyInput { key: sys::GHOSTTY_KEY_ARROW_UP, ..Default::default() };
 
         let mut out = Vec::new();
         enc.sync_from_terminal(&term);

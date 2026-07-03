@@ -6,12 +6,13 @@
 //! turn the connection full-duplex:
 //!
 //! - `subscribe` — the server pushes `{"event":...}` lines (tree-changed,
-//!   pane-output, pane-exited, title-changed, bell) interleaved with
-//!   responses.
-//! - `attach-pane` — the server sends `{"event":"vt-state"}` with a
-//!   base64 VT replay of the pane's current state, then a live
+//!   surface-output, surface-exited, title-changed, bell) interleaved
+//!   with responses.
+//! - `attach-surface` — the server sends `{"event":"vt-state"}` with a
+//!   base64 VT replay of the surface's current state, then a live
 //!   `{"event":"output"}` stream of every subsequent pty byte. Replaying
-//!   state then stream into a fresh terminal reproduces the pane exactly.
+//!   state then stream into a fresh terminal reproduces the surface
+//!   exactly.
 //!
 //! ```text
 //! {"id":1,"cmd":"identify"}
@@ -28,9 +29,10 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::{Mux, MuxEvent, Node, PaneId, SplitDir, WorkspaceId};
+use crate::model::State;
+use crate::{Mux, MuxEvent, Node, PaneId, SplitDir, SurfaceId, WorkspaceId};
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// Default socket path for a session: `$TMPDIR/cmux-mux-<uid>/<session>.sock`.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -52,7 +54,7 @@ enum Command {
     Identify,
     ListWorkspaces,
     Send {
-        pane: PaneId,
+        surface: SurfaceId,
         #[serde(default)]
         text: Option<String>,
         /// Base64-encoded raw bytes, written verbatim to the pty.
@@ -60,15 +62,16 @@ enum Command {
         bytes: Option<String>,
     },
     ReadScreen {
-        pane: PaneId,
+        surface: SurfaceId,
     },
-    /// One-shot VT replay of the pane's current state (base64).
+    /// One-shot VT replay of the surface's current state (base64).
     VtState {
-        pane: PaneId,
+        surface: SurfaceId,
     },
+    /// New tab in a pane (default: the active pane).
     NewTab {
         #[serde(default)]
-        workspace: Option<WorkspaceId>,
+        pane: Option<PaneId>,
         #[serde(default)]
         cwd: Option<String>,
     },
@@ -81,18 +84,38 @@ enum Command {
         /// "right" or "down"
         dir: String,
     },
-    KillPane {
+    /// Close one tab.
+    CloseSurface {
+        surface: SurfaceId,
+    },
+    /// Close a pane and all its tabs.
+    ClosePane {
         pane: PaneId,
     },
-    ResizePane {
+    CloseWorkspace {
+        workspace: WorkspaceId,
+    },
+    RenamePane {
         pane: PaneId,
+        /// Empty clears the name (falls back to the tab title).
+        name: String,
+    },
+    RenameWorkspace {
+        workspace: WorkspaceId,
+        name: String,
+    },
+    ResizeSurface {
+        surface: SurfaceId,
         cols: u16,
         rows: u16,
     },
     FocusPane {
         pane: PaneId,
     },
+    /// Select a tab within a pane (default: the active pane).
     SelectTab {
+        #[serde(default)]
+        pane: Option<PaneId>,
         #[serde(default)]
         index: Option<usize>,
         #[serde(default)]
@@ -106,13 +129,13 @@ enum Command {
     },
     /// Stream mux events on this connection.
     Subscribe,
-    /// Stream a pane: vt-state event followed by live output events.
-    AttachPane {
-        pane: PaneId,
+    /// Stream a surface: vt-state event followed by live output events.
+    AttachSurface {
+        surface: SurfaceId,
     },
-    /// Scroll a pane's viewport by a row delta (negative is up).
-    ScrollPane {
-        pane: PaneId,
+    /// Scroll a surface's viewport by a row delta (negative is up).
+    ScrollSurface {
+        surface: SurfaceId,
         delta: isize,
     },
 }
@@ -218,6 +241,50 @@ fn node_json(node: &Node) -> Value {
     }
 }
 
+fn pane_json(state: &State, id: PaneId) -> Value {
+    let Some(pane) = state.panes.get(&id) else {
+        return json!({ "id": id, "dead": true });
+    };
+    json!({
+        "id": id,
+        "name": pane.name,
+        "active_tab": pane.active_tab,
+        "tabs": pane.tabs.iter().map(|sid| {
+            let surface = state.surfaces.get(sid);
+            json!({
+                "surface": sid,
+                "title": surface.map(|s| s.title()).unwrap_or_default(),
+                "size": surface.map(|s| {
+                    let (c, r) = s.size();
+                    json!({"cols": c, "rows": r})
+                }),
+                "dead": surface.map(|s| s.is_dead()).unwrap_or(true),
+            })
+        }).collect::<Vec<_>>(),
+    })
+}
+
+fn workspaces_json(state: &State) -> Value {
+    json!({
+        "workspaces": state.workspaces.iter().enumerate().map(|(i, ws)| {
+            let mut pane_ids = Vec::new();
+            ws.root.pane_ids(&mut pane_ids);
+            json!({
+                "id": ws.id,
+                "name": ws.name,
+                "active": i == state.active_workspace,
+                "active_pane": ws.active_pane,
+                "layout": node_json(&ws.root),
+                "panes": pane_ids.iter().map(|id| pane_json(state, *id)).collect::<Vec<_>>(),
+            })
+        }).collect::<Vec<_>>(),
+    })
+}
+
+fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
+    mux.surface(id).ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
+}
+
 fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => Ok(json!({
@@ -227,73 +294,40 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             "session": mux.session,
             "pid": std::process::id(),
         })),
-        Command::ListWorkspaces => Ok(mux.with_state(|workspaces, active_ws, panes| {
-            json!({
-                "workspaces": workspaces.iter().enumerate().map(|(i, ws)| {
-                    json!({
-                        "id": ws.id,
-                        "name": ws.name,
-                        "active": i == active_ws,
-                        "tabs": ws.tabs.iter().enumerate().map(|(t, tab)| {
-                            let mut ids = Vec::new();
-                            tab.root.pane_ids(&mut ids);
-                            json!({
-                                "id": tab.id,
-                                "active": t == ws.active_tab,
-                                "active_pane": tab.active_pane,
-                                "layout": node_json(&tab.root),
-                                "panes": ids.iter().map(|id| {
-                                    let pane = panes.get(id).cloned();
-                                    json!({
-                                        "id": id,
-                                        "title": pane.as_ref().map(|p| p.title()).unwrap_or_default(),
-                                        "size": pane.as_ref().map(|p| {
-                                            let (c, r) = p.size();
-                                            json!({"cols": c, "rows": r})
-                                        }),
-                                        "dead": pane.map(|p| p.is_dead()).unwrap_or(true),
-                                    })
-                                }).collect::<Vec<_>>(),
-                            })
-                        }).collect::<Vec<_>>(),
-                    })
-                }).collect::<Vec<_>>(),
-            })
-        })),
-        Command::Send { pane, text, bytes } => {
-            let pane = mux.pane(pane).ok_or_else(|| anyhow::anyhow!("unknown pane {pane}"))?;
+        Command::ListWorkspaces => Ok(mux.with_state(workspaces_json)),
+        Command::Send { surface, text, bytes } => {
+            let surface = get_surface(mux, surface)?;
             if let Some(text) = text {
-                pane.write_bytes(text.as_bytes())?;
+                surface.write_bytes(text.as_bytes())?;
             }
             if let Some(b64) = bytes {
                 let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
-                pane.write_bytes(&raw)?;
+                surface.write_bytes(&raw)?;
             }
             Ok(json!({}))
         }
-        Command::ReadScreen { pane } => {
-            let pane = mux.pane(pane).ok_or_else(|| anyhow::anyhow!("unknown pane {pane}"))?;
-            let text = pane.with_terminal(|t| t.plain_text())?;
+        Command::ReadScreen { surface } => {
+            let surface = get_surface(mux, surface)?;
+            let text = surface.with_terminal(|t| t.plain_text())?;
             Ok(json!({ "text": text }))
         }
-        Command::VtState { pane } => {
-            let pane = mux.pane(pane).ok_or_else(|| anyhow::anyhow!("unknown pane {pane}"))?;
-            let (cols, rows, replay) = pane.with_terminal(|t| {
-                t.vt_replay().map(|replay| (t.cols(), t.rows(), replay))
-            })?;
+        Command::VtState { surface } => {
+            let surface = get_surface(mux, surface)?;
+            let (cols, rows, replay) = surface
+                .with_terminal(|t| t.vt_replay().map(|replay| (t.cols(), t.rows(), replay)))?;
             Ok(json!({
                 "cols": cols,
                 "rows": rows,
                 "data": base64::engine::general_purpose::STANDARD.encode(replay),
             }))
         }
-        Command::NewTab { workspace, cwd } => {
-            let pane = mux.new_tab(workspace, cwd)?;
-            Ok(json!({ "pane": pane.id }))
+        Command::NewTab { pane, cwd } => {
+            let surface = mux.new_tab(pane, cwd)?;
+            Ok(json!({ "surface": surface.id }))
         }
         Command::NewWorkspace { name } => {
-            let pane = mux.new_workspace(name)?;
-            Ok(json!({ "pane": pane.id }))
+            let surface = mux.new_workspace(name)?;
+            Ok(json!({ "surface": surface.id }))
         }
         Command::Split { pane, dir } => {
             let dir = match dir.as_str() {
@@ -301,19 +335,42 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                 "down" => SplitDir::Down,
                 other => anyhow::bail!("bad dir {other:?} (want \"right\" or \"down\")"),
             };
-            let new_pane = mux.split(pane, dir)?;
-            Ok(json!({ "pane": new_pane.id }))
+            let surface = mux.split(pane, dir)?;
+            Ok(json!({ "surface": surface.id }))
         }
-        Command::KillPane { pane } => {
-            if mux.pane(pane).is_none() {
+        Command::CloseSurface { surface } => {
+            get_surface(mux, surface)?;
+            mux.close_surface(surface);
+            Ok(json!({}))
+        }
+        Command::ClosePane { pane } => {
+            if !mux.with_state(|s| s.panes.contains_key(&pane)) {
                 anyhow::bail!("unknown pane {pane}");
             }
             mux.close_pane(pane);
             Ok(json!({}))
         }
-        Command::ResizePane { pane, cols, rows } => {
-            let pane = mux.pane(pane).ok_or_else(|| anyhow::anyhow!("unknown pane {pane}"))?;
-            pane.resize(cols, rows);
+        Command::CloseWorkspace { workspace } => {
+            if !mux.close_workspace(workspace) {
+                anyhow::bail!("unknown workspace {workspace}");
+            }
+            Ok(json!({}))
+        }
+        Command::RenamePane { pane, name } => {
+            if !mux.rename_pane(pane, name) {
+                anyhow::bail!("unknown pane {pane}");
+            }
+            Ok(json!({}))
+        }
+        Command::RenameWorkspace { workspace, name } => {
+            if !mux.rename_workspace(workspace, name) {
+                anyhow::bail!("unknown workspace {workspace}");
+            }
+            Ok(json!({}))
+        }
+        Command::ResizeSurface { surface, cols, rows } => {
+            let surface = get_surface(mux, surface)?;
+            surface.resize(cols, rows);
             Ok(json!({}))
         }
         Command::FocusPane { pane } => {
@@ -322,17 +379,17 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             }
             Ok(json!({}))
         }
-        Command::SelectTab { index, delta } => {
-            mux.select_tab(index, delta);
+        Command::SelectTab { pane, index, delta } => {
+            mux.select_tab(pane, index, delta);
             Ok(json!({}))
         }
         Command::SelectWorkspace { index, delta } => {
             mux.select_workspace(index, delta);
             Ok(json!({}))
         }
-        Command::ScrollPane { pane, delta } => {
-            let pane = mux.pane(pane).ok_or_else(|| anyhow::anyhow!("unknown pane {pane}"))?;
-            pane.with_terminal(|t| t.scroll_delta(delta));
+        Command::ScrollSurface { surface, delta } => {
+            let surface = get_surface(mux, surface)?;
+            surface.with_terminal(|t| t.scroll_delta(delta));
             Ok(json!({}))
         }
         Command::Subscribe => {
@@ -341,10 +398,16 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
                 while let Ok(event) = events.recv() {
                     let value = match &event {
-                        MuxEvent::PaneOutput(id) => json!({"event": "pane-output", "pane": id}),
-                        MuxEvent::PaneExited(id) => json!({"event": "pane-exited", "pane": id}),
-                        MuxEvent::TitleChanged(id) => json!({"event": "title-changed", "pane": id}),
-                        MuxEvent::Bell(id) => json!({"event": "bell", "pane": id}),
+                        MuxEvent::SurfaceOutput(id) => {
+                            json!({"event": "surface-output", "surface": id})
+                        }
+                        MuxEvent::SurfaceExited(id) => {
+                            json!({"event": "surface-exited", "surface": id})
+                        }
+                        MuxEvent::TitleChanged(id) => {
+                            json!({"event": "title-changed", "surface": id})
+                        }
+                        MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
                         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
                         MuxEvent::Empty => json!({"event": "empty"}),
                     };
@@ -355,32 +418,30 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             })?;
             Ok(json!({}))
         }
-        Command::AttachPane { pane: pane_id } => {
-            let pane = mux
-                .pane(pane_id)
-                .ok_or_else(|| anyhow::anyhow!("unknown pane {pane_id}"))?;
-            let (cols, rows, replay, stream) = pane.attach_stream()?;
+        Command::AttachSurface { surface: surface_id } => {
+            let surface = get_surface(mux, surface_id)?;
+            let attach = surface.attach_stream()?;
             writer.send(&json!({
                 "event": "vt-state",
-                "pane": pane_id,
-                "cols": cols,
-                "rows": rows,
-                "data": base64::engine::general_purpose::STANDARD.encode(replay),
+                "surface": surface_id,
+                "cols": attach.cols,
+                "rows": attach.rows,
+                "data": base64::engine::general_purpose::STANDARD.encode(attach.replay),
             }))?;
             let writer = writer.clone();
             std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                while let Ok(chunk) = stream.recv() {
+                while let Ok(chunk) = attach.stream.recv() {
                     let value = json!({
                         "event": "output",
-                        "pane": pane_id,
+                        "surface": surface_id,
                         "data": base64::engine::general_purpose::STANDARD.encode(chunk),
                     });
                     if writer.send(&value).is_err() {
                         break;
                     }
                 }
-                // Pane gone (or reader stopped): signal end of stream.
-                let _ = writer.send(&json!({"event": "detached", "pane": pane_id}));
+                // Surface gone (or reader stopped): signal end of stream.
+                let _ = writer.send(&json!({"event": "detached", "surface": surface_id}));
             })?;
             Ok(json!({}))
         }
