@@ -12,6 +12,8 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CMUXAuthEnvironment</key>
+	<string>$(CMUX_IOS_AUTH_ENV)</string>
 	<key>CMUXDevTag</key>
 	<string>$(CMUX_DEV_TAG)</string>
 	<key>CMUXGitSHA</key>
