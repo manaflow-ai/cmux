@@ -32,7 +32,7 @@ public struct KeyboardShortcutsSection: View {
                 SettingsCardDivider()
                 resetDefaultsRow
                 SettingsCardDivider()
-                ShortcutListEagerView(model: model)
+                ShortcutListStableLazyView(model: model)
             }
             .settingsSearchAnchors(["setting:keyboardShortcuts:shortcuts"])
             Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record. Use X to unbind; it changes to restore after a clear."))

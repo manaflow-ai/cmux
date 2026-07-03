@@ -1,28 +1,25 @@
 import CmuxSettings
 import SwiftUI
 
-/// Full-height inline rendering of the shortcut-recorder rows: a plain eager
-/// `VStack` that flows directly in the Settings page scroll with no inner scroll
-/// region, so the whole list is part of the one continuous page (matching the
-/// upstream layout).
-///
-/// Deliberately NOT a `LazyVStack`. The `LazyVStack` is the original scroll-jump
-/// bug: on the app active-state flip it de-realizes off-screen rows and
-/// re-estimates them shorter, dipping the page's document height so `NSClipView`
-/// re-anchors the scroll and strands it. An eager `VStack` keeps every row
-/// realized, so the page height is stable across the flip and the jump cannot
-/// occur. The cost is realizing all rows (~166 Carbon-backed recorders) up front
-/// at window-open.
-///
-/// Uses ``ShortcutListModel`` (all state/logic) and ``ShortcutListRowView`` (all
-/// rendering, including its own `isLast` hairline divider).
+private struct ShortcutListHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// Lazy inline rendering of shortcut-recorder rows. It records the largest
+/// measured list height and keeps that as a minimum so app activation changes
+/// cannot shrink the Settings document while off-screen rows are de-realized.
 @MainActor
-struct ShortcutListEagerView: View {
+struct ShortcutListStableLazyView: View {
     let model: ShortcutListModel
+    @State private var measuredHeight: CGFloat = 0
 
     var body: some View {
         let actions = ShortcutAction.settingsVisibleActions
-        VStack(spacing: 0) {
+        LazyVStack(spacing: 0) {
             ForEach(Array(actions.enumerated()), id: \.element) { index, action in
                 let effective = model.effective(for: action)
                 let snapshot = ShortcutListRowSnapshot(
@@ -50,6 +47,20 @@ struct ShortcutListEagerView: View {
                     )
                 )
                 .equatable()
+            }
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ShortcutListHeightPreferenceKey.self,
+                    value: proxy.size.height
+                )
+            }
+        }
+        .frame(minHeight: measuredHeight, alignment: .top)
+        .onPreferenceChange(ShortcutListHeightPreferenceKey.self) { height in
+            if height > measuredHeight {
+                measuredHeight = height
             }
         }
     }
