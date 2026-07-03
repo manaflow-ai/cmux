@@ -253,7 +253,7 @@ struct WorkspaceDetailView: View {
                             connectionError: store.connectionError,
                             connectionErrorGuidance: store.connectionErrorGuidance,
                             createTerminal: createTerminal,
-                            canCreateTerminal: canCreateWorkspace
+                            canCreateTerminal: true
                         )
                     }
             }

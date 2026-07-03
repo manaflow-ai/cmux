@@ -52,6 +52,29 @@ import Testing
         #expect(model.rows[id: "route"]?.value == "Saved route · 100.64.0.20:58465")
         #expect(model.rows[id: "network"]?.value == "Check that both devices are on the same Tailscale.")
     }
+
+    @Test func routeAndMacStatusUseLocalizedFormatKeys() throws {
+        let route = try CmxAttachRoute(
+            id: "debug",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 3942)
+        )
+
+        let model = TerminalLoadingDiagnosticsModel.snapshot(
+            workspaceName: "cmux",
+            terminalCount: 1,
+            macName: "Mini",
+            connectionStatus: .reconnecting,
+            tailnetStatus: .unknown,
+            activeRoute: route,
+            storedRouteDescription: nil,
+            connectionError: nil,
+            connectionErrorGuidance: nil
+        )
+
+        #expect(model.rows[id: "mac"]?.value == "Mini · Reconnecting")
+        #expect(model.rows[id: "route"]?.value == "Debug loopback · 127.0.0.1:3942")
+    }
 }
 
 private extension [TerminalLoadingDiagnosticsRow] {

@@ -42,7 +42,14 @@ struct TerminalLoadingDiagnosticsModel: Equatable {
             TerminalLoadingDiagnosticsRow(
                 id: "mac",
                 label: L10n.string("mobile.terminal.loading.mac", defaultValue: "Mac"),
-                value: "\(resolvedMacName) · \(connectionStatus.label)",
+                value: String(
+                    format: L10n.string(
+                        "mobile.terminal.loading.macStatusFormat",
+                        defaultValue: "%@ · %@"
+                    ),
+                    resolvedMacName,
+                    connectionStatus.label
+                ),
                 tone: tone(for: connectionStatus)
             ),
             TerminalLoadingDiagnosticsRow(
@@ -114,7 +121,14 @@ struct TerminalLoadingDiagnosticsModel: Equatable {
 
     private static func routeText(activeRoute: CmxAttachRoute?, storedRouteDescription: String?) -> String {
         if let activeRoute {
-            return "\(routeKindText(activeRoute.kind)) · \(endpointText(activeRoute.endpoint))"
+            return String(
+                format: L10n.string(
+                    "mobile.terminal.loading.routeActiveFormat",
+                    defaultValue: "%@ · %@"
+                ),
+                routeKindText(activeRoute.kind),
+                endpointText(activeRoute.endpoint)
+            )
         }
         if let storedRouteDescription = nonEmpty(storedRouteDescription) {
             return String(
@@ -293,6 +307,9 @@ extension WorkspaceDetailView {
             return nil
         }
         if macDeviceID == store.connectedMacDeviceID {
+            return store.activeRoute
+        }
+        if macDeviceID == store.activeTicket?.macDeviceID {
             return store.activeRoute
         }
         guard let connectedMacDeviceID = store.connectedMacDeviceID,
