@@ -799,6 +799,8 @@
       "exampleConfig": "Örnek yapılandırma",
       "metaTitle": "Yapılandırma",
       "schemaDescriptions": {
+        "paneBorderColor": "Bölünmüş çalışma alanlarında cmux bölme ayırıcı rengini geçersiz kılar. Bu, Ghostty iç bölmelerini değil cmux bölme sınırlarını etkiler.",
+        "activePaneBorderColor": "Bölünmüş çalışma alanlarında odaktaki cmux bölmesinin etrafına çizilen isteğe bağlı kenarlık rengi.",
         "automation": {
           "ampIntegration": "Amp için cmux entegrasyon kancalarını etkinleştirir. Devre dışı bırakıldığında, paketlenmiş eklenti kaldırılmaya gerek kalmadan etkin olmayan durumda kalır.",
           "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar.",
