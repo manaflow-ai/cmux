@@ -62,6 +62,48 @@ import Testing
         }
     }
 
+    /// A stale dismissal arriving after the fresh prompt was confirmed must not reset active
+    /// progress to idle; later progress callbacks depend on the model staying in progress.
+    @Test func staleDismissalDoesNotClobberInstallProgress() {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+
+        model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 10)))
+        driver.dismissUpdateInstallation()
+
+        guard case .downloading(let download) = model.state else {
+            Issue.record("download progress was clobbered to \(model.state)")
+            return
+        }
+        #expect(download.progress == 10)
+    }
+
+    /// A real user download cancel still clears progress immediately; the stale dismissal guard
+    /// only prevents old Sparkle sessions from clearing a still-active progress state.
+    @Test func downloadCancelClearsProgress() {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        var cancelled = false
+
+        driver.showDownloadInitiated {
+            cancelled = true
+        }
+        model.state.cancel()
+
+        #expect(cancelled)
+        #expect(model.state.isIdle)
+    }
+
     /// Once the prompt is answered, its own dismissal passes through and clears the state.
     @Test func answeredPromptDismissalClearsState() {
         let model = UpdateStateModel()

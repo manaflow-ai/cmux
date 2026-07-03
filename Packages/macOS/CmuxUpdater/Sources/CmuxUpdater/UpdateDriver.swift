@@ -105,7 +105,12 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
         log.append("show download initiated")
         setState(.downloading(.init(
-            cancel: cancellation,
+            cancel: { [weak self] in
+                cancellation()
+                if case .downloading = self?.model.state {
+                    self?.model.setState(.idle)
+                }
+            },
             expectedLength: nil,
             progress: 0)))
     }
@@ -180,6 +185,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         if case .checking = model.state {
             log.append("dismiss update installation ignored (checking)")
             return
+        }
+        switch model.state {
+        case .downloading, .extracting, .installing:
+            log.append("dismiss update installation ignored (install progress visible)")
+            return
+        default:
+            break
         }
         if case .updateAvailable(let available) = model.state, !available.reply.isConsumed {
             // An unanswered prompt cannot be the one this dismissal belongs to: Sparkle dismisses
