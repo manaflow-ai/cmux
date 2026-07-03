@@ -6,6 +6,7 @@ extension KeyboardShortcutSettings.Action {
         case application
         case nonBrowserPanel
         case browserPanel
+        case browserOrFilePreviewTextEditor
         case markdownPanel
         case rightSidebarFocus
         case splitPaneNavigation
@@ -14,9 +15,19 @@ extension KeyboardShortcutSettings.Action {
 
         var isAlwaysAvailable: Bool { self == .application }
 
+        var forwardsMenuEquivalentToFocusedTerminal: Bool {
+            switch self {
+            case .browserPanel, .browserOrFilePreviewTextEditor:
+                return true
+            default:
+                return false
+            }
+        }
+
         func isAvailable(
             focusedBrowserPanel: Bool,
             focusedMarkdownPanel: Bool,
+            focusedFilePreviewTextEditor: Bool = false,
             rightSidebarFocused: Bool,
             workspaceHasSplits: Bool = false,
             workspaceCanvasLayout: Bool = false
@@ -25,11 +36,16 @@ extension KeyboardShortcutSettings.Action {
             case .application: return true
             case .nonBrowserPanel: return !focusedBrowserPanel && !rightSidebarFocused
             case .browserPanel: return focusedBrowserPanel
+            case .browserOrFilePreviewTextEditor: return focusedBrowserPanel || focusedFilePreviewTextEditor
             case .markdownPanel: return focusedMarkdownPanel
             case .rightSidebarFocus: return rightSidebarFocused
             case .splitPaneNavigation: return workspaceHasSplits && !rightSidebarFocused
             case .canvasLayout: return workspaceCanvasLayout
-            case .canvasLayoutOutsideFocusedContent: return workspaceCanvasLayout && !focusedBrowserPanel && !focusedMarkdownPanel
+            case .canvasLayoutOutsideFocusedContent:
+                return workspaceCanvasLayout
+                    && !focusedBrowserPanel
+                    && !focusedMarkdownPanel
+                    && !focusedFilePreviewTextEditor
             }
         }
 
@@ -37,6 +53,7 @@ extension KeyboardShortcutSettings.Action {
             isAvailable(
                 focusedBrowserPanel: context.browserPanel != nil,
                 focusedMarkdownPanel: context.markdownPanel != nil,
+                focusedFilePreviewTextEditor: context.filePreviewTextEditorFocused,
                 rightSidebarFocused: context.rightSidebarFocused,
                 workspaceHasSplits: (context.shortcutContext.int(ShortcutContextKnownKey.paneCount.rawValue) ?? 0) > 1,
                 workspaceCanvasLayout: context.shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
@@ -47,6 +64,7 @@ extension KeyboardShortcutSettings.Action {
             isAvailable(
                 focusedBrowserPanel: context.bool(CommandPaletteContextKeys.panelIsBrowser),
                 focusedMarkdownPanel: context.bool(CommandPaletteContextKeys.panelIsMarkdown),
+                focusedFilePreviewTextEditor: context.bool(CommandPaletteContextKeys.panelIsFilePreviewTextEditor),
                 rightSidebarFocused: false,
                 workspaceHasSplits: context.bool(CommandPaletteContextKeys.workspaceHasSplits),
                 workspaceCanvasLayout: context.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
@@ -58,6 +76,8 @@ extension KeyboardShortcutSettings.Action {
             case .application: return .always
             case .nonBrowserPanel: return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
             case .browserPanel: return .atom(.browserFocus)
+            case .browserOrFilePreviewTextEditor:
+                return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
             case .markdownPanel: return .atom(.markdownFocus)
             case .rightSidebarFocus: return .atom(.sidebarFocus)
             case .splitPaneNavigation:
@@ -69,7 +89,10 @@ extension KeyboardShortcutSettings.Action {
             case .canvasLayoutOutsideFocusedContent:
                 return .and(
                     .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue),
-                    .and(.not(.atom(.browserFocus)), .not(.atom(.markdownFocus)))
+                    .and(
+                        .not(.atom(.browserFocus)),
+                        .and(.not(.atom(.markdownFocus)), .not(.atom(.filePreviewTextEditorFocus)))
+                    )
                 )
             }
         }
@@ -82,11 +105,25 @@ extension KeyboardShortcutSettings.Action {
                 || (self == .nonBrowserPanel && other == .markdownPanel) {
                 return true
             }
+            if self == .browserOrFilePreviewTextEditor || other == .browserOrFilePreviewTextEditor {
+                let paired = self == .browserOrFilePreviewTextEditor ? other : self
+                switch paired {
+                case .browserPanel, .nonBrowserPanel, .canvasLayout:
+                    return true
+                default:
+                    return false
+                }
+            }
             if self == .canvasLayout || other == .canvasLayout {
                 return true
             }
             if self == .canvasLayoutOutsideFocusedContent || other == .canvasLayoutOutsideFocusedContent {
-                return self != .browserPanel && other != .browserPanel && self != .markdownPanel && other != .markdownPanel
+                return self != .browserPanel
+                    && other != .browserPanel
+                    && self != .browserOrFilePreviewTextEditor
+                    && other != .browserOrFilePreviewTextEditor
+                    && self != .markdownPanel
+                    && other != .markdownPanel
             }
             if self == .splitPaneNavigation || other == .splitPaneNavigation {
                 return self != .rightSidebarFocus && other != .rightSidebarFocus
@@ -119,9 +156,10 @@ extension KeyboardShortcutSettings.Action {
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .nonBrowserPanel
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
-             .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .browserZoomIn,
-             .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode:
+             .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode:
             return .browserPanel
+        case .browserZoomIn, .browserZoomOut, .browserZoomReset:
+            return .browserOrFilePreviewTextEditor
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .markdownPanel
         case .focusLeft, .focusRight:

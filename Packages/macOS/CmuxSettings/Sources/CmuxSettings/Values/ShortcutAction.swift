@@ -59,6 +59,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case closeTab
     case closeOtherTabsInPane
     case closeWorkspace
+    /// Creates a new empty workspace group.
+    case newWorkspaceGroup
     /// Groups the selected workspaces in the workspace list.
     case groupSelectedWorkspaces
     /// Toggles collapse for the group containing the focused workspace.
@@ -67,6 +69,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case newSurface
     case toggleTerminalCopyMode
     case focusTextBoxInput
+    /// Cycles the TextBox submit button to the next configured action.
+    case cycleTextBoxSubmitAction
     case attachTextBoxFile
     /// Sends a Ctrl-F keystroke through to the focused terminal.
     case sendCtrlFToTerminal
@@ -182,9 +186,9 @@ extension ShortcutAction {
              .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
-             .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
+             .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
-             .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal,
+             .focusTextBoxInput, .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
              .clearScreenKeepScrollback:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
@@ -249,7 +253,9 @@ extension ShortcutAction {
 
     /// Whether this action supports a two-stroke shortcut chord.
     public var allowsChordShortcut: Bool {
-        self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias
+        self != .fileExplorerOpenSelection
+            && self != .fileExplorerOpenSelectionFinderAlias
+            && self != .cycleTextBoxSubmitAction
     }
 
     /// The action's built-in focus context expressed as a ``ShortcutWhenClause``,
@@ -276,17 +282,21 @@ extension ShortcutAction {
                 .not(.atom(.sidebarFocus))
             )
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
-             .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
-             .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode,
+             .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
              .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
              .diffViewerScrollToTop, .diffViewerOpenFileSearch:
             return .atom(.browserFocus)
+        case .browserZoomIn, .browserZoomOut, .browserZoomReset:
+            return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .atom(.markdownFocus)
         case .canvasZoomReset:
             return .and(
                 .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue),
-                .and(.not(.atom(.browserFocus)), .not(.atom(.markdownFocus)))
+                .and(
+                    .not(.atom(.browserFocus)),
+                    .and(.not(.atom(.markdownFocus)), .not(.atom(.filePreviewTextEditorFocus)))
+                )
             )
         case .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasTidy,
@@ -369,6 +379,8 @@ extension ShortcutAction {
         case .closeTab: return "Close Tab"
         case .closeOtherTabsInPane: return "Close Other Tabs in Pane"
         case .closeWorkspace: return "Close Workspace"
+        case .newWorkspaceGroup:
+            return String(localized: "shortcut.newWorkspaceGroup.label", defaultValue: "New Workspace Group")
         case .groupSelectedWorkspaces:
             return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
         case .toggleFocusedWorkspaceGroupCollapsed:
@@ -377,6 +389,8 @@ extension ShortcutAction {
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
         case .focusTextBoxInput: return "Focus TextBox Input"
+        case .cycleTextBoxSubmitAction:
+            return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .sendCtrlFToTerminal:
             return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")

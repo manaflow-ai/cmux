@@ -737,13 +737,13 @@
       "layoutItem1": "Fastgjorte rækker på øverste niveau (workspaces og grupper).",
       "layoutItem2": "Ufastgjorte rækker på øverste niveau (workspaces og grupper).",
       "creatingTitle": "Oprettelse af en gruppe",
-      "creatingIntro": "En gruppe oprettes på en af to måder: via en tastaturgenvej eller en workspace-kontekstmenu. Begge indsætter et nyt anker-workspace over markeringen og flytter de markerede workspaces ind i gruppen. Når en gruppe findes, administrerer du den og tilføjer workspaces til den fra gruppens overskrift (se Administration af en gruppe nedenfor).",
-      "keyboardTitle": "Fra tastaturet ({shortcut})",
-      "keyboardDesc": "Vælg to eller flere workspaces i sidebaren, og tryk derefter på {shortcut}. Et nyt anker-workspace indsættes over markeringen, og alle valgte workspaces bliver børn. Gruppen navngives automatisk Group 1, Group 2 og så videre — omdøb den når som helst via headerens kontekstmenu.",
+      "creatingIntro": "En gruppe oprettes fra en tastaturgenvej eller en genvejsmenu i sidebjælken. Tomme grupper indsætter et nyt ankerarbejdsområde som gruppeoverskrift. Valgbaserede grupper indsætter ankeret over markeringen og flytter de valgte arbejdsområder ind i gruppen. Når gruppen findes, administrerer du den og føjer arbejdsområder til den fra gruppeoverskriften (se Administrering af en gruppe nedenfor).",
+      "keyboardTitle": "Fra tastaturgenveje",
+      "keyboardDesc": "Tryk på ⌃⌘G for at oprette en ny tom arbejdsområdegruppe. Vælg to eller flere arbejdsområder i sidebjælken, og tryk derefter på {shortcut} for at gruppere markeringen. Begge veje opretter et nyt ankerarbejdsområde og navngiver automatisk gruppen Group 1, Group 2 osv. Omdøb den når som helst fra overskriftens genvejsmenu.",
       "keyboardNote": "{shortcut} kolliderer med React Grabs standard. Gruppehåndteringen forbruger kun akkorden, når der er en eksplicit multimarkering af mindst to workspaces i sidebaren, så React Grab udløses stadig ved enkeltmarkering og i browser- eller terminalkontekster. Genbind den i Indstillinger → Tastatur, hvis du hellere vil have, at de to ikke deler en tast.",
       "keyboardSingle": "Grupper med en enkelt fane oprettes ikke via genvejen. Brug i stedet menupunktet Ny gruppe fra arbejdsområde i workspace-kontekstmenuen.",
       "contextMenuTitle": "Fra en workspace-kontekstmenu",
-      "contextMenuDesc": "Højreklik på et hvilket som helst workspace i sidebjælken, og vælg Ny gruppe fra arbejdsområde, eller Ny gruppe fra valg, når flere workspaces er valgt. Dette bruger samme automatiske navngivning som genvejen.",
+      "contextMenuDesc": "Højreklik på et arbejdsområde i sidebjælken, og vælg Ny tom arbejdsområdegruppe, Ny gruppe fra arbejdsområde eller Ny gruppe fra markering, når flere arbejdsområder er valgt. Det tomme område under sidebjælkelisten tilbyder også Ny tom arbejdsområdegruppe. Disse veje bruger samme automatiske navngivning som genvejene.",
       "managingTitle": "Administration af en gruppe",
       "managingIntro": "Når en gruppe findes, kan du via kontekstmenuen i dens overskrift og +-knappen på overskriften administrere gruppen og tilføje workspaces til den. Ingen af dem opretter en ny gruppe.",
       "headerMenuTitle": "Fra gruppeheaderens kontekstmenu",
@@ -799,6 +799,8 @@
       "exampleConfig": "Eksempelkonfiguration",
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
+        "paneBorderColor": "Tilsidesæt farven på cmux-rudeadskilleren i opdelte arbejdsområder. Dette påvirker cmux-rudegrænser, ikke Ghosttys interne opdelinger.",
+        "activePaneBorderColor": "Valgfri kantfarve, der tegnes omkring den fokuserede cmux-rude i opdelte arbejdsområder.",
         "automation": {
           "ampIntegration": "Aktivér cmux-integrationskroge for Amp. Når deaktiveret, forbliver det medfølgende plugin inaktivt uden at skulle fjernes.",
           "suppressSubagentNotifications": "Skjul synlige fuldførelsesnotifikationer og statusændringer fra indlejrede Codex- eller Claude-underagenter, mens deres hændelser bevares i Feed-telemetri.",
@@ -850,7 +852,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
+          "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
           "showModifierHoldHints": "Vis genvejstipchips, mens Cmd eller Control holdes nede."
         }
       },
@@ -1594,7 +1596,8 @@
   "afterSignIn": {
     "title": "Logget ind på cmux",
     "body": "Hvis cmux ikke åbnede automatisk, skal du bruge knappen nedenfor.",
-    "button": "Tilbage til cmux"
+    "button": "Tilbage til cmux",
+    "switchAccountButton": "Brug en anden konto"
   },
   "landing": {
     "bestTerminal": {
@@ -1616,9 +1619,9 @@
       "kittyBuiltFor": "Hurtig, skriptbar, funktionsrig",
       "weztermBuiltFor": "GPU-terminal med indbygget multiplexer",
       "tmuxBuiltFor": "Multiplexing inde i enhver terminal",
-      "cmuxBody": "En nativ macOS-terminal bygget på libghostty, bygget til tre ting: multitasking, organisering og programmerbarhed. Den lodrette sidebjælke grupperer arbejdet i arbejdsområder, der hver viser sin git-gren, mappe, porte og den seneste linje af agentens output, så du kan køre mange ting på én gang uden at miste overblikket. Paneler ringer, når en agent har brug for opmærksomhed. Hver handling kan skriptes gennem en CLI og en Unix-socket, og der er en indbygget browser, du kan styre programmatisk. Der er endda en iOS-følgeapp til at holde øje med dine terminaler fra telefonen. Bedst hvis du jonglerer med flere opgaver eller AI-kodningsagenter og vil have dem organiseret og automatisérbare uden en multiplexer-konfiguration.",
+      "cmuxBody": "cmux er en indbygget macOS-terminal bygget på Ghosttys terminalmotor, libghostty. Det betyder, at terminalgitteret arver Ghosttys styrker: hurtig GPU-rendering, fremragende skrifttype- og farvegengivelse, moderne terminalkompatibilitet og dine eksisterende Ghostty-temaer, skrifttyper, farver og markørindstillinger. cmux tilføjer det lag, Ghostty med vilje ikke prøver at være: lodrette workspaces, split panes, notifikationsringe, git/port/agent-kontekst i sidebaren, en scriptbar CLI og Unix-socket, en programmerbar browser og en iOS companion-app. Vælg cmux, når du vil have terminalrendering i Ghostty-kvalitet plus organisering og automatisering til mange opgaver eller AI-kodeagenter.",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "Den hurtige, GPU-accelererede terminal, hvis motor, libghostty, driver cmux. Hvis du vil have et enkelt, rent terminalvindue med fremragende rendering og intet af arbejdsområde- eller automatiseringslaget, er Ghostty fremragende på egen hånd.",
+      "ghosttyBody": "Ghostty er den hurtige native terminal, hvis motor, libghostty, driver cmux. Sammenlignet med ældre CPU-renderede terminaler og tungere Electron-lignende terminaler er Ghosttys styrker lav-latens GPU-rendering, skarp skrifttype- og farvehåndtering, stærk terminalkompatibilitet, simpel filbaseret konfiguration og intet krav om cloud-konto. Hvis du vil have ét rent terminalvindue med disse renderingfordele og uden workspace- eller automatiseringslag, er Ghostty fremragende alene. Hvis du vil have de samme Ghostty-renderingfordele plus workspaces, notifikationer, scripting og agent-orkestrering, så brug cmux.",
       "iterm2Title": "iTerm2",
       "iterm2Body": "Den modne, uendeligt konfigurerbare macOS-terminal. Dybe profiler, triggere og tmux-integration. Det sikre valg, hvis du vil have maksimale funktioner og ikke orkestrerer mange opgaver på én gang.",
       "warpTitle": "Warp",
