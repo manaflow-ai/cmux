@@ -255,37 +255,18 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// with ``accessoryButtonHeight`` (the floor below which the buttons would clip
     /// the strip) so the bar — and the reserved grid band above the keyboard — is as
     /// short as it can be while every control stays a comfortable tap target.
-    static let dockedNubSize: CGFloat = 28
+    static let dockedNubSize: CGFloat = TerminalAccessoryDockMetrics.nubSize
     /// Breathing room below the control row, between the buttons and the keyboard
     /// top (or the home indicator when the keyboard is down), so the bar is not
     /// flush-tight at its bottom while the TOP stays snug to the terminal's last
-    /// row. It is part of ``dockedButtonRowHeight`` so the grid reservation, the
-    /// surface frame, and the composer host all reserve the same total band; the
+    /// row. It is part of the docked button-row height so the grid reservation,
+    /// the surface frame, and the composer host all reserve the same total band; the
     /// row stack itself is pinned to the BOTTOM of that band minus this padding
     /// (see the docked bar's constraints), so the extra space lands below the
     /// controls.
-    static let dockedBottomPadding: CGFloat = 8
+    static let dockedBottomPadding: CGFloat = TerminalAccessoryDockMetrics.bottomPadding
     /// Vertical gap between configurable toolbar rows.
-    private static let dockedRowSpacing: CGFloat = 4
-    /// Height of the configurable row stack, excluding bottom padding.
-    static func dockedRowsHeight(rowCount: Int) -> CGFloat {
-        let clampedRowCount = min(
-            max(rowCount, TerminalAccessoryConfiguration.minimumRowCount),
-            TerminalAccessoryConfiguration.maximumRowCount
-        )
-        let rows = CGFloat(clampedRowCount)
-        return rows * dockedNubSize + max(0, rows - 1) * dockedRowSpacing
-    }
-    /// Height reserved by the grid and the composer host for the docked bar.
-    ///
-    /// It is the configured row stack (one to three rows) plus
-    /// ``dockedBottomPadding`` below it. The row stack is pinned to the BOTTOM of
-    /// this band (minus the padding): when the surface-hosted container grows
-    /// taller than the reserved band, the controls stay glued to the keyboard top
-    /// and only the slack ABOVE them grows.
-    static func dockedButtonRowHeight(rowCount: Int) -> CGFloat {
-        dockedRowsHeight(rowCount: rowCount) + dockedBottomPadding
-    }
+    private static let dockedRowSpacing: CGFloat = TerminalAccessoryDockMetrics.rowSpacing
     /// Minimum (not fixed) button width. Text buttons (Tab, Esc, ^C, ^D) size to
     /// their intrinsic content width and only floor here so they hug their label
     /// plus the comfortable inset; single-glyph modifiers/icons (⌃ ⌥ ⌘, the arrow
@@ -309,7 +290,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             x: 0,
             y: 0,
             width: 0,
-            height: Self.dockedButtonRowHeight(rowCount: TerminalAccessoryConfiguration.shared.rowCount)
+            height: TerminalAccessoryDockMetrics(rowCount: TerminalAccessoryConfiguration.shared.rowCount).buttonRowHeight
         )
 
         let backgroundView = UIView()
@@ -394,7 +375,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.addLayoutGuide(buttonRows)
         container.addLayoutGuide(bottomButtonRow)
         let buttonRowsHeightConstraint = buttonRows.heightAnchor.constraint(
-            equalToConstant: Self.dockedRowsHeight(rowCount: TerminalAccessoryConfiguration.shared.rowCount)
+            equalToConstant: TerminalAccessoryDockMetrics(rowCount: TerminalAccessoryConfiguration.shared.rowCount).rowsHeight
         )
 
         NSLayoutConstraint.activate([
@@ -606,7 +587,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private func updateAccessoryRowsHeight(rowCount: Int) {
-        accessoryRowsHeightConstraint?.constant = Self.dockedRowsHeight(rowCount: rowCount)
+        accessoryRowsHeightConstraint?.constant = TerminalAccessoryDockMetrics(rowCount: rowCount).rowsHeight
     }
 
     /// Disarm the active modifier if its bar button is no longer rendered, so a

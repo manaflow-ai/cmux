@@ -237,7 +237,7 @@ public struct TerminalAccessoryLayoutReducer<ID: Hashable & Sendable>: Sendable 
         }
         let insertionIndex = destination - movedIndices.filter { $0 < destination }.count
         order.insert(contentsOf: moved, at: max(0, min(insertionIndex, order.count)))
-        return Layout(rows: Self.split(order, matchingRowLengthsOf: layout.rows), enabled: layout.enabled)
+        return Layout(rows: split(order, matchingRowLengthsOf: layout.rows), enabled: layout.enabled)
     }
 
     /// Returns `layout` with a scoped set of identifiers reordered inside their current rows.
@@ -375,7 +375,7 @@ public struct TerminalAccessoryLayoutReducer<ID: Hashable & Sendable>: Sendable 
         Layout(order: defaultOrder, enabled: configurableSet)
     }
 
-    private static func split(_ order: [ID], matchingRowLengthsOf rows: [[ID]]) -> [[ID]] {
+    private func split(_ order: [ID], matchingRowLengthsOf rows: [[ID]]) -> [[ID]] {
         guard !rows.isEmpty else { return [order] }
         var result: [[ID]] = []
         var cursor = order.startIndex

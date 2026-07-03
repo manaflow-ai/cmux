@@ -1057,7 +1057,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// bottom TUI rows stay visible above it. Locked to the bar's actual configured
     /// row-stack height so the grid reserves exactly the strip the buttons occupy.
     private var persistentToolbarHeight: CGFloat {
-        TerminalInputTextView.dockedButtonRowHeight(rowCount: TerminalAccessoryConfiguration.shared.rowCount)
+        TerminalAccessoryDockMetrics(rowCount: TerminalAccessoryConfiguration.shared.rowCount).buttonRowHeight
     }
     /// The docked accessory bar. Positioned by ``bottomDockFrames()`` with the
     /// SAME bottom-occupancy math as the grid reservation, so its top is always
