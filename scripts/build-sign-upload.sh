@@ -96,15 +96,7 @@ echo "Sparkle keys injected"
 
 # --- Codesign ---
 echo "Codesigning..."
-CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-if [ -f "$CLI_PATH" ]; then
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
-fi
-if [ -f "$HELPER_PATH" ]; then
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$HELPER_PATH"
-fi
-/usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
-/usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$SIGN_HASH"
 echo "Codesign verified"
 
 # --- Notarize app ---
