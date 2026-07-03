@@ -1,4 +1,8 @@
 import type { Locale } from "../../../i18n/routing";
+import {
+  featureWorkflowContentLocales,
+  remoteTmuxDocsLocales,
+} from "../../../i18n/locale-availability";
 
 export type NavLink = {
   titleKey: string;
@@ -7,8 +11,6 @@ export type NavLink = {
 };
 export type NavSection = { sectionKey: string; children: NavLink[] };
 export type NavEntry = NavLink | NavSection;
-
-export const remoteTmuxDocsLocales = ["en", "ja"] as const satisfies readonly Locale[];
 
 export function isSection(entry: NavEntry): entry is NavSection {
   return "sectionKey" in entry;
@@ -45,6 +47,8 @@ export const navItems: NavEntry[] = [
   { titleKey: "configuration", href: "/docs/configuration" },
   { titleKey: "textBox", href: "/docs/textbox" },
   { titleKey: "sessionRestore", href: "/docs/session-restore" },
+  { titleKey: "vault", href: "/docs/vault", locales: featureWorkflowContentLocales },
+  { titleKey: "taskManager", href: "/docs/task-manager", locales: featureWorkflowContentLocales },
   { titleKey: "customCommands", href: "/docs/custom-commands" },
   { titleKey: "dock", href: "/docs/dock" },
   { titleKey: "keyboardShortcuts", href: "/docs/keyboard-shortcuts" },

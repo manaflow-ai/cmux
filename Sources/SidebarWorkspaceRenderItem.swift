@@ -1,20 +1,6 @@
 import CmuxWorkspaces
 import Foundation
 
-/// Stable, allocation-free identity for a `SidebarWorkspaceRenderItem`.
-///
-/// ForEach gathers row identifiers on every list diff, so the id must be cheap
-/// to create and hash. The previous `String` form
-/// (`"workspace.\(uuid.uuidString)"`) allocated and formatted a fresh string on
-/// every getter call; with the sidebar re-diffing all rows per update it was the
-/// hottest app-owned frame in the
-/// https://github.com/manaflow-ai/cmux/issues/5764 livelock spindump. The case
-/// keeps group headers and workspace rows from ever colliding on the same UUID.
-enum SidebarWorkspaceRenderItemID: Hashable {
-    case group(UUID)
-    case workspace(UUID)
-}
-
 /// One drawable item in the workspace sidebar.
 @MainActor
 enum SidebarWorkspaceRenderItem {
