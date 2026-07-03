@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import Foundation
 import Testing
 
 @testable import CmuxMobileShellModel
@@ -110,13 +111,62 @@ import Testing
             port: 58465,
             stackUserID: "user-b"
         ))
+        let normalizedIPv6 = try #require(MobileManualHostTrustScope(
+            host: "fd00::12",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+        let bracketedIPv6 = try #require(MobileManualHostTrustScope(
+            host: "[fd00::12]",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
 
         #expect(!await store.isTrusted(approved))
         await store.trust(approved)
+        await store.trust(normalizedIPv6)
 
         #expect(await store.isTrusted(sameHostDifferentCase))
+        #expect(await store.isTrusted(bracketedIPv6))
         #expect(!await store.isTrusted(differentPort))
         #expect(!await store.isTrusted(differentAccount))
+    }
+
+    @Test func userDefaultsManualHostTrustExpiresApproval() async throws {
+        let suiteName = "cmux-manual-host-trust-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let scope = try #require(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+        let key = "manual-host-trust"
+        let writer = UserDefaultsMobileManualHostTrustStore(
+            defaults: defaults,
+            key: key,
+            trustDuration: 60,
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        let stillValidReader = UserDefaultsMobileManualHostTrustStore(
+            defaults: defaults,
+            key: key,
+            trustDuration: 60,
+            now: { Date(timeIntervalSince1970: 1_059) }
+        )
+        let expiredReader = UserDefaultsMobileManualHostTrustStore(
+            defaults: defaults,
+            key: key,
+            trustDuration: 60,
+            now: { Date(timeIntervalSince1970: 1_061) }
+        )
+
+        await writer.trust(scope)
+
+        #expect(await stillValidReader.isTrusted(scope))
+        #expect(!await expiredReader.isTrusted(scope))
     }
 
     @Test func physicalDeviceRejectsLoopbackTicketsInEveryGrammar() throws {

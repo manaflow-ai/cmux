@@ -1,6 +1,6 @@
 import Foundation
 
-/// In-memory manual-host trust store for tests and previews.
+/// Volatile manual-host trust store whose approvals last only for this actor's lifetime.
 public actor InMemoryMobileManualHostTrustStore: MobileManualHostTrustStoring {
     private var trustedScopes: Set<MobileManualHostTrustScope> = []
 

@@ -260,6 +260,13 @@ import Testing
         }
     }
 
+    @Test func decodeRejectsManualHostBareColonText() throws {
+        let url = "cmux-ios://attach?v=2&m=my:host:58465"
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
+    }
+
     @Test(arguments: [
         "127.0.0.1",
         "127.0.0.2",

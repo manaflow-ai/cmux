@@ -17,5 +17,7 @@ import Testing
     #expect(CmxManualHost("[fd00::12]")?.rawValue == "fd00::12")
     #expect(CmxManualHost("https://studio-mac.corp.example") == nil)
     #expect(CmxManualHost("studio-mac.corp.example/path") == nil)
+    #expect(CmxManualHost("my:host") == nil)
+    #expect(CmxManualHost("fd00::12") == nil)
     #expect(CmxManualHost("studio mac") == nil)
 }

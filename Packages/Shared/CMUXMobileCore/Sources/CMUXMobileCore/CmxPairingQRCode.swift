@@ -198,7 +198,11 @@ public struct CmxPairingQRCode: Sendable {
         let routes = try rawRoutes.enumerated().map { index, rawRoute -> CmxAttachRoute in
             let occurrence = occurrences[rawRoute.kind.rawValue] ?? 0
             occurrences[rawRoute.kind.rawValue] = occurrence + 1
-            let (host, port) = try parseHostPort(rawRoute.value)
+            let (host, port, isBracketedHost) = try parseHostPort(rawRoute.value)
+            if rawRoute.kind == .manualHost,
+               CmxManualHost(isBracketedHost ? "[\(host)]" : host) == nil {
+                throw MobileSyncPairingPayloadError.invalidURL
+            }
             guard !CmxLoopbackHost().matches(host) else {
                 throw MobileSyncPairingPayloadError.loopbackRouteRejected
             }
@@ -280,16 +284,18 @@ private extension CmxPairingQRCode {
     }
 
     /// Parse `host:port` (with optional IPv6 brackets) from a query value.
-    func parseHostPort(_ rawValue: String) throws -> (String, Int) {
+    func parseHostPort(_ rawValue: String) throws -> (String, Int, Bool) {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let host: Substring
         let portText: Substring
+        let isBracketedHost: Bool
         if trimmed.hasPrefix("[") {
             guard let closing = trimmed.firstIndex(of: "]"),
                   closing > trimmed.startIndex else {
                 throw MobileSyncPairingPayloadError.invalidURL
             }
             host = trimmed[trimmed.index(after: trimmed.startIndex)..<closing]
+            isBracketedHost = true
             let afterBracket = trimmed.index(after: closing)
             guard afterBracket < trimmed.endIndex, trimmed[afterBracket] == ":" else {
                 throw MobileSyncPairingPayloadError.invalidURL
@@ -300,6 +306,7 @@ private extension CmxPairingQRCode {
                 throw MobileSyncPairingPayloadError.invalidURL
             }
             host = trimmed[..<separator]
+            isBracketedHost = false
             portText = trimmed[trimmed.index(after: separator)...]
         }
         guard !host.isEmpty, isPlainHost(String(host)) else {
@@ -308,7 +315,7 @@ private extension CmxPairingQRCode {
         guard let port = Int(portText), (1...65535).contains(port) else {
             throw MobileSyncPairingPayloadError.invalidPort(Int(portText) ?? 0)
         }
-        return (String(host), port)
+        return (String(host), port, isBracketedHost)
     }
 
     /// Whether `host` is a bare DNS name or IP literal that needs no escaping
