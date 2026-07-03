@@ -151,6 +151,20 @@ struct AgentLaunchSanitizerTests {
                 "--model", "sonnet",
             ]
         )
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "claude",
+                args: [
+                    "--dangerously-load-development-channels=server:slack-bus",
+                    "server:runtime-bus",
+                    "--model", "sonnet",
+                ]
+            ) == [
+                "--dangerously-load-development-channels=server:slack-bus",
+                "server:runtime-bus",
+                "--model", "sonnet",
+            ]
+        )
         // Variadic consumption is constrained to the `server:` grammar: a
         // trailing positional (a startup prompt) is NOT a channel value, so it
         // ends the run and is dropped as the prompt boundary. This preserves the
@@ -198,6 +212,20 @@ struct AgentLaunchSanitizerTests {
                 ]
             ) == [
                 "--dangerously-load-development-channels", "server:bus",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "codebuddy",
+                args: [
+                    "--dangerously-load-development-channels=server:slack-bus",
+                    "server:runtime-bus",
+                    "--model", "sonnet",
+                ]
+            ) == [
+                "--dangerously-load-development-channels=server:slack-bus",
+                "server:runtime-bus",
+                "--model", "sonnet",
             ]
         )
     }

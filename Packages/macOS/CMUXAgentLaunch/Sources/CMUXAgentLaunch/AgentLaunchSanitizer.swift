@@ -483,7 +483,19 @@ public enum AgentLaunchSanitizer {
         stopVariadicAtPositionals: Set<String> = []
     ) -> Int {
         let arg = args[index]
-        if arg.contains("=") {
+        if let equals = arg.firstIndex(of: "=") {
+            let option = String(arg[..<equals])
+            if policy.variadicOptions.contains(option),
+               let requiredPrefixes = policy.variadicValuePrefixes[option] {
+                var end = index + 1
+                while end < args.count,
+                      !args[end].hasPrefix("-"),
+                      !stopVariadicAtPositionals.contains(args[end]),
+                      requiredPrefixes.contains(where: { args[end].hasPrefix($0) }) {
+                    end += 1
+                }
+                return end - index
+            }
             return 1
         }
         if policy.optionalValueOptions.contains(arg) {
