@@ -11,14 +11,14 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     private static let longWorkspaceTitle = "Extremely Long Workspace Title That Should Truncate Before Toolbar Buttons Overflow"
     private static let longTerminalTitle = "Long Agent Session Subtitle That Should Also Truncate First"
 
-    private let previewWorkspaceBuilder: WorkspaceDetailDelayedTerminalPreviewWorkspaceBuilder
+    private let previewWorkspaceBuilder: WorkspaceDetailPreviewWorkspaceBuilder
 
     @State private var store: MobileShellComposite
     @State private var browserStore = BrowserSurfaceStore()
     @State private var didInjectTerminal = false
 
     init() {
-        let previewWorkspaceBuilder = WorkspaceDetailDelayedTerminalPreviewWorkspaceBuilder()
+        let previewWorkspaceBuilder = WorkspaceDetailPreviewWorkspaceBuilder()
         self.previewWorkspaceBuilder = previewWorkspaceBuilder
         _store = State(initialValue: MobileShellComposite(
             isSignedIn: true,
@@ -90,27 +90,6 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
 
     private static var terminalTitle: String {
         usesLongTitle ? longTerminalTitle : "Terminal 1"
-    }
-}
-
-private struct WorkspaceDetailDelayedTerminalPreviewWorkspaceBuilder {
-    private let actionCapabilities = MobileWorkspaceActionCapabilities(
-        supportsWorkspaceActions: true,
-        supportsReadStateActions: true
-    )
-
-    func make(
-        id: MobileWorkspacePreview.ID,
-        name: String,
-        terminals: [MobileTerminalPreview]
-    ) -> MobileWorkspacePreview {
-        var workspace = MobileWorkspacePreview(
-            id: id,
-            name: name,
-            terminals: terminals
-        )
-        workspace.actionCapabilities = actionCapabilities
-        return workspace
     }
 }
 #endif

@@ -8,14 +8,14 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
     private static let initialWorkspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-main")
     private static let initialTerminalID = MobileTerminalPreview.ID(rawValue: "terminal-build")
 
-    private let previewWorkspaceBuilder: WorkspaceDetailCreateDelayedTerminalPreviewWorkspaceBuilder
+    private let previewWorkspaceBuilder: WorkspaceDetailPreviewWorkspaceBuilder
 
     @State private var store: MobileShellComposite
     @State private var browserStore = BrowserSurfaceStore()
     @State private var delayedTerminalTask: Task<Void, Never>?
 
     init() {
-        let previewWorkspaceBuilder = WorkspaceDetailCreateDelayedTerminalPreviewWorkspaceBuilder()
+        let previewWorkspaceBuilder = WorkspaceDetailPreviewWorkspaceBuilder()
         self.previewWorkspaceBuilder = previewWorkspaceBuilder
         _store = State(initialValue: MobileShellComposite(
             isSignedIn: true,
@@ -94,45 +94,6 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
             store.selectedWorkspaceID = workspaceID
             store.selectedTerminalID = terminalID
         }
-    }
-}
-
-private struct WorkspaceDetailCreateDelayedTerminalPreviewWorkspaceBuilder {
-    private let actionCapabilities = MobileWorkspaceActionCapabilities(
-        supportsWorkspaceActions: true,
-        supportsReadStateActions: true
-    )
-
-    func make(
-        id: MobileWorkspacePreview.ID,
-        macDeviceID: String? = nil,
-        macDisplayName: String? = nil,
-        windowID: String? = nil,
-        name: String,
-        isPinned: Bool = false,
-        groupID: MobileWorkspaceGroupPreview.ID? = nil,
-        previewText: String? = nil,
-        previewAt: Date? = nil,
-        lastActivityAt: Date? = nil,
-        hasUnread: Bool = false,
-        terminals: [MobileTerminalPreview]
-    ) -> MobileWorkspacePreview {
-        var workspace = MobileWorkspacePreview(
-            id: id,
-            macDeviceID: macDeviceID,
-            macDisplayName: macDisplayName,
-            windowID: windowID,
-            name: name,
-            isPinned: isPinned,
-            groupID: groupID,
-            previewText: previewText,
-            previewAt: previewAt,
-            lastActivityAt: lastActivityAt,
-            hasUnread: hasUnread,
-            terminals: terminals
-        )
-        workspace.actionCapabilities = actionCapabilities
-        return workspace
     }
 }
 #endif
