@@ -246,6 +246,173 @@ struct CLIHookNoResponseTests {
         #expect(result.stdout == "{}\n")
     }
 
+    /// Grok Build honors a native PreToolUse decision of the shape
+    /// `{"decision":"allow|deny","reason":"..."}` on stdout.
+    @Test func grokFeedResolvedDecisionUsesGrokNativeFormat() throws {
+        func runGrokDecision(mode: String) throws -> ProcessRunResult {
+            let cliPath = try Self.bundledCLIPath()
+            let socketPath = Self.makeSocketPath("grok-decision")
+            let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 1)
+            let state = MockSocketServerState()
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-grok-feed-decision-\(UUID().uuidString)", isDirectory: true)
+
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+                try? FileManager.default.removeItem(at: root)
+            }
+
+            let server = Self.startMockServerAllowingNoResponse(
+                listenerFD: listenerFD,
+                state: state,
+                fulfillWhen: { line in
+                    Self.jsonObject(line)?["method"] as? String == "feed.push"
+                }
+            ) { line in
+                guard let payload = Self.jsonObject(line) else {
+                    return Self.malformedRequestResponse(raw: line)
+                }
+                guard let id = payload["id"] as? String,
+                      let method = payload["method"] as? String else {
+                    return Self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                guard method == "feed.push" else {
+                    return Self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "unexpected_method", "message": "unexpected method: \(method)"]
+                    )
+                }
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "status": "resolved",
+                        "decision": ["kind": "permission", "mode": mode],
+                    ]
+                )
+            }
+
+            let result = Self.runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "feed", "--source", "grok", "--event", "PreToolUse"],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "PWD": root.path,
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
+                    "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                ],
+                standardInput: #"{"hook_event_name":"PreToolUse","session_id":"grok-session-123","cwd":"\#(root.path)","tool_name":"Write","tool_input":{"path":"\#(root.appendingPathComponent("README.md").path)","contents":"hi"}}"#,
+                timeout: 5
+            )
+            #expect(server.wait(timeout: 5), "Grok decision socket server did not observe feed.push")
+            return result
+        }
+
+        for mode in ["once", "always", "all", "bypass"] {
+            let result = try runGrokDecision(mode: mode)
+            #expect(!result.timedOut, Comment(rawValue: "\(mode): \(result.stderr)"))
+            #expect(result.status == 0, Comment(rawValue: "mode \(mode) should exit 0: \(result.stderr)"))
+            #expect(
+                result.stdout == "{\"decision\":\"allow\",\"reason\":\"User approved via cmux Feed.\"}\n",
+                Comment(rawValue: "mode \(mode) should emit Grok-native allow decision: \(result.stdout)")
+            )
+        }
+
+        let deny = try runGrokDecision(mode: "deny")
+        #expect(!deny.timedOut, Comment(rawValue: deny.stderr))
+        #expect(deny.status == 0, Comment(rawValue: deny.stderr))
+        #expect(
+            deny.stdout == "{\"decision\":\"deny\",\"reason\":\"User denied permission via cmux Feed.\"}\n",
+            Comment(rawValue: "deny should emit Grok-native deny decision: \(deny.stdout)")
+        )
+    }
+
+    /// Grok-native lowercase tool names must escalate to a blocking Feed
+    /// approval through the real CLI, with `wait_timeout_seconds > 0`.
+    @Test func grokLowercaseSideEffectingToolEscalatesToBlockingFeed() throws {
+        let cliPath = try Self.bundledCLIPath()
+        let socketPath = Self.makeSocketPath("grok-lowercase")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 1)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-lowercase-feed-tool-\(UUID().uuidString)", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let server = Self.startMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            fulfillWhen: { line in
+                Self.jsonObject(line)?["method"] as? String == "feed.push"
+            }
+        ) { line in
+            guard let payload = Self.jsonObject(line) else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            guard method == "feed.push" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "unexpected method: \(method)"]
+                )
+            }
+            return Self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
+        }
+
+        let result = Self.runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "grok", "--event", "PreToolUse"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
+                "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"hook_event_name":"PreToolUse","session_id":"grok-session-lc","cwd":"\#(root.path)","tool_name":"run_terminal_cmd","tool_input":{"cmd":"ls"}}"#,
+            timeout: 5
+        )
+
+        #expect(server.wait(timeout: 5), "Grok lowercase socket server did not observe feed.push")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+
+        let feedPushes = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = Self.jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any] else {
+                return nil
+            }
+            return params
+        }
+        #expect(feedPushes.count == 1, Comment(rawValue: "Expected one Grok Feed event, saw \(state.snapshot())"))
+        let firstPush = try #require(feedPushes.first)
+        let event = try #require(firstPush["event"] as? [String: Any])
+        let waitTimeout = try #require(firstPush["wait_timeout_seconds"] as? NSNumber)
+        #expect(event["hook_event_name"] as? String == "PermissionRequest")
+        #expect(event["_source"] as? String == "grok")
+        #expect(event["tool_name"] as? String == "run_terminal_cmd")
+        #expect(waitTimeout.doubleValue > 0, "Grok side-effecting tool must block for a Feed decision")
+    }
+
     private static func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: BundleProbe.self)
