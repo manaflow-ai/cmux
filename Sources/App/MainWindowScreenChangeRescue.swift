@@ -25,6 +25,7 @@ final class MainWindowScreenChangeRescue {
     private var cachedSignature: [MainWindowScreenRescueCore.TopologySignatureEntry] = []
     private var topologyDirty = false
     private var pendingRescue: Task<Void, Never>?
+    private var pendingRescueGeneration = 0
     private let debounceInterval: Duration
     private let rescueCore: MainWindowScreenRescueCore
 
@@ -64,15 +65,19 @@ final class MainWindowScreenChangeRescue {
             topologyDirty = true
         }
         pendingRescue?.cancel()
-        pendingRescue = Task { [weak self, debounceInterval] in
+        pendingRescueGeneration += 1
+        let generation = pendingRescueGeneration
+        pendingRescue = Task { [weak self, debounceInterval, generation] in
             // Intentional cancellable debounce: AppKit emits a burst but no
             // settled-display signal for screen-parameter changes.
             guard (try? await Task.sleep(for: debounceInterval)) != nil else { return }
-            self?.performRescueIfNeeded()
+            guard !Task.isCancelled else { return }
+            self?.performRescueIfNeeded(expectedGeneration: generation)
         }
     }
 
-    private func performRescueIfNeeded() {
+    private func performRescueIfNeeded(expectedGeneration: Int) {
+        guard pendingRescueGeneration == expectedGeneration else { return }
         pendingRescue = nil
         let displays = Self.currentDisplays()
         // Mid-reconfiguration the screen list can be transiently empty; keep

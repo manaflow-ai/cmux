@@ -13,31 +13,31 @@ struct MainWindowScreenRescueCore {
         self.frameGeometry = frameGeometry
     }
 
-    /// One display's identity, full frame, and top inset (the menu-bar band:
+    /// One display's full frame and top inset (the menu-bar band:
     /// `frame.maxY - visibleFrame.maxY`). The rest of `visibleFrame` is
     /// deliberately omitted: Dock and side-inset resizes cannot strand a
     /// titlebar and must not read as topology changes. The top inset IS
     /// included because a menu bar appearing on (or moving to) a display
     /// shrinks the visible area from the top and can newly cover a flush-top
-    /// window's drag band — that must trigger a rescue pass.
+    /// window's drag band — that must trigger a rescue pass. Display IDs are
+    /// deliberately omitted because dock/KVM/Sidecar wake paths can re-enumerate
+    /// the same physical arrangement with new `NSScreenNumber` values.
     struct TopologySignatureEntry: Equatable {
-        let displayID: UInt32?
         let frame: CGRect
         let topInset: CGFloat
     }
 
     /// Order-independent signature of the current display topology. Two
-    /// signatures compare equal exactly when the same displays sit at the same
-    /// frames with the same top insets — the gate that keeps sleep/wake (same
-    /// topology, same notification) and Dock resizes from ever triggering a
-    /// rescue.
+    /// signatures compare equal exactly when the same frame arrangement has
+    /// the same top insets — the gate that keeps sleep/wake (same topology,
+    /// same notification), display-ID churn, and Dock resizes from ever
+    /// triggering a rescue.
     func topologySignature(
         of displays: [SessionDisplayGeometry]
     ) -> [TopologySignatureEntry] {
         displays
             .map { display in
                 TopologySignatureEntry(
-                    displayID: display.displayID,
                     frame: display.frame,
                     topInset: display.frame.maxY - display.visibleFrame.maxY
                 )
@@ -45,7 +45,9 @@ struct MainWindowScreenRescueCore {
             .sorted { lhs, rhs in
                 if lhs.frame.minX != rhs.frame.minX { return lhs.frame.minX < rhs.frame.minX }
                 if lhs.frame.minY != rhs.frame.minY { return lhs.frame.minY < rhs.frame.minY }
-                return (lhs.displayID ?? .max) < (rhs.displayID ?? .max)
+                if lhs.frame.width != rhs.frame.width { return lhs.frame.width < rhs.frame.width }
+                if lhs.frame.height != rhs.frame.height { return lhs.frame.height < rhs.frame.height }
+                return lhs.topInset < rhs.topInset
             }
     }
 

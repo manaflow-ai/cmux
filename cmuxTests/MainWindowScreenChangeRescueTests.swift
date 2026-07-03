@@ -49,7 +49,7 @@ struct MainWindowScreenChangeRescueTests {
 
     @Test func signatureIgnoresVisibleFrameOnlyChanges() {
         // A Dock resize changes visibleFrame but not the display's frame or
-        // identity — it must not read as a topology change.
+        // top inset — it must not read as a topology change.
         let dockResized = SessionDisplayGeometry(
             displayID: 1,
             frame: Self.builtIn.frame,
@@ -57,6 +57,25 @@ struct MainWindowScreenChangeRescueTests {
         )
         let before = core.topologySignature(of: [Self.builtIn])
         let after = core.topologySignature(of: [dockResized])
+        #expect(before == after)
+    }
+
+    @Test func signatureIgnoresDisplayIDRenumbering() {
+        // Dock/KVM/Sidecar wake paths can re-enumerate the same physical
+        // display arrangement with new NSScreenNumber values. Geometry and top
+        // inset are what determine whether a window can be stranded.
+        let renumberedBuiltIn = SessionDisplayGeometry(
+            displayID: 101,
+            frame: Self.builtIn.frame,
+            visibleFrame: Self.builtIn.visibleFrame
+        )
+        let renumberedExternal = SessionDisplayGeometry(
+            displayID: 202,
+            frame: Self.external.frame,
+            visibleFrame: Self.external.visibleFrame
+        )
+        let before = core.topologySignature(of: [Self.builtIn, Self.external])
+        let after = core.topologySignature(of: [renumberedExternal, renumberedBuiltIn])
         #expect(before == after)
     }
 
