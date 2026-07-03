@@ -818,6 +818,9 @@
         },
         "terminal": {
           "titleUpdates": "Styrer, hvordan cmux udbreder ændringer af terminaltitlen, herunder valgfri sammenlægning (coalescing) af hyppige titelopdateringer for at reducere CPU-forbruget ved hyppige titelændringer.",
+          "titleUpdatesCoalescing": "Valgfri samling af hyppige ændringer i terminaltitler. Når den er slået til, samler cmux titler, der ændrer sig hurtigt, så arbejdsområdets titel, sidepanelet og mobile observatører højst opdateres én gang pr. vindue i stedet for ved hver rå titelændring. Den er slået fra som standard, og ventende titler tømmes før et arbejdsområde frigøres, overføres eller snapshots.",
+          "titleUpdatesCoalescingEnabled": "Slå samling af terminaltitelopdateringer til.",
+          "titleUpdatesCoalescingMilliseconds": "Samlingsvindue i millisekunder når samling af titelopdateringer er slået til. Begrænses til 33-5000 ms.",
           "copyOnSelect": "Når værdien er true, kopieres markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes. Når værdien er false, udsender cmux ikke en Ghostty copy-on-select-tilsidesættelse; Ghostty-konfiguration og standarder styrer markeringsudklipsholderens adfærd.",
           "scrollSpeed": "Multiplikator anvendt på rulleværdier fra musehjul og pegefelt i terminalen. Højere værdier ruller hurtigere, lavere værdier langsommere.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",

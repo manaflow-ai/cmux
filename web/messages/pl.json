@@ -818,6 +818,9 @@
         },
         "terminal": {
           "titleUpdates": "Określa, w jaki sposób cmux propaguje zmiany tytułu terminala, w tym opcjonalne łączenie (coalescing) częstych aktualizacji tytułu, aby zmniejszyć użycie procesora podczas częstych zmian tytułu.",
+          "titleUpdatesCoalescing": "Opcjonalne scalanie bardzo częstych zmian tytułu terminala. Po włączeniu cmux grupuje szybko zmieniające się tytuły, aby tytuł obszaru roboczego, pasek boczny i obserwatory mobilne odświeżały się najwyżej raz na okno, zamiast z surową częstotliwością zmian tytułu. Domyślnie wyłączone; oczekujące tytuły są opróżniane przed odłączeniem, przeniesieniem lub snapshotem obszaru roboczego.",
+          "titleUpdatesCoalescingEnabled": "Włącz scalanie aktualizacji tytułu terminala.",
+          "titleUpdatesCoalescingMilliseconds": "Okno scalania w milisekundach stosowane po włączeniu scalania aktualizacji tytułu. Ograniczone do 33-5000 ms.",
           "copyOnSelect": "Gdy wartość to true, zaznaczony tekst terminala jest kopiowany do schowka systemowego po zatwierdzeniu zaznaczenia. Gdy wartość to false, cmux nie emituje nadpisania Ghostty copy-on-select; konfiguracja i wartości domyślne Ghostty sterują zachowaniem schowka zaznaczenia.",
           "scrollSpeed": "Mnożnik stosowany do przewijania kółkiem myszy i gładzikiem w terminalu. Wyższe wartości przewijają szybciej, niższe wolniej.",
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",

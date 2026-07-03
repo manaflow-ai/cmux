@@ -818,6 +818,9 @@
         },
         "terminal": {
           "titleUpdates": "控制 cmux 傳播終端機標題變更的方式，包括可選啟用的高頻標題更新合併（coalescing），以在標題頻繁變化時降低 CPU 使用率。",
+          "titleUpdatesCoalescing": "用於高頻終端標題變更的選用合併。啟用後，cmux 會批次處理快速變化的標題，讓工作區標題、側邊欄與行動端觀察者每個視窗最多重新整理一次，而不是依原始標題變更頻率重新整理。預設關閉；暫待的標題會在工作區分離、轉移或快照前送出。",
+          "titleUpdatesCoalescingEnabled": "啟用終端標題更新合併。",
+          "titleUpdatesCoalescingMilliseconds": "啟用標題更新合併時套用的合併視窗，單位為毫秒。限制在 33-5000 ms。",
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
           "scrollSpeed": "套用於終端機滾輪與觸控板捲動量的倍率。數值越大捲動越快，數值越小捲動越慢。",
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",

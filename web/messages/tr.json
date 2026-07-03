@@ -818,6 +818,9 @@
         },
         "terminal": {
           "titleUpdates": "cmux'un terminal başlığı değişikliklerini nasıl yaydığını denetler; başlık sık sık değiştiğinde CPU kullanımını azaltmak için yüksek frekanslı başlık güncellemelerinin isteğe bağlı olarak birleştirilmesini (coalescing) içerir.",
+          "titleUpdatesCoalescing": "Yüksek frekanslı terminal başlığı değişiklikleri için isteğe bağlı birleştirme. Etkinleştirildiğinde cmux, hızlı değişen başlıkları toplar; böylece çalışma alanı başlığı, kenar çubuğu ve mobil gözlemciler ham başlık değişim hızında değil, pencere başına en fazla bir kez yenilenir. Varsayılan olarak kapalıdır; bekleyen başlıklar çalışma alanı ayrılmadan, aktarılmadan veya anlık görüntüsü alınmadan önce boşaltılır.",
+          "titleUpdatesCoalescingEnabled": "Terminal başlığı güncelleme birleştirmesini etkinleştir.",
+          "titleUpdatesCoalescingMilliseconds": "Başlık güncelleme birleştirmesi etkinken uygulanan milisaniye cinsinden birleştirme penceresi. 33-5000 ms aralığına sınırlandırılır.",
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",
           "scrollSpeed": "Terminalde fare tekerleği ve dokunmatik yüzey kaydırma değerlerine uygulanan çarpan. Yüksek değerler daha hızlı, düşük değerler daha yavaş kaydırır.",
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",

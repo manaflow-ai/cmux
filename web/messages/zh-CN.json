@@ -818,6 +818,9 @@
         },
         "terminal": {
           "titleUpdates": "控制 cmux 传播终端标题变更的方式，包括可选启用的高频标题更新合并（coalescing），以在标题频繁变化时降低 CPU 占用。",
+          "titleUpdatesCoalescing": "用于高频终端标题变更的可选合并。启用后，cmux 会批量处理快速变化的标题，使工作区标题、侧边栏和移动端观察者每个窗口最多刷新一次，而不是按原始标题变更频率刷新。默认关闭；挂起的标题会在工作区分离、转移或快照前刷新出来。",
+          "titleUpdatesCoalescingEnabled": "启用终端标题更新合并。",
+          "titleUpdatesCoalescingMilliseconds": "启用标题更新合并时应用的合并窗口，单位为毫秒。限制在 33-5000 ms。",
           "copyOnSelect": "为 true 时，在确认选择后将所选终端文本复制到系统剪贴板。为 false 时，cmux 不会输出 Ghostty copy-on-select 覆盖项；选择剪贴板行为由 Ghostty 配置和默认值控制。",
           "scrollSpeed": "应用于终端滚轮和触控板滚动量的倍数。值越大滚动越快，值越小滚动越慢。",
           "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",

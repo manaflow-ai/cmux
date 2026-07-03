@@ -1092,6 +1092,9 @@
         },
         "terminal": {
           "titleUpdates": "Controls how cmux propagates terminal title changes, including opt-in coalescing of high-frequency title updates to reduce CPU usage during title spam.",
+          "titleUpdatesCoalescing": "Opt-in coalescing for high-frequency terminal title changes. When enabled, cmux batches rapidly changing terminal titles so the workspace title, sidebar, and mobile observers refresh at most once per window instead of at the raw title-change rate. Default-off; pending titles flush before workspace detach, transfer, or snapshot.",
+          "titleUpdatesCoalescingEnabled": "Enable terminal title update coalescing.",
+          "titleUpdatesCoalescingMilliseconds": "Coalescing window in milliseconds applied when title update coalescing is enabled. Clamped to 33-5000 ms.",
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
           "scrollSpeed": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower.",
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",

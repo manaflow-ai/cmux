@@ -818,6 +818,9 @@
         },
         "terminal": {
           "titleUpdates": "Controlla come cmux propaga le modifiche al titolo del terminale, incluso il raggruppamento (coalescing) opzionale degli aggiornamenti del titolo ad alta frequenza per ridurre l'uso della CPU durante picchi di cambi di titolo.",
+          "titleUpdatesCoalescing": "Raggruppamento opzionale delle modifiche ad alta frequenza del titolo del terminale. Quando è attivo, cmux raggruppa i titoli che cambiano rapidamente in modo che il titolo dello spazio di lavoro, la barra laterale e gli osservatori mobili si aggiornino al massimo una volta per finestra invece che al ritmo grezzo dei cambi di titolo. Disattivato per impostazione predefinita; i titoli in sospeso vengono scaricati prima di scollegare, trasferire o salvare uno snapshot dello spazio di lavoro.",
+          "titleUpdatesCoalescingEnabled": "Attiva il raggruppamento degli aggiornamenti del titolo del terminale.",
+          "titleUpdatesCoalescingMilliseconds": "Finestra di raggruppamento in millisecondi quando il raggruppamento dei titoli è attivo. Limitata a 33-5000 ms.",
           "copyOnSelect": "Quando è true, il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata. Quando è false, cmux non emette un override Ghostty copy-on-select; configurazione e valori predefiniti di Ghostty controllano il comportamento degli appunti di selezione.",
           "scrollSpeed": "Moltiplicatore applicato agli spostamenti della rotellina di scorrimento e del trackpad nel terminale. Valori più alti scorrono più velocemente, valori più bassi più lentamente.",
           "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
