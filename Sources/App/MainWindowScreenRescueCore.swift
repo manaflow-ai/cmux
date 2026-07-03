@@ -13,20 +13,6 @@ struct MainWindowScreenRescueCore {
         self.frameGeometry = frameGeometry
     }
 
-    /// One display's full frame and top inset (the menu-bar band:
-    /// `frame.maxY - visibleFrame.maxY`). The rest of `visibleFrame` is
-    /// deliberately omitted: Dock and side-inset resizes cannot strand a
-    /// titlebar and must not read as topology changes. The top inset IS
-    /// included because a menu bar appearing on (or moving to) a display
-    /// shrinks the visible area from the top and can newly cover a flush-top
-    /// window's drag band — that must trigger a rescue pass. Display IDs are
-    /// deliberately omitted because dock/KVM/Sidecar wake paths can re-enumerate
-    /// the same physical arrangement with new `NSScreenNumber` values.
-    struct TopologySignatureEntry: Equatable {
-        let frame: CGRect
-        let topInset: CGFloat
-    }
-
     /// Order-independent signature of the current display topology. Two
     /// signatures compare equal exactly when the same frame arrangement has
     /// the same top insets — the gate that keeps sleep/wake (same topology,
@@ -34,10 +20,10 @@ struct MainWindowScreenRescueCore {
     /// triggering a rescue.
     func topologySignature(
         of displays: [SessionDisplayGeometry]
-    ) -> [TopologySignatureEntry] {
+    ) -> [MainWindowDisplayTopologySignatureEntry] {
         displays
             .map { display in
-                TopologySignatureEntry(
+                MainWindowDisplayTopologySignatureEntry(
                     frame: display.frame,
                     topInset: display.frame.maxY - display.visibleFrame.maxY
                 )

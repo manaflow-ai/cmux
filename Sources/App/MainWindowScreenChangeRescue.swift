@@ -13,40 +13,44 @@ import CmuxWindowing
 /// wake fire the same `didChangeScreenParametersNotification` with an
 /// unchanged signature, and must never move a window (that regression class is
 /// the anti-creep behavior pinned by `CmuxMainWindowConstrainFrameTests`).
-/// A dirty flag records signature changes seen mid-burst so a transient
-/// disconnect-and-reconnect inside one debounce window still triggers a
-/// rescue pass — but that settled-back pass runs at the constrain veto's own
-/// thresholds, not the strict drag-band ones: docked Macs can re-enumerate
-/// displays on every wake, and a wake flap must not disturb placements the
-/// veto deliberately protects (e.g. a titlebar tucked under the menu bar).
+/// A dirty flag records signature changes seen before the coalesced idle pass
+/// so a transient disconnect-and-reconnect inside one notification burst still
+/// triggers a rescue pass — but that settled-back pass runs at the constrain
+/// veto's own thresholds, not the strict drag-band ones: docked Macs can
+/// re-enumerate displays on every wake, and a wake flap must not disturb
+/// placements the veto deliberately protects (e.g. a titlebar tucked under the
+/// menu bar).
 @MainActor
 final class MainWindowScreenChangeRescue {
-    private var observer: NSObjectProtocol?
-    private var cachedSignature: [MainWindowScreenRescueCore.TopologySignatureEntry] = []
+    private var screenParametersObserver: NSObjectProtocol?
+    private var coalescedRescueObserver: NSObjectProtocol?
+    private var cachedSignature: [MainWindowDisplayTopologySignatureEntry] = []
     private var topologyDirty = false
-    private var pendingRescue: Task<Void, Never>?
-    private var pendingRescueGeneration = 0
-    private let debounceInterval: Duration
+    private let coalescedRescueNotification = Notification.Name("cmux.mainWindowScreenChangeRescue.perform")
     private let rescueCore: MainWindowScreenRescueCore
 
-    /// Owned and installed by `AppDelegate`. The debounce interval is
-    /// injectable so tests can cover the burst-settling path without
-    /// wall-clock waits; 400 ms covers the 2-4 notification bursts AppKit
-    /// fires during a reconfiguration.
+    /// Owned and installed by `AppDelegate`.
     init(
-        debounceInterval: Duration = .milliseconds(400),
         rescueCore: MainWindowScreenRescueCore = MainWindowScreenRescueCore()
     ) {
-        self.debounceInterval = debounceInterval
         self.rescueCore = rescueCore
     }
 
     func install() {
-        guard observer == nil else { return }
+        guard screenParametersObserver == nil else { return }
         // Seed the cache so the first notification after launch is compared
         // against the launch topology instead of reading as a change.
         cachedSignature = currentTopologySignature()
-        observer = NotificationCenter.default.addObserver(
+        coalescedRescueObserver = NotificationCenter.default.addObserver(
+            forName: coalescedRescueNotification,
+            object: self,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.performRescueIfNeeded()
+            }
+        }
+        screenParametersObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
             queue: .main
@@ -60,25 +64,19 @@ final class MainWindowScreenChangeRescue {
     private func screenParametersDidChange() {
         // Reconfigurations fire this notification 2-4 times; compare eagerly
         // (so a transient A->B->A still marks the burst dirty) but act only
-        // once, after the burst settles.
+        // once, when the main run loop reaches idle after the burst.
         if currentTopologySignature() != cachedSignature {
             topologyDirty = true
         }
-        pendingRescue?.cancel()
-        pendingRescueGeneration += 1
-        let generation = pendingRescueGeneration
-        pendingRescue = Task { [weak self, debounceInterval, generation] in
-            // Intentional cancellable debounce: AppKit emits a burst but no
-            // settled-display signal for screen-parameter changes.
-            guard (try? await Task.sleep(for: debounceInterval)) != nil else { return }
-            guard !Task.isCancelled else { return }
-            self?.performRescueIfNeeded(expectedGeneration: generation)
-        }
+        NotificationQueue.default.enqueue(
+            Notification(name: coalescedRescueNotification, object: self),
+            postingStyle: .whenIdle,
+            coalesceMask: [.onName, .onSender],
+            forModes: nil
+        )
     }
 
-    private func performRescueIfNeeded(expectedGeneration: Int) {
-        guard pendingRescueGeneration == expectedGeneration else { return }
-        pendingRescue = nil
+    private func performRescueIfNeeded() {
         let displays = Self.currentDisplays()
         // Mid-reconfiguration the screen list can be transiently empty; keep
         // the cache and dirty flag so the follow-up notification re-evaluates.
@@ -155,7 +153,7 @@ final class MainWindowScreenChangeRescue {
         }
     }
 
-    private func currentTopologySignature() -> [MainWindowScreenRescueCore.TopologySignatureEntry] {
+    private func currentTopologySignature() -> [MainWindowDisplayTopologySignatureEntry] {
         rescueCore.topologySignature(of: Self.currentDisplays())
     }
 
