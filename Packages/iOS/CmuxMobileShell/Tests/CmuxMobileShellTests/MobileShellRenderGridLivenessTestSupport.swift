@@ -81,6 +81,7 @@ actor LivenessHostRouter {
     private var capabilities = [
         "events.v1",
         "terminal.bytes.v1",
+        "terminal.hybrid_render_grid_before_bytes.v1",
         "terminal.render_grid.v1",
         "terminal.replay.v1",
         "terminal.viewport.v1",

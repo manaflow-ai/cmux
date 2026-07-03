@@ -828,7 +828,8 @@ private func unsequencedTerminalBytesEventFrame(
     let clock = TestClock()
     let router = LivenessHostRouter()
     await router.setCapabilities([
-        "events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1",
+        "events.v1", "terminal.bytes.v1", "terminal.hybrid_render_grid_before_bytes.v1",
+        "terminal.render_grid.v1", "terminal.replay.v1",
     ])
     await router.setViewportResponseGrid(columns: 90, rows: 40)
     let box = TransportBox()
@@ -882,6 +883,69 @@ private func unsequencedTerminalBytesEventFrame(
         delivered,
         "an oversized viewport echo from a host without viewport support must not enable the guard and freeze output"
     )
+    #expect(await router.count(of: "mobile.terminal.viewport") == viewportBaseline)
+    #expect(await router.count(of: "mobile.terminal.replay") == replayBaseline)
+    collector.unmount()
+}
+
+@MainActor
+@Test func oldHybridHostWithoutOrderedBytesCapabilityKeepsGuardOff() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities([
+        "events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1",
+        "terminal.viewport.v1",
+    ])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 0,
+        text: "pre-probe"
+    ))
+    let probeDelivered = try await pollUntil { collector.lines.contains { $0.contains("pre-probe") } }
+    #expect(probeDelivered, "raw bytes must flow after mount")
+
+    let replayCountBeforeViewport = await router.count(of: "mobile.terminal.replay")
+    _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    let queuedViewportReplay = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountBeforeViewport
+    }
+    #expect(queuedViewportReplay, "the setup viewport report must request its resize replay")
+    let viewportReplayCount = await router.count(of: "mobile.terminal.replay")
+    try await waitForReplayResponsesServed(
+        viewportReplayCount,
+        router: router,
+        "the old-host setup replay count must settle before checking recovery requests"
+    )
+    let viewportBaseline = await router.count(of: "mobile.terminal.viewport")
+    let replayBaseline = await router.count(of: "mobile.terminal.replay")
+
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 9,
+        text: "old-host-bytes"
+    ))
+    let delivered = try await pollUntil { collector.lines.contains { $0.contains("old-host-bytes") } }
+    #expect(
+        delivered,
+        "old hybrid hosts that can send bytes before render-grid advisories must keep legacy byte delivery"
+    )
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 20,
+        columns: 90,
+        rows: 40,
+        text: "oversized",
+        full: false
+    ))
     #expect(await router.count(of: "mobile.terminal.viewport") == viewportBaseline)
     #expect(await router.count(of: "mobile.terminal.replay") == replayBaseline)
     collector.unmount()
@@ -1165,7 +1229,8 @@ private func unsequencedTerminalBytesEventFrame(
     // itself answers with an effective grid, so the first client confirms
     // support empirically.
     await router.setCapabilities([
-        "events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1",
+        "events.v1", "terminal.bytes.v1", "terminal.hybrid_render_grid_before_bytes.v1",
+        "terminal.render_grid.v1", "terminal.replay.v1",
     ])
     await router.setViewportResponseGrid(columns: 20, rows: 6)
     let box = TransportBox()

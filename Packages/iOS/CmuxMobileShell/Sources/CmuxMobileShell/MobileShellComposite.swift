@@ -86,6 +86,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
+    static let terminalHybridRenderGridBeforeBytesCapability = "terminal.hybrid_render_grid_before_bytes.v1"
     static let terminalViewportCapability = "terminal.viewport.v1"
     static let terminalReplayCapability = "terminal.replay.v1"
 

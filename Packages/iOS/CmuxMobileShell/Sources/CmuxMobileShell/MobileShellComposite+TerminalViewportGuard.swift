@@ -48,31 +48,36 @@ extension MobileShellComposite {
         )
     }
 
-    /// Whether the connected Mac can honor `mobile.terminal.viewport` caps:
-    /// it either advertises `terminal.viewport.v1` or has returned an
-    /// effective grid on this connection. Without that, the oversized-grid
-    /// guard must stay off — withholding output based on a cap the host
-    /// cannot apply would freeze the mirror on legacy hosts instead of
-    /// (at worst) rendering it the pre-guard way.
-    private var hostSupportsTerminalViewportCap: Bool {
+    /// Whether the connected Mac can safely participate in oversized-grid
+    /// recovery. Besides honoring viewport caps, hybrid hosts must prove the
+    /// render-grid advisory is emitted before matching raw bytes; older Macs
+    /// already advertise `terminal.viewport.v1` but still send bytes first,
+    /// which can splice output before iOS sees producer dimensions.
+    private var hostSupportsOversizedGridRecovery: Bool {
+        let supportsViewportCap: Bool
         if supportedHostCapabilities.contains(Self.terminalViewportCapability) {
-            return true
+            supportsViewportCap = true
+        } else {
+            guard let remoteClient, let confirmedID = terminalViewportRPCConfirmedClientID else {
+                return false
+            }
+            supportsViewportCap = ObjectIdentifier(remoteClient) == confirmedID
         }
-        guard let remoteClient, let confirmedID = terminalViewportRPCConfirmedClientID else {
-            return false
-        }
-        return ObjectIdentifier(remoteClient) == confirmedID
+        guard supportsViewportCap else { return false }
+        guard terminalOutputTransport == .hybrid else { return true }
+        return supportedHostCapabilities.contains(Self.terminalHybridRenderGridBeforeBytesCapability)
     }
 
     /// Whether a producer grid fits the viewport this phone last reported for
     /// `surfaceID`. Grids are trusted until a first report exists, and always
-    /// trusted against hosts that cannot honor viewport caps.
+    /// trusted against hosts whose cap/ordering contract is too old for safe
+    /// recovery.
     func producerGridFitsReportedViewport(
         columns: Int,
         rows: Int,
         surfaceID: String
     ) -> Bool {
-        guard hostSupportsTerminalViewportCap else { return true }
+        guard hostSupportsOversizedGridRecovery else { return true }
         guard let reported = reportedTerminalViewportGridsBySurfaceID[surfaceID] else {
             return true
         }
