@@ -90,9 +90,21 @@ public final class TerminalAccessoryConfiguration {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
-        let loadedCustoms = Self.loadCustomActions(from: defaults)
+        let loadedCustoms: [CustomToolbarAction]
+        if let data = defaults.data(forKey: Self.customDefaultsKey),
+           let decoded = try? JSONDecoder().decode([CustomToolbarAction].self, from: data) {
+            loadedCustoms = decoded
+        } else {
+            loadedCustoms = []
+        }
         self.customActions = loadedCustoms
-        self.reducer = Self.makeReducer(customActions: loadedCustoms)
+        let builtinIDs = TerminalInputAccessoryAction.configurableActions.map(\.itemID)
+        let customIDs = loadedCustoms.map(\.itemID)
+        let defaultOrder = TerminalInputAccessoryAction.defaultConfigurableOrder.map(\.itemID) + customIDs
+        self.reducer = TerminalAccessoryLayoutReducer(
+            configurable: builtinIDs + customIDs,
+            defaultOrder: defaultOrder
+        )
 
         // Resolve the persisted layout across schema generations:
         //   v3 present  → authoritative; load as-is (modifiers can stay hidden).
@@ -105,11 +117,15 @@ public final class TerminalAccessoryConfiguration {
         var savedOrder: [ToolbarItemID] = []
         let savedEnabled: [ToolbarItemID]?
         let rowCount: Int
-        if let v4Rows = Self.loadRows(from: defaults) {
+        let v4Rows = defaults.array(forKey: Self.rowsDefaultsKey)?.map { row in
+            guard let storageKeys = row as? [String] else { return [] }
+            return storageKeys.compactMap(ToolbarItemID.init(storageKey:))
+        }
+        if let v4Rows {
             savedRows = v4Rows
             savedEnabled = (defaults.array(forKey: Self.enabledDefaultsKey) as? [String])?
                 .compactMap(ToolbarItemID.init(storageKey:))
-            rowCount = Self.clampedRowCount(v4Rows.count)
+            rowCount = min(max(v4Rows.count, Self.minimumRowCount), Self.maximumRowCount)
         } else if let v3Order = defaults.array(forKey: Self.legacyV3OrderDefaultsKey) as? [String] {
             savedRows = nil
             let order = v3Order.compactMap(ToolbarItemID.init(storageKey:))
@@ -303,7 +319,8 @@ public final class TerminalAccessoryConfiguration {
 
     /// Change the number of visible toolbar rows.
     public func setRowCount(_ rowCount: Int) {
-        apply(reducer.setRowCount(Self.clampedRowCount(rowCount), in: currentLayout))
+        let clampedRowCount = min(max(rowCount, Self.minimumRowCount), Self.maximumRowCount)
+        apply(reducer.setRowCount(clampedRowCount, in: currentLayout))
         persistAndNotify()
     }
 
@@ -329,7 +346,7 @@ public final class TerminalAccessoryConfiguration {
     /// Append a new custom action, shown at the end of the configurable region.
     public func addCustomAction(_ action: CustomToolbarAction) {
         customActions.append(action)
-        reducer = Self.makeReducer(customActions: customActions)
+        reducer = makeReducer()
         apply(reducer.load(
             savedRows: displayRows,
             savedEnabled: Array(enabledSet) + [action.itemID],
@@ -343,7 +360,7 @@ public final class TerminalAccessoryConfiguration {
     public func updateCustomAction(_ action: CustomToolbarAction) {
         guard let index = customActions.firstIndex(where: { $0.id == action.id }) else { return }
         customActions[index] = action
-        reducer = Self.makeReducer(customActions: customActions)
+        reducer = makeReducer()
         persistAndNotify()
     }
 
@@ -351,7 +368,7 @@ public final class TerminalAccessoryConfiguration {
     public func removeCustomAction(id: UUID) {
         guard customActions.contains(where: { $0.id == id }) else { return }
         customActions.removeAll { $0.id == id }
-        reducer = Self.makeReducer(customActions: customActions)
+        reducer = makeReducer()
         apply(reducer.load(savedRows: displayRows, savedEnabled: Array(enabledSet), rowCount: rowCount))
         persistAndNotify()
     }
@@ -383,36 +400,13 @@ public final class TerminalAccessoryConfiguration {
         enabledSet = layout.enabled
     }
 
-    private static func makeReducer(
-        customActions: [CustomToolbarAction]
-    ) -> TerminalAccessoryLayoutReducer<ToolbarItemID> {
+    private func makeReducer() -> TerminalAccessoryLayoutReducer<ToolbarItemID> {
         let builtin = TerminalInputAccessoryAction.configurableActions.map(\.itemID)
         let custom = customActions.map(\.itemID)
         // The redesigned bar's curated built-in arrangement first, then customs,
         // so a fresh install shows the new default layout.
         let defaultOrder = TerminalInputAccessoryAction.defaultConfigurableOrder.map(\.itemID) + custom
         return TerminalAccessoryLayoutReducer(configurable: builtin + custom, defaultOrder: defaultOrder)
-    }
-
-    private static func loadCustomActions(from defaults: UserDefaults) -> [CustomToolbarAction] {
-        guard let data = defaults.data(forKey: Self.customDefaultsKey),
-              let decoded = try? JSONDecoder().decode([CustomToolbarAction].self, from: data) else {
-            return []
-        }
-        return decoded
-    }
-
-    private static func loadRows(from defaults: UserDefaults) -> [[ToolbarItemID]]? {
-        guard let stored = defaults.array(forKey: Self.rowsDefaultsKey) else { return nil }
-        return stored.map { row in
-            guard let storageKeys = row as? [String] else { return [] }
-            return storageKeys.compactMap(ToolbarItemID.init(storageKey:))
-        }
-    }
-
-    /// Clamp a requested toolbar row count to the supported range.
-    public static func clampedRowCount(_ rowCount: Int) -> Int {
-        min(max(rowCount, minimumRowCount), maximumRowCount)
     }
 
     private func persist() {

@@ -269,7 +269,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private static let dockedRowSpacing: CGFloat = 4
     /// Height of the configurable row stack, excluding bottom padding.
     static func dockedRowsHeight(rowCount: Int) -> CGFloat {
-        let rows = CGFloat(TerminalAccessoryConfiguration.clampedRowCount(rowCount))
+        let clampedRowCount = min(
+            max(rowCount, TerminalAccessoryConfiguration.minimumRowCount),
+            TerminalAccessoryConfiguration.maximumRowCount
+        )
+        let rows = CGFloat(clampedRowCount)
         return rows * dockedNubSize + max(0, rows - 1) * dockedRowSpacing
     }
     /// Height reserved by the grid and the composer host for the docked bar.
