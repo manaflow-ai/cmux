@@ -57,9 +57,10 @@ extension CMUXCLI {
         agent: String,
         record: ClaudeHookSessionRecord
     ) -> AgentHookLaunchCommandRecord? {
+        let launchCaptureTrust = AgentLaunchCaptureTrust()
         guard let launchCommand = record.launchCommand,
-              AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: agent),
-              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+              launchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: agent),
+              !launchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
             return nil
         }
         return launchCommand
