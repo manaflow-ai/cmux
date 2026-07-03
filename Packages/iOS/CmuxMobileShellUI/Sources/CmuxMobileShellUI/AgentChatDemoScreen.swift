@@ -59,49 +59,53 @@ struct AgentChatDemoScreen: View {
                 }
         case .inlineWorkspace:
             baseChatScreen(for: stack)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        WorkspaceBackButton(
-                            unreadCount: 0,
-                            badgeContrast: .darkBackground,
-                            action: {}
-                        )
-                    }
-                    ToolbarItem(placement: .principal) {
-                        WorkspaceTitleMenu {
-                            Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
-                                .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
-                            Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
-                                .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
-                        } label: {
-                            header(for: stack)
-                        }
-                    }
-                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .mobileChatTopScrollEdgeLayout(legacyTopPadding: 4)
                 .mobileTerminalNavigationChrome()
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        MobileToolbarPriorityHost(role: .fixedTrailingControls) {
-                            HStack(spacing: 8) {
-                                Button(action: {}) {
-                                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                                }
-                                .frame(width: 44, height: 44)
-                                .accessibilityIdentifier("AgentChatInlinePreviewChatToggle")
-
-                                Button(action: {}) {
-                                    Image(systemName: "rectangle.stack")
-                                }
-                                .frame(width: 44, height: 44)
-                                .accessibilityIdentifier("AgentChatInlinePreviewTerminalPicker")
-                            }
-                            .frame(width: 96, height: 44, alignment: .trailing)
+                    ToolbarItem(placement: .principal) {
+                        MobileWorkspacePriorityToolbar {
+                            WorkspaceBackButton(
+                                unreadCount: 0,
+                                badgeContrast: .darkBackground,
+                                action: {}
+                            )
+                        } title: {
+                            inlineWorkspaceTitleMenu(for: stack)
+                        } trailing: {
+                            inlineWorkspaceTrailingControls
                         }
                     }
                 }
         }
+    }
+
+    private func inlineWorkspaceTitleMenu(for stack: DemoStack) -> some View {
+        WorkspaceTitleMenu {
+            Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
+                .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
+            Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
+                .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
+        } label: {
+            header(for: stack)
+        }
+    }
+
+    private var inlineWorkspaceTrailingControls: some View {
+        HStack(spacing: 8) {
+            Button(action: {}) {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+            }
+            .frame(width: 44, height: 44)
+            .accessibilityIdentifier("AgentChatInlinePreviewChatToggle")
+
+            Button(action: {}) {
+                Image(systemName: "rectangle.stack")
+            }
+            .frame(width: 44, height: 44)
+            .accessibilityIdentifier("AgentChatInlinePreviewTerminalPicker")
+        }
+        .frame(width: 96, height: 44, alignment: .trailing)
     }
 
     private func baseChatScreen(for stack: DemoStack) -> some View {

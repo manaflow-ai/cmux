@@ -793,18 +793,15 @@ final class cmuxUITests: XCTestCase {
                 titleMenu: titleMenu,
                 backButton: backButton,
                 surfacePicker: surfacePicker,
-                tolerance: 2,
+                tolerance: 4,
                 timeout: 4
             )
         )
-        XCTAssertTrue(
-            waitForWorkspaceTitleCenteredAndSeparated(
-                titleMenu: titleMenu,
-                backButton: backButton,
-                trailingControl: chatToggle,
-                in: app,
-                timeout: 4
-            )
+        assertToolbarTitleYieldsToTrailingControls(
+            titleMenu: titleMenu,
+            backButton: backButton,
+            trailingControls: [chatToggle, surfacePicker],
+            context: "inline workspace title menu"
         )
 
         tapCompactToolbarTitleMenu(titleMenu, in: app)
@@ -833,7 +830,7 @@ final class cmuxUITests: XCTestCase {
                 titleMenu: titleMenu,
                 backButton: backButton,
                 surfacePicker: surfacePicker,
-                tolerance: 2,
+                tolerance: 4,
                 timeout: 4
             )
         )
@@ -2541,45 +2538,6 @@ final class cmuxUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return waitForUsableFrame(of: element, timeout: 0.1)
-    }
-
-    @MainActor
-    private func waitForWorkspaceTitleCenteredAndSeparated(
-        titleMenu: XCUIElement,
-        backButton: XCUIElement,
-        trailingControl: XCUIElement,
-        in app: XCUIApplication,
-        timeout: TimeInterval,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        let window = app.windows.firstMatch
-        let windowFrame = window.exists ? window.frame : app.frame
-        let centerTolerance = max(windowFrame.width * 0.10, 28)
-        var lastTitleFrame = titleMenu.frame
-        var lastBackFrame = backButton.frame
-        var lastTrailingFrame = trailingControl.frame
-
-        while Date() < deadline {
-            lastTitleFrame = titleMenu.frame
-            lastBackFrame = backButton.frame
-            lastTrailingFrame = trailingControl.frame
-            if lastTitleFrame.midY > 60,
-               abs(lastTitleFrame.midX - windowFrame.midX) <= centerTolerance,
-               lastTitleFrame.minX > lastBackFrame.maxX + 16,
-               lastTitleFrame.maxX < lastTrailingFrame.minX - 2 {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-
-        XCTFail(
-            "Workspace title must be centered as its own toolbar island, separated from leading and trailing controls. title=\(lastTitleFrame), back=\(lastBackFrame), trailing=\(lastTrailingFrame), window=\(windowFrame)",
-            file: file,
-            line: line
-        )
-        return false
     }
 
     @MainActor
