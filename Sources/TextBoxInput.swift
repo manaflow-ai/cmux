@@ -4528,7 +4528,6 @@ final class TextBoxInputTextView: NSTextView {
         let closeRect: NSRect
     }
 
-    private func currentTextAttributes(
     private static let attachmentReplacementCharacter = "\u{FFFC}"
 
     func currentTextAttributes(
