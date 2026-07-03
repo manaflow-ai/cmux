@@ -38,7 +38,7 @@ struct ProjectBuildSettingsTabView: View {
     /// Moves keyboard focus into the filter field when a find request targets
     /// the Build Settings tab, then clears the one-shot request.
     private func applyPendingFindFocusIfNeeded() {
-        guard panel.findFocus.request == .settings else { return }
+        guard panel.findFocus.request == .buildSettings else { return }
         searchFieldFocused = true
         panel.findFocus.request = nil
     }

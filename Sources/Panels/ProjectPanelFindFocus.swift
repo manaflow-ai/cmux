@@ -1,12 +1,6 @@
 import Foundation
 import Observation
 
-/// Identifies which ``ProjectPanel`` filter field a find request targets.
-public enum ProjectPanelSearchFocus: Hashable, Sendable {
-    case files
-    case settings
-}
-
 /// Lightweight, view-observable find-focus state for a ``ProjectPanel``.
 ///
 /// The tab views drive their `@FocusState` from these signals: ``request``
@@ -19,12 +13,12 @@ public enum ProjectPanelSearchFocus: Hashable, Sendable {
 /// broaden the panel's Combine invalidation.
 @MainActor
 @Observable
-public final class ProjectPanelFindFocus {
+final class ProjectPanelFindFocus {
     /// The filter field that should receive focus, or `nil` when no request is pending.
-    public var request: ProjectPanelSearchFocus?
+    var request: ProjectPanelTab?
 
     /// Incremented to ask the active filter field to resign first-responder.
-    public var resignToken: Int = 0
+    var resignToken: Int = 0
 
-    public init() {}
+    init() {}
 }

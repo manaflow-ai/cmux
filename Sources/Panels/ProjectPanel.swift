@@ -277,13 +277,13 @@ extension ProjectPanel: FindablePanel {
     /// - Returns: `true` for filterable tabs; `false` for Targets/Schemes so
     ///   Cmd+F falls through instead of focusing a nonexistent field.
     @discardableResult
-    public func startFind() -> Bool {
+    func startFind() -> Bool {
         switch activeTab {
         case .files:
             findFocus.request = .files
             return true
         case .buildSettings:
-            findFocus.request = .settings
+            findFocus.request = .buildSettings
             return true
         case .targets, .schemes:
             return false
@@ -291,7 +291,7 @@ extension ProjectPanel: FindablePanel {
     }
 
     /// Asks the active filter field to resign keyboard focus.
-    public func hideFind() {
+    func hideFind() {
         findFocus.resignToken &+= 1
     }
 }
