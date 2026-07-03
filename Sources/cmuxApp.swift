@@ -241,8 +241,13 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         let initialTabManager = TabManager()
-        initialTabManager.attachAppEnvironment(appDelegate.environment)
+        // Initialize the `_tabManager` stored property BEFORE touching
+        // `self.appDelegate`: Swift definite-initialization forbids reading any
+        // `self` member (including the `@NSApplicationDelegateAdaptor`) until every
+        // stored property is initialized, and `tabManager` is the only one without
+        // a default. `attachAppEnvironment` mutates the same live instance.
         _tabManager = State(wrappedValue: initialTabManager)
+        initialTabManager.attachAppEnvironment(appDelegate.environment)
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Normalize the persisted socket mode and (for release builds) migrate the
         // legacy keychain password. Breadcrumb instrumentation stays app-side.
