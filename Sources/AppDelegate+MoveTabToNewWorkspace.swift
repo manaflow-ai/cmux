@@ -63,7 +63,7 @@ extension AppDelegate {
            let source = windowRegistry.locateSurface(surfaceId: panelId) {
             source.tabManager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
         }
-        environment.mainWindowRouter.moveSurfaceToNewWorkspace(
+        return environment.mainWindowRouter.moveSurfaceToNewWorkspace(
             panelId: panelId,
             destinationManager: destinationManager,
             title: title,
