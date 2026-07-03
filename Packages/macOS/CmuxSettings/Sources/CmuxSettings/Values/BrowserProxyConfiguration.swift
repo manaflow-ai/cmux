@@ -1,38 +1,5 @@
 import Foundation
 
-/// The protocol an embedded-browser proxy speaks.
-///
-/// Mirrors the two forward-proxy flavors `Network.framework`'s
-/// `ProxyConfiguration` can express for a `WKWebsiteDataStore`: SOCKSv5 and
-/// HTTP CONNECT. ``off`` means cmux applies no proxy of its own.
-public enum BrowserProxyType: String, CaseIterable, Sendable, Equatable, SettingCodable {
-    /// No cmux-managed browser proxy. The embedded browser keeps its default
-    /// behavior — on a local pane that still mirrors an active macOS system
-    /// proxy for the loopback fix (https://github.com/manaflow-ai/cmux/issues/5888).
-    case off
-    /// A SOCKSv5 proxy (`ProxyConfiguration(socksv5Proxy:)`).
-    case socks5
-    /// An HTTP CONNECT proxy (`ProxyConfiguration(httpCONNECTProxy:)`).
-    case httpConnect
-
-    /// Resolves a loosely-typed string to a known type, defaulting to ``off``.
-    ///
-    /// Unknown or misspelled values resolve to ``off`` so a typo never crashes
-    /// config loading or silently routes traffic somewhere unexpected. Accepts
-    /// common aliases and URL schemes so both the cmux.json `type` field and the
-    /// `CMUX_BROWSER_PROXY` URL scheme map onto the same set.
-    public init(lenient raw: String) {
-        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "socks5", "socks", "socksv5", "socks-5", "socks_5":
-            self = .socks5
-        case "httpconnect", "http-connect", "http_connect", "connect", "http", "https":
-            self = .httpConnect
-        default:
-            self = .off
-        }
-    }
-}
-
 /// A user-configured proxy for the embedded browser, read from `cmux.json`
 /// (`browser.proxy`) or the `CMUX_BROWSER_PROXY` environment variable.
 ///
@@ -173,6 +140,13 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
         case type, host, port, bypass
     }
 
+    /// Creates a proxy configuration from the `browser.proxy` JSON payload.
+    ///
+    /// Decoding is intentionally lenient: missing or malformed fields fall back
+    /// to safe disabled values so the wider settings file can still load.
+    ///
+    /// - Parameter decoder: The decoder supplying the proxy object.
+    /// - Throws: Any keyed-container access error emitted by the decoder.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let rawType = (try? container.decode(String.self, forKey: .type)) ?? ""
@@ -189,6 +163,10 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
         self.bypass = (try? container.decode([String].self, forKey: .bypass)) ?? []
     }
 
+    /// Encodes the proxy configuration using the stable settings key names.
+    ///
+    /// - Parameter encoder: The encoder receiving the proxy object.
+    /// - Throws: Any encoding error emitted by the encoder.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(type.rawValue, forKey: .type)
@@ -199,15 +177,30 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
 
     // MARK: - SettingCodable
 
+    /// Decodes a configuration stored in `UserDefaults`.
+    ///
+    /// - Parameter raw: The stored defaults value, expected to be encoded
+    ///   `Data`.
+    /// - Returns: The decoded configuration, or `nil` when the stored value has
+    ///   the wrong shape.
     public static func decodeFromUserDefaults(_ raw: Any?) -> BrowserProxyConfiguration? {
         guard let data = raw as? Data else { return nil }
         return try? JSONDecoder().decode(BrowserProxyConfiguration.self, from: data)
     }
 
+    /// Encodes this configuration into the `UserDefaults` representation.
+    ///
+    /// - Returns: JSON-encoded `Data` suitable for storage by
+    ///   ``SettingCodable``.
     public func encodeForUserDefaults() -> Any {
         (try? JSONEncoder().encode(self)) ?? Data()
     }
 
+    /// Decodes a configuration from the JSON object used by `cmux.json`.
+    ///
+    /// - Parameter raw: The JSON object for `browser.proxy`.
+    /// - Returns: The decoded configuration, or `nil` for absent, null, or
+    ///   non-object values.
     public static func decodeFromJSON(_ raw: Any?) -> BrowserProxyConfiguration? {
         guard let raw, !(raw is NSNull) else { return nil }
         guard let data = try? JSONSerialization.data(withJSONObject: raw, options: .fragmentsAllowed) else {
@@ -216,6 +209,9 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
         return try? JSONDecoder().decode(BrowserProxyConfiguration.self, from: data)
     }
 
+    /// Encodes this configuration into a JSON object for `cmux.json`.
+    ///
+    /// - Returns: A Foundation JSON object, or `NSNull` if encoding fails.
     public func encodeForJSON() -> Any {
         guard let data = try? JSONEncoder().encode(self),
               let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
