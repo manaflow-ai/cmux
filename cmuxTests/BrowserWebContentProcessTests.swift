@@ -246,6 +246,8 @@ struct BrowserWebContentProcessTests {
         #expect(panel.webViewInstanceID == oldInstanceID)
         #expect(panel.hasRecoverableWebContentTermination)
         #expect(!panel.shouldAttachWebViewInUI)
+        #expect(oldWebView.navigationDelegate == nil)
+        #expect(oldWebView.uiDelegate == nil)
 
         #expect(panel.recoverTerminatedWebContent(reason: "test"))
 
