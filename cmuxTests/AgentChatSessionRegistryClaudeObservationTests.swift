@@ -156,6 +156,24 @@ struct AgentChatSessionRegistryClaudeObservationTests {
         #expect(requestedDetailPIDs == [120])
     }
 
+    @Test func observationScopeOnlyReusesInFlightScansThatCoverRequestedSurfaces() {
+        let surfaceA = UUID()
+        let surfaceB = UUID()
+        let all = AgentChatObservationScope(surfaceIDs: nil)
+        let scanA = AgentChatObservationScope(surfaceIDs: [surfaceA])
+        let scanAB = AgentChatObservationScope(surfaceIDs: [surfaceA, surfaceB])
+        let requestA = AgentChatObservationScope(surfaceIDs: [surfaceA])
+        let requestB = AgentChatObservationScope(surfaceIDs: [surfaceB])
+
+        #expect(all.covers(requestA))
+        #expect(scanAB.covers(requestA))
+        #expect(scanAB.covers(requestB))
+        #expect(scanA.covers(requestA))
+        #expect(!scanA.covers(requestB))
+        #expect(!scanA.covers(all))
+        #expect(!requestA.covers(scanAB))
+    }
+
     private func topProcess(
         pid: Int,
         name: String,

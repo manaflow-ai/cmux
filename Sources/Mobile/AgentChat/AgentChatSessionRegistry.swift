@@ -157,7 +157,7 @@ final class AgentChatSessionRegistry {
         return nil
     }
 
-    var observeInFlight: (id: UUID, task: Task<Void, Never>)?
+    var observeInFlight: (id: UUID, scope: AgentChatObservationScope, task: Task<Void, Never>)?
     var observeLastStartedAt: Date?
     static let observeThrottleInterval: TimeInterval = 2
 

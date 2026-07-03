@@ -2,6 +2,39 @@ import CMUXAgentLaunch
 import CmuxAgentChat
 import Foundation
 
+enum AgentChatObservationScope: Equatable, Sendable {
+    case all
+    case surfaces(Set<UUID>)
+
+    init(surfaceIDs: Set<UUID>?) {
+        if let surfaceIDs {
+            self = .surfaces(surfaceIDs)
+        } else {
+            self = .all
+        }
+    }
+
+    var surfaceIDs: Set<UUID>? {
+        switch self {
+        case .all:
+            return nil
+        case .surfaces(let ids):
+            return ids
+        }
+    }
+
+    func covers(_ requested: AgentChatObservationScope) -> Bool {
+        switch (self, requested) {
+        case (.all, _):
+            return true
+        case (.surfaces, .all):
+            return false
+        case (.surfaces(let current), .surfaces(let requestedIDs)):
+            return current.isSuperset(of: requestedIDs)
+        }
+    }
+}
+
 extension AgentChatSessionRegistry {
     func reviveEndedObservedSessionIfNeeded(
         current: AgentChatSessionRecord,
@@ -64,21 +97,25 @@ extension AgentChatSessionRegistry {
     }
 
     func observeAgentProcesses() async {
-        if let task = observeAgentProcessesTask(force: true) {
+        if let task = observeAgentProcessesTask(scope: .all, force: true) {
             await task.value
         }
     }
 
     func observeAgentProcessesForListing(surfaceIDs: Set<UUID>?, waitUpTo timeout: Duration) async -> Bool {
-        let force = surfaceIDs?.isEmpty == false
-        guard let task = observeAgentProcessesTask(force: force, surfaceIDs: surfaceIDs) else {
+        if let surfaceIDs, surfaceIDs.isEmpty {
+            return true
+        }
+        let scope = AgentChatObservationScope(surfaceIDs: surfaceIDs)
+        let force = surfaceIDs != nil
+        guard let task = observeAgentProcessesTask(scope: scope, force: force) else {
             return true
         }
         return await waitForObservation(task, upTo: timeout)
     }
 
     func scheduleAgentProcessObservation() {
-        _ = observeAgentProcessesTask(force: false)
+        _ = observeAgentProcessesTask(scope: .all, force: false)
     }
 
     private func waitForObservation(_ task: Task<Void, Never>, upTo timeout: Duration) async -> Bool {
@@ -101,8 +138,9 @@ extension AgentChatSessionRegistry {
         }
     }
 
-    private func observeAgentProcessesTask(force: Bool, surfaceIDs: Set<UUID>? = nil) -> Task<Void, Never>? {
-        if let inFlight = observeInFlight {
+    private func observeAgentProcessesTask(scope: AgentChatObservationScope, force: Bool) -> Task<Void, Never>? {
+        if let inFlight = observeInFlight,
+           inFlight.scope.covers(scope) {
             return inFlight.task
         }
         if !force,
@@ -116,7 +154,7 @@ extension AgentChatSessionRegistry {
         let id = UUID()
         let task = Task { @MainActor [weak self] in
             let observed = await Task.detached {
-                Self.scanObservedAgentSessions(onlySurfaceIDs: surfaceIDs)
+                Self.scanObservedAgentSessions(onlySurfaceIDs: scope.surfaceIDs)
             }.value
             guard let self else { return }
             self.applyObservedSessions(observed)
@@ -124,7 +162,7 @@ extension AgentChatSessionRegistry {
                 self.observeInFlight = nil
             }
         }
-        observeInFlight = (id, task)
+        observeInFlight = (id, scope, task)
         return task
     }
 
