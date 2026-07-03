@@ -2,7 +2,6 @@
 import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import SwiftUI
-import UIKit
 
 /// Create or edit a user-defined terminal toolbar action.
 ///
@@ -16,6 +15,7 @@ struct CustomToolbarActionEditorView: View {
 
     private let existing: CustomToolbarAction?
     private let onSave: (CustomToolbarAction) -> Void
+    private let symbolValidator: ToolbarActionSymbolValidator
 
     @State private var title: String
     /// Optional SF Symbol name shown instead of the text label when valid.
@@ -27,8 +27,13 @@ struct CustomToolbarActionEditorView: View {
     /// - Parameters:
     ///   - action: The action to edit, or `nil` to create a new one.
     ///   - onSave: Called with the resulting action when the user taps Save.
-    init(action: CustomToolbarAction?, onSave: @escaping (CustomToolbarAction) -> Void) {
+    init(
+        action: CustomToolbarAction?,
+        symbolValidator: ToolbarActionSymbolValidator = ToolbarActionSymbolValidator(),
+        onSave: @escaping (CustomToolbarAction) -> Void
+    ) {
         self.existing = action
+        self.symbolValidator = symbolValidator
         self.onSave = onSave
         let seed = Self.seed(from: action)
         _title = State(initialValue: seed.title)
@@ -142,7 +147,7 @@ struct CustomToolbarActionEditorView: View {
     }
 
     private var hasInvalidSymbolName: Bool {
-        !trimmedSymbolName.isEmpty && Self.validatedSymbolName(symbolName) == nil
+        !trimmedSymbolName.isEmpty && symbolValidator.validatedSymbolName(symbolName) == nil
     }
 
     private var isValid: Bool {
@@ -152,7 +157,7 @@ struct CustomToolbarActionEditorView: View {
     private func save() {
         guard isValid else { return }
         let text = runAfterTyping ? commandText + "\n" : commandText
-        let icon = Self.validatedSymbolName(symbolName)
+        let icon = symbolValidator.validatedSymbolName(symbolName)
         let action = CustomToolbarAction(
             id: existing?.id ?? UUID(),
             title: trimmedTitle,
@@ -173,15 +178,6 @@ struct CustomToolbarActionEditorView: View {
             return (action.title, action.symbolName ?? "", String(stored.dropLast()), true)
         }
         return (action.title, action.symbolName ?? "", stored, false)
-    }
-
-    /// Returns a trimmed SF Symbol name only when UIKit can render it.
-    static func validatedSymbolName(_ rawValue: String) -> String? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, UIImage(systemName: trimmed) != nil else {
-            return nil
-        }
-        return trimmed
     }
 }
 #endif

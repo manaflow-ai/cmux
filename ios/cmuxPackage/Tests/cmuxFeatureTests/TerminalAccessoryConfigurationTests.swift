@@ -213,9 +213,11 @@ struct TerminalAccessoryConfigurationTests {
     /// Verifies the editor rejects icon names UIKit cannot render.
     @Test("custom action icon editor validates SF Symbol names before saving")
     func customActionIconEditorValidatesSymbolNames() {
-        #expect(CustomToolbarActionEditorView.validatedSymbolName("  star  ") == "star")
-        #expect(CustomToolbarActionEditorView.validatedSymbolName("cmux.not.a.real.symbol") == nil)
-        #expect(CustomToolbarActionEditorView.validatedSymbolName("   ") == nil)
+        let validator = ToolbarActionSymbolValidator()
+
+        #expect(validator.validatedSymbolName("  star  ") == "star")
+        #expect(validator.validatedSymbolName("cmux.not.a.real.symbol") == nil)
+        #expect(validator.validatedSymbolName("   ") == nil)
     }
     #endif
 
