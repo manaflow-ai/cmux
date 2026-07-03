@@ -1,10 +1,15 @@
 import Foundation
 
-extension TerminalSurface {
-    static func csiTerminalReportSequenceLength(
-        _ scalars: [Unicode.Scalar],
-        from start: Int
-    ) -> Int? {
+struct TerminalInputReportParser {
+    private let scalars: [Unicode.Scalar]
+    private let start: Int
+
+    init(scalars: [Unicode.Scalar], start: Int) {
+        self.scalars = scalars
+        self.start = start
+    }
+
+    func csiSequenceLength() -> Int? {
         guard start + 1 < scalars.count else {
             return nil
         }
@@ -14,7 +19,6 @@ extension TerminalSurface {
             let value = scalars[cursor].value
             if value >= 0x40, value <= 0x7E {
                 return isTerminalReportCSI(
-                    scalars,
                     bodyStart: start + 2,
                     finalIndex: cursor
                 ) ? cursor - start + 1 : nil
@@ -27,8 +31,7 @@ extension TerminalSurface {
         return nil
     }
 
-    private static func isTerminalReportCSI(
-        _ scalars: [Unicode.Scalar],
+    private func isTerminalReportCSI(
         bodyStart: Int,
         finalIndex: Int
     ) -> Bool {
@@ -61,7 +64,7 @@ extension TerminalSurface {
         }
     }
 
-    private static func isCursorPositionReport(_ parameters: [UInt32]) -> Bool {
+    private func isCursorPositionReport(_ parameters: [UInt32]) -> Bool {
         var fieldCount = 0
         var fieldHasDigit = false
 
@@ -82,20 +85,20 @@ extension TerminalSurface {
         return fieldCount == 2
     }
 
-    private static func isDeviceAttributesReport(_ parameters: [UInt32]) -> Bool {
+    private func isDeviceAttributesReport(_ parameters: [UInt32]) -> Bool {
         guard let first = parameters.first else { return false }
         return first == 0x3F || first == 0x3E
     }
 
-    private static func startsWithQuestionMark(_ parameters: [UInt32]) -> Bool {
+    private func startsWithQuestionMark(_ parameters: [UInt32]) -> Bool {
         parameters.first == 0x3F
     }
 
-    private static func isCSIParameterByte(_ value: UInt32) -> Bool {
+    private func isCSIParameterByte(_ value: UInt32) -> Bool {
         value >= 0x30 && value <= 0x3F
     }
 
-    private static func isCSIIntermediateByte(_ value: UInt32) -> Bool {
+    private func isCSIIntermediateByte(_ value: UInt32) -> Bool {
         value >= 0x20 && value <= 0x2F
     }
 }

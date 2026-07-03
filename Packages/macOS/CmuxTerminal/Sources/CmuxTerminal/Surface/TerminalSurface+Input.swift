@@ -298,7 +298,7 @@ extension TerminalSurface {
         case 0x5D: // OSC: ESC ] ... (BEL | ST)
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
         case 0x5B: // CSI terminal reports such as CPR/DA/DSR responses.
-            return csiTerminalReportSequenceLength(scalars, from: start)
+            return TerminalInputReportParser(scalars: scalars, start: start).csiSequenceLength()
         case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
         default:
