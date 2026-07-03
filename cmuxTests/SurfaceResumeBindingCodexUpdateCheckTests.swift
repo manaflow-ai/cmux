@@ -65,6 +65,22 @@ import Testing
         #expect(!startupInput.contains("check_for_update_on_startup=false"), "\(startupInput)")
     }
 
+    @Test func codexBindingWithShortEqualsUpdateCheckSettingReplaysUnchanged() throws {
+        let command = "'/opt/company/bin/codex' 'resume' 'session-explicit-short' '-c=check_for_update_on_startup=true'"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: command,
+            checkpointId: "session-explicit-short",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+
+        #expect(startupInput.contains(command), "\(startupInput)")
+        #expect(!startupInput.contains("check_for_update_on_startup=false"), "\(startupInput)")
+    }
+
     @Test func claudeBindingReplaysWithoutCodexUpdateCheckSuppression() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "claude",

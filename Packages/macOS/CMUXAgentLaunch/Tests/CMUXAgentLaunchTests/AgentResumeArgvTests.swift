@@ -170,6 +170,14 @@ struct AgentResumeArgvTests {
             ) == ["codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
         )
         #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["codex", "-c=check_for_update_on_startup=true"]
+            ) == ["codex", "resume", "SID", "-c=check_for_update_on_startup=true"]
+        )
+        #expect(
             AgentResumeArgv().launcherResolution(
                 launcher: "codexTeams",
                 sessionId: "SID",

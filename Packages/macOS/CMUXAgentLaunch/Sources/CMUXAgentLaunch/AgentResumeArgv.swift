@@ -108,6 +108,9 @@ public struct AgentResumeArgv: Sendable, Equatable {
                arguments[index + 1].hasPrefix("check_for_update_on_startup=") {
                 return true
             }
+            if argument.hasPrefix("-c=check_for_update_on_startup=") {
+                return true
+            }
             if argument.hasPrefix("--config=check_for_update_on_startup=") {
                 return true
             }
