@@ -112,12 +112,12 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
         paneGrid: (_ paneId: Int) -> (columns: Int, rows: Int)?
     ) -> (columns: Int, rows: Int)? {
         switch content {
-        case .pane:
-            // BUG (https://github.com/manaflow-ai/cmux/issues/7053): report tmux's
-            // CLAIMED pane geometry, which excludes cmux's per-pane header — so the
-            // client stays too tall and alt-screen TUIs clip at the top after an
-            // in-tab split. The fix sources the on-screen rendered grid via `paneGrid`.
-            return (columns: width, rows: height)
+        case let .pane(paneId):
+            // Source the pane's ON-SCREEN rendered grid (excludes the per-pane
+            // header), so the composed client size matches what is actually visible
+            // rather than tmux's claimed geometry. `nil` (pane not live yet)
+            // propagates up so the caller retries.
+            return paneGrid(paneId)
         case let .horizontal(children):
             var columns = 0
             var rows = 0
