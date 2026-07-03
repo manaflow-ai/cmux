@@ -18,11 +18,6 @@
 </p>
 
 <p align="center">
-  <strong>WeChat:</strong> Quét mã QR để tham gia cộng đồng.<br />
-  <img src="./docs/assets/wechat-community-qr.jpg" alt="Mã QR WeChat để tham gia cộng đồng cmux" width="240" />
-</p>
-
-<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="Ảnh chụp màn hình cmux" width="900" />
 </p>
 
