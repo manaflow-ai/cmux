@@ -799,6 +799,8 @@
       "exampleConfig": "Beispielkonfiguration",
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
+        "paneBorderColor": "Überschreibt die Farbe des cmux-Fensterteilers in geteilten Workspaces. Dies betrifft cmux-Fenstergrenzen, nicht interne Ghostty-Aufteilungen.",
+        "activePaneBorderColor": "Optionale Rahmenfarbe, die in geteilten Workspaces um das fokussierte cmux-Fenster gezeichnet wird.",
         "automation": {
           "ampIntegration": "Aktiviere cmux-Integrations-Hooks für Amp. Wenn deaktiviert, bleibt das gebündelte Plugin inaktiv, ohne entfernt werden zu müssen.",
           "suppressSubagentNotifications": "Unterdrücke sichtbare Abschlussbenachrichtigungen und Statusänderungen von verschachtelten Codex- oder Claude-Unteragenten, während ihre Ereignisse in der Feed-Telemetrie bleiben.",

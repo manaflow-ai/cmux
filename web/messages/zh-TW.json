@@ -799,6 +799,8 @@
       "exampleConfig": "範例設定",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "paneBorderColor": "覆寫分割工作區中的 cmux 窗格分隔線顏色。此設定影響 cmux 窗格邊界，而不是 Ghostty 的內部分割。",
+        "activePaneBorderColor": "在分割工作區中圍繞目前聚焦的 cmux 窗格繪製的選用邊框顏色。",
         "automation": {
           "ampIntegration": "啟用 cmux 與 Amp 的整合鉤子。停用時，隨附的外掛程式會保持非啟用狀態，無需移除。",
           "suppressSubagentNotifications": "隱藏巢狀 Codex 或 Claude 子代理的可見完成通知和狀態變更，同時將其事件保留在 Feed 遙測中。",

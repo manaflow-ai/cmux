@@ -94,6 +94,10 @@ final class HostSettingsActions: SettingsHostActions {
         SleepyModeController.shared.store
     }
 
+    func resetAllSettingsSideEffects() {
+        PaneChromeSettings.notifyDidChange()
+    }
+
     func openConfigInExternalEditor() {
         // Honor the user's configured editor (`preferredEditorCommand`),
         // falling back to the OS default. Opening the config file directly

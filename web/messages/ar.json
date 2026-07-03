@@ -799,6 +799,8 @@
       "exampleConfig": "مثال على الإعدادات",
       "metaTitle": "الإعدادات",
       "schemaDescriptions": {
+        "paneBorderColor": "تجاوز لون فاصل ألواح cmux في مساحات العمل المقسمة. يؤثر هذا على حدود ألواح cmux، وليس على التقسيمات الداخلية في Ghostty.",
+        "activePaneBorderColor": "لون حدود اختياري يُرسم حول لوح cmux المركّز في مساحات العمل المقسمة.",
         "automation": {
           "ampIntegration": "تفعيل خطافات تكامل cmux لـ Amp. عند التعطيل، يظل المكون الإضافي المرفق غير نشط دون الحاجة إلى إزالته.",
           "suppressSubagentNotifications": "قم بإخفاء إشعارات الإكمال المرئية وتغييرات الحالة من وكلاء Codex أو Claude الفرعيين المتداخلين مع إبقاء أحداثهم في قياسات Feed.",

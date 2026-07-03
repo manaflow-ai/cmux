@@ -799,6 +799,8 @@
       "exampleConfig": "Esempio di configurazione",
       "metaTitle": "Configurazione",
       "schemaDescriptions": {
+        "paneBorderColor": "Sovrascrive il colore del divisore dei riquadri cmux negli spazi di lavoro divisi. Influisce sui bordi dei riquadri cmux, non sulle divisioni interne di Ghostty.",
+        "activePaneBorderColor": "Colore del bordo opzionale disegnato attorno al riquadro cmux focalizzato negli spazi di lavoro divisi.",
         "automation": {
           "ampIntegration": "Abilita gli hook di integrazione cmux per Amp. Se disabilitato, il plugin in bundle rimane inattivo senza dover essere rimosso.",
           "suppressSubagentNotifications": "Nasconde le notifiche visibili di completamento e le modifiche di stato degli agenti figli Codex o Claude annidati, mantenendo i loro eventi nella telemetria Feed.",
