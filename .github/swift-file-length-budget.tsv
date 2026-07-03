@@ -14,7 +14,7 @@
 8016	CLI/cmux_open.swift
 7706	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7405	cmuxTests/WorkspaceUnitTests.swift
-7322	cmuxTests/WorkspaceRemoteConnectionTests.swift
+7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
 6255	cmuxTests/GhosttyConfigTests.swift
 6166	Sources/TabManager.swift
