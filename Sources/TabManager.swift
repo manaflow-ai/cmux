@@ -1682,11 +1682,12 @@ class TabManager {
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)
 
-    func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
+    func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String, displayLabel: String? = nil) {
         sidebarGitMetadataService.updateSurfaceDirectory(
             workspaceId: tabId,
             panelId: surfaceId,
-            directory: directory
+            directory: directory,
+            displayLabel: displayLabel
         )
     }
 
