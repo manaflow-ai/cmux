@@ -49,7 +49,7 @@ public struct TerminalTitleChurnFilter {
     ///   - surfaceID: The terminal surface that emitted `rawTitle`.
     /// - Returns: The title to post, or `nil` when the frame should be dropped.
     public mutating func titleToDispatch(for rawTitle: String, surfaceID: UUID) -> String? {
-        let stable = Self.collapseSpinnerFrames(rawTitle)
+        let stable = collapseTerminalTitleSpinnerFrames(rawTitle)
         // A frame that is *only* a spinner glyph (no label survives the
         // collapse) carries no title of its own; dropping it avoids blanking a
         // label a previous frame already showed.
@@ -65,39 +65,39 @@ public struct TerminalTitleChurnFilter {
         return stable
     }
 
-    /// Strips a leading run of Braille spinner glyphs and the whitespace that
-    /// separates them from their label, returning the label untouched. A title
-    /// with no leading spinner is returned **exactly** as given — plain OSC
-    /// titles keep any intentional padding; only spinner frames are rewritten.
-    /// Private: behavior is exercised through `titleToDispatch` in tests.
-    private static func collapseSpinnerFrames(_ rawTitle: String) -> String {
-        var cursor = Substring(rawTitle)
-        // A spinner frame may carry leading whitespace before the glyph; peek
-        // past it to detect the spinner without disturbing non-spinner titles.
-        while let character = cursor.first, character.isWhitespace {
-            cursor = cursor.dropFirst()
-        }
-        guard let first = cursor.first, isBrailleSpinnerGlyph(first) else {
-            return rawTitle
-        }
-        // Strip the spinner-glyph run and the whitespace separating it from the
-        // label; the label itself (including any trailing content) is kept.
-        while let character = cursor.first, isBrailleSpinnerGlyph(character) {
-            cursor = cursor.dropFirst()
-        }
-        while let character = cursor.first, character.isWhitespace {
-            cursor = cursor.dropFirst()
-        }
-        return String(cursor)
-    }
+}
 
-    /// A spinner frame is a single Braille Pattern code point. Multi-scalar
-    /// graphemes (emoji, combining sequences) are never spinner glyphs.
-    private static func isBrailleSpinnerGlyph(_ character: Character) -> Bool {
-        guard character.unicodeScalars.count == 1,
-              let scalar = character.unicodeScalars.first else {
-            return false
-        }
-        return (0x2800...0x28FF).contains(scalar.value)
+/// Strips a leading run of Braille spinner glyphs and the whitespace that
+/// separates them from their label, returning the label untouched. A title with
+/// no leading spinner is returned **exactly** as given — plain OSC titles keep
+/// any intentional padding; only spinner frames are rewritten.
+private func collapseTerminalTitleSpinnerFrames(_ rawTitle: String) -> String {
+    var cursor = Substring(rawTitle)
+    // A spinner frame may carry leading whitespace before the glyph; peek past
+    // it to detect the spinner without disturbing non-spinner titles.
+    while let character = cursor.first, character.isWhitespace {
+        cursor = cursor.dropFirst()
     }
+    guard let first = cursor.first, terminalTitleCharacterIsBrailleSpinnerGlyph(first) else {
+        return rawTitle
+    }
+    // Strip the spinner-glyph run and the whitespace separating it from the
+    // label; the label itself (including any trailing content) is kept.
+    while let character = cursor.first, terminalTitleCharacterIsBrailleSpinnerGlyph(character) {
+        cursor = cursor.dropFirst()
+    }
+    while let character = cursor.first, character.isWhitespace {
+        cursor = cursor.dropFirst()
+    }
+    return String(cursor)
+}
+
+/// A spinner frame is a single Braille Pattern code point. Multi-scalar
+/// graphemes (emoji, combining sequences) are never spinner glyphs.
+private func terminalTitleCharacterIsBrailleSpinnerGlyph(_ character: Character) -> Bool {
+    guard character.unicodeScalars.count == 1,
+          let scalar = character.unicodeScalars.first else {
+        return false
+    }
+    return (0x2800...0x28FF).contains(scalar.value)
 }
