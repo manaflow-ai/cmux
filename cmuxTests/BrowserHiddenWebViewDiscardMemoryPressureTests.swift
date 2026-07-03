@@ -48,8 +48,7 @@ private final class MemoryPressureHiddenWebViewDiscardTestDelegate: BrowserHidde
 
 @MainActor
 private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(
-    hasRecoverableWebContentTermination: Bool = false,
-    hasPendingMediaCapturePermission: Bool = false
+    hasRecoverableWebContentTermination: Bool = false
 ) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
     BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
         isClosing: false,
@@ -61,7 +60,6 @@ private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(
         webViewIsLoading: false,
         hasActiveMainFrameProvisionalNavigation: false,
         hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
-        hasPendingMediaCapturePermission: hasPendingMediaCapturePermission,
         isDownloading: false,
         activeDownloadCount: 0,
         preferredDeveloperToolsVisible: false,
@@ -133,28 +131,6 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
             ))
             #expect(delegate.discardRequestCount == 1)
             #expect(delegate.lastDiscardReason == BrowserHiddenWebViewDiscardManager.systemMemoryPressureReason)
-        }
-    }
-
-    @Test func pendingMediaCapturePermissionBlocksImmediateHiddenWebViewDiscard() {
-        withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
-            let now = Date(timeIntervalSince1970: 800)
-            let snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(
-                hasPendingMediaCapturePermission: true
-            )
-            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
-            let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
-                snapshot: snapshot,
-                hiddenAt: now.addingTimeInterval(-10)
-            )
-            manager.delegate = delegate
-
-            #expect(manager.blockers(for: snapshot, now: now) == ["media_permission"])
-            #expect(!manager.requestImmediateDiscardIfSafe(
-                reason: BrowserHiddenWebViewDiscardManager.systemMemoryPressureReason,
-                now: now
-            ))
-            #expect(delegate.discardRequestCount == 0)
         }
     }
 

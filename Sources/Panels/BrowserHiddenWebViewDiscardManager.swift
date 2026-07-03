@@ -31,7 +31,6 @@ final class BrowserHiddenWebViewDiscardManager {
         let webViewIsLoading: Bool
         let hasActiveMainFrameProvisionalNavigation: Bool
         let hasRecoverableWebContentTermination: Bool
-        let hasPendingMediaCapturePermission: Bool
         let isDownloading: Bool
         let activeDownloadCount: Int
         let preferredDeveloperToolsVisible: Bool
@@ -53,7 +52,6 @@ final class BrowserHiddenWebViewDiscardManager {
             webViewIsLoading: Bool,
             hasActiveMainFrameProvisionalNavigation: Bool,
             hasRecoverableWebContentTermination: Bool = false,
-            hasPendingMediaCapturePermission: Bool = false,
             isDownloading: Bool,
             activeDownloadCount: Int,
             preferredDeveloperToolsVisible: Bool,
@@ -74,7 +72,6 @@ final class BrowserHiddenWebViewDiscardManager {
             self.webViewIsLoading = webViewIsLoading
             self.hasActiveMainFrameProvisionalNavigation = hasActiveMainFrameProvisionalNavigation
             self.hasRecoverableWebContentTermination = hasRecoverableWebContentTermination
-            self.hasPendingMediaCapturePermission = hasPendingMediaCapturePermission
             self.isDownloading = isDownloading
             self.activeDownloadCount = activeDownloadCount
             self.preferredDeveloperToolsVisible = preferredDeveloperToolsVisible
@@ -140,7 +137,6 @@ final class BrowserHiddenWebViewDiscardManager {
         if !snapshot.hasCurrentURL { blockers.append("no_url") }
         if snapshot.isLoading || snapshot.webViewIsLoading { blockers.append("loading") }
         if snapshot.hasActiveMainFrameProvisionalNavigation { blockers.append("provisional_navigation") }
-        if snapshot.hasPendingMediaCapturePermission { blockers.append("media_permission") }
         if snapshot.isDownloading || snapshot.activeDownloadCount != 0 { blockers.append("download") }
         if snapshot.isCapturingMedia { blockers.append("media_capture") }
         if snapshot.isPlayingMedia { blockers.append("media_playback") }

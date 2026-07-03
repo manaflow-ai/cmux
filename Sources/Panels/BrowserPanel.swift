@@ -2805,7 +2805,6 @@ final class BrowserPanel: Panel, ObservableObject {
     var shouldAttachWebViewInUI: Bool {
         shouldRenderWebView && !hasRecoverableWebContentTermination
     }
-    private(set) var hasPendingMediaCapturePermission = false
 
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
@@ -3107,37 +3106,10 @@ final class BrowserPanel: Panel, ObservableObject {
         if let isPlayingAudio { next.isPlayingAudio = isPlayingAudio }
         if let isUsingMicrophone { next.isUsingMicrophone = isUsingMicrophone }
         if let isUsingCamera { next.isUsingCamera = isUsingCamera }
-        let clearedPendingPermission = (next.isUsingMicrophone || next.isUsingCamera)
-            && setPendingMediaCapturePermission(false, reason: "media_capture_started", reevaluate: false)
-        guard next != mediaActivity else {
-            if clearedPendingPermission {
-                reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_started")
-            }
-            return
-        }
+        guard next != mediaActivity else { return }
         mediaActivity = next
         onMediaActivityChanged?(next)
-        reevaluateHiddenWebViewDiscardScheduling(reason: clearedPendingPermission ? "media_capture_started" : reason)
-    }
-
-    private func noteMediaCapturePermissionRequested(for requestedWebView: WKWebView) {
-        guard isCurrentWebView(requestedWebView) else { return }
-        setPendingMediaCapturePermission(true, reason: "media_permission_requested")
-    }
-
-    @discardableResult
-    private func clearPendingMediaCapturePermission(reason: String) -> Bool {
-        setPendingMediaCapturePermission(false, reason: reason)
-    }
-
-    @discardableResult
-    private func setPendingMediaCapturePermission(_ pending: Bool, reason: String, reevaluate: Bool = true) -> Bool {
-        guard hasPendingMediaCapturePermission != pending else { return false }
-        hasPendingMediaCapturePermission = pending
-        if reevaluate {
-            reevaluateHiddenWebViewDiscardScheduling(reason: reason)
-        }
-        return true
+        reevaluateHiddenWebViewDiscardScheduling(reason: reason)
     }
 
     /// Folds a per-frame playback report into retention and audio-glyph state.
@@ -3160,8 +3132,7 @@ final class BrowserPanel: Panel, ObservableObject {
         suppressHiddenWebViewDiscardReevaluation = true
         defer { suppressHiddenWebViewDiscardReevaluation = false }
 
-        var changed = setPendingMediaCapturePermission(false, reason: "webContentProcessTerminated", reevaluate: false)
-        changed = changed || !playingMediaFrameIDs.isEmpty || !audibleMediaFrameIDs.isEmpty || isPlayingMedia
+        var changed = !playingMediaFrameIDs.isEmpty || !audibleMediaFrameIDs.isEmpty || isPlayingMedia
         (playingMediaFrameIDs, audibleMediaFrameIDs) = ([], [])
         isPlayingMedia = false
         let previousMediaActivity = mediaActivity
@@ -3364,7 +3335,6 @@ final class BrowserPanel: Panel, ObservableObject {
             isWebViewVisibleInUI = false
         }
         hiddenWebViewDiscardManager.resetMetadata()
-        setPendingMediaCapturePermission(false, reason: "lifecycle_reset", reevaluate: false)
         isClosingWebViewLifecycle = false
     }
 
@@ -3903,7 +3873,6 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, isCurrentBoundWebView(self, webView) else { return }
                 self.isMainFrameProvisionalNavigationActive = true
-                self.clearPendingMediaCapturePermission(reason: "navigation_started")
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
             }
@@ -4267,9 +4236,6 @@ final class BrowserPanel: Panel, ObservableObject {
             cmuxDebugLog("browser.webViewDidClose panel=\(self.id.uuidString.prefix(5))")
 #endif
             self.webViewDidRequestClose?()
-        }
-        browserUIDelegate.mediaCapturePermissionRequested = { [weak self] webView in
-            self?.noteMediaCapturePermissionRequested(for: webView)
         }
         self.uiDelegate = browserUIDelegate
 
@@ -6240,7 +6206,6 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             webViewIsLoading: webView.isLoading,
             hasActiveMainFrameProvisionalNavigation: isMainFrameProvisionalNavigationActive,
             hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
-            hasPendingMediaCapturePermission: hasPendingMediaCapturePermission,
             isDownloading: isDownloading,
             activeDownloadCount: activeDownloadCount,
             preferredDeveloperToolsVisible: preferredDeveloperToolsVisible,
@@ -8888,7 +8853,6 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
     var closeRequested: ((WKWebView) -> Void)?
-    var mediaCapturePermissionRequested: ((WKWebView) -> Void)?
 
     func webViewDidClose(_ webView: WKWebView) {
         closeRequested?(webView)
@@ -9054,7 +9018,6 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         type: WKMediaCaptureType,
         decisionHandler: @escaping (WKPermissionDecision) -> Void
     ) {
-        mediaCapturePermissionRequested?(webView)
         decisionHandler(.prompt)
     }
 
