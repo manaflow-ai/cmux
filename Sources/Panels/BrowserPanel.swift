@@ -2791,8 +2791,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var websiteDataStore: WKWebsiteDataStore
     var webViewDidRequestClose: (() -> Void)?
 
-    /// Monotonic identity for the current WKWebView instance.
-    /// Incremented whenever we replace the underlying WKWebView after a process crash.
+    /// Monotonic identity for the current WKWebView observation binding.
+    /// Incremented whenever callbacks from the previous binding should be ignored.
     @Published private(set) var webViewInstanceID: UUID = UUID()
     private(set) var hasRecoverableWebContentTermination = false {
         willSet {
@@ -5265,7 +5265,6 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
         guard terminatedWebView === webView else { return }
-        webViewObservationGeneration &+= 1
 
         let wasRenderable = shouldRenderWebView
         let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
@@ -5293,6 +5292,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelPendingInteractiveBrowserPrompts(reason: "webContentProcessTerminated")
 
         if wasRenderable, hasRecoveryTarget, let recoveryURL {
+            webViewObservationGeneration &+= 1
             pendingWebContentRecoveryURL = recoveryURL
             hasRecoverableWebContentTermination = true
             hideBrowserPortalView(source: "webContentRecovery", recordHiddenVisibility: false)
