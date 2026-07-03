@@ -1,3 +1,5 @@
+import Foundation
+
 /// Pure decision logic for self-healing the control-socket listener when the
 /// app is reactivated.
 ///
