@@ -135,7 +135,11 @@ final class BrowserHiddenWebViewDiscardManager {
         if !snapshot.shouldRenderWebView { blockers.append("not_rendered") }
         if snapshot.hasPendingRemoteNavigation { blockers.append("pending_remote_navigation") }
         if !snapshot.hasCurrentURL { blockers.append("no_url") }
-        if snapshot.isLoading || snapshot.webViewIsLoading { blockers.append("loading") }
+        let allowsRecoverableDiscard = snapshot.hasRecoverableWebContentTermination &&
+            allowingRecoverableWebContentTermination
+        if (snapshot.isLoading || snapshot.webViewIsLoading) && !allowsRecoverableDiscard {
+            blockers.append("loading")
+        }
         if snapshot.hasActiveMainFrameProvisionalNavigation { blockers.append("provisional_navigation") }
         if snapshot.isDownloading || snapshot.activeDownloadCount != 0 { blockers.append("download") }
         if snapshot.isCapturingMedia { blockers.append("media_capture") }
