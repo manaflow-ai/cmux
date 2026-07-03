@@ -10529,8 +10529,7 @@ struct VerticalTabsSidebar: View {
             VStack(alignment: .leading, spacing: 0) {
                 UpdateReadyToastOverlay(model: updateViewModel, actions: AppDelegate.shared)
                 SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            }.frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
