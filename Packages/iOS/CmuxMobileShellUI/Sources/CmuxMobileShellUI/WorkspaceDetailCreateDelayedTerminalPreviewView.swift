@@ -7,24 +7,20 @@ import SwiftUI
 struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
     private static let initialWorkspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-main")
     private static let initialTerminalID = MobileTerminalPreview.ID(rawValue: "terminal-build")
-    private static let actionCapabilities = MobileWorkspaceActionCapabilities(
-        supportsWorkspaceActions: true,
-        supportsReadStateActions: true
-    )
 
     @State private var store = MobileShellComposite(
         isSignedIn: true,
         connectionState: .connected,
         connectedHostName: "UI Test Mac",
         workspaces: [
-            Self.workspace(
-                id: initialWorkspaceID,
+            workspaceDetailCreateDelayedTerminalPreviewWorkspace(
+                id: Self.initialWorkspaceID,
                 name: "cmux",
                 terminals: [
-                    MobileTerminalPreview(id: initialTerminalID, name: "Build"),
+                    MobileTerminalPreview(id: Self.initialTerminalID, name: "Build"),
                 ]
             ),
-            Self.workspace(
+            workspaceDetailCreateDelayedTerminalPreviewWorkspace(
                 id: "workspace-docs",
                 name: "Docs",
                 terminals: [
@@ -67,7 +63,7 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
             try? await ContinuousClock().sleep(for: .milliseconds(1_500))
             guard !Task.isCancelled else { return }
             let terminalID = MobileTerminalPreview.ID(rawValue: "\(workspaceID.rawValue)-terminal-1")
-            let updatedWorkspace = Self.workspace(
+            let updatedWorkspace = workspaceDetailCreateDelayedTerminalPreviewWorkspace(
                 id: workspace.id,
                 macDeviceID: workspace.macDeviceID,
                 macDisplayName: workspace.macDisplayName,
@@ -91,37 +87,42 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
             store.selectedTerminalID = terminalID
         }
     }
+}
 
-    private static func workspace(
-        id: MobileWorkspacePreview.ID,
-        macDeviceID: String? = nil,
-        macDisplayName: String? = nil,
-        windowID: String? = nil,
-        name: String,
-        isPinned: Bool = false,
-        groupID: MobileWorkspaceGroupPreview.ID? = nil,
-        previewText: String? = nil,
-        previewAt: Date? = nil,
-        lastActivityAt: Date? = nil,
-        hasUnread: Bool = false,
-        terminals: [MobileTerminalPreview]
-    ) -> MobileWorkspacePreview {
-        var workspace = MobileWorkspacePreview(
-            id: id,
-            macDeviceID: macDeviceID,
-            macDisplayName: macDisplayName,
-            windowID: windowID,
-            name: name,
-            isPinned: isPinned,
-            groupID: groupID,
-            previewText: previewText,
-            previewAt: previewAt,
-            lastActivityAt: lastActivityAt,
-            hasUnread: hasUnread,
-            terminals: terminals
-        )
-        workspace.actionCapabilities = actionCapabilities
-        return workspace
-    }
+private let workspaceDetailCreateDelayedTerminalActionCapabilities = MobileWorkspaceActionCapabilities(
+    supportsWorkspaceActions: true,
+    supportsReadStateActions: true
+)
+
+private func workspaceDetailCreateDelayedTerminalPreviewWorkspace(
+    id: MobileWorkspacePreview.ID,
+    macDeviceID: String? = nil,
+    macDisplayName: String? = nil,
+    windowID: String? = nil,
+    name: String,
+    isPinned: Bool = false,
+    groupID: MobileWorkspaceGroupPreview.ID? = nil,
+    previewText: String? = nil,
+    previewAt: Date? = nil,
+    lastActivityAt: Date? = nil,
+    hasUnread: Bool = false,
+    terminals: [MobileTerminalPreview]
+) -> MobileWorkspacePreview {
+    var workspace = MobileWorkspacePreview(
+        id: id,
+        macDeviceID: macDeviceID,
+        macDisplayName: macDisplayName,
+        windowID: windowID,
+        name: name,
+        isPinned: isPinned,
+        groupID: groupID,
+        previewText: previewText,
+        previewAt: previewAt,
+        lastActivityAt: lastActivityAt,
+        hasUnread: hasUnread,
+        terminals: terminals
+    )
+    workspace.actionCapabilities = workspaceDetailCreateDelayedTerminalActionCapabilities
+    return workspace
 }
 #endif
