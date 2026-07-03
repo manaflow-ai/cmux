@@ -14,22 +14,10 @@ struct WorkspaceAutoColorUnitTests {
 
     @Test
     func settingsFileStoreAppliesWorkspaceAutoColorFromCwd() throws {
-        let defaults = UserDefaults.standard
+        let defaultsFixture = try makeIsolatedDefaults()
+        defer { defaultsFixture.defaults.removePersistentDomain(forName: defaultsFixture.suiteName) }
+        let defaults = defaultsFixture.defaults
         let autoColorKey = SettingCatalog().workspaceColors.autoColorFromCwd.userDefaultsKey
-        let previousAutoColor = defaults.object(forKey: autoColorKey)
-        let previousBackups = defaults.data(forKey: Self.settingsFileBackupsDefaultsKey)
-        defer {
-            if let previousAutoColor {
-                defaults.set(previousAutoColor, forKey: autoColorKey)
-            } else {
-                defaults.removeObject(forKey: autoColorKey)
-            }
-            if let previousBackups {
-                defaults.set(previousBackups, forKey: Self.settingsFileBackupsDefaultsKey)
-            } else {
-                defaults.removeObject(forKey: Self.settingsFileBackupsDefaultsKey)
-            }
-        }
 
         defaults.removeObject(forKey: autoColorKey)
         defaults.removeObject(forKey: Self.settingsFileBackupsDefaultsKey)
@@ -52,6 +40,7 @@ struct WorkspaceAutoColorUnitTests {
         _ = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
+            userDefaults: defaults,
             startWatching: false
         )
 
@@ -64,6 +53,7 @@ struct WorkspaceAutoColorUnitTests {
         _ = KeyboardShortcutSettingsFileStore(
             primaryPath: missingSettingsURL.path,
             fallbackPath: nil,
+            userDefaults: defaults,
             startWatching: false
         )
 
