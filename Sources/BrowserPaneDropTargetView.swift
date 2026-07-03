@@ -429,7 +429,11 @@ final class BrowserPaneDropTargetView: NSView {
     /// The live container tab a Dock drop can move; registry-backed virtual drags
     /// such as file previews own no live surface and must be rejected.
     private func liveSurfaceTransfer(for sender: any NSDraggingInfo) -> BrowserPaneDragTransfer? {
-        guard let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
+        guard let transfer = BrowserPaneDragTransfer.decode(
+            from: sender.draggingPasteboard,
+            filePreviewTransferType: DragOverlayRoutingPolicy.filePreviewTransferType,
+            bonsplitTabTransferType: DragOverlayRoutingPolicy.bonsplitTabTransferType
+        ),
               transfer.isFromCurrentProcess,
               !transfer.isFilePreview,
               AppDelegate.shared?.locateContainerSurface(tabId: transfer.tabId) != nil else {
