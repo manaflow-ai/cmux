@@ -494,7 +494,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["runtimeStatus"] as? String == "idle")
         #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
         let pidCapturedAt = try #require(session["pidCapturedAt"] as? TimeInterval)
-        #expect(pidCapturedAt > previousPidCapturedAt)
+        #expect(pidCapturedAt == previousPidCapturedAt)
     }
 
     @Test func codexPromptSubmitDoesNotRefreshCarriedForwardPidCapture() throws {
