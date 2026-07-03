@@ -66,7 +66,7 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
         preferLoopback: Bool = false,
         maxCandidates: Int? = nil
     ) -> [CmxRouteCandidate] {
-        let ranked = deduped().sorted { Self.sortsBefore($0, $1, preferLoopback: preferLoopback) }
+        let ranked = deduped().sorted { sortsBefore($0, $1, preferLoopback: preferLoopback) }
         // No cap requested (nil) or a negative cap: return the full additive set.
         // A zero cap yields an empty result; a positive cap truncates after
         // ranking, dropping the worst-ranked candidates.
@@ -93,7 +93,7 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
         for candidate in candidates {
             let key = candidate.dedupKey
             if let existing = bestByKey[key] {
-                if Self.prefersAsDedupWinner(candidate, over: existing) {
+                if prefersAsDedupWinner(candidate, over: existing) {
                     bestByKey[key] = candidate
                 }
             } else {
@@ -121,7 +121,7 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
     // MARK: - Ordering
 
     /// Whether `lhs` should replace `rhs` as the kept candidate for one dedup key.
-    private static func prefersAsDedupWinner(
+    private func prefersAsDedupWinner(
         _ lhs: CmxRouteCandidate,
         over rhs: CmxRouteCandidate
     ) -> Bool {
@@ -139,7 +139,7 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
     /// authority, then proximity, then the Mac-assigned priority, then a stable
     /// key. Freshness/authority lead so a fresh registry route outranks a stale
     /// cached one regardless of how close the stale one is.
-    private static func sortsBefore(
+    private func sortsBefore(
         _ lhs: CmxRouteCandidate,
         _ rhs: CmxRouteCandidate,
         preferLoopback: Bool
@@ -148,8 +148,8 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
         if lhs.source.authority != rhs.source.authority {
             return lhs.source.authority > rhs.source.authority
         }
-        let lhsTier = Self.proximityRank(lhs.proximity, preferLoopback: preferLoopback)
-        let rhsTier = Self.proximityRank(rhs.proximity, preferLoopback: preferLoopback)
+        let lhsTier = proximityRank(lhs.proximity, preferLoopback: preferLoopback)
+        let rhsTier = proximityRank(rhs.proximity, preferLoopback: preferLoopback)
         if lhsTier != rhsTier { return lhsTier < rhsTier }
         if lhs.route.priority != rhs.route.priority { return lhs.route.priority < rhs.route.priority }
         return lhs.dedupKey < rhs.dedupKey
@@ -157,7 +157,7 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
 
     /// Sort weight for a proximity tier (lower = tried first). `preferLoopback`
     /// flips loopback between first (simulator) and last-before-unknown (device).
-    private static func proximityRank(_ proximity: CmxRouteProximity, preferLoopback: Bool) -> Int {
+    private func proximityRank(_ proximity: CmxRouteProximity, preferLoopback: Bool) -> Int {
         switch proximity {
         case .loopback: return preferLoopback ? 0 : 3
         case .lan: return preferLoopback ? 1 : 0

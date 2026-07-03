@@ -48,7 +48,9 @@ public struct CmxRouteCandidate: Equatable, Sendable {
     }
 
     /// The route's proximity tier, derived from its endpoint address.
-    public var proximity: CmxRouteProximity { .classify(route.endpoint) }
+    public var proximity: CmxRouteProximity {
+        CmxRouteProximityClassifier().classify(route.endpoint)
+    }
 
     /// Stable identity used to dedup candidates. Includes the transport `kind`
     /// so two routes to the SAME address over different transports — e.g. a

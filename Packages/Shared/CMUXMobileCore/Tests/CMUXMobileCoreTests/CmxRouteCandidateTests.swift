@@ -6,6 +6,8 @@ import Testing
 /// endpoint dedup, and the union/freshness/proximity ranking the phone uses to
 /// try a paired Mac's routes in order.
 @Suite struct CmxRouteCandidateTests {
+    private let proximityClassifier = CmxRouteProximityClassifier()
+
     private func hostPort(
         _ host: String,
         port: Int = 50_000,
@@ -35,55 +37,55 @@ import Testing
     // MARK: - Proximity classification
 
     @Test func classifiesLoopbackAddresses() {
-        #expect(CmxRouteProximity.classify(.hostPort(host: "127.0.0.1", port: 1)) == .loopback)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "127.255.255.254", port: 1)) == .loopback)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "::1", port: 1)) == .loopback)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "[::1]", port: 1)) == .loopback)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "localhost", port: 1)) == .loopback)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "db.localhost", port: 1)) == .loopback)
+        #expect(proximityClassifier.classify(.hostPort(host: "127.0.0.1", port: 1)) == .loopback)
+        #expect(proximityClassifier.classify(.hostPort(host: "127.255.255.254", port: 1)) == .loopback)
+        #expect(proximityClassifier.classify(.hostPort(host: "::1", port: 1)) == .loopback)
+        #expect(proximityClassifier.classify(.hostPort(host: "[::1]", port: 1)) == .loopback)
+        #expect(proximityClassifier.classify(.hostPort(host: "localhost", port: 1)) == .loopback)
+        #expect(proximityClassifier.classify(.hostPort(host: "db.localhost", port: 1)) == .loopback)
     }
 
     @Test func classifiesLanAddresses() {
-        #expect(CmxRouteProximity.classify(.hostPort(host: "10.0.0.5", port: 1)) == .lan)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "172.16.0.1", port: 1)) == .lan)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "172.31.255.1", port: 1)) == .lan)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "192.168.1.1", port: 1)) == .lan)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "169.254.1.2", port: 1)) == .lan)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "fe80::1", port: 1)) == .lan)
+        #expect(proximityClassifier.classify(.hostPort(host: "10.0.0.5", port: 1)) == .lan)
+        #expect(proximityClassifier.classify(.hostPort(host: "172.16.0.1", port: 1)) == .lan)
+        #expect(proximityClassifier.classify(.hostPort(host: "172.31.255.1", port: 1)) == .lan)
+        #expect(proximityClassifier.classify(.hostPort(host: "192.168.1.1", port: 1)) == .lan)
+        #expect(proximityClassifier.classify(.hostPort(host: "169.254.1.2", port: 1)) == .lan)
+        #expect(proximityClassifier.classify(.hostPort(host: "fe80::1", port: 1)) == .lan)
         // Full fe80::/10 link-local range (fe80 – febf), not just fe80.
-        #expect(CmxRouteProximity.classify(.hostPort(host: "fea0::1", port: 1)) == .lan)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "febf::1", port: 1)) == .lan)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "fc00::1", port: 1)) == .lan)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "fd12:3456::1", port: 1)) == .lan)
+        #expect(proximityClassifier.classify(.hostPort(host: "fea0::1", port: 1)) == .lan)
+        #expect(proximityClassifier.classify(.hostPort(host: "febf::1", port: 1)) == .lan)
+        #expect(proximityClassifier.classify(.hostPort(host: "fc00::1", port: 1)) == .lan)
+        #expect(proximityClassifier.classify(.hostPort(host: "fd12:3456::1", port: 1)) == .lan)
     }
 
     @Test func classifiesTailnetAddresses() {
-        #expect(CmxRouteProximity.classify(.hostPort(host: "100.64.0.1", port: 1)) == .tailnet)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "100.127.255.255", port: 1)) == .tailnet)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "100.82.214.112", port: 1)) == .tailnet)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "node.tail137216.ts.net", port: 1)) == .tailnet)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "fd7a:115c:a1e0::4b36:d670", port: 1)) == .tailnet)
+        #expect(proximityClassifier.classify(.hostPort(host: "100.64.0.1", port: 1)) == .tailnet)
+        #expect(proximityClassifier.classify(.hostPort(host: "100.127.255.255", port: 1)) == .tailnet)
+        #expect(proximityClassifier.classify(.hostPort(host: "100.82.214.112", port: 1)) == .tailnet)
+        #expect(proximityClassifier.classify(.hostPort(host: "node.tail137216.ts.net", port: 1)) == .tailnet)
+        #expect(proximityClassifier.classify(.hostPort(host: "fd7a:115c:a1e0::4b36:d670", port: 1)) == .tailnet)
     }
 
     @Test func classifiesRelayAddresses() {
         // Public IP literal: dialable but not local/tailnet.
-        #expect(CmxRouteProximity.classify(.hostPort(host: "8.8.8.8", port: 1)) == .relay)
+        #expect(proximityClassifier.classify(.hostPort(host: "8.8.8.8", port: 1)) == .relay)
         // 100.0.0.0/8 outside the 100.64/10 CGNAT range is not a tailnet IP.
-        #expect(CmxRouteProximity.classify(.hostPort(host: "100.0.0.1", port: 1)) == .relay)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "100.128.0.1", port: 1)) == .relay)
+        #expect(proximityClassifier.classify(.hostPort(host: "100.0.0.1", port: 1)) == .relay)
+        #expect(proximityClassifier.classify(.hostPort(host: "100.128.0.1", port: 1)) == .relay)
         // 172.x outside 16..31 is not RFC1918 private.
-        #expect(CmxRouteProximity.classify(.hostPort(host: "172.15.0.1", port: 1)) == .relay)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "172.32.0.1", port: 1)) == .relay)
+        #expect(proximityClassifier.classify(.hostPort(host: "172.15.0.1", port: 1)) == .relay)
+        #expect(proximityClassifier.classify(.hostPort(host: "172.32.0.1", port: 1)) == .relay)
         // A general hostname needs DNS.
-        #expect(CmxRouteProximity.classify(.hostPort(host: "example.com", port: 1)) == .relay)
+        #expect(proximityClassifier.classify(.hostPort(host: "example.com", port: 1)) == .relay)
         // iroh peer and websocket URL transports are relay-class.
-        #expect(CmxRouteProximity.classify(.peer(id: "abc", relayHint: nil, directAddrs: [], relayURL: nil)) == .relay)
-        #expect(CmxRouteProximity.classify(.url("wss://relay.example/ws")) == .relay)
+        #expect(proximityClassifier.classify(.peer(id: "abc", relayHint: nil, directAddrs: [], relayURL: nil)) == .relay)
+        #expect(proximityClassifier.classify(.url("wss://relay.example/ws")) == .relay)
     }
 
     @Test func classifiesEmptyHostAsUnknown() {
-        #expect(CmxRouteProximity.classify(.hostPort(host: "", port: 1)) == .unknown)
-        #expect(CmxRouteProximity.classify(.hostPort(host: "   ", port: 1)) == .unknown)
+        #expect(proximityClassifier.classify(.hostPort(host: "", port: 1)) == .unknown)
+        #expect(proximityClassifier.classify(.hostPort(host: "   ", port: 1)) == .unknown)
     }
 
     // MARK: - Endpoint dedup keys
