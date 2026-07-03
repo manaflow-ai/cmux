@@ -552,7 +552,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stderr.contains("[cmux] ssh exited with status 1."), result.stderr)
-        XCTAssertTrue(result.stderr.contains("[cmux] press r then Enter to reconnect, or Enter to close this pane."), result.stderr)
+        XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
     }
 
     func testSSHStartupForwardsStdinToBackgroundedSSH() throws {
@@ -718,7 +718,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
     }
 
-    func generatedVMSSHInitialStartupCommand() throws -> String {
+    private func generatedVMSSHInitialStartupCommand() throws -> String {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-ssh-startup")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -820,7 +820,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return try XCTUnwrap(createParams["initial_command"] as? String)
     }
 
-    func writeShellFile(at url: URL, lines: [String]) throws {
+    private func writeShellFile(at url: URL, lines: [String]) throws {
         try lines.joined(separator: "\n")
             .appending("\n")
             .write(to: url, atomically: true, encoding: .utf8)
