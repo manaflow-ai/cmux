@@ -40,6 +40,10 @@ extension CMUXCLI {
             method: "workspace.set_auto_title",
             params: ["probe": true, "workspace_id": workspaceId]
         )
+        guard let probe = autoTitleProbe, probe["enabled"] as? Bool == true else {
+            telemetry.breadcrumb("claude-hook.auto-name.disabled")
+            return
+        }
         if let claudeTitle = engine.latestClaudeConversationTitle(
             fromTranscriptLines: lines,
             matchingSessionId: sessionId
@@ -49,15 +53,11 @@ extension CMUXCLI {
                 sessionId: sessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                allowWorkspaceRename: (autoTitleProbe?["workspace_user_owned"] as? Bool) == false,
+                allowWorkspaceRename: (probe["workspace_user_owned"] as? Bool) == false,
                 sessionStore: sessionStore,
                 client: client,
                 telemetry: telemetry
             )
-        }
-
-        guard let probe = autoTitleProbe, probe["enabled"] as? Bool == true else {
-            telemetry.breadcrumb("claude-hook.auto-name.disabled")
             return
         }
         guard probe["workspace_user_owned"] as? Bool != true else {

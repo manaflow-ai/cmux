@@ -622,7 +622,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         agentPIDWorkspaceId: String? = nil,
         agentPIDSurfaceId: String? = nil,
         requiredSocketPassword: String? = nil,
-        workspaceUserOwned: Bool = false,
+        autoNamingEnabled: Bool = true, workspaceUserOwned: Bool = false,
         tabTitleUserOwned: Bool = false,
         failingMethods: Set<String> = []
     ) -> DispatchSemaphore {
@@ -687,7 +687,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                 let params = payload["params"] as? [String: Any]
                 if params?["probe"] as? Bool == true {
                     return v2Response(id: id, ok: true, result: [
-                        "enabled": false,
+                        "enabled": autoNamingEnabled,
                         "workspace_user_owned": context.state.isWorkspaceUserOwned(),
                     ])
                 }
