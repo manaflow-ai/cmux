@@ -1,5 +1,4 @@
 import { getTranslations } from "next-intl/server";
-import { hasFeatureWorkflowContent } from "../../../../i18n/locale-availability";
 import { buildAlternates } from "../../../../i18n/seo";
 import { DocsSchema } from "../docs-schema";
 import { Link } from "../../../../i18n/navigation";
@@ -26,7 +25,6 @@ export default async function SessionRestorePage({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const showBlogCta = hasFeatureWorkflowContent(locale);
   const t = await getTranslations({ locale, namespace: "docs.sessionRestore" });
 
   return (
@@ -203,13 +201,6 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
           configLink: (chunks) => <Link href="/docs/configuration">{chunks}</Link>,
         })}
       </p>
-      {showBlogCta ? (
-        <p>
-          {t.rich("blogCta", {
-            link: (chunks) => <Link href="/blog/session-restore">{chunks}</Link>,
-          })}
-        </p>
-      ) : null}
     </>
   );
 }
