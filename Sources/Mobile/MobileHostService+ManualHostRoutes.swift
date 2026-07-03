@@ -1,75 +1,61 @@
 import CMUXMobileCore
-import CmuxSettings
 import Foundation
 
 extension MobileHostService {
     /// User-default key for the explicit manual host advertised to iOS when
     /// Tailscale is unavailable on this Mac.
-    nonisolated static let manualHostDefaultsKey = SettingCatalog().mobile.iOSPairingManualHost.userDefaultsKey
+    nonisolated static let manualHostDefaultsKey = MobileHostRouteAdvertisement.manualHostDefaultsKey
 
     /// The user-configured LAN/DNS host to advertise as an explicit manual route,
     /// or `nil` when unset or invalid.
     nonisolated static func configuredManualHost(defaults: UserDefaults = .standard) -> String? {
-        guard let raw = defaults.object(forKey: manualHostDefaultsKey) as? String,
-              let host = CmxManualHost(raw)?.rawValue,
-              !CmxLoopbackHost().matches(host) else {
-            return nil
-        }
-        return host
+        MobileHostRouteAdvertisement.configuredManualHost(defaults: defaults)
     }
 
     nonisolated static func manualHostNeedsRouteRefresh(previous: String?, current: String?) -> Bool {
-        previous != current
+        MobileHostRouteAdvertisement.manualHostNeedsRouteRefresh(previous: previous, current: current)
     }
 
     func currentRoutes(port: Int) -> [CmxAttachRoute] {
-        currentRoutes(port: port, manualHost: Self.configuredManualHost())
+        routeAdvertisement.currentRoutes(port: port)
     }
 
     func currentRoutes(port: Int, manualHost: String?) -> [CmxAttachRoute] {
-        routeResolver.routes(port: port, manualHost: manualHost).routes
+        routeAdvertisement.currentRoutes(port: port, manualHost: manualHost)
     }
 
     func currentRoutes(port: Int, tailscaleHosts: [String]) -> [CmxAttachRoute] {
-        currentRoutes(port: port, tailscaleHosts: tailscaleHosts, manualHost: Self.configuredManualHost())
+        routeAdvertisement.currentRoutes(port: port, tailscaleHosts: tailscaleHosts)
     }
 
     func currentRoutes(port: Int, tailscaleHosts: [String], manualHost: String?) -> [CmxAttachRoute] {
-        routeResolver.routes(
-            port: port,
-            tailscaleHosts: tailscaleHosts,
-            manualHost: manualHost
-        ).routes
+        routeAdvertisement.currentRoutes(port: port, tailscaleHosts: tailscaleHosts, manualHost: manualHost)
     }
 
     func publishCurrentRoutes(port: Int) {
-        let manualHost = Self.configuredManualHost()
-        advertisedManualHost = manualHost
-        updatePublicStatusSnapshot(routes: currentRoutes(port: port, manualHost: manualHost))
+        updatePublicStatusSnapshot(routes: routeAdvertisement.publishCurrentRoutes(port: port))
     }
 
     func publishCurrentRoutes(port: Int, tailscaleHosts: [String]) {
-        let manualHost = Self.configuredManualHost()
-        advertisedManualHost = manualHost
         updatePublicStatusSnapshot(
-            routes: currentRoutes(port: port, tailscaleHosts: tailscaleHosts, manualHost: manualHost)
+            routes: routeAdvertisement.publishCurrentRoutes(port: port, tailscaleHosts: tailscaleHosts)
         )
     }
 
     func clearAdvertisedRoutes() {
-        advertisedManualHost = nil
-        updatePublicStatusSnapshot(routes: [])
+        updatePublicStatusSnapshot(routes: routeAdvertisement.clearAdvertisedRoutes())
     }
 
     func refreshAdvertisedRoutesIfRunning(defaults: UserDefaults = .standard) {
         guard let listenerPort else {
             return
         }
-        let manualHost = Self.configuredManualHost(defaults: defaults)
-        guard Self.manualHostNeedsRouteRefresh(previous: advertisedManualHost, current: manualHost) else {
+        guard let routes = routeAdvertisement.refreshAdvertisedRoutesIfNeeded(
+            port: listenerPort,
+            defaults: defaults
+        ) else {
             return
         }
-        advertisedManualHost = manualHost
-        updatePublicStatusSnapshot(routes: currentRoutes(port: listenerPort, manualHost: manualHost))
+        updatePublicStatusSnapshot(routes: routes)
     }
 }

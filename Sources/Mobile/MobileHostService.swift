@@ -350,6 +350,9 @@ final class MobileHostService {
     /// degrades to identity-free and the phone's identity-recovery retry
     /// picks it up later). A flood of unique garbage tokens therefore cannot
     /// queue unbounded Stack lookups behind this verb.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     nonisolated func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedToken?.isEmpty == false else {
@@ -363,9 +366,10 @@ final class MobileHostService {
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
-    let routeResolver = MobileRouteResolver()
+    let routeResolver: MobileRouteResolver
+    let routeAdvertisement: MobileHostRouteAdvertisement
     private let ticketStore = MobileAttachTicketStore()
-    nonisolated private let publicStatusSnapshot = MobileHostPublicStatusSnapshot()
+    nonisolated private let publicStatusSnapshot: MobileHostPublicStatusSnapshot
     private var listener: NWListener?
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
@@ -374,7 +378,6 @@ final class MobileHostService {
     /// ephemeral fallback). Used to decide whether a settings change needs a
     /// restart. `nil` while stopped.
     private var appliedPreferredPort: Int?
-    var advertisedManualHost: String?
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
@@ -388,6 +391,16 @@ final class MobileHostService {
     /// listener starts accepting connections.
     private var auth: AuthCoordinator?
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
+
+    private init(
+        routeResolver: MobileRouteResolver = MobileRouteResolver(),
+        publicStatusSnapshot: MobileHostPublicStatusSnapshot = MobileHostPublicStatusSnapshot()
+    ) {
+        self.routeResolver = routeResolver
+        routeAdvertisement = MobileHostRouteAdvertisement(routeResolver: routeResolver)
+        self.publicStatusSnapshot = publicStatusSnapshot
+    }
+
     private var readinessTimeoutTask: Task<Void, Never>?
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
@@ -1657,7 +1670,7 @@ extension MobileHostService {
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
         listenerPort = nil
-        advertisedManualHost = nil
+        routeAdvertisement.reset()
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
         MobileHostRequestActivity.resetForTesting()
