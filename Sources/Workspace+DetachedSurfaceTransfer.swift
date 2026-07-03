@@ -9,6 +9,10 @@ extension Workspace {
         let panelId: UUID
         let statusEntries: [String: SidebarStatusEntry]
         let agentPIDs: [String: pid_t]
+        /// Start-time identities recorded for `agentPIDs`, so a consumer can
+        /// distinguish "recorded process still runs" from "pid was reused by
+        /// an unrelated process" (same contract as `isRecordedAgentPIDLive`).
+        let agentPIDProcessIdentities: [String: AgentPIDProcessIdentity]
         let agentPIDKeys: Set<String>
     }
 
@@ -32,6 +36,7 @@ extension Workspace {
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
+        let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
         let resumeBindingHistory: [SurfaceResumeBindingSnapshot]
         let agentRuntime: DetachedAgentRuntimeState?
@@ -61,6 +66,7 @@ extension Workspace {
                 restoredUnreadIndicator: restoredUnreadIndicator,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
                 resumeBindingHistory: resumeBindingHistory,
                 agentRuntime: agentRuntime,

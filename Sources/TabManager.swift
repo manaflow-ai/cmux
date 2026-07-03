@@ -2890,30 +2890,29 @@ class TabManager: ObservableObject {
         }
     }
 
-    /// Returns the focused panel if it's a MarkdownPanel showing the rendered
-    /// preview, nil otherwise. Zoom applies to the preview WKWebView, so the raw
-    /// text-edit mode is deliberately excluded.
-    var focusedMarkdownPanel: MarkdownPanel? {
-        guard let tab = selectedWorkspace,
-              let panelId = tab.focusedPanelId,
-              let panel = tab.panels[panelId] as? MarkdownPanel,
-              panel.displayMode == .preview else { return nil }
-        return panel
+    @discardableResult
+    func performFocusedBrowserZoom(_ action: (BrowserPanel) -> Bool) -> Bool? {
+        guard let panel = focusedBrowserPanel else { return nil }
+        return action(panel)
     }
 
-    @discardableResult
+    func performFocusedTextFilePreviewZoom(_ action: (FilePreviewPanel) -> Bool) -> Bool? {
+        guard let panel = focusedTextFilePreviewPanel else { return nil }
+        return action(panel)
+    }
+
     func zoomInFocusedBrowser() -> Bool {
-        focusedBrowserPanel?.zoomIn() ?? false
+        performFocusedBrowserZoom { $0.zoomIn() } ?? false
     }
 
     @discardableResult
     func zoomOutFocusedBrowser() -> Bool {
-        focusedBrowserPanel?.zoomOut() ?? false
+        performFocusedBrowserZoom { $0.zoomOut() } ?? false
     }
 
     @discardableResult
     func resetZoomFocusedBrowser() -> Bool {
-        focusedBrowserPanel?.resetZoom() ?? false
+        performFocusedBrowserZoom { $0.resetZoom() } ?? false
     }
 
     var canToggleBrowserFocusModeForFocusedBrowser: Bool {
@@ -6165,6 +6164,7 @@ extension Notification.Name {
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
     static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
+    static let workspacePaneGeometryDidChange = Notification.Name("cmux.workspacePaneGeometryDidChange")
     /// Posted when an existing workspace group's `name` changes (rename). The
     /// imperatively-cached window-chrome surfaces (custom title bar in
     /// `ContentView`, toolbar command label in `WindowToolbarController`) read
