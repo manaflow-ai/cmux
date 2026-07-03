@@ -8969,23 +8969,36 @@ final class GhosttySurfaceScrollView: NSView {
         let catalog = runtime.catalog
         badgeConfigObservationTask = Task { @MainActor [weak self] in
             await withTaskGroup(of: Void.self) { group in
-                group.addTask { @MainActor in await self?.refreshBadgeOnChanges(of: store.values(for: catalog.badge.enabled)) }
-                group.addTask { @MainActor in await self?.refreshBadgeOnChanges(of: store.values(for: catalog.badge.template)) }
-                group.addTask { @MainActor in await self?.refreshBadgeOnChanges(of: store.values(for: catalog.badge.position)) }
-                group.addTask { @MainActor in await self?.refreshBadgeOnChanges(of: store.values(for: catalog.badge.opacity)) }
-                group.addTask { @MainActor in await self?.refreshBadgeOnChanges(of: store.values(for: catalog.badge.color)) }
-                group.addTask { @MainActor in await self?.refreshBadgeOnChanges(of: store.values(for: catalog.badge.fontSize)) }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.enabled)) { [weak self] in self?.refreshBadge() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.template)) { [weak self] in self?.refreshBadge() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.position)) { [weak self] in self?.refreshBadge() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.opacity)) { [weak self] in self?.refreshBadge() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.color)) { [weak self] in self?.refreshBadge() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.fontSize)) { [weak self] in self?.refreshBadge() } }
                 await group.waitForAll()
             }
         }
     }
 
-    /// Drains a single `badge.*` config stream, refreshing the badge on every
+    /// Drains a single `badge.*` config stream, invoking `refresh` on every
     /// yielded value (including the initial one) until the task is cancelled.
-    private func refreshBadgeOnChanges<Value: Sendable>(of stream: AsyncStream<Value>) async {
+    ///
+    /// This is a `static` helper and `refresh` captures the owning view weakly,
+    /// so draining a stream never holds a strong reference to the view across
+    /// the unbounded `for await` loop. The view is the sole strong owner of
+    /// ``badgeConfigObservationTask``; calling a long-lived *instance* method
+    /// here instead would retain the view for the loop's lifetime and form a
+    /// retain cycle (view → task → in-flight call → view) that keeps the view,
+    /// its observers, and its surface alive until the process exits, because
+    /// ``deinit`` — which cancels the task — could then never run.
+    @MainActor
+    private static func refreshBadgeOnChanges<Value: Sendable>(
+        of stream: AsyncStream<Value>,
+        refresh: @MainActor () -> Void
+    ) async {
         for await _ in stream {
             if Task.isCancelled { break }
-            refreshBadge()
+            refresh()
         }
     }
 
@@ -9014,6 +9027,25 @@ final class GhosttySurfaceScrollView: NSView {
                 }
             )
         }
+
+        // A surface's own `set_title` (OSC) change updates its bonsplit tab title
+        // — the badge's `{tab}` source — without altering the workspace display
+        // title, so it does *not* post `.workspaceTitleDidChange`. Observe title
+        // changes directly, filtered to this surface's id so another surface's
+        // title churn never re-renders this (or every) badge.
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: .ghosttyDidSetTitle,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                      let change = GhosttyTitleChange(notification: notification),
+                      change.surfaceId == self.surfaceView.terminalSurface?.id
+                else { return }
+                self.refreshBadge()
+            }
+        )
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
