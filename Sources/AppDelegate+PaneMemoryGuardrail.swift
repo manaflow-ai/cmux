@@ -59,4 +59,12 @@ extension AppDelegate {
             )
         }
     }
+
+    /// Closes the surface the pane-memory guardrail flagged, resolving the owning
+    /// tab manager for `workspaceId`. Backs the guardrail's `onRequestClosePane`.
+    @discardableResult
+    func closePaneForMemoryGuardrail(workspaceId: UUID, panelId: UUID) -> Bool {
+        guard let manager = tabManagerFor(tabId: workspaceId) ?? tabManager else { return false }
+        return manager.closeSurface(tabId: workspaceId, surfaceId: panelId)
+    }
 }
