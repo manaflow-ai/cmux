@@ -142,6 +142,51 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         }
     }
 
+    @ViewBuilder
+    private var plusButtonContextMenu: some View {
+        Button(
+            String(
+                localized: "workspaceGroup.plus.contextMenu.newWorkspace",
+                defaultValue: "New Workspace in Group"
+            ),
+            action: onTapPlus
+        )
+        .onAppear {
+            rowInteractionState.contextMenuDidAppear()
+        }
+        .onDisappear {
+            rowInteractionState.contextMenuDidDisappear()
+        }
+        if !cwdContextMenuItems.isEmpty {
+            Divider()
+            ForEach(cwdContextMenuItems) { item in
+                switch item {
+                case .separator:
+                    Divider()
+                case .action(let action):
+                    Button(action.title) {
+                        onRunResolvedItem(action)
+                    }
+                }
+            }
+        }
+        Divider()
+        Button(
+            String(
+                localized: "workspaceGroup.plus.contextMenu.editConfig",
+                defaultValue: "Edit Group Config..."
+            ),
+            action: onEditConfig
+        )
+        Button(
+            String(
+                localized: "workspaceGroup.plus.contextMenu.openDocs",
+                defaultValue: "Open Workspace Groups Docs"
+            ),
+            action: onOpenDocs
+        )
+    }
+
     private var anchorRow: some View {
         HStack(spacing: 6) {
             CmuxSystemSymbolImage(
@@ -225,49 +270,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 localized: "workspaceGroup.newWorkspaceInGroup.a11y",
                 defaultValue: "New workspace in group"
             )))
-            .contextMenu {
-                Button(
-                    String(
-                        localized: "workspaceGroup.plus.contextMenu.newWorkspace",
-                        defaultValue: "New Workspace in Group"
-                    ),
-                    action: onTapPlus
-                )
-                .onAppear {
-                    rowInteractionState.contextMenuDidAppear()
-                }
-                .onDisappear {
-                    rowInteractionState.contextMenuDidDisappear()
-                }
-                if !cwdContextMenuItems.isEmpty {
-                    Divider()
-                    ForEach(cwdContextMenuItems) { item in
-                        switch item {
-                        case .separator:
-                            Divider()
-                        case .action(let action):
-                            Button(action.title) {
-                                onRunResolvedItem(action)
-                            }
-                        }
-                    }
-                }
-                Divider()
-                Button(
-                    String(
-                        localized: "workspaceGroup.plus.contextMenu.editConfig",
-                        defaultValue: "Edit Group Config..."
-                    ),
-                    action: onEditConfig
-                )
-                Button(
-                    String(
-                        localized: "workspaceGroup.plus.contextMenu.openDocs",
-                        defaultValue: "Open Workspace Groups Docs"
-                    ),
-                    action: onOpenDocs
-                )
-            }
+            .contextMenu { plusButtonContextMenu }
         }
         .padding(.vertical, 5)
         .padding(.trailing, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
