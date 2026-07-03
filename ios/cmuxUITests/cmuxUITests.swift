@@ -347,6 +347,25 @@ final class cmuxUITests: XCTestCase {
             terminalID: "workspace-3-terminal-1",
             server: server
         )
+        let freshBackButton = app.buttons["MobileWorkspaceBackButton"]
+        let freshTitleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let freshTerminalDropdown = app.buttons["MobileTerminalDropdown"]
+        assertWorkspaceToolbarVisible(
+            backButton: freshBackButton,
+            titleMenu: freshTitleMenu,
+            terminalDropdown: freshTerminalDropdown,
+            in: app,
+            context: "fresh no-agent workspace immediately after create"
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(5))
+        assertWorkspaceToolbarVisible(
+            backButton: freshBackButton,
+            titleMenu: freshTitleMenu,
+            terminalDropdown: freshTerminalDropdown,
+            in: app,
+            context: "fresh no-agent workspace after 5s"
+        )
+        assertBackButtonFrameStaysCompactAroundPress(freshBackButton, in: app)
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
@@ -1438,6 +1457,18 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+        XCTAssertTrue(
+            afterKeyboard.bottomEdgeEffectSoft,
+            "Chat transcript must keep the soft bottom scroll-edge effect while the keyboard is up from \(scrollPosition), so bottom chrome blends instead of drawing a hard separator. before=\(beforeKeyboard) after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            afterKeyboard.bottomEdgeElementContainerRegistered,
+            "The keyboard-up shortcut row and input bar must remain registered as the bottom scroll-edge element container. Missing registration leaves a hard line between the transcript and bottom chrome. before=\(beforeKeyboard) after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
         XCTAssertEqual(
             afterKeyboard.frameMinY,
             beforeKeyboard.frameMinY,
@@ -2197,6 +2228,71 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    private func assertWorkspaceToolbarVisible(
+        backButton: XCUIElement,
+        titleMenu: XCUIElement,
+        terminalDropdown: XCUIElement,
+        in app: XCUIApplication,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4), "\(context): missing back button", file: file, line: line)
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 4), "\(context): missing title menu", file: file, line: line)
+        XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 4), "\(context): missing terminal dropdown", file: file, line: line)
+        XCTAssertTrue(
+            waitForCompactToolbarHeightsToMatch(
+                titleMenu: titleMenu,
+                backButton: backButton,
+                surfacePicker: terminalDropdown,
+                tolerance: 2,
+                timeout: 4,
+                file: file,
+                line: line
+            ),
+            "\(context): toolbar items must keep compact native heights",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func assertBackButtonFrameStaysCompactAroundPress(
+        _ backButton: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let before = waitForToolbarFrame(of: backButton, timeout: 4) else {
+            XCTFail("Back button has no usable frame before press", file: file, line: line)
+            return
+        }
+        let start = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: before.midX, dy: before.midY))
+        let end = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: before.midX, dy: before.midY + 90))
+        start.press(forDuration: 0.25, thenDragTo: end)
+        guard let after = waitForToolbarFrame(of: backButton, timeout: 4) else {
+            XCTFail("Back button disappeared after press", file: file, line: line)
+            return
+        }
+        XCTAssertLessThanOrEqual(
+            after.height,
+            before.height + 4,
+            "Back button press must not leave an enlarged chevron/control frame. before=\(before), after=\(after)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            after.width,
+            before.width + 8,
+            "Back button press must not leave a stretched rectangular control frame. before=\(before), after=\(after)",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
     private func tapCompactToolbarTitleMenu(
         _ titleMenu: XCUIElement,
         in app: XCUIApplication,
@@ -2301,12 +2397,13 @@ final class cmuxUITests: XCTestCase {
         let topEdgeEffectSoft: Bool
         let bottomEdgeEffectSoft: Bool
         let topContentScrollViewRegistered: Bool
+        let bottomEdgeElementContainerRegistered: Bool
         let scrollTracking: Bool
         let scrollDragging: Bool
         let scrollDecelerating: Bool
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered), scrollTracking=\(scrollTracking), scrollDragging=\(scrollDragging), scrollDecelerating=\(scrollDecelerating)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered), bottomEdgeElementContainerRegistered=\(bottomEdgeElementContainerRegistered), scrollTracking=\(scrollTracking), scrollDragging=\(scrollDragging), scrollDecelerating=\(scrollDecelerating)"
         }
 
         var effectiveFrameMaxY: CGFloat {
@@ -2361,6 +2458,7 @@ final class cmuxUITests: XCTestCase {
             self.topEdgeEffectSoft = (values["topEdgeEffectSoft"] ?? 0) >= 0.5
             self.bottomEdgeEffectSoft = (values["bottomEdgeEffectSoft"] ?? 0) >= 0.5
             self.topContentScrollViewRegistered = (values["topContentScrollViewRegistered"] ?? 0) >= 0.5
+            self.bottomEdgeElementContainerRegistered = (values["bottomEdgeElementContainerRegistered"] ?? 0) >= 0.5
             self.scrollTracking = (values["scrollTracking"] ?? 0) >= 0.5
             self.scrollDragging = (values["scrollDragging"] ?? 0) >= 0.5
             self.scrollDecelerating = (values["scrollDecelerating"] ?? 0) >= 0.5
