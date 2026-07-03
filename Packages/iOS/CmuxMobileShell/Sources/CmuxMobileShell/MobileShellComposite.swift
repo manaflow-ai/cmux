@@ -3173,7 +3173,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         do {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            let noThrowFailure = try await connect(ticket: ticket)
+            let noThrowFailure = try await connect(
+                ticket: ticket,
+                pendingManualHostTrust: .pairingURL(
+                    rawURL: rawURL,
+                    acceptedVersionWarning: acceptedVersionWarning
+                )
+            )
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if connectionState == .connected && activeTicket != nil {
                 recordPairingSucceeded()
@@ -3189,6 +3195,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
             return .failed
+        } catch is ManualHostTrustApprovalQueued {
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
+            return .needsUserApproval
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .private)")
@@ -4891,6 +4900,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func connect(
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool? = nil,
+        pendingManualHostTrust: PendingManualHostTrust? = nil,
         pairedMacDeviceID: String? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async throws -> MobilePairingFailureCategory? {
@@ -4943,6 +4953,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for route in supportedRoutes {
             activeRoute = route
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
+            if let pendingManualHostTrust,
+               await manualHostRouteNeedsApproval(route),
+               case let .hostPort(host, _) = route.endpoint {
+                queueManualHostTrustWarning(
+                    route: route,
+                    displayHost: host,
+                    pending: pendingManualHostTrust
+                )
+                throw ManualHostTrustApprovalQueued.required
+            }
             let manualHostTrusted = await manualHostStackAuthTrusted(for: route)
             let routeAllowsStackAuth = MobileShellRouteAuthPolicy().routeAllowsStackAuth(
                 route,

@@ -13,6 +13,10 @@ enum PendingManualHostTrust {
     case pairingURL(rawURL: String, acceptedVersionWarning: Bool)
 }
 
+enum ManualHostTrustApprovalQueued: Error {
+    case required
+}
+
 @MainActor
 extension MobileShellComposite {
     func clearManualHostTrustWarning() {
