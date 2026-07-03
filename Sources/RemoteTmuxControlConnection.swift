@@ -758,6 +758,10 @@ final class RemoteTmuxControlConnection {
             requestWindows()
         case .sessionsChanged:
             record("sessions-changed")
+        case let .sessionRenamed(_, name, _):
+            // The mirror tracks windows/panes, not session identity, so a session
+            // rename is diagnostic only (no topology change).
+            record("session-renamed \(name)")
         case let .windowAdd(id):
             record("window-add @\(id)")
             requestWindows()
