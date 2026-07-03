@@ -353,6 +353,25 @@
         "p3": "أفضل المطورين بنوا دائماً أدواتهم الخاصة. لم يكتشف أحد بعد أفضل طريقة للعمل مع الوكلاء، والفرق التي تبني منتجات مغلقة بالتأكيد لم تكتشفها أيضاً. المطورون الأقرب إلى قواعد الكود الخاصة بهم سيكتشفونها أولاً.",
         "p4": "أعط مليون مطور عناصر أساسية قابلة للتركيب وسيجدون مجتمعين أكثر سير العمل كفاءة أسرع مما يمكن لأي فريق منتج تصميمه من أعلى لأسفل."
       },
+      "claudeCodeBestWorktreeManager": {
+        "title": "Claude Code هو أفضل مدير worktree",
+        "summary": "استخدم Claude Code و Codex والسكربتات وبدائيات cmux لبناء workflow worktree الذي تحتاجه قاعدة كودك فعلا.",
+        "date": "3 يوليو 2026",
+        "p1": "مديرو worktree المدمجون محدودون بطبيعتهم. غالبا يفترضون مستودعا واحدا و Git ومسار فروع مباركا وفكرة فريق المنتج عن معنى الإعداد. قواعد الكود الحقيقية لا تبقى داخل هذه الحدود.",
+        "p2": "<zen>Zen of cmux</zen> هو أن يبني المطورون أدواتهم الخاصة وأن يستكشفوا مساحة طرق العمل مع الكود. Worktree بدائية مفيدة، لكن كذلك تعدد checkouts، ومستودعات backend/frontend في مجلدات مختلفة، والآلات البعيدة، والمشاريع بلا Git، والسكربتات المحلية، وأحيانا البرمجة مباشرة على main لأنها أسرع لذلك العمل.",
+        "superRepoTitle": "نمط super repo",
+        "superRepoP1": "Super repo هو checkout تحكم واحد يعرف أين تعيش المستودعات الحقيقية، وكيف تنشأ worktrees، وكيف تقترن المستودعات المرتبطة، وأي سكربتات تجهز كل workspace، وكيف تراجع PRs وتدمج. cmuxterm-hq هو super repo: يحتوي checkout cmux الأساسي، و worktrees لكل مهمة، و checkouts لـ Zed، وسكربتات hq، و skills قابلة لإعادة الاستخدام، والقواعد التي تمنع الوكلاء من الاصطدام ببعضهم.",
+        "superRepoP2": "الفكرة ليست أن ينسخ الجميع شجرة المجلدات هذه. الفكرة أن repo تحكم محلي واحد يستطيع وصف نظامك الهندسي كله. يمكن فتح backend repo و frontend repo معا. يمكن إعادة تحميل تطبيق mobile و web API معا. يمكن إنشاء فرع في repo ومطابقته بفرع في آخر. هذا الشكل يخص فريقك، لا زر worktree عام.",
+        "agentTitle": "دع الوكيل يدير worktrees",
+        "agentP1": "Claude Code و Codex أفضل من أغلب مديري worktree المدمجين لأنهما يستطيعان قراءة قواعد repo، تشغيل السكربتات، إنشاء worktrees عبر عدة repos، تنظيف worktrees الخاصة بهما، إصلاح التعارضات، دفع الفروع، فتح PRs، والدمج بعد نجاح CI وبوابات المراجعة.",
+        "agentP2": "أكثر مساراتنا استخداما هي task-worktree-pr و autoreview. تعمل لأنها تسمح للوكلاء بقراءة الملفات وكتابتها، وتشغيل الأوامر، وفحص GitHub، وانتظار CI، والرد على تعليقات المراجعة، والعمل عبر المستودعات. إذا احتاجت مهمة تغييرات cloud و desktop معا، يمكنك أن تطلب من الوكيل النظر في المكانين، ويتكفل super repo بالباقي.",
+        "limitsTitle": "لماذا تخسر دعامة worktree المدمجة",
+        "limitsP1": "قد تكون ميزة worktree على مستوى المنتج مصقولة للحالة الشائعة، لكن الحالات الطرفية تظهر فورا: لا Git، عدة repos، عملاء مولدون، سكربتات إعداد خاصة، فروع backend/frontend مقترنة، سياسة merge غير معتادة، أو فريق يدفع تغييرات داخلية صغيرة مباشرة إلى main عمدا.",
+        "limitsP2": "workflow قابل للبرمجة يستطيع التكيف. اطلب من Claude Code إنشاء worktree، وتشغيل Codex بجانبه، وتنفيذ أمر الإعداد، وفتح browser pane الصحيح، ومراقبة الاختبارات، وإزالة worktree بعد دمج PR. ثم غير ذلك workflow غدا.",
+        "cmuxTitle": "cmux يعطي workflow سطحا",
+        "cmuxP1": "لا يحتاج cmux إلى مدير worktree عالمي مدمج. إنه يعطيك <customCommands>أوامر مخصصة</customCommands> و <api>CLI و socket API</api> قابلين للبرمجة و <skills>skills</skills> قابلة لإعادة الاستخدام. يمكن لزر plus تشغيل أمر worktree الخاص بك، أو multi-repo setup، أو no-git sandbox، أو بيئة بعيدة.",
+        "cmuxP2": "لهذا يهم <home>cmux home</home>. أفضل مدير worktree هو الذي يستطيع وكلاؤك تغييره عندما يتغير workflow، وأفضل طرفية لذلك المسار تبقي الإشعارات و Cmd+Shift+U و Cmd+Control+U موصولة بالسطح."
+      },
       "showHnLaunch": {
         "title": "إطلاق cmux على Show HN",
         "summary": "وصل cmux إلى المرتبة الثانية على Hacker News، شاركه Mitchell Hashimoto، وانتشر بشكل واسع في اليابان.",
@@ -501,6 +520,10 @@
     "zenOfCmux": {
       "metaTitle": "فلسفة cmux",
       "metaDescription": "cmux أداة أساسية وليست حلاً. تمنحك قطعاً قابلة للتركيب وسير العمل متروك لك."
+    },
+    "claudeCodeBestWorktreeManager": {
+      "metaTitle": "Claude Code هو أفضل مدير worktree",
+      "metaDescription": "لماذا تتفوق الوكلاء و super repos وأوامر cmux المخصصة وبدائيات الطرفية القابلة للبرمجة على مديري worktree المدمجين في قواعد الكود الحقيقية."
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
@@ -1880,15 +1903,15 @@
     },
     "compare": {
       "metaTitle": "قارن cmux مع طرفيات برمجة الذكاء الاصطناعي ومساحات عمل الوكلاء",
-      "metaDescription": "قارن cmux مع Superset وCursor وWarp وGhostty وأدوات أخرى لتشغيل Claude Code وCodex وOpenCode وغيرهم من وكلاء البرمجة.",
+      "metaDescription": "قارن cmux مع Superset و Conductor و Cursor و Devin و VS Code و Zed و Warp و Ghostty و iTerm2 و Kitty و Alacritty و WezTerm و Herdr وأدوات أخرى لتشغيل Claude Code و Codex و OpenCode ووكلاء البرمجة.",
       "title": "قارن cmux",
-      "intro": "مقارنات مركزة للمطورين الذين يختارون طرفية أو مساحة عمل لوكلاء برمجة الذكاء الاصطناعي. يكون cmux أقوى عندما تريد أداء macOS أصليًا، وتعدد مهام مرئيًا، وتنقلًا سريعًا بلوحة المفاتيح، ودون ارتباط ببيئة تشغيل وكيل واحدة.",
+      "intro": "مقارنات مركزة للمطورين الذين يختارون طرفية أو workspace لوكلاء AI coding. يكون cmux أقوى عندما تريد أداء macOS أصليا، وتعدد مهام مرئيا، و notification rings، واختصارات مثل Cmd+Shift+U و Cmd+Control+U، ودون قفل على agent runtime واحد.",
       "pages": {
         "bestTerminalForAgents": {
           "metaTitle": "أفضل طرفية لوكلاء برمجة الذكاء الاصطناعي في 2026 - cmux",
           "metaDescription": "قارن cmux وSuperset وWarp وGhostty وiTerm2 وtmux وطرفيات أخرى لتشغيل وكلاء برمجة الذكاء الاصطناعي.",
           "title": "أفضل طرفية لوكلاء برمجة الذكاء الاصطناعي في 2026",
-          "intro": "أفضل طرفية لوكلاء البرمجة هي التي تبقي جلسات كثيرة طويلة التشغيل مرئية وسريعة الاستجابة وسهلة التحكم. صمم cmux لهذا المسار: أداء Swift/AppKit أصلي، مساحات عمل عمودية، حلقات إشعارات، اختصارات لوحة مفاتيح، وCLI قابل للبرمجة.",
+          "intro": "مقارنات مركزة للمطورين الذين يختارون طرفية أو workspace لوكلاء AI coding. يكون cmux أقوى عندما تريد أداء macOS أصليا، وتعدد مهام مرئيا، و notification rings، واختصارات مثل Cmd+Shift+U و Cmd+Control+U، ودون قفل على agent runtime واحد.",
           "summaryTitle": "الإجابة المختصرة",
           "summaryBody": "اختر cmux إذا أردت طرفية macOS أصلية يمكنها الإشراف على وكلاء كثيرين دون فرض وكيل جديد أو محرر أو runtime سحابي أو نظام أرصدة. اختر مساحة عمل وكلاء إذا أردت تنسيق المهام وتدفقات مراجعة مدمجة. اختر طرفية كلاسيكية إذا كنت تشغل غالبًا وكيلًا واحدًا في كل مرة.",
           "table": {
@@ -1906,34 +1929,94 @@
                 "macOS فقط"
               ],
               [
+                "Conductor",
+                "فرق وكلاء البرمجة على Mac",
+                "حاضنات Claude Code وCodex وCursor وOpenCode",
+                "أكثر تحديدًا حول مساحات المهام المعزولة"
+              ],
+              [
                 "Superset",
                 "تنسيق وكلاء قائم على worktree",
                 "كثير من وكلاء CLI",
-                "تطبيق Electron ومسار عمل أكثر تحديدًا"
+                "تطبيق Electron متاح المصدر وسير عمل أكثر تحديدًا"
+              ],
+              [
+                "Herdr",
+                "مضاعفة وكلاء أصلية داخل الطرفية",
+                "كثير من وكلاء CLI",
+                "يعمل داخل طرفية أخرى بدل أن يكون تطبيق Mac"
+              ],
+              [
+                "OpenCode",
+                "وكيل برمجة مفتوح المصدر",
+                "OpenCode نفسه عبر الطرفية وسطح المكتب وIDE",
+                "هو الوكيل، لا طبقة تحكم الطرفية"
+              ],
+              [
+                "Cursor",
+                "تحرير AI وتدفقات وكلاء مستضافة",
+                "سير عمل متمحور حول Cursor مع تكاملات",
+                "سير عمل متمحور حول المحرر والحساب"
+              ],
+              [
+                "Devin Desktop",
+                "IDE مع مركز أوامر للوكلاء",
+                "سلالة Devin وWindsurf",
+                "سير عمل متمحور حول المحرر والحساب"
+              ],
+              [
+                "VS Code",
+                "محرر عام ومنصة امتدادات",
+                "وكلاء وامتدادات مدمجة في المحرر",
+                "يبقى الإشراف على وكلاء الطرفية داخل سطوح المحرر"
+              ],
+              [
+                "Zed",
+                "تحرير تعاوني سريع",
+                "تدفقات ذكاء اصطناعي مدمجة في المحرر",
+                "يبقى الإشراف على وكلاء الطرفية مرتبطًا بالمحرر"
               ],
               [
                 "Warp",
                 "ميزات طرفية AI في منتج مدار",
-                "مسار عمل AI متمحور حول Warp",
-                "ارتباط أكبر بالمنصة"
+                "تدفقات وكلاء مدمجة وخارجية",
+                "عميل مفتوح المصدر مع خدمات منتج مدارة"
               ],
               [
                 "Ghostty",
-                "طرفية سريعة للاستخدام العام",
+                "طرفية سريعة للأغراض العامة",
                 "أي وكيل CLI",
-                "لا توجد بنية تنظيم وكلاء مدمجة"
+                "لا يوجد تنظيم وكلاء مدمج"
               ],
               [
                 "iTerm2",
                 "مسارات عمل طرفية macOS ناضجة",
                 "أي وكيل CLI",
-                "يبقى تتبع حالة الوكلاء يدويًا"
+                "تبقى حالة الوكلاء يدوية"
+              ],
+              [
+                "Kitty",
+                "طرفية GPU سريعة وغنية بالميزات",
+                "أي وكيل CLI",
+                "لا يوجد طابور مراجعة وكلاء مدمج"
+              ],
+              [
+                "Alacritty",
+                "طرفية OpenGL سريعة وبسيطة",
+                "أي وكيل CLI",
+                "ميزات سير عمل قليلة على مستوى التطبيق"
+              ],
+              [
+                "WezTerm",
+                "طرفية ومضاعف متعدد المنصات",
+                "أي وكيل CLI",
+                "انتباه الوكلاء ما زال يحتاج توصيلًا مخصصًا"
               ],
               [
                 "tmux",
-                "تعدد طرفيات عبر SSH",
+                "مضاعفة طرفية عبر SSH",
                 "أي وكيل CLI",
-                "مسار عمل بمفتاح بادئة وبدون واجهة تطبيق أصلية"
+                "سير عمل بمفتاح بادئة وبدون واجهة تطبيق أصلية"
               ]
             ]
           },
@@ -1952,7 +2035,11 @@
             },
             {
               "title": "إشراف يبدأ من لوحة المفاتيح",
-              "body": "يتعامل cmux مع الانتباه كجزء أساسي من مسار العمل. اختصارات مثل jump to latest unread تنقلك مباشرة إلى pane الذي يحتاج قرارًا، بدل فحص كل تبويب أو انتظار أن تصبح إشعارات سطح المكتب مفهومة."
+              "body": "يتعامل cmux مع الانتباه كجزء أساسي من workflow. ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسحه. صممت هذه الاختصارات لمن يشغلون وكلاء كثيرين بحيث لا يعود فحص التبويبات يدويا مجديا."
+            },
+            {
+              "title": "دعم worktree بدائية، لا خانة منتج",
+              "body": "دعم worktree المدمج محدود حتمًا لأن الفرق الحقيقية لديها مستودعات backend وfrontend في أماكن مختلفة، وبرامج إعداد نصية، وآلات بعيدة، ومشاريع بلا Git، وتدفقات تعمل أحيانًا مباشرة على main. يبقى cmux قابلًا للبرمجة حتى يستطيع Claude Code وCodex والأوامر المخصصة وبرامج المستودع النصية بناء شكل مساحة العمل الذي تحتاجه قاعدة الكود فعلاً."
             }
           ],
           "faqTitle": "الأسئلة الشائعة",
@@ -1962,6 +2049,158 @@
           "faqA2": "يعمل أي وكيل CLI، بما في ذلك Claude Code وCodex وOpenCode وGemini CLI وAider وAmp وCursor CLI.",
           "faqQ3": "لماذا لا أستخدم تبويبات الطرفية فقط؟",
           "faqA3": "تكفي التبويبات لبضعة shells. يضيف cmux بيانات مساحات العمل، وحلقات الإشعارات، والتنقل بين غير المقروء، وpanes مقسمة، وأتمتة المتصفح، وsocket قابلًا للبرمجة لمسارات العمل الكثيفة بالوكلاء."
+        },
+        "cmuxVsAlacritty": {
+          "metaTitle": "cmux مقابل Alacritty لوكلاء AI coding - cmux",
+          "metaDescription": "قارن cmux و Alacritty لوكلاء AI coding والإشعارات واختصارات unread و workspaces و workflows القابلة للبرمجة.",
+          "title": "cmux vs Alacritty",
+          "intro": "Alacritty هو طرفية OpenGL سريعة وبسيطة. cmux هو terminal و browser workspace أصلي على macOS لمراقبة CLI agents و shells والاختبارات وفحوصات المتصفح والسكربتات محليا مع notification rings و Cmd+Shift+U و Cmd+Control+U.",
+          "summaryTitle": "workspace محلي للوكلاء مقابل طبقة أداة أخرى",
+          "summaryBody": "استخدم Alacritty عندما تريد workflow الخاص به. استخدم cmux عندما تريد سطح terminal محليا وقابلا للبرمجة يبقي الوكلاء والإشعارات و browser panes و Cmd+Shift+U و Cmd+Control+U مرئية على Mac.",
+          "table": {
+            "headers": [
+              "البعد",
+              "cmux",
+              "Alacritty"
+            ],
+            "rows": [
+              [
+                "المهمة الأساسية",
+                "طرفية macOS أصلية لمراقبة عدة CLI agents",
+                "طرفية OpenGL سريعة وبسيطة"
+              ],
+              [
+                "محرك العرض",
+                "مبني على libghostty لعرض طرفية حديث مسرّع بالـ GPU",
+                "عارض طرفية OpenGL"
+              ],
+              [
+                "رؤية الوكلاء",
+                "workspaces عمودية، metadata للفروع والمنافذ، وحالة unread",
+                "يعتمد على workflow الخاص بالأداة"
+              ],
+              [
+                "نموذج الانتباه",
+                "notification rings و Cmd+Shift+U لأحدث unread و Cmd+Control+U للتنقل بين unread work",
+                "غالبا يدوي أو مرتبط بالمنتج"
+              ],
+              [
+                "الأتمتة",
+                "CLI و Unix socket API و browser automation و hooks",
+                "إعدادات أو extensions أو APIs خاصة"
+              ],
+              [
+                "الأفضل لـ",
+                "مطورو Mac الذين يراقبون عدة وكلاء محليين",
+                "طرفية OpenGL سريعة وبسيطة"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux يبقي الوكلاء مرئيين",
+              "body": "ينظم cmux الطرفيات وفحوصات المتصفح والمنافذ والفروع وآخر مخرجات الجلسات حتى تبقى جلسات الوكلاء الطويلة مقروءة."
+            },
+            {
+              "title": "الاختصارات جزء من نموذج الانتباه",
+              "body": "ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسح الحالة. هكذا تصبح الوكلاء المنتهية أو المحجوبة قائمة review."
+            },
+            {
+              "title": "workflow يبقى قابلا للبرمجة",
+              "body": "يسمح cmux CLI و socket API للسكربتات والوكلاء بإنشاء workspaces وتقسيم panes وإرسال input وقراءة الشاشات والتقاط screenshots والتحكم في browser panes."
+            },
+            {
+              "title": "اختيار الأدوات يبقى لك",
+              "body": "لا يستبدل cmux الوكيل أو المحرر. يعمل بجانب Claude Code و Codex و OpenCode و IDEs وأدوات shell والآلات البعيدة."
+            },
+            {
+              "title": "cmux يستخدم libghostty",
+              "body": "يحصل cmux على عرض الطرفية من libghostty، محرك Ghostty للطرفية. يمنح ذلك التطبيق دعمًا حديثًا لبروتوكولات الطرفية ورسوماتها وإعدادات Ghostty للخطوط والسمات والألوان وسلوك المؤشر."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "هل يستبدل cmux Alacritty?",
+          "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى Alacritty أفضل لوظيفته الأضيق.",
+          "faqQ2": "هل يمكن استخدام cmux مع Alacritty?",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب المحررات ومنصات الوكلاء والطرفيات العادية بينما ينظم CLI agents وأوامر shell والخوادم المحلية وفحوصات المتصفح.",
+          "faqQ3": "متى أختار cmux؟",
+          "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
+        },
+        "cmuxVsConductor": {
+          "metaTitle": "cmux مقابل Conductor لوكلاء AI coding - cmux",
+          "metaDescription": "قارن cmux و Conductor لوكلاء AI coding والإشعارات واختصارات unread و workspaces و workflows القابلة للبرمجة.",
+          "title": "cmux vs Conductor",
+          "intro": "Conductor هو workspace معبأ لمهام الوكلاء. cmux هو terminal و browser workspace أصلي على macOS لمراقبة CLI agents و shells والاختبارات وفحوصات المتصفح والسكربتات محليا مع notification rings و Cmd+Shift+U و Cmd+Control+U.",
+          "summaryTitle": "workspace محلي للوكلاء مقابل طبقة أداة أخرى",
+          "summaryBody": "استخدم Conductor عندما تريد workflow الخاص به. استخدم cmux عندما تريد سطح terminal محليا وقابلا للبرمجة يبقي الوكلاء والإشعارات و browser panes و Cmd+Shift+U و Cmd+Control+U مرئية على Mac.",
+          "table": {
+            "headers": [
+              "البعد",
+              "cmux",
+              "Conductor"
+            ],
+            "rows": [
+              [
+                "المهمة الأساسية",
+                "طرفية macOS أصلية لمراقبة عدة CLI agents",
+                "workspace معبأ لمهام الوكلاء"
+              ],
+              [
+                "رؤية الوكلاء",
+                "workspaces عمودية، metadata للفروع والمنافذ، وحالة unread",
+                "يعتمد على workflow الخاص بالأداة"
+              ],
+              [
+                "نموذج المصدر",
+                "تطبيق GPL مجاني ومفتوح المصدر",
+                "منتج مغلق مع مكونات مفتوحة المصدر من أطراف ثالثة"
+              ],
+              [
+                "نموذج الانتباه",
+                "notification rings و Cmd+Shift+U لأحدث unread و Cmd+Control+U للتنقل بين unread work",
+                "غالبا يدوي أو مرتبط بالمنتج"
+              ],
+              [
+                "الأتمتة",
+                "CLI و Unix socket API و browser automation و hooks",
+                "إعدادات أو extensions أو APIs خاصة"
+              ],
+              [
+                "الأفضل لـ",
+                "مطورو Mac الذين يراقبون عدة وكلاء محليين",
+                "workspace معبأ لمهام الوكلاء"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux يبقي الوكلاء مرئيين",
+              "body": "ينظم cmux الطرفيات وفحوصات المتصفح والمنافذ والفروع وآخر مخرجات الجلسات حتى تبقى جلسات الوكلاء الطويلة مقروءة."
+            },
+            {
+              "title": "الاختصارات جزء من نموذج الانتباه",
+              "body": "ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسح الحالة. هكذا تصبح الوكلاء المنتهية أو المحجوبة قائمة review."
+            },
+            {
+              "title": "workflow يبقى قابلا للبرمجة",
+              "body": "يسمح cmux CLI و socket API للسكربتات والوكلاء بإنشاء workspaces وتقسيم panes وإرسال input وقراءة الشاشات والتقاط screenshots والتحكم في browser panes."
+            },
+            {
+              "title": "اختيار الأدوات يبقى لك",
+              "body": "لا يستبدل cmux الوكيل أو المحرر. يعمل بجانب Claude Code و Codex و OpenCode و IDEs وأدوات shell والآلات البعيدة."
+            },
+            {
+              "title": "worktrees المدمجة تصطدم بسقف سريعًا",
+              "body": "بعض الفرق لديها مستودعات backend وfrontend منفصلة، وبعضها لا يستخدم Git، وبعضها يريد العمل مباشرة على main. يبقي cmux الطرفية قابلة للبرمجة حتى تستطيع الوكلاء والبرامج النصية بناء شكل مساحة العمل المناسب للفريق."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "هل يستبدل cmux Conductor?",
+          "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى Conductor أفضل لوظيفته الأضيق.",
+          "faqQ2": "هل يمكن استخدام cmux مع Conductor?",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب المحررات ومنصات الوكلاء والطرفيات العادية بينما ينظم CLI agents وأوامر shell والخوادم المحلية وفحوصات المتصفح.",
+          "faqQ3": "متى أختار cmux؟",
+          "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
         },
         "multipleClaudeAgents": {
           "metaTitle": "كيفية تشغيل عدة وكلاء Claude Code بالتوازي - cmux",
@@ -2017,7 +2256,7 @@
             },
             {
               "title": "استخدم حلقات الإشعارات كطابور مراجعة",
-              "body": "عندما ينهي Claude عمله أو يطلب إدخالًا، يضع cmux علامة unread على pane ويظهر له حلقة. يحول اختصار jump-to-latest-unread العمل المتوازي إلى طابور مراجعة بدل مطاردة التبويبات."
+              "body": "عندما ينهي Claude Code أو Codex أو OpenCode أو وكيل آخر عمله أو يطلب إدخالا، يضع cmux علامة unread على pane ويحيطه بحلقة. ينتقل Cmd+Shift+U إلى أحدث unread pane. ويتنقل Cmd+Control+U بين unread work مع إبقائه unread، وهذا مفيد عندما ينتهي عدة وكلاء معا."
             },
             {
               "title": "أبق Claude Code كما هو",
@@ -2034,7 +2273,7 @@
           "faqQ2": "هل يمكن تشغيل Claude Code وCodex جنبًا إلى جنب؟",
           "faqA2": "نعم. cmux محايد تجاه الوكيل، لذلك يمكن تشغيل Claude Code وCodex وOpenCode ووكلاء CLI آخرين في مساحات عمل منفصلة في الوقت نفسه.",
           "faqQ3": "ما أهم اختصار للوكلاء المتوازيين؟",
-          "faqA3": "Jump to latest unread هو اختصار الإشراف الأساسي لأنه يأخذك مباشرة إلى الوكيل الذي ينتظر قرارًا."
+          "faqA3": "Cmd+Shift+U هو اختصار supervision الأساسي لأنه يأخذك مباشرة إلى الوكيل الذي ينتظر قرارا. Cmd+Control+U مفيد عندما تريد التنقل بين unread work من دون مسح unread state."
         },
         "cmuxVsSuperset": {
           "metaTitle": "cmux مقابل Superset لوكلاء برمجة الذكاء الاصطناعي - cmux",
@@ -2066,19 +2305,24 @@
                 "كثير من وكلاء CLI داخل مساحة عمل مدارة"
               ],
               [
+                "نموذج المصدر",
+                "تطبيق GPL مجاني ومفتوح المصدر",
+                "متاح المصدر بموجب Elastic License 2.0"
+              ],
+              [
                 "التنظيم",
-                "مساحات عمل عمودية، splits، حالة unread، حلقات إشعارات",
-                "مهام، worktrees، أسطح مراجعة"
+                "مساحات عمل عمودية، وتقسيمات، وحالة غير مقروء، وحلقات إشعارات",
+                "مهام وworktrees وسطوح مراجعة"
               ],
               [
                 "القابلية للبرمجة",
-                "CLI، وUnix socket API، وأتمتة متصفح، وhooks",
+                "CLI وUnix socket API وأتمتة متصفح وhooks",
                 "تنسيق على مستوى المنتج"
               ],
               [
                 "أفضل ملاءمة",
-                "مطورو الطرفية الذين يشغلون أدوات كثيرة",
-                "مطورو يريدون مدير مهام وكلاء جاهزًا"
+                "مطورو يعيشون في الطرفية ويشغلون أدوات كثيرة",
+                "مطورو يريدون مدير مهام وكلاء مغلفًا"
               ]
             ]
           },
@@ -2093,11 +2337,15 @@
             },
             {
               "title": "الانتباه سطح منتج",
-              "body": "يركز cmux على اللحظة التي يحتاج فيها الوكيل إلى إنسان. تجعل حلقات الإشعارات وشارات unread ولوحة الإشعارات وjump-to-latest-unread العثور على الجلسات المنتهية أو العالقة سهلًا."
+              "body": "يركز cmux على اللحظة التي يحتاج فيها الوكيل إلى إنسان. تجعل notification rings و unread badges ولوحة الإشعارات و Cmd+Shift+U لأحدث unread و Cmd+Control+U للتنقل بين unread work العثور على الجلسات المنتهية أو العالقة سهلا."
             },
             {
               "title": "القابلية للبرمجة مخرج مرن",
               "body": "يعرض cmux مساحات العمل وpanes وقراءات الشاشة وscreenshots وأتمتة المتصفح عبر CLI وsocket API. يتيح ذلك للمستخدمين المتقدمين بناء التنسيق الخاص بهم فوقه بدل انتظار أن يناسبهم مسار منتج واحد."
+            },
+            {
+              "title": "دعم worktree ليس عامًا أبدًا",
+              "body": "مديرو worktree المدمجون مفيدون حتى يصبح شكل المستودع غريبًا: مستودعات backend/frontend منفصلة، وخطوات إعداد مولدة، ولا Git، ومضيفون بعيدون، أو فريق يريد البرمجة مباشرة على main. يبقي cmux بدائية الطرفية قابلة للبرمجة حتى يستطيع Claude Code وCodex والبرامج النصية والأوامر المخصصة إنشاء شكل مساحة العمل الدقيق الذي تحتاجه."
             }
           ],
           "faqTitle": "الأسئلة الشائعة",
@@ -2124,13 +2372,13 @@
             "rows": [
               [
                 "السطح الأساسي",
-                "طرفية، متصفح، مساحات عمل، splits",
-                "محرر، chat، hosted agents"
+                "طرفية، متصفح، مساحات عمل، تقسيمات",
+                "محرر، chat، وكلاء مستضافون"
               ],
               [
                 "اختيار الوكيل",
                 "أي وكيل CLI",
-                "مسار AI متمحور حول Cursor مع تكاملات"
+                "سير عمل AI متمحور حول Cursor مع تكاملات"
               ],
               [
                 "الارتباط",
@@ -2138,9 +2386,14 @@
                 "حساب Cursor وخططه وميزات المنصة"
               ],
               [
+                "نموذج المصدر",
+                "تطبيق GPL مجاني ومفتوح المصدر",
+                "منتج محرر مغلق المصدر"
+              ],
+              [
                 "ملف الأداء",
                 "طرفية Swift/AppKit أصلية",
-                "محرر ومجموعة hosted-agent"
+                "محرر ومجموعة وكلاء مستضافة"
               ],
               [
                 "أفضل ملاءمة",
@@ -2160,7 +2413,7 @@
             },
             {
               "title": "تحتاج مسارات الطرفية إلى أدوات تحكم طرفية",
-              "body": "يتضمن عمل الوكلاء غالبًا تشغيل اختبارات وسجلات وخوادم تطوير وSSH وسكريبتات محلية. يبقي cmux هذه الأسطح في تطبيق أصلي واحد ويجعلها قابلة للتحكم عبر اختصارات لوحة المفاتيح وsocket API."
+              "body": "غالبا يتضمن عمل الوكلاء tests و logs و dev servers و SSH وسكربتات محلية. يبقي cmux هذه الأسطح في تطبيق أصلي واحد، ثم تستخدم notification rings و Cmd+Shift+U و Cmd+Control+U و socket API لجعل العمل قابلا للتحكم."
             },
             {
               "title": "الجمع بينهما قوي",
@@ -2174,6 +2427,670 @@
           "faqA2": "نعم. يعمل Cursor CLI في cmux مثل أي وكيل طرفية آخر.",
           "faqQ3": "ماذا يضيف cmux إلى Cursor؟",
           "faqA3": "يضيف cmux تعدد مهام طرفية أصليًا، ومساحات عمل وكلاء مرئية، وحلقات إشعارات، وتنقلًا بين unread، وتحكمًا قابلًا للبرمجة في المتصفح والطرفية."
+        },
+        "cmuxVsDevin": {
+          "metaTitle": "cmux مقابل Devin لوكلاء AI coding - cmux",
+          "metaDescription": "قارن cmux و Devin لوكلاء AI coding والإشعارات واختصارات unread و workspaces و workflows القابلة للبرمجة.",
+          "title": "cmux vs Devin",
+          "intro": "Devin هو منصة AI software engineer مدارة. cmux هو terminal و browser workspace أصلي على macOS لمراقبة CLI agents و shells والاختبارات وفحوصات المتصفح والسكربتات محليا مع notification rings و Cmd+Shift+U و Cmd+Control+U.",
+          "summaryTitle": "workspace محلي للوكلاء مقابل طبقة أداة أخرى",
+          "summaryBody": "استخدم Devin عندما تريد workflow الخاص به. استخدم cmux عندما تريد سطح terminal محليا وقابلا للبرمجة يبقي الوكلاء والإشعارات و browser panes و Cmd+Shift+U و Cmd+Control+U مرئية على Mac.",
+          "table": {
+            "headers": [
+              "البعد",
+              "cmux",
+              "Devin"
+            ],
+            "rows": [
+              [
+                "المهمة الأساسية",
+                "الإشراف على تدفقات الطرفية والمتصفح المحلية",
+                "تخطيط وتنفيذ مهام هندسية مفوضة"
+              ],
+              [
+                "أين يجري العمل",
+                "Mac وshell والمستودعات وبيئة التطوير لديك",
+                "منصة Devin وأدوات الفريق المتصلة"
+              ],
+              [
+                "نموذج المصدر",
+                "تطبيق GPL مجاني ومفتوح المصدر",
+                "منصة وكلاء مدارة ومغلقة"
+              ],
+              [
+                "اختيار الوكيل",
+                "أي وكيل CLI أو أداة shell",
+                "سير عمل متمحور حول Devin"
+              ],
+              [
+                "مراجعة الإنسان",
+                "حلقات غير مقروء، وألواح، ولقطات شاشة، وفحوصات متصفح، وdiffs محلية",
+                "تدفق مراجعة وتكامل داخل المنصة"
+              ],
+              [
+                "أفضل ملاءمة",
+                "مطورو يشغلون وكلاء محليين كثيرين",
+                "فرق تفوض مهامًا أكبر إلى مهندس ذكاء اصطناعي مدار"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux وحدة تشغيل للعمل المحلي",
+              "body": "لا يحاول cmux أن يكون المهندس. يمنحك مساحة العمل المحلية حيث تبقى جلسات الوكلاء والاختبارات والسجلات وdev servers والمتصفحات وألواح SSH وحلقات الإشعار وCmd+Shift+U وCmd+Control+U مرئية وقابلة للتحكم."
+            },
+            {
+              "title": "الاختصارات جزء من نموذج الانتباه",
+              "body": "ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسح الحالة. هكذا تصبح الوكلاء المنتهية أو المحجوبة قائمة review."
+            },
+            {
+              "title": "العمل المحلي يبقى سريعًا وقابلًا للفحص",
+              "body": "لكثير من المهام، تبقى الحلقة الأكثر إنتاجية محلية: حرر، شغّل، افحص، اسأل وكيلًا آخر، افتح المتصفح، وادفع عندما يكون diff جاهزًا. يبقي cmux هذه الحلقة على Mac لديك بدل نقل كل قرار إلى طابور مهام سحابي."
+            },
+            {
+              "title": "workflow يبقى قابلا للبرمجة",
+              "body": "يسمح cmux CLI و socket API للسكربتات والوكلاء بإنشاء workspaces وتقسيم panes وإرسال input وقراءة الشاشات والتقاط screenshots والتحكم في browser panes."
+            },
+            {
+              "title": "اختيار الأدوات يبقى لك",
+              "body": "لا يستبدل cmux الوكيل أو المحرر. يعمل بجانب Claude Code و Codex و OpenCode و IDEs وأدوات shell والآلات البعيدة."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "هل يستبدل cmux Devin?",
+          "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى Devin أفضل لوظيفته الأضيق.",
+          "faqQ2": "هل يمكن استخدام cmux مع Devin?",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب المحررات ومنصات الوكلاء والطرفيات العادية بينما ينظم CLI agents وأوامر shell والخوادم المحلية وفحوصات المتصفح.",
+          "faqQ3": "متى أختار cmux؟",
+          "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
+        },
+        "cmuxVsIterm2": {
+          "metaTitle": "cmux مقابل iTerm2 لوكلاء AI coding - cmux",
+          "metaDescription": "قارن cmux و iTerm2 لوكلاء AI coding والإشعارات واختصارات unread و workspaces و workflows القابلة للبرمجة.",
+          "title": "cmux vs iTerm2",
+          "intro": "iTerm2 هو طرفية macOS عامة. cmux هو terminal و browser workspace أصلي على macOS لمراقبة CLI agents و shells والاختبارات وفحوصات المتصفح والسكربتات محليا مع notification rings و Cmd+Shift+U و Cmd+Control+U.",
+          "summaryTitle": "workspace محلي للوكلاء مقابل طبقة أداة أخرى",
+          "summaryBody": "استخدم iTerm2 عندما تريد workflow الخاص به. استخدم cmux عندما تريد سطح terminal محليا وقابلا للبرمجة يبقي الوكلاء والإشعارات و browser panes و Cmd+Shift+U و Cmd+Control+U مرئية على Mac.",
+          "table": {
+            "headers": [
+              "البعد",
+              "cmux",
+              "iTerm2"
+            ],
+            "rows": [
+              [
+                "المهمة الأساسية",
+                "طرفية macOS أصلية لمراقبة عدة CLI agents",
+                "طرفية macOS عامة"
+              ],
+              [
+                "رؤية الوكلاء",
+                "workspaces عمودية، metadata للفروع والمنافذ، وحالة unread",
+                "يعتمد على workflow الخاص بالأداة"
+              ],
+              [
+                "محرك العرض",
+                "مبني على libghostty مع عرض طرفية حديث مسرّع بالـ GPU",
+                "عارض طرفية iTerm2"
+              ],
+              [
+                "نموذج الانتباه",
+                "notification rings و Cmd+Shift+U لأحدث unread و Cmd+Control+U للتنقل بين unread work",
+                "غالبا يدوي أو مرتبط بالمنتج"
+              ],
+              [
+                "الأتمتة",
+                "CLI و Unix socket API و browser automation و hooks",
+                "إعدادات أو extensions أو APIs خاصة"
+              ],
+              [
+                "الأفضل لـ",
+                "مطورو Mac الذين يراقبون عدة وكلاء محليين",
+                "طرفية macOS عامة"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux يبقي الوكلاء مرئيين",
+              "body": "ينظم cmux الطرفيات وفحوصات المتصفح والمنافذ والفروع وآخر مخرجات الجلسات حتى تبقى جلسات الوكلاء الطويلة مقروءة."
+            },
+            {
+              "title": "الاختصارات جزء من نموذج الانتباه",
+              "body": "ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسح الحالة. هكذا تصبح الوكلاء المنتهية أو المحجوبة قائمة review."
+            },
+            {
+              "title": "workflow يبقى قابلا للبرمجة",
+              "body": "يسمح cmux CLI و socket API للسكربتات والوكلاء بإنشاء workspaces وتقسيم panes وإرسال input وقراءة الشاشات والتقاط screenshots والتحكم في browser panes."
+            },
+            {
+              "title": "اختيار الأدوات يبقى لك",
+              "body": "لا يستبدل cmux الوكيل أو المحرر. يعمل بجانب Claude Code و Codex و OpenCode و IDEs وأدوات shell والآلات البعيدة."
+            },
+            {
+              "title": "cmux يرث نقاط قوة Ghostty",
+              "body": "لأن cmux مبني على libghostty، يحصل على محرك طرفية حديث مسرّع بالـ GPU، وتوافق واسع، وإعدادات بأسلوب Ghostty لتفاصيل مثل الخطوط والسمات والألوان وسلوك المؤشر."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "هل يستبدل cmux iTerm2?",
+          "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى iTerm2 أفضل لوظيفته الأضيق.",
+          "faqQ2": "هل يمكن استخدام cmux مع iTerm2?",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب المحررات ومنصات الوكلاء والطرفيات العادية بينما ينظم CLI agents وأوامر shell والخوادم المحلية وفحوصات المتصفح.",
+          "faqQ3": "متى أختار cmux؟",
+          "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
+        },
+        "cmuxVsKitty": {
+          "metaTitle": "cmux مقابل Kitty لوكلاء AI coding - cmux",
+          "metaDescription": "قارن cmux و Kitty لوكلاء AI coding والإشعارات واختصارات unread و workspaces و workflows القابلة للبرمجة.",
+          "title": "cmux vs Kitty",
+          "intro": "Kitty هو طرفية GPU سريعة وغنية. cmux هو terminal و browser workspace أصلي على macOS لمراقبة CLI agents و shells والاختبارات وفحوصات المتصفح والسكربتات محليا مع notification rings و Cmd+Shift+U و Cmd+Control+U.",
+          "summaryTitle": "workspace محلي للوكلاء مقابل طبقة أداة أخرى",
+          "summaryBody": "استخدم Kitty عندما تريد workflow الخاص به. استخدم cmux عندما تريد سطح terminal محليا وقابلا للبرمجة يبقي الوكلاء والإشعارات و browser panes و Cmd+Shift+U و Cmd+Control+U مرئية على Mac.",
+          "table": {
+            "headers": [
+              "البعد",
+              "cmux",
+              "Kitty"
+            ],
+            "rows": [
+              [
+                "المهمة الأساسية",
+                "طرفية macOS أصلية لمراقبة عدة CLI agents",
+                "طرفية GPU سريعة وغنية"
+              ],
+              [
+                "محرك العرض",
+                "مبني على libghostty لعرض طرفية حديث مسرّع بالـ GPU",
+                "عارض Kitty ونظام بروتوكولاته"
+              ],
+              [
+                "رؤية الوكلاء",
+                "workspaces عمودية، metadata للفروع والمنافذ، وحالة unread",
+                "يعتمد على workflow الخاص بالأداة"
+              ],
+              [
+                "نموذج الانتباه",
+                "notification rings و Cmd+Shift+U لأحدث unread و Cmd+Control+U للتنقل بين unread work",
+                "غالبا يدوي أو مرتبط بالمنتج"
+              ],
+              [
+                "الأتمتة",
+                "CLI و Unix socket API و browser automation و hooks",
+                "إعدادات أو extensions أو APIs خاصة"
+              ],
+              [
+                "الأفضل لـ",
+                "مطورو Mac الذين يراقبون عدة وكلاء محليين",
+                "طرفية GPU سريعة وغنية"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux يبقي الوكلاء مرئيين",
+              "body": "ينظم cmux الطرفيات وفحوصات المتصفح والمنافذ والفروع وآخر مخرجات الجلسات حتى تبقى جلسات الوكلاء الطويلة مقروءة."
+            },
+            {
+              "title": "الاختصارات جزء من نموذج الانتباه",
+              "body": "ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسح الحالة. هكذا تصبح الوكلاء المنتهية أو المحجوبة قائمة review."
+            },
+            {
+              "title": "workflow يبقى قابلا للبرمجة",
+              "body": "يسمح cmux CLI و socket API للسكربتات والوكلاء بإنشاء workspaces وتقسيم panes وإرسال input وقراءة الشاشات والتقاط screenshots والتحكم في browser panes."
+            },
+            {
+              "title": "اختيار الأدوات يبقى لك",
+              "body": "لا يستبدل cmux الوكيل أو المحرر. يعمل بجانب Claude Code و Codex و OpenCode و IDEs وأدوات shell والآلات البعيدة."
+            },
+            {
+              "title": "cmux يحصل على محرك طرفية Ghostty",
+              "body": "يستخدم cmux libghostty لعرض الطرفية، لذا يرث محركًا حديثًا مسرّعًا بالـ GPU، وتوافقًا قويًا مع الطرفيات، ودعم الرسومات، وإعدادات Ghostty للتفاصيل المرئية."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "هل يستبدل cmux Kitty?",
+          "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى Kitty أفضل لوظيفته الأضيق.",
+          "faqQ2": "هل يمكن استخدام cmux مع Kitty?",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب المحررات ومنصات الوكلاء والطرفيات العادية بينما ينظم CLI agents وأوامر shell والخوادم المحلية وفحوصات المتصفح.",
+          "faqQ3": "متى أختار cmux؟",
+          "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
+        },
+        "cmuxVsHerdr": {
+          "metaTitle": "cmux مقابل Herdr لوكلاء AI coding - cmux",
+          "metaDescription": "قارن cmux و Herdr لوكلاء AI coding والإشعارات واختصارات unread و workspaces و workflows القابلة للبرمجة.",
+          "title": "cmux vs Herdr",
+          "intro": "Herdr هو terminal-native agent multiplexer. cmux هو terminal و browser workspace أصلي على macOS لمراقبة CLI agents و shells والاختبارات وفحوصات المتصفح والسكربتات محليا مع notification rings و Cmd+Shift+U و Cmd+Control+U.",
+          "summaryTitle": "workspace محلي للوكلاء مقابل طبقة أداة أخرى",
+          "summaryBody": "استخدم Herdr عندما تريد workflow الخاص به. استخدم cmux عندما تريد سطح terminal محليا وقابلا للبرمجة يبقي الوكلاء والإشعارات و browser panes و Cmd+Shift+U و Cmd+Control+U مرئية على Mac.",
+          "table": {
+            "headers": [
+              "البعد",
+              "cmux",
+              "Herdr"
+            ],
+            "rows": [
+              [
+                "المهمة الأساسية",
+                "طرفية macOS أصلية لمراقبة عدة CLI agents",
+                "terminal-native agent multiplexer"
+              ],
+              [
+                "نموذج التشغيل",
+                "مساحات عمل وألواح وسطوح متصفح محلية وsocket API",
+                "خادم خلفي وPTYs دائمة وإرفاق/فصل"
+              ],
+              [
+                "محرك العرض",
+                "مبني على libghostty لعرض الطرفية",
+                "يستخدم محاكي الطرفية الذي تشغل Herdr داخله"
+              ],
+              [
+                "رؤية الوكلاء",
+                "workspaces عمودية، metadata للفروع والمنافذ، وحالة unread",
+                "يعتمد على workflow الخاص بالأداة"
+              ],
+              [
+                "نموذج الانتباه",
+                "notification rings و Cmd+Shift+U لأحدث unread و Cmd+Control+U للتنقل بين unread work",
+                "غالبا يدوي أو مرتبط بالمنتج"
+              ],
+              [
+                "الأتمتة",
+                "CLI و Unix socket API و browser automation و hooks",
+                "إعدادات أو extensions أو APIs خاصة"
+              ],
+              [
+                "الأفضل لـ",
+                "مطورو Mac الذين يراقبون عدة وكلاء محليين",
+                "terminal-native agent multiplexer"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux يبقي الوكلاء مرئيين",
+              "body": "ينظم cmux الطرفيات وفحوصات المتصفح والمنافذ والفروع وآخر مخرجات الجلسات حتى تبقى جلسات الوكلاء الطويلة مقروءة."
+            },
+            {
+              "title": "الاختصارات جزء من نموذج الانتباه",
+              "body": "ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسح الحالة. هكذا تصبح الوكلاء المنتهية أو المحجوبة قائمة review."
+            },
+            {
+              "title": "workflow يبقى قابلا للبرمجة",
+              "body": "يسمح cmux CLI و socket API للسكربتات والوكلاء بإنشاء workspaces وتقسيم panes وإرسال input وقراءة الشاشات والتقاط screenshots والتحكم في browser panes."
+            },
+            {
+              "title": "اختيار الأدوات يبقى لك",
+              "body": "لا يستبدل cmux الوكيل أو المحرر. يعمل بجانب Claude Code و Codex و OpenCode و IDEs وأدوات shell والآلات البعيدة."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "هل يستبدل cmux Herdr?",
+          "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى Herdr أفضل لوظيفته الأضيق.",
+          "faqQ2": "هل يمكن استخدام cmux مع Herdr?",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب المحررات ومنصات الوكلاء والطرفيات العادية بينما ينظم CLI agents وأوامر shell والخوادم المحلية وفحوصات المتصفح.",
+          "faqQ3": "متى أختار cmux؟",
+          "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
+        },
+        "cmuxVsOpencode": {
+          "metaTitle": "cmux مقابل OpenCode لوكلاء AI coding - cmux",
+          "metaDescription": "قارن cmux و OpenCode لوكلاء AI coding والإشعارات واختصارات unread و workspaces و workflows القابلة للبرمجة.",
+          "title": "cmux vs OpenCode",
+          "intro": "OpenCode هو وكيل برمجة open source. cmux هو terminal و browser workspace أصلي على macOS لمراقبة CLI agents و shells والاختبارات وفحوصات المتصفح والسكربتات محليا مع notification rings و Cmd+Shift+U و Cmd+Control+U.",
+          "summaryTitle": "workspace محلي للوكلاء مقابل طبقة أداة أخرى",
+          "summaryBody": "استخدم OpenCode عندما تريد workflow الخاص به. استخدم cmux عندما تريد سطح terminal محليا وقابلا للبرمجة يبقي الوكلاء والإشعارات و browser panes و Cmd+Shift+U و Cmd+Control+U مرئية على Mac.",
+          "table": {
+            "headers": [
+              "البعد",
+              "cmux",
+              "OpenCode"
+            ],
+            "rows": [
+              [
+                "المهمة الأساسية",
+                "طرفية macOS أصلية لمراقبة عدة CLI agents",
+                "وكيل برمجة open source"
+              ],
+              [
+                "رؤية الوكلاء",
+                "workspaces عمودية، metadata للفروع والمنافذ، وحالة unread",
+                "يعتمد على workflow الخاص بالأداة"
+              ],
+              [
+                "نموذج الانتباه",
+                "notification rings و Cmd+Shift+U لأحدث unread و Cmd+Control+U للتنقل بين unread work",
+                "غالبا يدوي أو مرتبط بالمنتج"
+              ],
+              [
+                "الأتمتة",
+                "CLI و Unix socket API و browser automation و hooks",
+                "إعدادات أو extensions أو APIs خاصة"
+              ],
+              [
+                "الأفضل لـ",
+                "مطورو Mac الذين يراقبون عدة وكلاء محليين",
+                "وكيل برمجة open source"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux يبقي الوكلاء مرئيين",
+              "body": "ينظم cmux الطرفيات وفحوصات المتصفح والمنافذ والفروع وآخر مخرجات الجلسات حتى تبقى جلسات الوكلاء الطويلة مقروءة."
+            },
+            {
+              "title": "الاختصارات جزء من نموذج الانتباه",
+              "body": "ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسح الحالة. هكذا تصبح الوكلاء المنتهية أو المحجوبة قائمة review."
+            },
+            {
+              "title": "workflow يبقى قابلا للبرمجة",
+              "body": "يسمح cmux CLI و socket API للسكربتات والوكلاء بإنشاء workspaces وتقسيم panes وإرسال input وقراءة الشاشات والتقاط screenshots والتحكم في browser panes."
+            },
+            {
+              "title": "اختيار الأدوات يبقى لك",
+              "body": "لا يستبدل cmux الوكيل أو المحرر. يعمل بجانب Claude Code و Codex و OpenCode و IDEs وأدوات shell والآلات البعيدة."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "هل يستبدل cmux OpenCode?",
+          "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى OpenCode أفضل لوظيفته الأضيق.",
+          "faqQ2": "هل يمكن استخدام cmux مع OpenCode?",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب المحررات ومنصات الوكلاء والطرفيات العادية بينما ينظم CLI agents وأوامر shell والخوادم المحلية وفحوصات المتصفح.",
+          "faqQ3": "متى أختار cmux؟",
+          "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
+        },
+        "cmuxVsTmux": {
+          "metaTitle": "cmux مقابل tmux لوكلاء AI coding - cmux",
+          "metaDescription": "قارن cmux و tmux لوكلاء AI coding والإشعارات واختصارات unread و workspaces و workflows القابلة للبرمجة.",
+          "title": "cmux vs tmux",
+          "intro": "tmux هو terminal multiplexer محمول. cmux هو terminal و browser workspace أصلي على macOS لمراقبة CLI agents و shells والاختبارات وفحوصات المتصفح والسكربتات محليا مع notification rings و Cmd+Shift+U و Cmd+Control+U.",
+          "summaryTitle": "workspace محلي للوكلاء مقابل طبقة أداة أخرى",
+          "summaryBody": "استخدم tmux عندما تريد workflow الخاص به. استخدم cmux عندما تريد سطح terminal محليا وقابلا للبرمجة يبقي الوكلاء والإشعارات و browser panes و Cmd+Shift+U و Cmd+Control+U مرئية على Mac.",
+          "table": {
+            "headers": [
+              "البعد",
+              "cmux",
+              "tmux"
+            ],
+            "rows": [
+              [
+                "المهمة الأساسية",
+                "طرفية macOS أصلية لمراقبة عدة CLI agents",
+                "terminal multiplexer محمول"
+              ],
+              [
+                "المنصة",
+                "تطبيق macOS مبني على Swift/AppKit وlibghostty",
+                "يعمل داخل الطرفيات عبر الأنظمة الشبيهة بـ Unix"
+              ],
+              [
+                "رؤية الوكلاء",
+                "workspaces عمودية، metadata للفروع والمنافذ، وحالة unread",
+                "يعتمد على workflow الخاص بالأداة"
+              ],
+              [
+                "نموذج الانتباه",
+                "notification rings و Cmd+Shift+U لأحدث unread و Cmd+Control+U للتنقل بين unread work",
+                "غالبا يدوي أو مرتبط بالمنتج"
+              ],
+              [
+                "الأتمتة",
+                "CLI و Unix socket API و browser automation و hooks",
+                "إعدادات أو extensions أو APIs خاصة"
+              ],
+              [
+                "الأفضل لـ",
+                "مطورو Mac الذين يراقبون عدة وكلاء محليين",
+                "terminal multiplexer محمول"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux يبقي الوكلاء مرئيين",
+              "body": "ينظم cmux الطرفيات وفحوصات المتصفح والمنافذ والفروع وآخر مخرجات الجلسات حتى تبقى جلسات الوكلاء الطويلة مقروءة."
+            },
+            {
+              "title": "الاختصارات جزء من نموذج الانتباه",
+              "body": "ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسح الحالة. هكذا تصبح الوكلاء المنتهية أو المحجوبة قائمة review."
+            },
+            {
+              "title": "workflow يبقى قابلا للبرمجة",
+              "body": "يسمح cmux CLI و socket API للسكربتات والوكلاء بإنشاء workspaces وتقسيم panes وإرسال input وقراءة الشاشات والتقاط screenshots والتحكم في browser panes."
+            },
+            {
+              "title": "اختيار الأدوات يبقى لك",
+              "body": "لا يستبدل cmux الوكيل أو المحرر. يعمل بجانب Claude Code و Codex و OpenCode و IDEs وأدوات shell والآلات البعيدة."
+            },
+            {
+              "title": "socket API أتمتة على مستوى التطبيق",
+              "body": "tmux قابل للبرمجة داخل الطرفية. يكشف cmux أيضًا التطبيق حول الطرفية: مساحات العمل ولوحات المتصفح وقراءات الشاشة ولقطات الشاشة وبيانات الإشعارات."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "هل يستبدل cmux tmux?",
+          "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى tmux أفضل لوظيفته الأضيق.",
+          "faqQ2": "هل يمكن استخدام cmux مع tmux?",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب المحررات ومنصات الوكلاء والطرفيات العادية بينما ينظم CLI agents وأوامر shell والخوادم المحلية وفحوصات المتصفح.",
+          "faqQ3": "متى أختار cmux؟",
+          "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
+        },
+        "cmuxVsVscode": {
+          "metaTitle": "cmux مقابل VS Code لوكلاء AI coding - cmux",
+          "metaDescription": "قارن cmux و VS Code لوكلاء AI coding والإشعارات واختصارات unread و workspaces و workflows القابلة للبرمجة.",
+          "title": "cmux vs VS Code",
+          "intro": "VS Code هو محرر ومنصة extensions. cmux هو terminal و browser workspace أصلي على macOS لمراقبة CLI agents و shells والاختبارات وفحوصات المتصفح والسكربتات محليا مع notification rings و Cmd+Shift+U و Cmd+Control+U.",
+          "summaryTitle": "workspace محلي للوكلاء مقابل طبقة أداة أخرى",
+          "summaryBody": "استخدم VS Code عندما تريد workflow الخاص به. استخدم cmux عندما تريد سطح terminal محليا وقابلا للبرمجة يبقي الوكلاء والإشعارات و browser panes و Cmd+Shift+U و Cmd+Control+U مرئية على Mac.",
+          "table": {
+            "headers": [
+              "البعد",
+              "cmux",
+              "VS Code"
+            ],
+            "rows": [
+              [
+                "المهمة الأساسية",
+                "طرفية macOS أصلية لمراقبة عدة CLI agents",
+                "محرر ومنصة extensions"
+              ],
+              [
+                "نموذج المصدر",
+                "تطبيق GPL مجاني ومفتوح المصدر",
+                "Code OSS مرخص MIT؛ وتوزيعة Microsoft VS Code لها ترخيص منتج من Microsoft"
+              ],
+              [
+                "رؤية الوكلاء",
+                "workspaces عمودية، metadata للفروع والمنافذ، وحالة unread",
+                "يعتمد على workflow الخاص بالأداة"
+              ],
+              [
+                "نموذج الانتباه",
+                "notification rings و Cmd+Shift+U لأحدث unread و Cmd+Control+U للتنقل بين unread work",
+                "غالبا يدوي أو مرتبط بالمنتج"
+              ],
+              [
+                "الأتمتة",
+                "CLI و Unix socket API و browser automation و hooks",
+                "إعدادات أو extensions أو APIs خاصة"
+              ],
+              [
+                "الأفضل لـ",
+                "مطورو Mac الذين يراقبون عدة وكلاء محليين",
+                "محرر ومنصة extensions"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux يبقي الوكلاء مرئيين",
+              "body": "ينظم cmux الطرفيات وفحوصات المتصفح والمنافذ والفروع وآخر مخرجات الجلسات حتى تبقى جلسات الوكلاء الطويلة مقروءة."
+            },
+            {
+              "title": "الاختصارات جزء من نموذج الانتباه",
+              "body": "ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسح الحالة. هكذا تصبح الوكلاء المنتهية أو المحجوبة قائمة review."
+            },
+            {
+              "title": "workflow يبقى قابلا للبرمجة",
+              "body": "يسمح cmux CLI و socket API للسكربتات والوكلاء بإنشاء workspaces وتقسيم panes وإرسال input وقراءة الشاشات والتقاط screenshots والتحكم في browser panes."
+            },
+            {
+              "title": "اختيار الأدوات يبقى لك",
+              "body": "لا يستبدل cmux الوكيل أو المحرر. يعمل بجانب Claude Code و Codex و OpenCode و IDEs وأدوات shell والآلات البعيدة."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "هل يستبدل cmux VS Code?",
+          "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى VS Code أفضل لوظيفته الأضيق.",
+          "faqQ2": "هل يمكن استخدام cmux مع VS Code?",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب المحررات ومنصات الوكلاء والطرفيات العادية بينما ينظم CLI agents وأوامر shell والخوادم المحلية وفحوصات المتصفح.",
+          "faqQ3": "متى أختار cmux؟",
+          "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
+        },
+        "cmuxVsWindsurf": {
+          "metaTitle": "cmux مقابل Windsurf لوكلاء AI coding - cmux",
+          "metaDescription": "قارن cmux و Windsurf لوكلاء AI coding والإشعارات واختصارات unread و workspaces و workflows القابلة للبرمجة.",
+          "title": "cmux vs Windsurf",
+          "intro": "Windsurf هو سطح IDE للوكلاء. cmux هو terminal و browser workspace أصلي على macOS لمراقبة CLI agents و shells والاختبارات وفحوصات المتصفح والسكربتات محليا مع notification rings و Cmd+Shift+U و Cmd+Control+U.",
+          "summaryTitle": "workspace محلي للوكلاء مقابل طبقة أداة أخرى",
+          "summaryBody": "استخدم Windsurf عندما تريد workflow الخاص به. استخدم cmux عندما تريد سطح terminal محليا وقابلا للبرمجة يبقي الوكلاء والإشعارات و browser panes و Cmd+Shift+U و Cmd+Control+U مرئية على Mac.",
+          "table": {
+            "headers": [
+              "البعد",
+              "cmux",
+              "Windsurf"
+            ],
+            "rows": [
+              [
+                "المهمة الأساسية",
+                "طرفية macOS أصلية لمراقبة عدة CLI agents",
+                "سطح IDE للوكلاء"
+              ],
+              [
+                "الارتباط بالمحرر",
+                "يعمل بجانب Cursor وXcode وNeovim وVS Code وJetBrains أو أي محرر",
+                "سير عمل متمحور حول المحرر"
+              ],
+              [
+                "رؤية الوكلاء",
+                "workspaces عمودية، metadata للفروع والمنافذ، وحالة unread",
+                "يعتمد على workflow الخاص بالأداة"
+              ],
+              [
+                "نموذج الانتباه",
+                "notification rings و Cmd+Shift+U لأحدث unread و Cmd+Control+U للتنقل بين unread work",
+                "غالبا يدوي أو مرتبط بالمنتج"
+              ],
+              [
+                "الأتمتة",
+                "CLI و Unix socket API و browser automation و hooks",
+                "إعدادات أو extensions أو APIs خاصة"
+              ],
+              [
+                "الأفضل لـ",
+                "مطورو Mac الذين يراقبون عدة وكلاء محليين",
+                "سطح IDE للوكلاء"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux يبقي الوكلاء مرئيين",
+              "body": "ينظم cmux الطرفيات وفحوصات المتصفح والمنافذ والفروع وآخر مخرجات الجلسات حتى تبقى جلسات الوكلاء الطويلة مقروءة."
+            },
+            {
+              "title": "الاختصارات جزء من نموذج الانتباه",
+              "body": "ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسح الحالة. هكذا تصبح الوكلاء المنتهية أو المحجوبة قائمة review."
+            },
+            {
+              "title": "workflow يبقى قابلا للبرمجة",
+              "body": "يسمح cmux CLI و socket API للسكربتات والوكلاء بإنشاء workspaces وتقسيم panes وإرسال input وقراءة الشاشات والتقاط screenshots والتحكم في browser panes."
+            },
+            {
+              "title": "اختيار الأدوات يبقى لك",
+              "body": "لا يستبدل cmux الوكيل أو المحرر. يعمل بجانب Claude Code و Codex و OpenCode و IDEs وأدوات shell والآلات البعيدة."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "هل يستبدل cmux Windsurf?",
+          "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى Windsurf أفضل لوظيفته الأضيق.",
+          "faqQ2": "هل يمكن استخدام cmux مع Windsurf?",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب المحررات ومنصات الوكلاء والطرفيات العادية بينما ينظم CLI agents وأوامر shell والخوادم المحلية وفحوصات المتصفح.",
+          "faqQ3": "متى أختار cmux؟",
+          "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
+        },
+        "cmuxVsZed": {
+          "metaTitle": "cmux مقابل Zed لوكلاء AI coding - cmux",
+          "metaDescription": "قارن cmux و Zed لوكلاء AI coding والإشعارات واختصارات unread و workspaces و workflows القابلة للبرمجة.",
+          "title": "cmux vs Zed",
+          "intro": "Zed هو محرر تعاوني سريع. cmux هو terminal و browser workspace أصلي على macOS لمراقبة CLI agents و shells والاختبارات وفحوصات المتصفح والسكربتات محليا مع notification rings و Cmd+Shift+U و Cmd+Control+U.",
+          "summaryTitle": "workspace محلي للوكلاء مقابل طبقة أداة أخرى",
+          "summaryBody": "استخدم Zed عندما تريد workflow الخاص به. استخدم cmux عندما تريد سطح terminal محليا وقابلا للبرمجة يبقي الوكلاء والإشعارات و browser panes و Cmd+Shift+U و Cmd+Control+U مرئية على Mac.",
+          "table": {
+            "headers": [
+              "البعد",
+              "cmux",
+              "Zed"
+            ],
+            "rows": [
+              [
+                "المهمة الأساسية",
+                "طرفية macOS أصلية لمراقبة عدة CLI agents",
+                "محرر تعاوني سريع"
+              ],
+              [
+                "نموذج المصدر",
+                "تطبيق GPL مجاني ومفتوح المصدر",
+                "محرر مفتوح المصدر"
+              ],
+              [
+                "رؤية الوكلاء",
+                "workspaces عمودية، metadata للفروع والمنافذ، وحالة unread",
+                "يعتمد على workflow الخاص بالأداة"
+              ],
+              [
+                "نموذج الانتباه",
+                "notification rings و Cmd+Shift+U لأحدث unread و Cmd+Control+U للتنقل بين unread work",
+                "غالبا يدوي أو مرتبط بالمنتج"
+              ],
+              [
+                "الأتمتة",
+                "CLI و Unix socket API و browser automation و hooks",
+                "إعدادات أو extensions أو APIs خاصة"
+              ],
+              [
+                "الأفضل لـ",
+                "مطورو Mac الذين يراقبون عدة وكلاء محليين",
+                "محرر تعاوني سريع"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux يبقي الوكلاء مرئيين",
+              "body": "ينظم cmux الطرفيات وفحوصات المتصفح والمنافذ والفروع وآخر مخرجات الجلسات حتى تبقى جلسات الوكلاء الطويلة مقروءة."
+            },
+            {
+              "title": "الاختصارات جزء من نموذج الانتباه",
+              "body": "ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسح الحالة. هكذا تصبح الوكلاء المنتهية أو المحجوبة قائمة review."
+            },
+            {
+              "title": "workflow يبقى قابلا للبرمجة",
+              "body": "يسمح cmux CLI و socket API للسكربتات والوكلاء بإنشاء workspaces وتقسيم panes وإرسال input وقراءة الشاشات والتقاط screenshots والتحكم في browser panes."
+            },
+            {
+              "title": "اختيار الأدوات يبقى لك",
+              "body": "لا يستبدل cmux الوكيل أو المحرر. يعمل بجانب Claude Code و Codex و OpenCode و IDEs وأدوات shell والآلات البعيدة."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "هل يستبدل cmux Zed?",
+          "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى Zed أفضل لوظيفته الأضيق.",
+          "faqQ2": "هل يمكن استخدام cmux مع Zed?",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب المحررات ومنصات الوكلاء والطرفيات العادية بينما ينظم CLI agents وأوامر shell والخوادم المحلية وفحوصات المتصفح.",
+          "faqQ3": "متى أختار cmux؟",
+          "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
         },
         "cmuxVsWarp": {
           "metaTitle": "cmux مقابل Warp لوكلاء برمجة الذكاء الاصطناعي - cmux",
@@ -2190,28 +3107,38 @@
             ],
             "rows": [
               [
-                "مسار العمل الأساسي",
+                "سير العمل الأساسي",
                 "الإشراف على وكلاء CLI كثيرين",
                 "تجربة طرفية AI"
               ],
               [
+                "محرك العرض",
+                "مبني على libghostty لعرض الطرفية",
+                "عرض عميل طرفية Warp"
+              ],
+              [
                 "اختيار الوكيل",
-                "أي وكيل قائم على shell",
-                "مسار منتج Warp"
+                "workspaces عمودية، notification rings، Cmd+Shift+U، Cmd+Control+U",
+                "سير عمل منتج Warp"
+              ],
+              [
+                "نموذج المصدر",
+                "تطبيق GPL مجاني ومفتوح المصدر",
+                "عميل مفتوح المصدر مع منتج وخدمات سحابية مدارة"
               ],
               [
                 "التنظيم",
-                "مساحات عمل عمودية، حلقات إشعارات، انتقالات unread",
-                "تبويبات الطرفية ومسارات Warp"
+                "مساحات عمل عمودية، وحلقات إشعارات، وCmd+Shift+U، وCmd+Control+U",
+                "تبويبات طرفية وتقسيمات وإشعارات وتدفقات Warp"
               ],
               [
                 "القابلية للبرمجة",
-                "Unix socket، CLI، أتمتة متصفح",
+                "Unix socket وCLI وأتمتة متصفح",
                 "ميزات خاصة بـ Warp"
               ],
               [
                 "أفضل ملاءمة",
-                "مستخدمو macOS كثيرو الوكلاء",
+                "مستخدمو macOS كثيفو الوكلاء",
                 "فرق تعتمد Warp كطرفيتها"
               ]
             ]
@@ -2241,6 +3168,82 @@
           "faqA2": "نعم. استخدم الطرفية التي تناسب كل مهمة. يكون cmux أقوى عندما تحتاج جلسات وكلاء كثيرة إلى تنظيم وتتبع انتباه.",
           "faqQ3": "لماذا أختار cmux لوكلاء البرمجة؟",
           "faqA3": "يضيف cmux مساحات عمل وحلقات إشعارات وتنقل unread وأتمتة متصفح وsocket قابلًا للبرمجة حول وكلاء CLI الذين تستخدمهم بالفعل."
+        },
+        "cmuxVsWezterm": {
+          "metaTitle": "cmux مقابل WezTerm لوكلاء AI coding - cmux",
+          "metaDescription": "قارن cmux و WezTerm لوكلاء AI coding والإشعارات واختصارات unread و workspaces و workflows القابلة للبرمجة.",
+          "title": "cmux vs WezTerm",
+          "intro": "WezTerm هو طرفية و multiplexer عابران للمنصات. cmux هو terminal و browser workspace أصلي على macOS لمراقبة CLI agents و shells والاختبارات وفحوصات المتصفح والسكربتات محليا مع notification rings و Cmd+Shift+U و Cmd+Control+U.",
+          "summaryTitle": "workspace محلي للوكلاء مقابل طبقة أداة أخرى",
+          "summaryBody": "استخدم WezTerm عندما تريد workflow الخاص به. استخدم cmux عندما تريد سطح terminal محليا وقابلا للبرمجة يبقي الوكلاء والإشعارات و browser panes و Cmd+Shift+U و Cmd+Control+U مرئية على Mac.",
+          "table": {
+            "headers": [
+              "البعد",
+              "cmux",
+              "WezTerm"
+            ],
+            "rows": [
+              [
+                "المهمة الأساسية",
+                "طرفية macOS أصلية لمراقبة عدة CLI agents",
+                "طرفية و multiplexer عابران للمنصات"
+              ],
+              [
+                "محرك العرض",
+                "مبني على libghostty لعرض طرفية حديث مسرّع بالـ GPU",
+                "عارض طرفية ومضاعف WezTerm"
+              ],
+              [
+                "رؤية الوكلاء",
+                "workspaces عمودية، metadata للفروع والمنافذ، وحالة unread",
+                "يعتمد على workflow الخاص بالأداة"
+              ],
+              [
+                "نموذج الانتباه",
+                "notification rings و Cmd+Shift+U لأحدث unread و Cmd+Control+U للتنقل بين unread work",
+                "غالبا يدوي أو مرتبط بالمنتج"
+              ],
+              [
+                "الأتمتة",
+                "CLI و Unix socket API و browser automation و hooks",
+                "إعدادات أو extensions أو APIs خاصة"
+              ],
+              [
+                "الأفضل لـ",
+                "مطورو Mac الذين يراقبون عدة وكلاء محليين",
+                "طرفية و multiplexer عابران للمنصات"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux يبقي الوكلاء مرئيين",
+              "body": "ينظم cmux الطرفيات وفحوصات المتصفح والمنافذ والفروع وآخر مخرجات الجلسات حتى تبقى جلسات الوكلاء الطويلة مقروءة."
+            },
+            {
+              "title": "الاختصارات جزء من نموذج الانتباه",
+              "body": "ينتقل Cmd+Shift+U إلى أحدث pane غير مقروء، ويتنقل Cmd+Control+U بين unread work من دون مسح الحالة. هكذا تصبح الوكلاء المنتهية أو المحجوبة قائمة review."
+            },
+            {
+              "title": "workflow يبقى قابلا للبرمجة",
+              "body": "يسمح cmux CLI و socket API للسكربتات والوكلاء بإنشاء workspaces وتقسيم panes وإرسال input وقراءة الشاشات والتقاط screenshots والتحكم في browser panes."
+            },
+            {
+              "title": "اختيار الأدوات يبقى لك",
+              "body": "لا يستبدل cmux الوكيل أو المحرر. يعمل بجانب Claude Code و Codex و OpenCode و IDEs وأدوات shell والآلات البعيدة."
+            },
+            {
+              "title": "أتمتة المتصفح تعيش بجانب الطرفيات",
+              "body": "يستطيع cmux تقسيم لوحات متصفح بجانب الطرفيات وكشف أتمتة المتصفح عبر socket API نفسها، حتى تستطيع الوكلاء التحقق من تطبيقات الويب المحلية دون مغادرة مساحة العمل."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "هل يستبدل cmux WezTerm?",
+          "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى WezTerm أفضل لوظيفته الأضيق.",
+          "faqQ2": "هل يمكن استخدام cmux مع WezTerm?",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب المحررات ومنصات الوكلاء والطرفيات العادية بينما ينظم CLI agents وأوامر shell والخوادم المحلية وفحوصات المتصفح.",
+          "faqQ3": "متى أختار cmux؟",
+          "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
         },
         "cmuxVsGhostty": {
           "metaTitle": "cmux مقابل Ghostty لوكلاء البرمجة - cmux",
@@ -2273,7 +3276,7 @@
               ],
               [
                 "انتباه الوكيل",
-                "حلقات إشعارات وتنقل unread",
+                "notification rings، Cmd+Shift+U، Cmd+Control+U",
                 "إشعارات طرفية فقط"
               ],
               [

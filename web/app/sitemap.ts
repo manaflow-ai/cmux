@@ -8,7 +8,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const paths = [
     { path: "", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 1 },
     { path: "/ios", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.8 },
-    { path: "/blog", lastModified: "2026-06-23", changeFrequency: "weekly" as const, priority: 0.8 },
+    { path: "/blog", lastModified: "2026-07-03", changeFrequency: "weekly" as const, priority: 0.8 },
+    { path: "/blog/claude-code-best-worktree-manager", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-home", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-history", lastModified: "2026-06-02", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-finder", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
