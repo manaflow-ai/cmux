@@ -29,6 +29,10 @@ public final class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
     /// Tracks active downloads keyed by WKDownload identity.
     private var activeDownloads: [ObjectIdentifier: DownloadState] = [:]
+    /// Caller-supplied suggested-filename overrides (e.g. a scripted download
+    /// that knows the intended name), keyed by WKDownload identity. Consumed
+    /// once in `decideDestinationUsing` and cleared on teardown.
+    private var suggestedFilenameOverrides: [ObjectIdentifier: String] = [:]
     private let activeDownloadsLock = NSLock()
     /// Localized fallback filename forwarded to the filename resolver.
     private let defaultFilename: String
@@ -52,9 +56,27 @@ public final class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         return dir
     }()
 
+    /// Records a caller-supplied suggested filename to use for `download`,
+    /// overriding WebKit's `suggestedFilename` (consumed once).
+    public func setSuggestedFilenameOverride(_ suggestedFilename: String?, for download: WKDownload) {
+        let trimmed = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return }
+        activeDownloadsLock.lock()
+        suggestedFilenameOverrides[ObjectIdentifier(download)] = trimmed
+        activeDownloadsLock.unlock()
+    }
+
+    private func takeSuggestedFilenameOverride(for download: WKDownload) -> String? {
+        activeDownloadsLock.lock()
+        let filename = suggestedFilenameOverrides.removeValue(forKey: ObjectIdentifier(download))
+        activeDownloadsLock.unlock()
+        return filename
+    }
+
     private func storeState(_ state: DownloadState, for download: WKDownload) {
         activeDownloadsLock.lock()
         activeDownloads[ObjectIdentifier(download)] = state
+        suggestedFilenameOverrides.removeValue(forKey: ObjectIdentifier(download))
         activeDownloadsLock.unlock()
     }
 
@@ -86,8 +108,11 @@ public final class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             completionHandler(nil)
             return
         }
-        let sourceURL = response.url ?? URL(fileURLWithPath: suggestedFilename)
-        let safeFilename = filenameResolver.suggestedFilename(suggestedFilename: suggestedFilename, response: response, sourceURL: sourceURL, imageType: nil)
+        // A caller-supplied override (e.g. a scripted download) wins over
+        // WebKit's suggested filename.
+        let effectiveSuggestedFilename = takeSuggestedFilenameOverride(for: download) ?? suggestedFilename
+        let sourceURL = response.url ?? URL(fileURLWithPath: effectiveSuggestedFilename)
+        let safeFilename = filenameResolver.suggestedFilename(suggestedFilename: effectiveSuggestedFilename, response: response, sourceURL: sourceURL, imageType: nil)
         let tempFilename = "\(UUID().uuidString)-\(safeFilename)"
         let destURL = Self.tempDir.appendingPathComponent(tempFilename, isDirectory: false)
         try? FileManager.default.removeItem(at: destURL)
