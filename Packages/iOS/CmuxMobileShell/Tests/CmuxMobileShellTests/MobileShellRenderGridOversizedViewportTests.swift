@@ -955,14 +955,26 @@ private func unsequencedTerminalBytesEventFrame(
     let probeDelivered = try await pollUntil { collector.lines.contains { $0.contains("pre-probe") } }
     #expect(probeDelivered, "raw bytes must flow after mount")
 
+    let replayCountBeforeViewport = await router.count(of: "mobile.terminal.replay")
     _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    let queuedViewportReplay = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountBeforeViewport
+    }
+    #expect(queuedViewportReplay, "the setup viewport report must request its resize replay")
+    let viewportReplayCount = await router.count(of: "mobile.terminal.replay")
+    try await waitForReplayResponsesServed(
+        viewportReplayCount,
+        router: router,
+        "the setup viewport replay must settle before the replay-origin oversized response"
+    )
     let viewportBaseline = await router.count(of: "mobile.terminal.viewport")
 
     // The barrier originates from a plain self-heal replay (no oversized live
-    // frame preceded it — an idle surface). Its response reveals the diverged
-    // Mac grid; recovery must still re-assert this phone's viewport so the
-    // Mac re-caps, or an idle surface wedges until some unrelated frame.
-    await router.enqueueReplayRawTail(text: "FALLBACK-SPLICE", columns: 90, rows: 40)
+    // frame preceded it — an idle surface). Its response has no bytes, but
+    // still reveals the diverged Mac grid; recovery must re-assert this
+    // phone's viewport so the Mac re-caps, or an idle surface wedges until
+    // some unrelated frame.
+    await router.enqueueReplayRawTail(text: "", columns: 90, rows: 40)
     let convergedFrames = try (0..<2).map { index in
         try MobileTerminalRenderGridFrame(
             surfaceID: "live-terminal",
@@ -988,10 +1000,6 @@ private func unsequencedTerminalBytesEventFrame(
     )
     let convergedDelivered = try await pollUntil { collector.lines.contains { $0.contains("converged") } }
     #expect(convergedDelivered, "the retried replay must repaint the mirror with the fitting frame")
-    #expect(
-        collector.lines.contains { $0.contains("FALLBACK-SPLICE") } == false,
-        "diverged fallback responses must never paint"
-    )
     collector.unmount()
 }
 

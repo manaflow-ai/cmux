@@ -7192,6 +7192,38 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                     return
                 }
+                // A snapshot/raw-tail fallback authored for a producer grid
+                // larger than this phone's viewport splices rows exactly like
+                // an oversized render-grid frame (issue #7202). Withhold it and
+                // keep the barrier's bounded retries polling for a fitting
+                // replay instead of painting the divergence. Check the grid
+                // before the empty-payload path: a host can report dimensions
+                // even when an idle/failing snapshot contributes no bytes.
+                if let macColumns = payload?.columns,
+                   let macRows = payload?.rows,
+                   !self.producerGridFitsReportedViewport(
+                       columns: macColumns,
+                       rows: macRows,
+                       surfaceID: surfaceID
+                   ) {
+                    MobileDebugLog.anchormux(
+                        "CMUX_REPLAY oversized_fallback surface=\(surfaceID) macGrid=\(macColumns)x\(macRows)"
+                    )
+                    // The hold records the withheld payload and (paced)
+                    // re-asserts the viewport report so the Mac re-caps even
+                    // when this replay's barrier did not originate from an
+                    // oversized live frame.
+                    self.holdTerminalOutputForOversizedGrid(
+                        columns: macColumns,
+                        rows: macRows,
+                        surfaceID: surfaceID,
+                        source: "replay_fallback"
+                    )
+                    if replayBarrierTokenForRequest != nil {
+                        self.retryTerminalReplayForOversizedGrid(surfaceID: surfaceID)
+                    }
+                    return
+                }
                 guard let deliverBytes, !deliverBytes.isEmpty else {
                     if self.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID),
                        let retryToken = self.prepareTerminalReplayFailureRetry(
@@ -7220,36 +7252,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         token: replayBarrierTokenForRequest,
                         reason: "empty"
                     )
-                    return
-                }
-                // A snapshot/raw-tail fallback authored for a producer grid
-                // larger than this phone's viewport splices rows exactly like
-                // an oversized render-grid frame (issue #7202). Withhold it and
-                // keep the barrier's bounded retries polling for a fitting
-                // replay instead of painting the divergence.
-                if let macColumns = payload?.columns,
-                   let macRows = payload?.rows,
-                   !self.producerGridFitsReportedViewport(
-                       columns: macColumns,
-                       rows: macRows,
-                       surfaceID: surfaceID
-                   ) {
-                    MobileDebugLog.anchormux(
-                        "CMUX_REPLAY oversized_fallback surface=\(surfaceID) macGrid=\(macColumns)x\(macRows)"
-                    )
-                    // The hold records the withheld payload and (paced)
-                    // re-asserts the viewport report so the Mac re-caps even
-                    // when this replay's barrier did not originate from an
-                    // oversized live frame.
-                    self.holdTerminalOutputForOversizedGrid(
-                        columns: macColumns,
-                        rows: macRows,
-                        surfaceID: surfaceID,
-                        source: "replay_fallback"
-                    )
-                    if replayBarrierTokenForRequest != nil {
-                        self.retryTerminalReplayForOversizedGrid(surfaceID: surfaceID)
-                    }
                     return
                 }
                 let accepted = self.deliverTerminalBytes(
