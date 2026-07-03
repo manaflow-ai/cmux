@@ -5236,6 +5236,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if wasRenderable, hasRecoveryTarget, let recoveryURL {
             pendingWebContentRecoveryURL = recoveryURL
             hasRecoverableWebContentTermination = true
+            closeBackgroundPreloadHost(reason: "webContentRecovery")
             detachTerminatedWebViewCallbacks(terminatedWebView)
             hideBrowserPortalView(source: "webContentRecovery", recordHiddenVisibility: false)
         } else {
