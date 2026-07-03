@@ -169,6 +169,19 @@ import Testing
         #expect(!await expiredReader.isTrusted(scope))
     }
 
+    @Test func manualHostTrustWarningFormatsBracketedIPv6Once() throws {
+        let scope = try #require(MobileManualHostTrustScope(
+            host: "[fd00::12]",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+
+        #expect(MobileManualHostTrustWarning(scope: scope).endpoint == "[fd00::12]:58465")
+        #expect(
+            MobileManualHostTrustWarning(scope: scope, displayHost: "[fd00::12]").endpoint == "[fd00::12]:58465"
+        )
+    }
+
     @Test func physicalDeviceRejectsLoopbackTicketsInEveryGrammar() throws {
         // The v2 QR decoder rejects loopback itself; this policy is what stops
         // the LEGACY payload grammars from being a bypass on a physical phone,

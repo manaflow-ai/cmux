@@ -3,7 +3,8 @@ import Foundation
 /// The minimal pairing-QR grammar: expected Mac account/build metadata plus
 /// explicit `host:port` routes in the URL query.
 ///
-/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<tailscale-host>:<port>[&m=<manual-host>:<port>]`
+/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<tailscale-host>:<port>`
+/// `cmux-ios://attach?v=3&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<tailscale-host>:<port>[&m=<manual-host>:<port>]`
 ///
 /// A pairing QR needs to tell the phone where to dial and which non-secret
 /// account/build context to check before dialing. The account value is the
@@ -41,8 +42,11 @@ import Foundation
 public struct CmxPairingQRCode: Sendable {
     /// The grammar version carried in the URL's `v` query item. Distinct from
     /// ``CmxAttachTicket/currentVersion`` (the ticket *structure* version):
-    /// `v=1` URLs carry a base64 JSON `payload`, `v=2` URLs carry bare routes.
-    public static let version = 2
+    /// `v=1` URLs carry a base64 JSON `payload`, `v=2` URLs carry bare Tailscale
+    /// routes, and `v=3` adds explicit manual-host routes.
+    public static let version = 3
+
+    private static let tailscaleOnlyRouteVersion = 2
 
     /// Defensive cap on routes accepted from a scanned code. The Mac's route
     /// resolver emits at most a couple (MagicDNS name + Tailscale IP); a QR
@@ -51,10 +55,10 @@ public struct CmxPairingQRCode: Sendable {
     public static let maximumRouteCount = 8
 
     /// Creates the codec. It is stateless: construct one inline at the call
-    /// site; every instance speaks the same grammar version.
+    /// site; every instance speaks the same grammar set.
     public init() {}
 
-    /// Encode `ticket` as a v2 pairing URL, or `nil` when the ticket does not
+    /// Encode `ticket` as a minimal pairing URL, or `nil` when the ticket does not
     /// qualify (see ``canEncode(_:)``); callers fall back to the compact v1
     /// payload so every ticket still has an attach URL.
     ///
@@ -65,7 +69,7 @@ public struct CmxPairingQRCode: Sendable {
         guard let routes = encodableRoutes(of: ticket) else {
             return nil
         }
-        var items: [String] = ["v=\(Self.version)"]
+        var items: [String] = ["v=\(grammarVersion(for: routes))"]
         if let userID = normalizedNonEmpty(ticket.macUserID) {
             items.append("ub=\(percentEncodeQueryValue(userID))")
         }
@@ -99,7 +103,7 @@ public struct CmxPairingQRCode: Sendable {
         encodableRoutes(of: ticket) != nil
     }
 
-    /// The route subsequence a v2 pairing URL would carry for `ticket`, or
+    /// The route subsequence a minimal pairing URL would carry for `ticket`, or
     /// `nil` when the ticket is not expressible in the minimal grammar.
     ///
     /// Expressible means: an unscoped pairing ticket whose Tailscale/manual-host
@@ -143,7 +147,10 @@ public struct CmxPairingQRCode: Sendable {
     /// Whether `components` (an already-parsed `cmux-ios://attach` URL) speaks
     /// this grammar. v1 URLs carry the base64 `payload` item instead.
     public func isPairingCodeURL(_ components: URLComponents) -> Bool {
-        components.queryItems?.first(where: { $0.name == "v" })?.value == "\(Self.version)"
+        guard let version = Self.attachURLVersion(components) else {
+            return false
+        }
+        return (Self.tailscaleOnlyRouteVersion...Self.version).contains(version)
     }
 
     /// The integer grammar version declared by an attach URL's `v` query item,
@@ -157,7 +164,7 @@ public struct CmxPairingQRCode: Sendable {
         return Int(raw)
     }
 
-    /// Whether `rawValue` is a v2 pairing URL. String-level convenience for
+    /// Whether `rawValue` is a minimal pairing URL. String-level convenience for
     /// callers that hold the encoded URL (the Mac's pairing window asserting
     /// the code it is about to display speaks the minimal grammar).
     public func isPairingCodeURLString(_ rawValue: String) -> Bool {
@@ -170,7 +177,7 @@ public struct CmxPairingQRCode: Sendable {
         return isPairingCodeURL(components)
     }
 
-    /// Decode a v2 pairing URL into a validated ``CmxAttachTicket``.
+    /// Decode a minimal pairing URL into a validated ``CmxAttachTicket``.
     ///
     /// The ticket comes back unscoped with an empty `macDeviceID`; the shell
     /// recovers the Mac's identity post-handshake from `mobile.host.status`.
@@ -180,7 +187,8 @@ public struct CmxPairingQRCode: Sendable {
     ///   when any route names a loopback host (a scanned code must never
     ///   point the phone at itself).
     public func decode(_ components: URLComponents) throws -> CmxAttachTicket {
-        guard isPairingCodeURL(components) else {
+        guard isPairingCodeURL(components),
+              let version = Self.attachURLVersion(components) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         let rawRoutes = (components.queryItems ?? [])
@@ -192,6 +200,9 @@ public struct CmxPairingQRCode: Sendable {
                 return (kind, value)
             }
         guard !rawRoutes.isEmpty, rawRoutes.count <= Self.maximumRouteCount else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        if version < Self.version, rawRoutes.contains(where: { $0.kind == .manualHost }) {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         var occurrences: [String: Int] = [:]
@@ -232,6 +243,12 @@ public struct CmxPairingQRCode: Sendable {
     }
 }
 private extension CmxPairingQRCode {
+    func grammarVersion(for routes: [CmxAttachRoute]) -> Int {
+        routes.contains(where: { $0.kind == .manualHost })
+            ? Self.version
+            : Self.tailscaleOnlyRouteVersion
+    }
+
     /// Whether `route` can be represented by the minimal query grammar.
     func isMinimalQRRoute(_ route: CmxAttachRoute) -> Bool {
         switch route.kind {

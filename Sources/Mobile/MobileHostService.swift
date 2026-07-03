@@ -378,6 +378,7 @@ final class MobileHostService {
     /// ephemeral fallback). Used to decide whether a settings change needs a
     /// restart. `nil` while stopped.
     private var appliedPreferredPort: Int?
+    var advertisedManualHost: String?
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
@@ -712,7 +713,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: currentRoutes(port: port))
+        publishCurrentRoutes(port: port)
         startNetworkPathMonitorIfNeeded()
         drainReadinessWaiters()
     }
@@ -749,7 +750,7 @@ final class MobileHostService {
         listenerPort = port
         appliedPreferredPort = port
         lastErrorDescription = nil
-        MobileHostPublicStatusCache.update(routes: currentRoutes(port: port))
+        publishCurrentRoutes(port: port)
         mobileHostLog.info("mobile host listener disabled; publishing XCTest routes without binding")
     }
     #endif
@@ -828,7 +829,7 @@ final class MobileHostService {
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
         MobileHostEventSubscriptionTracker.reset()
-        MobileHostPublicStatusCache.update(routes: [])
+        clearAdvertisedRoutes()
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
         drainReadinessWaiters()
     }
@@ -959,7 +960,7 @@ final class MobileHostService {
             appliedPort: appliedPreferredPort
         ) {
         case .noop:
-            refreshAdvertisedRoutesIfRunning()
+            refreshAdvertisedRoutesIfRunning(defaults: defaults)
         case .start:
             start()
         case .stop:
@@ -1534,9 +1535,9 @@ final class MobileHostService {
                         )
                     }
                 })
-                MobileHostPublicStatusCache.update(routes: currentRoutes(port: listenerPort))
+                publishCurrentRoutes(port: listenerPort)
             } else {
-                MobileHostPublicStatusCache.update(routes: [])
+                clearAdvertisedRoutes()
             }
             mobileHostLog.info("mobile host listener ready on port \(self.listenerPort ?? 0)")
             drainReadinessWaiters()
@@ -1547,7 +1548,7 @@ final class MobileHostService {
             listener = nil
             listenerUsesEphemeralFallback = false
             listenerPort = nil
-            MobileHostPublicStatusCache.update(routes: [])
+            clearAdvertisedRoutes()
             drainReadinessWaiters()
         case let .waiting(error):
             // A preferred-port bind blocked by another listener surfaces as
@@ -1558,11 +1559,11 @@ final class MobileHostService {
                 handleListenerBindFailure(error: error, context: "in use (waiting)")
             } else {
                 listenerPort = nil
-                MobileHostPublicStatusCache.update(routes: [])
+                clearAdvertisedRoutes()
             }
         case .setup:
             listenerPort = nil
-            MobileHostPublicStatusCache.update(routes: [])
+            clearAdvertisedRoutes()
         @unknown default:
             break
         }
@@ -1573,7 +1574,7 @@ final class MobileHostService {
     /// Shared by the `.failed` and `.waiting(addressUnavailable)` paths.
     private func handleListenerBindFailure(error: NWError, context: String) {
         lastErrorDescription = String(describing: error)
-        MobileHostPublicStatusCache.update(routes: [])
+        clearAdvertisedRoutes()
         let shouldRetryWithEphemeralPort = !listenerUsesEphemeralFallback
         listener?.stateUpdateHandler = nil
         listener?.newConnectionHandler = nil
@@ -1601,9 +1602,7 @@ final class MobileHostService {
         guard generation == listenerGeneration, listenerPort == port else {
             return
         }
-        MobileHostPublicStatusCache.update(
-            routes: currentRoutes(port: port, tailscaleHosts: tailscaleHosts)
-        )
+        publishCurrentRoutes(port: port, tailscaleHosts: tailscaleHosts)
     }
 
     // MARK: - Network path monitoring
@@ -1649,7 +1648,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: currentRoutes(port: port))
+        publishCurrentRoutes(port: port)
     }
 }
 
@@ -1660,6 +1659,7 @@ extension MobileHostService {
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
         listenerPort = nil
+        advertisedManualHost = nil
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
         MobileHostRequestActivity.resetForTesting()

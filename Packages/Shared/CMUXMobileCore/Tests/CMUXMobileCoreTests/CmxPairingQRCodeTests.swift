@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
-/// Coverage for the minimal v2 pairing-QR grammar: bare Tailscale/manual-host
+/// Coverage for the minimal pairing-QR grammar: bare Tailscale/manual-host
 /// `host:port` routes in the URL query, nothing else.
 @Suite struct CmxPairingQRCodeTests {
     private func tailscaleRoute(
@@ -93,7 +93,7 @@ import Testing
         let ticket = try pairingTicket(routes: [route])
 
         let url = try #require(CmxPairingQRCode().encode(ticket))
-        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&m=studio-mac.corp.example:58465")
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=3&m=studio-mac.corp.example:58465")
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == [route])
@@ -113,7 +113,7 @@ import Testing
         let ticket = try pairingTicket(routes: routes)
 
         let url = try #require(CmxPairingQRCode().encode(ticket))
-        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&r=100.64.0.5:58465&m=192.168.4.12:58465")
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=3&r=100.64.0.5:58465&m=192.168.4.12:58465")
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == routes)
@@ -254,14 +254,28 @@ import Testing
     }
 
     @Test func decodeRejectsManualHostLoopback() throws {
-        let url = "cmux-ios://attach?v=2&m=127.0.0.1:58465"
+        let url = "cmux-ios://attach?v=3&m=127.0.0.1:58465"
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
             try CmxPairingQRCode().decode(try components(url))
         }
     }
 
     @Test func decodeRejectsManualHostBareColonText() throws {
-        let url = "cmux-ios://attach?v=2&m=my:host:58465"
+        let url = "cmux-ios://attach?v=3&m=my:host:58465"
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
+    }
+
+    @Test func decodeRejectsManualHostMalformedBrackets() throws {
+        let url = "cmux-ios://attach?v=3&m=[abc]def]:58465"
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
+    }
+
+    @Test func decodeRejectsManualHostInVersionTwoGrammar() throws {
+        let url = "cmux-ios://attach?v=2&m=studio-mac.local:58465"
         #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
             try CmxPairingQRCode().decode(try components(url))
         }
@@ -331,7 +345,9 @@ import Testing
 
     @Test func versionedURLDetectionDistinguishesGrammars() throws {
         #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
+        #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=3&m=studio-mac.local:58465"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=1&payload=abc"))
+        #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=4&r=100.64.0.5:58465"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://pair?v=1&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("https://example.com?v=2"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("not a url"))

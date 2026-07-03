@@ -1881,7 +1881,7 @@ final class TerminalOutputCollector {
     )
     let trustStore = InMemoryMobileManualHostTrustStore()
     let store = CMUXMobileShellStore.preview(runtime: runtime, manualHostTrustStore: trustStore)
-    let url = "cmux-ios://attach?v=2&pc=1&m=studio-mac.local:61234"
+    let url = "cmux-ios://attach?v=3&pc=1&m=studio-mac.local:61234"
 
     store.signIn()
     let firstResult = await store.connectPairingURLResult(url)
@@ -1919,7 +1919,7 @@ final class TerminalOutputCollector {
         runtime: runtime,
         manualHostTrustStore: InMemoryMobileManualHostTrustStore()
     )
-    let url = "cmux-ios://attach?v=2&pc=1&r=100.71.210.41:61234&m=studio-mac.local:61234"
+    let url = "cmux-ios://attach?v=3&pc=1&r=100.71.210.41:61234&m=studio-mac.local:61234"
 
     store.signIn()
     let result = await store.connectPairingURLResult(url)

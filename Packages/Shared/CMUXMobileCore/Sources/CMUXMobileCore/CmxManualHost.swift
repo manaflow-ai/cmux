@@ -35,7 +35,7 @@ public struct CmxManualHost: Equatable, Sendable {
             host = trimmed
             isBracketedHost = false
         }
-        let forbiddenCharacters = isBracketedHost ? "/?#@" : "/?#@:"
+        let forbiddenCharacters = isBracketedHost ? "/?#@[]" : "/?#@[]:"
 
         guard !host.isEmpty,
               host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,

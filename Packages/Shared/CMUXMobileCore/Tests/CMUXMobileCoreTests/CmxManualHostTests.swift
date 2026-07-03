@@ -19,5 +19,7 @@ import Testing
     #expect(CmxManualHost("studio-mac.corp.example/path") == nil)
     #expect(CmxManualHost("my:host") == nil)
     #expect(CmxManualHost("fd00::12") == nil)
+    #expect(CmxManualHost("[abc]def]") == nil)
+    #expect(CmxManualHost("studio]mac") == nil)
     #expect(CmxManualHost("studio mac") == nil)
 }

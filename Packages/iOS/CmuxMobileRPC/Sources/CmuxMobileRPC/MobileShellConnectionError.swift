@@ -31,7 +31,7 @@ public enum MobileShellConnectionError: LocalizedError {
         case .requestTimedOut:
             return "Mobile sync request timed out"
         case .insecureManualRoute:
-            return "Manual host did not advertise a secure mobile sync route"
+            return "Manual host route needs approval before mobile sync can send account credentials"
         case .attachTicketExpired:
             return "Mobile attach ticket expired"
         case let .authorizationFailed(message):

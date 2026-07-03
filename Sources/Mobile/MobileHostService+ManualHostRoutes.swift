@@ -17,22 +17,58 @@ extension MobileHostService {
         return host
     }
 
+    nonisolated static func manualHostNeedsRouteRefresh(previous: String?, current: String?) -> Bool {
+        previous != current
+    }
+
     func currentRoutes(port: Int) -> [CmxAttachRoute] {
-        routeResolver.routes(port: port, manualHost: Self.configuredManualHost()).routes
+        currentRoutes(port: port, manualHost: Self.configuredManualHost())
+    }
+
+    func currentRoutes(port: Int, manualHost: String?) -> [CmxAttachRoute] {
+        routeResolver.routes(port: port, manualHost: manualHost).routes
     }
 
     func currentRoutes(port: Int, tailscaleHosts: [String]) -> [CmxAttachRoute] {
+        currentRoutes(port: port, tailscaleHosts: tailscaleHosts, manualHost: Self.configuredManualHost())
+    }
+
+    func currentRoutes(port: Int, tailscaleHosts: [String], manualHost: String?) -> [CmxAttachRoute] {
         routeResolver.routes(
             port: port,
             tailscaleHosts: tailscaleHosts,
-            manualHost: Self.configuredManualHost()
+            manualHost: manualHost
         ).routes
     }
 
-    func refreshAdvertisedRoutesIfRunning() {
+    func publishCurrentRoutes(port: Int) {
+        let manualHost = Self.configuredManualHost()
+        advertisedManualHost = manualHost
+        MobileHostPublicStatusCache.update(routes: currentRoutes(port: port, manualHost: manualHost))
+    }
+
+    func publishCurrentRoutes(port: Int, tailscaleHosts: [String]) {
+        let manualHost = Self.configuredManualHost()
+        advertisedManualHost = manualHost
+        MobileHostPublicStatusCache.update(
+            routes: currentRoutes(port: port, tailscaleHosts: tailscaleHosts, manualHost: manualHost)
+        )
+    }
+
+    func clearAdvertisedRoutes() {
+        advertisedManualHost = nil
+        MobileHostPublicStatusCache.update(routes: [])
+    }
+
+    func refreshAdvertisedRoutesIfRunning(defaults: UserDefaults = .standard) {
         guard let listenerPort else {
             return
         }
-        MobileHostPublicStatusCache.update(routes: currentRoutes(port: listenerPort))
+        let manualHost = Self.configuredManualHost(defaults: defaults)
+        guard Self.manualHostNeedsRouteRefresh(previous: advertisedManualHost, current: manualHost) else {
+            return
+        }
+        advertisedManualHost = manualHost
+        MobileHostPublicStatusCache.update(routes: currentRoutes(port: listenerPort, manualHost: manualHost))
     }
 }

@@ -640,7 +640,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
-    /// without one (the minimal v2 pairing QR). Owned separately from the
+    /// without one (the minimal pairing QR). Owned separately from the
     /// short capability probe; see ``scheduleHostIdentityAdoptionIfNeeded(client:)``.
     /// Cancelled on disconnect via ``cancelRemoteOperationTasks()``.
     private var hostIdentityAdoptionTask: Task<Void, Never>?
@@ -2892,7 +2892,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Recovers the Mac's identity for a connection whose ticket arrived
-    /// without a device id (the minimal v2 pairing QR), as its own
+    /// without a device id (the minimal pairing QR), as its own
     /// `mobile.host.status` request with the default RPC timeout.
     ///
     /// Identity recovery must not depend on the terminal-output capability
@@ -7642,8 +7642,8 @@ private extension MobileWorkspacePreview {
 private extension MobileShellComposite {
     /// The name shown for the Mac until `mobile.host.status` reports the real
     /// one: the ticket's display name, then its device id, then the dialed
-    /// route's host (a minimal v2 pairing code carries neither name nor id,
-    /// so the Tailscale hostname is the best available placeholder).
+    /// route's host (a minimal pairing code carries neither name nor id, so the
+    /// route hostname is the best available placeholder).
     func placeholderHostName(
         for ticket: CmxAttachTicket,
         firstRoute: CmxAttachRoute

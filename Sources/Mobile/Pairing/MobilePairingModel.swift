@@ -84,7 +84,7 @@ final class MobilePairingModel {
     ///     `MobileHostService.shared` is main-actor isolated.)
     ///   - ticketTTL: Lifetime of the minted attach token in seconds. Defaults
     ///     to 600. Covers only the RPC/v1 fallback token the mint produces as a
-    ///     side effect; the displayed v2 pairing QR carries no token and never
+    ///     side effect; the displayed pairing QR carries no token and never
     ///     expires.
     init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
         self.host = host ?? .shared
@@ -155,7 +155,7 @@ final class MobilePairingModel {
                 )
                 return
             }
-            // Only the minimal v2 grammar (Tailscale/manual-host routes only,
+            // Only the minimal QR grammar (Tailscale/manual-host routes only,
             // no loopback, no token) may ever be displayed as a scannable code.
             // If the mint raced a route loss and fell back to the v1 payload,
             // show route guidance rather than a weak QR.

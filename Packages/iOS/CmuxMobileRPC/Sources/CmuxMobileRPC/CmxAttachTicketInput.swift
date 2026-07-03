@@ -16,7 +16,7 @@ public struct CmxAttachTicketInput {
     /// - Returns: A validated attach ticket.
     /// - Throws: `MobileSyncPairingPayloadError.invalidURL` or any ticket
     ///   validation error if the input is malformed, or
-    ///   `MobileSyncPairingPayloadError.loopbackRouteRejected` for a v2
+    ///   `MobileSyncPairingPayloadError.loopbackRouteRejected` for a minimal
     ///   pairing code whose routes point at the phone itself.
     public static func decode(_ rawValue: String) throws -> CmxAttachTicket {
         guard let url = URL(string: rawValue) else {
@@ -42,8 +42,8 @@ public struct CmxAttachTicketInput {
            version > CmxPairingQRCode.version {
             throw MobileSyncPairingPayloadError.unrecognizedURLVersion(version)
         }
-        // The minimal v2 pairing-code grammar (bare Tailscale/manual-host
-        // routes, loopback rejected). v1 URLs carry a base64 JSON `payload` item instead.
+        // The minimal pairing-code grammar (bare Tailscale/manual-host routes,
+        // loopback rejected). v1 URLs carry a base64 JSON `payload` item instead.
         if CmxPairingQRCode().isPairingCodeURL(components) {
             return try CmxPairingQRCode().decode(components)
         }

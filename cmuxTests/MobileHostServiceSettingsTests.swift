@@ -71,6 +71,28 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == nil)
     }
 
+    @Test func manualHostRouteRefreshOnlyWhenNormalizedValueChanges() throws {
+        let suiteName = "MobileHostServiceSettingsTests.ManualHost.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(MobileHostService.configuredManualHost(defaults: defaults) == nil)
+        defaults.set(" studio-mac.corp.example ", forKey: MobileHostService.manualHostDefaultsKey)
+        #expect(MobileHostService.configuredManualHost(defaults: defaults) == "studio-mac.corp.example")
+        #expect(MobileHostService.manualHostNeedsRouteRefresh(previous: nil, current: "studio-mac.corp.example"))
+        #expect(!MobileHostService.manualHostNeedsRouteRefresh(
+            previous: "studio-mac.corp.example",
+            current: "studio-mac.corp.example"
+        ))
+        #expect(MobileHostService.manualHostNeedsRouteRefresh(
+            previous: "studio-mac.corp.example",
+            current: nil
+        ))
+
+        defaults.set("my:host", forKey: MobileHostService.manualHostDefaultsKey)
+        #expect(MobileHostService.configuredManualHost(defaults: defaults) == nil)
+    }
+
     @Test func portApplyPreBindClassifiesNonBindCases() {
         // Out of range → invalid, regardless of anything else.
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 0) == .invalid)

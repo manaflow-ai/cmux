@@ -154,7 +154,7 @@ import Testing
     }
 
     @Test func decodesMinimalPairingCodeURL() throws {
-        // New-phone-scans-new-QR: the minimal v2 grammar (bare routes, no
+        // New-phone-scans-new-QR: the minimal v2 Tailscale grammar (bare routes, no
         // payload blob) routes through the same input decoder as everything
         // else the scanner or a deep link can hand us.
         let decoded = try CmxAttachTicketInput.decode(
@@ -173,6 +173,20 @@ import Testing
         #expect(decoded.routes.count == 2)
         #expect(decoded.routes.map(\.id) == ["tailscale", "tailscale_2"])
         #expect(decoded.routes.allSatisfy { $0.kind == .tailscale })
+    }
+
+    @Test func decodesManualHostPairingCodeOnlyInVersionThree() throws {
+        let decoded = try CmxAttachTicketInput.decode(
+            "cmux-ios://attach?v=3&ub=user_mac_123&pc=1&m=studio-mac.local:58465"
+        )
+        #expect(decoded.routes.count == 1)
+        #expect(decoded.routes.first?.kind == .manualHost)
+
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode(
+                "cmux-ios://attach?v=2&ub=user_mac_123&pc=1&m=studio-mac.local:58465"
+            )
+        }
     }
 
     @Test func minimalPairingCodeRejectsLoopback() {

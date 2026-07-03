@@ -121,6 +121,7 @@ struct CMUXMobileRootView: View {
             // workspace list's initial-connection status could never resolve
             // because nothing updates `didFinishStoredMacReconnectAttempt`.
             reconnectStoredMacIfNeeded()
+            showManualHostTrustWarningIfNeeded()
         }
         #if os(iOS)
         // A notification tap can arrive before the workspace (or terminal) it
@@ -186,6 +187,9 @@ struct CMUXMobileRootView: View {
             } else {
                 clearAttachTicketAuthenticationIfNeeded()
             }
+        }
+        .onChange(of: store.manualHostTrustWarning) { _, warning in
+            showManualHostTrustWarningIfNeeded(warning)
         }
         .onChange(of: store.hasActiveUnexpiredAttachTicket) { _, hasActiveUnexpiredAttachTicket in
             if !hasActiveUnexpiredAttachTicket {
@@ -384,6 +388,15 @@ struct CMUXMobileRootView: View {
         addDeviceSheetDetent = .large
         #endif
         isShowingAddDeviceSheet = true
+    }
+
+    private func showManualHostTrustWarningIfNeeded(
+        _ warning: MobileManualHostTrustWarning? = nil
+    ) {
+        guard warning ?? store.manualHostTrustWarning != nil else {
+            return
+        }
+        showAddDevice()
     }
 
     private func connectAttachURL(_ rawURL: String) {

@@ -18,8 +18,13 @@ public struct MobileManualHostTrustWarning: Equatable, Sendable {
 
     /// The approved endpoint, formatted for display.
     public var endpoint: String {
-        displayHost.contains(":")
-            ? "[\(displayHost)]:\(scope.port)"
-            : "\(displayHost):\(scope.port)"
+        let host = if displayHost.hasPrefix("[") && displayHost.hasSuffix("]") {
+            String(displayHost.dropFirst().dropLast())
+        } else {
+            displayHost
+        }
+        return host.contains(":")
+            ? "[\(host)]:\(scope.port)"
+            : "\(host):\(scope.port)"
     }
 }
