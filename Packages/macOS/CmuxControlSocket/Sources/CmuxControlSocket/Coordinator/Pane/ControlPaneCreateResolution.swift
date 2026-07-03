@@ -20,10 +20,22 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// `invalid_params` / "initial_divider_position must be numeric", `data:
     /// nil`).
     case invalidDividerPosition
+    /// The `placement` was present but not one of `workspace|dock`
+    /// (`invalid_params`, `data: {"placement": rawValue}`). Carries the raw value.
+    case invalidPlacement(rawValue: String)
     /// The `type` resolved to `agent-session`, which `pane.create` rejects
     /// (legacy `invalid_params` / "agent-session is only supported by
     /// surface.create", `data: {"type": rawValue}`). Carries the raw type value.
     case agentSessionRejected(typeRawValue: String)
+    /// Dock placement only supports terminal and browser panes. Carries the raw
+    /// type and the localized message produced by the app seam.
+    case dockUnsupportedType(typeRawValue: String, message: String)
+    /// Dock placement was requested while the Dock sidebar mode is unavailable.
+    /// Carries the localized message produced by the app seam.
+    case dockUnavailable(message: String)
+    /// Dock placement was requested with selectors that name different window
+    /// Docks. Carries the localized message produced by the app seam.
+    case dockConflictingRoutingSelectors(message: String)
     /// A browser split was requested while the cmux browser is disabled and an
     /// invalid URL was supplied (legacy `invalid_params` / "Invalid URL",
     /// `data: {"url": rawURL}`). Carries the raw URL string.
@@ -56,6 +68,15 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// The split was routed to the remote tmux mirror backing the workspace;
     /// the pane arrives asynchronously via `%layout-change`.
     case routedToRemote(windowID: UUID?, workspaceID: UUID, typeRawValue: String)
+    /// The pane was created in the right-sidebar Dock. Dock handles are scoped to
+    /// the Dock container and are not ordinary workspace surface/pane ids.
+    case createdDock(
+        windowID: UUID?,
+        workspaceID: UUID,
+        dockPaneID: UUID?,
+        dockSurfaceID: UUID,
+        typeRawValue: String
+    )
     /// The pane was created. Carries the echoed identity (window and pane may be
     /// absent; workspace and the new surface are present) and the resolved panel
     /// type's raw value.
