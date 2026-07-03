@@ -46,20 +46,15 @@ struct ReflowParagraphTests {
     }
 
     @Test func mixedIndentProseParagraphsLeftFlushed() {
-        // First paragraph at indent 0, later ones at indent 2 (a terminal-output
-        // artifact). Common-indent is 0, so the later paragraphs must still be
-        // flushed left rather than keeping a stray leading space.
+        // Mixed indentation without a wrap signal is preserved; otherwise
+        // semantic indentation in snippets would be destroyed by default copy.
         let input =
             "The afternoon was long and the autumn light fell low across the wide pavement.\n"
             + "\n"
             + "  She decided to find out.\n"
             + "\n"
             + "  The walk took her past the old courthouse and the corner bakery downtown.\n"
-        let result = reflow(input)
-        for line in result.split(separator: "\n", omittingEmptySubsequences: true) {
-            #expect(!line.hasPrefix(" "), "prose paragraph kept a leading space: '\(line)'")
-        }
-        #expect(result.contains("She decided to find out."))
+        #expect(reflow(input) == input)
     }
 
     @Test func narrowWrappedParagraphRejoins() {
@@ -81,6 +76,21 @@ struct ReflowParagraphTests {
         let input =
             "INFO Starting the background worker process for the queue subsystem right now\n"
             + "WARN The downstream service returned an unexpected status during the last call\n"
+        #expect(reflow(input) == input)
+    }
+
+    @Test func standaloneColumnSpacingIsPreserved() {
+        let input = "PID   COMMAND\n123   zsh\n999   cmux\n"
+        #expect(reflow(input) == input)
+    }
+
+    @Test func indentedCodeBlockIsNotJoined() {
+        let input = "if x:\n    print(x)\n"
+        #expect(reflow(input) == input)
+    }
+
+    @Test func shortAssignmentContinuationIsNotJoined() {
+        let input = "let value =\n    compute()\n"
         #expect(reflow(input) == input)
     }
 
@@ -189,21 +199,22 @@ struct ReflowParagraphTests {
         #expect(!result.contains("  "), "no padding-run gaps should survive")
     }
 
-    @Test func nonBreakingSpacePaddingCollapsed() {
+    @Test func nonBreakingSpacePaddingCollapsedAtWrapJoin() {
         // Real clipboard data: copied terminal text carries U+00A0 (non-breaking
         // space) runs as padding at soft-wrap seams. They render as wide gaps and
-        // must collapse to a single normal space.
+        // must collapse to a single normal space when a wrap join is emitted.
         let nbsp = "\u{00A0}"
-        let input = "the perennial vicissitudes of\(String(repeating: nbsp, count: 8)) contemporary existence have"
+        let line1 = "The perennial vicissitudes of\(String(repeating: nbsp, count: 8)) contemporary existence have"
+        let input = "\(line1)\nbecome unusually visible today\n"
         let result = reflow(input)
-        #expect(result == "the perennial vicissitudes of contemporary existence have")
+        #expect(result == "The perennial vicissitudes of contemporary existence have become unusually visible today\n")
         #expect(!result.unicodeScalars.contains("\u{00A0}"), "no non-breaking spaces should survive")
     }
 
-    @Test func nonBreakingSpaceLeadingAndTrailingTrimmed() {
+    @Test func standaloneNonBreakingSpaceIsPreserved() {
         let nbsp = "\u{00A0}"
         let input = "\(nbsp)\(nbsp)padded both sides\(nbsp)\(nbsp)\n"
-        #expect(reflow(input) == "padded both sides\n")
+        #expect(reflow(input) == "\(nbsp)\(nbsp)padded both sides\n")
     }
 
     @Test func noLineKeepsTrailingWhitespace() {

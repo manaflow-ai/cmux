@@ -51,23 +51,20 @@ private extension ReflowOptions {
 
         let commonIndent = computeCommonIndent(rawLines, isFenceLine: isFenceLine)
 
-        // Cleaned view of each line (common indent removed, relative indent kept).
-        // Prose is whitespace-normalized because terminal copy can carry padding
-        // as spaces or U+00A0 non-breaking spaces. Structural hard-break rows are
-        // only right-trimmed so their internal alignment stays intact.
-        let cleanedStorage: [String] = rawLines.indices.map { i in
+        // Display view of each line: common indent removed and terminal
+        // right-padding trimmed, with internal spacing preserved until a line
+        // is proven to participate in a wrap join.
+        let displayStorage: [String] = rawLines.indices.map { i in
             let s = stripColumns(rawLines[i], commonIndent)
             let kind = LineKind(rawLines[i], insideFence: insideFenceFlags[i])
             switch kind {
             case .fenceDelimiter, .insideFence:
                 return String(s)
-            case .heading, .blockquote, .tableRow:
+            case .blank, .heading, .blockquote, .tableRow, .listItem, .urlLine, .prose:
                 return trimTrailingSpaceLike(s)
-            case .blank, .listItem, .urlLine, .prose:
-                return cleanProseWhitespace(s)
             }
         }
-        let stripped: [Substring] = cleanedStorage.map { $0[...] }
+        let stripped: [Substring] = displayStorage.map { $0[...] }
 
         // Pass 2: emit.
         var output: [String] = []
@@ -75,7 +72,7 @@ private extension ReflowOptions {
 
         func flush() {
             if let p = para {
-                output.append(p.text)
+                output.append(p.hasJoined ? p.text : p.standaloneText)
                 para = nil
             }
         }
@@ -105,18 +102,22 @@ private extension ReflowOptions {
                 flush()
                 para = Paragraph(
                     text: String(line),
+                    standaloneText: String(line),
+                    hasJoined: false,
                     baseIndent: line.indentWidth,
                     isURL: false,
                     prevVisibleLength: line.visibleLength,
                     maxVisibleLength: line.visibleLength,
                     prevEndsTerminator: lastNonSpaceIsTerminator(line),
                     prevHasSpace: line.contains(" "),
+                    prevContent: String(line),
                     isProse: false
                 )
 
             case .prose, .urlLine:
                 let indent = line.indentWidth
-                let content = stripDecoration(line)
+                let standaloneContent = stripDecoration(line)
+                let content = stripDecoration(cleanProseWhitespace(line)[...])
                 let visLen = line.visibleLength
                 let endsTerminator = lastNonSpaceIsTerminator(line)
                 let hasSpace = line.contains(" ")
@@ -129,12 +130,15 @@ private extension ReflowOptions {
                     // join signal keeps working.
                     para = Paragraph(
                         text: content.trimmingLeadingWhitespace(),
+                        standaloneText: standaloneContent,
+                        hasJoined: false,
                         baseIndent: indent,
                         isURL: kind == .urlLine,
                         prevVisibleLength: visLen,
                         maxVisibleLength: visLen,
                         prevEndsTerminator: endsTerminator,
                         prevHasSpace: hasSpace,
+                        prevContent: content,
                         isProse: true
                     )
                 }
@@ -142,7 +146,10 @@ private extension ReflowOptions {
                 if var p = para {
                     // s1: an explicit continuation indent (line indented past the
                     //     paragraph's first line).
-                    let s1 = indent > p.baseIndent
+                    let indentationDelta = indent - p.baseIndent
+                    let s1 = indentationDelta > 0
+                        && (p.prevVisibleLength >= minWrapWidth || indentationDelta <= 2)
+                        && !endsIndentedBlock(p.prevContent)
                     // s3: a wrapped bare URL continues as a spaceless path fragment.
                     let s3 = p.isURL && !content.contains(" ")
                     // s4: mid-sentence continuation. The previous line is full
@@ -162,10 +169,12 @@ private extension ReflowOptions {
                     if canJoin {
                         let joiner = p.isURL ? "" : " "
                         p.text += joiner + content.trimmingLeadingWhitespace()
+                        p.hasJoined = true
                         p.prevVisibleLength = visLen
                         p.maxVisibleLength = max(p.maxVisibleLength, visLen)
                         p.prevEndsTerminator = endsTerminator
                         p.prevHasSpace = hasSpace
+                        p.prevContent = content
                         para = p
                     } else {
                         flush()
@@ -276,6 +285,14 @@ private extension ReflowOptions {
         return String(s[s.startIndex..<end])
     }
 
+    /// Lines ending in block-introducing punctuation commonly precede semantic
+    /// indentation (`if:`, YAML keys, multiline assignments), not wrapped prose.
+    func endsIndentedBlock(_ s: String) -> Bool {
+        let trimmed = s.trimmingTrailingWhitespace()
+        return trimmed.hasSuffix(":") || trimmed.hasSuffix("=") || trimmed.hasSuffix("{")
+            || trimmed.hasSuffix("[") || trimmed.hasSuffix("(")
+    }
+
     /// Drop up to `n` leading space/tab columns.
     func stripColumns(_ line: Substring, _ n: Int) -> Substring {
         var dropped = 0
@@ -312,6 +329,10 @@ private extension ReflowOptions {
 private struct Paragraph {
     /// Accumulated, emitted text of the paragraph so far.
     var text: String
+    /// Original line text to emit if this paragraph never actually joins.
+    var standaloneText: String
+    /// Whether at least one physical line has been joined into ``text``.
+    var hasJoined: Bool
     /// Indent (in columns, post common-indent strip) of the paragraph's first
     /// line. Continuation lines indented past this signal a wrap.
     var baseIndent: Int
@@ -328,6 +349,8 @@ private struct Paragraph {
     /// (prose-like). Gates the width signal so single-token columns (paths,
     /// URLs, hashes) are not width-joined.
     var prevHasSpace: Bool
+    /// Normalized content of the most recently appended physical line.
+    var prevContent: String
     /// Whether this paragraph is ordinary prose (vs a list item). Only prose
     /// paragraphs participate in blank-line paragraph separation.
     var isProse: Bool
@@ -336,5 +359,18 @@ private struct Paragraph {
 private extension String {
     func trimmingLeadingWhitespace() -> String {
         String(drop { $0 == " " || $0 == "\t" })
+    }
+
+    func trimmingTrailingWhitespace() -> String {
+        var end = endIndex
+        while end > startIndex {
+            let previous = index(before: end)
+            if self[previous] == " " || self[previous] == "\t" {
+                end = previous
+            } else {
+                break
+            }
+        }
+        return String(self[startIndex..<end])
     }
 }
