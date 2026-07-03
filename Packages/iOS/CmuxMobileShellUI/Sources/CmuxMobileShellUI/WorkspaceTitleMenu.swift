@@ -22,9 +22,9 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
             Button {} label: {
                 fittedLabel
             }
-                .allowsHitTesting(false)
-                .accessibilityRemoveTraits(.isButton)
-                .accessibilityIdentifier("MobileWorkspaceTitleMenu")
+            .allowsHitTesting(false)
+            .accessibilityRemoveTraits(.isButton)
+            .accessibilityIdentifier("MobileWorkspaceTitleMenu")
         }
     }
 
@@ -42,6 +42,5 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
                 maxWidth: cap,
                 alignment: .leading
             )
-            .layoutPriority(1)
     }
 }

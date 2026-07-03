@@ -27,7 +27,7 @@ final class MobileBottomScrollStressCoordinator: NSObject, GhosttySurfaceViewDel
 
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
 
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
         guard size.columns > 0, size.rows > 0 else { return }
         surfaceView.applyViewSize(cols: size.columns, rows: size.rows)
     }
