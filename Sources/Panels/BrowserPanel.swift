@@ -8766,6 +8766,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             return nil
         }
 
+        if let url = navigationAction.request.url, !browserShouldBlockInsecureHTTPURL(url), BrowserNavigationModifierBypassPolicy().openDefaultBrowserIfNeeded(navigationAction: navigationAction, webView: webView, debugEventName: "browser.nav.createWebView.action") { return nil }
         let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
         let popupFeaturesWereSpecified = browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures)
         let shouldOpenSimpleUserGesturePopupInCurrentTab = browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
@@ -8778,7 +8779,6 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
             popupFeaturesWereSpecified: popupFeaturesWereSpecified
         )
-
         if shouldOpenSimpleUserGesturePopupInCurrentTab {
             if let url = navigationAction.request.url {
 #if DEBUG
