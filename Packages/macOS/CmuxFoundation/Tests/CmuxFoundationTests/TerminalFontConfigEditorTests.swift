@@ -53,4 +53,22 @@ struct TerminalFontConfigEditorTests {
         #expect(editor.parsedTerminalFontFamily(in: contents) == "SF Mono")
         #expect(editor.parsedTerminalFontSize(in: contents) == 14.5)
     }
+
+    @Test func editorUpdatesOnlyPrimaryTerminalFontFamilyEntry() {
+        let contents = """
+        font-family = JetBrains Mono
+        font-family = LXGW WenKai Mono TC
+        font-size = 12
+        """
+
+        let updated = CmuxGhosttyConfigSettingEditor()
+            .updatedTerminalFontFamilyContents(contents, value: "SF Mono")
+
+        #expect(updated == """
+        font-family = SF Mono
+        font-family = LXGW WenKai Mono TC
+        font-size = 12
+
+        """)
+    }
 }
