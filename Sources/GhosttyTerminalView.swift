@@ -7972,6 +7972,12 @@ final class GhosttySurfaceScrollView: NSView {
     private let badgeOverlayView = TerminalBadgeOverlayView(frame: .zero)
     /// Long-lived observation of the `badge.*` config streams; cancelled in `deinit`.
     private var badgeConfigObservationTask: Task<Void, Never>?
+    /// Cached badge configuration, refreshed only from the `badge.*` config
+    /// streams (and initial attach) via ``reloadBadgeConfiguration()``. Identity
+    /// changes (workspace/tab/OSC title, order) render from this cache through
+    /// ``refreshBadge()`` so a frequent terminal title change never triggers a
+    /// synchronous `badge.*` config-file read on the main thread.
+    private var badgeConfiguration = TerminalBadgeConfiguration.disabled
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
     private var deferredSearchOverlayMutationWorkItem: DispatchWorkItem?
     private var imageTransferIndicatorShowWorkItem: DispatchWorkItem?
@@ -8913,7 +8919,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
         surfaceView.attachSurface(terminalSurface)
-        refreshBadge()
+        reloadBadgeConfiguration()
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
@@ -8932,9 +8938,10 @@ final class GhosttySurfaceScrollView: NSView {
     /// workspace/tab identity changes, and `badge.*` config edits.
     private func refreshBadge() {
         // The runtime may not have existed when this view was first created, so
-        // (re)attempt config-stream observation here; it no-ops once attached.
+        // (re)attempt config-stream observation here; it no-ops once attached and
+        // keeps ``badgeConfiguration`` live so this render path needs no disk read.
         ensureBadgeConfigObservationStarted()
-        let configuration = TerminalBadgeConfiguration.snapshot(runtime: AppDelegate.shared?.settingsRuntime)
+        let configuration = badgeConfiguration
         guard configuration.enabled, let surface = surfaceView.terminalSurface else {
             badgeOverlayView.apply(configuration: configuration, text: "")
             return
@@ -8949,6 +8956,16 @@ final class GhosttySurfaceScrollView: NSView {
         }
         let text = configuration.template.render(context: context)
         badgeOverlayView.apply(configuration: configuration, text: text)
+    }
+
+    /// Re-reads the `badge.*` configuration snapshot from disk into
+    /// ``badgeConfiguration`` and re-renders. Only the `badge.*` config streams
+    /// and the initial attach call this; identity-change paths render from the
+    /// cache via ``refreshBadge()`` so a terminal/OSC title change never does
+    /// synchronous config-file reads on the main thread.
+    private func reloadBadgeConfiguration() {
+        badgeConfiguration = TerminalBadgeConfiguration.snapshot(runtime: AppDelegate.shared?.settingsRuntime)
+        refreshBadge()
     }
 
     /// Starts observing the `badge.*` config streams (refreshing the badge on
@@ -8969,12 +8986,12 @@ final class GhosttySurfaceScrollView: NSView {
         let catalog = runtime.catalog
         badgeConfigObservationTask = Task { @MainActor [weak self] in
             await withTaskGroup(of: Void.self) { group in
-                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.enabled)) { [weak self] in self?.refreshBadge() } }
-                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.template)) { [weak self] in self?.refreshBadge() } }
-                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.position)) { [weak self] in self?.refreshBadge() } }
-                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.opacity)) { [weak self] in self?.refreshBadge() } }
-                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.color)) { [weak self] in self?.refreshBadge() } }
-                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.fontSize)) { [weak self] in self?.refreshBadge() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.enabled)) { [weak self] in self?.reloadBadgeConfiguration() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.template)) { [weak self] in self?.reloadBadgeConfiguration() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.position)) { [weak self] in self?.reloadBadgeConfiguration() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.opacity)) { [weak self] in self?.reloadBadgeConfiguration() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.color)) { [weak self] in self?.reloadBadgeConfiguration() } }
+                group.addTask { @MainActor in await Self.refreshBadgeOnChanges(of: store.values(for: catalog.badge.fontSize)) { [weak self] in self?.reloadBadgeConfiguration() } }
                 await group.waitForAll()
             }
         }
