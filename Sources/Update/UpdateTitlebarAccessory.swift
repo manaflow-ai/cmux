@@ -139,11 +139,11 @@ final class TitlebarControlsViewModel: ObservableObject {
     var hostWindow: NSWindow? { hostWindowStorage }
     var hostWindowNumber: Int? { hostWindowStorage?.windowNumber }
 
-    func setHostWindow(_ window: NSWindow?) {
-        guard hostWindowStorage !== window else { return }
+    func setHostWindow(_ window: NSWindow?) -> Bool {
+        guard hostWindowStorage !== window else { return false }
         hostWindowStorage = window
+        return true
     }
-
     func clearHostWindow(_ window: NSWindow?) {
         guard window == nil || hostWindowStorage === window else { return }
         hostWindowStorage = nil
@@ -904,7 +904,7 @@ struct TitlebarControlsView: View {
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
                 WindowAccessor(refreshID: showModifierHoldHints) { window in
-                    viewModel.setHostWindow(window)
+                    if viewModel.setHostWindow(window) { focusHistoryAvailabilityRevision &+= 1 }
                     modifierKeyMonitor.setHostWindow(modifierHoldHintsEnabled ? window : nil)
                 }
                 .frame(width: 0, height: 0)
@@ -1362,7 +1362,7 @@ struct HiddenTitlebarSidebarControlsView: View {
         ZStack(alignment: .leading) {
             WindowAccessor { window in
                 let nextWindowNumber = window.windowNumber
-                viewModel.setHostWindow(window)
+                _ = viewModel.setHostWindow(window)
                 isHoveringWindowChrome = nextWindowNumber == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber
                 #if DEBUG
                 TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: window)

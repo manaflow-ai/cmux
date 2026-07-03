@@ -158,12 +158,12 @@ struct TitlebarInteractiveControlTests {
         )
         defer { window.orderOut(nil) }
 
-        viewModel.setHostWindow(window)
+        #expect(viewModel.setHostWindow(window))
         #expect(viewModel.hostWindow === window)
         #expect(viewModel.hostWindowNumber == window.windowNumber)
         #expect(invalidationCount == 0)
 
-        viewModel.setHostWindow(window)
+        #expect(!viewModel.setHostWindow(window))
         #expect(viewModel.hostWindow === window)
         #expect(invalidationCount == 0)
 
