@@ -5266,7 +5266,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if wasRenderable, hasRecoveryTarget, let recoveryURL {
             pendingWebContentRecoveryURL = recoveryURL
             hasRecoverableWebContentTermination = true
-            hideBrowserPortalView(source: "webContentRecovery")
+            hideBrowserPortalView(source: "webContentRecovery", recordHiddenVisibility: false)
         } else {
             clearWebContentTerminationRecovery()
         }
@@ -8481,12 +8481,14 @@ private extension BrowserPanel {
 }
 
 extension BrowserPanel {
-    func hideBrowserPortalView(source: String) {
-        noteWebViewVisibility(
-            false,
-            reason: "portal.\(source)",
-            recordIfUnchanged: true
-        )
+    func hideBrowserPortalView(source: String, recordHiddenVisibility: Bool = true) {
+        if recordHiddenVisibility {
+            noteWebViewVisibility(
+                false,
+                reason: "portal.\(source)",
+                recordIfUnchanged: true
+            )
+        }
         BrowserWindowPortalRegistry.hide(
             webView: webView,
             source: source

@@ -154,13 +154,21 @@ final class BrowserHiddenWebViewDiscardManager {
         return blockers
     }
 
-    func scheduleIfNeeded(reason: String, now: Date = Date()) {
+    func scheduleIfNeeded(
+        reason: String,
+        now: Date = Date(),
+        allowingRecoverableWebContentTermination: Bool = false
+    ) {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
         discardTimer = nil
 
         guard let delegate else { return }
-        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot, now: now).isEmpty else { return }
+        guard blockers(
+            for: delegate.hiddenWebViewDiscardSnapshot,
+            now: now,
+            allowingRecoverableWebContentTermination: allowingRecoverableWebContentTermination
+        ).isEmpty else { return }
 
         let observedWebViewInstanceID = delegate.hiddenWebViewDiscardWebViewInstanceID
         let generation = scheduleGeneration
@@ -206,12 +214,20 @@ final class BrowserHiddenWebViewDiscardManager {
             allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
         ).isEmpty else { return false }
         guard delegate.hiddenWebViewDiscardHiddenAt != nil else {
-            scheduleIfNeeded(reason: reason, now: now)
+            scheduleIfNeeded(
+                reason: reason,
+                now: now,
+                allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
+            )
             return false
         }
         // Memory pressure bypasses the hidden-duration delay, not the WebKit post-wake crash guard.
         guard !isInPostWakeDiscardDelay(now: now) else {
-            scheduleIfNeeded(reason: reason, now: now)
+            scheduleIfNeeded(
+                reason: reason,
+                now: now,
+                allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
+            )
             return false
         }
 

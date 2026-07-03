@@ -225,4 +225,30 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
             #expect(delegate.lastDiscardReason == nil)
         }
     }
+
+    @Test func recoverableWebContentTerminationSchedulesSystemMemoryPressureDiscardDuringPostWakeWindow() {
+        withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
+            let wakeAt = Date(timeIntervalSince1970: 2_500)
+            let pressureAt = wakeAt.addingTimeInterval(1)
+            let snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(
+                hasRecoverableWebContentTermination: true
+            )
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+            let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
+                snapshot: snapshot,
+                hiddenAt: wakeAt.addingTimeInterval(-7_200)
+            )
+            manager.delegate = delegate
+
+            manager.noteSystemDidWake(now: wakeAt)
+            #expect(!manager.requestImmediateDiscardIfSafe(
+                reason: BrowserHiddenWebViewDiscardManager.systemMemoryPressureReason,
+                now: pressureAt
+            ))
+
+            #expect(manager.hasScheduledDiscard)
+            #expect(delegate.discardRequestCount == 0)
+            #expect(delegate.lastDiscardReason == nil)
+        }
+    }
 }

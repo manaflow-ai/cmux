@@ -329,6 +329,23 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func visibleRecoverableTerminatedWebViewDoesNotMemoryDiscard() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL
+        )
+        defer { panel.close() }
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+
+        simulateWebContentProcessTermination(for: panel)
+
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.shouldAttachWebViewInUI)
+        #expect(!panel.discardHiddenWebViewForSystemMemoryPressure(now: Date(timeIntervalSince1970: 4_000)))
+        #expect(panel.hasRecoverableWebContentTermination)
+    }
+
+    @Test
     func remoteWorkspaceWebsiteDataStoreSurvivesWebViewReplacement() {
         let storeIdentifier = UUID()
         let panel = BrowserPanel(
