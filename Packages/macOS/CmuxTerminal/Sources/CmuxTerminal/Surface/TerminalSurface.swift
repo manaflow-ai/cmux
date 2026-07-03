@@ -509,42 +509,53 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// (`"⠋ pnpm install"` and `"⠙ pnpm install"` both become `"pnpm install"`).
     ///
     /// Only whitespace-delimited tokens made up *entirely* of spinner glyphs — a
-    /// standalone animation frame at any position — are dropped. Every other
-    /// token is preserved verbatim, including one that merely contains a Braille
-    /// scalar inside a larger word (e.g. a path component like `~/work/⠋-proj`),
-    /// so legitimate titles are never corrupted. Titles with no spinner glyph
-    /// take a fast path and are returned byte-for-byte unchanged.
+    /// standalone animation frame at any position — are dropped, along with one
+    /// adjacent separator run. Every other token and separator is preserved
+    /// verbatim, including one that merely contains a Braille scalar inside a
+    /// larger word (e.g. a path component like `~/work/⠋-proj`), so legitimate
+    /// titles are never corrupted. Titles with no spinner glyph take a fast path
+    /// and are returned byte-for-byte unchanged.
     public static func stableTerminalNotificationTitle(_ raw: String) -> String {
         guard raw.unicodeScalars.contains(where: { terminalTitleSpinnerScalars.contains($0) }) else {
             return raw
         }
         let whitespace = CharacterSet.whitespacesAndNewlines
-        var normalized = ""
-        var token = ""
-        var tokenHasNonSpinnerScalar = false
-        var wroteToken = false
+        var segments: [(text: String, isWhitespace: Bool, isPureSpinner: Bool)] = []
+        var current = ""
+        var currentIsWhitespace: Bool?
+
+        func appendCurrentSegment() {
+            guard !current.isEmpty, let isWhitespace = currentIsWhitespace else { return }
+            let isPureSpinner = !isWhitespace
+                && current.unicodeScalars.allSatisfy { terminalTitleSpinnerScalars.contains($0) }
+            segments.append((text: current, isWhitespace: isWhitespace, isPureSpinner: isPureSpinner))
+            current = ""
+            currentIsWhitespace = nil
+        }
+
         for scalar in raw.unicodeScalars {
-            if whitespace.contains(scalar) {
-                // End of a token: keep it only if it is not a pure spinner frame.
-                if !token.isEmpty {
-                    if tokenHasNonSpinnerScalar {
-                        if wroteToken { normalized.append(" ") }
-                        normalized.append(token)
-                        wroteToken = true
-                    }
-                    token = ""
-                    tokenHasNonSpinnerScalar = false
-                }
-                continue
+            let isWhitespace = whitespace.contains(scalar)
+            if currentIsWhitespace != nil, currentIsWhitespace != isWhitespace {
+                appendCurrentSegment()
             }
-            token.unicodeScalars.append(scalar)
-            if !terminalTitleSpinnerScalars.contains(scalar) {
-                tokenHasNonSpinnerScalar = true
+            currentIsWhitespace = isWhitespace
+            current.unicodeScalars.append(scalar)
+        }
+        appendCurrentSegment()
+
+        var droppedSegmentIndexes = Set<Int>()
+        for index in segments.indices where segments[index].isPureSpinner {
+            droppedSegmentIndexes.insert(index)
+            if index + 1 < segments.count, segments[index + 1].isWhitespace {
+                droppedSegmentIndexes.insert(index + 1)
+            } else if index > 0, segments[index - 1].isWhitespace {
+                droppedSegmentIndexes.insert(index - 1)
             }
         }
-        if !token.isEmpty, tokenHasNonSpinnerScalar {
-            if wroteToken { normalized.append(" ") }
-            normalized.append(token)
+
+        var normalized = ""
+        for (index, segment) in segments.enumerated() where !droppedSegmentIndexes.contains(index) {
+            normalized.append(segment.text)
         }
         return normalized
     }

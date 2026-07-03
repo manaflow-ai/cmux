@@ -513,7 +513,12 @@ struct TabManagerTitleUpdateTests {
         // A standalone spinner token is dropped wherever it appears (leading,
         // embedded, trailing).
         #expect(TerminalSurface.stableTerminalNotificationTitle("Building ⠧ project") == "Building project")
+        #expect(TerminalSurface.stableTerminalNotificationTitle("Building  ⠧  project") == "Building  project")
         #expect(TerminalSurface.stableTerminalNotificationTitle("deploying ⣾") == "deploying")
+        #expect(
+            TerminalSurface.stableTerminalNotificationTitle("⠋ python -c 'print(\"a  b\")'")
+                == "python -c 'print(\"a  b\")'"
+        )
 
         // Only *standalone* spinner tokens are removed: a Braille scalar inside a
         // larger word (e.g. a path component) is preserved verbatim, so a real

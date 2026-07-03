@@ -139,10 +139,10 @@
 718	Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 716	Sources/TaskManagerSnapshot.swift
 715	Sources/AppleScriptSupport.swift
+710	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
 710	Sources/TerminalSSHSessionDetector.swift
 709	Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SidebarDrop/SidebarWorkspaceReorderDropResolver.swift
 706	CLI/CMUXCLI+Config.swift
-699	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
 699	cmuxTests/TerminalNotificationClearAllTests.swift
 698	cmuxTests/RestorableAgentHookProviderResumeTests.swift
 696	cmuxTests/KeyboardShortcutContextTests.swift
@@ -200,9 +200,9 @@
 580	cmuxTests/CLIHookNoResponseTests.swift
 577	cmuxTests/AppearanceSettingsTests.swift
 576	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
+576	cmuxTests/TabManagerTitleUpdateTests.swift
 574	Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/WorkspaceCoordinatorTests.swift
 572	Sources/Feed/FeedTextEditorDebugWindowController.swift
-571	cmuxTests/TabManagerTitleUpdateTests.swift
 567	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 567	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/GhosttyConfigDiscovery.swift
 563	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
