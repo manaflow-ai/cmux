@@ -70,6 +70,32 @@ import Testing
         #expect(!harness.controller.attemptCoordinator.isMonitoring)
     }
 
+    /// Transitions queued before the Install click belong to the prompt-producing check, not the
+    /// fresh re-check started by Install. They must be discarded at the attempt boundary so stale
+    /// `.checking` / `.updateAvailable` snapshots cannot satisfy and then end the new coordinator
+    /// before the real fresh check resolves.
+    @Test func attemptUpdateDiscardsQueuedPromptTransitionsAtBoundary() async {
+        let harness = Harness()
+        let stalePrompt = ChoiceBox()
+        let freshPrompt = ChoiceBox()
+
+        harness.model.setState(.checking(.init(cancel: {})))
+        harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
+        harness.controller.attemptUpdate()
+        #expect(stalePrompt.choice == .dismiss)
+        await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
+
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+
+        harness.model.setState(.checking(.init(cancel: {})))
+        harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
+
+        await waitUntil("fresh prompt to be confirmed") { freshPrompt.choice == .install }
+        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+    }
+
     /// If the fresh check never restarts (no `.checking` ever arrives), the watchdog must turn
     /// the silent stall into a visible "Update Didn't Start" error, resolve the re-emitted stale
     /// prompt with a proper dismiss reply, and kill the attempt so a later unrelated resolution

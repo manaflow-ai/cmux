@@ -87,6 +87,14 @@ public final class UpdateStateModel {
         return drained
     }
 
+    /// Discards queued transitions without invoking the reaction pipeline.
+    ///
+    /// Use at explicit control-flow boundaries where already-recorded transitions belong to the
+    /// previous operation and must not be replayed into the next one.
+    public func discardPendingChanges() {
+        pendingChanges.removeAll()
+    }
+
     private func notifyStateChanged() {
         appendPendingChange(UpdateStateChange(state: state, overrideState: overrideState))
         for continuation in changeObservers.values {
