@@ -1,5 +1,9 @@
-import XCTest
 import Darwin
+import class XCTest.XCTestCase
+import func XCTest.XCTAssertEqual
+import func XCTest.XCTAssertFalse
+import func XCTest.XCTAssertTrue
+import func XCTest.XCTUnwrap
 
 // Intentionally XCTest, not Swift Testing: this suite spawns the real bundled `cmux` CLI as a
 // subprocess (process/socket harness). Team guidance keeps CLI/process-harness tests on XCTest and
