@@ -1204,8 +1204,9 @@
                 }
               },
               "then": {
-                "required": ["port"],
+                "required": ["host", "port"],
                 "properties": {
+                  "host": { "minLength": 1 },
                   "port": { "minimum": 1 }
                 }
               }
