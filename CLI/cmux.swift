@@ -157,7 +157,7 @@ struct ClaudeHookSessionRecord: Codable {
     var cwd: String?
     var transcriptPath: String?
     var pid: Int?
-    var pidCapturedAt: TimeInterval?
+    var pidCapturedAt: TimeInterval? = nil
     var launchCommand: AgentHookLaunchCommandRecord?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
