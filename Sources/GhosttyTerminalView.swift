@@ -7932,7 +7932,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
-    private let surfaceView: GhosttyNSView
+    let surfaceView: GhosttyNSView
     private let mobileViewportBorderOverlayView = TerminalViewportBorderOverlayView(frame: .zero)
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
@@ -7954,31 +7954,6 @@ final class GhosttySurfaceScrollView: NSView {
 
     func forwardKeyDownToSurface(_ event: NSEvent) {
         surfaceView.keyDown(with: event)
-    }
-
-    var notificationScrollPosition: TerminalNotificationScrollPosition? {
-        guard let scrollbar = surfaceView.scrollbar else { return nil }
-        let rowFromBottom = max(0, scrollbar.total - scrollbar.offset - scrollbar.len)
-        return TerminalNotificationScrollPosition(
-            row: Int(clamping: rowFromBottom),
-            totalRows: Int(clamping: scrollbar.total)
-        )
-    }
-
-    @discardableResult
-    func restoreNotificationScrollPosition(_ position: TerminalNotificationScrollPosition?) -> Bool {
-        guard let position else { return false }
-        guard let scrollbar = surfaceView.scrollbar else { return false }
-        let currentTotalRows = Int(clamping: scrollbar.total)
-        let capturedTotalRows = position.totalRows ?? currentTotalRows
-        let rowFromBottom = max(0, position.row + currentTotalRows - capturedTotalRows)
-        allowExplicitScrollbarSync = true
-        userScrolledAwayFromBottom = rowFromBottom > 0
-        let didRestore = surfaceView.performBindingAction("scroll_to_row:\(rowFromBottom)")
-        if !didRestore {
-            allowExplicitScrollbarSync = false
-        }
-        return didRestore
     }
 
     private var lastFlashStyle: FlashStyle = .navigation
@@ -8005,9 +7980,9 @@ final class GhosttySurfaceScrollView: NSView {
     /// Tracks whether the user has scrolled away from the bottom to review scrollback.
     /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
     /// where the terminal fights the user's scroll position.
-    private var userScrolledAwayFromBottom = false
+    var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
-    private var allowExplicitScrollbarSync = false
+    var allowExplicitScrollbarSync = false
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true

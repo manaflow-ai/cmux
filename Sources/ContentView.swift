@@ -14161,7 +14161,7 @@ struct TabItemView: View, Equatable {
         observedIsActive = isActive
     }
 
-    private func refreshWorkspaceSnapshot(force: Bool = false) {
+    func refreshWorkspaceSnapshot(force: Bool = false) {
         let nextSnapshot = makeWorkspaceSnapshot()
         let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: workspaceSnapshotStorage,
@@ -14240,8 +14240,6 @@ struct TabItemView: View, Equatable {
             multi: String(localized: "contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
             single: String(localized: "contextMenu.clearLatestNotification", defaultValue: "Clear Latest Notification"),
             isMulti: isMulti)
-        let notificationsMenuTitle = String(localized: "contextMenu.notifications", defaultValue: "Notifications")
-        let noNotificationsLabel = String(localized: "contextMenu.notifications.empty", defaultValue: "No Notifications")
         let copyWorkspaceIDLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.copyWorkspaceIDs", defaultValue: "Copy Workspace IDs"),
             single: String(localized: "contextMenu.copyWorkspaceID", defaultValue: "Copy Workspace ID"),
@@ -14456,23 +14454,8 @@ struct TabItemView: View, Equatable {
         }
         .disabled(!hasLatestNotifications(in: targetIds))
 
-        Menu(notificationsMenuTitle) {
-            let notificationItems = workspaceNotificationMenuItems(targetIds)
-            if notificationItems.isEmpty {
-                Button(noNotificationsLabel) {}
-                    .disabled(true)
-            } else {
-                ForEach(notificationItems) { notification in
-                    Button(workspaceNotificationMenuTitle(notification)) {
-                        openWorkspaceContextMenuNotification(notification)
-                    }
-                }
-            }
-        }
-        .disabled(targetIds.isEmpty)
-
+        workspaceNotificationsContextMenu(targetIds)
         Divider()
-
         Button(copyWorkspaceIDLabel) {
             copyWorkspaceIdsToPasteboard(targetIds)
         }
@@ -14664,41 +14647,6 @@ struct TabItemView: View, Equatable {
 
     private func hasLatestNotifications(in targetIds: [UUID]) -> Bool {
         targetIds.contains { notificationStore.latestNotification(forTabId: $0) != nil }
-    }
-
-    private func workspaceNotificationMenuItems(_ targetIds: [UUID]) -> [TerminalNotification] {
-        notificationStore.notifications(forTabIds: targetIds)
-    }
-
-    private func workspaceNotificationMenuTitle(_ notification: TerminalNotification) -> String {
-        let timeText = notification.createdAt.formatted(date: .abbreviated, time: .shortened)
-        let title = workspaceNotificationMenuText(notification.title, limit: 80)
-        let detail = workspaceNotificationMenuText(
-            notification.body.isEmpty ? notification.subtitle : notification.body,
-            limit: 120
-        )
-        let readPrefix = notification.isRead ? "" : "• "
-        let firstLine = title.isEmpty
-            ? "\(readPrefix)\(timeText)"
-            : "\(readPrefix)\(timeText)  \(title)"
-        guard !detail.isEmpty else { return firstLine }
-        return "\(firstLine)\n\(detail)"
-    }
-
-    private func workspaceNotificationMenuText(_ value: String, limit: Int) -> String {
-        let firstLine = value.split(whereSeparator: \.isNewline).first.map(String.init) ?? value
-        let trimmed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > limit else { return trimmed }
-        let prefix = String(trimmed.prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return "\(prefix)..."
-    }
-
-    private func openWorkspaceContextMenuNotification(_ notification: TerminalNotification) {
-        guard AppDelegate.shared?.openTerminalNotification(notification) == true else {
-            NSSound.beep()
-            return
-        }
-        refreshWorkspaceSnapshot(force: true)
     }
 
     private func syncSelectionAfterMutation() {
