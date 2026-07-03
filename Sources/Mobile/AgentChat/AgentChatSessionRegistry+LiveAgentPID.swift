@@ -82,6 +82,7 @@ extension AgentChatSessionRegistry {
                   info.isTerminalForegroundProcessGroup,
                   let def = codingAgentDefinition(
                       for: info,
+                      allowLaunchKindEnvironment: rootPIDs.contains(pid),
                       processArgumentsAndEnvironment: { _ in loadDetails() }
                   ),
                   def.id == wantedID else { continue }
