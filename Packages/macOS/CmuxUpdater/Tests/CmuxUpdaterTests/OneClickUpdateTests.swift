@@ -17,19 +17,18 @@ import Testing
         return defaults
     }
 
-    @Test func migrationEnablesAutomaticDownloadsOverV2ExplicitFalse() throws {
+    @Test func migrationPreservesExistingAutomaticDownloadOptOut() throws {
         let defaults = try makeScratchDefaults()
-        // A v2-era install: the old migration wrote an explicit false.
         defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
         defaults.set(true, forKey: UpdateSettings.migrationKey)
 
         UpdateSettings().apply(to: defaults)
 
-        #expect(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        #expect(!defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
         #expect(defaults.bool(forKey: UpdateSettings.automaticDownloadsMigrationKey))
     }
 
-    @Test func migrationRunsOnceSoUserOptOutSticks() throws {
+    @Test func freshInstallDefaultsToAutomaticDownloadsAndUserOptOutSticks() throws {
         let defaults = try makeScratchDefaults()
         UpdateSettings().apply(to: defaults)
         #expect(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
@@ -39,12 +38,6 @@ import Testing
         UpdateSettings().apply(to: defaults)
 
         #expect(!defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
-    }
-
-    @Test func freshInstallDefaultsToAutomaticDownloads() throws {
-        let defaults = try makeScratchDefaults()
-        UpdateSettings().apply(to: defaults)
-        #expect(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
     }
 
     // MARK: - Update-ready toast visibility
@@ -201,6 +194,7 @@ import Testing
         var isSafeToRestart = false
         func updaterRequestsRetryCheckForUpdates() {}
         func updaterWillRelaunchApplication() {}
+        func updaterRequestsRestartForStagedUpdate() {}
         func updaterIsSafeToRestartNow() -> Bool { isSafeToRestart }
     }
 

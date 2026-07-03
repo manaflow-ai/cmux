@@ -15,6 +15,11 @@ public protocol UpdateActionDelegate: AnyObject {
     /// relaunched instance starts cleanly.
     func updaterWillRelaunchApplication()
 
+    /// The user asked to restart now for an update staged by Sparkle's install-on-quit path.
+    /// The host should perform the same pre-relaunch cleanup, then terminate the app so Sparkle's
+    /// installer-on-quit process can complete without the updater package owning Sparkle's cycle.
+    func updaterRequestsRestartForStagedUpdate()
+
     /// Whether restarting to finish a staged update right now would not interrupt the user.
     /// Consulted by the deferred "restart when idle" loop; the host decides what idle means
     /// (user presence, running agent commands, …).

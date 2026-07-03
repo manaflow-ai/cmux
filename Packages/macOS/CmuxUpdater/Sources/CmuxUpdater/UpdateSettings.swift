@@ -44,14 +44,14 @@ public struct UpdateSettings: Sendable {
     /// automatic checks and upgrades the legacy 24h interval to ``scheduledCheckInterval`` for
     /// installs that predate the embedded defaults.
     public func apply(to defaults: UserDefaults) {
+        runAutomaticDownloadsMigration(on: defaults)
+
         defaults.register(defaults: [
             Self.automaticChecksKey: true,
             Self.automaticallyUpdateKey: true,
             Self.scheduledCheckIntervalKey: scheduledCheckInterval,
             Self.sendProfileInfoKey: false,
         ])
-
-        runAutomaticDownloadsMigration(on: defaults)
 
         guard !defaults.bool(forKey: Self.migrationKey) else { return }
 
@@ -76,15 +76,16 @@ public struct UpdateSettings: Sendable {
         defaults.set(true, forKey: Self.migrationKey)
     }
 
-    /// One-time v3 migration: turn automatic downloads on.
+    /// One-time v3 migration: turn automatic downloads on for installs that do not already have
+    /// a persisted Sparkle automatic-downloads preference.
     ///
-    /// The v2 migration (and the pre-v3 registered default) wrote an explicit `false` for
-    /// ``automaticallyUpdateKey`` into every install, so flipping the registered default alone
-    /// would never reach existing users. This runs once and sets the key to `true`; users who
-    /// prefer manual installs can turn it back off afterwards and their choice sticks.
+    /// If the key already exists, preserve it: a historical forced `false` and a real user opt-out
+    /// are both stored as the same value, so silently flipping it would overwrite user intent.
     private func runAutomaticDownloadsMigration(on defaults: UserDefaults) {
         guard !defaults.bool(forKey: Self.automaticDownloadsMigrationKey) else { return }
-        defaults.set(true, forKey: Self.automaticallyUpdateKey)
+        if defaults.object(forKey: Self.automaticallyUpdateKey) == nil {
+            defaults.set(true, forKey: Self.automaticallyUpdateKey)
+        }
         defaults.set(true, forKey: Self.automaticDownloadsMigrationKey)
     }
 }

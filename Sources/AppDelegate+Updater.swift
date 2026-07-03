@@ -22,6 +22,11 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         }
     }
 
+    func updaterRequestsRestartForStagedUpdate() {
+        updaterWillRelaunchApplication()
+        NSApp.terminate(nil)
+    }
+
     func attemptUpdate() {
         attemptUpdate(nil)
     }
