@@ -4,27 +4,34 @@ import CmuxTerminalCore
 @testable import CmuxTerminal
 
 @Suite struct TerminalSurfaceSocketInputControlSequenceTests {
-    /// A DSR cursor-position query (`ESC[6n`) is consumed and answered by the
-    /// emulator, so it is routed to the terminal output parser as raw bytes. This
-    /// is the sequence #5763 needs the emulator to answer with a CPR.
+    /// A DSR cursor-position query (`ESC[6n` / `ESC[?6n`) is consumed and
+    /// answered by the emulator, so it is routed to the terminal output parser as
+    /// raw bytes. This is the sequence #5763 needs the emulator to answer with a
+    /// CPR.
     @Test func csiDeviceStatusReportQueryRoutesThroughTerminalParser() throws {
-        let sequence = "\u{1B}[6n"
-        let payload = try #require(singleTerminalBytePayload(for: sequence))
+        for sequence in ["\u{1B}[6n", "\u{1B}[?6n", "\u{1B}[5n"] {
+            let payload = try #require(singleTerminalBytePayload(for: sequence))
 
-        #expect(payload == Data(sequence.utf8))
+            #expect(payload == Data(sequence.utf8))
+        }
     }
 
     /// A CPR *response* (`ESC[50;36R`) is a terminal-to-application reply, not a
     /// query the emulator answers. It must *not* be routed to the terminal output
     /// parser — otherwise the display parser swallows bytes the foreground program
     /// is waiting for. It stays on the input path instead.
-    @Test func csiCursorPositionReportIsNotRoutedThroughTerminalParser() {
-        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}[50;36R")
+    @Test func csiCursorPositionReportIsNotRoutedThroughTerminalParser() throws {
+        let sequence = "\u{1B}[50;36R"
+        let inputPath = try #require(inputPathPieces(for: sequence))
 
         #expect(
-            !events.contains { if case .terminalBytes = $0 { return true } else { return false } },
+            !TerminalSurface.parsedSocketInputEvents(for: sequence).contains {
+                if case .terminalBytes = $0 { return true } else { return false }
+            },
             "A CPR response must not be fed to the display parser; it is destined for the PTY program."
         )
+        #expect(inputPath.keyLabel == "escape")
+        #expect(inputPath.rawPayload == Data("[50;36R".utf8))
     }
 
     /// A function-key CSI (`ESC[15~`, F5) is interactive input for the foreground
@@ -34,26 +41,36 @@ import CmuxTerminalCore
     /// CSI there instead swallowed genuine input keys (function keys,
     /// kitty-keyboard, mouse, arbitrary `terminal.input`) as display-only control
     /// sequences, which never reached the PTY.
-    @Test func csiFunctionKeySequenceIsNotRoutedThroughTerminalParser() {
-        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}[15~")
+    @Test func csiFunctionKeySequenceIsNotRoutedThroughTerminalParser() throws {
+        let sequence = "\u{1B}[15~"
+        let inputPath = try #require(inputPathPieces(for: sequence))
 
         #expect(
-            !events.contains { if case .terminalBytes = $0 { return true } else { return false } },
+            !TerminalSurface.parsedSocketInputEvents(for: sequence).contains {
+                if case .terminalBytes = $0 { return true } else { return false }
+            },
             "A function-key CSI must not be fed to the display parser as terminal output."
         )
+        #expect(inputPath.keyLabel == "escape")
+        #expect(inputPath.rawPayload == Data("[15~".utf8))
     }
 
     /// A modified function key that shares the CPR `R` final (xterm Shift+F3 is
     /// `ESC[1;2R`) is interactive input, not a cursor report, so it must not be
     /// routed to the terminal output parser either — otherwise reverse-tab-style
     /// modified F-keys would be swallowed like a CPR reply.
-    @Test func csiModifiedFunctionKeyIsNotRoutedThroughTerminalParser() {
-        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}[1;2R")
+    @Test func csiModifiedFunctionKeyIsNotRoutedThroughTerminalParser() throws {
+        let sequence = "\u{1B}[1;2R"
+        let inputPath = try #require(inputPathPieces(for: sequence))
 
         #expect(
-            !events.contains { if case .terminalBytes = $0 { return true } else { return false } },
+            !TerminalSurface.parsedSocketInputEvents(for: sequence).contains {
+                if case .terminalBytes = $0 { return true } else { return false }
+            },
             "A modified function key ending in R must not be fed to the display parser as a CPR report."
         )
+        #expect(inputPath.keyLabel == "escape")
+        #expect(inputPath.rawPayload == Data("[1;2R".utf8))
     }
 
     /// The navigation keys cmux clients actually send (arrows, home/end, page
@@ -98,5 +115,13 @@ import CmuxTerminalCore
         guard events.count == 1 else { return nil }
         guard case .key(let event) = events[0] else { return nil }
         return event
+    }
+
+    private func inputPathPieces(for text: String) -> (keyLabel: String, rawPayload: Data)? {
+        let events = TerminalSurface.parsedSocketInputEvents(for: text)
+        guard events.count == 2 else { return nil }
+        guard case .key(let event) = events[0] else { return nil }
+        guard case .rawBytes(let payload) = events[1] else { return nil }
+        return (event.label, payload)
     }
 }

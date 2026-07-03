@@ -10,12 +10,13 @@ import Testing
 @MainActor
 @Suite
 struct TerminalSurfaceSocketInputControlSequenceTests {
-    /// A DSR *query* — `ESC[6n` (cursor position) or `ESC[5n` (status) — is the
-    /// sequence #5763 needs the emulator to consume and answer, so it is queued as
-    /// one terminal-output payload rather than split into Escape + literal text.
+    /// A DSR *query* — `ESC[6n` / `ESC[?6n` (cursor position) or `ESC[5n`
+    /// (status) — is the sequence #5763 needs the emulator to consume and answer,
+    /// so it is queued as one terminal-output payload rather than split into Escape
+    /// + literal text.
     @Test
     func coldSocketInputQueuesDSRCursorQueryAsRawTerminalBytes() {
-        for sequence in ["\u{1B}[6n", "\u{1B}[5n"] {
+        for sequence in ["\u{1B}[6n", "\u{1B}[?6n", "\u{1B}[5n"] {
             let panel = TerminalPanel(workspaceId: UUID())
 
             panel.surface.releaseSurfaceForTesting()
