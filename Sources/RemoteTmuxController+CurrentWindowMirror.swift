@@ -11,21 +11,15 @@ extension RemoteTmuxController {
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
-        if let existing = try currentWindowMirrorOutcome(
-            host: host,
-            activateWindow: activateWindow,
-            appDelegate: appDelegate
-        ) {
-            return existing
-        }
         let capturedTargetManager = targetWindowId.flatMap {
             appDelegate.tabManagerFor(windowId: $0)
         } ?? appDelegate.tabManager
 
         return try await withMirrorAttachGuard(host: host) {
             let preflight = try await prepareMirrorAttach(host: host, createIfEmpty: false) { _ in
-                try currentWindowMirrorOutcome(
+                try completeCurrentWindowMirrorOutcome(
                     host: host,
+                    sessions: sessions,
                     activateWindow: activateWindow,
                     appDelegate: appDelegate
                 )
@@ -87,6 +81,26 @@ extension RemoteTmuxController {
             }
             return .mirrored(windowId: windowId)
         }
+    }
+
+    private func completeCurrentWindowMirrorOutcome(
+        host: RemoteTmuxHost,
+        sessions: [RemoteTmuxSession],
+        activateWindow: Bool,
+        appDelegate: AppDelegate
+    ) throws -> RemoteTmuxAttachOutcome? {
+        for session in sessions {
+            let key = Self.connectionKey(host: host, sessionName: session.name)
+            guard let workspaceId = sessionMirrors[key]?.mirroredWorkspaceId,
+                  appDelegate.tabManagerFor(tabId: workspaceId) != nil else {
+                return nil
+            }
+        }
+        return try currentWindowMirrorOutcome(
+            host: host,
+            activateWindow: activateWindow,
+            appDelegate: appDelegate
+        )
     }
 
     private func currentWindowMirrorOutcome(

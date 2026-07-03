@@ -127,13 +127,38 @@ extension TerminalController {
     /// `{auth_required: true, ssh_argv: […]}` when the host needs interactive
     /// authentication (the CLI runs `ssh_argv` in the user's terminal and retries).
     nonisolated func v2RemoteTmuxAttachHere(id: Any?, params: [String: Any]) -> String {
+        v2RemoteTmuxAttachCurrentWindow(
+            id: id,
+            params: params,
+            defaultActivate: true,
+            includeWindowId: true
+        )
+    }
+
+    /// `remote.tmux.mirror` — deprecated alias for current-window mirroring with
+    /// the legacy background/no-focus default.
+    nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {
+        v2RemoteTmuxAttachCurrentWindow(
+            id: id,
+            params: params,
+            defaultActivate: false,
+            includeWindowId: false
+        )
+    }
+
+    private nonisolated func v2RemoteTmuxAttachCurrentWindow(
+        id: Any?,
+        params: [String: Any],
+        defaultActivate: Bool,
+        includeWindowId: Bool
+    ) -> String {
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
         guard let host = Self.remoteTmuxHost(from: params) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
-        let activate = (params["activate"] as? Bool) ?? true
+        let activate = (params["activate"] as? Bool) ?? defaultActivate
         let targetWindowId = remoteTmuxCallerWindowId(from: params)
         return v2VmCall(id: id, timeoutSeconds: 60) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
@@ -147,11 +172,12 @@ extension TerminalController {
             )
             switch outcome {
             case .mirrored(let windowId):
-                return [
+                var payload: [String: Any] = [
                     "host": host.destination,
                     "mirrored": true,
-                    "window_id": windowId.uuidString,
                 ]
+                if includeWindowId { payload["window_id"] = windowId.uuidString }
+                return payload
             case .authRequired(let sshArgv):
                 return [
                     "host": host.destination,

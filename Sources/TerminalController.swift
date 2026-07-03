@@ -1132,8 +1132,10 @@ class TerminalController {
             return v2RemoteTmuxDetach(id: request.id, params: request.params)
         case "remote.tmux.state":
             return v2RemoteTmuxState(id: request.id, params: request.params)
-        case "remote.tmux.attach_here", "remote.tmux.mirror":
+        case "remote.tmux.attach_here":
             return v2RemoteTmuxAttachHere(id: request.id, params: request.params)
+        case "remote.tmux.mirror":
+            return v2RemoteTmuxMirror(id: request.id, params: request.params)
         case "remote.tmux.window":
             return v2RemoteTmuxWindow(id: request.id, params: request.params)
         case "sidebar.custom.validate":
@@ -1926,9 +1928,7 @@ class TerminalController {
 
         // Markdown/files/projects: markdown.open, file.open (forwards to the
         // still-shared v2FileOpen), and project.* handled by ControlCommandCoordinator.
-
         // surface.read_text handled by ControlCommandCoordinator.
-
 
         // Debug / test-only: the DEBUG-gated debug.* domain (shortcuts, typing,
         // textbox fixtures, command palette, browser probes, sidebar/terminal
