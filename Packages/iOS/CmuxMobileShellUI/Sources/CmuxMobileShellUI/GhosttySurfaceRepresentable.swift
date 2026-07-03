@@ -105,6 +105,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         coordinator.detach()
     }
 
+    @MainActor
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
