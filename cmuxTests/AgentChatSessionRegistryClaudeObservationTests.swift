@@ -326,6 +326,7 @@ struct AgentChatSessionRegistryClaudeObservationTests {
 
         let completed = await waiter.value
         #expect(!completed)
+        #expect(oldTask.isCancelled)
         #expect(registry.observeInFlight?.scope == AgentChatObservationScope(surfaceIDs: [surfaceB]))
         #expect(registry.observeInFlight?.waiters.isEmpty == true)
     }

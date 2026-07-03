@@ -173,6 +173,7 @@ extension AgentChatSessionRegistry {
 
     func replaceAgentProcessObservation(with inFlight: AgentChatObservationInFlight) {
         if let current = observeInFlight {
+            current.task.cancel()
             observeInFlight = nil
             resumeAgentProcessObservationWaiters(current, returning: false)
         }
@@ -206,11 +207,11 @@ extension AgentChatSessionRegistry {
             let observed = await Task.detached {
                 Self.scanObservedAgentSessions(onlySurfaceIDs: scope.surfaceIDs)
             }.value
-            guard let self else { return }
+            guard !Task.isCancelled,
+                  let self,
+                  self.observeInFlight?.id == id else { return }
             self.applyObservedSessions(observed)
-            if self.observeInFlight?.id == id {
-                self.finishAgentProcessObservation(id: id)
-            }
+            self.finishAgentProcessObservation(id: id)
         }
         let inFlight = AgentChatObservationInFlight(id: id, scope: scope, task: task)
         replaceAgentProcessObservation(with: inFlight)
@@ -272,9 +273,6 @@ extension AgentChatSessionRegistry {
             if sessionID == nil,
                let argv = loadDetails()?.arguments {
                 sessionID = sessionIDFromArguments(argv)
-            }
-            if sessionID == nil, def.id == "claude" {
-                sessionID = pendingClaudeSessionID(surfaceID: surfaceID.uuidString)
             }
             guard let resolved = sessionID, !seen.contains(resolved) else { continue }
             seen.insert(resolved)

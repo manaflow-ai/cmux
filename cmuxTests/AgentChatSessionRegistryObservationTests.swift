@@ -55,7 +55,7 @@ struct AgentChatSessionRegistryObservationTests {
         #expect(session.workingDirectory == "/Users/example/project")
     }
 
-    @Test func mobileChatObserverCreatesPendingClaudeSessionForFreshIdlePrompt() throws {
+    @Test func mobileChatObserverIgnoresClaudeWithoutSessionIdentity() {
         let workspaceID = UUID()
         let surfaceID = UUID()
         let snapshot = CmuxTopProcessSnapshot(
@@ -90,14 +90,7 @@ struct AgentChatSessionRegistryObservationTests {
             codexRolloutPath: { _ in nil }
         )
 
-        let session = try #require(observed.first)
-        #expect(observed.count == 1)
-        #expect(session.sessionID == AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID.uuidString))
-        #expect(session.agentKind == .claude)
-        #expect(session.workspaceID == workspaceID.uuidString)
-        #expect(session.surfaceID == surfaceID.uuidString)
-        #expect(session.pid == 111)
-        #expect(session.workingDirectory == "/Users/example/project")
+        #expect(observed.isEmpty)
     }
 
     @MainActor
