@@ -87,13 +87,12 @@ export default async function CmuxSshPage({
         </>
       ) : null}
 
-      <h2>{t("featureTitle")}</h2>
       <ul className="mt-4 space-y-1">
-        <li>{t.rich("featureBrowser", { code: (chunks) => <code>{chunks}</code> })}</li>
-        <li>{t("featureUpload")}</li>
-        <li>{t("featureNotify")}</li>
-        <li>{t.rich("featureAgents", { code: (chunks) => <code>{chunks}</code> })}</li>
-        <li>{t("featureSidebar")}</li>
+        <li>Browser panes route through the remote machine, so <code>localhost:3000</code> reaches the remote dev server without port forwarding</li>
+        <li>Drag an image into a remote terminal to upload via scp</li>
+        <li>Coding agents on the remote box send notifications to your local sidebar</li>
+        <li><code>cmux claude-teams</code> and <code>cmux omo</code> work over SSH, spawning teammate panes locally while computation runs remote</li>
+        <li>The sidebar shows connection state and detected listening ports</li>
       </ul>
 
       <iframe
@@ -114,10 +113,8 @@ export default async function CmuxSshPage({
         </>
       ) : null}
 
-      <p className="mt-6">
-        {t.rich("docsCta", {
-          link: (chunks) => <Link href="/docs/ssh">{chunks}</Link>,
-        })}
+      <p className="mt-4">
+        <Link href="/docs/ssh">Read the SSH docs &rarr;</Link>
       </p>
     </>
   );
