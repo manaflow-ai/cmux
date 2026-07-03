@@ -7317,6 +7317,20 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    // An explicit caller command runs instead of the remote startup script: it wins
+    // in `startupCommand`, and `remoteStartupCommandForEnvironment` is nil'd for it.
+    // Such a surface is a local pane even inside a remote workspace, so it must not
+    // be tracked as a remote terminal surface. A surface carrying a remote PTY
+    // session id is still genuinely remote and stays tracked.
+    private func tracksRemoteTerminalSurface(
+        explicitInitialCommand: String?,
+        remoteTerminalStartupCommand: String?,
+        normalizedRemotePTYSessionID: String?
+    ) -> Bool {
+        (explicitInitialCommand == nil && remoteTerminalStartupCommand != nil)
+            || normalizedRemotePTYSessionID != nil
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -7489,22 +7503,16 @@ final class Workspace: Identifiable, ObservableObject {
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        // An explicit caller command runs *instead of* the remote startup script (it wins in
-        // `startupCommand` above, and `remoteStartupCommandForEnvironment` is nil'd for it), so
-        // such a surface is a local pane — not the remote attach — even inside a remote
-        // workspace. Don't track it as a remote terminal surface: that keeps its
-        // wait-after-command keep-open behavior working (a `surface.split` / `surface.create`
-        // with `initial_command` subagent pane must not be torn down through the remote
-        // child-exit path, #6244). A surface carrying a remote PTY session id is still
-        // genuinely remote and stays tracked.
-        let tracksRemoteTerminalSurface =
-            (explicitInitialCommand == nil && remoteTerminalStartupCommand != nil)
-            || normalizedRemotePTYSessionID != nil
+        let shouldTrackRemoteTerminalSurface = tracksRemoteTerminalSurface(
+            explicitInitialCommand: explicitInitialCommand,
+            remoteTerminalStartupCommand: remoteTerminalStartupCommand,
+            normalizedRemotePTYSessionID: normalizedRemotePTYSessionID
+        )
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
         }
-        if tracksRemoteTerminalSurface {
+        if shouldTrackRemoteTerminalSurface {
             trackRemoteTerminalSurface(newPanel.id)
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -7541,7 +7549,7 @@ final class Workspace: Identifiable, ObservableObject {
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
             removeSurfaceMapping(forSurfaceId: newTab.id)
-            if tracksRemoteTerminalSurface {
+            if shouldTrackRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
@@ -7779,22 +7787,16 @@ final class Workspace: Identifiable, ObservableObject {
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        // An explicit caller command runs *instead of* the remote startup script (it wins in
-        // `startupCommand` above, and `remoteStartupCommandForEnvironment` is nil'd for it), so
-        // such a surface is a local pane — not the remote attach — even inside a remote
-        // workspace. Don't track it as a remote terminal surface: that keeps its
-        // wait-after-command keep-open behavior working (a `surface.split` / `surface.create`
-        // with `initial_command` subagent pane must not be torn down through the remote
-        // child-exit path, #6244). A surface carrying a remote PTY session id is still
-        // genuinely remote and stays tracked.
-        let tracksRemoteTerminalSurface =
-            (explicitInitialCommand == nil && remoteTerminalStartupCommand != nil)
-            || normalizedRemotePTYSessionID != nil
+        let shouldTrackRemoteTerminalSurface = tracksRemoteTerminalSurface(
+            explicitInitialCommand: explicitInitialCommand,
+            remoteTerminalStartupCommand: remoteTerminalStartupCommand,
+            normalizedRemotePTYSessionID: normalizedRemotePTYSessionID
+        )
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
         }
-        if tracksRemoteTerminalSurface {
+        if shouldTrackRemoteTerminalSurface {
             trackRemoteTerminalSurface(newPanel.id)
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -7812,7 +7814,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
-            if tracksRemoteTerminalSurface {
+            if shouldTrackRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)

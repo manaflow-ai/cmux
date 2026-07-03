@@ -260,13 +260,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public internal(set) var clipboardReadGeneration = 0
 #if DEBUG
     var needsConfirmCloseOverrideForTesting: Bool?
-    /// Forces ``waitAfterCommand`` for tests. Lets a unit test reproduce the
-    /// inherited-`wait-after-command` state — a surface with no startup command of
-    /// its own but `waitAfterCommand == true`, as happens when Ghostty's config
-    /// inheritance copies the bit from a wait-after source pane — without a live
-    /// runtime surface (headless test panels have none). See
-    /// `Workspace.shouldKeepSurfaceOpenAfterCommandExit` and #6244.
-    var waitAfterCommandOverrideForTesting: Bool?
     var runtimeSurfaceFreedOutOfBandForTesting = false
     var runtimeSurfaceCreateAttemptCountForTesting = 0
     // Same off-isolation-reader carve-out as debugMetadataLock.
@@ -464,12 +457,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// auto-close the pane (see `Workspace.shouldKeepSurfaceOpenAfterCommandExit` /
     /// `TabManager.closePanelAfterChildExited`).
     public var waitAfterCommand: Bool {
-#if DEBUG
-        if let waitAfterCommandOverrideForTesting {
-            return waitAfterCommandOverrideForTesting
-        }
-#endif
-        return configTemplate?.waitAfterCommand ?? false
+        configTemplate?.waitAfterCommand ?? false
     }
 
     /// Whether the surface stays open after its startup command exits.

@@ -739,23 +739,38 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         // initial command, so such a pane collapses on an ordinary Ctrl-D/child exit.
         //
         // Config inheritance runs through a live runtime surface, which headless test panels
-        // do not have, so we split off `splitPanel` (the wait-after source, per the review's
-        // guidance) and then force the inherited bit via the surface's test seam to reproduce
-        // the exact `initialCommand == nil && waitAfterCommand == true` state. Gating only on
-        // `waitAfterCommand` (the pre-fix behavior) would wrongly keep this pane open.
-        guard let plainSplit = workspace.newTerminalSplit(
-            from: splitPanel.id,
-            orientation: .horizontal,
-            focus: false
-        ) else {
-            XCTFail("Expected plain split terminal panel to be created")
+        // do not have. Seed an equivalent command-less panel with a config-template
+        // wait-after bit so the test still exercises the real `waitAfterCommand` property
+        // without adding a production test seam. Gating only on `waitAfterCommand` (the
+        // pre-fix behavior) would wrongly keep this pane open.
+        guard let paneId = workspace.bonsplitController.allPaneIds.first else {
+            XCTFail("Expected a pane for the command-less inherited wait-after panel")
             return
         }
+        var inheritedWaitAfterConfig = CmuxSurfaceConfigTemplate()
+        inheritedWaitAfterConfig.waitAfterCommand = true
+        let plainSplit = TerminalPanel(
+            workspaceId: workspace.id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: inheritedWaitAfterConfig
+        )
+        workspace.panels[plainSplit.id] = plainSplit
+        workspace.panelTitles[plainSplit.id] = plainSplit.displayTitle
+        guard let plainSplitTabId = workspace.bonsplitController.createTab(
+            title: plainSplit.displayTitle,
+            icon: plainSplit.displayIcon,
+            kind: SurfaceKind.terminal.rawValue,
+            isDirty: plainSplit.isDirty,
+            inPane: paneId
+        ) else {
+            XCTFail("Expected command-less inherited wait-after tab to be created")
+            return
+        }
+        workspace.bindSurface(plainSplitTabId, toPanelId: plainSplit.id)
         XCTAssertNil(
             plainSplit.surface.initialCommand,
             "A plain split has no startup command of its own"
         )
-        plainSplit.surface.setWaitAfterCommandOverrideForTesting(true)
         XCTAssertTrue(
             plainSplit.surface.waitAfterCommand,
             "The command-less split now carries the inherited wait-after-command bit"

@@ -124,16 +124,6 @@ extension TerminalSurface {
         needsConfirmCloseOverrideForTesting = value
     }
 
-    /// Overrides `waitAfterCommand` for tests (pass `nil` to restore the real
-    /// config-derived value). Reproduces the inherited-`wait-after-command` state
-    /// a command-less split can carry when Ghostty copies the bit from a wait-after
-    /// source pane — unreachable headlessly because config inheritance needs a live
-    /// runtime surface. See `Workspace.shouldKeepSurfaceOpenAfterCommandExit`, #6244.
-    @MainActor
-    public func setWaitAfterCommandOverrideForTesting(_ value: Bool?) {
-        waitAfterCommandOverrideForTesting = value
-    }
-
     /// How many runtime-surface create attempts ran (test hook).
     @MainActor
     public func debugRuntimeSurfaceCreateAttemptCountForTesting() -> Int {
