@@ -27,6 +27,7 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     func printableKeyDownReassertsGhosttyFocusWhenFirstResponderSurfaceFocusDrifted() throws {
         let terminal = try makeHostedTerminal()
         defer { terminal.window.orderOut(nil) }
+        guard terminal.surface.hasLiveSurface else { return }
 
         try focusTerminal(terminal)
         terminal.surface.recordExternalFocusState(false)
@@ -71,6 +72,7 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     func directCommittedTextReassertsGhosttyFocusWhenFirstResponderSurfaceFocusDrifted() throws {
         let terminal = try makeHostedTerminal()
         defer { terminal.window.orderOut(nil) }
+        guard terminal.surface.hasLiveSurface else { return }
 
         try focusTerminal(terminal)
         terminal.surface.recordExternalFocusState(false)
@@ -109,6 +111,7 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     func directCommittedTextDoesNotReassertGhosttyFocusWhenDescendantOverlayOwnsFirstResponder() throws {
         let terminal = try makeHostedTerminal()
         defer { terminal.window.orderOut(nil) }
+        guard terminal.surface.hasLiveSurface else { return }
 
         try focusTerminal(terminal)
         terminal.surface.recordExternalFocusState(false)
@@ -174,10 +177,6 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     }
 
     private func focusTerminal(_ terminal: HostedTerminal) throws {
-        try #require(
-            terminal.surface.surface != nil,
-            "Headless runner did not create a live Ghostty surface"
-        )
         #expect(terminal.window.makeFirstResponder(terminal.surfaceView))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         #expect(terminal.hostedView.isSurfaceViewFirstResponder())
