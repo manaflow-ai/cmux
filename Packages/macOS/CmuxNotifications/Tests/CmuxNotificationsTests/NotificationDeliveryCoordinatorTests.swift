@@ -25,16 +25,10 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
         let notificationId: UUID?
     }
 
-    struct StoredOpenCall: Equatable {
-        let id: UUID
-        let fallbackTabId: UUID
-        let fallbackSurfaceId: UUID?
-    }
-
     var openSucceeds = true
     var performSucceeds = true
     private(set) var opens: [OpenCall] = []
-    private(set) var storedOpens: [StoredOpenCall] = []
+    private(set) var storedOpens: [(id: UUID, fallbackTabId: UUID, fallbackSurfaceId: UUID?)] = []
     private(set) var performedClickActions: [NotificationNavClickAction] = []
     private(set) var markedReadIds: [UUID] = []
 
@@ -44,7 +38,7 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
     }
 
     func openNotification(id: UUID, fallbackTabId: UUID, fallbackSurfaceId: UUID?) -> Bool {
-        storedOpens.append(StoredOpenCall(id: id, fallbackTabId: fallbackTabId, fallbackSurfaceId: fallbackSurfaceId))
+        storedOpens.append((id: id, fallbackTabId: fallbackTabId, fallbackSurfaceId: fallbackSurfaceId))
         return openSucceeds
     }
 
@@ -259,7 +253,10 @@ struct NotificationDeliveryCoordinatorTests {
             ]
         ))
 
-        #expect(terminal.storedOpens == [.init(id: notificationId, fallbackTabId: tabId, fallbackSurfaceId: surfaceId)])
+        #expect(terminal.storedOpens.count == 1)
+        #expect(terminal.storedOpens.first?.id == notificationId)
+        #expect(terminal.storedOpens.first?.fallbackTabId == tabId)
+        #expect(terminal.storedOpens.first?.fallbackSurfaceId == surfaceId)
         #expect(terminal.opens.isEmpty)
         #expect(terminal.markedReadIds.isEmpty)
     }
