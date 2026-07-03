@@ -82,13 +82,13 @@ public final class ChatConversationStore {
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var pendingCounter = 0
     @ObservationIgnored private var isFlushingQueue = false
+    @ObservationIgnored private var endedByUnversionedRemoval = false
     /// True once a queued send has been flushed in the current idle
     /// window; cleared when the agent next leaves idle. Ensures queued
     /// prompts are delivered ONE per turn (the agent only flips back to
     /// .working a round-trip after the first inject, so an ungated loop
     /// would dump them all into a still-idle terminal at once).
     @ObservationIgnored private var didFlushThisIdleWindow = false
-
     /// Creates a conversation store.
     ///
     /// - Parameters:
@@ -598,10 +598,10 @@ public final class ChatConversationStore {
         case .stateChanged(let state): guard agentState != .ended else { return }; agentState = state
             if case .idle = state {} else { didFlushThisIdleWindow = false }
         case .descriptorChanged(let descriptor):
-            guard descriptor.version > self.descriptor.version || (descriptor.version == self.descriptor.version && agentState != .ended) else { return }; self.descriptor = descriptor
+            guard descriptor.version > self.descriptor.version || (descriptor.version == self.descriptor.version && (agentState != .ended || endedByUnversionedRemoval)) else { return }; self.descriptor = descriptor; endedByUnversionedRemoval = false
             agentState = descriptor.state; if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
         case .sessionRemoved(let version):
-            guard version == Int.max || version >= descriptor.version else { return }; let nextVersion = version == Int.max ? descriptor.version : max(descriptor.version, version); self.descriptor = descriptor.withState(.ended); self.descriptor.version = nextVersion; agentState = .ended
+            guard version == Int.max || version >= descriptor.version else { return }; let unversioned = version == Int.max; let nextVersion = unversioned ? descriptor.version : max(descriptor.version, version); self.descriptor = descriptor.withState(.ended); self.descriptor.version = nextVersion; agentState = .ended; endedByUnversionedRemoval = unversioned
         case .terminalBlocks(let blocks):
             // Upsert by id: a new id appends to the order; an existing id
             // replaces in place (output grew / command finished). Whole-block

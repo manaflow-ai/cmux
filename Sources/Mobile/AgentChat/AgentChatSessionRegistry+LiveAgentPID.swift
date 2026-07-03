@@ -82,7 +82,11 @@ extension AgentChatSessionRegistry {
                   info.isTerminalForegroundProcessGroup,
                   let def = codingAgentDefinition(
                       for: info,
-                      allowLaunchKindEnvironment: rootPIDs.contains(pid),
+                      allowLaunchKindEnvironment: allowsLaunchKindEnvironment(
+                          for: info,
+                          rootPIDs: rootPIDs,
+                          arguments: rootPIDs.contains(pid) ? nil : loadDetails()?.arguments
+                      ),
                       processArgumentsAndEnvironment: { _ in loadDetails() }
                   ),
                   def.id == wantedID else { continue }
@@ -193,6 +197,11 @@ extension AgentChatSessionRegistry {
         if agentID == "codex",
            let rollout = openCodexRolloutPath(pid: pid) {
             return firstUUIDLike(in: (rollout as NSString).lastPathComponent)
+        }
+        let isClaudeForkLaunch = agentID == "claude"
+            && (details?.arguments).map(Self.containsClaudeForkSessionOption(_:)) == true
+        if isClaudeForkLaunch {
+            return nil
         }
         if agentID == "claude",
            let envSessionID = details?.environment["CLAUDE_CODE_SESSION_ID"],

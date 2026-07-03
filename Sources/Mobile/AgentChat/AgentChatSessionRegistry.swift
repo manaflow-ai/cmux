@@ -2,11 +2,6 @@ import CMUXAgentLaunch
 import CmuxAgentChat
 import Foundation
 
-private enum ClaudeSessionCanonicalizationContext {
-    case liveEvidence
-    case hookStoreSeed(AgentChatHookSessionStore.Entry)
-}
-
 /// Main-actor registry of chat-capable agent sessions, built from agent
 /// hook events and the on-disk hook session stores.
 @MainActor
@@ -115,6 +110,8 @@ final class AgentChatSessionRegistry {
         for session in observed {
             let canonicalSessionID = canonicalClaudeSessionID(incomingSessionID: session.sessionID, source: session.agentKind.sourceName, surfaceID: session.surfaceID)
             let targetSessionID = observedClaudeSessionID(canonicalSessionID: canonicalSessionID, observed: session)
+            let observedHasRealHookStoreIdentity = session.agentKind == .claude
+                && !Self.isPendingClaudeSessionID(session.sessionID)
             #if DEBUG
             cmuxDebugLog(
                 "agentChat.detect session=\(targetSessionID.prefix(8)) kind=\(session.agentKind.sourceName) "
@@ -136,7 +133,7 @@ final class AgentChatSessionRegistry {
                     title: nil,
                     pid: session.pid
                 )
-                if session.agentKind == .claude {
+                if observedHasRealHookStoreIdentity {
                     record.rememberHookStoreSessionID(session.sessionID)
                 }
                 stampLifecycleTransition(previous: nil, current: &record, at: session.sampledAt)
@@ -156,13 +153,13 @@ final class AgentChatSessionRegistry {
                     || (current.transcriptPath == nil && session.transcriptPath != nil)
                     || current.pid == nil
                     || (
-                        session.agentKind == .claude
+                        observedHasRealHookStoreIdentity
                             && targetSessionID != session.sessionID
                             && current.hookStoreSessionID != session.sessionID
                     )
                 guard needsBackfill else { continue }
                 update(sessionID: targetSessionID) { rec in
-                    if session.agentKind == .claude, targetSessionID != session.sessionID {
+                    if observedHasRealHookStoreIdentity, targetSessionID != session.sessionID {
                         rec.rememberHookStoreSessionID(session.sessionID)
                     }
                     if rec.surfaceID == nil { rec.surfaceID = session.surfaceID }

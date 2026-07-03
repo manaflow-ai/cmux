@@ -2,62 +2,13 @@ import CMUXAgentLaunch
 import CmuxAgentChat
 import Foundation
 
-enum AgentChatObservationScope: Equatable, Sendable {
-    case all
-    case surfaces(Set<UUID>)
-
-    init(surfaceIDs: Set<UUID>?) {
-        if let surfaceIDs {
-            self = .surfaces(surfaceIDs)
-        } else {
-            self = .all
-        }
-    }
-
-    var surfaceIDs: Set<UUID>? {
-        switch self {
-        case .all:
-            return nil
-        case .surfaces(let ids):
-            return ids
-        }
-    }
-
-    func covers(_ requested: AgentChatObservationScope) -> Bool {
-        switch (self, requested) {
-        case (.all, _):
-            return true
-        case (.surfaces, .all):
-            return false
-        case (.surfaces(let current), .surfaces(let requestedIDs)):
-            return current.isSuperset(of: requestedIDs)
-        }
-    }
-}
-
-struct AgentChatObservationHandle: Sendable {
-    let id: UUID
-    let task: Task<Void, Never>
-}
-
-struct AgentChatObservationInFlight {
-    let id: UUID
-    let scope: AgentChatObservationScope
-    let task: Task<Void, Never>
-    var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
-
-    var handle: AgentChatObservationHandle {
-        AgentChatObservationHandle(id: id, task: task)
-    }
-}
-
 extension AgentChatSessionRegistry {
     func reviveEndedObservedSessionIfNeeded(
         current: AgentChatSessionRecord,
         observed session: ObservedAgentSession,
         now: Date
     ) -> Bool {
-        guard observationCanReviveEndedSession(current: current, observedAt: session.sampledAt) else {
+        guard observationCanReviveEndedSession(current: current, observed: session) else {
             return false
         }
         if reviveEndedPendingClaudeSessionIfNeeded(current: current, observed: session, now: now) {
@@ -105,7 +56,7 @@ extension AgentChatSessionRegistry {
         guard let current = record(sessionID: canonicalSessionID),
               current.state == .ended,
               endedPendingClaudeSessionHasHistoryIdentity(current),
-              observationCanReviveEndedSession(current: current, observedAt: session.sampledAt),
+              observationCanReviveEndedSession(current: current, observed: session),
               session.agentKind == .claude,
               Self.isPendingClaudeSessionID(canonicalSessionID) else {
             return canonicalSessionID
@@ -141,21 +92,24 @@ extension AgentChatSessionRegistry {
                 continuation.resume(returning: true)
                 return
             }
-            inFlight.waiters[waiterID] = continuation
-            observeInFlight = inFlight
-            Task { @MainActor [weak self] in
-                do {
-                    try await Task.sleep(for: timeout)
-                } catch {
-                    return
+            let timeoutSeconds = Self.timeInterval(for: timeout)
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.setEventHandler { [weak self, weak timer] in
+                Task { @MainActor [weak self, weak timer] in
+                    guard let self,
+                          var current = self.observeInFlight,
+                          current.id == observation.id,
+                          let waiter = current.waiters.removeValue(forKey: waiterID) else { return }
+                    timer?.cancel()
+                    waiter.timer?.cancel()
+                    self.observeInFlight = current
+                    waiter.continuation.resume(returning: false)
                 }
-                guard let self,
-                      var current = self.observeInFlight,
-                      current.id == observation.id,
-                      current.waiters.removeValue(forKey: waiterID) != nil else { return }
-                self.observeInFlight = current
-                continuation.resume(returning: false)
             }
+            inFlight.waiters[waiterID] = (continuation: continuation, timer: timer)
+            observeInFlight = inFlight
+            timer.schedule(deadline: .now() + timeoutSeconds)
+            timer.resume()
         }
     }
 
@@ -180,9 +134,17 @@ extension AgentChatSessionRegistry {
         _ inFlight: AgentChatObservationInFlight,
         returning value: Bool
     ) {
-        for continuation in inFlight.waiters.values {
-            continuation.resume(returning: value)
+        for waiter in inFlight.waiters.values {
+            waiter.timer?.cancel()
+            waiter.continuation.resume(returning: value)
         }
+    }
+
+    private nonisolated static func timeInterval(for duration: Duration) -> TimeInterval {
+        let components = duration.components
+        let seconds = TimeInterval(components.seconds)
+        let fractional = TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
+        return max(0, seconds + fractional)
     }
 
     private func observeAgentProcessesTask(scope: AgentChatObservationScope, force: Bool) -> AgentChatObservationHandle? {
@@ -272,10 +234,17 @@ extension AgentChatSessionRegistry {
             let rootPIDs = rootPIDs(for: surfaceID)
             guard let def = codingAgentDefinition(
                 for: process,
-                allowLaunchKindEnvironment: rootPIDs.contains(process.pid),
+                allowLaunchKindEnvironment: allowsLaunchKindEnvironment(
+                    for: process,
+                    rootPIDs: rootPIDs,
+                    arguments: rootPIDs.contains(process.pid) ? nil : loadDetails()?.arguments
+                ),
                 processArgumentsAndEnvironment: { _ in loadDetails() }
             ),
             def.id == "codex" || def.id == "claude" else { continue }
+            let loadedDetails = loadDetails()
+            let argv = loadedDetails?.arguments
+            let isClaudeForkLaunch = def.id == "claude" && argv.map(Self.containsClaudeForkSessionOption(_:)) == true
             var sessionID: String?
             var transcriptPath: String?
             if def.id == "codex", let rollout = codexRolloutPath(process.pid) {
@@ -283,15 +252,16 @@ extension AgentChatSessionRegistry {
                 sessionID = firstUUIDLike(in: (rollout as NSString).lastPathComponent)
             }
             if def.id == "claude",
-               let envSessionID = loadDetails()?.environment["CLAUDE_CODE_SESSION_ID"],
+               !isClaudeForkLaunch,
+               let envSessionID = loadedDetails?.environment["CLAUDE_CODE_SESSION_ID"],
                let id = firstUUIDLike(in: envSessionID) {
                 sessionID = id
             }
-            let argv = sessionID == nil ? loadDetails()?.arguments : nil
-            if sessionID == nil, let argv {
+            if sessionID == nil, let argv, !isClaudeForkLaunch {
                 sessionID = sessionIDFromArguments(argv)
             }
-            let explicitSessionOption = argv?.contains { ["--session-id", "--resume", "-r"].contains($0) || $0.hasPrefix("--session-id=") || $0.hasPrefix("--resume=") || $0.hasPrefix("-r=") } == true
+            let explicitSessionOption = !isClaudeForkLaunch
+                && (argv.map(containsExplicitSessionOption(_:)) ?? false)
             guard let resolved = sessionID ?? (def.id == "claude" && !explicitSessionOption ? pendingClaudeSessionID(surfaceID: surfaceID.uuidString) : nil) else { continue }
             let candidate = Candidate(
                 session: ObservedAgentSession(
@@ -319,6 +289,32 @@ extension AgentChatSessionRegistry {
             }
         }
         return candidateBySessionID.values.map(\.session).sorted { $0.pid < $1.pid }
+    }
+
+    nonisolated static func allowsLaunchKindEnvironment(
+        for process: CmuxTopProcessInfo,
+        rootPIDs: Set<Int>,
+        arguments: [String]?
+    ) -> Bool {
+        if rootPIDs.contains(process.pid) {
+            return true
+        }
+        guard process.isTerminalForegroundProcessGroup,
+              process.processGroupID == process.pid,
+              let arguments else {
+            return false
+        }
+        if CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: process.name,
+            processPath: process.path,
+            arguments: arguments,
+            environment: [:]
+        ) != nil {
+            return true
+        }
+        return arguments.dropFirst().contains { argument in
+            normalizedObserverValue(argument)?.contains("/.cmux-agent-wrapper/") == true
+        }
     }
 
     nonisolated static func codingAgentDefinition(
@@ -405,40 +401,48 @@ extension AgentChatSessionRegistry {
 
     private func observationCanReviveEndedSession(
         current: AgentChatSessionRecord,
-        observedAt: Date
+        observed session: ObservedAgentSession
     ) -> Bool {
-        guard current.state == .ended else {
+        guard current.state == .ended, current.pid != session.pid else {
             return false
         }
-        return observedAt >= (current.endedAt ?? current.lastActivityAt)
+        return session.sampledAt >= (current.endedAt ?? current.lastActivityAt)
     }
 
-    /// Extracts a session id from an agent's argv (`--session-id <id>`,
-    /// `--session-id=<id>`, `--resume <id>`, `--resume=<id>`, `-r <id>`).
     nonisolated static func sessionIDFromArguments(_ arguments: [String]) -> String? {
         var index = 0
         while index < arguments.count {
             let arg = arguments[index]
-            if (arg == "--session-id" || arg == "--resume" || arg == "-r"),
+            if ["--session-id", "--resume", "-r"].contains(arg),
                index + 1 < arguments.count,
                let id = sessionIDFromOptionValue(arguments[index + 1]) {
                 return id
             }
-            if arg.hasPrefix("--session-id="),
-               let id = sessionIDFromOptionValue(String(arg.dropFirst("--session-id=".count))) {
-                return id
-            }
-            if arg.hasPrefix("--resume="),
-               let id = sessionIDFromOptionValue(String(arg.dropFirst("--resume=".count))) {
-                return id
-            }
-            if arg.hasPrefix("-r="),
-               let id = sessionIDFromOptionValue(String(arg.dropFirst("-r=".count))) {
-                return id
+            for prefix in ["--session-id=", "--resume=", "-r="] where arg.hasPrefix(prefix) {
+                if let id = sessionIDFromOptionValue(String(arg.dropFirst(prefix.count))) {
+                    return id
+                }
             }
             index += 1
         }
         return nil
+    }
+
+    private nonisolated static func containsExplicitSessionOption(_ arguments: [String]) -> Bool {
+        arguments.contains { argument in
+            argument == "--session-id"
+                || argument == "--resume"
+                || argument == "-r"
+                || argument.hasPrefix("--session-id=")
+                || argument.hasPrefix("--resume=")
+                || argument.hasPrefix("-r=")
+        }
+    }
+    nonisolated static func containsClaudeForkSessionOption(_ arguments: [String]) -> Bool {
+        arguments.contains { argument in
+            let value = argument.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return value == "--fork-session" || value.hasPrefix("--fork-session=")
+        }
     }
 
     private nonisolated static func sessionIDFromOptionValue(_ value: String) -> String? {

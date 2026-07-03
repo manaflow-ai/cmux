@@ -16,6 +16,7 @@ final class AgentChatTranscriptService {
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
+    private let now: () -> Date
     /// Drives the live agent-prose streaming preview.
     private var proseStreamer: AgentChatProseStreamer!
     /// Sessions whose transcript could not be resolved; skipped until an
@@ -44,12 +45,14 @@ final class AgentChatTranscriptService {
         },
         emitEventPayload: @escaping @MainActor ([String: Any]) -> Void = { payload in
             MobileHostService.emitEvent(topic: AgentChatTranscriptService.eventTopic, payload: payload)
-        }
+        },
+        now: @escaping () -> Date = { Date() }
     ) {
         self.registry = registry
         self.resolver = resolver
         self.hasEventSubscribers = hasEventSubscribers
         self.emitEventPayload = emitEventPayload
+        self.now = now
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
         }
@@ -242,7 +245,7 @@ final class AgentChatTranscriptService {
         case .codex:
             return true
         case .claude, .other:
-            return endedListability.shouldList(record, resolver: resolver)
+            return endedListability.shouldList(record, resolver: resolver, now: now())
         }
     }
 
@@ -436,7 +439,7 @@ final class AgentChatTranscriptService {
         let endedRecordIsListable: Bool
         if record.state == .ended {
             endedRecordIsListable = record.agentKind == .codex
-                || endedListability.update(record, previous: previous, resolver: resolver)
+                || endedListability.update(record, previous: previous, resolver: resolver, now: now())
         } else {
             endedListability.remove(sessionID: record.sessionID)
             endedRecordIsListable = true

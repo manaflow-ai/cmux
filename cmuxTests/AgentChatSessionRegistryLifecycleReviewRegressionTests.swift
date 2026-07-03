@@ -11,11 +11,13 @@ import Testing
 
 struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
     @MainActor
-    @Test func endedSessionListabilityRetriesTransientMissingTranscriptOnPull() throws {
+    @Test func endedSessionListabilityRetriesTransientMissingTranscriptAfterRetryWindow() throws {
         let home = try temporaryHomeDirectory()
+        var now = Date(timeIntervalSince1970: 260)
         let service = AgentChatTranscriptService(
             registry: AgentChatSessionRegistry(),
-            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:])
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            now: { now }
         )
         let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
         let workspaceID = UUID().uuidString
@@ -45,7 +47,102 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
         try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let resolvedRecord = try #require(service.sessionRecord(sessionID: sessionID))
+        now = Date(timeIntervalSince1970: 264)
+        #expect(!service.shouldListEndedSession(resolvedRecord))
+        now = Date(timeIntervalSince1970: 266)
         #expect(service.shouldListEndedSession(resolvedRecord))
+    }
+
+    @Test func endedListabilityCacheRefreshesExpiredMissingTranscript() throws {
+        let home = try temporaryHomeDirectory()
+        let resolver = AgentChatTranscriptResolver(homeDirectory: home, environment: [:])
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let transcriptURL = home
+            .appendingPathComponent(".claude/projects/-Users-example-project", isDirectory: true)
+            .appendingPathComponent("\(sessionID).jsonl")
+        let record = AgentChatSessionRecord(
+            sessionID: sessionID,
+            agentKind: .claude,
+            workspaceID: UUID().uuidString,
+            surfaceID: UUID().uuidString,
+            workingDirectory: "/Users/example/project",
+            transcriptPath: transcriptURL.path,
+            state: .ended,
+            endedAt: Date(timeIntervalSince1970: 10),
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            title: nil,
+            pid: nil,
+            hookStoreSessionID: nil
+        )
+        var cache = AgentChatEndedTranscriptListabilityCache()
+
+        let initiallyListable = cache.shouldList(
+            record,
+            resolver: resolver,
+            now: Date(timeIntervalSince1970: 10)
+        )
+        #expect(!initiallyListable)
+
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let beforeRetryWindowListable = cache.shouldList(
+            record,
+            resolver: resolver,
+            now: Date(timeIntervalSince1970: 14)
+        )
+        #expect(!beforeRetryWindowListable)
+
+        let eventuallyListable = cache.shouldList(
+            record,
+            resolver: resolver,
+            now: Date(timeIntervalSince1970: 16)
+        )
+        #expect(eventuallyListable)
+    }
+
+    @MainActor
+    @Test func observeScanDoesNotReviveEndedRecordForSamePID() throws {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        registry.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            ppid: 303,
+            receivedAt: Date(timeIntervalSince1970: 20)
+        ))
+        registry.update(sessionID: sessionID) { record in
+            record.state = .ended
+            record.pid = 303
+        }
+        let ended = try #require(registry.record(sessionID: sessionID))
+        let observed = ObservedAgentSession(
+            sessionID: sessionID,
+            agentKind: .claude,
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            pid: 303,
+            workingDirectory: "/Users/example/project",
+            transcriptPath: nil,
+            sampledAt: Date(timeIntervalSince1970: 30)
+        )
+
+        let revived = registry.reviveEndedObservedSessionIfNeeded(
+            current: ended,
+            observed: observed,
+            now: Date(timeIntervalSince1970: 31)
+        )
+
+        #expect(!revived)
+        #expect(registry.record(sessionID: sessionID)?.state == .ended)
     }
 
     @MainActor

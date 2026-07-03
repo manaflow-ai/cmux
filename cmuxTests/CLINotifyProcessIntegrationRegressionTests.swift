@@ -20,16 +20,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "OK\n")
-        let feedEvent = try XCTUnwrap(feedPushEvents(in: context).last { $0["hook_event_name"] as? String == "SessionStart" })
-        XCTAssertEqual(feedEvent["surface_id"] as? String, context.surfaceId)
-        let commands = context.state.commands
-        XCTAssertTrue(commands.contains("clear_notifications --tab=\(context.workspaceId)"), "Expected clear SessionStart to clear stale notifications, saw \(commands)")
         XCTAssertTrue(
-            commands.contains {
+            context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId)" },
+            "Expected clear SessionStart to clear stale notifications, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains {
                 $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected clear SessionStart to mark Claude running, saw \(commands)"
+            "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
         )
     }
 

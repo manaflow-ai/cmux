@@ -143,6 +143,186 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
         #expect(livePID == 101)
     }
 
+    @Test func mobileChatObserverDetectsHostedClaudeUnderScopedShellRoot() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 101,
+                    parentPID: 10,
+                    name: "zsh",
+                    path: "/bin/zsh",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    processGroupID: 101,
+                    terminalProcessGroupID: 202
+                ),
+                topProcess(
+                    pid: 202,
+                    parentPID: 101,
+                    name: "node",
+                    path: "/opt/homebrew/bin/node",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    processGroupID: 202,
+                    terminalProcessGroupID: 202
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 124),
+            includesProcessDetails: true
+        )
+        let details: (Int) -> CmuxTopProcessArguments? = { pid in
+            switch pid {
+            case 101:
+                CmuxTopProcessArguments(arguments: ["-zsh"], environment: [:])
+            case 202:
+                CmuxTopProcessArguments(
+                    arguments: [
+                        "node",
+                        "/Users/example/.cmux-agent-wrapper/subrouter.js",
+                    ],
+                    environment: [
+                        "CMUX_AGENT_LAUNCH_KIND": "claude",
+                        "CLAUDE_CODE_SESSION_ID": sessionID,
+                    ]
+                )
+            default:
+                nil
+            }
+        }
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: details,
+            codexRolloutPath: { _ in nil }
+        )
+        let livePID = AgentChatSessionRegistry.liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID.uuidString,
+            kind: .claude,
+            matchingSessionIDs: [sessionID],
+            processArgumentsAndEnvironment: details
+        )
+
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(session.sessionID == sessionID)
+        #expect(session.pid == 202)
+        #expect(livePID == 202)
+    }
+
+    @Test func mobileChatObserverIgnoresInheritedLaunchKindOnUnrelatedForegroundChild() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 101,
+                    parentPID: 10,
+                    name: "zsh",
+                    path: "/bin/zsh",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    processGroupID: 101,
+                    terminalProcessGroupID: 202
+                ),
+                topProcess(
+                    pid: 202,
+                    parentPID: 101,
+                    name: "node",
+                    path: "/opt/homebrew/bin/node",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    processGroupID: 202,
+                    terminalProcessGroupID: 202
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 125),
+            includesProcessDetails: true
+        )
+        let details: (Int) -> CmuxTopProcessArguments? = { pid in
+            switch pid {
+            case 101:
+                CmuxTopProcessArguments(arguments: ["-zsh"], environment: [:])
+            case 202:
+                CmuxTopProcessArguments(
+                    arguments: ["node", "server.js"],
+                    environment: [
+                        "CMUX_AGENT_LAUNCH_KIND": "claude",
+                        "CLAUDE_CODE_SESSION_ID": sessionID,
+                    ]
+                )
+            default:
+                nil
+            }
+        }
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: details,
+            codexRolloutPath: { _ in nil }
+        )
+        let livePID = AgentChatSessionRegistry.liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID.uuidString,
+            kind: .claude,
+            matchingSessionIDs: [sessionID],
+            processArgumentsAndEnvironment: details
+        )
+
+        #expect(observed.isEmpty)
+        #expect(livePID == nil)
+    }
+
+    @Test func mobileChatObserverUsesPendingAliasForClaudeForkResumeParent() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let parentSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let pendingSessionID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID.uuidString)
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(pid: 303, parentPID: 101, name: "claude", path: "/opt/homebrew/bin/claude", workspaceID: workspaceID, surfaceID: surfaceID),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 303),
+            includesProcessDetails: true
+        )
+        let details: (Int) -> CmuxTopProcessArguments? = { pid in
+            guard pid == 303 else { return nil }
+            return CmuxTopProcessArguments(
+                arguments: ["claude", "--resume", parentSessionID, "--fork-session=true"],
+                environment: ["CLAUDE_CODE_SESSION_ID": parentSessionID, "CMUX_AGENT_LAUNCH_CWD": "/Users/example/project"]
+            )
+        }
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(in: snapshot, processArgumentsAndEnvironment: details, codexRolloutPath: { _ in nil })
+        let liveParentPID = AgentChatSessionRegistry.liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID.uuidString,
+            kind: .claude,
+            matchingSessionIDs: [parentSessionID],
+            processArgumentsAndEnvironment: details
+        )
+        let livePendingPID = AgentChatSessionRegistry.liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID.uuidString,
+            kind: .claude,
+            matchingSessionIDs: [pendingSessionID],
+            allowUnidentifiedFallback: true,
+            processArgumentsAndEnvironment: details
+        )
+
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(session.sessionID == pendingSessionID)
+        #expect(session.agentKind == .claude)
+        #expect(session.pid == 303)
+        #expect(liveParentPID == nil)
+        #expect(livePendingPID == 303)
+    }
+
     @Test func mobileChatObserverDetectsClaudeExeRuntimeProcess() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()

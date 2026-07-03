@@ -1,13 +1,8 @@
 import Foundation
 
 struct AgentChatEndedTranscriptListabilityCache {
-    private struct Entry {
-        var isReadable: Bool
-        var firstMissingAt: Date?
-    }
-
     private static let missingTranscriptRetryWindow: TimeInterval = 5
-    private var entryBySessionID: [String: Entry] = [:]
+    private var entryBySessionID: [String: (isReadable: Bool, firstMissingAt: Date?)] = [:]
 
     mutating func shouldList(
         _ record: AgentChatSessionRecord,
@@ -25,10 +20,10 @@ struct AgentChatEndedTranscriptListabilityCache {
             return true
         }
         if let firstMissingAt = entry.firstMissingAt,
-           now.timeIntervalSince(firstMissingAt) >= Self.missingTranscriptRetryWindow {
+           now.timeIntervalSince(firstMissingAt) < Self.missingTranscriptRetryWindow {
             return false
         }
-        return refresh(record, resolver: resolver, preservingFirstMissingAt: entry.firstMissingAt, now: now)
+        return refresh(record, resolver: resolver, preservingFirstMissingAt: nil, now: now)
     }
 
     @discardableResult
@@ -64,7 +59,7 @@ struct AgentChatEndedTranscriptListabilityCache {
         now: Date
     ) -> Bool {
         let isReadable = resolver.boundedTranscriptPath(for: record) != nil
-        entryBySessionID[record.sessionID] = Entry(
+        entryBySessionID[record.sessionID] = (
             isReadable: isReadable,
             firstMissingAt: isReadable ? nil : (firstMissingAt ?? now)
         )

@@ -75,6 +75,27 @@ struct ChatConversationStoreSessionRemovalTests {
         #expect(store.descriptor.version == 6)
     }
 
+    @Test("unversioned sessionRemoved allows equal-version descriptor revival")
+    func unversionedSessionRemovedAllowsEqualVersionDescriptorRevival() async {
+        let source = EventSource()
+        let store = ChatConversationStore(
+            descriptor: Self.descriptor(state: .working(since: Self.baseTime), version: 5),
+            source: source,
+            now: { Self.baseTime }
+        )
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await Self.waitUntil { store.isConnected })
+        await source.emit(.sessionRemoved(version: Int.max))
+        #expect(await Self.waitUntil { store.agentState == ChatAgentState.ended })
+        #expect(store.descriptor.version == 5)
+
+        await source.emit(.descriptorChanged(Self.descriptor(state: .idle, version: 5)))
+        #expect(await Self.waitUntil { store.agentState == ChatAgentState.idle })
+        #expect(store.descriptor.version == 5)
+    }
+
     private static func descriptor(
         state: ChatAgentState,
         version: Int

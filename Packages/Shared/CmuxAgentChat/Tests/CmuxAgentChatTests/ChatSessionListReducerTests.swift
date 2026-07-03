@@ -140,10 +140,28 @@ struct ChatSessionListReducerTests {
         #expect(reducer.applying(replacement, to: afterRemoval).map(\.id) == ["s1"])
     }
 
-    @Test("a sessionRemoved for an unknown row does not tombstone future descriptors")
-    func unknownSessionRemovedDoesNotTombstoneFutureDescriptors() {
+    @Test("a versioned sessionRemoved for an unknown row tombstones stale descriptors")
+    func unknownVersionedSessionRemovedTombstonesFutureStaleDescriptors() {
         var reducer = ChatSessionListReducer(workspaceID: "ws-1")
         let removed = ChatSessionEventFrame(sessionID: "s1", event: .sessionRemoved(version: 5))
+        let stale = ChatSessionEventFrame(
+            sessionID: "s1",
+            event: .descriptorChanged(descriptor("s1", version: 4))
+        )
+        let newer = ChatSessionEventFrame(
+            sessionID: "s1",
+            event: .descriptorChanged(descriptor("s1", version: 6))
+        )
+        let afterRemoval = reducer.applying(removed, to: [])
+        #expect(afterRemoval.isEmpty)
+        #expect(reducer.applying(stale, to: afterRemoval).isEmpty)
+        #expect(reducer.applying(newer, to: afterRemoval).map(\.id) == ["s1"])
+    }
+
+    @Test("an unversioned sessionRemoved for an unknown row does not tombstone future descriptors")
+    func unknownUnversionedSessionRemovedDoesNotTombstoneFutureDescriptors() {
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        let removed = ChatSessionEventFrame(sessionID: "s1", event: .sessionRemoved(version: Int.max))
         let descriptor = ChatSessionEventFrame(
             sessionID: "s1",
             event: .descriptorChanged(descriptor("s1", version: 4))
