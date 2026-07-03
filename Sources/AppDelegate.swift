@@ -13880,8 +13880,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
             let focusContext = shortcutEventFocusContext(event)
             if focusContext.filePreviewTextEditorFocused {
-                let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-                return routedManager?.zoomInFocusedTextFilePreview() ?? false
+                let targetTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+                return targetTabs?.zoomInFocusedTextFilePreview() ?? false
             }
             return focusContext.browserPanel?.zoomIn() ?? false
         }
@@ -13889,8 +13889,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
             let focusContext = shortcutEventFocusContext(event)
             if focusContext.filePreviewTextEditorFocused {
-                let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-                return routedManager?.zoomOutFocusedTextFilePreview() ?? false
+                let targetTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+                return targetTabs?.zoomOutFocusedTextFilePreview() ?? false
             }
             return focusContext.browserPanel?.zoomOut() ?? false
         }
@@ -13898,8 +13898,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
             let focusContext = shortcutEventFocusContext(event)
             if focusContext.filePreviewTextEditorFocused {
-                let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-                return routedManager?.resetZoomFocusedTextFilePreview() ?? false
+                let targetTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+                return targetTabs?.resetZoomFocusedTextFilePreview() ?? false
             }
             return focusContext.browserPanel?.resetZoom() ?? false
         }

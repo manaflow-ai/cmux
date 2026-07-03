@@ -335,16 +335,6 @@ final class SavingTextView: NSTextView {
         pendingEditorShortcutChordPrefix = nil
     }
 
-    private enum EditorShortcutIntent {
-        case save
-        case previewFontZoom(KeyboardShortcutSettings.Action)
-    }
-
-    private struct EditorShortcutCandidate {
-        let intent: EditorShortcutIntent
-        let shortcut: StoredShortcut
-    }
-
     private func handleEditorShortcut(_ event: NSEvent) -> Bool {
         let candidates = editorShortcutCandidates(for: event)
         if let pendingPrefix = pendingEditorShortcutChordPrefix {
@@ -353,7 +343,7 @@ final class SavingTextView: NSTextView {
                 guard candidate.shortcut.firstStroke == pendingPrefix,
                       let secondStroke = candidate.shortcut.secondStroke,
                       secondStroke.matches(event: event) else { continue }
-                performEditorShortcut(candidate.intent)
+                candidate.perform()
                 return true
             }
             return false
@@ -369,35 +359,26 @@ final class SavingTextView: NSTextView {
                 continue
             }
             if shortcut.matches(event: event) {
-                performEditorShortcut(candidate.intent)
+                candidate.perform()
                 return true
             }
         }
         return false
     }
 
-    private func editorShortcutCandidates(for event: NSEvent) -> [EditorShortcutCandidate] {
-        var candidates: [EditorShortcutCandidate] = []
+    private func editorShortcutCandidates(for event: NSEvent) -> [(shortcut: StoredShortcut, perform: () -> Void)] {
+        var candidates: [(shortcut: StoredShortcut, perform: () -> Void)] = []
         let saveShortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
         if !saveShortcut.isUnbound {
-            candidates.append(EditorShortcutCandidate(intent: .save, shortcut: saveShortcut))
+            candidates.append((saveShortcut, { [weak self] in self?.panel?.saveTextContent() }))
         }
         for action in Self.previewFontZoomShortcutActions {
             let shortcut = KeyboardShortcutSettings.shortcut(for: action)
             guard !shortcut.isUnbound,
                   previewFontZoomShortcutWhenClauseAllows(action: action, event: event) else { continue }
-            candidates.append(EditorShortcutCandidate(intent: .previewFontZoom(action), shortcut: shortcut))
+            candidates.append((shortcut, { [weak self] in self?.performPreviewFontZoomShortcutAction(action) }))
         }
         return candidates
-    }
-
-    private func performEditorShortcut(_ intent: EditorShortcutIntent) {
-        switch intent {
-        case .save:
-            panel?.saveTextContent()
-        case .previewFontZoom(let action):
-            performPreviewFontZoomShortcutAction(action)
-        }
     }
 
     private func previewFontZoomShortcutWhenClauseAllows(

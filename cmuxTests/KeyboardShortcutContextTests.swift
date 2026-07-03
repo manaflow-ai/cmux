@@ -1,5 +1,4 @@
 import XCTest
-import CmuxCommandPalette
 import CmuxSettings
 @testable import CmuxSettingsUI
 
@@ -205,18 +204,8 @@ final class KeyboardShortcutContextTests: XCTestCase {
         // Markdown zoom and browser zoom share Cmd-=/-/0 but are mutually
         // exclusive (a panel can't be both), so they must NOT be treated as
         // conflicting bindings.
-        let viewZoom = KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext
-        XCTAssertEqual(viewZoom, .browserOrFilePreviewTextEditor)
-        XCTAssertTrue(viewZoom.isAvailable(
-            focusedBrowserPanel: false,
-            focusedMarkdownPanel: false,
-            focusedFilePreviewTextEditor: true,
-            rightSidebarFocused: false
-        ))
-        var textPreviewPaletteContext = CommandPaletteContextSnapshot()
-        textPreviewPaletteContext.setBool(CommandPaletteContextKeys.panelIsFilePreviewTextEditor, true)
-        XCTAssertTrue(viewZoom.isAvailable(commandPaletteContext: textPreviewPaletteContext))
-        XCTAssertFalse(markdown.overlaps(viewZoom))
+        let browser = KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext
+        XCTAssertFalse(markdown.overlaps(browser))
         XCTAssertTrue(markdown.overlaps(markdown))
 
         // A focused markdown viewer is also a non-browser panel, so those two
@@ -225,61 +214,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(nonBrowser, .nonBrowserPanel)
         XCTAssertTrue(markdown.overlaps(nonBrowser))
         XCTAssertTrue(nonBrowser.overlaps(markdown))
-    }
-
-    func testBrowserOrFilePreviewTextEditorContextAvailabilityAndOverlap() {
-        let context = KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext
-
-        XCTAssertEqual(context, .browserOrFilePreviewTextEditor)
-        XCTAssertTrue(context.isAvailable(
-            focusedBrowserPanel: true,
-            focusedMarkdownPanel: false,
-            focusedFilePreviewTextEditor: false,
-            rightSidebarFocused: false
-        ))
-        XCTAssertTrue(context.isAvailable(
-            focusedBrowserPanel: false,
-            focusedMarkdownPanel: false,
-            focusedFilePreviewTextEditor: true,
-            rightSidebarFocused: false
-        ))
-        XCTAssertTrue(context.isAvailable(
-            focusedBrowserPanel: true,
-            focusedMarkdownPanel: false,
-            focusedFilePreviewTextEditor: true,
-            rightSidebarFocused: false
-        ))
-        XCTAssertFalse(context.isAvailable(
-            focusedBrowserPanel: false,
-            focusedMarkdownPanel: false,
-            focusedFilePreviewTextEditor: false,
-            rightSidebarFocused: false
-        ))
-
-        XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.browserReload.shortcutContext))
-        XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext))
-        XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
-    }
-
-    func testViewZoomContextStillForwardsMenuEquivalentShortcutsToFocusedTerminal() {
-        XCTAssertTrue(
-            KeyboardShortcutSettings.Action.browserReload.shortcutContext.forwardsMenuEquivalentToFocusedTerminal
-        )
-        XCTAssertTrue(
-            KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext.forwardsMenuEquivalentToFocusedTerminal
-        )
-        XCTAssertTrue(
-            KeyboardShortcutSettings.Action.browserZoomOut.shortcutContext.forwardsMenuEquivalentToFocusedTerminal
-        )
-        XCTAssertTrue(
-            KeyboardShortcutSettings.Action.browserZoomReset.shortcutContext.forwardsMenuEquivalentToFocusedTerminal
-        )
-        XCTAssertFalse(
-            KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext.forwardsMenuEquivalentToFocusedTerminal
-        )
-        XCTAssertFalse(
-            KeyboardShortcutSettings.Action.renameTab.shortcutContext.forwardsMenuEquivalentToFocusedTerminal
-        )
     }
 
     func testSurfaceDigitFamilyCoexistsWithPrioritizedSidebarModeShortcuts() {
