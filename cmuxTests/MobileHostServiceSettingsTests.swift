@@ -116,6 +116,25 @@ struct MobileHostServiceSettingsTests {
         #expect(!routes.contains { $0.kind == .manualHost })
     }
 
+    @Test func routeResolverAdvertisesConfiguredIPv6ManualHost() throws {
+        let suiteName = "MobileHostServiceSettingsTests.ManualHost.IPv6.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("[fd00::12]", forKey: MobileHostService.manualHostDefaultsKey)
+
+        let configuredHost = try #require(MobileHostService.configuredManualHost(defaults: defaults))
+        let routes = MobileRouteResolver().routes(
+            port: 58_465,
+            tailscaleHosts: [],
+            manualHost: configuredHost
+        ).routes
+        let manualRoute = try #require(routes.first { $0.kind == .manualHost })
+
+        #expect(configuredHost == "fd00::12")
+        #expect(manualRoute.endpoint == .hostPort(host: "fd00::12", port: 58_465))
+    }
+
     @Test func portApplyPreBindClassifiesNonBindCases() {
         // Out of range → invalid, regardless of anything else.
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 0) == .invalid)

@@ -708,6 +708,44 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func manualHostPairingApprovesBracketedIPv6ManualEntry() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .manualHost,
+        host: "fd00::12",
+        port: 15433
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "trusted-ipv6-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "trusted-ipv6-workspace", title: "Trusted IPv6 Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.manualHost],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-ipv6"
+    )
+    let store = CMUXMobileShellStore.preview(
+        runtime: runtime,
+        manualHostTrustStore: InMemoryMobileManualHostTrustStore()
+    )
+
+    store.signIn()
+    await store.connectManualHost(name: "IPv6 LAN", host: "[fd00::12]", port: 15433)
+
+    #expect(store.manualHostTrustWarning?.endpoint == "[fd00::12]:15433")
+    #expect(try await responses.sentRequests().isEmpty)
+
+    let result = await store.acceptManualHostTrustWarning()
+
+    #expect(result == .connected)
+    let route = try #require(store.activeRoute)
+    #expect(route.kind == .manualHost)
+    #expect(route.endpoint == .hostPort(host: "fd00::12", port: 15433))
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-ipv6" })
+}
+
+@MainActor
 @Test func manualHostTrustDoesNotCoverDifferentHost() async throws {
     let approvedRoute = try hostPortRoute(
         kind: .manualHost,

@@ -26,12 +26,20 @@ public struct MobileShellRouteAuthPolicy {
         CmxManualHost(rawHost)?.rawValue
     }
 
+    /// Normalizes an already-stored attach-route endpoint host.
+    ///
+    /// Unlike ``normalizedManualHost(_:)``, this accepts bare IPv6 because route
+    /// endpoints store IPv6 hosts without brackets.
+    public static func normalizedManualRouteHost(_ rawHost: String) -> String? {
+        CmxManualHost.normalizedRouteHost(rawHost)
+    }
+
     /// Maps a manually typed host to the transport kind that should be used.
     /// - Parameter host: The host to classify.
     /// - Returns: `.debugLoopback` for loopback hosts, `.tailscale` for
     ///   Tailscale IP/MagicDNS hosts, otherwise `.manualHost`.
     public static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
-        let normalizedHost = (normalizedManualHost(host) ?? host)
+        let normalizedHost = (normalizedManualRouteHost(host) ?? host)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         if isLoopbackHost(normalizedHost) {

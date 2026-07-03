@@ -110,7 +110,7 @@ private extension MobilePairedMac {
             routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback
-        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualRouteHost(host) else {
             return nil
         }
         return "host:\(normalizedHost.lowercased()):\(port):name:\(displayName.lowercased())"

@@ -1559,7 +1559,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+        guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualRouteHost(host) else {
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             connectionErrorGuidance = nil
             connectionState = .disconnected
@@ -2302,7 +2302,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             instance.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualRouteHost(host) else {
             mobileShellLog.error(
                 "connectToRegistryInstance: no reconnectable route device=\(device.deviceId, privacy: .public) tag=\(instance.tag, privacy: .public)"
             )
@@ -2585,7 +2585,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             refreshedTarget.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ), MobileShellRouteAuthPolicy.normalizedManualHost(host) != nil else {
+        ), MobileShellRouteAuthPolicy.normalizedManualRouteHost(host) != nil else {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .private)")
             if !hasActiveMacConnection,
                await restorePreviousMacIfNeeded(
@@ -2708,7 +2708,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             previousActive.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ), MobileShellRouteAuthPolicy.normalizedManualHost(host) != nil else {
+        ), MobileShellRouteAuthPolicy.normalizedManualRouteHost(host) != nil else {
             mobileShellLog.error("restorePreviousMacIfNeeded: no reconnectable route mac=\(previousActive.macDeviceID, privacy: .private)")
             return false
         }

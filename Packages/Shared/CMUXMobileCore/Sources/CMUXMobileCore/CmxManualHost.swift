@@ -54,6 +54,25 @@ public struct CmxManualHost: Equatable, Sendable {
         self.rawValue = host
     }
 
+    /// Normalizes a host that may already be in attach-route endpoint form.
+    ///
+    /// User-entered IPv6 must be bracketed so a typo like `my:host` is rejected
+    /// up front. Attach routes store IPv6 without brackets, so route/reconnect
+    /// paths use this helper when they are validating an already-normalized
+    /// endpoint host.
+    public static func normalizedRouteHost(_ rawHost: String) -> String? {
+        if let manualHost = CmxManualHost(rawHost) {
+            return manualHost.rawValue
+        }
+        let trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.hasPrefix("["),
+              !trimmed.hasSuffix("]"),
+              Self.isIPv6Literal(trimmed) else {
+            return nil
+        }
+        return trimmed
+    }
+
     private static func isUnbracketedQRHost(_ host: String) -> Bool {
         host.utf8.allSatisfy { byte in
             (48...57).contains(byte)        // 0-9
