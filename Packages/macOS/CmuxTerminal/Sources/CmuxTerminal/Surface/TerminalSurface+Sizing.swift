@@ -404,7 +404,7 @@ extension TerminalSurface {
     }
 
     /// The current monospace cell size in points, or nil if the runtime
-    /// surface is not ready. Used by remote tmux mirror sizing.
+    /// surface is not ready.
     @MainActor
     public func cellSizePoints() -> CGSize? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "cellSize") else { return nil }
