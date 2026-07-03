@@ -2277,33 +2277,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    func hasQuitConfirmationDirtyWorkspaces() -> Bool {
-        var visitedManagers = Set<ObjectIdentifier>()
-
-        func managerHasDirtyWorkspace(_ manager: TabManager?) -> Bool {
-            guard let manager else { return false }
-            let managerId = ObjectIdentifier(manager)
-            guard visitedManagers.insert(managerId).inserted else { return false }
-            return manager.tabs.contains(where: { $0.needsConfirmClose() })
-        }
-
-        for context in registeredMainWindows {
-            if managerHasDirtyWorkspace(context.tabManager) {
-                return true
-            }
-        }
-
-        if managerHasDirtyWorkspace(tabManager) {
-            return true
-        }
-
-        for route in recoverableMainWindowRoutes() {
-            if managerHasDirtyWorkspace(route.tabManager) {
-                return true
-            }
-        }
-        return false
-    }
+    // `hasQuitConfirmationDirtyWorkspaces()` lives in
+    // `QuitConfirmationAlertPresenter.swift` (it also folds in the per-window
+    // Dock dirty check), and witnesses the `ApplicationTerminationHost`
+    // requirement from there.
 
     // Internal (not private) so the `ApplicationTerminationHost` conformance in
     // `AppDelegate+ApplicationTerminationHost.swift` can witness it.
