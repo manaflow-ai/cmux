@@ -254,19 +254,85 @@ struct CanvasShortcutRoutingFeedbackTests {
             let viewport = CanvasRoutingViewportSpy()
             workspace.canvasModel.viewport = viewport
 
+            let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let fileURL = try temporaryTextFile(contents: "preview text")
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+            let panel = try #require(workspace.newFilePreviewSurface(
+                inPane: firstPane,
+                filePath: fileURL.path,
+                focus: true
+            ))
+
             let textView = SavingTextView.makeFilePreviewTextView()
             textView.frame = NSRect(x: 0, y: 0, width: 200, height: 120)
+            textView.string = "preview text"
+            textView.panel = panel
+            panel.attachTextView(textView)
             window.contentView?.addSubview(textView)
             defer { textView.removeFromSuperview() }
             #expect(window.makeFirstResponder(textView))
+            #expect(workspace.focusedPanelId == panel.id)
+            #expect(manager.focusedTextFilePreviewPanel === panel)
 
 #if DEBUG
-            #expect(!appDelegate.debugHandleCustomShortcut(event: event))
+            _ = appDelegate.debugHandleCustomShortcut(event: event)
 #else
             Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
             #expect(viewport.resetZoomCount == 0)
+        }
+    }
+
+    @Test func cmdZeroInCanvasResetsCanvasZoomWhenMarkdownSourceEditorIsFocused() throws {
+        try withTemporaryShortcut(action: .canvasZoomReset) {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let event = try #require(makeKeyDownEvent(
+                key: "0",
+                modifiers: [.command],
+                keyCode: 29,
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let viewport = CanvasRoutingViewportSpy()
+            workspace.canvasModel.viewport = viewport
+
+            let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let fileURL = try temporaryMarkdownFile(contents: "# Preview\n")
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+            let panel = try #require(workspace.newMarkdownSurface(
+                inPane: firstPane,
+                filePath: fileURL.path,
+                focus: true
+            ))
+            panel.setDisplayMode(.text)
+
+            let textView = SavingTextView.makeFilePreviewTextView()
+            textView.frame = NSRect(x: 0, y: 0, width: 200, height: 120)
+            textView.string = panel.textContent
+            textView.panel = panel
+            panel.attachTextView(textView)
+            window.contentView?.addSubview(textView)
+            defer { textView.removeFromSuperview() }
+            #expect(window.makeFirstResponder(textView))
+            #expect(workspace.focusedPanelId == panel.id)
+            #expect(manager.focusedTextFilePreviewPanel == nil)
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(viewport.resetZoomCount == 1)
         }
     }
 
@@ -373,6 +439,14 @@ struct CanvasShortcutRoutingFeedbackTests {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("txt")
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    private func temporaryMarkdownFile(contents: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("md")
         try contents.write(to: url, atomically: true, encoding: .utf8)
         return url
     }

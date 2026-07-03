@@ -142,21 +142,32 @@ extension AppDelegate {
     }
 
     private func shortcutFocusedFilePreviewTextEditor(in window: NSWindow?) -> Bool {
-        guard let responder = window?.firstResponder ?? NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder else {
+        guard let focusedFilePreviewPanel = shortcutContextTabManager(in: window)?.focusedTextFilePreviewPanel,
+              let textView = shortcutFocusedSavingTextView(in: window),
+              let owningFilePreviewPanel = textView.panel as? FilePreviewPanel,
+              owningFilePreviewPanel === focusedFilePreviewPanel else {
             return false
         }
-        if responder is SavingTextView {
-            return true
+
+        return true
+    }
+
+    private func shortcutFocusedSavingTextView(in window: NSWindow?) -> SavingTextView? {
+        guard let responder = window?.firstResponder ?? NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder else {
+            return nil
+        }
+        if let textView = responder as? SavingTextView {
+            return textView
         }
 
         var current = responder.nextResponder
         while let next = current {
-            if next is SavingTextView {
-                return true
+            if let textView = next as? SavingTextView {
+                return textView
             }
             current = next.nextResponder
         }
-        return false
+        return nil
     }
 
     @discardableResult
