@@ -359,7 +359,7 @@ extension AgentChatSessionRegistry {
 
     /// Extracts a session id from an agent's argv (`--session-id <id>`,
     /// `--session-id=<id>`, `--resume <id>`, `--resume=<id>`).
-    private nonisolated static func sessionIDFromArguments(_ arguments: [String]) -> String? {
+    nonisolated static func sessionIDFromArguments(_ arguments: [String]) -> String? {
         var index = 0
         while index < arguments.count {
             let arg = arguments[index]
@@ -382,7 +382,7 @@ extension AgentChatSessionRegistry {
 
     /// libproc: the path of a `~/.codex/sessions/**/rollout-*.jsonl` the process
     /// holds open (codex keeps its rollout open for writing), or nil.
-    private nonisolated static func openCodexRolloutPath(pid: Int) -> String? {
+    nonisolated static func openCodexRolloutPath(pid: Int) -> String? {
         let listSize = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, nil, 0)
         guard listSize > 0 else { return nil }
         let count = Int(listSize) / MemoryLayout<proc_fdinfo>.stride
@@ -419,7 +419,7 @@ extension AgentChatSessionRegistry {
 
     /// The first UUID-shaped substring (matches both standard UUIDs and codex's
     /// UUIDv7 rollout ids), or nil.
-    private nonisolated static func firstUUIDLike(in string: String) -> String? {
+    nonisolated static func firstUUIDLike(in string: String) -> String? {
         guard let regex = uuidLikeRegex else { return nil }
         let range = NSRange(string.startIndex..., in: string)
         guard let match = regex.firstMatch(in: string, options: [], range: range),

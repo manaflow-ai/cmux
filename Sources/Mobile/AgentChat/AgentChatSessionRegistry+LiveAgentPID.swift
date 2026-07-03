@@ -16,7 +16,12 @@ extension AgentChatSessionRegistry {
     /// classifier is shared with observe-floor detection, so argv-hosted agents
     /// (`node .../claude-code`, `npx .../codex`) rebind the same way they are
     /// first discovered.
-    nonisolated static func liveAgentPID(surfaceID: String, kind: ChatAgentKind) -> Int? {
+    nonisolated static func liveAgentPID(
+        surfaceID: String,
+        kind: ChatAgentKind,
+        matchingSessionIDs expectedSessionIDs: Set<String>
+    ) -> Int? {
+        guard !expectedSessionIDs.isEmpty else { return nil }
         let snapshot = CmuxTopProcessSnapshot.capture(
             includeProcessDetails: true,
             includeCMUXScope: true
@@ -25,6 +30,7 @@ extension AgentChatSessionRegistry {
             in: snapshot,
             surfaceID: surfaceID,
             kind: kind,
+            matchingSessionIDs: expectedSessionIDs,
             processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
         )
     }
@@ -35,19 +41,72 @@ extension AgentChatSessionRegistry {
         kind: ChatAgentKind,
         processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?
     ) -> Int? {
+        liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID,
+            kind: kind,
+            matchingSessionIDs: nil,
+            processArgumentsAndEnvironment: processArgumentsAndEnvironment
+        )
+    }
+
+    nonisolated static func liveAgentPID(
+        in snapshot: CmuxTopProcessSnapshot,
+        surfaceID: String,
+        kind: ChatAgentKind,
+        matchingSessionIDs expectedSessionIDs: Set<String>?,
+        processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?
+    ) -> Int? {
         guard let surfaceUUID = UUID(uuidString: surfaceID) else { return nil }
         let rootPIDs = snapshot.pids(forCMUXSurfaceID: surfaceUUID)
         guard !rootPIDs.isEmpty else { return nil }
         let wantedID = kind.sourceName
         for pid in snapshot.expandedPIDs(rootPIDs: rootPIDs).sorted() {
+            var details: CmuxTopProcessArguments?
+            func loadDetails() -> CmuxTopProcessArguments? {
+                if details == nil {
+                    details = processArgumentsAndEnvironment(pid)
+                }
+                return details
+            }
             guard let info = snapshot.process(pid: pid),
                   info.isTerminalForegroundProcessGroup,
                   let def = codingAgentDefinition(
                       for: info,
-                      processArgumentsAndEnvironment: processArgumentsAndEnvironment
+                      processArgumentsAndEnvironment: { _ in loadDetails() }
                   ),
                   def.id == wantedID else { continue }
+            if let expectedSessionIDs {
+                guard let candidateSessionID = observedSessionID(
+                    agentID: def.id,
+                    pid: pid,
+                    details: loadDetails()
+                ),
+                      expectedSessionIDs.contains(candidateSessionID) else {
+                    continue
+                }
+            }
             return pid
+        }
+        return nil
+    }
+
+    private nonisolated static func observedSessionID(
+        agentID: String,
+        pid: Int,
+        details: CmuxTopProcessArguments?
+    ) -> String? {
+        if agentID == "codex",
+           let rollout = openCodexRolloutPath(pid: pid) {
+            return firstUUIDLike(in: (rollout as NSString).lastPathComponent)
+        }
+        if agentID == "claude",
+           let envSessionID = details?.environment["CLAUDE_CODE_SESSION_ID"],
+           let id = firstUUIDLike(in: envSessionID) {
+            return id
+        }
+        if let argv = details?.arguments {
+            return sessionIDFromArguments(argv)
         }
         return nil
     }

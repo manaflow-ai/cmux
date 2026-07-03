@@ -232,6 +232,51 @@ struct AgentChatSessionRegistryClaudeObservationTests {
         #expect(livePID == nil)
     }
 
+    @Test func mobileChatLivenessRequiresMatchingClaudeSessionIdentity() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let expectedSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let otherSessionID = "b6fbc8e1-2c4b-4e51-a2b8-fd17c2ad59f0"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 809,
+                    name: "claude",
+                    path: "/opt/homebrew/bin/claude",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                ),
+                topProcess(
+                    pid: 810,
+                    name: "claude",
+                    path: "/opt/homebrew/bin/claude",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 810),
+            includesProcessDetails: true
+        )
+
+        let livePID = AgentChatSessionRegistry.liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID.uuidString,
+            kind: .claude,
+            matchingSessionIDs: [expectedSessionID],
+            processArgumentsAndEnvironment: { pid in
+                let sessionID = pid == 810 ? expectedSessionID : otherSessionID
+                return CmuxTopProcessArguments(
+                    arguments: ["claude"],
+                    environment: [
+                        "CLAUDE_CODE_SESSION_ID": sessionID,
+                    ]
+                )
+            }
+        )
+
+        #expect(livePID == 810)
+    }
+
     @Test func observationScopeOnlyReusesInFlightScansThatCoverRequestedSurfaces() {
         let surfaceA = UUID()
         let surfaceB = UUID()

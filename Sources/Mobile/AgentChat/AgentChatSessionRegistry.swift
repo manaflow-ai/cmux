@@ -191,8 +191,13 @@ final class AgentChatSessionRegistry {
             return
         }
         let kind = record.agentKind
+        let expectedSessionIDs = Set([record.sessionID, record.hookStoreLookupSessionID])
         Task.detached { [weak self] in
-            let livePID = Self.liveAgentPID(surfaceID: surfaceID, kind: kind)
+            let livePID = Self.liveAgentPID(
+                surfaceID: surfaceID,
+                kind: kind,
+                matchingSessionIDs: expectedSessionIDs
+            )
             await MainActor.run { [weak self] in
                 guard let self,
                       let current = self.records[sessionID],

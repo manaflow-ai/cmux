@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Darwin
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -16,13 +17,14 @@ struct AgentChatSessionRegistryHookStoreTests {
         let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
         let realSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
         let transcriptPath = "/Users/example/.claude/projects/-Users-example-project/\(realSessionID).jsonl"
+        let stalePID = try #require(guaranteedDeadPID())
         try writeClaudeHookStore(
             home: home,
             sessionID: realSessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             transcriptPath: transcriptPath,
-            pid: 444
+            pid: stalePID
         )
         let registry = AgentChatSessionRegistry(
             hookStore: AgentChatHookSessionStore(homeDirectory: home)
@@ -54,13 +56,14 @@ struct AgentChatSessionRegistryHookStoreTests {
         let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
         let realSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
         let transcriptPath = "/Users/example/.claude/projects/-Users-example-project/\(realSessionID).jsonl"
+        let livePID = Int(ProcessInfo.processInfo.processIdentifier)
         try writeClaudeHookStore(
             home: home,
             sessionID: realSessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             transcriptPath: transcriptPath,
-            pid: 444
+            pid: livePID
         )
         let registry = AgentChatSessionRegistry(
             hookStore: AgentChatHookSessionStore(homeDirectory: home)
@@ -72,7 +75,7 @@ struct AgentChatSessionRegistryHookStoreTests {
                 agentKind: .claude,
                 surfaceID: surfaceID,
                 workspaceID: workspaceID,
-                pid: 444,
+                pid: livePID,
                 workingDirectory: "/Users/example/project",
                 transcriptPath: nil
             ),
@@ -83,8 +86,18 @@ struct AgentChatSessionRegistryHookStoreTests {
         #expect(registry.record(sessionID: realSessionID) == nil)
         #expect(record.hookStoreSessionID == realSessionID)
         #expect(record.transcriptPath == transcriptPath)
-        #expect(record.pid == 444)
+        #expect(record.pid == livePID)
         #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == pendingID)
+    }
+
+    private func guaranteedDeadPID() -> Int? {
+        for pid in 900_000..<1_000_000 {
+            errno = 0
+            if kill(pid_t(pid), 0) != 0, errno == ESRCH {
+                return pid
+            }
+        }
+        return nil
     }
 
     private func temporaryHomeDirectory() throws -> URL {
