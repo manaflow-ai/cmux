@@ -14015,10 +14015,6 @@ struct TabItemView: View, Equatable {
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
-        .sidebarRowHeightProbe()
-        .onPreferenceChange(SidebarRowHeightPreferenceKey.self) { height in
-            rowHeight = max(height, 1)
-        }
         .contentShape(Rectangle())
         .onHover { hovering in
             rowInteractionState.setPointerHovering(hovering)

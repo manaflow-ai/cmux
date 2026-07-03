@@ -277,10 +277,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             offsetY: shortcutHintYOffset
         )
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
-        .sidebarRowHeightProbe()
-        .onPreferenceChange(SidebarRowHeightPreferenceKey.self) { height in
-            rowHeight = max(height, 1)
-        }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .onHover { hovering in
             rowInteractionState.setPointerHovering(hovering)
