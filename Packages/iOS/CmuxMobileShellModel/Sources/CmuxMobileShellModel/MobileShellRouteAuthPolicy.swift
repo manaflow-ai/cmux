@@ -54,7 +54,7 @@ public struct MobileShellRouteAuthPolicy {
     ///   `*.ts.net` MagicDNS host), which rides the WireGuard-encrypted tunnel.
     /// - `.iroh` to a peer, which is an encrypted QUIC connection.
     /// - `.debugLoopback` to a loopback host, which never leaves the machine.
-    /// - `.manualHost` to a host/port that has a persisted user approval.
+    /// - `.manualHost` to a non-loopback host/port that has a persisted user approval.
     ///
     /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
     /// `.local`/Bonjour hosts are deliberately **excluded**: they are dialed over
@@ -76,8 +76,8 @@ public struct MobileShellRouteAuthPolicy {
             return isLoopbackHost(host)
         case (.tailscale, let .hostPort(host, _)):
             return isTailscaleHost(host)
-        case (.manualHost, .hostPort):
-            return manualHostTrusted
+        case (.manualHost, let .hostPort(host, _)):
+            return manualHostTrusted && !isLoopbackHost(host)
         case (.iroh, .peer):
             return true
         default:
@@ -90,10 +90,10 @@ public struct MobileShellRouteAuthPolicy {
     /// - Returns: `true` only for `.manualHost` host/port routes.
     public static func routeRequiresManualHostTrust(_ route: CmxAttachRoute) -> Bool {
         guard route.kind == .manualHost,
-              case .hostPort = route.endpoint else {
+              case let .hostPort(host, _) = route.endpoint else {
             return false
         }
-        return true
+        return !isLoopbackHost(host)
     }
 
     /// Whether a decoded pairing/attach ticket must be rejected because its
@@ -161,17 +161,7 @@ public struct MobileShellRouteAuthPolicy {
     }
 
     private static func isLoopbackHost(_ host: String) -> Bool {
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalizedHost == "localhost" ||
-            normalizedHost == "::1" ||
-            isIPv4LoopbackHost(normalizedHost)
-    }
-
-    private static func isIPv4LoopbackHost(_ host: String) -> Bool {
-        guard let octets = ipv4Octets(host) else {
-            return false
-        }
-        return octets[0] == 127
+        CmxLoopbackHost().matches(host)
     }
 
     private static func isTailscaleHost(_ host: String) -> Bool {

@@ -49,15 +49,19 @@ extension MobileShellComposite {
             return nil
         }
         if preferNonLoopback {
-            // Among non-loopback routes, prefer one whose host is a numeric IP: a
-            // raw tailscale/LAN IP is dialable without DNS, whereas a MagicDNS
-            // hostname depends on the client having tailscale DNS active.
-            if let ip = firstHostPort(where: { route in
-                guard route.kind != .debugLoopback,
+            // Prefer a Tailscale numeric IP over MagicDNS because it dials
+            // without client DNS. Keep encrypted Tailscale routes ahead of
+            // explicit plaintext manual-host fallbacks even when the manual
+            // host is also a numeric IP.
+            if let tailscaleIP = firstHostPort(where: { route in
+                guard route.kind == .tailscale,
                       case let .hostPort(host, _) = route.endpoint else { return false }
                 return Self.isIPLiteralHost(host)
             }) {
-                return ip
+                return tailscaleIP
+            }
+            if let tailscale = firstHostPort(where: { $0.kind == .tailscale }) {
+                return tailscale
             }
             if let real = firstHostPort(where: { $0.kind != .debugLoopback }) {
                 return real

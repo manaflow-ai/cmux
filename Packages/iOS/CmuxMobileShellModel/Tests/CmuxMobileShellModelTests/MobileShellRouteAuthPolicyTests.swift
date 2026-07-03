@@ -59,8 +59,14 @@ import Testing
         )
 
         let manualHostRoute = try hostPortRoute(kind: .manualHost, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
+        let manualLoopbackAlias = try hostPortRoute(kind: .manualHost, host: "127.1", port: CmxMobileDefaults.defaultHostPort)
+        let manualUnspecifiedIPv4 = try hostPortRoute(kind: .manualHost, host: "0.0.0.0", port: CmxMobileDefaults.defaultHostPort)
+        let manualHexLoopback = try hostPortRoute(kind: .manualHost, host: "0x7f.0.0.1", port: CmxMobileDefaults.defaultHostPort)
 
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.1") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "0.0.0.0") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "0x7f.0.0.1") == .debugLoopback)
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "[::1]") == .debugLoopback)
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "100.71.210.41") == .tailscale)
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "work-mac.tailnet.ts.net") == .tailscale)
@@ -74,6 +80,9 @@ import Testing
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(manualHostRoute))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(manualHostRoute, manualHostTrusted: true))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(manualLoopbackAlias, manualHostTrusted: true))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(manualUnspecifiedIPv4, manualHostTrusted: true))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(manualHexLoopback, manualHostTrusted: true))
 
         // Plaintext-TCP routes must NOT carry the Stack bearer token by default:
         // a `.tailscale` route to a private-LAN IP or a `.local`/Bonjour host is
@@ -81,8 +90,12 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
+        #expect(!MobileShellRouteAuthPolicy.routeRequiresManualHostTrust(manualLoopbackAlias))
 
         #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
+        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.1"))
+        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("0.0.0.0"))
+        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("0x7f.0.0.1"))
         #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
         #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))

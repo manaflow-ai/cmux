@@ -27,6 +27,15 @@ import Testing
         )
     }
 
+    private func manualHost(_ port: Int = 50906) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "manual_host",
+            kind: .manualHost,
+            endpoint: .hostPort(host: "192.168.1.77", port: port),
+            priority: 2
+        )
+    }
+
     @Test func physicalDevicePrefersRealRouteOverLowerPriorityLoopback() throws {
         let pick = MobileShellComposite.firstReconnectHostPortRoute(
             [try loopback(), try tailscale()],
@@ -91,6 +100,15 @@ import Testing
         let pick = MobileShellComposite.firstReconnectHostPortRoute(
             [try loopback(50922), try magicDNS(50922)],
             supportedKinds: [.debugLoopback, .tailscale],
+            preferNonLoopback: true
+        )
+        #expect(pick?.0 == "lawrences-macbook-pro-2.tail137216.ts.net")
+    }
+
+    @Test func tailscaleDNSBeatsManualHostIPFallback() throws {
+        let pick = MobileShellComposite.firstReconnectHostPortRoute(
+            [try loopback(50922), try manualHost(50922), try magicDNS(50922)],
+            supportedKinds: [.debugLoopback, .manualHost, .tailscale],
             preferNonLoopback: true
         )
         #expect(pick?.0 == "lawrences-macbook-pro-2.tail137216.ts.net")
