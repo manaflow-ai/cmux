@@ -20,11 +20,6 @@
 </p>
 
 <p align="center">
-  <strong>WeChat:</strong> ស្កេនកូដ QR ដើម្បីចូលរួមសហគមន៍។<br />
-  <img src="./docs/assets/wechat-community-qr.jpg" alt="កូដ QR WeChat សម្រាប់ចូលរួមសហគមន៍ cmux" width="240" />
-</p>
-
-<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="cmux screenshot" width="900" />
 </p>
 
@@ -401,6 +396,11 @@ cmux ឥត​គិត​ថ្លៃ​និង open source ហើយ​ន�
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat:</strong> ស្កេនកូដ QR ដើម្បីចូលរួមសហគមន៍។<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="កូដ QR WeChat សម្រាប់ចូលរួមសហគមន៍ cmux" width="240" />
+</p>
 
 ## Founder's Edition
 
