@@ -19,6 +19,8 @@ protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
 
 @MainActor
 final class BrowserHiddenWebViewDiscardManager {
+    static let systemMemoryPressureReason = "system_memory_pressure"
+
     struct BlockerSnapshot {
         let isClosing: Bool
         let isVisibleInUI: Bool
@@ -73,13 +75,17 @@ final class BrowserHiddenWebViewDiscardManager {
         discardTimer != nil
     }
 
-    func blockers(for snapshot: BlockerSnapshot, now: Date = Date()) -> [String] {
+    func blockers(
+        for snapshot: BlockerSnapshot,
+        now: Date = Date(),
+        allowingRecoverableWebContentTermination: Bool = false
+    ) -> [String] {
         var blockers: [String] = []
         if !BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: policyDefaults) {
             blockers.append("policy_disabled")
         }
         if isSystemSleeping { blockers.append("system_sleeping") }
-        if snapshot.hasRecoverableWebContentTermination {
+        if snapshot.hasRecoverableWebContentTermination && !allowingRecoverableWebContentTermination {
             blockers.append("webcontent_recovery")
         }
         if snapshot.isClosing { blockers.append("closing") }
@@ -149,7 +155,12 @@ final class BrowserHiddenWebViewDiscardManager {
     @discardableResult
     func requestImmediateDiscardIfSafe(reason: String, now: Date = Date()) -> Bool {
         guard let delegate else { return false }
-        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot, now: now).isEmpty else { return false }
+        let allowsRecoverableWebContentTermination = reason == Self.systemMemoryPressureReason
+        guard blockers(
+            for: delegate.hiddenWebViewDiscardSnapshot,
+            now: now,
+            allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
+        ).isEmpty else { return false }
         guard delegate.hiddenWebViewDiscardHiddenAt != nil else {
             scheduleIfNeeded(reason: reason, now: now)
             return false

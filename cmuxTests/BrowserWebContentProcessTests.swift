@@ -245,14 +245,48 @@ struct BrowserWebContentProcessTests {
         #expect(panel.webView === oldWebView)
         #expect(panel.webViewInstanceID == oldInstanceID)
         #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.shouldAttachWebViewInUI)
 
         #expect(panel.recoverTerminatedWebContent(reason: "test"))
 
         #expect(!(panel.webView === oldWebView))
         #expect(panel.webViewInstanceID != oldInstanceID)
         #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(panel.shouldAttachWebViewInUI)
         #expect(panel.webView.navigationDelegate != nil)
         #expect(panel.webView.uiDelegate != nil)
+    }
+
+    @Test
+    func systemMemoryPressureDiscardsRecoverableTerminatedHiddenWebView() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL
+        )
+        defer { panel.close() }
+        let oldWebView = panel.webView
+        let oldInstanceID = panel.webViewInstanceID
+        let now = Date(timeIntervalSince1970: 3_000)
+
+        simulateWebContentProcessTermination(for: panel)
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: now)
+
+        #expect(panel.webView === oldWebView)
+        #expect(panel.webViewInstanceID == oldInstanceID)
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.shouldAttachWebViewInUI)
+
+        #expect(panel.discardHiddenWebViewForSystemMemoryPressure(now: now.addingTimeInterval(1)))
+
+        #expect(!(panel.webView === oldWebView))
+        #expect(panel.webViewInstanceID != oldInstanceID)
+        #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(!panel.shouldRenderWebView)
+        #expect(!panel.shouldAttachWebViewInUI)
+        #expect(panel.currentURL == recoveryURL)
+
+        #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.visible"))
+        #expect(panel.shouldAttachWebViewInUI)
     }
 
     @Test
@@ -342,6 +376,7 @@ struct BrowserWebContentProcessTests {
 
         #expect(!panel.shouldRenderWebView)
         #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(!panel.shouldAttachWebViewInUI)
     }
 
     @Test

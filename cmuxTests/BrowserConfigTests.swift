@@ -2843,6 +2843,8 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(panel.webView)
 
         XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertFalse(panel.hasRecoverableWebContentTermination)
+        XCTAssertFalse(panel.shouldAttachWebViewInUI)
     }
 
     func testResetSidebarContextClearsBrowserPanelsIntoNewTabState() throws {
