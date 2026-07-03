@@ -1,15 +1,17 @@
-import CoreGraphics
-import CmuxWindowing
+public import CoreGraphics
 
 /// Decision core for rescuing main windows stranded by a display-topology
 /// change (monitor unplug, clamshell close, menu-bar arrangement change).
-/// Pure so the behavior is testable deterministically on CI
-/// regardless of the host's display configuration; `MainWindowScreenChangeRescue`
-/// is the live observer shell.
-struct MainWindowScreenRescueCore {
+///
+/// The app target owns the AppKit observer shell; this type keeps the rescue
+/// decision pure so tests can run without depending on live display hardware.
+public struct MainWindowScreenRescueCore: Sendable {
     private let frameGeometry: WindowFrameGeometry
 
-    init(frameGeometry: WindowFrameGeometry = WindowFrameGeometry()) {
+    /// Creates a rescue decision core.
+    ///
+    /// - Parameter frameGeometry: Geometry math used to choose and clamp target frames.
+    public init(frameGeometry: WindowFrameGeometry = WindowFrameGeometry()) {
         self.frameGeometry = frameGeometry
     }
 
@@ -18,7 +20,11 @@ struct MainWindowScreenRescueCore {
     /// rescue; visible-frame-only differences select the lenient constrain-veto
     /// thresholds so Dock side/bottom changes can rescue newly unreachable
     /// edge-parked windows without disturbing veto-protected placements.
-    func topologySignature(
+    /// Returns an order-independent signature of the current displays.
+    ///
+    /// - Parameter displays: Display geometry snapshots in any order.
+    /// - Returns: A sorted signature that omits volatile display IDs.
+    public func topologySignature(
         of displays: [SessionDisplayGeometry]
     ) -> [MainWindowDisplayTopologySignatureEntry] {
         displays
@@ -47,7 +53,17 @@ struct MainWindowScreenRescueCore {
             }
     }
 
-    func signaturesHaveSameArrangement(
+    /// Returns whether two signatures represent the same physical arrangement.
+    ///
+    /// This ignores visible-frame-only changes so callers can distinguish
+    /// strict topology changes from Dock/safe-area changes that only need the
+    /// lenient constrain-veto rescue thresholds.
+    ///
+    /// - Parameters:
+    ///   - lhs: First display signature.
+    ///   - rhs: Second display signature.
+    /// - Returns: `true` when display frames and top insets match.
+    public func signaturesHaveSameArrangement(
         _ lhs: [MainWindowDisplayTopologySignatureEntry],
         _ rhs: [MainWindowDisplayTopologySignatureEntry]
     ) -> Bool {
@@ -69,7 +85,7 @@ struct MainWindowScreenRescueCore {
     /// Placement reuses the session-restore geometry: pick the display with the
     /// greatest body overlap (else the nearest by center distance), then clamp
     /// into its visible frame with the same floors session restore applies.
-    func rescuedFrames(
+    public func rescuedFrames(
         for windowFrames: [CGRect],
         displays: [SessionDisplayGeometry],
         thresholds: WindowTitlebarReachabilityThresholds,

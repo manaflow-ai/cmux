@@ -13,13 +13,7 @@ import Testing
 @Suite(.serialized)
 struct CmuxMainWindowConstrainFrameTests {
     private static let constrainVetoReachability = WindowTitlebarReachability(thresholds: .constrainVeto)
-    private static let strictReachability = WindowTitlebarReachability(
-        thresholds: WindowTitlebarReachabilityThresholds(
-            topStripHeight: WindowChromeMetrics.sharedChromeBarHeight,
-            minimumVisibleWidth: 120,
-            minimumVisibleHeight: 20
-        )
-    )
+    private static let strictReachability = WindowTitlebarReachability(thresholds: .strictRescue)
 
     // On a display/system sleep->wake, AppKit re-runs its constrain pass over
     // every window and repositions even windows that are already fully

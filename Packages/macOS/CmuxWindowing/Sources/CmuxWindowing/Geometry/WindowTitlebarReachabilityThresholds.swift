@@ -31,4 +31,11 @@ public struct WindowTitlebarReachabilityThresholds: Sendable {
         minimumVisibleWidth: 60,
         minimumVisibleHeight: 24
     )
+
+    /// Strict drag-band thresholds used after a real display arrangement change.
+    public static let strictRescue = WindowTitlebarReachabilityThresholds(
+        topStripHeight: 28,
+        minimumVisibleWidth: 120,
+        minimumVisibleHeight: 20
+    )
 }

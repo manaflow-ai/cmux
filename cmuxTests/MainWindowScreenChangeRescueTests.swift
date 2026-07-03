@@ -27,11 +27,7 @@ struct MainWindowScreenChangeRescueTests {
     )
     private static let minWidth: CGFloat = 300
     private static let minHeight: CGFloat = 200
-    private static let strictThresholds = WindowTitlebarReachabilityThresholds(
-        topStripHeight: WindowChromeMetrics.sharedChromeBarHeight,
-        minimumVisibleWidth: 120,
-        minimumVisibleHeight: 20
-    )
+    private static let strictThresholds = WindowTitlebarReachabilityThresholds.strictRescue
 
     // MARK: - Topology signature
 

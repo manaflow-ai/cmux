@@ -97,11 +97,7 @@ final class MainWindowScreenChangeRescue {
         // veto-protected placements never move on those flaps.
         let thresholds: WindowTitlebarReachabilityThresholds
         if arrangementDiffers {
-            thresholds = WindowTitlebarReachabilityThresholds(
-                topStripHeight: WindowChromeMetrics.sharedChromeBarHeight,
-                minimumVisibleWidth: 120,
-                minimumVisibleHeight: 20
-            )
+            thresholds = .strictRescue
         } else {
             thresholds = .constrainVeto
         }

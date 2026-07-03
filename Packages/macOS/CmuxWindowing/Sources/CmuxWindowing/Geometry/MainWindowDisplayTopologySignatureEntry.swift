@@ -1,4 +1,4 @@
-import CoreGraphics
+public import CoreGraphics
 
 /// One display's geometry contribution to the main-window rescue gate.
 ///
@@ -6,11 +6,14 @@ import CoreGraphics
 /// lenient reachability pass for edge-parked windows. Display IDs are
 /// deliberately omitted because dock/KVM/Sidecar wake paths can re-enumerate
 /// the same physical arrangement with new `NSScreenNumber` values.
-struct MainWindowDisplayTopologySignatureEntry: Equatable {
-    let frame: CGRect
-    let visibleFrame: CGRect
+public struct MainWindowDisplayTopologySignatureEntry: Equatable, Sendable {
+    /// The display's full frame in global screen coordinates.
+    public let frame: CGRect
+    /// The display's visible frame after menu bar and Dock exclusions.
+    public let visibleFrame: CGRect
 
-    var topInset: CGFloat {
+    /// Height excluded from the display's top edge.
+    public var topInset: CGFloat {
         frame.maxY - visibleFrame.maxY
     }
 
