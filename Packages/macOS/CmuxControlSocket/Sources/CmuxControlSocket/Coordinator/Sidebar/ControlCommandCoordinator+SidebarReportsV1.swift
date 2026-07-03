@@ -223,30 +223,43 @@ extension ControlCommandCoordinator {
         )
     }
 
-    /// `report_pwd` — record a surface's working directory.
+    /// `report_pwd` — record a surface's working directory. The positional
+    /// argument is the real path unless `--path=` supplies one, in which case
+    /// the positional becomes a display-only sidebar label.
     func sidebarReportPwd(_ args: String) -> String {
         guard sidebarContext?.controlSidebarTabManagerAvailable() ?? false else {
             return "ERROR: TabManager not available"
         }
         let parsed = sidebarParseOptions(args)
         guard !parsed.positional.isEmpty else {
-            return "ERROR: Missing path — usage: report_pwd <path> [--tab=X] [--panel=Y]"
+            return "ERROR: Missing path — usage: report_pwd <path|display-label> [--path=/actual/path] [--tab=X] [--panel=Y]"
         }
 
-        let directory = parsed.positional.joined(separator: " ")
+        let positional = parsed.positional.joined(separator: " ")
+        let explicitPath = parsed.options["path"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let explicitPath, explicitPath.isEmpty {
+            return "ERROR: Missing filesystem path — usage: report_pwd <display-label> --path=/actual/path [--tab=X] [--panel=Y]"
+        }
+        let directory = explicitPath ?? positional
+        let displayLabel = explicitPath == nil ? nil : positional
         if let scope = sidebarExplicitScope(options: parsed.options) {
-            sidebarContext?.controlSidebarScheduleScopedDirectoryUpdate(scope: scope, directory: directory)
+            sidebarContext?.controlSidebarScheduleScopedDirectoryUpdate(
+                scope: scope,
+                directory: directory,
+                displayLabel: displayLabel
+            )
             return "OK"
         }
         let resolution = sidebarContext?.controlSidebarUpdateDirectory(
             tabArg: parsed.options["tab"],
             panelArg: parsed.options["panel"] ?? parsed.options["surface"],
-            directory: directory
+            directory: directory,
+            displayLabel: displayLabel
         ) ?? .tabNotFound
         return sidebarPanelWriteReply(
             resolution,
             hasTabOption: parsed.options["tab"] != nil,
-            missingPanelUsage: "report_pwd <path> [--tab=X] [--panel=Y]"
+            missingPanelUsage: "report_pwd <path|display-label> [--path=/actual/path] [--tab=X] [--panel=Y]"
         )
     }
 

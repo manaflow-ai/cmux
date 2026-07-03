@@ -2519,6 +2519,93 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func coldTerminalAttachWaitsForReplayBeforePaintingLiveRenderGrid() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let router = ColdAttachFirstPaintRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let collector = TerminalOutputCollector()
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    _ = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
+
+    collector.mount(store: store, surfaceID: "live-terminal")
+    _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+
+    // Same 10ms-slice, 3-second-ceiling cadence as waitForRequestCount, so the
+    // first-paint wait has the explicit CI budget the shared helpers use.
+    for _ in 0..<300 {
+        guard collector.lines.isEmpty else { break }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    let initialText = try terminalRenderGridReplacementText(seq: 1, text: "initial")
+    #expect(collector.lines.first == initialText)
+    collector.unmount()
+}
+
+@MainActor
+@Test func coldTerminalAttachReplayIncludesReportedViewport() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let router = TerminalRenderGridEventRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let collector = TerminalOutputCollector()
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    let effectiveGrid = await store.updateTerminalViewport(
+        surfaceID: "live-terminal",
+        columns: 52,
+        rows: 24
+    )
+    #expect(effectiveGrid?.columns == 52)
+    #expect(effectiveGrid?.rows == 24)
+
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    let replayRequest = try #require(replayRequests.first)
+
+    #expect(replayRequest.viewportColumns == 52)
+    #expect(replayRequest.viewportRows == 24)
+    #expect(replayRequest.clientID?.isEmpty == false)
+    collector.unmount()
+}
+
+@MainActor
 @Test func pullToRefreshAwaitsRealWorkspaceListRoundTrip() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
@@ -2829,12 +2916,17 @@ private func terminalRenderGridStyledFrame(seq: UInt64, text: String) throws -> 
 
 private func rpcHostStatusFrame(
     renderGrid: Bool,
+    terminalBytes: Bool = true,
     macDeviceID: String? = nil,
     macDisplayName: String? = nil
 ) throws -> Data {
-    let capabilities = renderGrid
-        ? ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
-        : ["events.v1", "terminal.bytes.v1", "terminal.replay.v1"]
+    var capabilities = ["events.v1", "terminal.replay.v1"]
+    if terminalBytes {
+        capabilities.append("terminal.bytes.v1")
+    }
+    if renderGrid {
+        capabilities.append("terminal.render_grid.v1")
+    }
     var result: [String: Any] = [
         "terminal_fidelity": renderGrid ? "render_grid" : "ghostty_bytes",
         "capabilities": capabilities,
@@ -2848,7 +2940,13 @@ private func rpcHostStatusFrame(
     return try rpcResultFrame(result: result)
 }
 
-private func terminalRenderGridEventFrame(seq: UInt64, text: String, styled: Bool = false) throws -> Data {
+private func terminalRenderGridEventFrame(
+    seq: UInt64,
+    text: String,
+    styled: Bool = false,
+    full: Bool = true,
+    changedRows: Set<Int>? = nil
+) throws -> Data {
     let frame = if styled {
         try terminalRenderGridStyledFrame(seq: seq, text: text)
     } else {
@@ -2857,7 +2955,9 @@ private func terminalRenderGridEventFrame(seq: UInt64, text: String, styled: Boo
             stateSeq: seq,
             columns: 16,
             rows: 4,
-            text: text
+            text: text,
+            full: full,
+            changedRows: changedRows
         )
     }
     let envelope: [String: Any] = [
@@ -2873,7 +2973,8 @@ private func rpcTerminalReplayFrame(
     seq: UInt64,
     rawText: String,
     snapshotText: String? = nil,
-    renderGridText: String? = nil
+    renderGridText: String? = nil,
+    renderGridStyled: Bool = false
 ) throws -> Data {
     var result: [String: Any] = [
         "workspace_id": "live-workspace",
@@ -2888,13 +2989,17 @@ private func rpcTerminalReplayFrame(
         result["snapshot_data_b64"] = Data(snapshotText.utf8).base64EncodedString()
     }
     if let renderGridText {
-        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
-            surfaceID: "live-terminal",
-            stateSeq: seq,
-            columns: 16,
-            rows: 4,
-            text: renderGridText
-        )
+        let frame = if renderGridStyled {
+            try terminalRenderGridStyledFrame(seq: seq, text: renderGridText)
+        } else {
+            try MobileTerminalRenderGridFrame.fromPlainRows(
+                surfaceID: "live-terminal",
+                stateSeq: seq,
+                columns: 16,
+                rows: 4,
+                text: renderGridText
+            )
+        }
         result["render_grid"] = try frame.jsonObject()
     }
     return try rpcResultFrame(
@@ -3372,6 +3477,7 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
 
 private actor TerminalRenderGridEventRouter: RequestAwareTransportRouter {
     private var requests: [RecordedRPCRequest] = []
+    private var replayRequestCount = 0
 
     func record(_ request: RecordedRPCRequest) {
         requests.append(request)
@@ -3390,18 +3496,90 @@ private actor TerminalRenderGridEventRouter: RequestAwareTransportRouter {
                 terminalID: "live-terminal"
             )
         case "mobile.host.status":
-            return try rpcHostStatusFrame(renderGrid: true)
+            return try rpcHostStatusFrame(renderGrid: true, terminalBytes: false)
+        case "mobile.events.subscribe":
+            return try rpcResultFrame(result: ["stream_id": "events"])
+        case "mobile.terminal.viewport":
+            return try rpcResultFrame(result: [
+                "columns": request.viewportColumns ?? 80,
+                "rows": request.viewportRows ?? 24,
+            ])
+        case "mobile.terminal.replay":
+            replayRequestCount += 1
+            if replayRequestCount == 1 {
+                return try combinedFrames([
+                    rpcTerminalReplayFrame(
+                        seq: 1,
+                        rawText: "unused-tail",
+                        renderGridText: "initial"
+                    ),
+                    terminalRenderGridEventFrame(seq: 2, text: "live", styled: true),
+                ])
+            }
+            // The live event races the cold-attach replay barrier: when it
+            // lands inside the barrier window it is dropped and recovered by
+            // the follow-up catch-up replay instead. An honest host serves
+            // its LATEST grid on that follow-up, so this router must too —
+            // re-serving the stale seq-1 base would model a host that never
+            // converges.
+            return try rpcTerminalReplayFrame(
+                seq: 2,
+                rawText: "unused-tail",
+                renderGridText: "live",
+                renderGridStyled: true
+            )
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
+private actor ColdAttachFirstPaintRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+    private var replayCount = 0
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(
+                workspaceID: "live-workspace",
+                title: "Live Workspace",
+                terminalID: "live-terminal"
+            )
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(renderGrid: true, terminalBytes: false)
         case "mobile.events.subscribe":
             return try rpcResultFrame(result: ["stream_id": "events"])
         case "mobile.terminal.replay":
-            return try combinedFrames([
-                rpcTerminalReplayFrame(
-                    seq: 1,
-                    rawText: "unused-tail",
-                    renderGridText: "initial"
-                ),
-                terminalRenderGridEventFrame(seq: 2, text: "live", styled: true),
-            ])
+            replayCount += 1
+            if replayCount == 1 {
+                return try combinedFrames([
+                    terminalRenderGridEventFrame(
+                        seq: 2,
+                        text: "stray",
+                        full: false,
+                        changedRows: [1]
+                    ),
+                    rpcTerminalReplayFrame(
+                        seq: 1,
+                        rawText: "unused-tail",
+                        renderGridText: "initial"
+                    ),
+                ])
+            }
+            return try rpcTerminalReplayFrame(
+                seq: 3,
+                rawText: "unused-tail",
+                renderGridText: "settled"
+            )
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
@@ -3964,7 +4142,7 @@ private struct InertPushRegistration: PushRegistering {
 
     // Root view mounts: store binds already carrying the attached list.
     let store = deeplinkTestStore()
-    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
+    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -3983,7 +4161,7 @@ private struct InertPushRegistration: PushRegistering {
     // Target not loaded yet: no navigation to an absent workspace.
     #expect(store.selectedWorkspaceID == nil)
 
-    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
+    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4002,7 +4180,7 @@ private struct InertPushRegistration: PushRegistering {
 
     currentTime = currentTime.addingTimeInterval(121)
     let store = deeplinkTestStore()
-    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
+    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     #expect(store.selectedWorkspaceID == nil)
@@ -4023,7 +4201,7 @@ private struct InertPushRegistration: PushRegistering {
     // Nothing loaded yet: the tap must stay parked, not be spent.
     #expect(store.selectedTerminalID == nil)
 
-    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
+    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4040,7 +4218,7 @@ private struct InertPushRegistration: PushRegistering {
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
-    store.setWorkspacesForTesting([
+    store.replaceForegroundWorkspaceState([
         MobileWorkspacePreview(id: "workspace-docs", name: "Docs", terminals: [])
     ])
     coordinator.workspacesDidChange()
@@ -4049,7 +4227,7 @@ private struct InertPushRegistration: PushRegistering {
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
     #expect(store.selectedTerminalID == nil)
 
-    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
+    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
@@ -4062,7 +4240,7 @@ private struct InertPushRegistration: PushRegistering {
 @Test @MainActor func notificationTapEmitsConsumableCompactNavigationIntent() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
     let store = deeplinkTestStore()
-    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
+    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: nil)
