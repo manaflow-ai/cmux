@@ -13722,7 +13722,7 @@ struct TabItemView: View, Equatable {
                 if isEditing {
                     SidebarInlineRenameField(
                         initialText: renameDraft,
-                        fontSize: scaledFontSize(12.5), textColor: selectedWorkspaceForegroundNSColor(opacity: 1.0),
+                        fontSize: GlobalFontMagnification.scaledSize(scaledFontSize(12.5), percent: globalFontMagnificationPercent), textColor: selectedWorkspaceForegroundNSColor(opacity: 1.0),
                         accessibilityLabel: String(
                             localized: "sidebar.workspace.rename.field.accessibilityLabel",
                             defaultValue: "Rename workspace"
@@ -13747,7 +13747,7 @@ struct TabItemView: View, Equatable {
                     .layoutPriority(1)
                 } else {
                     Text(displayedTitle)
-                        .cmuxFont(size: scaledFontSize(12.5), weight: titleFontWeight)
+                        .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
                         .foregroundColor(activePrimaryTextColor)
                         .lineLimit(titleLineLimit)
                         .truncationMode(.tail)
