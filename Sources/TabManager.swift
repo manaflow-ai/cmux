@@ -5608,6 +5608,15 @@ extension TabManager {
                     ),
                     into: &hasher
                 )
+                // The quit/save snapshot derives wasAgentRunning from fresh live-process
+                // evidence (restorableAgentLivenessIsFresh: true), and the autosave path
+                // loads a fresh index, so the dedup fingerprint must track liveness too.
+                // Otherwise a live-idle -> exited transition keeps the same agent snapshot
+                // identity/binding, produces the same fingerprint, skips the autosave
+                // write, and a crash in that window could restore-resume an exited agent.
+                hasher.combine(
+                    restorableAgentIndex.hasLiveProcess(workspaceId: workspace.id, panelId: panelId)
+                )
                 Self.hashAgentHibernationPanelState(
                     (workspace.panels[panelId] as? TerminalPanel)?.agentHibernationState,
                     into: &hasher
