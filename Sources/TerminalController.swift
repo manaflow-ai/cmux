@@ -9782,7 +9782,7 @@ class TerminalController {
             )
         }
 
-        return v2BrowserWithPanel(params: params) { tabManager, workspace, surfaceId, browserPanel in
+        return v2BrowserWithPanel(params: params) { workspaceId, surfaceId, browserPanel in
             let requestedWidth = CGFloat(width)
             let requestedHeight = CGFloat(height)
             if requestedWidth > 0 || requestedHeight > 0 {
@@ -9817,11 +9817,9 @@ class TerminalController {
                 height: requestedHeight
             )
             let storedSize = browserPanel.currentMinimumViewportSize()
-            return .ok(v2BrowserActionPayload(
-                workspace: workspace,
-                surfaceId: surfaceId,
-                tabManager: tabManager,
-                extra: [
+            return .ok(v2BrowserPanelFields(
+                V2BrowserPanelContext(workspaceId: workspaceId, surfaceId: surfaceId, browserPanel: browserPanel, webView: browserPanel.webView),
+                adding: [
                     "handled": true, "changed": changed,
                     "width": Int((storedSize?.width ?? 0).rounded()),
                     "height": Int((storedSize?.height ?? 0).rounded()),
