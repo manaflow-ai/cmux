@@ -344,7 +344,7 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
                     appDelegate.checkForUpdates(nil)
                 }
-                InstallUpdateMenuItem(model: appDelegate.updateViewModel)
+                InstallUpdateMenuItem(model: appDelegate.updateViewModel, actions: appDelegate)
             }
 
             CommandGroup(replacing: .appTermination) {

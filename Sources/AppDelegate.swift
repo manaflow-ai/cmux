@@ -9235,53 +9235,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didCreateSplit
     }
 
-    @discardableResult
-    func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled() else {
-#if DEBUG
-            cmuxDebugLog("split.browser.shortcut blocked reason=browser_disabled")
-#endif
-            return false
-        }
-
-        _ = synchronizeActiveMainWindowContext(preferredWindow: shortcutRoutingActiveWindow)
-
-        #if DEBUG
-        let directionLabel: String
-        switch direction {
-        case .left: directionLabel = "left"
-        case .right: directionLabel = "right"
-        case .up: directionLabel = "up"
-        case .down: directionLabel = "down"
-        }
-        let selectedTabBefore = tabManager?.selectedTabId?.uuidString.prefix(5) ?? "nil"
-        let focusedPanelBefore = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil"
-        cmuxDebugLog(
-            "split.browser.shortcut pre dir=\(directionLabel) " +
-            "tab=\(selectedTabBefore) focusedPanel=\(focusedPanelBefore)"
-        )
-        #endif
-
-        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else {
-            #if DEBUG
-            cmuxDebugLog("split.browser.shortcut failed dir=\(directionLabel)")
-            #endif
-            return false
-        }
-
-        #if DEBUG
-        let selectedTabAfter = tabManager?.selectedTabId?.uuidString.prefix(5) ?? "nil"
-        let focusedPanelAfter = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil"
-        cmuxDebugLog(
-            "split.browser.shortcut post dir=\(directionLabel) " +
-            "created=\(panelId.uuidString.prefix(5)) tab=\(selectedTabAfter) focusedPanel=\(focusedPanelAfter)"
-        )
-        #endif
-
-        _ = focusBrowserAddressBar(panelId: panelId)
-        return true
-    }
-
     /// Allow AppKit-backed browser surfaces (WKWebView) to route non-menu shortcuts
     /// through the same app-level shortcut handler used by the local key monitor.
     @discardableResult
