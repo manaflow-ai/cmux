@@ -237,7 +237,7 @@ public struct FeedbackComposerClient {
         to body: inout Data,
         boundary: String
     ) {
-        let sanitizedFileName = Self.sanitizedMultipartFileName(attachment.fileName)
+        let sanitizedFileName = attachment.sanitizedMultipartFileName
 
         body.append(Data("--\(boundary)\r\n".utf8))
         body.append(
@@ -250,12 +250,4 @@ public struct FeedbackComposerClient {
         body.append(Data("\r\n".utf8))
     }
 
-    private static func sanitizedMultipartFileName(_ fileName: String) -> String {
-        // Remove every character that could break out of the quoted-string
-        // `filename="..."` parameter: the quote itself, the backslash escape
-        // character, and any control characters (CR/LF header injection).
-        String(fileName.unicodeScalars.filter { scalar in
-            scalar != "\"" && scalar != "\\" && CharacterSet.controlCharacters.contains(scalar) == false
-        })
-    }
 }
