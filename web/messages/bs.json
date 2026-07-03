@@ -737,13 +737,13 @@
       "layoutItem1": "Prikvačeni redovi najvišeg nivoa (radni prostori i grupe).",
       "layoutItem2": "Neprikvačeni redovi najvišeg nivoa (radni prostori i grupe).",
       "creatingTitle": "Kreiranje grupe",
-      "creatingIntro": "Grupa se kreira na jedan od dva načina: putem prečice na tastaturi ili kontekstualnog menija workspace-a. Oba načina umeću novi sidreni workspace iznad odabira i premještaju odabrane workspace-ove u grupu. Kada grupa postoji, upravljate njome i dodajete joj workspace-ove iz zaglavlja grupe (pogledajte Upravljanje grupom u nastavku).",
-      "keyboardTitle": "S tastature ({shortcut})",
-      "keyboardDesc": "Odaberite dva ili više radnih prostora u bočnoj traci, zatim pritisnite {shortcut}. Novi sidreni radni prostor umeće se iznad odabira i svi odabrani radni prostori postaju potomci. Grupa se automatski imenuje Group 1, Group 2 i tako dalje — preimenujte je bilo kada putem kontekstnog menija zaglavlja.",
+      "creatingIntro": "Grupa se kreira iz prečice na tastaturi ili kontekstnog menija bočne trake. Prazne grupe umeću svježi sidreni radni prostor kao zaglavlje grupe. Grupe zasnovane na odabiru umeću to sidro iznad odabira i premještaju odabrane radne prostore u grupu. Kada grupa postoji, upravljate njom i dodajete radne prostore iz zaglavlja grupe (pogledajte Upravljanje grupom ispod).",
+      "keyboardTitle": "Iz prečica na tastaturi",
+      "keyboardDesc": "Pritisnite ⌃⌘G za kreiranje nove prazne grupe radnih prostora. Odaberite dva ili više radnih prostora u bočnoj traci, zatim pritisnite {shortcut} da grupišete odabir. Oba puta kreiraju svježi sidreni radni prostor i automatski imenuju grupu kao Group 1, Group 2 i tako dalje. Preimenujte je bilo kada iz kontekstnog menija zaglavlja.",
       "keyboardNote": "{shortcut} se podudara s podrazumijevanom prečicom za React Grab. Rukovalac grupe troši kombinaciju tipki samo kada postoji eksplicitan višestruki odabir od najmanje dva radna prostora u bočnoj traci, pa se React Grab i dalje aktivira pri pojedinačnom odabiru te u kontekstu preglednika ili terminala. Promijenite je u Postavke → Tastatura ako ne želite da to dvoje dijele tipku.",
       "keyboardSingle": "Grupe s jednom karticom ne kreiraju se putem prečice. Za to koristite stavku Nova grupa iz radnog prostora u kontekstualnom meniju radnog prostora.",
       "contextMenuTitle": "Iz kontekstnog menija radnog prostora",
-      "contextMenuDesc": "Desnim klikom kliknite bilo koji radni prostor u bočnoj traci i odaberite Nova grupa iz radnog prostora, ili Nova grupa iz odabira kada je odabrano više radnih prostora. Ovo koristi isto ponašanje automatskog imenovanja kao i prečica.",
+      "contextMenuDesc": "Kliknite desnim klikom na bilo koji radni prostor u bočnoj traci i odaberite Nova prazna grupa radnih prostora, Nova grupa iz radnog prostora ili Nova grupa iz odabira kada je odabrano više radnih prostora. Prazan prostor ispod liste bočne trake također nudi Nova prazna grupa radnih prostora. Ovi putevi koriste isto automatsko imenovanje kao prečice.",
       "managingTitle": "Upravljanje grupom",
       "managingIntro": "Kada grupa postoji, kontekstualni meni njenog zaglavlja i dugme + na zaglavlju omogućavaju vam da upravljate grupom i dodajete joj workspace-ove. Nijedno od njih ne kreira novu grupu.",
       "headerMenuTitle": "Iz kontekstnog menija zaglavlja grupe",
@@ -799,6 +799,8 @@
       "exampleConfig": "Primjer konfiguracije",
       "metaTitle": "Konfiguracija",
       "schemaDescriptions": {
+        "paneBorderColor": "Zamijenite boju razdjelnika cmux okana u podijeljenim radnim prostorima. Ovo utiče na granice cmux okana, ne na interne Ghostty podjele.",
+        "activePaneBorderColor": "Opcionalna boja ivice koja se crta oko fokusiranog cmux okna u podijeljenim radnim prostorima.",
         "automation": {
           "ampIntegration": "Omogući cmux integracijske kuke za Amp. Kada je onemogućeno, priloženi dodatak ostaje neaktivan bez potrebe za uklanjanjem.",
           "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji.",
@@ -820,6 +822,9 @@
           "scrollSpeed": "Množitelj koji se primjenjuje na pomak točkića miša i dodirne plohe u terminalu. Veće vrijednosti pomiču brže, a manje sporije.",
           "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
           "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Kada je uključeno, baner notifikacije se automatski povlači samo kada je njegova površina tačno fokusirana površina. Baner isporučen za nefokusiranu površinu u trenutno vidljivom workspaceu ostaje prikazan dok ne fokusirate tu površinu (ili je kliknete/odbacite), umjesto da bude povučen kada workspace postane vidljiv. Isključeno zadržava staro ponašanje povlačenja na osnovu vidljivosti workspacea."
         },
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
@@ -848,7 +853,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
+          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
           "showModifierHoldHints": "Prikaži oznake s prečicama dok držite Cmd ili Control."
         }
       },
@@ -1069,7 +1074,8 @@
       "closeWorkspaceDesc": "Zatvori radni prostor.",
       "splitCommands": "Komande razdjelnica",
       "newSplitDesc": "Kreiraj novi podijeljeni panel. Smjerovi: left, right, up, down.",
-      "listSurfacesDesc": "Izlistaj sve površine u trenutnom radnom prostoru.",
+      "listPanelsDesc": "Izlistaj sve površine u trenutnom radnom prostoru.",
+      "listPaneSurfacesDesc": "Izlistaj površine u fokusiranom panelu.",
       "focusSurfaceDesc": "Fokusiraj specifičnu površinu.",
       "inputCommands": "Komande unosa",
       "sendDesc": "Pošalji tekstualni unos u fokusirani terminal.",
@@ -1591,7 +1597,8 @@
   "afterSignIn": {
     "title": "Prijavljeni ste u cmux",
     "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
-    "button": "Vrati se u cmux"
+    "button": "Vrati se u cmux",
+    "switchAccountButton": "Koristi drugi račun"
   },
   "landing": {
     "bestTerminal": {
@@ -1613,9 +1620,9 @@
       "kittyBuiltFor": "Brz, skriptabilan, bogat funkcijama",
       "weztermBuiltFor": "GPU terminal s ugrađenim multiplekserom",
       "tmuxBuiltFor": "Multipleksiranje unutar bilo kojeg terminala",
-      "cmuxBody": "Nativni macOS terminal izgrađen na libghostty, napravljen za tri stvari: multitasking, organizaciju i programabilnost. Vertikalna bočna traka grupiše rad u radne prostore, od kojih svaki pokazuje svoju git granu, direktorij, portove i posljednju liniju izlaza agenta, tako da možete pokretati mnogo stvari odjednom bez gubljenja pregleda. Paneli zvone kada agentu treba pažnja. Svaka radnja je skriptabilna kroz CLI i Unix socket, a ugrađenim preglednikom možete upravljati programski. Postoji čak i prateća iOS aplikacija za provjeru terminala s telefona. Najbolji ako žonglirate s nekoliko zadataka ili AI agenata za kodiranje i želite ih organizovane i automatizovane bez konfiguracije multipleksera.",
+      "cmuxBody": "cmux je nativni macOS terminal izgrađen na Ghosttyjevom terminalskom engineu, libghostty. To znači da terminalska mreža nasljeđuje Ghosttyjeve prednosti: brzo GPU renderovanje, odličan prikaz fontova i boja, modernu terminalsku kompatibilnost i postojeće Ghostty teme, fontove, boje i postavke kursora. cmux dodaje sloj koji Ghostty namjerno ne pokušava biti: vertikalne workspaceove, podijeljene panele, notifikacijske prstenove, git/port/agent kontekst u sidebaru, skriptabilni CLI i Unix socket, programabilni browser i iOS companion aplikaciju. Izaberi cmux kada želiš terminalski prikaz Ghostty kvaliteta plus organizaciju i automatizaciju za mnogo zadataka ili AI coding agenata.",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "Brz, GPU-ubrzan terminal čiji engine, libghostty, pokreće cmux. Ako želite jedan čist prozor terminala s odličnim renderiranjem i bez sloja radnih prostora ili automatizacije, Ghostty je odličan sam za sebe.",
+      "ghosttyBody": "Ghostty je brz nativni terminal čiji engine, libghostty, pokreće cmux. U poređenju sa starijim CPU-renderovanim terminalima i težim terminalima u Electron stilu, Ghosttyjeve prednosti su GPU renderovanje niske latencije, oštar prikaz fontova i boja, jaka terminalska kompatibilnost, jednostavna konfiguracija kroz fajlove i bez zahtjeva za cloud nalogom. Ako želiš jedan čist terminalski prozor s tim prednostima renderovanja i bez sloja workspaceova ili automatizacije, Ghostty je odličan sam po sebi. Ako želiš iste Ghostty prednosti renderovanja plus workspaceove, notifikacije, scripting i orkestraciju agenata, koristi cmux.",
       "iterm2Title": "iTerm2",
       "iterm2Body": "Zreo, beskonačno podesiv macOS terminal. Detaljni profili, okidači i tmux integracija. Siguran podrazumijevani izbor ako želite maksimum funkcija i ne orkestrirate mnogo zadataka odjednom.",
       "warpTitle": "Warp",

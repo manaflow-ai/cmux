@@ -45,4 +45,20 @@ extension View {
         self
         #endif
     }
+
+    /// Keeps the legacy chat top gap on pre-iOS 26 material bars. On iOS 26 the
+    /// UIKit chat controller handles the top underlap for native scroll-edge
+    /// blending, so the host should not add an extra spacer.
+    @ViewBuilder
+    func mobileChatTopScrollEdgeLayout(legacyTopPadding length: CGFloat) -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            self
+        } else {
+            self.safeAreaPadding(.top, length)
+        }
+        #else
+        self
+        #endif
+    }
 }

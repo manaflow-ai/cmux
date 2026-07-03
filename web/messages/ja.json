@@ -438,7 +438,20 @@
         "p1": "cmuxにタスクマネージャが追加され、コーディングエージェントやターミナルプロセスがどれだけCPUとRAMを使っているか確認できるようになりました。",
         "p2": "CLIから開くには：",
         "p3": "またはCmd+Shift+Pを押して、コマンドパレットからタスクマネージャを選びます。",
-        "p4": "cmux v0.64.4+が必要です。"
+        "p4": "cmux v0.64.4+が必要です。",
+        "workflowTitle": "負荷の高いエージェント実行を調べる流れ",
+        "workflowOpen": "ファンが回り始めたとき、ワークスペースが重いとき、またはエージェントが止まって見えるときにタスクマネージャを開きます。",
+        "workflowScan": "CPUやメモリを多く使っているワークスペース、ペイン、サーフェス、エージェント、ブラウザwebviewを一覧から探します。",
+        "workflowJump": "マネージャから該当サーフェスへ戻り、実際のプロセス文脈を確認します。",
+        "workflowAct": "OSのプロセス情報に加えてcmux内の所属を見ながら、問題のタスクを停止、再起動、または分割します。",
+        "useTitle": "役立つ場面",
+        "useP": "Claude Code、Codex、OpenCode、ブラウザペインを複数同時に動かしていて、Activity Monitorだけではどのワークスペースが負荷元か分からないときに便利です。",
+        "faqTitle": "FAQ",
+        "faqAgentsTitle": "コーディングエージェントを識別できますか？",
+        "faqAgentsBody": "はい。cmuxは既知のエージェントプロセスを、それが動いているワークスペースとサーフェスに対応付けるため、リソース表示がサイドバーの構造と一致します。",
+        "faqCliTitle": "ウィンドウを開かずに使えますか？",
+        "faqCliBody": "はい。スクリプト、SSHセッション、通常のシェルで同じ情報が欲しい場合は、cmux topでターミナル上のスナップショットを表示できます。",
+        "docsCta": "コマンド、ウィンドウからの開き方、推奨トラブルシューティング手順は<link>タスクマネージャのドキュメント</link>をご覧ください。"
       },
       "sessionRestore": {
         "seoP": "ターミナルのクラッシュ後にClaude Code、OpenCode、opencode、Codex、Gemini CLI、Antigravity CLI、Grok Build CLI、Amp、Cursor CLI、Rovo Dev、Copilot、CodeBuddy、Factory、Qoder、Hermes Agentのセッションを復元する方法を探している場合は、cmux hooksをインストールし、エージェント再開を有効にしておいてください。",
@@ -461,6 +474,16 @@
         "implementationP2": "エージェントhooksは~/.cmuxtermにセッション対応表を書き込みます。復元時、cmuxはまずUIを再構築します。自動エージェント再開が有効なら、保存されたセッションIDを使って各対応エージェントのネイティブ再開コマンドを起動します。",
         "limitsTitle": "対象外のもの",
         "limitsP": "tmux、vim、シェル、未対応ツールは、安全なネイティブ再開コマンドを記録するcmux連携がない限り、通常のターミナルとして再び開きます。これにより復元は予測可能になり、古いプロンプトやシークレットの再生を避けられます。",
+        "workflowTitle": "推奨セットアップ",
+        "workflowInstall": "使うエージェントCLIをインストールし、cmux hooks setupを実行してcmuxがネイティブのセッションIDを取得できるようにします。",
+        "workflowWork": "通常のcmuxターミナルでエージェントを実行します。作業中にhookがセッションID、cwd、ワークスペース、サーフェスを記録します。",
+        "workflowRelaunch": "再起動後、cmuxは保存済みのエージェント復元コマンドを開始する前に、ウィンドウとペインのツリーを再構築します。",
+        "workflowVerify": "復元されたエージェントが同じ上流セッションを継続していることを確認し、同じワークスペースで作業を続けます。",
+        "faqTitle": "FAQ",
+        "faqCrashTitle": "クラッシュ後にも復旧できますか？",
+        "faqCrashBody": "最後に保存されたスナップショットから、アプリが管理するレイアウトと対応エージェントセッションを復元します。エージェントやシェルが復元APIとして公開していない任意のプロセスメモリは復元できません。",
+        "faqTmuxTitle": "tmuxも使うべきですか？",
+        "faqTmuxBody": "リモートホスト上でtmuxのセマンティクスが必要な場合はtmuxを使います。アプリレイアウト、ブラウザ状態、対応エージェントの復元をまとめて戻したい場合はcmuxのセッション復元を使います。",
         "docsCta": "設定コマンド、対応エージェント、トラブルシューティングは<link>セッション復元ドキュメント</link>を読んでください。"
       },
       "cmuxFinder": {
@@ -480,7 +503,20 @@
         "p1": "cmuxの右サイドバーに、古いエージェントセッション用のVaultペインが追加されました。",
         "p2": "Codex、Claude Code、OpenCode、Piのセッションをインデックスし、トランスクリプト全体を全文検索できます。",
         "p3": "Vaultからセッションをワークスペースへドラッグすると、作業中の場所で再び開けます。",
-        "p4": "cmux v0.64+が必要です。"
+        "p4": "cmux v0.64+が必要です。",
+        "workflowTitle": "古いエージェント作業を見つける流れ",
+        "workflowOpen": "タスクは覚えているが、ワークスペースや日付を覚えていないときに右サイドバーからVaultを開きます。",
+        "workflowSearch": "ファイル名、issueタイトル、エラーメッセージ、ブランチ名、またはエージェントの発言を検索します。",
+        "workflowDrag": "一致したセッションを現在のワークスペースへドラッグし、今触っているコードの横で再び開きます。",
+        "workflowContinue": "新しいエージェントに同じ状態を再発見させる代わりに、復元した文脈から続けます。",
+        "useTitle": "ターミナル履歴よりVaultが向いている場面",
+        "useP": "シェル履歴で分かるのは、どのコマンドでエージェントを起動したかです。Vaultはエージェントが実際に話し、変更し、報告した内容を検索できるため、開発者が古い作業を思い出す方法に近くなります。",
+        "faqTitle": "FAQ",
+        "faqAgentsTitle": "どのセッションがインデックスされますか？",
+        "faqAgentsBody": "cmuxがローカルのセッション記録を読める場合、対応するCodex、Claude Code、OpenCode、Piセッションをインデックスします。",
+        "faqRestoreTitle": "Vaultはセッション復元と同じですか？",
+        "faqRestoreBody": "いいえ。セッション復元は再起動後に現在のアプリレイアウトを戻します。Vaultは古いエージェントセッションを検索し、必要なときに再び開くためのものです。",
+        "docsCta": "インデックス対象エージェント、検索の流れ、復元の制限は<link>Vaultドキュメント</link>をご覧ください。"
       },
       "markdownViewer": {
         "title": "cmuxの改善されたMarkdownビューア",
@@ -516,6 +552,22 @@
         "fullHistoryTitle": "履歴ペイン",
         "fullHistoryP": "直近の一つ以上が必要なときは、履歴ペインを開きます。閉じたものとフォーカスしたものを日付ごとにまとめ、タイムスタンプ付きで検索でき、Clear Closed で消去もできます。",
         "docsCta": "履歴ナビゲーションの再割り当てを含む一覧は<link>キーボードショートカット</link>をご覧ください。"
+      },
+      "cmuxSsh": {
+        "title": "cmux SSH",
+        "summary": "1つのコマンドで永続的なリモートセッション、リモートポートに届くブラウザペイン、ローカルに届くエージェント通知を使えます。",
+        "date": "2026年3月30日",
+        "p1": "<code>cmux ssh user@remote</code> はリモートマシン用のワークスペースを作成します。画像をリモートのClaude Codeセッションへドラッグすると自動でアップロードされます。ブラウザペインはリモートネットワーク経由でルーティングされるため、localhostがそのまま動きます。<code>~/.ssh/config</code>を使い、切断時には再接続します。",
+        "workflowTitle": "リモート開発の流れ",
+        "workflowConnect": "cmux sshで接続し、cmuxにリモートホスト専用のワークスペースを作らせます。",
+        "workflowPreview": "ターミナルの横にブラウザペインを開き、dev serverがローカルにあるかのようにlocalhost URLを使います。",
+        "workflowNotify": "Claude Code、Codex、OpenCodeなどのエージェントをリモートマシン上で動かし、通知はcmux経由でMacへ戻します。",
+        "workflowUpload": "エージェントにローカルの文脈やテスト用ファイルが必要なときは、ファイルや画像をリモートターミナルへドラッグします。",
+        "faqTitle": "FAQ",
+        "faqPortTitle": "localhostにはssh -Lが必要ですか？",
+        "faqPortBody": "通常は不要です。リモートワークスペース内のブラウザペインはHTTPとWebSocketの通信をリモートマシン経由でルーティングするため、ローカルプレビューURLはリモートホスト基準で解決されます。",
+        "faqConfigTitle": "既存のSSH設定を使いますか？",
+        "faqConfigBody": "はい。cmuxは~/.ssh/configからエイリアス、identity file、proxy設定、host optionを読み取り、その上にcmux固有のルーティングと再接続動作を追加します。"
       },
       "cmuxHome": {
         "title": "cmux home",
@@ -625,6 +677,10 @@
         "コーディングエージェントセッション復元",
         "全文検索"
       ]
+    },
+    "cmuxSsh": {
+      "metaTitle": "cmux SSH",
+      "metaDescription": "1つのコマンドで永続的なリモートセッション、リモートポートに届くブラウザペイン、ローカルに届くエージェント通知を使えます。"
     },
     "markdownViewer": {
       "metaTitle": "cmuxの改善されたMarkdownビューア",
@@ -804,6 +860,50 @@
       "feedPrePostToolUse": "PreToolUse, PostToolUse",
       "feedHermes": "pre_tool_call, post_tool_call, pre_approval_request, post_approval_response"
     },
+    "vault": {
+      "title": "Vault",
+      "metaTitle": "Vault",
+      "metaDescription": "cmux Vaultで古いCodex、Claude Code、OpenCode、Piセッションを検索し、必要なワークスペースで再び開けます。",
+      "intro": "Vaultは、ターミナル履歴ではなくトランスクリプトの内容から古いAIコーディングエージェントセッションを見つけるための右サイドバーペインです。",
+      "indexesTitle": "Vaultがインデックスするもの",
+      "indexesDesc": "Vaultは対応エージェントのローカルセッション記録を読み取り、cmux内でトランスクリプトを検索可能にします。",
+      "indexCodex": "Codexセッション",
+      "indexClaude": "Claude Codeセッション",
+      "indexOpenCode": "OpenCodeセッション",
+      "indexPi": "Piセッション",
+      "workflowTitle": "ワークフロー",
+      "workflowOpen": "右サイドバーからVaultを開きます。",
+      "workflowSearch": "ファイル、ブランチ、issueタイトル、エラーメッセージ、会話内の語句を検索します。",
+      "workflowDrag": "一致したセッションを現在のワークスペースへドラッグします。",
+      "workflowContinue": "今使っているコードやブラウザペインの横で、復元した文脈から続けます。",
+      "useTitle": "Vaultを使う場面",
+      "useDesc": "エージェントが何に取り組んだかは覚えているが、ワークスペース、日付、起動コマンドを覚えていないときに使います。Vaultは過去のエージェント文脈を再発見するためのもので、再起動後に現在のアプリレイアウトを戻す機能ではありません。",
+      "limitsTitle": "制限",
+      "limitsDesc": "Vaultがインデックスできるのは、cmuxがローカルマシン上で読み取れる形式のセッションだけです。ローカルのcmuxから利用できない限り、プライベートなリモートホスト上のセッションは検索しません。",
+      "blogCta": "ワークフロー重視の概要は<link>Vaultの機能紹介</link>をご覧ください。"
+    },
+    "taskManager": {
+      "title": "タスクマネージャ",
+      "metaTitle": "タスクマネージャ",
+      "metaDescription": "cmuxのタスクマネージャまたはcmux topを使って、コーディングエージェント、ターミナルプロセス、ブラウザペインの高いCPUとRAM使用量を見つけます。",
+      "intro": "タスクマネージャは、cmuxのウィンドウ、ワークスペース、ペイン、ターミナルプロセス、コーディングエージェント、ブラウザwebviewのリソース使用量を表示します。",
+      "openTitle": "タスクマネージャを開く",
+      "openDesc": "任意のcmuxターミナルからCLIコマンドを実行します。",
+      "paletteDesc": "Cmd+Shift+Pを押して、コマンドパレットからタスクマネージャを選ぶこともできます。",
+      "showsTitle": "表示されるもの",
+      "showsWindows": "ウィンドウ、ワークスペース、ペイン、サーフェス",
+      "showsWorkspaces": "ターミナルやブラウザ活動が属するワークスペース",
+      "showsAgents": "Claude Code、Codex、OpenCodeなどの既知のコーディングエージェントプロセス",
+      "showsBrowsers": "ブラウザwebviewと関連ヘルパープロセス",
+      "workflowTitle": "トラブルシューティングの流れ",
+      "workflowOpen": "cmuxが重いとき、ファンが回るとき、またはエージェントが止まって見えるときにタスクマネージャを開きます。",
+      "workflowSort": "CPUまたはメモリを最も使っているプロセスを並べ替えや一覧から探します。",
+      "workflowJump": "所有しているワークスペースまたはサーフェスへ戻ります。",
+      "workflowFix": "適切な文脈を見ながら、負荷の高いプロセスを停止、再起動、または分割します。",
+      "useTitle": "使う場面",
+      "useDesc": "Activity Monitorではcmuxの負荷は分かるが、原因のワークスペース、エージェント、ブラウザペインが分からないときに使います。",
+      "blogCta": "ワークフローと導入背景は<link>タスクマネージャの機能紹介</link>をご覧ください。"
+    },
     "concepts": {
       "title": "コンセプト",
       "metaDescription": "cmuxのターミナル構成：ウィンドウ、ワークスペース、ペイン、サーフェス。サイドバー、分割、socket APIの背後にある階層構造。",
@@ -877,13 +977,13 @@
       "layoutItem1": "ピン留めされたトップレベルの行（ワークスペースとグループ）。",
       "layoutItem2": "ピン留めされていないトップレベルの行（ワークスペースとグループ）。",
       "creatingTitle": "グループの作成",
-      "creatingIntro": "グループは 2 つの方法で作成できます。キーボードショートカット、またはワークスペースのコンテキストメニューです。どちらも選択範囲の上に新しいアンカーワークスペースを挿入し、選択したワークスペースをグループに移動します。グループが作成された後は、グループヘッダーからグループを管理したりワークスペースを追加したりできます（後述の「グループの管理」を参照）。",
-      "keyboardTitle": "キーボードから（{shortcut}）",
-      "keyboardDesc": "サイドバーで 2 つ以上のワークスペースを選択し、{shortcut} を押します。選択範囲の上に新しいアンカーワークスペースが挿入され、選択したすべてのワークスペースが子になります。グループは Group 1、Group 2 のように自動的に名前が付けられ、ヘッダーのコンテキストメニューからいつでも名前を変更できます。",
+      "creatingIntro": "グループは、キーボードショートカットまたはサイドバーのコンテキストメニューから作成できます。空のグループでは、新しいアンカーワークスペースがグループヘッダーとして挿入されます。選択範囲から作るグループでは、そのアンカーが選択範囲の上に挿入され、選択したワークスペースがグループに移動します。グループが作成された後は、グループヘッダーからグループを管理したりワークスペースを追加したりできます（後述の「グループの管理」を参照）。",
+      "keyboardTitle": "キーボードショートカットから",
+      "keyboardDesc": "⌃⌘G を押すと、空のワークスペースグループを作成できます。サイドバーで 2 つ以上のワークスペースを選択し、{shortcut} を押すと、選択範囲をグループ化できます。どちらも新しいアンカーワークスペースを作成し、グループは Group 1、Group 2 のように自動的に名前が付けられます。ヘッダーのコンテキストメニューからいつでも名前を変更できます。",
       "keyboardNote": "{shortcut} は React Grab のデフォルトと競合します。グループハンドラーは、サイドバーで 2 つ以上のワークスペースが明示的に複数選択されている場合にのみこのショートカットを消費するため、単一選択時やブラウザ・ターミナルのコンテキストでは React Grab が引き続き動作します。2 つでキーを共有させたくない場合は、設定 → キーボードで再割り当てしてください。",
       "keyboardSingle": "単一タブのグループはショートカットからは作成されません。それには、ワークスペースのコンテキストメニューの「ワークスペースからグループを作成」項目を使用してください。",
       "contextMenuTitle": "ワークスペースのコンテキストメニューから",
-      "contextMenuDesc": "サイドバーで任意のワークスペースを右クリックし、「ワークスペースからグループを作成」を選択するか、複数のワークスペースが選択されている場合は「選択からグループを作成」を選択します。これはショートカットと同じ自動命名の動作を使用します。",
+      "contextMenuDesc": "サイドバーで任意のワークスペースを右クリックし、「空のワークスペースグループを作成」、「ワークスペースからグループを作成」、または複数のワークスペースが選択されている場合は「選択からグループを作成」を選択します。サイドバー一覧の下にある空白部分にも「空のワークスペースグループを作成」があります。これらはショートカットと同じ自動命名の動作を使用します。",
       "managingTitle": "グループの管理",
       "managingIntro": "グループが作成された後は、ヘッダーのコンテキストメニューとヘッダーの + ボタンを使って、グループの管理やワークスペースの追加ができます。どちらも新しいグループは作成しません。",
       "headerMenuTitle": "グループヘッダーのコンテキストメニューから",
@@ -943,6 +1043,8 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "paneBorderColor": "分割ワークスペースで cmux ペインの区切り線の色を上書きします。Ghostty 内部の分割ではなく、cmux のペイン境界に適用されます。",
+        "activePaneBorderColor": "分割ワークスペースでフォーカス中の cmux ペインの周囲に描画する任意の境界線色です。",
         "automation": {
           "ampIntegration": "Amp の cmux 連携フックを有効にします。無効にすると、バンドルされたプラグインは削除せずに非アクティブのままになります。",
           "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。",
@@ -963,12 +1065,30 @@
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
-          "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。"
+          "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",
+          "textBoxDefaultSubmitAction": "新しいターミナルセッションで使う既定の TextBox 送信アクション ID です。通常の入力には text-entry、または設定済みアクション ID のいずれかを使います。",
+          "textBoxSubmitActions": "送信ボタン、Shift-Tab の切り替え、右クリックメニューに表示する設定可能な TextBox 送信アクションです。",
+          "textBoxSubmitActionId": "terminal.textBoxDefaultSubmitAction から参照される安定したアクション ID です。",
+          "textBoxSubmitActionTitle": "この送信アクションのメニュー表示名です。",
+          "textBoxSubmitActionKind": "このアクションが通常のテキスト入力として送信するか、シェルコマンドテンプレートを展開するかを指定します。",
+          "textBoxSubmitActionCommandTemplate": "commandTemplate アクション用のシェルコマンドテンプレートです。{{prompt}} を含めると、プロンプトをシェル用にクォートしてコマンドへ挿入します。",
+          "textBoxSubmitActionPreservePromptAfterLaunch": "true の場合、commandTemplate をプロンプトなしで起動し、アクティブなエージェント用にプロンプトを TextBox に残します。",
+          "textBoxSubmitActionSystemImage": "送信ボタンに表示するフォールバックの SF Symbol 名です。",
+          "textBoxSubmitActionAssetName": "送信ボタンに表示する任意のアプリ Asset Catalog 画像名です。",
+          "textBoxSubmitActionImagePath": "送信ボタンに表示する任意の PNG または画像ファイルパスです。チルダは展開されます。",
+          "textBoxSubmitActionBackgroundColorHex": "アクション色のメタデータを RGB または RGBA の 16 進数で指定します。送信ボタンの塗りは白のままで、有効状態と無効状態では不透明度だけが変わります。"
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "有効にすると、通知バナーはその対象がまさにフォーカス中のサーフェスである場合のみ自動的に取り下げられます。現在表示中のワークスペース内でフォーカスされていないサーフェス向けに配信されたバナーは、ワークスペースが表示されたときに取り消されるのではなく、そのサーフェスをフォーカスする（またはクリック／消去する）まで表示され続けます。オフの場合は従来のワークスペース表示時の取り下げ動作を維持します。",
+          "agentPermissionPrompt": "エージェント（Claude Code など）がツールの実行にあなたの許可を待って停止しているときに通知します。エージェントの停止を解除するには操作が必要なため、既定でオンです。",
+          "agentTurnComplete": "エージェントがターンを終えたことを通知するタイミングです。whenIdle（既定）は、実行中のバックグラウンドタスクや保留中のスケジュール再開が残っている間は通知を抑制し、作業が完全に片付いてから通知します。always はターン終了ごとに通知し、never は通知しません。",
+          "agentIdleReminder": "エージェントがあなたの入力を待って待機状態になったとき（ターン終了の約60秒後）に通知します。前のターンのバックグラウンド作業がまだ実行中の間は抑制されるため、ビルドやウォッチャーの実行中に誤った待機通知が出ることはありません。"
         },
         "browser": {
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
+          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "グループ内で Cmd-N、グループヘッダーの + ボタン、設定済みグループアクションが新しいワークスペースを配置する場所のグローバル既定値です: `afterCurrent` (アクティブなグループ内ワークスペースの直後。ない場合は top)、`top` (アンカー直後の2番目の位置)、`end` (最後のメンバーの後)。",
@@ -999,7 +1119,7 @@
           "defaultLayout": "新しく開く diff ビューアの既定レイアウトです。ツールバーのレイアウト切り替えはユーザーの最後の選択を保持し、明示的な `cmux diff --layout` オプションはその両方を上書きします。"
         },
         "shortcuts": {
-          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
+          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
           "showModifierHoldHints": "Cmd または Control を押し続けている間、ショートカットヒントのチップを表示します。"
         }
       },
@@ -1229,7 +1349,8 @@
       "closeWorkspaceDesc": "ワークスペースを閉じる。",
       "splitCommands": "分割コマンド",
       "newSplitDesc": "新しい分割ペインを作成。方向：left、right、up、down。",
-      "listSurfacesDesc": "現在のワークスペースのすべてのサーフェスを一覧表示。",
+      "listPanelsDesc": "現在のワークスペースのすべてのサーフェスを一覧表示。",
+      "listPaneSurfacesDesc": "フォーカスされたペイン内のサーフェスを一覧表示。",
       "focusSurfaceDesc": "特定のサーフェスにフォーカス。",
       "inputCommands": "入力コマンド",
       "sendDesc": "フォーカス中のターミナルにテキスト入力を送信。",
@@ -1640,12 +1761,15 @@
       "workspaceGroups": "ワークスペースグループ",
       "configuration": "設定",
       "sessionRestore": "セッション復元",
+      "vault": "Vault",
+      "taskManager": "タスクマネージャ",
       "customCommands": "カスタムコマンド",
       "keyboardShortcuts": "キーボードショートカット",
       "apiReference": "CLIリファレンス",
       "browserAutomation": "ブラウザ自動化",
       "skills": "スキル",
       "notifications": "通知",
+      "ssh": "SSH",
       "remoteTmux": "リモート tmux",
       "agentIntegrations": "エージェント連携",
       "claudeCodeTeams": "Claude Code Teams",
@@ -1943,7 +2067,8 @@
   "afterSignIn": {
     "title": "cmux にサインインしました",
     "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
-    "button": "cmux に戻る"
+    "button": "cmux に戻る",
+    "switchAccountButton": "別のアカウントを使用"
   },
   "landing": {
     "bestTerminal": {
@@ -1965,9 +2090,9 @@
       "kittyBuiltFor": "高速・スクリプト可能・多機能",
       "weztermBuiltFor": "マルチプレクサ内蔵のGPUターミナル",
       "tmuxBuiltFor": "あらゆるターミナル内でのマルチプレクシング",
-      "cmuxBody": "libghostty を基盤とするネイティブ macOS ターミナルで、マルチタスク、整理、プログラマビリティという3つのことのために作られています。垂直サイドバーが作業をワークスペースごとにまとめ、それぞれの git ブランチ、ディレクトリ、ポート、エージェント出力の最新行を表示するので、多くの作業を同時に進めても見失いません。エージェントが注意を求めるとペインがリングで知らせます。すべての操作は CLI と Unix ソケットからスクリプト可能で、プログラムから操作できるアプリ内ブラウザも備えています。さらに、スマホからターミナルを確認できる iOS コンパニオンアプリもあります。複数のタスクや AI コーディングエージェントを並行して扱い、マルチプレクサの設定なしで整理・自動化したい人に最適です。",
+      "cmuxBody": "cmux は Ghostty のターミナルエンジンである libghostty 上に作られたネイティブ macOS ターミナルです。つまり、ターミナルグリッドは Ghostty の強み、高速な GPU レンダリング、優れたフォントとカラー表示、現代的なターミナル互換性、既存の Ghostty テーマ、フォント、カラー、カーソル設定を受け継ぎます。cmux は、Ghostty があえて担わないレイヤー、垂直ワークスペース、分割ペイン、通知リング、サイドバーの git/ポート/エージェント文脈、スクリプト可能な CLI と Unix ソケット、プログラムから操作できるブラウザ、iOS コンパニオンを追加します。Ghostty 品質のターミナル描画に、多数のタスクや AI コーディングエージェントの整理と自動化を加えたいなら cmux が向いています。",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "高速で GPU アクセラレーション対応のターミナル。そのエンジンである libghostty は cmux を支えています。ワークスペースや自動化のレイヤーは不要で、優れた描画を備えたクリーンな単一ターミナルウィンドウが欲しいなら、Ghostty 単体で十分に優秀です。",
+      "ghosttyBody": "Ghostty は高速なネイティブターミナルで、そのエンジン libghostty が cmux を支えています。古い CPU レンダリング型ターミナルや重い Electron 系ターミナルと比べると、Ghostty の強みは低遅延の GPU レンダリング、鮮明なフォントとカラー処理、高いターミナル互換性、シンプルなファイルベース設定、クラウドアカウント不要の設計です。これらの描画上の利点を備えたクリーンな単一ターミナルウィンドウが欲しく、ワークスペースや自動化レイヤーが不要なら Ghostty 単体で非常に優秀です。同じ Ghostty の描画上の利点に、ワークスペース、通知、スクリプト、自動化、エージェント実行の整理を加えたいなら cmux を使ってください。",
       "iterm2Title": "iTerm2",
       "iterm2Body": "成熟した、果てしなくカスタマイズできる macOS ターミナル。深いプロファイル、トリガー、tmux 連携。最大限の機能が欲しく、多くのタスクを同時にオーケストレーションするわけではないなら、安全な定番です。",
       "warpTitle": "Warp",

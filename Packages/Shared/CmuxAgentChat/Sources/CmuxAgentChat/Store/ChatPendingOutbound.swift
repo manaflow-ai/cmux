@@ -25,11 +25,15 @@ public struct ChatPendingOutbound: Identifiable, Sendable, Equatable {
     /// Current delivery progress.
     public var delivery: ChatDeliveryState
 
-    /// Whether a transcript echo may consume this row. A failed send keeps
-    /// its retry row no matter what echoes.
+    /// Whether a transcript echo may consume this row. Queued sends have not
+    /// reached the host yet, and failed sends keep their retry row.
     var isReconcilable: Bool {
-        if case .failed = delivery { return false }
-        return true
+        switch delivery {
+        case .sending, .delivered:
+            return true
+        case .queued, .failed:
+            return false
+        }
     }
 
     /// Creates a pending outbound row.

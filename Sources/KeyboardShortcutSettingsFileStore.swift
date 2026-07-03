@@ -352,6 +352,7 @@ final class CmuxSettingsFileStore {
 
         var snapshot = ResolvedSettingsSnapshot(path: sourcePath)
 
+        parsePaneChromeSettings(root, sourcePath: sourcePath, snapshot: &snapshot)
         if let appSection = root["app"] as? [String: Any] {
             parseAppSection(appSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -394,6 +395,24 @@ final class CmuxSettingsFileStore {
 
         return snapshot
     }
+
+    private func parsePaneChromeSettings(
+        _ root: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let keys = [
+            PaneChromeSettings.paneBorderColorKey,
+            PaneChromeSettings.activePaneBorderColorKey,
+        ]
+        for key in keys where root.keys.contains(key) {
+            guard let value = parseNullableHex(root[key], path: key, sourcePath: sourcePath) else {
+                continue
+            }
+            snapshot.managedUserDefaults[key] = .nullableString(value)
+        }
+    }
+
     private func parseAppSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -498,6 +517,13 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
         }
         applyStringSettings(NotificationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        if let raw = jsonString(section["agentTurnComplete"]) {
+            if AgentTurnCompleteMode(rawValue: raw) != nil {
+                snapshot.managedUserDefaults[NotificationsCatalogSection().agentTurnComplete.userDefaultsKey] = .string(raw)
+            } else {
+                logInvalid("notifications.agentTurnComplete", sourcePath: sourcePath)
+            }
+        }
     }
 
     private func parseTerminalSection(
@@ -601,6 +627,30 @@ final class CmuxSettingsFileStore {
             }
         } else if section.keys.contains("textBoxMaxLines") {
             logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
+        }
+
+        if let value = jsonString(section["textBoxDefaultSubmitAction"]) {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty {
+                snapshot.managedUserDefaults[TerminalTextBoxInputSettings.defaultSubmitActionKey] = .string(normalized)
+            } else {
+                logInvalid("terminal.textBoxDefaultSubmitAction", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("textBoxDefaultSubmitAction") {
+            logInvalid("terminal.textBoxDefaultSubmitAction", sourcePath: sourcePath)
+        }
+
+        if section.keys.contains("textBoxSubmitActions") {
+            if let data = try? JSONSerialization.data(
+                withJSONObject: section["textBoxSubmitActions"] as Any,
+                options: [.withoutEscapingSlashes]
+            ),
+               let actions = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data), actions.allSatisfy(\.isValid),
+               let json = String(data: data, encoding: .utf8) {
+                snapshot.managedUserDefaults[TerminalTextBoxInputSettings.submitActionsKey] = .string(json)
+            } else {
+                logInvalid("terminal.textBoxSubmitActions", sourcePath: sourcePath)
+            }
         }
     }
 
@@ -1588,9 +1638,15 @@ final class CmuxSettingsFileStore {
             var agentSessionAutoResumeDidChange = false
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
+            var paneChromeDidChange = false
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == PaneChromeSettings.paneBorderColorKey ||
+                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey {
+                    paneChromeDidChange = true
                 }
 
                 if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
@@ -1638,6 +1694,9 @@ final class CmuxSettingsFileStore {
             }
             if rendererRealizationDidChange {
                 RendererRealizationSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if paneChromeDidChange {
+                PaneChromeSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
         }
         if Thread.isMainThread {
