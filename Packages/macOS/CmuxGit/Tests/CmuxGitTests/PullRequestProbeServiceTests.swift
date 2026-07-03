@@ -240,9 +240,9 @@ import Testing
 
     @Test func branchLookupAppliesFetchedCheckStatusToFoundPullRequests() {
         // A PR resolved only by the targeted `head=` branch lookup is absent
-        // from the recent REST window, so the window-wide GraphQL fetch never
-        // covered it. Its freshly fetched rollup must still be applied instead
-        // of defaulting to `.neutral`.
+        // from the candidate-matched recent REST window, so the recent GraphQL
+        // fetch never covered it. Its freshly fetched rollup must still be
+        // applied instead of defaulting to `.neutral`.
         let baseEntry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: Date(),
             pullRequestsByBranch: [:]

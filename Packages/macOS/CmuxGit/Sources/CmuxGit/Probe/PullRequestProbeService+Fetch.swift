@@ -145,19 +145,23 @@ extension PullRequestProbeService {
             page += 1
         }
 
+        let recentPullRequestsByBranch = Self.pullRequestMapByNormalizedBranch(from: allPullRequests)
         let checkStatuses = await pullRequestCheckStatuses(
             repoSlug: repoSlug,
-            pullRequests: allPullRequests,
+            pullRequests: Self.pullRequestsForCheckStatusRefresh(
+                from: recentPullRequestsByBranch,
+                candidateBranches: normalizedCandidateBranches
+            ),
             authHeader: authHeader
         )
-        let pullRequestsWithCheckStatuses = Self.applyingCheckStatuses(
+        let pullRequestsByBranchWithCheckStatuses = Self.applyingCheckStatuses(
             checkStatuses,
-            to: allPullRequests
+            toPullRequestsByBranch: recentPullRequestsByBranch
         )
 
         let recentWindowEntry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: fetchTimestamp,
-            pullRequestsByBranch: Self.pullRequestMapByNormalizedBranch(from: pullRequestsWithCheckStatuses)
+            pullRequestsByBranch: pullRequestsByBranchWithCheckStatuses
         )
         let unresolvedBranches = Self.unresolvedBranches(
             normalizedCandidateBranches,
@@ -244,10 +248,10 @@ extension PullRequestProbeService {
             return collected
         }
 
-        // Branch-lookup PRs can be outside the recent REST window, so the
-        // window-wide GraphQL fetch never covered them. Fetch their CI rollups
-        // in one batched call so their sidebar badges reflect real status
-        // instead of defaulting to `.neutral`. (`pullRequestCheckStatuses`
+        // Branch-lookup PRs can be outside the candidate-matched recent REST
+        // window, so the recent GraphQL fetch never covered them. Fetch their
+        // CI rollups in one batched call so their sidebar badges reflect real
+        // status instead of defaulting to `.neutral`. (`pullRequestCheckStatuses`
         // skips the network when there are no open PRs to query.)
         let foundPullRequests: [GitHubPullRequestProbeItem] = branchResults.compactMap { entry in
             guard case .found(let pullRequest) = entry.1 else { return nil }

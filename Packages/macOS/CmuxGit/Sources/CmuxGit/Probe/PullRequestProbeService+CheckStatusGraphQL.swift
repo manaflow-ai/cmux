@@ -1,7 +1,7 @@
 import Foundation
 
 extension PullRequestProbeService {
-    /// Fetches CI rollup states for the REST-fetched open PRs in one GraphQL call.
+    /// Fetches CI rollup states for displayable open PRs in one GraphQL call.
     ///
     /// The call runs on its own short-timeout session (``checkStatusProbeTimeout``)
     /// so a slow or unavailable rollup can never gate the authoritative PR badge
@@ -69,7 +69,15 @@ extension PullRequestProbeService {
         return numbers
     }
 
-    /// Builds one GraphQL query with aliases for each REST-fetched PR number.
+    /// Returns recent-window PRs that can back one of the requested sidebar badges.
+    nonisolated static func pullRequestsForCheckStatusRefresh(
+        from pullRequestsByBranch: [String: GitHubPullRequestProbeItem],
+        candidateBranches: Set<String>
+    ) -> [GitHubPullRequestProbeItem] {
+        candidateBranches.sorted().compactMap { pullRequestsByBranch[$0] }
+    }
+
+    /// Builds one GraphQL query with aliases for each selected PR number.
     nonisolated static func checkStatusGraphQLQuery(pullRequestNumbers: [Int]) -> String {
         let fields = pullRequestNumbers.enumerated().map { index, number in
             """
@@ -104,6 +112,20 @@ extension PullRequestProbeService {
     ) -> [GitHubPullRequestProbeItem] {
         guard !statusesByNumber.isEmpty else { return pullRequests }
         return pullRequests.map { pullRequest in
+            guard let ciStatus = statusesByNumber[pullRequest.number] else {
+                return pullRequest
+            }
+            return applyingCheckStatus(ciStatus, to: pullRequest)
+        }
+    }
+
+    /// Applies fetched CI rollups to branch-indexed probe items.
+    nonisolated static func applyingCheckStatuses(
+        _ statusesByNumber: [Int: PullRequestCheckStatus],
+        toPullRequestsByBranch pullRequestsByBranch: [String: GitHubPullRequestProbeItem]
+    ) -> [String: GitHubPullRequestProbeItem] {
+        guard !statusesByNumber.isEmpty else { return pullRequestsByBranch }
+        return pullRequestsByBranch.mapValues { pullRequest in
             guard let ciStatus = statusesByNumber[pullRequest.number] else {
                 return pullRequest
             }
