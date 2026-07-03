@@ -159,10 +159,17 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
         let activate = (params["activate"] as? Bool) ?? defaultActivate
-        let targetWindowId = remoteTmuxCallerWindowId(from: params)
+        let callerWorkspaceId = Self.remoteTmuxCallerWorkspaceId(from: params)
         return v2VmCall(id: id, timeoutSeconds: 60) {
-            guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
-            else {
+            let (controller, targetWindowId) = await MainActor.run { () -> (RemoteTmuxController?, UUID?) in
+                guard let appDelegate = AppDelegate.shared else { return (nil, nil) }
+                let targetWindowId = callerWorkspaceId.flatMap { workspaceId -> UUID? in
+                    guard let manager = appDelegate.tabManagerFor(tabId: workspaceId) else { return nil }
+                    return appDelegate.windowId(for: manager)
+                }
+                return (appDelegate.remoteTmuxController, targetWindowId)
+            }
+            guard let controller else {
                 throw RemoteTmuxError.unreachable("app not ready")
             }
             let outcome = try await controller.mirrorHostInCurrentWindow(
@@ -185,14 +192,6 @@ extension TerminalController {
                     "ssh_argv": sshArgv,
                 ]
             }
-        }
-    }
-
-    private nonisolated func remoteTmuxCallerWindowId(from params: [String: Any]) -> UUID? {
-        guard let workspaceId = Self.remoteTmuxCallerWorkspaceId(from: params) else { return nil }
-        return v2MainSync {
-            guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return nil }
-            return AppDelegate.shared?.windowId(for: manager)
         }
     }
 
