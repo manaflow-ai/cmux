@@ -56,14 +56,19 @@ final class InstallWatchdog {
     }
 
     /// Whether `state`, observed when the watchdog fires, means the install never got going: the
-    /// user asked to install but the flow is still merely checking or showing "Update Available"
-    /// with no download underway. `.idle`/`.permissionRequest` are treated as not-stalled (the
-    /// user dismissed, or a state cmux never surfaces), so no error is shown.
+    /// user asked to install but the flow is still merely checking, showing "Update Available",
+    /// or sitting at `.idle` with no download underway. `.idle` counts as stalled because every
+    /// legitimate way to be idle at the deadline disarms first (a user-cancelled fresh check ends
+    /// the attempt via ``attemptEndedWithoutInstall(action:isCoordinatorMonitoring:)``; terminal
+    /// outcomes disarm via ``installAttemptResolved(_:)``) — so an armed deadline firing at idle
+    /// is the pre-check stall where the delayed re-check was dropped and `.checking` never came.
+    /// `.permissionRequest` stays not-stalled (a state cmux never surfaces; erroring over it
+    /// would be wrong if Sparkle ever did).
     static func installAttemptStalled(_ state: UpdateState) -> Bool {
         switch state {
-        case .checking, .updateAvailable:
+        case .checking, .updateAvailable, .idle:
             return true
-        case .idle, .permissionRequest, .downloading, .extracting, .installing, .notFound, .error:
+        case .permissionRequest, .downloading, .extracting, .installing, .notFound, .error:
             return false
         }
     }

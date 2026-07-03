@@ -40,13 +40,15 @@ import Testing
         ]
     }
 
-    /// The watchdog only reports a stall while the user is still waiting on a check or an unacted
-    /// "Update Available" — the exact states the double-idle bug got stuck in.
-    @Test func stalledOnlyForCheckingAndUpdateAvailable() {
+    /// The watchdog reports a stall for the states an armed deadline can legitimately catch the
+    /// flow in with nothing downloading: mid-check, an unacted "Update Available" (the states the
+    /// double-idle bug got stuck in), and `.idle` (the pre-check stall where the delayed re-check
+    /// was dropped — every benign idle disarms before the deadline can fire).
+    @Test func stalledForNonProgressingStates() {
         for state in everyState {
             let stalled = InstallWatchdog.installAttemptStalled(state)
             switch state {
-            case .checking, .updateAvailable:
+            case .checking, .updateAvailable, .idle:
                 #expect(stalled, "\(state) should count as stalled")
             default:
                 #expect(!stalled, "\(state) should NOT count as stalled")

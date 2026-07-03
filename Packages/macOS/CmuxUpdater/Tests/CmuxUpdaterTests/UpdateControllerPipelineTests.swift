@@ -188,6 +188,30 @@ import Testing
         #expect(!harness.controller.attemptCoordinator.isMonitoring)
     }
 
+    /// If the delayed re-check is dropped outright — the stale prompt is dismissed (idle) and
+    /// then nothing ever emits, not even `.checking` — the watchdog must still surface the
+    /// visible error rather than leaving the user at a silently empty pill.
+    @Test func watchdogSurfacesErrorWhenRecheckIsDropped() async {
+        let harness = Harness()
+        let stalePrompt = ChoiceBox()
+
+        harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
+        harness.controller.attemptUpdate()
+        await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
+
+        // Sparkle answers the dismissal… and then nothing at all: the flow sits at idle.
+        harness.model.setState(.idle)
+        await harness.clock.fireDeadlines()
+
+        await waitUntil("watchdog error") {
+            if case .error(let failure) = harness.model.state {
+                return (failure.error as NSError).code == UpdateStateModel.installDidNotStartCode
+            }
+            return false
+        }
+        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+    }
+
     /// If the resolved prompt vanishes before the confirm hand-off runs (the user dismissed it
     /// mid-drain, so the live state has moved past the drained snapshot), the controller must
     /// not reply to the already-answered snapshot, and must disarm the watchdog so the leftover
