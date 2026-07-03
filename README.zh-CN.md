@@ -20,6 +20,11 @@
 </p>
 
 <p align="center">
+  <strong>WeChat：</strong>扫描二维码加入社区。<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="用于加入 cmux 社区的 WeChat 二维码" width="240" />
+</p>
+
+<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="cmux 截图" width="900" />
 </p>
 
