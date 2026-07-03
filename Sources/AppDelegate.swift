@@ -1280,6 +1280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AppIconLaunchState.markDidFinishLaunching()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
+        RightSidebarMode.preloadModeShortcutCache()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {

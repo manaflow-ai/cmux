@@ -82,18 +82,31 @@ nonisolated enum FileExplorerRootSyncPolicy {
 }
 
 extension RightSidebarMode {
+    private struct ModeShortcutCandidate {
+        let mode: RightSidebarMode
+        let action: KeyboardShortcutSettings.Action
+        let shortcut: StoredShortcut
+    }
+
     private static let shortcutRelevantModifiers: NSEvent.ModifierFlags = [
         .command,
         .control,
         .option,
         .shift,
     ]
+    private static var modeShortcutCache: [ModeShortcutCandidate]?
+    private static var modeShortcutCacheObserver: NSObjectProtocol?
 
     static func shouldCheckModeShortcut(for event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
         let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
         return !flags.isDisjoint(with: shortcutRelevantModifiers)
             || ShortcutStroke.isRecordableDirectKeyCodeEvent(event)
+    }
+
+    static func preloadModeShortcutCache() {
+        installModeShortcutCacheObserverIfNeeded()
+        rebuildModeShortcutCache()
     }
 
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
@@ -105,16 +118,44 @@ extension RightSidebarMode {
         allowingAction: (KeyboardShortcutSettings.Action) -> Bool
     ) -> RightSidebarMode? {
         guard shouldCheckModeShortcut(for: event) else { return nil }
-        for mode in RightSidebarMode.allCases {
-            guard let action = mode.shortcutAction,
-                  allowingAction(action),
-                  mode.isAvailable(),
-                  KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
+        for candidate in modeShortcutCandidates() {
+            guard candidate.shortcut.matches(event: event),
+                  allowingAction(candidate.action),
+                  candidate.mode.isAvailable() else {
                 continue
             }
-            return mode
+            return candidate.mode
         }
         return nil
+    }
+
+    private static func modeShortcutCandidates() -> [ModeShortcutCandidate] {
+        installModeShortcutCacheObserverIfNeeded()
+        if let modeShortcutCache {
+            return modeShortcutCache
+        }
+        rebuildModeShortcutCache()
+        return modeShortcutCache ?? []
+    }
+
+    private static func rebuildModeShortcutCache() {
+        modeShortcutCache = RightSidebarMode.allCases.compactMap { mode in
+            guard let action = mode.shortcutAction else { return nil }
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard !shortcut.isUnbound else { return nil }
+            return ModeShortcutCandidate(mode: mode, action: action, shortcut: shortcut)
+        }
+    }
+
+    private static func installModeShortcutCacheObserverIfNeeded() {
+        guard modeShortcutCacheObserver == nil else { return }
+        modeShortcutCacheObserver = NotificationCenter.default.addObserver(
+            forName: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            rebuildModeShortcutCache()
+        }
     }
 }
 
