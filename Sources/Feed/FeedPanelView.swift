@@ -3786,8 +3786,8 @@ private struct TelemetryActionArea: View {
 
     private var summary: String {
         switch snapshot.payload {
-        case .approvalWait(let name, let json):
-            return "\(name) \(json)"
+        case .approvalWait(let name, _):
+            return name
         case .toolUse(let name, let json):
             return "\(name) \(json)"
         case .toolResult(let name, let json, let err):
