@@ -131,6 +131,41 @@ struct AgentChatSessionRegistryObservationTests {
     }
 
     @MainActor
+    @Test func observedRealClaudeSessionPreservesHistoryIDWhenFoldedIntoPendingAlias() throws {
+        let registry = AgentChatSessionRegistry()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
+        let realSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+
+        registry.noteResumeInitiated(
+            sessionID: pendingID,
+            source: "claude",
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: "/Users/example/project"
+        )
+
+        registry.applyObservedSessions([
+            ObservedAgentSession(
+                sessionID: realSessionID,
+                agentKind: .claude,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                pid: 333,
+                workingDirectory: "/Users/example/project",
+                transcriptPath: nil
+            ),
+        ])
+
+        let record = try #require(registry.record(sessionID: pendingID))
+        #expect(registry.record(sessionID: realSessionID) == nil)
+        #expect(record.hookStoreSessionID == realSessionID)
+        #expect(record.pid == 333)
+        #expect(registry.liveSession(surfaceID: surfaceID)?.sessionID == pendingID)
+    }
+
+    @MainActor
     @Test func pendingClaudeObservationBackfillsExistingRealSession() throws {
         let registry = AgentChatSessionRegistry()
         let workspaceID = UUID().uuidString

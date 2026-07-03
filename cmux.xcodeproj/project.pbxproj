@@ -14,6 +14,7 @@
 		CDFE000000000000000000C1 /* AgentChatProseStreamerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDFE000000000000000000C2 /* AgentChatProseStreamerTests.swift */; };
 		ACA7C4A70000000000000001 /* AgentChatSessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */; };
 		C7A52D100000000000000002 /* AgentChatSessionRegistry+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */; };
+		C7A52D200000000000000002 /* AgentChatSessionRegistry+LiveAgentPID.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52D200000000000000001 /* AgentChatSessionRegistry+LiveAgentPID.swift */; };
 		C7A52D000000000000000002 /* AgentChatSessionRegistry+ObserveScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52D000000000000000001 /* AgentChatSessionRegistry+ObserveScan.swift */; };
 		ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */; };
 		C7A51F000000000000000002 /* AgentChatSessionRegistryClaudeObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A51F000000000000000001 /* AgentChatSessionRegistryClaudeObservationTests.swift */; };
@@ -1299,6 +1300,7 @@
 		CDFE000000000000000000C2 /* AgentChatProseStreamerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatProseStreamerTests.swift; sourceTree = "<group>"; };
 		ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRecord.swift"; sourceTree = "<group>"; };
 		C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+Lifecycle.swift"; sourceTree = "<group>"; };
+		C7A52D200000000000000001 /* AgentChatSessionRegistry+LiveAgentPID.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+LiveAgentPID.swift"; sourceTree = "<group>"; };
 		C7A52D000000000000000001 /* AgentChatSessionRegistry+ObserveScan.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+ObserveScan.swift"; sourceTree = "<group>"; };
 		ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry.swift"; sourceTree = "<group>"; };
 		C7A51F000000000000000001 /* AgentChatSessionRegistryClaudeObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistryClaudeObservationTests.swift; sourceTree = "<group>"; };
@@ -2624,10 +2626,11 @@
 				ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */,
 				ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */,
 				ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */,
-				ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */,
-				C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */,
-				C7A52D000000000000000001 /* AgentChatSessionRegistry+ObserveScan.swift */,
-				ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */,
+					ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */,
+					C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */,
+					C7A52D200000000000000001 /* AgentChatSessionRegistry+LiveAgentPID.swift */,
+					C7A52D000000000000000001 /* AgentChatSessionRegistry+ObserveScan.swift */,
+					ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */,
 				ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */,
 				CDFE000000000000000000A2 /* AgentChatProseStreamer.swift */,
 			);
@@ -4206,10 +4209,11 @@
 
 				ACA7C4A70000000000000003 /* AgentChatHookSessionStore.swift in Sources */,
 				CDFE000000000000000000A1 /* AgentChatProseStreamer.swift in Sources */,
-				ACA7C4A70000000000000001 /* AgentChatSessionRecord.swift in Sources */,
-				C7A52D100000000000000002 /* AgentChatSessionRegistry+Lifecycle.swift in Sources */,
-				C7A52D000000000000000002 /* AgentChatSessionRegistry+ObserveScan.swift in Sources */,
-				ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */,
+					ACA7C4A70000000000000001 /* AgentChatSessionRecord.swift in Sources */,
+					C7A52D100000000000000002 /* AgentChatSessionRegistry+Lifecycle.swift in Sources */,
+					C7A52D200000000000000002 /* AgentChatSessionRegistry+LiveAgentPID.swift in Sources */,
+					C7A52D000000000000000002 /* AgentChatSessionRegistry+ObserveScan.swift in Sources */,
+					ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */,
 				ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */,
 				ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */,
 				ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */,

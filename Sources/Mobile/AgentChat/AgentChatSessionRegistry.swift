@@ -13,6 +13,7 @@ private enum ClaudeSessionCanonicalizationContext {
 final class AgentChatSessionRegistry {
     private var records: [String: AgentChatSessionRecord] = [:]
     private var liveSessionIDBySurfaceID: [String: String] = [:]
+    private var liveClaudeSessionIDsBySurfaceID: [String: Set<String>] = [:]
     private let hookStore: AgentChatHookSessionStore
 
     /// Called after a record mutation with the previous value (nil for a
@@ -100,55 +101,6 @@ final class AgentChatSessionRegistry {
         source.resume()
     }
 
-    /// Observe-floor liveness: the pid of a live foreground agent process
-    /// matching `kind` under `surfaceID`'s process tree, or nil if none.
-    ///
-    /// A launcher or intermediate process (a subrouter like `sr`, a `node`
-    /// shim) is NOT the agent; the real agent binary (e.g. `codex`, `claude`)
-    /// appears deeper in the tree. So liveness must be judged from the whole
-    /// foreground process tree under the surface, never from a single recorded
-    /// pid that may be a launcher or from background descendants that would not
-    /// receive terminal input. Nonisolated and snapshot-based so it runs off the
-    /// main actor; callers hop back to the main actor to apply the result. The
-    /// classifier is shared with observe-floor detection, so argv-hosted agents
-    /// (`node …/claude-code`, `npx …/codex`) rebind the same way they are first
-    /// discovered.
-    private nonisolated static func liveAgentPID(surfaceID: String, kind: ChatAgentKind) -> Int? {
-        let snapshot = CmuxTopProcessSnapshot.capture(
-            includeProcessDetails: true,
-            includeCMUXScope: true
-        )
-        return liveAgentPID(
-            in: snapshot,
-            surfaceID: surfaceID,
-            kind: kind,
-            processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
-        )
-    }
-
-    nonisolated static func liveAgentPID(
-        in snapshot: CmuxTopProcessSnapshot,
-        surfaceID: String,
-        kind: ChatAgentKind,
-        processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?
-    ) -> Int? {
-        guard let surfaceUUID = UUID(uuidString: surfaceID) else { return nil }
-        let rootPIDs = snapshot.pids(forCMUXSurfaceID: surfaceUUID)
-        guard !rootPIDs.isEmpty else { return nil }
-        let wantedID = kind.sourceName
-        for pid in snapshot.expandedPIDs(rootPIDs: rootPIDs).sorted() {
-            guard let info = snapshot.process(pid: pid),
-                  info.isTerminalForegroundProcessGroup,
-                  let def = codingAgentDefinition(
-                      for: info,
-                      processArgumentsAndEnvironment: processArgumentsAndEnvironment
-                  ),
-                  def.id == wantedID else { continue }
-            return pid
-        }
-        return nil
-    }
-
     var observeInFlight: AgentChatObservationInFlight?
     var observeLastStartedAt: Date?
     static let observeThrottleInterval: TimeInterval = 2
@@ -184,6 +136,9 @@ final class AgentChatSessionRegistry {
                     title: nil,
                     pid: session.pid
                 )
+                if session.agentKind == .claude {
+                    record.rememberHookStoreSessionID(session.sessionID)
+                }
                 stampLifecycleTransition(previous: nil, current: &record, at: session.sampledAt)
                 stampVersion(&record)
                 records[targetSessionID] = record
@@ -200,8 +155,16 @@ final class AgentChatSessionRegistry {
                     || (current.workingDirectory == nil && session.workingDirectory != nil)
                     || (current.transcriptPath == nil && session.transcriptPath != nil)
                     || current.pid == nil
+                    || (
+                        session.agentKind == .claude
+                            && targetSessionID != session.sessionID
+                            && current.hookStoreSessionID != session.sessionID
+                    )
                 guard needsBackfill else { continue }
                 update(sessionID: targetSessionID) { rec in
+                    if session.agentKind == .claude, targetSessionID != session.sessionID {
+                        rec.rememberHookStoreSessionID(session.sessionID)
+                    }
                     if rec.surfaceID == nil { rec.surfaceID = session.surfaceID }
                     if rec.workspaceID == nil { rec.workspaceID = session.workspaceID }
                     if rec.workingDirectory == nil { rec.workingDirectory = session.workingDirectory }
@@ -544,17 +507,10 @@ final class AgentChatSessionRegistry {
         incomingSessionID: String,
         hookStoreEntry entry: AgentChatHookSessionStore.Entry
     ) -> String? {
-        records.values
+        liveClaudeRecords(surfaceID: surfaceID, pending: true, excluding: incomingSessionID)
             .filter { record in
-                record.sessionID != incomingSessionID
-                    && record.agentKind == .claude
-                    && record.surfaceID == surfaceID
-                    && record.state != .ended
-                    && Self.isPendingClaudeSessionID(record.sessionID)
-                    && (
-                        record.hookStoreSessionID == entry.sessionID
-                            || (entry.pid != nil && record.pid == entry.pid)
-                    )
+                record.hookStoreSessionID == entry.sessionID
+                    || (entry.pid != nil && record.pid == entry.pid)
             }
             .max(by: { $0.lastActivityAt < $1.lastActivityAt })?
             .sessionID
@@ -565,27 +521,13 @@ final class AgentChatSessionRegistry {
         pending: Bool,
         excluding excludedSessionID: String?
     ) -> String? {
-        records.values
-            .filter { record in
-                record.sessionID != excludedSessionID
-                    && record.agentKind == .claude
-                    && record.surfaceID == surfaceID
-                    && record.state != .ended
-                    && Self.isPendingClaudeSessionID(record.sessionID) == pending
-            }
+        liveClaudeRecords(surfaceID: surfaceID, pending: pending, excluding: excludedSessionID)
             .max(by: { $0.lastActivityAt < $1.lastActivityAt })?
             .sessionID
     }
 
     private func removeLivePendingClaudeAliases(surfaceID: String, excluding excludedSessionID: String?) {
-        let aliases = records.values
-            .filter { record in
-                record.sessionID != excludedSessionID
-                    && record.agentKind == .claude
-                    && record.surfaceID == surfaceID
-                    && record.state != .ended
-                    && Self.isPendingClaudeSessionID(record.sessionID)
-            }
+        let aliases = liveClaudeRecords(surfaceID: surfaceID, pending: true, excluding: excludedSessionID)
             .map(\.sessionID)
         guard !aliases.isEmpty else { return }
         for alias in aliases {
@@ -601,6 +543,25 @@ final class AgentChatSessionRegistry {
            aliases.contains(indexed) {
             liveSessionIDBySurfaceID.removeValue(forKey: surfaceID)
             rebuildLiveSessionIndex(surfaceID: surfaceID)
+        }
+    }
+
+    private func liveClaudeRecords(
+        surfaceID: String,
+        pending: Bool,
+        excluding excludedSessionID: String?
+    ) -> [AgentChatSessionRecord] {
+        guard let sessionIDs = liveClaudeSessionIDsBySurfaceID[surfaceID] else { return [] }
+        return sessionIDs.compactMap { sessionID in
+            guard sessionID != excludedSessionID,
+                  let record = records[sessionID],
+                  record.agentKind == .claude,
+                  record.surfaceID == surfaceID,
+                  record.state != .ended,
+                  Self.isPendingClaudeSessionID(record.sessionID) == pending else {
+                return nil
+            }
+            return record
         }
     }
 
@@ -712,6 +673,7 @@ final class AgentChatSessionRegistry {
         previous: AgentChatSessionRecord?,
         current: AgentChatSessionRecord?
     ) {
+        updateLiveClaudeSessionIndex(previous: previous, current: current)
         let previousSurfaceID = Self.liveSurfaceID(previous)
         let currentSurfaceID = Self.liveSurfaceID(current)
         if let previousSurfaceID,
@@ -733,6 +695,22 @@ final class AgentChatSessionRegistry {
         }
     }
 
+    private func updateLiveClaudeSessionIndex(
+        previous: AgentChatSessionRecord?,
+        current: AgentChatSessionRecord?
+    ) {
+        let previousSurfaceID = Self.liveClaudeSurfaceID(previous)
+        let currentSurfaceID = Self.liveClaudeSurfaceID(current)
+        if let previousSurfaceID, previousSurfaceID != currentSurfaceID {
+            liveClaudeSessionIDsBySurfaceID[previousSurfaceID]?.remove(previous?.sessionID ?? "")
+            if liveClaudeSessionIDsBySurfaceID[previousSurfaceID]?.isEmpty == true {
+                liveClaudeSessionIDsBySurfaceID.removeValue(forKey: previousSurfaceID)
+            }
+        }
+        guard let current, let currentSurfaceID else { return }
+        liveClaudeSessionIDsBySurfaceID[currentSurfaceID, default: []].insert(current.sessionID)
+    }
+
     private func rebuildLiveSessionIndex(surfaceID: String?) {
         guard let surfaceID else { return }
         if let newest = records.values
@@ -746,6 +724,13 @@ final class AgentChatSessionRegistry {
 
     private static func liveSurfaceID(_ record: AgentChatSessionRecord?) -> String? {
         guard let record, record.state != .ended else {
+            return nil
+        }
+        return record.surfaceID
+    }
+
+    private static func liveClaudeSurfaceID(_ record: AgentChatSessionRecord?) -> String? {
+        guard let record, record.agentKind == .claude, record.state != .ended else {
             return nil
         }
         return record.surfaceID
