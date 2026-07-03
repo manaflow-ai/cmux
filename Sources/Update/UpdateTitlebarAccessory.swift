@@ -1453,8 +1453,8 @@ struct HiddenTitlebarSidebarControlsView: View {
             alignment: .leading
         )
         .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
-        .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber) { hoveredWindowNumber in
-            isHoveringWindowChrome = hostWindowNumber == hoveredWindowNumber
+        .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber.prepend(MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber)) { hoveredWindowNumber in
+            isHoveringWindowChrome = hostWindowNumber.map { $0 == hoveredWindowNumber } ?? false
             #if DEBUG
             _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["minimalSidebarObservedHoverWindowNumber"] = hoveredWindowNumber.map(String.init) ?? "nil"
