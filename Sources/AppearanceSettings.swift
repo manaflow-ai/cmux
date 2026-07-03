@@ -347,6 +347,7 @@ extension NSKeyValueObservation: EffectiveAppearanceObservation {}
 /// own different lifecycles on purpose: the icon observer's teardown is keyed
 /// to icon mode, while chrome refresh must stay armed for the whole app
 /// lifetime — a single shared observer would couple those lifecycles.
+@MainActor
 final class SystemAppearanceObserver {
     struct Environment {
         let startEffectiveAppearanceObservation: (@escaping () -> Void) -> EffectiveAppearanceObservation?
@@ -360,23 +361,37 @@ final class SystemAppearanceObserver {
         static func live() -> Environment {
             Environment(
                 startEffectiveAppearanceObservation: { handler in
-                    guard let app = NSApp else { return nil }
-                    return app.observe(\.effectiveAppearance, options: []) { _, _ in
-                        DispatchQueue.main.async { handler() }
+                    // `Environment` is nested in the now-`@MainActor` `SystemAppearanceObserver`,
+                    // which makes the compiler check this closure's body for actor-isolation
+                    // crossings even though `startEffectiveAppearanceObservation`'s declared type
+                    // stays plain/non-isolated. `startObserving()` (the only caller) is
+                    // main-actor-isolated, so this always runs on the main actor in practice;
+                    // `assumeIsolated` makes that explicit for the type checker.
+                    MainActor.assumeIsolated {
+                        guard let app = NSApp else { return nil }
+                        return app.observe(\.effectiveAppearance, options: []) { _, _ in
+                            DispatchQueue.main.async { handler() }
+                        }
                     }
                 },
                 currentAppearanceModeRawValue: {
                     UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
                 },
                 systemPrefersDark: { AppearanceSettings.SystemAppearance.current().prefersDark },
-                setApplicationAppearance: { NSApplication.shared.appearance = $0 },
+                setApplicationAppearance: { appearance in
+                    MainActor.assumeIsolated {
+                        NSApplication.shared.appearance = appearance
+                    }
+                },
                 synchronizeTerminalThemeWithAppearance: { appearance, source in
                     GhosttyApp.shared.synchronizeThemeWithAppearance(appearance, source: source)
                 },
                 postSystemAppearanceDidChange: {
                     NotificationCenter.default.post(name: .systemAppearanceDidChange, object: nil)
                 },
-                scheduleOnMainQueue: { DispatchQueue.main.async(execute: $0) }
+                scheduleOnMainQueue: { work in
+                    DispatchQueue.main.async { work() }
+                }
             )
         }
     }
@@ -394,16 +409,22 @@ final class SystemAppearanceObserver {
         self.source = source
     }
 
-    deinit { stopObserving() }
-
     func startObserving() {
         guard observation == nil else { return }
         lastResolvedPrefersDark = environment.systemPrefersDark()
         observation = environment.startEffectiveAppearanceObservation { [weak self] in
-            self?.handleEffectiveAppearanceChange()
+            // `startEffectiveAppearanceObservation`'s handler parameter is plain/non-isolated
+            // (see `Environment.live()`), but it is only ever invoked via
+            // `DispatchQueue.main.async` there, so this always runs on the main actor.
+            MainActor.assumeIsolated {
+                self?.handleEffectiveAppearanceChange()
+            }
         }
     }
 
+    // No deinit: `shared` never deallocates, and `NSKeyValueObservation` (the
+    // concrete `EffectiveAppearanceObservation` returned by
+    // `startEffectiveAppearanceObservation`) self-invalidates at dealloc anyway.
     func stopObserving() {
         observation?.invalidate()
         observation = nil

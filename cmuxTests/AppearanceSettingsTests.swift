@@ -576,6 +576,7 @@ final class AppearanceSettingsTests: XCTestCase {
 
 }
 
+@MainActor
 final class SystemAppearanceObserverTests: XCTestCase {
     private final class ObservationToken: EffectiveAppearanceObservation {
         private(set) var invalidateCallCount = 0
