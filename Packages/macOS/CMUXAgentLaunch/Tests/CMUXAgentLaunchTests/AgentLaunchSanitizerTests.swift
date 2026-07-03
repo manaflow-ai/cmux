@@ -170,6 +170,38 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Keeps CodeBuddy flags after multi-value development channels")
+    func keepsCodeBuddyFlagsAfterMultiValueDevelopmentChannels() {
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "codebuddy",
+                args: [
+                    "--dangerously-load-development-channels",
+                    "server:slack-bus", "server:runtime-bus",
+                    "--agents", #"{"build-orchestrator":{}}"#,
+                    "--model", "sonnet",
+                ]
+            ) == [
+                "--dangerously-load-development-channels",
+                "server:slack-bus", "server:runtime-bus",
+                "--agents", #"{"build-orchestrator":{}}"#,
+                "--model", "sonnet",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "codebuddy",
+                args: [
+                    "--dangerously-load-development-channels", "server:bus",
+                    "initial prompt should not replay",
+                    "--model", "sonnet",
+                ]
+            ) == [
+                "--dangerously-load-development-channels", "server:bus",
+            ]
+        )
+    }
+
     @Test("Drops OpenCode startup files before preserving cwd")
     func dropsOpenCodeStartupFilesBeforePreservingCwd() {
         #expect(
