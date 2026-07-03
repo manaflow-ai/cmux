@@ -1548,8 +1548,13 @@ final class ClaudeHookSessionStore {
         state.sessions = state.sessions.filter { _, record in
             record.updatedAt >= cutoff
         }
-        state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { _, active in
-            active.updatedAt >= cutoff && state.sessions[active.sessionId] != nil
+        state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { workspaceId, active in
+            guard active.updatedAt >= cutoff, let record = state.sessions[active.sessionId] else { return false }
+            // Self-heal cross-workspace pollution: a session may only be the active
+            // session for its own recorded workspace. Stale focused/TTY misroutes from
+            // older builds could register a session as active for an unrelated tab,
+            // which then stole that tab's notifications and suppressed its own session.
+            return normalizeOptional(record.workspaceId) == workspaceId
         }
         state.activeSessionsBySurface = state.activeSessionsBySurface.filter { _, active in
             active.updatedAt >= cutoff && state.sessions[active.sessionId] != nil
@@ -23071,13 +23076,17 @@ struct CMUXCLI {
         switch subcommand {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+            guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: nil,
                 fallback: workspaceArg,
                 preferCallerTTYOverFallback: preferCallerTTYRouting,
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
-            )
+            ) else {
+                telemetry.breadcrumb("claude-hook.session-start.unresolved")
+                print("OK")
+                return
+            }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: nil,
                 fallback: surfaceArg,
@@ -23202,13 +23211,17 @@ struct CMUXCLI {
                 // Turn ended. Don't consume session or clear PID — Claude is still alive.
                 // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
                     preferCallerTTYOverFallback: preferCallerTTYRouting,
                     callerTerminalBinding: callerTTYBindingProvider,
                     client: client
-                )
+                ) else {
+                    telemetry.breadcrumb("claude-hook.stop.unresolved")
+                    print("OK")
+                    return
+                }
                 let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
@@ -23340,13 +23353,17 @@ struct CMUXCLI {
         case "prompt-submit":
             telemetry.breadcrumb("claude-hook.prompt-submit")
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+            guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
                 preferCallerTTYOverFallback: preferCallerTTYRouting,
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
-            )
+            ) else {
+                telemetry.breadcrumb("claude-hook.prompt-submit.unresolved")
+                print("OK")
+                return
+            }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
@@ -23451,13 +23468,17 @@ struct CMUXCLI {
             didSendFeedTelemetry = true
             do {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
                     preferCallerTTYOverFallback: preferCallerTTYRouting,
                     callerTerminalBinding: callerTTYBindingProvider,
                     client: client
-                )
+                ) else {
+                    telemetry.breadcrumb("claude-hook.auto-name.unresolved")
+                    print("OK")
+                    return
+                }
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
@@ -23491,13 +23512,17 @@ struct CMUXCLI {
             let classifiedSubtitle = summary.subtitle
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+            guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
                 preferCallerTTYOverFallback: preferCallerTTYRouting,
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
-            )
+            ) else {
+                telemetry.breadcrumb("claude-hook.notification.unresolved")
+                print("OK")
+                return
+            }
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
@@ -23768,13 +23793,17 @@ struct CMUXCLI {
             // Clears "Needs input" status and notification when Claude resumes work
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+            guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
                 preferCallerTTYOverFallback: preferCallerTTYRouting,
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
-            )
+            ) else {
+                telemetry.breadcrumb("claude-hook.pre-tool-use.unresolved")
+                print("OK")
+                return
+            }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
@@ -24145,27 +24174,94 @@ struct CMUXCLI {
         return " --panel=\(surfaceId)"
     }
 
+    /// Resolve the workspace a Claude hook should mutate, in strict priority order:
+    /// the recorded/preferred workspace, an unambiguous caller-TTY binding (only when
+    /// `preferCallerTTYOverFallback`), the live `CMUX_WORKSPACE_ID` fallback, then an
+    /// unambiguous caller-TTY binding. Each candidate is validated against a live
+    /// workspace before it is accepted.
+    ///
+    /// Returns `nil` when the caller cannot be positively identified. It deliberately
+    /// does NOT fall back to `workspace.current` (the focused tab): routing a
+    /// background agent's status/notification/summary to whatever tab happens to be
+    /// focused mis-delivers it onto an unrelated session (this mirrors the generic
+    /// agent hook, which already no-ops instead of guessing). Callers treat `nil` as a
+    /// no-op rather than mutating an arbitrary workspace.
     private func resolvePreferredWorkspaceIdForClaudeHook(
         preferred: String?,
         fallback: String?,
         preferCallerTTYOverFallback: Bool = false,
         callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
         client: SocketClient
-    ) throws -> String {
-        if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveWorkspaceIdForClaudeHook(preferred, client: client)
+    ) throws -> String? {
+        if let preferred = nonEmptyClaudeHookIdentifier(preferred),
+           let resolved = strictClaudeHookWorkspaceId(preferred, client: client) {
+            return resolved
         }
         if preferCallerTTYOverFallback,
-           let callerWorkspaceId = resolveCallerWorkspaceIdForClaudeHook(
+           let callerWorkspaceId = uniqueCallerWorkspaceIdForClaudeHook(
                callerTerminalBinding: callerTerminalBinding,
                client: client
            ) {
             return callerWorkspaceId
         }
-        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
+        if let fallback = nonEmptyClaudeHookIdentifier(fallback),
+           let resolved = strictClaudeHookWorkspaceId(fallback, client: client) {
+            return resolved
         }
-        return try resolveWorkspaceIdForClaudeHook(nil, client: client)
+        return uniqueCallerWorkspaceIdForClaudeHook(
+            callerTerminalBinding: callerTerminalBinding,
+            client: client
+        )
+    }
+
+    /// Resolve `raw` to a workspace id only when that workspace currently exists.
+    private func strictClaudeHookWorkspaceId(_ raw: String, client: SocketClient) -> String? {
+        guard let candidate = try? resolveWorkspaceId(raw, client: client),
+              claudeHookWorkspaceExists(candidate, client: client) else {
+            return nil
+        }
+        return candidate
+    }
+
+    private func claudeHookWorkspaceExists(_ workspaceId: String, client: SocketClient) -> Bool {
+        (try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])) != nil
+    }
+
+    /// Like `resolveCallerWorkspaceIdForClaudeHook`, but refuses to guess when the
+    /// caller's TTY name maps to more than one workspace. macOS reuses `ttysNNN`
+    /// device names across panes/sessions, so a first-match on a shared name would
+    /// route to an arbitrary sibling session. A PID/closure-provided binding is
+    /// authoritative (unique by construction) and used directly.
+    private func uniqueCallerWorkspaceIdForClaudeHook(
+        callerTerminalBinding: (() -> CallerTerminalBinding?)?,
+        client: SocketClient
+    ) -> String? {
+        if let callerTerminalBinding {
+            guard let binding = callerTerminalBinding(),
+                  claudeHookSurfaceIsListed(binding.surfaceId, workspaceId: binding.workspaceId, client: client) else {
+                return nil
+            }
+            return binding.workspaceId
+        }
+        guard let ttyName = resolveCallerTTYName(),
+              let payload = try? client.sendV2(method: "debug.terminals") else {
+            return nil
+        }
+        let terminals = payload["terminals"] as? [[String: Any]] ?? []
+        var matchedWorkspaces: Set<String> = []
+        for terminal in terminals {
+            guard normalizedTTYName(terminal["tty"] as? String) == ttyName,
+                  let workspaceId = normalizedHandleValue(terminal["workspace_id"] as? String) else {
+                continue
+            }
+            matchedWorkspaces.insert(workspaceId)
+        }
+        guard matchedWorkspaces.count == 1,
+              let only = matchedWorkspaces.first,
+              claudeHookWorkspaceExists(only, client: client) else {
+            return nil
+        }
+        return only
     }
 
     private func resolvePreferredSurfaceIdForClaudeHook(
@@ -24402,10 +24498,6 @@ struct CMUXCLI {
         let url = URL(fileURLWithPath: path)
         let name = url.lastPathComponent
         return name.isEmpty ? String(path.suffix(30)) : name
-    }
-
-    private func resolveWorkspaceIdForClaudeHook(_ raw: String?, client: SocketClient) throws -> String {
-        try resolveWorkspaceIdAllowingFallback(raw, client: client)
     }
 
     private func resolveSurfaceIdForClaudeHook(
