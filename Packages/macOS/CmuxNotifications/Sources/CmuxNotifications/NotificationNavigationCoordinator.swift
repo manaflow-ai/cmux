@@ -229,6 +229,18 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         open(tabId: tabId, surfaceId: surfaceId, panelId: nil, notificationId: notificationId, scrollRow: nil)
     }
 
+    /// Focuses `tabId`/`surfaceId`, marks `notificationId` read on success, and
+    /// optionally restores terminal scrollback context.
+    ///
+    /// - Parameters:
+    ///   - tabId: Workspace id that owns the notification.
+    ///   - surfaceId: Surface id to focus when the notification is surface-scoped.
+    ///   - panelId: App-target terminal panel id used only to restore scroll
+    ///     context when it differs from, or is more precise than, `surfaceId`.
+    ///   - notificationId: Notification id to mark read after focus succeeds.
+    ///   - scrollRow: Top-relative terminal scrollback row captured when the
+    ///     notification was recorded. The app-side router converts it to the
+    ///     live bottom-relative Ghostty scroll action after focus.
     @discardableResult
     public func open(tabId: UUID, surfaceId: UUID?, panelId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
         openRouting.openRouted(

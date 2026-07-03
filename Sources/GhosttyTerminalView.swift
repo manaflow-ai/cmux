@@ -7958,15 +7958,18 @@ final class GhosttySurfaceScrollView: NSView {
 
     var notificationScrollPosition: TerminalNotificationScrollPosition? {
         guard let scrollbar = surfaceView.scrollbar else { return nil }
-        let rowsBelowOffset = scrollbar.total > scrollbar.offset ? scrollbar.total - scrollbar.offset : 0
-        let rowsFromBottom = rowsBelowOffset > scrollbar.len ? rowsBelowOffset - scrollbar.len : 0
-        return TerminalNotificationScrollPosition(row: Int(clamping: rowsFromBottom))
+        return TerminalNotificationScrollPosition(row: Int(clamping: scrollbar.offset))
     }
 
     @discardableResult
     func restoreNotificationScrollPosition(_ position: TerminalNotificationScrollPosition?) -> Bool {
         guard let position else { return false }
-        return surfaceView.performBindingAction("scroll_to_row:\(max(0, position.row))")
+        guard let scrollbar = surfaceView.scrollbar else { return false }
+        let totalRows = Int(clamping: scrollbar.total)
+        let visibleRows = Int(clamping: scrollbar.len)
+        let anchorRow = max(0, position.row)
+        let rowFromBottom = max(0, totalRows - anchorRow - visibleRows)
+        return surfaceView.performBindingAction("scroll_to_row:\(rowFromBottom)")
     }
 
     private var lastFlashStyle: FlashStyle = .navigation
