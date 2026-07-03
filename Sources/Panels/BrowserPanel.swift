@@ -3056,6 +3056,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let mediaCapturePermissionPendingTimeout: TimeInterval = 300
     // WebKit has no denial/dismiss callback after `.prompt`, so bound this blocker with a one-shot deadline.
     private var mediaCapturePermissionFallbackTimer: DispatchSourceTimer?
+    private var suppressHiddenWebViewDiscardReevaluation = false
 
     private var faviconTask: Task<Void, Never>?
     private var faviconRefreshGeneration: Int = 0
@@ -3177,16 +3178,23 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshAudioMediaActivity(reason: "media_playback_reset")
     }
 
-    private func resetMediaStateAfterWebContentTermination() {
-        setPendingMediaCapturePermission(false, reason: "webContentProcessTerminated", reevaluate: false)
+    @discardableResult
+    private func resetMediaStateAfterWebContentTermination() -> Bool {
+        suppressHiddenWebViewDiscardReevaluation = true
+        defer { suppressHiddenWebViewDiscardReevaluation = false }
+
+        var changed = setPendingMediaCapturePermission(false, reason: "webContentProcessTerminated", reevaluate: false)
+        changed = changed || !playingMediaFrameIDs.isEmpty || !audibleMediaFrameIDs.isEmpty || isPlayingMedia
         (playingMediaFrameIDs, audibleMediaFrameIDs) = ([], [])
         isPlayingMedia = false
+        let previousMediaActivity = mediaActivity
         setMediaActivity(
             isPlayingAudio: false,
             isUsingMicrophone: false,
             isUsingCamera: false,
             reason: "webContentProcessTerminated"
         )
+        return changed || previousMediaActivity != mediaActivity
     }
 
     private func refreshAudioMediaActivity(reason: String) { setMediaActivity(isPlayingAudio: !audibleMediaFrameIDs.isEmpty && !isMuted, reason: reason) }
@@ -3405,6 +3413,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func reevaluateHiddenWebViewDiscardScheduling(reason: String) {
+        guard !suppressHiddenWebViewDiscardReevaluation else { return }
         if isWebViewVisibleInUI {
             cancelHiddenWebViewDiscard()
         } else {
@@ -5244,7 +5253,6 @@ final class BrowserPanel: Panel, ObservableObject {
         isLoading = false
         estimatedProgress = 0
         cancelPendingInteractiveBrowserPrompts(reason: "webContentProcessTerminated")
-        resetMediaStateAfterWebContentTermination()
 
         if wasRenderable, hasRecoveryTarget, let recoveryURL {
             pendingWebContentRecoveryURL = recoveryURL
@@ -5253,8 +5261,14 @@ final class BrowserPanel: Panel, ObservableObject {
         } else {
             clearWebContentTerminationRecovery()
         }
+        let shouldReevaluateDiscard = resetMediaStateAfterWebContentTermination()
         refreshNavigationAvailability()
         refreshWebViewLifecycleState()
+        if shouldReevaluateDiscard {
+            Task { @MainActor [weak self] in
+                self?.reevaluateHiddenWebViewDiscardScheduling(reason: "webContentProcessTerminated")
+            }
+        }
 
 #if DEBUG
         cmuxDebugLog(
