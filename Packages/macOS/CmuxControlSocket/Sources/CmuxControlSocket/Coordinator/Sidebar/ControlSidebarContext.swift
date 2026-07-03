@@ -70,8 +70,9 @@ public protocol ControlSidebarContext: AnyObject {
     /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`
     /// marks the manual loader `key` running on the workspace; `off` clears it
     /// from every panel so it turns off regardless of which surface invoked it.
-    /// Returns the workspace's overall loading-spinner state before and after
-    /// the change, or `nil` if the workspace was not found.
+    /// Returns this manual loader key's state before and after the change, or
+    /// `nil` if the workspace was not found. Other active agent lifecycles may
+    /// still keep the aggregate sidebar spinner visible.
     func controlSidebarSetWorkspaceLoading(
         tabArg: String?,
         key: String,

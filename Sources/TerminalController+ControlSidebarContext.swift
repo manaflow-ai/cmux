@@ -167,12 +167,7 @@ extension TerminalController: ControlSidebarContext {
         on: Bool
     ) -> ControlSidebarWorkspaceLoadingState? {
         guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else { return nil }
-        func isLoading() -> Bool {
-            SidebarAgentActivitySummary.activeCodingAgentCount(
-                statesByPanelId: tab.agentLifecycleStatesByPanelId
-            ) > 0
-        }
-        let before = isLoading()
+        let before = tab.hasRunningAgentLifecycle(key: key)
         if on {
             // Workspace-scoped: exactly one panel holds a manual key at a time,
             // so reasserting `on` after focus moves never duplicates the loader.
@@ -189,7 +184,7 @@ extension TerminalController: ControlSidebarContext {
             // Workspace-scoped: clear from all panels, not just the caller's.
             _ = tab.clearAgentLifecycle(key: key, panelId: nil)
         }
-        return ControlSidebarWorkspaceLoadingState(before: before, after: isLoading())
+        return ControlSidebarWorkspaceLoadingState(before: before, after: tab.hasRunningAgentLifecycle(key: key))
     }
 
     func controlSidebarSetAgentHibernation(enabled: Bool) {

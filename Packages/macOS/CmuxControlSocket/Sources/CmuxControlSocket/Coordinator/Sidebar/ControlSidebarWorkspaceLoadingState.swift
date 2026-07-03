@@ -1,12 +1,12 @@
 public import Foundation
 
-/// The workspace loading-spinner state before and after a `workspace_loading`
-/// toggle, reported back to the caller (e.g. `before=ON;after=OFF`).
+/// The manual loader key state before and after a `workspace_loading` toggle,
+/// reported back to the caller (e.g. `before=ON;after=OFF`).
 public struct ControlSidebarWorkspaceLoadingState: Sendable, Equatable {
-    /// Whether the workspace's loading spinner was showing before the toggle.
+    /// Whether this manual loader key was running before the toggle.
     public let before: Bool
 
-    /// Whether the workspace's loading spinner is showing after the toggle.
+    /// Whether this manual loader key is running after the toggle.
     public let after: Bool
 
     /// Creates a before/after pair for one `workspace_loading` toggle.

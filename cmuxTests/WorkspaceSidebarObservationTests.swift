@@ -293,6 +293,23 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func runningLifecycleQueryIsScopedToOneLoaderKey() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        workspace.setAgentLifecycle(key: "manual", panelId: panelId, lifecycle: .running)
+
+        #expect(workspace.hasRunningAgentLifecycle(key: "manual"))
+        #expect(workspace.clearAgentLifecycle(key: "manual", panelId: nil))
+        #expect(!workspace.hasRunningAgentLifecycle(key: "manual"))
+        #expect(workspace.hasRunningAgentLifecycle(key: "codex"))
+        #expect(
+            SidebarAgentActivitySummary.activeCodingAgentCount(
+                statesByPanelId: workspace.agentLifecycleStatesByPanelId
+            ) == 1
+        )
+    }
+
     @Test func clearAgentLifecycleStatesPreservesManualLoadersOnLivePanel() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

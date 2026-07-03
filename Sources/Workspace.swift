@@ -4694,6 +4694,15 @@ final class Workspace: Identifiable, ObservableObject {
         return didClear
     }
 
+    func hasRunningAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
+        if let panelId {
+            return agentLifecycleStatesByPanelId[panelId]?[key] == .running
+        }
+        return agentLifecycleStatesByPanelId.values.contains { states in
+            states[key] == .running
+        }
+    }
+
     func clearAgentLifecycleStates(panelId: UUID) {
         guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
         // Manual loaders are workspace-scoped: keep them on this panel when it
