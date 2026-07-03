@@ -7206,21 +7206,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "arrow.trianglehead.2.clockwise",
             accessibilityDescription: nil
         )
-        // Per-pane reconnect for remote (SSH) workspaces: restore just this surface's
-        // remote connection. Hidden for local panes where it is meaningless.
-        if remoteWorkspaceForCurrentSurface() != nil {
-            menu.addItem(.separator())
-            let reconnectPaneItem = menu.addItem(
-                withTitle: String(localized: "terminalContextMenu.reconnectPane", defaultValue: "Reconnect Pane"),
-                action: #selector(reconnectRemotePane(_:)),
-                keyEquivalent: ""
-            )
-            reconnectPaneItem.target = self
-            reconnectPaneItem.image = NSImage(
-                systemSymbolName: "arrow.clockwise",
-                accessibilityDescription: nil
-            )
-        }
+        appendReconnectRemotePaneMenuItem(to: menu)
         if terminalSurface != nil {
             menu.addItem(.separator())
             let identifiersItem = menu.addItem(
@@ -7287,27 +7273,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @objc private func resetTerminal(_ sender: Any?) {
         _ = performBindingAction("reset")
     }
-
-    /// The remote workspace owning this surface, or nil when the surface is not
-    /// part of a remote (SSH) workspace. Used to gate the per-pane reconnect menu
-    /// item so it only appears for remote panes.
-    private func remoteWorkspaceForCurrentSurface() -> Workspace? {
-        guard let tabId,
-              let app = AppDelegate.shared,
-              let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
-              let workspace = manager.tabs.first(where: { $0.id == tabId }),
-              workspace.isRemoteWorkspace else {
-            return nil
-        }
-        return workspace
-    }
-
-    @objc private func reconnectRemotePane(_ sender: Any?) {
-        guard let workspace = remoteWorkspaceForCurrentSurface(),
-              let surfaceId = terminalSurface?.id else { return }
-        workspace.reconnectRemoteConnection(surfaceId: surfaceId)
-    }
-
     override func mouseMoved(with event: NSEvent) {
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }

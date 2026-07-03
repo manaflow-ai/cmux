@@ -9947,18 +9947,11 @@ struct CMUXCLI {
             "CMUX_SSH_PENDING_SIGNAL=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
-            // Pane-close signals are terminal lifecycle, not SSH transport lifecycle.
-            // Avoid sending an extra TERM to a child that may own the shared ControlMaster path.
             "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129' HUP",
             "trap 'cmux_ssh_signal_exit 130' INT",
             "trap 'cmux_ssh_signal_exit 143' TERM",
-            // Outer session loop: after the automatic reconnect loop gives up (or hits
-            // a non-retryable exit), the hold prompt lets the user manually retry by
-            // pressing `r`. A manual retry re-enters the automatic reconnect loop with a
-            // fresh attempt counter instead of tearing down the session and closing the
-            // pane. Any other response (or a non-interactive stderr) dismisses.
             "while :; do",
             "  cmux_ssh_retry=0",
             "  while :; do",
@@ -9991,22 +9984,12 @@ struct CMUXCLI {
             "    case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
             "    if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
             "    cmux_ssh_retry=$((cmux_ssh_retry + 1))",
-            "    cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
+            "    cmux_ssh_note \(shellQuote(sshAutoReconnectNoteFormat())) \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
             "    if [ \"$cmux_ssh_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_reconnect_delay\"; fi",
             "    if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
             "  done",
-            // Clean exit (ssh returned 0): tear down and stop. No hold prompt.
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
-            // Hold the pane so the user can see the error instead of silently falling
-            // back to a local shell. Without this, Ghostty's PTY respawns a login shell
-            // after the startup command exits, and a dead VM looks identical to "I never
-            // SSH'd" — the surface shows `Last login: ... on ttys072` + a local prompt.
-            //
-            // The blocking `read` also doubles as the manual-retry prompt: pressing `r`
-            // (then Enter) re-enters the automatic reconnect loop with a fresh attempt
-            // counter instead of tearing down the session. Anything else - Enter, `q`,
-            // or EOF (read fails) - dismisses and closes the pane.
-            "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n\\033[2m[cmux] press r then Enter to reconnect, or Enter to close this pane.\\033[0m\\n' \"$cmux_ssh_status\" >&2 || true",
+            "  printf \(shellQuote(sshManualReconnectExitPromptFormat())) \"$cmux_ssh_status\" >&2 || true",
             "  if IFS= read -r _cmux_dismiss_key 2>/dev/null; then",
             "    case \"$_cmux_dismiss_key\" in",
             "      r|R|retry|reconnect) continue ;;",
