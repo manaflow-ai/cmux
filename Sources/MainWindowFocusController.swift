@@ -78,7 +78,7 @@ final class MainWindowFocusController {
             hostRouter.fileExplorerHost = host
         case .find:
             hostRouter.fileSearchHost = host
-        case .sessions, .feed, .dock:
+        case .sessions, .feed, .dock, .customSidebar:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
