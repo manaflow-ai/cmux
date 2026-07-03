@@ -151,6 +151,45 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     }
 
     @MainActor
+    @Test("remote ssh workspace ignores inherited local cwd until remote pwd report")
+    func remoteSSHWorkspaceIgnoresInheritedLocalDirectoryUntilRemotePWDReport() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: sshCommand
+        )
+        let remotePanelId = try #require(workspace.focusedPanelId)
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "seepine@192.168.5.20",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: "relay-\(UUID().uuidString)",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-issue-7268.sock",
+                terminalStartupCommand: sshCommand
+            ),
+            autoConnect: false
+        )
+
+        #expect(workspace.isRemoteWorkspace)
+        #expect(workspace.isRemoteTerminalSurface(remotePanelId))
+        #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
+        #expect(workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
+
+        workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+
+        #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [remoteDirectory])
+        #expect(workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [remoteDirectory])
+    }
+
+    @MainActor
     @Test("new terminal to right inherits cwd from non-selected anchor tab")
     func newTerminalToRightUsesAnchorTabWorkingDirectoryWhenAnchorIsNotSelected() throws {
         let selectedDirectory = "/tmp/cmux-selected-\(UUID().uuidString)"
