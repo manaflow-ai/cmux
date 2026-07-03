@@ -182,9 +182,9 @@ struct ReflowParagraphTests {
         #expect(reflow("") == "")
     }
 
-    @Test func commonIndentStrippedWhenNotJoining() {
+    @Test func commonIndentPreservedWhenNotJoining() {
         let input = "    alpha\n    beta\n"
-        #expect(reflow(input) == "alpha\nbeta\n")
+        #expect(reflow(input) == input)
     }
 
     /// Grid rows copied with trailing padding (the trim=false read path) must not

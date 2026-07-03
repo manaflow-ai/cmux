@@ -20,6 +20,16 @@ struct ReflowStructureTests {
         #expect(reflow(input) == input)
     }
 
+    @Test func backtickFenceIgnoresTildeMarkerBodyLine() {
+        let input = "```text\n~~~ not closing\n  keep spaces\n```\n"
+        #expect(reflow(input) == input)
+    }
+
+    @Test func tildeFenceIgnoresBacktickMarkerBodyLine() {
+        let input = "~~~\n``` not closing\n  keep spaces\n~~~\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func decorationNotStrippedInsideFence() {
         let input = "```\n▶ literal arrow stays\n```\n"
         let result = reflow(input)
@@ -89,8 +99,9 @@ struct ReflowStructureTests {
         #expect(reflow("▶ note here\n") == "note here\n")
     }
 
-    @Test func decorationStrippedAfterIndentRemoval() {
-        // Indented decoration: common indent removed first, then the glyph.
-        #expect(reflow("    ▶ indented note\n") == "indented note\n")
+    @Test func indentedDecorationPreservedWhenNotJoining() {
+        // Indented standalone text keeps its leading columns; only a real
+        // wrap join removes common indentation.
+        #expect(reflow("    ▶ indented note\n") == "    ▶ indented note\n")
     }
 }

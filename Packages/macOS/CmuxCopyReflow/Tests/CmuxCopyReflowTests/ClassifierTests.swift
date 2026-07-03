@@ -3,8 +3,8 @@ import Testing
 
 @Suite
 struct ClassifierTests {
-    private func classify(_ line: String, insideFence: Bool = false) -> LineKind {
-        LineKind(line[...], insideFence: insideFence)
+    private func classify(_ line: String, activeFence: FenceMarker? = nil) -> LineKind {
+        LineKind(line[...], activeFence: activeFence)
     }
 
     @Test func fenceDelimiters() {
@@ -13,10 +13,22 @@ struct ClassifierTests {
         #expect(classify("~~~") == .fenceDelimiter)
     }
 
-    @Test func insideFenceOverridesContent() {
+    @Test func insideFenceOverridesContent() throws {
+        let fence = try #require(FenceMarker(trimmedLine: "```"[...]))
         // A heading-looking or bullet-looking line inside a fence stays code.
-        #expect(classify("## not a heading", insideFence: true) == .insideFence)
-        #expect(classify("- not a bullet", insideFence: true) == .insideFence)
+        #expect(classify("## not a heading", activeFence: fence) == .insideFence)
+        #expect(classify("- not a bullet", activeFence: fence) == .insideFence)
+    }
+
+    @Test func insideFenceOnlyMatchingMarkerCloses() throws {
+        let backtickFence = try #require(FenceMarker(trimmedLine: "```"[...]))
+        let tildeFence = try #require(FenceMarker(trimmedLine: "~~~"[...]))
+
+        #expect(classify("~~~", activeFence: backtickFence) == .insideFence)
+        #expect(classify("```", activeFence: tildeFence) == .insideFence)
+        #expect(classify("``", activeFence: backtickFence) == .insideFence)
+        #expect(classify("```", activeFence: backtickFence) == .fenceDelimiter)
+        #expect(classify("````", activeFence: backtickFence) == .fenceDelimiter)
     }
 
     @Test func headings() {

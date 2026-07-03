@@ -3,9 +3,8 @@ import Foundation
 /// Structural classification of a single line, used to decide whether it can
 /// participate in paragraph reflow.
 ///
-/// Classification is pure and depends only on the line's own text plus whether
-/// we are currently inside a fenced code block (`insideFence`), which the
-/// caller threads through.
+/// Classification is pure and depends only on the line's own text plus the
+/// currently active fenced code block marker, which the caller threads through.
 public enum LineKind: Equatable, Sendable {
     /// Empty or whitespace-only.
     case blank
@@ -27,16 +26,20 @@ public enum LineKind: Equatable, Sendable {
     /// Ordinary prose — the only kind eligible for paragraph joining.
     case prose
 
-    /// Classify a line. `insideFence` reflects the state *before* this line is
-    /// considered; a fence delimiter both classifies as `.fenceDelimiter` and
-    /// (for the caller) toggles that state.
-    init(_ rawLine: Substring, insideFence: Bool) {
+    /// Classify a line. `activeFence` reflects the opening marker of an
+    /// enclosing fenced block, if any; inside a fence, only a matching marker
+    /// can classify as `.fenceDelimiter`.
+    init(_ rawLine: Substring, activeFence: FenceMarker?) {
         let trimmed = rawLine.drop { $0 == " " || $0 == "\t" }
 
-        if Self.isFenceDelimiter(trimmed) {
+        if let activeFence {
+            if let marker = FenceMarker(trimmedLine: trimmed), marker.closes(activeFence) {
+                self = .fenceDelimiter
+            } else {
+                self = .insideFence
+            }
+        } else if FenceMarker(trimmedLine: trimmed) != nil {
             self = .fenceDelimiter
-        } else if insideFence {
-            self = .insideFence
         } else if trimmed.isEmpty {
             self = .blank
         } else if Self.isURLLine(trimmed) {
@@ -58,17 +61,6 @@ public enum LineKind: Equatable, Sendable {
 
     /// URL schemes that, when a line starts with one, mark the line as a URL.
     private static let urlPrefixes = ["http://", "https://", "www."]
-
-    /// A fence delimiter is a line whose first non-space content is ``` ``` ```
-    /// (three or more backticks) or `~~~`, optionally followed by an info
-    /// string.
-    private static func isFenceDelimiter(_ trimmed: Substring) -> Bool {
-        let backticks = trimmed.prefix { $0 == "`" }
-        if backticks.count >= 3 { return true }
-        let tildes = trimmed.prefix { $0 == "~" }
-        if tildes.count >= 3 { return true }
-        return false
-    }
 
     /// `#` .. `######` followed by a space (or end of line).
     private static func isHeading(_ trimmed: Substring) -> Bool {

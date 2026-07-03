@@ -32,32 +32,36 @@ private extension ReflowOptions {
         let rawLines = text.split(separator: "\n", omittingEmptySubsequences: false)
             .map { $0.hasSuffix("\r") ? $0.dropLast() : $0 }
 
-        // Pass 1: fence state per line + common indent over eligible lines.
-        var insideFenceFlags = [Bool](repeating: false, count: rawLines.count)
+        // Pass 1: marker-aware fence state per line + common indent over
+        // eligible lines.
+        var lineKinds = [LineKind]()
+        lineKinds.reserveCapacity(rawLines.count)
         var isFenceLine = [Bool](repeating: false, count: rawLines.count)
         do {
-            var inside = false
+            var activeFence: FenceMarker?
             for (i, line) in rawLines.enumerated() {
-                let kind = LineKind(line, insideFence: inside)
-                insideFenceFlags[i] = inside
-                if kind == .fenceDelimiter {
+                let kind = LineKind(line, activeFence: activeFence)
+                lineKinds.append(kind)
+                if let marker = FenceMarker(trimmedLine: line.drop { $0 == " " || $0 == "\t" }),
+                   activeFence == nil {
                     isFenceLine[i] = true
-                    inside.toggle()
-                } else if inside {
+                    activeFence = marker
+                } else if activeFence != nil {
                     isFenceLine[i] = true
+                    if kind == .fenceDelimiter {
+                        activeFence = nil
+                    }
                 }
             }
         }
 
         let commonIndent = computeCommonIndent(rawLines, isFenceLine: isFenceLine)
 
-        // Display view of each line: common indent removed and terminal
-        // right-padding trimmed, with internal spacing preserved until a line
-        // is proven to participate in a wrap join.
+        // Working view of each line: common indent removed and terminal
+        // right-padding trimmed. It feeds wrap detection and joined output only.
         let displayStorage: [String] = rawLines.indices.map { i in
             let s = stripColumns(rawLines[i], commonIndent)
-            let kind = LineKind(rawLines[i], insideFence: insideFenceFlags[i])
-            switch kind {
+            switch lineKinds[i] {
             case .fenceDelimiter, .insideFence:
                 return String(s)
             case .blank, .heading, .blockquote, .tableRow, .listItem, .urlLine, .prose:
@@ -65,6 +69,19 @@ private extension ReflowOptions {
             }
         }
         let stripped: [Substring] = displayStorage.map { $0[...] }
+
+        // Preserved view of each line: no common-indent stripping. It is emitted
+        // when a line never participates in a wrap join.
+        let preservedStorage: [String] = rawLines.indices.map { i in
+            switch lineKinds[i] {
+            case .fenceDelimiter, .insideFence:
+                return String(rawLines[i])
+            case .blank:
+                return ""
+            case .heading, .blockquote, .tableRow, .listItem, .urlLine, .prose:
+                return trimTrailingSpaceLike(rawLines[i])
+            }
+        }
 
         // Pass 2: emit.
         var output: [String] = []
@@ -78,14 +95,14 @@ private extension ReflowOptions {
         }
 
         for i in rawLines.indices {
-            let raw = rawLines[i]
             let line = stripped[i]
-            let kind = LineKind(raw, insideFence: insideFenceFlags[i])
+            let preservedLine = preservedStorage[i]
+            let kind = lineKinds[i]
 
             switch kind {
             case .fenceDelimiter, .insideFence:
                 flush()
-                output.append(String(line))
+                output.append(preservedLine)
 
             case .blank:
                 flush()
@@ -94,7 +111,7 @@ private extension ReflowOptions {
             case .heading, .blockquote, .tableRow:
                 // Structural lines are hard breaks and never absorb a continuation.
                 flush()
-                output.append(String(line))
+                output.append(preservedLine)
 
             case .listItem:
                 // A list item starts a new output line but opens a paragraph so its
@@ -102,7 +119,7 @@ private extension ReflowOptions {
                 flush()
                 para = Paragraph(
                     text: String(line),
-                    standaloneText: String(line),
+                    standaloneText: preservedLine,
                     hasJoined: false,
                     baseIndent: line.indentWidth,
                     isURL: false,
@@ -116,7 +133,7 @@ private extension ReflowOptions {
 
             case .prose, .urlLine:
                 let indent = line.indentWidth
-                let standaloneContent = stripDecoration(line)
+                let standaloneContent = stripDecoration(preservedLine[...])
                 let content = stripDecoration(cleanProseWhitespace(line)[...])
                 let visLen = line.visibleLength
                 let endsTerminator = lastNonSpaceIsTerminator(line)
