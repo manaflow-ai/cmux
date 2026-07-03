@@ -9,9 +9,10 @@ public import Foundation
 /// `GhosttyConfig` is the value type that drives the embedded ghostty runtime's
 /// appearance. It parses ghostty's textual config format (``parse(_:loadingThemesImmediatelyFor:)``),
 /// resolves themes by light/dark color scheme, and folds in cmux's managed
-/// default appearance when the user has set neither a `theme` nor explicit
-/// terminal color directives. The wire format it reads (directive keys, theme
-/// resolution, NSColor hex codecs) is frozen and pinned by tests.
+/// default appearance — as a base underneath the user's explicit color
+/// directives — whenever the user has not set a `theme`. The wire format it
+/// reads (directive keys, theme resolution, NSColor hex codecs) is frozen and
+/// pinned by tests.
 public struct GhosttyConfig {
     /// The light/dark terminal theme preference. An alias for
     /// ``TerminalColorSchemePreference``; the nested name keeps the
@@ -300,20 +301,10 @@ public struct GhosttyConfig {
         #if DEBUG
         let startupPreviewOverride = TerminalStartupAppearancePreviewOverride.installed
         if startupPreviewOverride?.loadsRealUserConfig ?? true {
-            loadConfigFiles(
-                configPaths,
-                into: &config,
+            config.loadResolvedUserConfig(
+                configPaths: configPaths,
                 preferredColorScheme: preferredColorScheme
             )
-
-            if config.theme == nil,
-               Self.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
-                config.applyCmuxDefaultAppearance(
-                    environment: ProcessInfo.processInfo.environment,
-                    bundleResourceURL: Bundle.main.resourceURL,
-                    preferredColorScheme: preferredColorScheme
-                )
-            }
         } else if let contents = startupPreviewOverride?.previewConfigContents(
             preferredColorScheme
         ) {
@@ -323,26 +314,39 @@ public struct GhosttyConfig {
             )
         }
         #else
-        loadConfigFiles(
-            configPaths,
-            into: &config,
+        config.loadResolvedUserConfig(
+            configPaths: configPaths,
             preferredColorScheme: preferredColorScheme
         )
-
-        if config.theme == nil,
-           Self.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
-            config.applyCmuxDefaultAppearance(
-                environment: ProcessInfo.processInfo.environment,
-                bundleResourceURL: Bundle.main.resourceURL,
-                preferredColorScheme: preferredColorScheme
-            )
-        }
         #endif
 
         config.resolveSidebarBackground(preferredColorScheme: preferredColorScheme)
         config.applySidebarAppearanceToUserDefaults()
 
         return config
+    }
+
+    /// Applies cmux's managed default appearance (when the user has not chosen a
+    /// `theme`) as the base, then parses the user's config files on top so explicit
+    /// color directives override just those colors (issue #7161).
+    mutating func loadResolvedUserConfig(
+        configPaths: [String],
+        preferredColorScheme: ColorSchemePreference,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleResourceURL: URL? = Bundle.main.resourceURL
+    ) {
+        if Self.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
+            applyCmuxDefaultAppearance(
+                environment: environment,
+                bundleResourceURL: bundleResourceURL,
+                preferredColorScheme: preferredColorScheme
+            )
+        }
+        Self.loadConfigFiles(
+            configPaths,
+            into: &self,
+            preferredColorScheme: preferredColorScheme
+        )
     }
 
     mutating func applyGlobalMagnification(percent: Int) {
@@ -353,7 +357,9 @@ public struct GhosttyConfig {
     }
 
     /// Applies cmux's managed default theme for `preferredColorScheme` by parsing
-    /// the bundled (or fallback) theme config contents into this config.
+    /// the bundled (or fallback) theme config contents into this config. Apply it
+    /// before parsing the user's config files so their explicit color directives
+    /// override individual managed colors.
     public mutating func applyCmuxDefaultAppearance(
         environment: [String: String],
         bundleResourceURL: URL?,
@@ -782,10 +788,12 @@ public struct GhosttyConfig {
         /// Creates an empty summary.
         public init() {}
 
-        /// Whether cmux should apply its managed default appearance: true only
-        /// when neither a theme nor an explicit terminal color directive was seen.
+        /// Whether cmux should apply its managed default appearance: true unless
+        /// the user chose a `theme`. Explicit color directives do not suppress
+        /// the managed theme — they load after it, overriding just those colors
+        /// (https://github.com/manaflow-ai/cmux/issues/7161).
         public var shouldApplyDefaultAppearance: Bool {
-            !hasThemeDirective && !hasExplicitTerminalColorDirective
+            !hasThemeDirective
         }
 
         /// Records one config directive into the summary.
@@ -795,13 +803,8 @@ public struct GhosttyConfig {
                 hasThemeDirective = true
                 let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 lastThemeDirective = trimmedValue.isEmpty ? nil : trimmedValue
-            case "background",
-                 "foreground",
-                 "palette",
-                 "cursor-color",
-                 "cursor-text",
-                 "selection-background",
-                 "selection-foreground":
+            case "background", "foreground", "palette", "cursor-color", "cursor-text",
+                 "selection-background", "selection-foreground":
                 hasExplicitTerminalColorDirective = true
             default:
                 break
@@ -809,9 +812,8 @@ public struct GhosttyConfig {
         }
     }
 
-    /// Whether cmux should inject its managed default appearance: true only when
-    /// the user has set neither a `theme` nor any explicit terminal color
-    /// directive across the resolved config paths.
+    /// Whether cmux should inject its managed default appearance: true unless
+    /// the user has set an explicit `theme` across the resolved config paths.
     public static func shouldApplyManagedDefaultAppearance(
         configPaths: [String]
     ) -> Bool {
@@ -866,14 +868,8 @@ public struct GhosttyConfig {
             guard let entry = parsedConfigEntry(from: line) else { continue }
 
             switch entry.key {
-            case "theme",
-                 "background",
-                 "foreground",
-                 "palette",
-                 "cursor-color",
-                 "cursor-text",
-                 "selection-background",
-                 "selection-foreground":
+            case "theme", "background", "foreground", "palette", "cursor-color",
+                 "cursor-text", "selection-background", "selection-foreground":
                 summary.recordDirective(key: entry.key, value: entry.value)
             case "config-file":
                 guard let value = entry.value else { continue }
@@ -946,10 +942,10 @@ public struct GhosttyConfig {
         bundleResourceURL: URL?,
         preferredColorScheme: ColorSchemePreference? = nil
     ) {
-        let resolvedThemeName = Self.resolveThemeName(
+        guard let resolvedThemeName = Self.appliedThemeName(
             from: name,
             preferredColorScheme: preferredColorScheme ?? Self.currentColorSchemePreference()
-        )
+        ) else { return }
         let expandedThemePath = NSString(string: resolvedThemeName).expandingTildeInPath
         if (expandedThemePath as NSString).isAbsolutePath,
            let contents = try? String(contentsOfFile: expandedThemePath, encoding: .utf8) {
