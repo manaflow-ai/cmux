@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cmux agent</title>
+<style>
+  /* Base palette; the server overrides --bg/--fg/--bg-body/--accent and the
+     status colors from the resolved Ghostty theme (see __THEME__ below). */
+  :root {
+    --bg: #101014;
+    --fg: #e8e8ec;
+    --bg-body: var(--bg);
+    --accent: #7aa2f7;
+    --green: #6fbf82;
+    --red: #e06c75;
+    --amber: #d8a657;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  /* Everything else derives from bg/fg so any terminal theme works. */
+  :root {
+    --text: var(--fg);
+    --text-dim: color-mix(in srgb, var(--fg) 62%, var(--bg));
+    --text-faint: color-mix(in srgb, var(--fg) 42%, var(--bg));
+    --border: color-mix(in srgb, var(--fg) 15%, var(--bg));
+    --bg-raised: color-mix(in srgb, var(--fg) 4%, var(--bg));
+    --bg-input: color-mix(in srgb, var(--fg) 7%, var(--bg));
+    --bg-code: color-mix(in srgb, var(--fg) 8%, var(--bg));
+    --accent-wash: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  html { background: transparent; }
+  body { background: var(--bg-body); color: var(--text); font: 14px/1.55 var(--sans); }
+  #main { height: 100%; display: flex; flex-direction: column; min-width: 0; }
+
+  /* composer view */
+  #composer-view {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px; gap: 18px;
+  }
+  #composer-view h1 { font-size: 22px; font-weight: 600; margin: 0; }
+  #composer-view .sub { color: var(--text-dim); margin: -10px 0 4px; font-size: 13px; }
+  #composer-box { width: min(640px, 100%); display: flex; flex-direction: column; gap: 12px; }
+  #providers { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .provider-pill {
+    padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); cursor: pointer;
+    background: transparent; color: var(--text-dim); font: 500 13px var(--sans);
+  }
+  .provider-pill.selected { border-color: var(--accent); color: var(--text); background: var(--accent-wash); }
+  #prompt-input, #chat-input {
+    width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px;
+    color: var(--text); font: 14px/1.5 var(--sans); padding: 12px 14px; resize: none; outline: none;
+    min-height: 92px;
+  }
+  #prompt-input:focus, #chat-input:focus { border-color: var(--accent); }
+  #composer-opts { display: flex; gap: 12px; align-items: center; font-size: 12px; color: var(--text-dim); flex-wrap: wrap; }
+  #cwd-input {
+    flex: 1; min-width: 220px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-dim); font: 12px var(--mono); padding: 6px 9px; outline: none;
+  }
+  label.toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  #composer-hint { text-align: center; color: var(--text-faint); font-size: 12px; }
+
+  /* chat view */
+  #chat-view { flex: 1; display: none; flex-direction: column; min-height: 0; }
+  #messages { flex: 1; overflow-y: auto; padding: 20px 0 10px; }
+  .msg { max-width: 760px; margin: 0 auto; padding: 0 24px 16px; }
+  .msg.user { display: flex; justify-content: flex-end; }
+  .msg.user .body {
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px;
+    white-space: pre-wrap; overflow-wrap: break-word; max-width: 85%;
+  }
+  .msg.assistant .body { overflow-wrap: break-word; }
+  .msg.assistant .body > :first-child { margin-top: 0; }
+  .msg.assistant .body > :last-child { margin-bottom: 0; }
+  .msg .body pre {
+    background: var(--bg-code); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    overflow-x: auto; font: 12px/1.5 var(--mono);
+  }
+  .msg .body code { font: .92em var(--mono); background: var(--bg-code); padding: 1px 5px; border-radius: 4px; }
+  .msg .body pre code { padding: 0; background: none; }
+  .msg .body a { color: var(--accent); }
+
+  details.thinking { margin: 0 auto 12px; max-width: 760px; padding: 0 24px; color: var(--text-faint); }
+  details.thinking summary { cursor: pointer; font-size: 12px; user-select: none; }
+  details.thinking .t-body { white-space: pre-wrap; font-size: 12.5px; font-style: italic; padding: 6px 0 0; overflow-wrap: break-word; }
+
+  .tool { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; }
+  .tool details {
+    border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); overflow: hidden;
+  }
+  .tool summary {
+    display: flex; align-items: center; gap: 8px; padding: 7px 11px; cursor: pointer; user-select: none;
+    font: 12px var(--mono); color: var(--text-dim); list-style: none;
+  }
+  .tool summary::-webkit-details-marker { display: none; }
+  .tool .spinner {
+    width: 10px; height: 10px; border: 1.5px solid var(--text-faint); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite; flex: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .tool .mark { flex: none; font-size: 11px; }
+  .tool .mark.ok { color: var(--green); } .tool .mark.fail { color: var(--red); }
+  .tool .name { color: var(--text); font-weight: 600; flex: none; }
+  .tool .detail { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tool .out { padding: 8px 11px; border-top: 1px solid var(--border); font: 11.5px/1.5 var(--mono); white-space: pre-wrap; color: var(--text-dim); max-height: 240px; overflow-y: auto; overflow-wrap: break-word; }
+
+  .turn-footer { max-width: 760px; margin: 0 auto 18px; padding: 0 24px; font-size: 11px; color: var(--text-faint); font-family: var(--mono); }
+  .error-block { padding: 8px 14px; color: var(--red); font-size: 12.5px; border-left: 2px solid var(--red); }
+  .error-block-wrap { max-width: 760px; margin: 0 auto 14px; padding: 0 24px; }
+  .status-line { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; font-size: 11.5px; color: var(--text-faint); }
+
+  #chat-input-row { flex: none; padding: 12px 24px 16px; max-width: 808px; width: 100%; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
+  #chat-input { min-height: 44px; max-height: 200px; }
+  #stop-btn {
+    flex: none; padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-input);
+    color: var(--red); font: 500 13px var(--sans); cursor: pointer; display: none;
+  }
+</style>
+<style id="theme">/*__THEME__*/</style>
+</head>
+<body>
+  <main id="main">
+    <section id="composer-view">
+      <h1>What should the agent do?</h1>
+      <div class="sub">One chat UI, any coding agent.</div>
+      <div id="composer-box">
+        <div id="providers"></div>
+        <textarea id="prompt-input" placeholder="Describe a task or ask a question…" autofocus></textarea>
+        <div id="composer-opts">
+          <input id="cwd-input" spellcheck="false" title="working directory">
+          <label class="toggle"><input type="checkbox" id="auto-approve" checked> auto-approve tools</label>
+        </div>
+      </div>
+      <div id="composer-hint">Enter to start · Shift+Enter for newline</div>
+    </section>
+
+    <section id="chat-view">
+      <div id="messages"></div>
+      <div id="chat-input-row">
+        <textarea id="chat-input" placeholder="Reply… (Enter to send)"></textarea>
+        <button id="stop-btn">Stop</button>
+      </div>
+    </section>
+  </main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+// ---------- tiny markdown ----------
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function inlineMd(s) {
+  return s
+    .replace(/`([^`]+)`/g, (_, c) => "<code>" + c + "</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|\s)\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function renderMd(text) {
+  const parts = text.split(/```/);
+  let html = "";
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) { // code fence
+      const nl = parts[i].indexOf("\n");
+      const body = nl >= 0 ? parts[i].slice(nl + 1) : parts[i];
+      html += "<pre><code>" + escapeHtml(body.replace(/\n$/, "")) + "</code></pre>";
+      continue;
+    }
+    const lines = escapeHtml(parts[i]).split("\n");
+    let para = [], inList = false;
+    const flushPara = () => {
+      if (para.length) { html += "<p>" + inlineMd(para.join("<br>")) + "</p>"; para = []; }
+    };
+    const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+    for (const raw of lines) {
+      const line = raw.trimEnd();
+      const h = line.match(/^(#{1,4})\s+(.*)/);
+      const li = line.match(/^\s*[-*]\s+(.*)/);
+      if (!line.trim()) { flushPara(); closeList(); }
+      else if (h) { flushPara(); closeList(); const lvl = Math.min(h[1].length + 2, 5); html += `<h${lvl}>` + inlineMd(h[2]) + `</h${lvl}>`; }
+      else if (li) { flushPara(); if (!inList) { html += "<ul>"; inList = true; } html += "<li>" + inlineMd(li[1]) + "</li>"; }
+      else { closeList(); para.push(line); }
+    }
+    flushPara(); closeList();
+  }
+  return html;
+}
+
+// ---------- state ----------
+// One page = one session. `/` is the composer; `/s/<id>` is that session's chat.
+let ws = null;
+let providers = [];
+let selectedProvider = localStorage.getItem("agentui.provider") || "claude";
+let currentSession = null;
+const routedSessionId = (location.pathname.match(/^\/s\/([\w-]+)/) || [])[1] || null;
+
+// streaming render state
+let curAssistant = null;   // { el, text }
+let curThinking = null;    // { el, bodyEl, text }
+const toolEls = new Map(); // toolId -> element refs
+
+// ---------- websocket ----------
+function connect() {
+  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onmessage = (e) => handle(JSON.parse(e.data));
+  ws.onopen = () => {
+    const sid = currentSession ? currentSession.id : routedSessionId;
+    if (sid) ws.onceOpenSubscribe = sid;
+  };
+  ws.onclose = () => setTimeout(connect, 800);
+}
+function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+
+function handle(msg) {
+  switch (msg.kind) {
+    case "hello":
+      providers = msg.providers;
+      if (!$("cwd-input").value) $("cwd-input").value = localStorage.getItem("agentui.cwd") || msg.defaultCwd;
+      renderProviders();
+      if (ws.onceOpenSubscribe) {
+        send({ op: "subscribe", sessionId: ws.onceOpenSubscribe });
+        ws.onceOpenSubscribe = null;
+      }
+      break;
+    case "session-created":
+      history.replaceState(null, "", "/s/" + msg.session.id);
+      openChat(msg.session, []);
+      break;
+    case "history":
+      openChat(msg.session, msg.events);
+      break;
+    case "no-session":
+      // Server restarted or bad id: fall back to a fresh composer.
+      history.replaceState(null, "", "/");
+      showComposer();
+      break;
+    case "session-status":
+      if (currentSession && currentSession.id === msg.sessionId) setChatStatus(msg.status);
+      break;
+    case "event":
+      if (currentSession && currentSession.id === msg.sessionId) renderEvent(msg.evt);
+      break;
+  }
+}
+
+// ---------- composer ----------
+function renderProviders() {
+  const box = $("providers");
+  box.innerHTML = "";
+  for (const p of providers) {
+    const b = document.createElement("button");
+    b.className = "provider-pill" + (p.id === selectedProvider ? " selected" : "");
+    b.textContent = p.label;
+    b.onclick = () => { selectedProvider = p.id; localStorage.setItem("agentui.provider", p.id); renderProviders(); };
+    box.appendChild(b);
+  }
+}
+function showComposer() {
+  currentSession = null;
+  document.title = "cmux agent";
+  $("composer-view").style.display = "flex";
+  $("chat-view").style.display = "none";
+  $("prompt-input").focus();
+}
+function startSession() {
+  const prompt = $("prompt-input").value.trim();
+  if (!prompt) return;
+  const cwd = $("cwd-input").value.trim();
+  localStorage.setItem("agentui.cwd", cwd);
+  send({ op: "start", provider: selectedProvider, cwd, prompt, autoApprove: $("auto-approve").checked });
+  $("prompt-input").value = "";
+}
+
+// ---------- chat ----------
+function openChat(session, events) {
+  currentSession = session;
+  document.title = session.title || "cmux agent";
+  $("composer-view").style.display = "none";
+  $("chat-view").style.display = "flex";
+  $("messages").innerHTML = "";
+  curAssistant = null; curThinking = null; toolEls.clear();
+  setChatStatus(session.status);
+  for (const evt of events) renderEvent(evt, true);
+  scrollBottom(true);
+  $("chat-input").focus();
+}
+function setChatStatus(status) {
+  currentSession.status = status;
+  $("stop-btn").style.display = status === "running" ? "block" : "none";
+}
+function nearBottom() {
+  const m = $("messages");
+  return m.scrollHeight - m.scrollTop - m.clientHeight < 80;
+}
+function scrollBottom(force) {
+  const m = $("messages");
+  if (force || nearBottom()) m.scrollTop = m.scrollHeight;
+}
+
+function renderEvent(evt, replay) {
+  const m = $("messages");
+  const stick = nearBottom();
+  switch (evt.kind) {
+    case "user": {
+      finalizeStreaming();
+      const el = document.createElement("div");
+      el.className = "msg user";
+      el.innerHTML = `<div class="body"></div>`;
+      el.querySelector(".body").textContent = evt.text;
+      m.appendChild(el);
+      break;
+    }
+    case "delta": appendAssistant(evt.text); break;
+    case "assistant": appendAssistant(evt.text); finalizeStreaming(); break;
+    case "thinking": appendThinking(evt.text); break;
+    case "tool-start": {
+      curThinking = null;
+      finalizeStreaming();
+      const wrap = document.createElement("div");
+      wrap.className = "tool";
+      wrap.innerHTML = `<details><summary><span class="spinner"></span><span class="name"></span><span class="detail"></span></summary><div class="out" style="display:none"></div></details>`;
+      wrap.querySelector(".name").textContent = evt.name || "tool";
+      wrap.querySelector(".detail").textContent = evt.detail || "";
+      m.appendChild(wrap);
+      toolEls.set(evt.toolId, wrap);
+      break;
+    }
+    case "tool-end": {
+      const wrap = toolEls.get(evt.toolId);
+      if (wrap) {
+        const spin = wrap.querySelector(".spinner");
+        if (spin) {
+          const mark = document.createElement("span");
+          mark.className = "mark " + (evt.ok === false ? "fail" : "ok");
+          mark.textContent = evt.ok === false ? "✗" : "✓";
+          spin.replaceWith(mark);
+        }
+        if (evt.detail) {
+          const out = wrap.querySelector(".out");
+          out.textContent = evt.detail;
+          out.style.display = "";
+        }
+      }
+      break;
+    }
+    case "done": {
+      finalizeStreaming();
+      curThinking = null;
+      if (evt.stats) {
+        const el = document.createElement("div");
+        el.className = "turn-footer";
+        el.textContent = evt.stats;
+        m.appendChild(el);
+      }
+      break;
+    }
+    case "error": {
+      finalizeStreaming();
+      const wrap = document.createElement("div");
+      wrap.className = "error-block-wrap";
+      const el = document.createElement("div");
+      el.className = "error-block";
+      el.textContent = evt.message;
+      wrap.appendChild(el);
+      m.appendChild(wrap);
+      break;
+    }
+    case "status": {
+      const el = document.createElement("div");
+      el.className = "status-line";
+      el.textContent = evt.text;
+      m.appendChild(el);
+      break;
+    }
+    case "meta":
+      break;
+  }
+  scrollBottom(replay ? false : stick);
+}
+
+function appendAssistant(text) {
+  curThinking = null;
+  if (!curAssistant) {
+    const el = document.createElement("div");
+    el.className = "msg assistant";
+    el.innerHTML = `<div class="body"></div>`;
+    $("messages").appendChild(el);
+    curAssistant = { el: el.querySelector(".body"), text: "" };
+  }
+  curAssistant.text += text;
+  curAssistant.el.innerHTML = renderMd(curAssistant.text);
+}
+function finalizeStreaming() { curAssistant = null; }
+function appendThinking(text) {
+  if (!curThinking) {
+    const el = document.createElement("details");
+    el.className = "thinking";
+    el.innerHTML = `<summary>thinking</summary><div class="t-body"></div>`;
+    $("messages").appendChild(el);
+    curThinking = { el, bodyEl: el.querySelector(".t-body"), text: "" };
+  }
+  curThinking.text += text;
+  curThinking.bodyEl.textContent = curThinking.text;
+}
+
+// ---------- input wiring ----------
+$("prompt-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); startSession(); }
+});
+$("chat-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    const text = e.target.value.trim();
+    if (!text || !currentSession) return;
+    send({ op: "send", sessionId: currentSession.id, prompt: text });
+    e.target.value = "";
+  }
+});
+$("stop-btn").onclick = () => { if (currentSession) send({ op: "stop", sessionId: currentSession.id }); };
+
+if (!routedSessionId) showComposer();
+connect();
+</script>
+</body>
+</html>
