@@ -89,7 +89,7 @@ enum SidebarWorkspaceListMetrics {
     static let railWidth: CGFloat = 3
     /// Opacity of the subtle accent wash behind the active row in the default
     /// left-rail indicator style (Linear/Zed-like restrained selection).
-    static let activeSelectionFillOpacity: Double = 0.16
+    static let activeSelectionFillOpacity: Double = 0.28
 }
 
 struct SidebarWorkspaceScrollInsets: Equatable {

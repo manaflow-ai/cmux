@@ -2860,10 +2860,13 @@ final class Workspace: Identifiable, ObservableObject {
         )
             ? surfaceHex
             : "#00000000"
+        // Tab-bar chrome is pinned to Linear's #13141C (darker than the terminal
+        // surface) so the strip and inactive tabs read as one calm dark bar; the
+        // active tab auto-lightens off this and the terminal pane keeps its own bg.
         return .init(
             backgroundHex: surfaceHex,
-            tabBarBackgroundHex: surfaceHex,
-            splitButtonBackdropHex: surfaceHex,
+            tabBarBackgroundHex: SidebarChromeColors.tabBarBackgroundHex,
+            splitButtonBackdropHex: SidebarChromeColors.tabBarBackgroundHex,
             paneBackgroundHex: paneBackgroundHex,
             borderHex: borderHex
         )
@@ -2899,8 +2902,8 @@ final class Workspace: Identifiable, ObservableObject {
             : "#00000000"
         return .init(
             backgroundHex: backgroundHex,
-            tabBarBackgroundHex: backgroundHex,
-            splitButtonBackdropHex: backgroundHex,
+            tabBarBackgroundHex: SidebarChromeColors.tabBarBackgroundHex,
+            splitButtonBackdropHex: SidebarChromeColors.tabBarBackgroundHex,
             paneBackgroundHex: paneBackgroundHex,
             borderHex: borderHex
         )

@@ -96,7 +96,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         if let tintHex, let nsColor = NSColor(hex: tintHex) {
             return Color(nsColor: nsColor)
         }
-        return .secondary
+        return SidebarMutedText.color
     }
 
     private var displayedIconSymbol: String {
@@ -117,57 +117,53 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     var body: some View {
         HStack(spacing: 4) {
             if isPinned {
-                CmuxSystemSymbolImage(
-                    magnified: "pin.fill",
-                    pointSize: metrics.pinnedIconFontSize,
-                    weight: .semibold
-                )
-                .foregroundStyle(Color.secondary.opacity(0.8))
+                BlodeIconImage(name: "BlodePin", size: metrics.pinnedIconFontSize + 2)
+                .foregroundStyle(SidebarMutedText.color.opacity(0.8))
                 .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                 .safeHelp(pinnedGroupTooltip)
                 .accessibilityLabel(Text(pinnedGroupTooltip))
             }
-            CmuxSystemSymbolImage(
-                systemName: isCollapsed ? "chevron.right" : "chevron.down",
-                pointSize: metrics.chevronFontSize,
-                weight: .semibold,
-                appliesGlobalFontMagnification: true
-            )
-                .foregroundStyle(.secondary)
-                .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
-                .contentShape(Rectangle())
-                .onTapGesture { onToggleCollapsed() }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(
-                    Text(
-                        isCollapsed
-                            ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
-                            : String(localized: "workspaceGroup.collapse.a11y", defaultValue: "Collapse group")
-                    )
-                )
-
             HStack(spacing: 6) {
-                CmuxSystemSymbolImage(
-                    systemName: displayedIconSymbol,
-                    pointSize: metrics.iconFontSize,
-                    weight: .semibold,
-                    appliesGlobalFontMagnification: true
-                )
-                    .foregroundStyle(iconColor)
-                    .frame(width: metrics.iconFrame, height: metrics.iconFrame)
-                    .accessibilityHidden(true)
+                // Linear teams pattern: no folder icon and no leading chevron.
+                // Only an explicit non-folder group icon renders (like a team
+                // emoji); the small collapse chevron trails the name.
+                if !displayedIconSymbol.hasPrefix("folder") {
+                    CmuxSystemSymbolImage(
+                        systemName: displayedIconSymbol,
+                        pointSize: metrics.iconFontSize,
+                        weight: .medium,
+                        appliesGlobalFontMagnification: true
+                    )
+                        .foregroundStyle(iconColor)
+                        .frame(width: metrics.iconFrame, height: metrics.iconFrame)
+                        .accessibilityHidden(true)
+                }
                 Text(name)
-                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
-                    .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
+                    .cmuxFont(size: metrics.nameFontSize, weight: .medium)
+                    .foregroundStyle(isAnchorActive ? Color.white : SidebarMutedText.color)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                BlodeIconImage(
+                    name: isCollapsed ? "BlodeChevronRight" : "BlodeChevronDown",
+                    size: metrics.chevronFontSize + 1
+                )
+                    .foregroundStyle(SidebarMutedText.color.opacity(0.8))
+                    .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onToggleCollapsed() }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel(
+                        Text(
+                            isCollapsed
+                                ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
+                                : String(localized: "workspaceGroup.collapse.a11y", defaultValue: "Collapse group")
+                        )
+                    )
                 if anchorUnreadCount > 0 {
+                    // Linear badge: a plain muted count, no pill.
                     Text("\(anchorUnreadCount)")
-                        .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, metrics.unreadHorizontalPadding)
-                        .padding(.vertical, metrics.unreadVerticalPadding)
-                        .background(Capsule().fill(cmuxAccentColor()))
+                        .cmuxFont(size: metrics.unreadFontSize, weight: .medium)
+                        .foregroundStyle(SidebarMutedText.color)
                         .accessibilityLabel(Text(String.localizedStringWithFormat(
                             String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
                             anchorUnreadCount
@@ -252,8 +248,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 )
             }
         }
-        .padding(.vertical, 5)
-        .padding(.trailing, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
+        .padding(.vertical, 6)
+        .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
         .contentShape(Rectangle())
         .background(
             isAnchorActive

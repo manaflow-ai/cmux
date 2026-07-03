@@ -78,17 +78,19 @@ func titlebarControlForegroundNSColor(opacity: CGFloat, appearance: WindowAppear
 func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
     switch colorScheme {
     case .dark:
+        // Linear "magic blue" accent — lch(59.262% 70 291.567) ≈ #6786FF
         return NSColor(
-            srgbRed: 0,
-            green: 145.0 / 255.0,
-            blue: 1.0,
+            srgbRed: 103.0 / 255.0,
+            green: 134.0 / 255.0,
+            blue: 255.0 / 255.0,
             alpha: 1.0
         )
     default:
+        // Linear magic blue, deepened for contrast on light — lch(47.887% 64.446 291.567) ≈ #4A6AD8
         return NSColor(
-            srgbRed: 0,
-            green: 136.0 / 255.0,
-            blue: 1.0,
+            srgbRed: 74.0 / 255.0,
+            green: 106.0 / 255.0,
+            blue: 216.0 / 255.0,
             alpha: 1.0
         )
     }
@@ -108,6 +110,40 @@ func cmuxAccentNSColor() -> NSColor {
 
 func cmuxAccentColor() -> Color {
     Color(nsColor: cmuxAccentNSColor())
+}
+
+/// Muted text grey — used for non-focused workspace titles and secondary
+/// sidebar text so the list reads calm and recessive while staying legible.
+/// Dark: Linear's #97979E. Light: a darker grey for contrast on light chrome.
+enum SidebarMutedText {
+    static let color = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 151.0 / 255.0, green: 151.0 / 255.0, blue: 158.0 / 255.0, alpha: 1)
+            : NSColor(srgbRed: 94.0 / 255.0, green: 95.0 / 255.0, blue: 102.0 / 255.0, alpha: 1)
+    })
+}
+
+/// Fixed chrome colors for the Linear-style dark shell.
+enum SidebarChromeColors {
+    /// Tab-bar / inactive-row surface (#13141C), darker than the terminal bg.
+    static let tabBarBackgroundHex = "#13141C"
+    /// Active workspace-row selection block (#282833).
+    static let selectedRowHex = "#282833"
+}
+
+/// Renders a bundled blode-icons SVG (template imageset under
+/// `Assets.xcassets/BlodeIcons`) tinted via `foregroundColor`/`foregroundStyle`.
+struct BlodeIconImage: View {
+    let name: String
+    var size: CGFloat = 14
+
+    var body: some View {
+        Image(name)
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+    }
 }
 
 func cmuxReadableColorScheme(for backgroundColor: NSColor) -> ColorScheme {
@@ -294,7 +330,8 @@ func sidebarWorkspaceRowBackgroundStyle(
     isMultiSelected: Bool,
     customColorHex: String?,
     colorScheme: ColorScheme,
-    sidebarSelectionColorHex: String?
+    sidebarSelectionColorHex: String?,
+    isHovered: Bool = false
 ) -> SidebarWorkspaceRowBackgroundStyle {
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
         for: colorScheme,
@@ -312,17 +349,36 @@ func sidebarWorkspaceRowBackgroundStyle(
     switch activeTabIndicatorStyle {
     case .leftRail:
         if isActive {
-            // Restrained selection (Linear/Zed): a subtle accent wash carried
-            // by the leading rail, not a saturated block.
+            // Linear selection (dark): a solid neutral #282833 block with
+            // white text. Light mode keeps the subtle selected wash — the
+            // fixed dark hexes would read as broken blocks on light chrome.
+            if colorScheme == .dark, let selected = NSColor(hex: SidebarChromeColors.selectedRowHex) {
+                return SidebarWorkspaceRowBackgroundStyle(color: selected, opacity: 1)
+            }
             return SidebarWorkspaceRowBackgroundStyle(
                 color: selectedBackground,
                 opacity: SidebarWorkspaceListMetrics.activeSelectionFillOpacity
             )
         }
         if isMultiSelected {
-            // Secondary (multi-)selection sits below the focused row: fainter
-            // wash and no rail.
-            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: 0.10)
+            // Secondary (multi-)selection: a fainter *neutral* wash, matching
+            // the neutral single-selection language (no accent tint).
+            return SidebarWorkspaceRowBackgroundStyle(
+                color: colorScheme == .dark ? .white : .black,
+                opacity: colorScheme == .dark ? 0.07 : 0.05
+            )
+        }
+        if isHovered {
+            // Linear-style hover feedback: a whisper of overlay.
+            return SidebarWorkspaceRowBackgroundStyle(
+                color: colorScheme == .dark ? .white : .black,
+                opacity: colorScheme == .dark ? 0.045 : 0.035
+            )
+        }
+        // Non-focused rows (dark) sit on a flat #13141C block so the focused
+        // row's fill clearly stands out; light mode stays transparent.
+        if colorScheme == .dark, let base = NSColor(hex: SidebarChromeColors.tabBarBackgroundHex) {
+            return SidebarWorkspaceRowBackgroundStyle(color: base, opacity: 1)
         }
         return .clear
 
@@ -370,7 +426,11 @@ enum SidebarStatusPalette {
     }
 
     static func done(_ scheme: ColorScheme) -> NSColor {
-        running(scheme)
+        // Completed work recedes (Linear-style): a muted grey dot, so green is
+        // reserved exclusively for actively-running workspaces.
+        scheme == .dark
+            ? NSColor(srgbRed: 151.0 / 255.0, green: 151.0 / 255.0, blue: 158.0 / 255.0, alpha: 1)
+            : NSColor(srgbRed: 120.0 / 255.0, green: 121.0 / 255.0, blue: 128.0 / 255.0, alpha: 1)
     }
 
     static func error(_ scheme: ColorScheme) -> NSColor {
@@ -414,14 +474,29 @@ struct SidebarStatusStyle {
 
     static func resolve(key: String, value: String, colorScheme: ColorScheme) -> SidebarStatusStyle? {
         guard let kind = kind(forKey: key, value: value) else { return nil }
-        let color: NSColor
+        return SidebarStatusStyle(symbolName: "circle.fill", color: color(for: kind, colorScheme: colorScheme))
+    }
+
+    static func color(for kind: Kind, colorScheme: ColorScheme) -> NSColor {
         switch kind {
-        case .running: color = SidebarStatusPalette.running(colorScheme)
-        case .needsInput: color = SidebarStatusPalette.needsInput(colorScheme)
-        case .idle: color = SidebarStatusPalette.idle(colorScheme)
-        case .done: color = SidebarStatusPalette.done(colorScheme)
-        case .error: color = SidebarStatusPalette.error(colorScheme)
+        case .running: return SidebarStatusPalette.running(colorScheme)
+        case .needsInput: return SidebarStatusPalette.needsInput(colorScheme)
+        case .idle: return SidebarStatusPalette.idle(colorScheme)
+        case .done: return SidebarStatusPalette.done(colorScheme)
+        case .error: return SidebarStatusPalette.error(colorScheme)
         }
-        return SidebarStatusStyle(symbolName: "circle.fill", color: color)
+    }
+
+    /// Resolves one dot color from all of a workspace's status entries, ranked
+    /// by urgency so e.g. an error is never masked by a concurrent "running".
+    static func rankedDotColor(
+        forEntries entries: [(key: String, value: String)],
+        colorScheme: ColorScheme
+    ) -> NSColor? {
+        let kinds = entries.compactMap { kind(forKey: $0.key, value: $0.value) }
+        guard !kinds.isEmpty else { return nil }
+        let priority: [Kind] = [.error, .needsInput, .running, .idle, .done]
+        guard let kind = priority.first(where: { kinds.contains($0) }) else { return nil }
+        return color(for: kind, colorScheme: colorScheme)
     }
 }

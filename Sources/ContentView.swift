@@ -10295,11 +10295,17 @@ struct VerticalTabsSidebar: View {
     }
 
     private var sidebarTopScrimHeight: CGFloat {
-        SidebarWorkspaceListMetrics.topScrimHeight
+        // Fade only the titlebar zone so scrolled rows dissolve under the
+        // traffic lights, WITHOUT dimming the first row at rest. (The old
+        // `+ 20` scrim extended past the first row's top, which read as the
+        // "weird" top fade when scrolled to the top.)
+        SidebarWorkspaceListMetrics.firstRowTopOffset
     }
 
     private var sidebarBottomScrimHeight: CGFloat {
-        SidebarWorkspaceListMetrics.bottomScrimHeight
+        // No bottom fade — content keeps its bottom margin (so the last row
+        // clears the footer) but the bottom edge stays crisp.
+        0
     }
 
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
@@ -10660,10 +10666,11 @@ struct VerticalTabsSidebar: View {
                     Color.clear.frame(height: scrollInsets.top)
                         .allowsHitTesting(false)
                 }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: scrollInsets.bottom)
-                        .allowsHitTesting(false)
-                }
+                // Inset the CONTENT (not the scroll indicator) at the bottom so
+                // the last row clears the footer/fade while the overlay scrollbar
+                // still runs to the true bottom edge. (A bottom safe-area inset
+                // would shorten the scroller too — that left it stopping short.)
+                .contentMargins(.bottom, scrollInsets.bottom, for: .scrollContent)
                 .mask(
                     SidebarWorkspaceScrollEdgeFadeMask(
                         topHeight: sidebarTopScrimHeight,
@@ -13467,11 +13474,10 @@ struct TabItemView: View, Equatable {
         design: Font.Design = .default,
         monospacedDigit: Bool = false
     ) -> Font {
-        var font = Font.system(
-            size: GlobalFontMagnification.scaledSize(baseSize, percent: globalFontMagnificationPercent),
-            weight: weight,
-            design: design
-        )
+        let size = GlobalFontMagnification.scaledSize(baseSize, percent: globalFontMagnificationPercent)
+        // One family everywhere: Berkeley Mono when installed, Inter fallback.
+        let familyName = (design == .monospaced) ? "Berkeley Mono" : CmuxUIFontFamily.preferred
+        var font = Font.custom(familyName, size: size).weight(weight)
         if monospacedDigit {
             font = font.monospacedDigit()
         }
@@ -13479,11 +13485,10 @@ struct TabItemView: View, Equatable {
     }
 
     private var showsLeadingRail: Bool {
-        if explicitRailColor != nil { return true }
-        // In the default left-rail style, the focused row is marked by an
-        // accent rail (instead of a loud full-accent fill), even without a
-        // per-workspace custom color.
-        return activeTabIndicatorStyle == .leftRail && isActive
+        // Only draw a leading rail for an explicit per-workspace color. The
+        // focused row now reads purely from its (clearer) background fill — no
+        // accent bar — for a cleaner, more minimal selection.
+        return explicitRailColor != nil
     }
 
     private var activeBorderLineWidth: CGFloat {
@@ -13516,16 +13521,27 @@ struct TabItemView: View, Equatable {
         if usesInvertedActiveForeground {
             return Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
         }
-        // Let the sidebar recede: the focused row's title is full-strength,
-        // inactive rows are gently dimmed so the focused row and the terminal
-        // lead (Linear-refresh "muted inactive / sidebar recedes").
-        return isActive ? .primary : Color.primary.opacity(0.82)
+        // Let the sidebar recede (Linear "muted inactive"): the focused row's
+        // title is full-strength; inactive rows use Linear's muted grey #5F5F66
+        // so the focused row and the terminal lead.
+        // Focused row: pure white on the dark #282833 selection block; in
+        // light mode the block is a subtle wash, so primary text stays primary.
+        if isActive {
+            return colorScheme == .dark ? .white : .primary
+        }
+        return SidebarMutedText.color
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
-        usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
-            : .secondary
+        if usesInvertedActiveForeground {
+            return Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
+        }
+        // Focused row's secondary text stays white (dimmed) on the dark
+        // selection block; inactive rows recede to the muted grey.
+        if isActive {
+            return colorScheme == .dark ? Color.white.opacity(opacity) : Color.primary.opacity(opacity)
+        }
+        return SidebarMutedText.color
     }
 
     private var activeUnreadBadgeFillColor: Color {
@@ -13628,7 +13644,7 @@ struct TabItemView: View, Equatable {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(remoteWorkspaceSidebarText)
-                        .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
+                        .font(magnifiedFont(scaledFontSize(11), design: .monospaced))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -13713,7 +13729,15 @@ struct TabItemView: View, Equatable {
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
         let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
-        let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
+        // Strip leading decorative agent glyphs (✳ ✻ ❊ · • ∙) so the status
+        // dot is the row's single state indicator and titles start with words.
+        let decorativeTitlePrefix = CharacterSet(charactersIn: "✳✻❊·•∙* ").union(.whitespaces)
+        let sanitizedTitle = workspaceSnapshot.title.trimmingCharacters(in: decorativeTitlePrefix).isEmpty
+            ? workspaceSnapshot.title
+            : String(workspaceSnapshot.title.drop(while: { char in
+                char.unicodeScalars.allSatisfy { decorativeTitlePrefix.contains($0) }
+            }))
+        let displayedTitle = sanitizedTitle.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
         )
@@ -13727,18 +13751,26 @@ struct TabItemView: View, Equatable {
         VStack(alignment: .leading, spacing: SidebarWorkspaceListMetrics.rowContentSpacing) {
             HStack(alignment: .top, spacing: 8) {
                 if unreadCount > 0 {
-                    ZStack {
-                        Circle()
-                            .fill(activeUnreadBadgeFillColor)
+                    // Linear badge: a plain count, no filled pill — unless the
+                    // user explicitly configured a badge color.
+                    if sidebarNotificationBadgeColorHex != nil {
+                        ZStack {
+                            Circle()
+                                .fill(activeUnreadBadgeFillColor)
+                            Text("\(unreadCount)")
+                                .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
+                                .foregroundColor(activeUnreadBadgeTextColor)
+                        }
+                        .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+                    } else {
                         Text("\(unreadCount)")
-                            .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
-                            .foregroundColor(activeUnreadBadgeTextColor)
+                            .font(magnifiedFont(scaledFontSize(11), weight: .medium))
+                            .foregroundColor(SidebarMutedText.color)
                     }
-                    .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
                 }
 
                 if workspaceSnapshot.isPinned {
-                    CmuxSystemSymbolImage(magnified: "pin.fill", pointSize: scaledFontSize(9), weight: .semibold)
+                    BlodeIconImage(name: "BlodePin", size: scaledFontSize(10))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
                 }
@@ -13780,8 +13812,22 @@ struct TabItemView: View, Equatable {
                         .accessibilityLabel(cameraInUseTooltip)
                 }
 
+                // Linear-style leading status dot: one semantic dot carries the
+                // state, ranked by urgency (error > needs-input > running >
+                // idle > done) so an error is never masked by "running".
+                if let statusColor = SidebarStatusStyle.rankedDotColor(
+                    forEntries: workspaceSnapshot.metadataEntries.map { (key: $0.key, value: $0.value) },
+                    colorScheme: colorScheme
+                ) {
+                    Circle()
+                        .fill(Color(nsColor: statusColor))
+                        .frame(width: scaledFontSize(7), height: scaledFontSize(7))
+                        .padding(.trailing, 1)
+                        .accessibilityHidden(true)
+                }
+
                 Text(displayedTitle)
-                    .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
+                    .font(magnifiedFont(scaledFontSize(13), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(titleLineLimit)
                     .truncationMode(.tail)
@@ -13801,7 +13847,7 @@ struct TabItemView: View, Equatable {
                         #endif
                         tabManager.closeWorkspaceWithConfirmation(tab)
                     }) {
-                        CmuxSystemSymbolImage(magnified: "xmark", pointSize: scaledFontSize(9), weight: .medium)
+                        BlodeIconImage(name: "BlodeX", size: scaledFontSize(11))
                             .foregroundColor(activeSecondaryColor(0.7))
                             .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
                             .contentShape(Rectangle())
@@ -13825,7 +13871,7 @@ struct TabItemView: View, Equatable {
 
             if let subtitle = effectiveSubtitle {
                 Text(subtitle)
-                    .font(magnifiedFont(scaledFontSize(10)))
+                    .font(magnifiedFont(scaledFontSize(12)))
                     .foregroundColor(activeSecondaryColor(0.8))
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -13835,7 +13881,11 @@ struct TabItemView: View, Equatable {
             remoteWorkspaceSection
 
             if detailVisibility.showsMetadata {
-                let metadataEntries = workspaceSnapshot.metadataEntries
+                // Recognized statuses become the leading title dot, so drop
+                // their redundant text rows here (keep any unrecognized ones).
+                let metadataEntries = workspaceSnapshot.metadataEntries.filter {
+                    SidebarStatusStyle.kind(forKey: $0.key, value: $0.value) == nil
+                }
                 let metadataBlocks = workspaceSnapshot.metadataBlocks
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
@@ -13866,7 +13916,7 @@ struct TabItemView: View, Equatable {
                     CmuxSystemSymbolImage(magnified: logLevelIcon(latestLog.level), pointSize: scaledFontSize(8))
                         .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
                     Text(latestLog.message)
-                        .font(magnifiedFont(scaledFontSize(10)))
+                        .font(magnifiedFont(scaledFontSize(11)))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -13908,41 +13958,43 @@ struct TabItemView: View, Equatable {
                             }
                             VStack(alignment: .leading, spacing: 1) {
                                 ForEach(Array(workspaceSnapshot.branchDirectoryLines.enumerated()), id: \.offset) { _, line in
+                                    // Directory (project) leads, branch trails and is
+                                    // dimmer — project identity over branch detail.
                                     if sidebarStacksBranchAndDirectory {
-                                        if let branch = line.branch {
-                                            Text(branch)
-                                                .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
-                                                .foregroundColor(activeSecondaryColor(0.75))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-                                        }
                                         if !line.directoryCandidates.isEmpty {
                                             SidebarDirectoryText(
                                                 candidates: line.directoryCandidates,
-                                                color: activeSecondaryColor(0.75),
+                                                color: activeSecondaryColor(0.85),
                                                 fontScale: fontScale
                                             )
                                         }
+                                        if let branch = line.branch {
+                                            Text(branch)
+                                                .font(magnifiedFont(scaledFontSize(11), design: .monospaced))
+                                                .foregroundColor(activeSecondaryColor(0.6))
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                        }
                                     } else {
                                         HStack(spacing: 3) {
-                                            if let branch = line.branch {
-                                                Text(branch)
-                                                    .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
-                                                    .foregroundColor(activeSecondaryColor(0.75))
-                                                    .lineLimit(1)
-                                                    .truncationMode(.tail)
+                                            if !line.directoryCandidates.isEmpty {
+                                                SidebarDirectoryText(
+                                                    candidates: line.directoryCandidates,
+                                                    color: activeSecondaryColor(0.85),
+                                                    fontScale: fontScale
+                                                )
                                             }
                                             if line.branch != nil, !line.directoryCandidates.isEmpty {
                                                 CmuxSystemSymbolImage(magnified: "circle.fill", pointSize: scaledFontSize(3))
                                                     .foregroundColor(activeSecondaryColor(0.6))
                                                     .padding(.horizontal, 1)
                                             }
-                                            if !line.directoryCandidates.isEmpty {
-                                                SidebarDirectoryText(
-                                                    candidates: line.directoryCandidates,
-                                                    color: activeSecondaryColor(0.75),
-                                                    fontScale: fontScale
-                                                )
+                                            if let branch = line.branch {
+                                                Text(branch)
+                                                    .font(magnifiedFont(scaledFontSize(11), design: .monospaced))
+                                                    .foregroundColor(activeSecondaryColor(0.6))
+                                                    .lineLimit(1)
+                                                    .truncationMode(.tail)
                                             }
                                         }
                                     }
@@ -13961,7 +14013,7 @@ struct TabItemView: View, Equatable {
                         VStack(alignment: .leading, spacing: 1) {
                             if let branchRow = workspaceSnapshot.compactGitBranchSummaryText {
                                 Text(branchRow)
-                                    .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
+                                    .font(magnifiedFont(scaledFontSize(11), design: .monospaced))
                                     .foregroundColor(activeSecondaryColor(0.75))
                                     .lineLimit(1)
                                     .truncationMode(.tail)
@@ -13996,17 +14048,15 @@ struct TabItemView: View, Equatable {
                     ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
                         let pullRequestNumber = String(pullRequest.number)
                         let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
-                        let rowContent = HStack(spacing: 4) {
-                            PullRequestStatusIcon(
-                                status: pullRequest.status,
-                                color: pullRequestForegroundColor,
-                                fontScale: fontScale
-                            )
-                            Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
-                            Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
+                        // Linear-quiet PR row: blode pull-request glyph + "#N",
+                        // no underline and no status word — the tooltip and
+                        // click-through carry the rest.
+                        let rowContent = HStack(spacing: 5) {
+                            BlodeIconImage(name: "BlodeGitPullRequest", size: scaledFontSize(11))
+                            Text("#\(pullRequestNumber)").lineLimit(1).truncationMode(.tail)
                             Spacer(minLength: 0)
                         }
-                        .font(magnifiedFont(scaledFontSize(10), weight: .semibold))
+                        .font(magnifiedFont(scaledFontSize(11), weight: .medium))
                         .foregroundColor(pullRequestForegroundColor)
                         .opacity(pullRequest.isStale ? 0.5 : 1)
                         if settings.makesPullRequestsClickable {
@@ -14039,7 +14089,7 @@ struct TabItemView: View, Equatable {
                     }
                     Spacer(minLength: 0)
                 }
-                .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
+                .font(magnifiedFont(scaledFontSize(11), design: .monospaced))
                 .foregroundColor(activeSecondaryColor(0.75))
                 .lineLimit(1)
             }
@@ -14547,7 +14597,8 @@ struct TabItemView: View, Equatable {
             isMultiSelected: isMultiSelected,
             customColorHex: workspaceSnapshot.customColorHex,
             colorScheme: colorScheme,
-            sidebarSelectionColorHex: sidebarSelectionColorHex
+            sidebarSelectionColorHex: sidebarSelectionColorHex,
+            isHovered: rowInteractionState.isPointerHovering
         )
         guard let color = style.color else { return .clear }
         return Color(nsColor: color).opacity(style.opacity)
@@ -14569,7 +14620,7 @@ struct TabItemView: View, Equatable {
         ) else {
             return nil
         }
-        return Color(nsColor: railColor).opacity(0.95)
+        return Color(nsColor: railColor).opacity(0.6)
     }
 
     private func tabColorSwatchColor(for hex: String) -> NSColor {
@@ -14921,10 +14972,12 @@ struct TabItemView: View, Equatable {
     // latestNotificationText is now passed as a parameter from the parent view
     // to avoid subscribing to notificationStore changes in every TabItemView.
 
-    // Builds the joined "branch · directory" candidates list for inline mode.
-    // Each entry pairs the (fixed) git summary with one entry from the
-    // directory candidates list, so ViewThatFits can choose how aggressively to
-    // shorten the directory portion as the row width changes.
+    // Builds the joined "directory · branch" candidates list for inline mode.
+    // The directory (project identity) leads and the branch trails — which
+    // project a workspace belongs to matters more than which branch it's on
+    // (matching Claude/Cursor's project-first sidebars). Each entry pairs one
+    // directory candidate with the (fixed) git summary, so ViewThatFits can
+    // choose how aggressively to shorten the directory portion.
     private func compactBranchDirectoryCandidatesList(
         gitSummary: String?,
         directoryCandidates: [String]
@@ -14933,7 +14986,7 @@ struct TabItemView: View, Equatable {
             return gitSummary.flatMap { $0.isEmpty ? nil : [$0] } ?? []
         }
         guard let gitSummary, !gitSummary.isEmpty else { return directoryCandidates }
-        return directoryCandidates.map { "\(gitSummary) · \($0)" }
+        return directoryCandidates.map { "\($0) · \(gitSummary)" }
     }
 
     private func gitBranchSummaryText(orderedPanelIds: [UUID]) -> String? {
@@ -15077,14 +15130,6 @@ struct TabItemView: View, Equatable {
         NSWorkspace.shared.open(url)
     }
 
-    private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {
-        switch status {
-        case .open: return String(localized: "sidebar.pullRequest.statusOpen", defaultValue: "open")
-        case .merged: return String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")
-        case .closed: return String(localized: "sidebar.pullRequest.statusClosed", defaultValue: "closed")
-        }
-    }
-
     private func logLevelIcon(_ level: SidebarLogLevel) -> String {
         switch level {
         case .info: return "circle.fill"
@@ -15129,114 +15174,6 @@ struct TabItemView: View, Equatable {
             return "~" + trimmed.dropFirst(home.count)
         }
         return trimmed
-    }
-
-    private struct PullRequestStatusIcon: View {
-        let status: SidebarPullRequestStatus
-        let color: Color
-        var fontScale: CGFloat = 1
-        private static let closedFrameSize: CGFloat = 12
-        private static let customFrameSize: CGFloat = 13
-
-        private var closedFrameSize: CGFloat {
-            Self.closedFrameSize * fontScale
-        }
-
-        private var customFrameSize: CGFloat {
-            Self.customFrameSize * fontScale
-        }
-
-        var body: some View {
-            switch status {
-            case .open:
-                PullRequestOpenIcon(color: color)
-                    .scaleEffect(fontScale)
-                    .frame(width: customFrameSize, height: customFrameSize)
-            case .merged:
-                PullRequestMergedIcon(color: color)
-                    .scaleEffect(fontScale)
-                    .frame(width: customFrameSize, height: customFrameSize)
-            case .closed:
-                CmuxSystemSymbolImage(magnified: "xmark.circle", pointSize: 7 * fontScale, weight: .regular)
-                    .foregroundColor(color)
-                    .frame(width: closedFrameSize, height: closedFrameSize)
-            }
-        }
-    }
-
-    private struct PullRequestOpenIcon: View {
-        let color: Color
-        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
-        private static let nodeDiameter: CGFloat = 3.0
-        private static let frameSize: CGFloat = 13
-
-        var body: some View {
-            ZStack {
-                Path { path in
-                    path.move(to: CGPoint(x: 3.0, y: 4.8))
-                    path.addLine(to: CGPoint(x: 3.0, y: 9.2))
-
-                    path.move(to: CGPoint(x: 4.8, y: 3.0))
-                    path.addLine(to: CGPoint(x: 9.4, y: 3.0))
-                    path.addLine(to: CGPoint(x: 11.0, y: 4.6))
-                    path.addLine(to: CGPoint(x: 11.0, y: 9.2))
-                }
-                .stroke(color, style: Self.stroke)
-
-                Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 3.0)
-
-                Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 11.0)
-
-                Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 11.0, y: 11.0)
-            }
-            .frame(width: Self.frameSize, height: Self.frameSize)
-        }
-    }
-
-    private struct PullRequestMergedIcon: View {
-        let color: Color
-        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
-        private static let nodeDiameter: CGFloat = 3.0
-        private static let frameSize: CGFloat = 13
-
-        var body: some View {
-            ZStack {
-                Path { path in
-                    path.move(to: CGPoint(x: 4.6, y: 4.6))
-                    path.addLine(to: CGPoint(x: 7.1, y: 7.0))
-                    path.addLine(to: CGPoint(x: 9.2, y: 7.0))
-
-                    path.move(to: CGPoint(x: 4.6, y: 9.4))
-                    path.addLine(to: CGPoint(x: 7.1, y: 7.0))
-                }
-                .stroke(color, style: Self.stroke)
-
-                Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 3.0)
-
-                Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 11.0)
-
-                Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 11.0, y: 7.0)
-            }
-            .frame(width: Self.frameSize, height: Self.frameSize)
-        }
     }
 
     private func applyTabColor(_ hex: String?, targetIds: [UUID]) {
@@ -15523,7 +15460,7 @@ private struct SidebarMetadataEntryRow: View {
                 .truncationMode(.tail)
             Spacer(minLength: 0)
         }
-        .cmuxFont(size: 10 * fontScale)
+        .cmuxFont(size: 11 * fontScale)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -15552,7 +15489,7 @@ private struct SidebarMetadataEntryRow: View {
         if iconRaw.hasPrefix("emoji:") {
             let value = String(iconRaw.dropFirst("emoji:".count))
             guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).cmuxFont(size: 9 * fontScale))
+            return AnyView(Text(value).cmuxFont(size: 11 * fontScale))
         }
         if iconRaw.hasPrefix("text:") {
             let value = String(iconRaw.dropFirst("text:".count))
