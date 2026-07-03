@@ -1,5 +1,8 @@
-// Resolve the effective terminal background/foreground from the user's
-// Ghostty config, the same file cmux's embedded terminal reads.
+// Resolve the effective terminal background/foreground the same way cmux's
+// embedded terminal does: ask ghostty itself (`+show-config` prints the fully
+// resolved config, including theme-file colors and repeated-key semantics).
+// Falls back to hand-parsing ~/.config/ghostty/config when no ghostty binary
+// is available.
 import { homedir } from "node:os";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -9,8 +12,14 @@ export interface GhosttyTheme {
   opacity: number; // background-opacity, 1 = opaque
   blur: number; // background-blur-radius
   isLight: boolean;
-  themeName: string | null;
+  source: string;
 }
+
+const GHOSTTY_BINS = [
+  process.env.CMUX_GHOSTTY_BIN ?? "",
+  "/Applications/cmux.app/Contents/Resources/bin/ghostty",
+  "/Applications/Ghostty.app/Contents/MacOS/ghostty",
+].filter(Boolean);
 
 const THEME_DIRS = [
   `${homedir()}/.config/ghostty/themes`,
@@ -18,20 +27,92 @@ const THEME_DIRS = [
   "/Applications/Ghostty.app/Contents/Resources/ghostty/themes",
 ];
 
+let cached: { theme: GhosttyTheme; at: number } | null = null;
+
+export function resolveGhosttyTheme(): GhosttyTheme {
+  if (cached && Date.now() - cached.at < 3000) return cached.theme;
+  const theme = fromShowConfig() ?? fromManualParse();
+  cached = { theme, at: Date.now() };
+  return theme;
+}
+
+function fromShowConfig(): GhosttyTheme | null {
+  for (const bin of GHOSTTY_BINS) {
+    if (!existsSync(bin)) continue;
+    try {
+      const res = Bun.spawnSync([bin, "+show-config"], { stdout: "pipe", stderr: "ignore" });
+      if (res.exitCode !== 0) continue;
+      const kv = parseKVs(res.stdout.toString());
+      const bg = normalizeColor(kv.get("background"));
+      const fg = normalizeColor(kv.get("foreground"));
+      if (!bg || !fg) continue;
+      return finish(bg, fg, kv, `show-config:${bin}`);
+    } catch {
+      // try the next binary
+    }
+  }
+  return null;
+}
+
+function fromManualParse(): GhosttyTheme {
+  let bg: string | null = null;
+  let fg: string | null = null;
+  let kv = new Map<string, string>();
+  try {
+    const text = readFileSync(`${homedir()}/.config/ghostty/config`, "utf8");
+    kv = parseKVs(text);
+    // Ghostty resolves the FIRST theme line (verified against +show-config).
+    const themeLine = text
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.startsWith("theme"))
+      ?.split("=")[1];
+    const themeName = themeLine ? unquote(themeLine.trim()) : null;
+    if (themeName) {
+      const single = themeName.includes(":")
+        ? Object.fromEntries(themeName.split(",").map((p) => p.split(":").map((s) => s.trim()) as [string, string])).dark
+        : themeName;
+      if (single) {
+        const colors = themeColors(single);
+        bg = colors.bg;
+        fg = colors.fg;
+      }
+    }
+    bg = normalizeColor(kv.get("background")) ?? bg;
+    fg = normalizeColor(kv.get("foreground")) ?? fg;
+  } catch {
+    // no ghostty config at all; use defaults
+  }
+  return finish(bg ?? "#101014", fg ?? "#e8e8ec", kv, "manual-parse");
+}
+
+function finish(bg: string, fg: string, kv: Map<string, string>, source: string): GhosttyTheme {
+  const op = parseFloat(kv.get("background-opacity") ?? "");
+  const bl = parseFloat(kv.get("background-blur-radius") ?? kv.get("background-blur") ?? "");
+  return {
+    background: bg,
+    foreground: fg,
+    opacity: !Number.isNaN(op) && op > 0 && op <= 1 ? op : 1,
+    blur: Number.isNaN(bl) ? 0 : bl,
+    isLight: luminance(bg) > 0.5,
+    source,
+  };
+}
+
 function parseKVs(text: string): Map<string, string> {
-  // Last occurrence wins, matching Ghostty scalar semantics.
   const map = new Map<string, string>();
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
     const eq = line.indexOf("=");
     if (eq < 0) continue;
-    const key = line.slice(0, eq).trim();
-    let value = line.slice(eq + 1).trim();
-    if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
-    map.set(key, value);
+    map.set(line.slice(0, eq).trim(), unquote(line.slice(eq + 1).trim()));
   }
   return map;
+}
+
+function unquote(v: string): string {
+  return v.startsWith('"') && v.endsWith('"') ? v.slice(1, -1) : v;
 }
 
 function normalizeColor(v: string | undefined): string | null {
@@ -54,47 +135,4 @@ function luminance(hex: string): number {
   const n = parseInt(hex.slice(1), 16);
   const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
   return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-}
-
-export function resolveGhosttyTheme(): GhosttyTheme {
-  let bg: string | null = null;
-  let fg: string | null = null;
-  let opacity = 1;
-  let blur = 0;
-  let themeName: string | null = null;
-
-  try {
-    const kv = parseKVs(readFileSync(`${homedir()}/.config/ghostty/config`, "utf8"));
-    themeName = kv.get("theme") ?? null;
-    if (themeName) {
-      // `theme = light:X,dark:Y` — cmux UI is dark-first; prefer the dark
-      // variant when split, else the single name.
-      const variants = Object.fromEntries(
-        themeName.split(",").map((part) => {
-          const [k, ...rest] = part.split(":");
-          return rest.length ? [k.trim(), rest.join(":").trim()] : ["single", part.trim()];
-        }),
-      );
-      const chosen = variants.single ?? variants.dark ?? variants.light;
-      if (chosen) {
-        themeName = chosen;
-        const colors = themeColors(chosen);
-        bg = colors.bg;
-        fg = colors.fg;
-      }
-    }
-    // Explicit keys in the user config override the theme.
-    bg = normalizeColor(kv.get("background")) ?? bg;
-    fg = normalizeColor(kv.get("foreground")) ?? fg;
-    const op = parseFloat(kv.get("background-opacity") ?? "");
-    if (!Number.isNaN(op) && op > 0 && op <= 1) opacity = op;
-    const bl = parseFloat(kv.get("background-blur-radius") ?? kv.get("background-blur") ?? "");
-    if (!Number.isNaN(bl)) blur = bl;
-  } catch {
-    // no ghostty config; fall through to defaults
-  }
-
-  bg ??= "#101014";
-  fg ??= "#e8e8ec";
-  return { background: bg, foreground: fg, opacity, blur, isLight: luminance(bg) > 0.5, themeName };
 }
