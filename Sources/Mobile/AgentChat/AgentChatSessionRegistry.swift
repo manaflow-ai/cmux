@@ -2,19 +2,9 @@ import CMUXAgentLaunch
 import CmuxAgentChat
 import Foundation
 
-/// A coding-agent session discovered by observing the process table, with no
-/// dependency on hooks firing. Identity (and, for codex, the transcript path)
-/// comes from the agent's own argv, environment, or open transcript file, so a
-/// session launched through any indirection (a subrouter, a wrapper) is still
-/// found.
-nonisolated struct ObservedAgentSession: Sendable {
-    let sessionID: String
-    let agentKind: ChatAgentKind
-    let surfaceID: String
-    let workspaceID: String?
-    let pid: Int
-    let workingDirectory: String?
-    let transcriptPath: String?
+private enum ClaudeSessionCanonicalizationContext {
+    case liveEvidence
+    case hookStoreSeed(AgentChatHookSessionStore.Entry)
 }
 
 /// Main-actor registry of chat-capable agent sessions, built from agent
@@ -192,6 +182,7 @@ final class AgentChatSessionRegistry {
                     title: nil,
                     pid: session.pid
                 )
+                stampLifecycleTransition(previous: nil, current: &record, at: session.sampledAt)
                 stampVersion(&record)
                 records[targetSessionID] = record
                 syncProcessExitWatch(for: record)
@@ -320,6 +311,7 @@ final class AgentChatSessionRegistry {
         guard let previous = records[sessionID] else { return }
         var record = previous
         mutate(&record)
+        stampLifecycleTransition(previous: previous, current: &record, at: Date())
         stampVersion(&record)
         records[sessionID] = record
         #if DEBUG
@@ -376,7 +368,8 @@ final class AgentChatSessionRegistry {
                 let sessionID = canonicalClaudeSessionID(
                     incomingSessionID: entry.sessionID,
                     source: source,
-                    surfaceID: entry.surfaceID
+                    surfaceID: entry.surfaceID,
+                    context: .hookStoreSeed(entry)
                 )
                 if let current = records[sessionID] {
                     var candidate = current
@@ -404,6 +397,7 @@ final class AgentChatSessionRegistry {
                     pid: entry.pid
                 )
                 record.rememberHookStoreSessionID(entry.sessionID)
+                stampLifecycleTransition(previous: nil, current: &record, at: entry.updatedAt ?? Date())
                 stampVersion(&record)
                 records[sessionID] = record
                 syncProcessExitWatch(for: record)
@@ -423,7 +417,8 @@ final class AgentChatSessionRegistry {
         let sessionID = canonicalClaudeSessionID(
             incomingSessionID: hookSessionID,
             source: event.source,
-            surfaceID: event.surfaceId
+            surfaceID: event.surfaceId,
+            context: .liveEvidence
         )
         let kind = ChatAgentKind(source: event.source)
         #if DEBUG
@@ -489,6 +484,7 @@ final class AgentChatSessionRegistry {
 
         let previous = records[sessionID]
         record.state = Self.nextState(previous: record.state, event: event)
+        stampLifecycleTransition(previous: previous, current: &record, at: event.receivedAt)
         stampVersion(&record)
         records[sessionID] = record
         syncProcessExitWatch(for: record)
@@ -507,7 +503,8 @@ final class AgentChatSessionRegistry {
     private func canonicalClaudeSessionID(
         incomingSessionID: String,
         source: String,
-        surfaceID: String?
+        surfaceID: String?,
+        context: ClaudeSessionCanonicalizationContext = .liveEvidence
     ) -> String {
         guard source == "claude",
               let surfaceID else {
@@ -518,13 +515,47 @@ final class AgentChatSessionRegistry {
                 ?? incomingSessionID
         }
         if records[incomingSessionID] != nil {
-            removeLivePendingClaudeAliases(surfaceID: surfaceID, excluding: incomingSessionID)
+            if case .liveEvidence = context {
+                removeLivePendingClaudeAliases(surfaceID: surfaceID, excluding: incomingSessionID)
+            }
             return incomingSessionID
         }
-        if let pendingID = liveClaudeSessionID(surfaceID: surfaceID, pending: true, excluding: incomingSessionID) {
+        let pendingID: String?
+        switch context {
+        case .liveEvidence:
+            pendingID = liveClaudeSessionID(surfaceID: surfaceID, pending: true, excluding: incomingSessionID)
+        case .hookStoreSeed(let entry):
+            pendingID = currentPendingClaudeAlias(
+                surfaceID: surfaceID,
+                incomingSessionID: incomingSessionID,
+                hookStoreEntry: entry
+            )
+        }
+        if let pendingID {
             return pendingID
         }
         return incomingSessionID
+    }
+
+    private func currentPendingClaudeAlias(
+        surfaceID: String,
+        incomingSessionID: String,
+        hookStoreEntry entry: AgentChatHookSessionStore.Entry
+    ) -> String? {
+        records.values
+            .filter { record in
+                record.sessionID != incomingSessionID
+                    && record.agentKind == .claude
+                    && record.surfaceID == surfaceID
+                    && record.state != .ended
+                    && Self.isPendingClaudeSessionID(record.sessionID)
+                    && (
+                        record.hookStoreSessionID == entry.sessionID
+                            || (entry.pid != nil && record.pid == entry.pid)
+                    )
+            }
+            .max(by: { $0.lastActivityAt < $1.lastActivityAt })?
+            .sessionID
     }
 
     private func liveClaudeSessionID(
@@ -629,6 +660,7 @@ final class AgentChatSessionRegistry {
             title: nil,
             pid: nil
         )
+        stampLifecycleTransition(previous: nil, current: &record, at: now)
         stampVersion(&record)
         records[sessionID] = record
         syncProcessExitWatch(for: record)
@@ -721,41 +753,4 @@ final class AgentChatSessionRegistry {
         kill(pid_t(pid), 0) != 0 && errno == ESRCH
     }
 
-    /// Strips an agent-name prefix from prefixed workstream ids
-    /// (`claude-<uuid>`); raw hook ids pass through.
-    private static func normalizedSessionID(_ id: String, source: String) -> String {
-        let prefix = "\(source)-"
-        if id.hasPrefix(prefix) {
-            return String(id.dropFirst(prefix.count))
-        }
-        return id
-    }
-
-    private static func nextState(
-        previous: ChatAgentState,
-        event: WorkstreamEvent
-    ) -> ChatAgentState {
-        switch event.hookEventName {
-        case .sessionStart:
-            return .idle
-        case .userPromptSubmit, .preToolUse, .postToolUse, .todoWrite:
-            if case .working = previous { return previous }
-            return .working(since: event.receivedAt)
-        case .preCompact, .postCompact:
-            // Compaction is lifecycle telemetry. It can occur while a session
-            // is idle, so it must not create a synthetic working state.
-            return previous
-        case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
-            if case .needsInput = previous { return previous }
-            return .needsInput(since: event.receivedAt)
-        case .stop:
-            return .idle
-        case .subagentStart, .subagentStop:
-            // Task subagent lifecycle says nothing about the parent
-            // session's activity; keep the current state.
-            return previous
-        case .sessionEnd:
-            return .ended
-        }
-    }
 }

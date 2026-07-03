@@ -26,6 +26,10 @@ struct AgentChatSessionRecord: Sendable {
     /// Live activity state derived from hook events.
     var state: ChatAgentState
 
+    /// When the record entered `.ended`. Best-effort process observations sampled
+    /// before this point must not revive it after a hook or exit watcher ended it.
+    var endedAt: Date?
+
     /// Timestamp of the most recent hook or transcript activity.
     var lastActivityAt: Date
 

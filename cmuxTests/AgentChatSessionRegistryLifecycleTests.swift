@@ -218,6 +218,49 @@ struct AgentChatSessionRegistryLifecycleTests {
     }
 
     @MainActor
+    @Test func staleProcessObservationDoesNotReviveEndedSession() throws {
+        let registry = AgentChatSessionRegistry()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+
+        registry.applyObservedSessions([
+            ObservedAgentSession(
+                sessionID: sessionID,
+                agentKind: .codex,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                pid: 111,
+                workingDirectory: "/Users/example/project",
+                transcriptPath: "/Users/example/.codex/sessions/rollout-\(sessionID).jsonl",
+                sampledAt: Date(timeIntervalSince1970: 100)
+            ),
+        ])
+        registry.update(sessionID: sessionID) { record in
+            record.state = .ended
+        }
+        let endedAt = try #require(registry.record(sessionID: sessionID)?.endedAt)
+
+        registry.applyObservedSessions([
+            ObservedAgentSession(
+                sessionID: sessionID,
+                agentKind: .codex,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                pid: 222,
+                workingDirectory: "/Users/example/project",
+                transcriptPath: nil,
+                sampledAt: endedAt.addingTimeInterval(-1)
+            ),
+        ])
+
+        let record = try #require(registry.record(sessionID: sessionID))
+        #expect(record.state == .ended)
+        #expect(record.pid == 111)
+        #expect(registry.liveSession(surfaceID: surfaceID) == nil)
+    }
+
+    @MainActor
     @Test func pendingClaudeAliasRefreshesFromRealHookStoreSessionID() async throws {
         let home = try temporaryHomeDirectory()
         let workspaceID = UUID().uuidString

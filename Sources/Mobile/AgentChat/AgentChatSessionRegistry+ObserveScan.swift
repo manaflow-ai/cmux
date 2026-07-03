@@ -54,11 +54,11 @@ extension AgentChatSessionRegistry {
         observed session: ObservedAgentSession,
         now: Date
     ) -> Bool {
+        guard observationCanReviveEndedSession(current: current, observedAt: session.sampledAt) else {
+            return false
+        }
         if reviveEndedPendingClaudeSessionIfNeeded(current: current, observed: session, now: now) {
             return true
-        }
-        guard current.state == .ended else {
-            return false
         }
         update(sessionID: current.sessionID) { record in
             record.workspaceID = session.workspaceID ?? record.workspaceID
@@ -248,7 +248,8 @@ extension AgentChatSessionRegistry {
                 workspaceID: process.cmuxWorkspaceID?.uuidString,
                 pid: process.pid,
                 workingDirectory: observedWorkingDirectory(details?.environment),
-                transcriptPath: transcriptPath
+                transcriptPath: transcriptPath,
+                sampledAt: snapshot.sampledAt
             ))
         }
         return result
@@ -309,6 +310,16 @@ extension AgentChatSessionRegistry {
 
     private func endedPendingClaudeSessionHasHistoryIdentity(_ record: AgentChatSessionRecord) -> Bool {
         record.transcriptPath != nil || record.hookStoreSessionID != nil
+    }
+
+    private func observationCanReviveEndedSession(
+        current: AgentChatSessionRecord,
+        observedAt: Date
+    ) -> Bool {
+        guard current.state == .ended else {
+            return false
+        }
+        return observedAt >= (current.endedAt ?? current.lastActivityAt)
     }
 
     /// Extracts a session id from an agent's argv (`--session-id <id>`,
