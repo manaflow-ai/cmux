@@ -30,6 +30,31 @@ enum SessionTranscriptRole: Equatable, Sendable {
         }
     }
 
+    // Per-role transcript body font (restored during the main merge, which added
+    // bodyFontSize/bodyFontDesign but the consumer, SessionIndexView, reads a
+    // combined `bodyFont`).
+    var bodyFontSize: CGFloat {
+        switch self {
+        case .tool, .system:
+            return 11
+        case .user, .assistant, .event:
+            return 12
+        }
+    }
+
+    var bodyFontDesign: Font.Design {
+        switch self {
+        case .tool, .system:
+            return .monospaced
+        case .user, .assistant, .event:
+            return .default
+        }
+    }
+
+    var bodyFont: Font {
+        .system(size: bodyFontSize, design: bodyFontDesign)
+    }
+
     var foregroundColor: Color {
         switch self {
         case .user: return .accentColor
