@@ -17,6 +17,7 @@ enum FilePreviewSyntaxTokenizer {
         var atLineStart = true
 
         while let scalar = cursor.current {
+            if Task.isCancelled { return tokens }
             if scalar == "\n" || scalar == "\r" {
                 cursor.advance()
                 atLineStart = true
@@ -122,6 +123,7 @@ enum FilePreviewSyntaxTokenizer {
 
         cursor.advance() // opening delimiter
         while let scalar = cursor.current {
+            if Task.isCancelled { break }
             if scalar == "\\" {
                 cursor.advance()
                 cursor.advance() // escaped scalar
@@ -199,15 +201,15 @@ enum FilePreviewSyntaxTokenizer {
         }
 
         mutating func advanceWhile(_ predicate: (Unicode.Scalar) -> Bool) {
-            while let scalar = current, predicate(scalar) { advance() }
+            while let scalar = current, !Task.isCancelled, predicate(scalar) { advance() }
         }
 
         mutating func advanceToEndOfLine() {
-            while let scalar = current, scalar != "\n", scalar != "\r" { advance() }
+            while let scalar = current, !Task.isCancelled, scalar != "\n", scalar != "\r" { advance() }
         }
 
         mutating func advanceUntilMatch(_ pattern: [Unicode.Scalar]) {
-            while current != nil {
+            while current != nil, !Task.isCancelled {
                 if matches(pattern) {
                     advance(pattern.count)
                     return
@@ -219,6 +221,7 @@ enum FilePreviewSyntaxTokenizer {
         mutating func consumeIdentifier(allowsDollar: Bool) -> String {
             var result = ""
             while let scalar = current,
+                  !Task.isCancelled,
                   FilePreviewSyntaxTokenizer.isIdentifierContinuation(scalar, allowsDollar: allowsDollar) {
                 result.unicodeScalars.append(scalar)
                 advance()

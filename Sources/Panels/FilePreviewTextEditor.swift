@@ -20,18 +20,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
-    /// Whether long lines soft-wrap at the editor's right edge. Sourced from
-    /// the persisted `fileEditor.wordWrap` setting; updates apply live.
     let wordWrap: Bool
-    /// Highlighting language for the open file, or `nil` for unsupported file
-    /// types (which render as plain text, as before).
     let syntaxLanguage: FilePreviewSyntaxLanguage?
-    /// Whether syntax highlighting is enabled. Sourced from the persisted
-    /// `fileEditor.syntaxHighlighting` setting; updates apply live.
     let syntaxHighlightingEnabled: Bool
 
-    /// Chooses the dark or light token palette from the editor's foreground
-    /// color, which is reliable even when the content background is `.clear`.
     private var prefersDarkSyntaxPalette: Bool {
         FilePreviewSyntaxTheme.prefersDarkPalette(foreground: themeForegroundColor)
     }
@@ -106,6 +98,13 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         if textChanged || highlightConfigChanged {
             textView.refreshSyntaxHighlighting()
         }
+    }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        guard let textView = scrollView.documentView as? SavingTextView else { return }
+        textView.cancelSyntaxHighlightingWork()
+        textView.delegate = nil
+        textView.panel = nil
     }
 
     static func applyTheme(
@@ -285,7 +284,7 @@ final class SavingTextView: NSTextView {
         installFontMagnificationObserver()
     }
 
-    deinit {}
+    deinit { cancelSyntaxHighlightingWork() }
 
     private func installFontMagnificationObserver() {
         fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
@@ -400,9 +399,6 @@ final class SavingTextView: NSTextView {
         return changed
     }
 
-    /// Recomputes tokens off the main thread (the only expensive step) and
-    /// applies display-only color via the layout manager's temporary attributes,
-    /// which never mutate the text storage, undo stack, or font.
     func refreshSyntaxHighlighting() {
         pendingSyntaxHighlightTask?.cancel()
         pendingSyntaxHighlightTask = nil
@@ -420,10 +416,13 @@ final class SavingTextView: NSTextView {
 
         let source = string
         let prefersDark = syntaxPrefersDarkPalette
+        let tokenizerTask = Task.detached(priority: .userInitiated) { FilePreviewSyntaxTokenizer.tokens(in: source, language: language) }
         pendingSyntaxHighlightTask = Task { [weak self] in
-            let tokens = await Task.detached(priority: .userInitiated) {
-                FilePreviewSyntaxTokenizer.tokens(in: source, language: language)
-            }.value
+            let tokens = await withTaskCancellationHandler {
+                await tokenizerTask.value
+            } onCancel: {
+                tokenizerTask.cancel()
+            }
             guard !Task.isCancelled,
                   let self,
                   self.syntaxHighlightGeneration == generation else { return }
@@ -433,16 +432,17 @@ final class SavingTextView: NSTextView {
 
     private func scheduleSyntaxHighlightRefresh() {
         pendingSyntaxHighlightTask?.cancel()
-        // Bounded, cancellable debounce: the fixed delay is itself the intended
-        // behavior — coalesce a burst of edits into one re-highlight so the
-        // O(token) temporary-attribute apply does not run on every keystroke.
-        // Not a poll/settle/race; each edit cancels and reschedules the single
-        // pending task, and the task is cancelled on the next edit or on close.
         pendingSyntaxHighlightTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.syntaxHighlightDebounceNanoseconds)
             guard !Task.isCancelled, let self else { return }
             self.refreshSyntaxHighlighting()
         }
+    }
+
+    func cancelSyntaxHighlightingWork() {
+        pendingSyntaxHighlightTask?.cancel()
+        pendingSyntaxHighlightTask = nil
+        syntaxHighlightGeneration &+= 1
     }
 
     private func applySyntaxTokens(_ tokens: [FilePreviewSyntaxToken], prefersDark: Bool) {
