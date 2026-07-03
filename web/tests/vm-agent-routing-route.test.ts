@@ -12,11 +12,27 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: { getUser },
 }));
 
+// Include every export the other vm route tests import: bun's mock.module
+// fixes the module's named-export set the first time any test file registers
+// it in the shared test process, so a partial list here would break imports
+// in test files that run later (and vice versa, see tests/vm-route-auth.test.ts).
 mock.module("../services/vms/workflows", () => ({
   runVmWorkflow,
   getAgentRoutingState,
   setAgentRoutingConfig,
   clearAgentRoutingConfig,
+  createVm: mock(() => ({ workflow: "create" })),
+  destroyVm: mock(() => ({ workflow: "destroy" })),
+  execVm: mock(() => ({ workflow: "exec" })),
+  forkVm: mock(() => ({ workflow: "fork" })),
+  getVm: mock(() => ({ workflow: "get" })),
+  listUserVms: mock(() => ({ workflow: "list" })),
+  openBaseVm: mock(() => ({ workflow: "base.open" })),
+  openAttachEndpoint: mock(() => ({ workflow: "attach" })),
+  openSshEndpoint: mock(() => ({ workflow: "ssh" })),
+  restoreVm: mock(() => ({ workflow: "restore" })),
+  resetBaseVm: mock(() => ({ workflow: "base.reset" })),
+  snapshotVm: mock(() => ({ workflow: "snapshot" })),
 }));
 
 const { GET, PUT, DELETE } = await import("../app/api/vm/agent-routing/route");

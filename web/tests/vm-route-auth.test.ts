@@ -16,6 +16,13 @@ const openAttachEndpoint = mock(() => ({ workflow: "attach" }));
 const openSshEndpoint = mock(() => ({ workflow: "ssh" }));
 const restoreVm = mock(() => ({ workflow: "restore" }));
 const snapshotVm = mock(() => ({ workflow: "snapshot" }));
+// Agent-routing workflows must be present in every mock of the workflows
+// module: bun's mock.module fixes the module's named-export set the first
+// time any test file registers it, so a partial export list here breaks
+// imports in test files that run later in the same process.
+const getAgentRoutingState = mock(() => ({ workflow: "agentRouting.get" }));
+const setAgentRoutingConfig = mock(() => ({ workflow: "agentRouting.set" }));
+const clearAgentRoutingConfig = mock(() => ({ workflow: "agentRouting.clear" }));
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_E2B_ENABLED",
@@ -54,6 +61,9 @@ mock.module("../services/vms/workflows", () => ({
   resetBaseVm,
   runVmWorkflow,
   snapshotVm,
+  getAgentRoutingState,
+  setAgentRoutingConfig,
+  clearAgentRoutingConfig,
 }));
 
 const { GET, POST } = await import("../app/api/vm/route");
