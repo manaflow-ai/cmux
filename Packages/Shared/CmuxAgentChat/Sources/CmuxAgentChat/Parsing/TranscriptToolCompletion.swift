@@ -63,11 +63,20 @@ struct TranscriptToolCompletion: Sendable {
             )
             return message.replacingKind(.toolUse(completed))
         case .question(let question):
-            guard let answer = answer(forPrompt: question.prompt) else { return nil }
+            // Codex keys answers by question id, so a multi-question call
+            // resolves each card to its own answer; Claude keys by prompt.
+            let answer: String?
+            if let questionID = question.questionID {
+                answer = self.answer(forCodexQuestionID: questionID)
+            } else {
+                answer = self.answer(forPrompt: question.prompt)
+            }
+            guard let answer else { return nil }
             let answered = ChatQuestion(
                 prompt: question.prompt,
                 options: question.options,
-                selectedOptionLabel: answer
+                selectedOptionLabel: answer,
+                questionID: question.questionID
             )
             return message.replacingKind(.question(answered))
         default:
@@ -75,19 +84,59 @@ struct TranscriptToolCompletion: Sendable {
         }
     }
 
-    /// Extracts the chosen answer for a question prompt from the
-    /// `Your questions have been answered: "Q"="A"...` result text.
+    /// Extracts the chosen answer for a question prompt.
+    ///
+    /// Handles two formats:
+    /// - Claude: `Your questions have been answered: "Q"="A"...`.
+    /// - Codex `request_user_input`: a JSON output
+    ///   `{"answers":{"<id>":{"answers":["<label>"]}}}`. Codex keys answers by
+    ///   question id (not prompt), so for the common single-question picker the
+    ///   first non-empty answer is returned.
     ///
     /// - Parameter prompt: The question prompt to look up.
     /// - Returns: The answer text, or `nil` when not extractable.
     private func answer(forPrompt prompt: String) -> String? {
         guard let output else { return nil }
+        // Claude `"Q"="A"` format.
         let needle = "\"\(prompt)\"=\""
-        guard let start = output.range(of: needle) else { return nil }
-        let tail = output[start.upperBound...]
-        guard let end = tail.range(of: "\"") else { return nil }
-        let answer = String(tail[..<end.lowerBound])
-        return answer.isEmpty ? nil : answer
+        if let start = output.range(of: needle) {
+            let tail = output[start.upperBound...]
+            if let end = tail.range(of: "\"") {
+                let answer = String(tail[..<end.lowerBound])
+                if !answer.isEmpty { return answer }
+            }
+        }
+        // Codex JSON `{"answers":{<id>:{"answers":[<label>]}}}` format (fallback
+        // for a codex question with no id: first non-empty answer).
+        if let answers = codexAnswers(from: output) {
+            for value in answers.values {
+                if let labels = value["answers"] as? [String],
+                   let first = labels.first(where: { !$0.isEmpty }) {
+                    return first
+                }
+            }
+        }
+        return nil
+    }
+
+    /// The chosen answer for a specific Codex question id, from the
+    /// `request_user_input` output `{"answers":{"<id>":{"answers":["<label>"]}}}`.
+    /// Matching by id lets a multi-question call resolve each card correctly.
+    private func answer(forCodexQuestionID id: String) -> String? {
+        guard let output,
+              let answers = codexAnswers(from: output),
+              let entry = answers[id],
+              let labels = entry["answers"] as? [String] else { return nil }
+        return labels.first(where: { !$0.isEmpty })
+    }
+
+    /// Parses the `answers` object out of a Codex `request_user_input` output.
+    private func codexAnswers(from output: String) -> [String: [String: Any]]? {
+        guard output.contains("\"answers\""),
+              let data = output.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let answers = root["answers"] as? [String: Any] else { return nil }
+        return answers.compactMapValues { $0 as? [String: Any] }
     }
 }
 
