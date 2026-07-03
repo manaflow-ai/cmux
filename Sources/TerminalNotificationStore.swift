@@ -1681,3 +1681,17 @@ final class TerminalNotificationStore: ObservableObject {
         NSApp?.dockTile.badgeLabel = label
     }
 }
+
+/// Whether the notification-driven pane flash is enabled (#7144 / notification
+/// settings). UserDefaults-backed with a default-on fallback.
+enum NotificationPaneFlashSettings {
+    static let enabledKey = "notificationPaneFlashEnabled"
+    static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+}
