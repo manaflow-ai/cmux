@@ -737,13 +737,13 @@
       "layoutItem1": "已釘選的頂層列（工作區與群組）。",
       "layoutItem2": "未釘選的頂層列（工作區與群組）。",
       "creatingTitle": "建立群組",
-      "creatingIntro": "可以透過兩種方式建立群組：鍵盤快速鍵或工作區右鍵選單。兩者都會在所選項目上方插入一個新的錨點工作區，並將所選工作區移入該群組。群組建立後，你可以從群組標題處管理它並向其中新增工作區（請參閱下方的「管理群組」）。",
-      "keyboardTitle": "透過鍵盤（{shortcut}）",
-      "keyboardDesc": "在側邊欄中選取兩個或更多工作區，然後按下 {shortcut}。一個全新的錨點工作區會插入在所選項目上方，且所有選取的工作區都會成為子項。群組會自動命名為 Group 1、Group 2 等等——你可以隨時透過標頭情境選單重新命名。",
+      "creatingIntro": "群組可從鍵盤快捷鍵或側邊欄內容選單建立。空白群組會插入新的錨點工作區作為群組標題。以選取項目建立的群組會把該錨點插入選取項目上方，並將選取的工作區移入群組。群組建立後，你可以從群組標題管理它並加入工作區（請見下方的管理群組）。",
+      "keyboardTitle": "從鍵盤快捷鍵",
+      "keyboardDesc": "按 ⌃⌘G 可建立新的空白工作區群組。在側邊欄選取兩個以上工作區，然後按 {shortcut} 將選取項目分組。兩種方式都會建立新的錨點工作區，並自動命名為 Group 1、Group 2 等等。可隨時從標題內容選單重新命名。",
       "keyboardNote": "{shortcut} 與 React Grab 的預設快捷鍵相衝突。群組處理常式只有在側邊欄明確多選至少兩個工作區時才會消耗此和弦，因此在單選以及瀏覽器或終端機情境中，React Grab 仍會觸發。如果你不希望兩者共用同一個按鍵，可以在「設定 → 鍵盤」中重新繫結。",
       "keyboardSingle": "單一分頁群組無法透過快捷鍵建立。請改用工作區右鍵選單中的 New Group from Workspace 項目來建立。",
       "contextMenuTitle": "透過工作區情境選單",
-      "contextMenuDesc": "在側邊欄中對任一工作區按右鍵並選擇 New Group from Workspace；當選取多個工作區時，則選擇 New Group from Selection。這會使用與快捷鍵相同的自動命名行為。",
+      "contextMenuDesc": "在側邊欄中的任何工作區按右鍵，選擇新增空白工作區群組、從工作區新增群組，或在選取多個工作區時選擇從選取項目新增群組。側邊欄清單下方的空白區域也提供新增空白工作區群組。這些路徑使用與快捷鍵相同的自動命名行為。",
       "managingTitle": "管理群組",
       "managingIntro": "群組建立後，可以透過其標題的右鍵選單以及標題上的 + 按鈕來管理群組並向其中新增工作區。這兩者都不會建立新群組。",
       "headerMenuTitle": "透過群組標頭情境選單",
@@ -799,6 +799,8 @@
       "exampleConfig": "範例設定",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "paneBorderColor": "覆寫分割工作區中的 cmux 窗格分隔線顏色。此設定影響 cmux 窗格邊界，而不是 Ghostty 的內部分割。",
+        "activePaneBorderColor": "在分割工作區中圍繞目前聚焦的 cmux 窗格繪製的選用邊框顏色。",
         "automation": {
           "ampIntegration": "啟用 cmux 與 Amp 的整合鉤子。停用時，隨附的外掛程式會保持非啟用狀態，無需移除。",
           "suppressSubagentNotifications": "隱藏巢狀 Codex 或 Claude 子代理的可見完成通知和狀態變更，同時將其事件保留在 Feed 遙測中。",
@@ -819,6 +821,9 @@
           "scrollSpeed": "套用於終端機滾輪與觸控板捲動量的倍率。數值越大捲動越快，數值越小捲動越慢。",
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
           "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "啟用後，只有當通知橫幅的 Surface 正好是目前聚焦的 Surface 時，該橫幅才會自動撤回。對於目前可見 workspace 中未聚焦的 Surface 所投遞的橫幅，在你聚焦該 Surface（或點擊／關閉它）之前會持續顯示，而不會在 workspace 變為可見時被撤回。關閉則保留舊有的基於 workspace 可見性的撤回行為。"
         },
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
@@ -854,7 +859,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "每個動作可選的內容述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於內容鍵的布林運算式，可用 !、&&、|| 與括號組合。布林鍵：sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型別化鍵支援比較：字串 sidebarMode（files、find、sessions、feed 或 dock）以及整數 paneCount 與 workspaceCount。比較運算子為 ==、!=、=~（正規表示式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的鍵視為 false。也接受布林常值 true 和 false；`key == false` 等同於 `!key`。只有在子句成立時，該動作的快速鍵才會觸發，也只會在這種情況下與其他快速鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作區有多個窗格時，將綁定限制在尋找側邊欄。",
+          "when": "每個動作可選的內容述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於內容鍵的布林運算式，可用 !、&&、|| 與括號組合。布林鍵：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型別化鍵支援比較：字串 sidebarMode（files、find、sessions、feed 或 dock）以及整數 paneCount 與 workspaceCount。比較運算子為 ==、!=、=~（正規表示式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的鍵視為 false。也接受布林常值 true 和 false；`key == false` 等同於 `!key`。只有在子句成立時，該動作的快速鍵才會觸發，也只會在這種情況下與其他快速鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作區有多個窗格時，將綁定限制在尋找側邊欄。",
           "showModifierHoldHints": "按住 Cmd 或 Control 時顯示快捷鍵提示標籤。"
         }
       },
@@ -1075,7 +1080,8 @@
       "closeWorkspaceDesc": "關閉工作區。",
       "splitCommands": "分割指令",
       "newSplitDesc": "建立新的分割窗格。方向：left、right、up、down。",
-      "listSurfacesDesc": "列出目前工作區中的所有 surface。",
+      "listPanelsDesc": "列出目前工作區中的所有 surface。",
+      "listPaneSurfacesDesc": "列出目前聚焦窗格中的 surface。",
       "focusSurfaceDesc": "聚焦到指定的 surface。",
       "inputCommands": "輸入指令",
       "sendDesc": "向聚焦的終端機傳送文字輸入。",
@@ -1597,7 +1603,8 @@
   "afterSignIn": {
     "title": "已登入 cmux",
     "body": "如果 cmux 沒有自動開啟，請使用下方按鈕。",
-    "button": "返回 cmux"
+    "button": "返回 cmux",
+    "switchAccountButton": "使用其他帳號"
   },
   "landing": {
     "bestTerminal": {
@@ -1619,9 +1626,9 @@
       "kittyBuiltFor": "快速、可指令稿化、功能豐富",
       "weztermBuiltFor": "帶內建多工器的 GPU 終端",
       "tmuxBuiltFor": "在任意終端內做多工",
-      "cmuxBody": "基於 libghostty 構建的原生 macOS 終端，為三件事而生：多工處理、組織和可程式化。垂直側邊欄將工作分組為工作區，每個工作區都顯示其 git 分支、目錄、連接埠以及 agent 輸出的最新一行，讓你同時執行許多工作而不會迷失。當 agent 需要關注時，面板會響鈴。每個操作都可透過 CLI 和 Unix socket 指令稿化，還有一個可程式化驅動的內建瀏覽器。甚至有一個 iOS 伴侶應用程式，讓你在手機上查看終端。如果你要同時處理多個工作或 AI 編程 agent，並希望它們井然有序、可自動化，又不想設定多工器，cmux 是最佳選擇。",
+      "cmuxBody": "cmux 是一款建構在 Ghostty 終端機引擎 libghostty 上的原生 macOS 終端機。這表示終端機格線繼承了 Ghostty 的優勢：快速 GPU 繪製、出色的字型與色彩呈現、現代終端機相容性，以及你現有的 Ghostty 主題、字型、色彩和游標設定。cmux 加上的是 Ghostty 刻意不處理的那一層：垂直工作區、分割窗格、通知環、側邊欄中的 git/連接埠/代理脈絡、可腳本化的 CLI 與 Unix socket、可程式控制的瀏覽器，以及 iOS 伴侶 app。當你想要 Ghostty 品質的終端機繪製，又需要為大量任務或 AI 程式代理提供整理與自動化時，選擇 cmux。",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "快速、GPU 加速的終端，其引擎 libghostty 驅動著 cmux。如果你想要一個渲染出色的簡潔單終端視窗，而不需要工作區或自動化層，Ghostty 本身就很出色。",
+      "ghosttyBody": "Ghostty 是快速的原生終端機，其引擎 libghostty 也支撐 cmux。相較於較舊的 CPU 繪製終端機和較重的 Electron 風格終端機，Ghostty 的優勢是低延遲 GPU 繪製、清晰的字型與色彩處理、強大的終端機相容性、簡單的檔案式設定，以及不需要雲端帳號。如果你只想要一個乾淨的終端機視窗，保留這些繪製優勢，而且不需要工作區或自動化層，Ghostty 本身就很好。如果你想要同樣的 Ghostty 繪製優勢，再加上工作區、通知、腳本化和代理編排，請使用 cmux。",
       "iterm2Title": "iTerm2",
       "iterm2Body": "成熟、可無止境設定的 macOS 終端。深度的設定檔、觸發器和 tmux 整合。如果你想要極致功能且不需要同時編排許多工作，它是穩妥的預設選擇。",
       "warpTitle": "Warp",
