@@ -166,6 +166,36 @@ struct MobileWorkspaceCloseReconcileTests {
         #expect(store.workspaces.contains { $0.macDeviceID == "mac-b" && $0.rpcWorkspaceID.rawValue == "b1" })
     }
 
+    /// Disconnect keeps the just-offline foreground Mac's last workspace snapshot
+    /// for the offline view. If that retained snapshot is stale, its close
+    /// tombstone must be retained too; otherwise the disconnected sidebar can
+    /// resurrect a workspace the Mac already confirmed closed.
+    @Test func disconnectKeepsTombstoneForRetainedOfflineForegroundSnapshot() {
+        let store = MobileShellComposite(connectionState: .connected)
+        store.confirmedClosedWorkspaceIDsByMac = [
+            "mac-a": ["closed-id"],
+            "mac-b": ["discarded-id"],
+        ]
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a", displayName: "Mac A",
+                workspaces: [Self.preview(id: "closed-id"), Self.preview(id: "open-id")],
+                status: .connected),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b", displayName: "Mac B",
+                workspaces: [Self.preview(id: "discarded-id"), Self.preview(id: "discarded-open")],
+                status: .connected),
+        ], foregroundMacDeviceID: "mac-a")
+        #expect(!store.workspaces.contains { $0.macDeviceID == "mac-a" && $0.rpcWorkspaceID.rawValue == "closed-id" })
+
+        store.disconnectLiveConnection()
+
+        #expect(!store.workspaces.contains { $0.macDeviceID == "mac-a" && $0.rpcWorkspaceID.rawValue == "closed-id" })
+        #expect(store.workspaces.contains { $0.macDeviceID == "mac-a" && $0.rpcWorkspaceID.rawValue == "open-id" })
+        #expect(!store.workspaces.contains { $0.macDeviceID == "mac-b" })
+        #expect(store.confirmedClosedWorkspaceIDsByMac == ["mac-a": ["closed-id"]])
+    }
+
     private static func preview(
         id: String, groupID: MobileWorkspaceGroupPreview.ID? = nil
     ) -> MobileWorkspacePreview {
