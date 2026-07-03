@@ -99,7 +99,7 @@ extension AppDelegate {
         if let tabManager = shortcutContextTabManager(in: window) {
             context.setInt(ShortcutContextKnownKey.workspaceCount.rawValue, tabManager.tabs.count)
             if let workspace = tabManager.selectedWorkspace {
-                context.setInt(ShortcutContextKnownKey.paneCount.rawValue, workspace.panels.count)
+                context.setInt(ShortcutContextKnownKey.paneCount.rawValue, workspace.bonsplitController.allPaneIds.count)
                 context.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, workspace.layoutMode == .canvas)
                 context.setBool(
                     ShortcutContextKnownKey.terminalFindVisible.rawValue,
