@@ -449,6 +449,9 @@ final class RemoteTmuxController {
            let manager = appDelegate.tabManagerFor(tabId: workspaceId) {
             if activateWindow {
                 manager.selectWorkspace(workspaceId)  // TabManager+FocusHistoryHosting:40
+                if let realWindowId = appDelegate.windowId(for: manager) {
+                    appDelegate.windowForMainWindowId(realWindowId)?.makeKeyAndOrderFront(nil)
+                }
             }
             let windowId = appDelegate.windowId(for: manager) ?? UUID()
             return .mirrored(windowId: windowId)
@@ -508,8 +511,24 @@ final class RemoteTmuxController {
             }
         }
 
+        // Fail loudly instead of reporting success with zero mirrored workspaces.
+        // Unlike the new-window path, never discard `manager`'s window here: it may
+        // hold local workspaces, or (in the reuse-current-window case) it's the
+        // user's pre-existing window.
+        let mirroredWorkspaceIds = Set(manager.tabs.map(\.id))
+        let hasMirrorForHost = sessionMirrors.values.contains { mirror in
+            mirror.host.connectionHash == host.connectionHash
+                && mirror.mirroredWorkspaceId.map(mirroredWorkspaceIds.contains) == true
+        }
+        guard hasMirrorForHost else {
+            throw RemoteTmuxError.unreachable("could not mirror any tmux session on \(host.destination)")
+        }
+
         if activateWindow, let firstMirroredWorkspaceId {
             manager.selectWorkspace(firstMirroredWorkspaceId)  // TabManager+FocusHistoryHosting:40
+            if let realWindowId = appDelegate.windowId(for: manager) {
+                appDelegate.windowForMainWindowId(realWindowId)?.makeKeyAndOrderFront(nil)
+            }
         }
         let windowId = appDelegate.windowId(for: manager) ?? UUID()
         return .mirrored(windowId: windowId)
