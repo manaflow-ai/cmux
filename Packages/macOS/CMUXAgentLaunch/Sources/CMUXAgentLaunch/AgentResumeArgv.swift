@@ -96,12 +96,12 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// The override tokens to inject between `resume <id>` and the preserved launch
     /// arguments: ``codexUpdateCheckSuppressionOverride`` unless `preserved` already
     /// sets `check_for_update_on_startup` (either value).
-    static func codexResumeConfigOverrides(preserved: [String]) -> [String] {
+    func codexResumeConfigOverrides(preserved: [String]) -> [String] {
         hasExplicitCheckForUpdateOnStartupOverride(in: preserved) ? [] : codexUpdateCheckSuppressionOverride
     }
 
     /// Returns true when an argv already carries an explicit codex startup update-check setting.
-    public static func hasExplicitCheckForUpdateOnStartupOverride(in arguments: [String]) -> Bool {
+    public func hasExplicitCheckForUpdateOnStartupOverride(in arguments: [String]) -> Bool {
         for (index, argument) in arguments.enumerated() {
             if argument == "-c" || argument == "--config",
                index + 1 < arguments.count,
@@ -275,7 +275,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
             }
             return .resolved(
                 [parts.executable, "codex-teams", "resume", sessionId]
-                    + Self.codexResumeConfigOverrides(preserved: preserved) + preserved
+                    + codexResumeConfigOverrides(preserved: preserved) + preserved
             )
         case "omo":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
@@ -313,7 +313,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-restore", args: parts.tail) else { return nil }
             return [parts.executable, "resume", sessionId]
-                + Self.codexResumeConfigOverrides(preserved: preserved) + preserved
+                + codexResumeConfigOverrides(preserved: preserved) + preserved
         case "grok":
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "pi":
