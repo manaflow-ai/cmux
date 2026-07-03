@@ -9,7 +9,6 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         get { transcriptHostingController.rootView }
         set { transcriptHostingController.rootView = newValue }
     }
-
     var composerView: Composer {
         get { composerHostingController.rootView }
         set { composerHostingController.rootView = newValue }
@@ -23,6 +22,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     private let keyboardContentView = UIView(frame: .zero)
     private let transcriptClipView = UIView(frame: .zero)
+    private let bottomChromeContainerView = UIView(frame: .zero)
     private let composerBackgroundView = UIVisualEffectView(effect: nil)
     let transcriptHostingController: UIHostingController<Transcript>
     let composerHostingController: UIHostingController<Composer>
@@ -91,11 +91,16 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         transcriptHostingController.view.translatesAutoresizingMaskIntoConstraints = false
         transcriptClipView.addSubview(transcriptHostingController.view)
 
+        bottomChromeContainerView.backgroundColor = .clear
+        bottomChromeContainerView.clipsToBounds = false
+        bottomChromeContainerView.translatesAutoresizingMaskIntoConstraints = false
+        keyboardContentView.addSubview(bottomChromeContainerView)
+
         composerBackgroundView.translatesAutoresizingMaskIntoConstraints = false
         composerBackgroundView.isUserInteractionEnabled = false
         composerBackgroundView.clipsToBounds = true
         configureComposerBackground()
-        keyboardContentView.addSubview(composerBackgroundView)
+        bottomChromeContainerView.addSubview(composerBackgroundView)
 
         addChild(composerHostingController)
         composerHostingController.view.backgroundColor = .clear
@@ -104,18 +109,14 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         composerHostingController.view.translatesAutoresizingMaskIntoConstraints = false
         composerHostingController.view.setContentHuggingPriority(.required, for: .vertical)
         composerHostingController.view.setContentCompressionResistancePriority(.required, for: .vertical)
-        keyboardContentView.addSubview(composerHostingController.view)
+        bottomChromeContainerView.addSubview(composerHostingController.view)
         installLayoutConstraints()
 
         transcriptHostingController.didMove(toParent: self)
         composerHostingController.didMove(toParent: self)
         updateComposerVisibility()
 
-        let observer = NotificationCenter.default.addObserver(
-            forName: UIResponder.keyboardWillChangeFrameNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
+        let observer = NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] notification in
             guard let transition = MobileKeyboardTransition(notification: notification) else {
                 return
             }
@@ -131,7 +132,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         let transcriptClipTopConstraint = transcriptClipView.topAnchor.constraint(equalTo: keyboardContentView.topAnchor)
         let transcriptClipBottomConstraint = transcriptClipView.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor)
         let transcriptHeightConstraint = transcriptHostingController.view.heightAnchor.constraint(equalToConstant: 0)
-        let composerBottomConstraint = composerHostingController.view.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor)
+        let composerBottomConstraint = bottomChromeContainerView.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor)
         self.composerHeightConstraint = composerHeightConstraint
         self.transcriptClipTopConstraint = transcriptClipTopConstraint
         self.transcriptClipBottomConstraint = transcriptClipBottomConstraint
@@ -154,14 +155,19 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             transcriptHostingController.view.topAnchor.constraint(equalTo: transcriptClipView.topAnchor),
             transcriptHeightConstraint,
 
-            composerBackgroundView.topAnchor.constraint(equalTo: composerHostingController.view.topAnchor),
-            composerBackgroundView.leadingAnchor.constraint(equalTo: keyboardContentView.leadingAnchor),
-            composerBackgroundView.trailingAnchor.constraint(equalTo: keyboardContentView.trailingAnchor),
-            composerBackgroundView.bottomAnchor.constraint(equalTo: keyboardContentView.bottomAnchor),
-
-            composerHostingController.view.leadingAnchor.constraint(equalTo: keyboardContentView.leadingAnchor),
-            composerHostingController.view.trailingAnchor.constraint(equalTo: keyboardContentView.trailingAnchor),
+            bottomChromeContainerView.topAnchor.constraint(equalTo: composerHostingController.view.topAnchor),
+            bottomChromeContainerView.leadingAnchor.constraint(equalTo: keyboardContentView.leadingAnchor),
+            bottomChromeContainerView.trailingAnchor.constraint(equalTo: keyboardContentView.trailingAnchor),
             composerBottomConstraint,
+
+            composerBackgroundView.topAnchor.constraint(equalTo: bottomChromeContainerView.topAnchor),
+            composerBackgroundView.leadingAnchor.constraint(equalTo: bottomChromeContainerView.leadingAnchor),
+            composerBackgroundView.trailingAnchor.constraint(equalTo: bottomChromeContainerView.trailingAnchor),
+            composerBackgroundView.bottomAnchor.constraint(equalTo: bottomChromeContainerView.bottomAnchor),
+
+            composerHostingController.view.leadingAnchor.constraint(equalTo: bottomChromeContainerView.leadingAnchor),
+            composerHostingController.view.trailingAnchor.constraint(equalTo: bottomChromeContainerView.trailingAnchor),
+            composerHostingController.view.bottomAnchor.constraint(equalTo: bottomChromeContainerView.bottomAnchor),
             composerHeightConstraint,
         ])
     }
@@ -310,6 +316,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         keyboardContentView.layer.removeAllAnimations()
         transcriptClipView.layer.removeAllAnimations()
         transcriptHostingController.view.layer.removeAllAnimations()
+        bottomChromeContainerView.layer.removeAllAnimations()
         composerBackgroundView.layer.removeAllAnimations()
         composerHostingController.view.layer.removeAllAnimations()
     }
@@ -324,10 +331,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             bottomSafeAreaUnderlap: safeAreaUnderlap
         )
         let adjustedBottomInset = overlayBottomInset + keyboardOverlap
-        let clipBottomConstant = transcriptClipBottomConstant(
-            composerHeight: composerHeight,
-            bottomSafeAreaUnderlap: safeAreaUnderlap
-        )
+        let clipBottomConstant = transcriptClipBottomConstant(bottomSafeAreaUnderlap: safeAreaUnderlap)
         let fullTranscriptHeight = max(0, layoutHeight)
         updateConstraint(composerHeightConstraint, to: composerHeight)
         updateConstraint(transcriptClipTopConstraint, to: 0)
@@ -386,14 +390,15 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         return max(0, ceil(visibleComposerHeight + bottomSafeAreaUnderlap))
     }
 
-    private func transcriptClipBottomConstant(
-        composerHeight: CGFloat,
-        bottomSafeAreaUnderlap: CGFloat
-    ) -> CGFloat {
+    private func transcriptClipBottomConstant(bottomSafeAreaUnderlap: CGFloat) -> CGFloat {
         guard keyboardOverlap > 0.5 else {
             return max(0, ceil(bottomSafeAreaUnderlap))
         }
-        return -max(0, ceil(keyboardOverlap + composerHeight))
+        // The composer follows the full keyboard reservation. The transcript
+        // clip stops at the visual keyboard chrome so bottom chrome can overlay
+        // live rows without letting rows enter the key plane.
+        let visualKeyboardChromeOverlap = max(0, keyboardOverlap - bottomSafeAreaUnderlap)
+        return -ceil(visualKeyboardChromeOverlap)
     }
 
     private func updateConstraint(_ constraint: NSLayoutConstraint?, to constant: CGFloat) {
@@ -436,12 +441,13 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         scrollEdgeCoordinator.configure(
             tableView: tables.first,
             owner: self,
-            composerView: composerHostingController.view
+            bottomChromeView: bottomChromeContainerView
         )
     }
 
     private func updateComposerVisibility() {
         guard isViewLoaded else { return }
+        bottomChromeContainerView.isHidden = !showsComposer
         composerHostingController.view.isHidden = !showsComposer
         composerBackgroundView.isHidden = !showsComposer
         updateMeasuredGeometryConstants()
@@ -457,9 +463,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     func trackedTranscriptTables(in view: UIView) -> [ChatTranscriptUITableView] {
         if let table = view as? ChatTranscriptUITableView {
-            // Stop at the transcript table itself; descending into its own
-            // cells/hosted row views would re-walk the entire transcript on
-            // every layout/keyboard geometry update.
+            // Stop at the transcript table itself to avoid walking hosted rows.
             return [table]
         }
         var tables: [ChatTranscriptUITableView] = []
@@ -475,16 +479,10 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     ) -> Bool {
         guard let window = view.window else { return false }
         let point = touch.location(in: window)
-        let transcriptFrame = transcriptHostingController.view.convert(
-            transcriptHostingController.view.bounds,
-            to: window
-        )
+        let transcriptFrame = transcriptHostingController.view.convert(transcriptHostingController.view.bounds, to: window)
         guard transcriptFrame.contains(point) else { return false }
         guard !excludedKeyboardDismissFrame.contains(point) else { return false }
-        let composerFrame = composerHostingController.view.convert(
-            composerHostingController.view.bounds,
-            to: window
-        )
+        let composerFrame = composerHostingController.view.convert(composerHostingController.view.bounds, to: window)
         return !composerFrame.contains(point)
     }
 
