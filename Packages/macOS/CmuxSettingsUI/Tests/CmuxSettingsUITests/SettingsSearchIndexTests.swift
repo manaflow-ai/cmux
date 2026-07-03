@@ -99,6 +99,8 @@ struct SettingsSearchIndexTests {
         ("option as alt", "setting:app:terminal-config"),
         ("option", "setting:app:terminal-config"),
         ("environment variables", "setting:app:notification-command"),
+        ("copy raw", "setting:terminal:copy-reflow"),
+        ("terminal.reflowCopy", "setting:terminal:copy-reflow"),
     ])
     func searchesFindRealSettingsRows(query: String, expectedID: String) {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
@@ -217,6 +219,11 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(index.anchorID(forSettingsPath: "automation.workspaceAutoNaming") == "setting:automation:workspace-auto-naming")
         #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
+    }
+
+    @Test func reflowCopySettingPathAnchorsCopyReflowRow() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        #expect(index.anchorID(forSettingsPath: "terminal.reflowCopy") == "setting:terminal:copy-reflow")
     }
 
     @Test func localizedAutoNamingAliasesRemainSearchableWithoutAgentPickerCollision() {

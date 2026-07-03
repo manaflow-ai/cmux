@@ -52,14 +52,20 @@ private extension ReflowOptions {
         let commonIndent = computeCommonIndent(rawLines, isFenceLine: isFenceLine)
 
         // Cleaned view of each line (common indent removed, relative indent kept).
-        // Outside fenced code, normalize whitespace: terminal copy carries padding as
-        // runs of spaces AND U+00A0 non-breaking spaces (at soft-wrap seams), which
-        // render as wide gaps. Collapse every internal whitespace run to a single
-        // normal space and drop leading/trailing padding, preserving real list indent.
-        // Fence bodies are preserved verbatim.
+        // Prose is whitespace-normalized because terminal copy can carry padding
+        // as spaces or U+00A0 non-breaking spaces. Structural hard-break rows are
+        // only right-trimmed so their internal alignment stays intact.
         let cleanedStorage: [String] = rawLines.indices.map { i in
             let s = stripColumns(rawLines[i], commonIndent)
-            return isFenceLine[i] ? String(s) : cleanProseWhitespace(s)
+            let kind = LineKind(rawLines[i], insideFence: insideFenceFlags[i])
+            switch kind {
+            case .fenceDelimiter, .insideFence:
+                return String(s)
+            case .heading, .blockquote, .tableRow:
+                return trimTrailingSpaceLike(s)
+            case .blank, .listItem, .urlLine, .prose:
+                return cleanProseWhitespace(s)
+            }
         }
         let stripped: [Substring] = cleanedStorage.map { $0[...] }
 
@@ -162,18 +168,7 @@ private extension ReflowOptions {
                         p.prevHasSpace = hasSpace
                         para = p
                     } else {
-                        // Paragraph boundary: a prose paragraph that ended a sentence,
-                        // followed by a new prose line starting with a capital, is a
-                        // real paragraph break. Re-insert the blank line that the
-                        // terminal copy dropped. Lists, logs, and lowercase
-                        // continuations do not trigger it.
-                        let paragraphBreak = p.isProse
-                            && p.text.count >= minWrapWidth
-                            && p.prevEndsTerminator
-                            && kind == .prose
-                            && startsUppercaseLetter(content)
                         flush()
-                        if paragraphBreak { output.append("") }
                         openParagraph()
                     }
                 } else {
@@ -264,6 +259,21 @@ private extension ReflowOptions {
             }
         }
         return out
+    }
+
+    /// Drop copied terminal padding from the end of a structural line without
+    /// changing internal table/list/quote alignment.
+    func trimTrailingSpaceLike(_ s: Substring) -> String {
+        var end = s.endIndex
+        while end > s.startIndex {
+            let previous = s.index(before: end)
+            if isSpaceLike(s[previous]) {
+                end = previous
+            } else {
+                break
+            }
+        }
+        return String(s[s.startIndex..<end])
     }
 
     /// Drop up to `n` leading space/tab columns.

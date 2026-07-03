@@ -46,6 +46,11 @@ struct ReflowStructureTests {
         #expect(reflow(input) == input)
     }
 
+    @Test func tableAlignmentWhitespacePreserved() {
+        let input = "| Name      | Value |\n| Long name | 12    |\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func tableWithoutOuterPipesPreserved() {
         let input = "a | b\n---|---\n1 | 2\n"
         #expect(reflow(input) == input)

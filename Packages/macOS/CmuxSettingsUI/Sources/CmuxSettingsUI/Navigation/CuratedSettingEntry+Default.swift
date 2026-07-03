@@ -104,6 +104,14 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "terminal.scrollSpeed scroll speed multiplier wheel mouse trackpad sensitivity faster slower"
             ),
             .init(section: .terminal, id: "copy-on-select", title: "Copy on Selection", synonyms: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
+            .init(
+                section: .terminal,
+                id: "copy-reflow",
+                title: String(localized: "settings.terminal.reflowCopy", defaultValue: "Reflow Wrapped Text on Copy"),
+                detailText: String(localized: "settings.terminal.reflowCopy.subtitleOn", defaultValue: "Cmd+C rejoins lines an app wrapped to fit the viewport and removes continuation indentation, while keeping code, tables, lists, and URLs intact. Copy Raw still copies verbatim."),
+                paths: ["terminal.reflowCopy"],
+                synonyms: "terminal.reflowCopy copy reflow rewrap unwrap wrapped hard wrap line breaks newlines paste paragraphs clean copy raw verbatim cmd c"
+            ),
             .init(section: .terminal, id: "agent-auto-resume", title: "Resume Agent Sessions on Reopen", synonyms: "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(section: .terminal, id: "agent-hibernation", title: "Agent Hibernation", synonyms: "terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "agent-hibernation-idle", title: "Hibernate After Idle Seconds", synonyms: "terminal.agentHibernation.idleSeconds idle seconds timeout delay hibernate suspend"),

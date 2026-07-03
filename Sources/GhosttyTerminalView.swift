@@ -3536,6 +3536,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeVisualActive = false
     private var keyboardCopyModeVisualLineSelection: TerminalKeyboardCopyModeVisualLineSelection?
     private var keyboardCopyModeVisualLineRuntimeSelectionSynced = false
+    private var activeSelectionMayBeRectangular = false
     private var keyboardCopyModeVisualLineActive: Bool {
         keyboardCopyModeVisualLineSelection != nil
     }
@@ -4745,11 +4746,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let ghosttyWroteFormattedText = generalPasteboard.changeCount != previousChangeCount
             && generalPasteboard.availableType(from: [.string]) != nil
         if ghosttyWroteFormattedText {
-            // Ghostty wrote trimmed, soft-wrap-unwrapped text. Reflow that clean
-            // text rather than raw trim=false snapshot; Copy Raw leaves Ghostty's
-            // verbatim output untouched. Rectangular selection shape is not
-            // exposed by exported APIs, so an automatic raw gate needs Ghostty.
-            if reflow { reflowClipboardTextIfEnabled(generalPasteboard) }
+            if reflow && !activeSelectionMayBeRectangular { reflowClipboardTextIfEnabled(generalPasteboard) }
             return true
         }
 
@@ -4757,7 +4754,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return copied
         }
 
-        let text = (reflow && TerminalReflowCopySettings.isEnabled()) ? ReflowOptions.default.reflow(selectedText) : selectedText
+        let text = (reflow && !activeSelectionMayBeRectangular && TerminalReflowCopySettings.isEnabled()) ? ReflowOptions.default.reflow(selectedText) : selectedText
         GhosttyApp.terminalPasteboard.writeString(text, to: GHOSTTY_CLIPBOARD_STANDARD)
         return true
     }
@@ -6467,6 +6464,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
+        activeSelectionMayBeRectangular = event.modifierFlags.contains(.option)
         // Only update mouse position on the first click to prevent unwanted cursor
         // movement during double-click selection (issue #1698)
         if event.clickCount == 1 {
@@ -6499,6 +6497,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
         let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
+        if !ghostty_surface_has_selection(surface) { activeSelectionMayBeRectangular = false }
         _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
         return true
     }
@@ -7406,6 +7405,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
+        if event.modifierFlags.contains(.option) { activeSelectionMayBeRectangular = true }
         // Forward the raw drag coordinates, including out-of-bounds positions.
         // Selection auto-scroll depends on libghostty observing the pointer leave
         // the viewport rather than a cached in-bounds hover point.

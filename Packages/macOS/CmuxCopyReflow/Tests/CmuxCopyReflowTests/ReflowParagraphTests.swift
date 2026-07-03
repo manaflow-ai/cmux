@@ -27,15 +27,11 @@ struct ReflowParagraphTests {
         #expect(!result.contains("Helloworld"))
     }
 
-    @Test func adjacentProseParagraphsGetBlankSeparator() {
-        // Terminal copy drops the blank line between paragraphs; reflow restores
-        // it between two substantial prose paragraphs.
+    @Test func adjacentPunctuatedLinesDoNotInventBlankSeparator() {
         let input =
             "The afternoon settled over the valley like a slow exhale and gold light pooled in the grass.\n"
             + "A heron stood motionless at the bend, one leg tucked beneath it, patient as carved stone.\n"
-        let result = reflow(input)
-        #expect(result.contains("\n\n"), "expected a blank line between paragraphs, got: \(result)")
-        #expect(result.split(separator: "\n", omittingEmptySubsequences: true).count == 2)
+        #expect(reflow(input) == input)
     }
 
     @Test func listItemsGetNoBlankSeparator() {
