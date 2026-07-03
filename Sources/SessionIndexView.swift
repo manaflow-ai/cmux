@@ -674,70 +674,42 @@ private func sessionRowMenuElements(
 ) -> [CmuxContextMenuElement] {
     var elements: [CmuxContextMenuElement] = []
     if let onResume {
-        elements.append(
-            CmuxContextMenuElement(
-                button: String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab")
-            ) {
-                onResume(entry)
-            }
-        )
+        elements.append(CmuxContextMenuElement(button: String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab")) {
+            onResume(entry)
+        })
         elements.append(.separator)
     }
     if let url = entry.fileURL {
-        elements.append(
-            CmuxContextMenuElement(
-                button: String(localized: "sessionIndex.row.open", defaultValue: "Open")
-            ) {
-                NSWorkspace.shared.open(url)
-            }
-        )
-        elements.append(
-            CmuxContextMenuElement(
-                button: String(localized: "sessionIndex.row.reveal", defaultValue: "Reveal in Finder")
-            ) {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-            }
-        )
+        elements.append(CmuxContextMenuElement(button: String(localized: "sessionIndex.row.open", defaultValue: "Open")) {
+            NSWorkspace.shared.open(url)
+        })
+        elements.append(CmuxContextMenuElement(button: String(localized: "sessionIndex.row.reveal", defaultValue: "Reveal in Finder")) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        })
         elements.append(.separator)
-        elements.append(
-            CmuxContextMenuElement(
-                button: String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path")
-            ) {
-                let pb = NSPasteboard.general
-                pb.clearContents()
-                pb.setString(url.path, forType: .string)
-            }
-        )
+        elements.append(CmuxContextMenuElement(button: String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path")) {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(url.path, forType: .string)
+        })
     }
     if let resumeCommand = entry.resumeCommand {
-        elements.append(
-            CmuxContextMenuElement(
-                button: String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command")
-            ) {
-                let pb = NSPasteboard.general
-                pb.clearContents()
-                pb.setString(resumeCommand, forType: .string)
-            }
-        )
+        elements.append(CmuxContextMenuElement(button: String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command")) {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(resumeCommand, forType: .string)
+        })
     }
     if let cwd = entry.cwd, !cwd.isEmpty {
-        elements.append(
-            CmuxContextMenuElement(
-                button: String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory")
-            ) {
-                NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
-            }
-        )
+        elements.append(CmuxContextMenuElement(button: String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory")) {
+            NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
+        })
     }
     if let pr = entry.pullRequest, let url = URL(string: pr.url) {
         elements.append(.separator)
-        elements.append(
-            CmuxContextMenuElement(
-                button: String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request")
-            ) {
-                NSWorkspace.shared.open(url)
-            }
-        )
+        elements.append(CmuxContextMenuElement(button: String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request")) {
+            NSWorkspace.shared.open(url)
+        })
     }
     return elements
 }
