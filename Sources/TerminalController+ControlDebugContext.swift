@@ -215,8 +215,8 @@ extension TerminalController: ControlDebugContext {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
         }
-        let state = textView.debugInteract(action: action)
-        // `debugInteract` emits String/Bool/Int leaves only, so the bridge
+        let state = textView.performControlInteraction(action: action)
+        // `performControlInteraction` emits String/Bool/Int leaves only, so the bridge
         // cannot fail; the empty-object fallback keeps the conversion total.
         return ControlDebugTextBoxInteraction(
             surfaceID: panel.id,
@@ -319,11 +319,11 @@ extension TerminalController: ControlDebugContext {
         // the legacy `[String: Any]` params are reconstructed exactly
         // (`foundationObject` is the inverse of the dispatcher's bridging) and
         // the favicon body runs verbatim.
-        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { _, ws, surfaceId, browserPanel in
+        let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { workspaceId, surfaceId, browserPanel in
             let pngData = browserPanel.faviconPNGData
             return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "has_favicon": pngData != nil,
