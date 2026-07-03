@@ -8243,7 +8243,7 @@ extension BrowserPanel {
 private extension BrowserPanel {
     @discardableResult
     func applyPageZoom(_ candidate: CGFloat, persistPreference: Bool = true) -> Bool {
-        let clamped = BrowserPageZoomPreference.clampedZoom(candidate)
+        let clamped = pageZoomPreference.clampedZoom(candidate)
         let didChange = abs(webView.pageZoom - clamped) >= 0.0001
         if didChange {
             webView.pageZoom = clamped
