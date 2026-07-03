@@ -4185,15 +4185,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     private func ensureSurfaceReadyForInput() -> ghostty_surface_t? {
         if let surface = surface {
+            reassertTerminalFocusForInputIfFirstResponder()
             return surface
         }
         guard window != nil else { return nil }
         terminalSurface?.attachToViewForInputDemand(self)
         updateSurfaceSize(size: bounds.size)
         applySurfaceColorScheme(force: true)
+        reassertTerminalFocusForInputIfFirstResponder()
         return surface
     }
 
+    private func reassertTerminalFocusForInputIfFirstResponder() {
+        guard let terminalSurface, let firstResponder = window?.firstResponder as? NSView,
+              firstResponder === self || firstResponder.isDescendant(of: self) else { return }
+        terminalSurface.setFocus(true)
+    }
     private func requestInputRecoveryAfterSurfaceMiss(reason: String) {
         terminalSurface?.requestInputDemandSurfaceStartIfNeeded()
 #if DEBUG
@@ -5624,7 +5631,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         recordDirectAgentHibernationTerminalInput()
-        reassertSurfaceFocusForPhysicalInput(reason: "keyDown")
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
@@ -6080,11 +6086,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        guard let surface = surface else {
+        guard let surface = ensureSurfaceReadyForInput() else {
             super.flagsChanged(with: event)
             return
         }
-        reassertSurfaceFocusForPhysicalInput(reason: "flagsChanged")
 
         if !hasMarkedText(),
            let action = ghostty_input_action_e.modifierActionForFlagsChanged(
@@ -11230,8 +11235,7 @@ extension GhosttyNSView: NSTextInputClient {
     /// execution, etc.). Programmatic callers can preserve literal ESC bytes so
     /// automation payloads remain byte-for-byte stable.
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
-        guard let surface = surface else { return }
-        reassertSurfaceFocusForPhysicalInput(reason: "sendText")
+        guard let surface = ensureSurfaceReadyForInput() else { return }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
 #endif

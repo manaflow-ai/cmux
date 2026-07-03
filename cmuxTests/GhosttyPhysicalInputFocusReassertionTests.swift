@@ -34,7 +34,6 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         defer {
             GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-            withExtendedLifetime(terminal.surface) {}
         }
 
         GhosttyNSView.debugTextInputEventHandler = { _, _ in true }
@@ -80,7 +79,6 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-            withExtendedLifetime(terminal.surface) {}
         }
 
         var forwardedText: String?
