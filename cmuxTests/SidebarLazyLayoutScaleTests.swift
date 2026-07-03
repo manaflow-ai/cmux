@@ -51,16 +51,33 @@ final class SidebarLazyLayoutScaleTests {
         let unread: SidebarUnreadModel
         let counter: RowBodyCounter
         let window: NSWindow
+        let defaultsSuiteName: String
 
         func tearDown() {
             window.contentView = nil
             window.close()
+            UserDefaults(suiteName: defaultsSuiteName)?
+                .removePersistentDomain(forName: defaultsSuiteName)
         }
     }
 
     @MainActor
-    private static func mountSidebar(workspaceCount: Int) async -> Harness {
+    private static func mountSidebar(workspaceCount: Int) async throws -> Harness {
         _ = NSApplication.shared
+
+        // Hermetic defaults: VerticalTabsSidebar picks between the workspace
+        // list and extension/built-in sidebars via
+        // @AppStorage(CmuxExtensionSidebarSelection.defaultsKey). A persisted
+        // non-default provider on the host would mount the wrong sidebar and
+        // the probes would never fire. Same pattern as
+        // WorkspaceContentViewVisibilityTests.
+        let defaultsSuiteName = "SidebarLazyLayoutScaleTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defaults.set(
+            CmuxExtensionSidebarSelection.defaultProviderId,
+            forKey: CmuxExtensionSidebarSelection.defaultsKey
+        )
 
         let tabManager = TabManager()
         while tabManager.tabs.count < workspaceCount {
@@ -130,6 +147,7 @@ final class SidebarLazyLayoutScaleTests {
                 groupHeaderRowBody: { counter.groupHeaderBodies += 1 }
             )
         )
+        .defaultAppStorage(defaults)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 280, height: 640),
@@ -145,7 +163,13 @@ final class SidebarLazyLayoutScaleTests {
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: root)
 
-        return Harness(tabManager: tabManager, unread: unread, counter: counter, window: window)
+        return Harness(
+            tabManager: tabManager,
+            unread: unread,
+            counter: counter,
+            window: window,
+            defaultsSuiteName: defaultsSuiteName
+        )
     }
 
     /// One synchronous run-loop turn. Kept out of the async context so the
@@ -175,7 +199,7 @@ final class SidebarLazyLayoutScaleTests {
     @Test
     @MainActor
     func testMountRealizesOnlyViewportRowsAt300Workspaces() async throws {
-        let harness = await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
@@ -219,7 +243,7 @@ final class SidebarLazyLayoutScaleTests {
     @Test
     @MainActor
     func testUnreadStormStaysRowScopedAndConverges() async throws {
-        let harness = await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
