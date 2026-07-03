@@ -39,6 +39,15 @@ def parse_settings_arg(argv: list[str]) -> dict:
     return json.loads(argv[index + 1])
 
 
+def parse_mcp_config_arg(argv: list[str]) -> dict:
+    if "--mcp-config" not in argv:
+        return {}
+    index = argv.index("--mcp-config")
+    if index + 1 >= len(argv):
+        return {}
+    return json.loads(argv[index + 1])
+
+
 def run_wrapper(
     *,
     socket_state: str,
@@ -46,6 +55,7 @@ def run_wrapper(
     node_options: str | None = None,
     tmpdir: str | None = None,
     hooks_disabled: bool = False,
+    safari_driver: bool = False,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -69,6 +79,7 @@ def run_wrapper(
         hook_cmux_bin_log = tmp / "hook-cmux-bin.log"
         cmux_log = tmp / "cmux.log"
         socket_path = str(tmp / "cmux.sock")
+        safari_driver_path = tmp / "Safari Technology Preview.app" / "Contents" / "MacOS" / "safaridriver"
 
         make_executable(
             real_dir / "claude",
@@ -179,6 +190,12 @@ exit 0
         env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
         env["CLAUDECODE"] = "nested-session-sentinel"
+        if safari_driver:
+            safari_driver_path.parent.mkdir(parents=True, exist_ok=True)
+            make_executable(safari_driver_path, "#!/bin/sh\nexit 0\n")
+            env["CMUX_SAFARI_MCP_DRIVER_PATH"] = str(safari_driver_path)
+        else:
+            env.pop("CMUX_SAFARI_MCP_DRIVER_PATH", None)
         if hooks_disabled:
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         else:
@@ -633,6 +650,52 @@ def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> Non
     expect(
         "-p" in real_argv and "hi" in real_argv,
         f"merge user settings: user args dropped, got {real_argv}",
+        failures,
+    )
+
+
+def test_live_socket_injects_safari_mcp_when_driver_exists(failures: list[str]) -> None:
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["hi"],
+        safari_driver=True,
+    )
+    expect(code == 0, f"safari mcp: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv.count("--mcp-config") == 1,
+        f"safari mcp: expected one injected --mcp-config, got {real_argv}",
+        failures,
+    )
+    config = parse_mcp_config_arg(real_argv)
+    safari = config.get("mcpServers", {}).get("safari-mcp-stp", {})
+    expect(
+        safari.get("command", "").endswith("Safari Technology Preview.app/Contents/MacOS/safaridriver"),
+        f"safari mcp: expected safaridriver command, got {config}",
+        failures,
+    )
+    expect(
+        safari.get("args") == ["--mcp"],
+        f"safari mcp: expected --mcp args, got {config}",
+        failures,
+    )
+
+
+def test_live_socket_explicit_mcp_config_skips_safari_injection(failures: list[str]) -> None:
+    user_config = '{"mcpServers":{"custom":{"command":"/tmp/custom","args":[]}}}'
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--mcp-config", user_config, "hi"],
+        safari_driver=True,
+    )
+    expect(code == 0, f"explicit mcp config: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv.count("--mcp-config") == 1,
+        f"explicit mcp config: expected only user's --mcp-config, got {real_argv}",
+        failures,
+    )
+    expect(
+        parse_mcp_config_arg(real_argv) == {"mcpServers": {"custom": {"command": "/tmp/custom", "args": []}}},
+        f"explicit mcp config: user config should be preserved, got {real_argv}",
         failures,
     )
 
@@ -1858,6 +1921,8 @@ def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
+    test_live_socket_injects_safari_mcp_when_driver_exists(failures)
+    test_live_socket_explicit_mcp_config_skips_safari_injection(failures)
     test_live_socket_merges_inline_settings_form(failures)
     test_live_socket_repeated_settings_user_value_wins_conflict(failures)
     test_live_socket_user_nonobject_hooks_does_not_drop_cmux_hooks(failures)

@@ -409,6 +409,58 @@ claude_option_consumes_value() {
     return 1
 }
 
+cmux_safari_mcp_driver_path() {
+    [[ "${CMUX_SAFARI_MCP_DISABLED:-}" == "1" ]] && return 1
+    local driver="${CMUX_SAFARI_MCP_DRIVER_PATH:-/Applications/Safari Technology Preview.app/Contents/MacOS/safaridriver}"
+    driver="${driver#"${driver%%[![:space:]]*}"}"
+    driver="${driver%"${driver##*[![:space:]]}"}"
+    if [[ "$driver" == "~/"* ]]; then
+        driver="$HOME/${driver#~/}"
+    fi
+    [[ -n "$driver" && -x "$driver" && ! -d "$driver" ]] || return 1
+    printf '%s' "$driver"
+}
+
+cmux_json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+
+cmux_safari_mcp_config_json() {
+    local driver
+    driver="$(cmux_safari_mcp_driver_path)" || return 1
+    printf '{"mcpServers":{"safari-mcp-stp":{"command":"%s","args":["--mcp"]}}}' "$(cmux_json_escape "$driver")"
+}
+
+cmux_claude_args_have_mcp_config() {
+    local arg skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --mcp-config|--mcp-config=*)
+                return 0
+                ;;
+            -*)
+                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                ;;
+        esac
+    done
+    return 1
+}
+
 claude_remaining_args_have_resume_flag() {
     local arg
     for arg in "$@"; do
@@ -1011,9 +1063,17 @@ process.stdout.write(JSON.stringify(acc));
     unset CMUX_MERGED_SETTINGS cmux_merge_status
 fi
 
+CMUX_SAFARI_MCP_ARGS=()
+if ! cmux_claude_args_have_mcp_config "$@"; then
+    CMUX_SAFARI_MCP_CONFIG="$(cmux_safari_mcp_config_json 2>/dev/null || true)"
+    if [[ -n "$CMUX_SAFARI_MCP_CONFIG" ]]; then
+        CMUX_SAFARI_MCP_ARGS=(--mcp-config "$CMUX_SAFARI_MCP_CONFIG")
+    fi
+fi
+
 if [[ "$SKIP_SESSION_ID" == true ]]; then
-    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --settings "$HOOKS_JSON" "${CMUX_SAFARI_MCP_ARGS[@]}" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "${CMUX_SAFARI_MCP_ARGS[@]}" "$@"
 fi

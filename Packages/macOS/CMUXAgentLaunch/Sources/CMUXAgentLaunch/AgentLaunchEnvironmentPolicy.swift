@@ -41,6 +41,8 @@ public enum AgentLaunchEnvironmentPolicy {
         "CLAUDE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
+        "CMUX_SAFARI_MCP_DISABLED",
+        "CMUX_SAFARI_MCP_DRIVER_PATH",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",
         "CODEBUDDY_CONFIG_DIR",

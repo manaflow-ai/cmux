@@ -19,4 +19,21 @@ struct AgentLaunchEnvironmentPolicyTests {
             "PI_CONFIG_DIR": ".custom-omp",
         ])
     }
+
+    @Test("Preserves Safari MCP path controls without persisting secrets")
+    func preservesSafariMCPPathControlsWithoutPersistingSecrets() {
+        let selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(
+            from: [
+                "CMUX_SAFARI_MCP_DISABLED": "1",
+                "CMUX_SAFARI_MCP_DRIVER_PATH": "/tmp/Safari Technology Preview.app/safaridriver",
+                "SAFARI_MCP_TOKEN": "secret-should-not-persist",
+            ],
+            kind: "codex"
+        )
+
+        #expect(selected == [
+            "CMUX_SAFARI_MCP_DISABLED": "1",
+            "CMUX_SAFARI_MCP_DRIVER_PATH": "/tmp/Safari Technology Preview.app/safaridriver",
+        ])
+    }
 }
