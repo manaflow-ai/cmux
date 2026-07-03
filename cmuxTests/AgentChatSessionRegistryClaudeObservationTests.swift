@@ -156,6 +156,82 @@ struct AgentChatSessionRegistryClaudeObservationTests {
         #expect(requestedDetailPIDs == [120])
     }
 
+    @Test func mobileChatObserverIgnoresBackgroundClaudeProcess() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 707,
+                    name: "claude",
+                    path: "/opt/homebrew/bin/claude",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    isForeground: false
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 700),
+            includesProcessDetails: true
+        )
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 707 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["claude"],
+                    environment: [
+                        "CLAUDE_CODE_SESSION_ID": sessionID,
+                        "CMUX_AGENT_LAUNCH_CWD": "/Users/example/project",
+                    ]
+                )
+            },
+            codexRolloutPath: { _ in nil }
+        )
+
+        #expect(observed.isEmpty)
+    }
+
+    @Test func mobileChatLivenessIgnoresBackgroundClaudeProcess() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 808,
+                    name: "node",
+                    path: "/opt/homebrew/bin/node",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    isForeground: false
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 800),
+            includesProcessDetails: true
+        )
+
+        let livePID = AgentChatSessionRegistry.liveAgentPID(
+            in: snapshot,
+            surfaceID: surfaceID.uuidString,
+            kind: .claude,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 808 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "node",
+                        "/Users/example/.claude/local/node_modules/@anthropic-ai/claude-code/cli.js",
+                    ],
+                    environment: [
+                        "CLAUDE_CODE_SESSION_ID": "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
+                    ]
+                )
+            }
+        )
+
+        #expect(livePID == nil)
+    }
+
     @Test func observationScopeOnlyReusesInFlightScansThatCoverRequestedSurfaces() {
         let surfaceA = UUID()
         let surfaceB = UUID()
@@ -174,7 +250,8 @@ struct AgentChatSessionRegistryClaudeObservationTests {
         #expect(!requestA.covers(scanAB))
     }
 
-    @Test func observationWaitReturnsAtTimeoutWithoutDrainingSlowTask() async {
+    @MainActor
+    @Test func observationWaitTimeoutRemovesWaiterWithoutDrainingSlowTask() async {
         let clock = ContinuousClock()
         let slowTask = Task<Void, Never> {
             do {
@@ -182,16 +259,25 @@ struct AgentChatSessionRegistryClaudeObservationTests {
             } catch {}
         }
         defer { slowTask.cancel() }
+        let registry = AgentChatSessionRegistry()
+        let observationID = UUID()
+        registry.observeInFlight = AgentChatObservationInFlight(
+            id: observationID,
+            scope: .all,
+            task: slowTask
+        )
+        let handle = AgentChatObservationHandle(id: observationID, task: slowTask)
 
         let start = clock.now
-        let completed = await AgentChatSessionRegistry.waitForObservationTask(
-            slowTask,
+        let completed = await registry.waitForObservation(
+            handle,
             upTo: .milliseconds(50)
         )
         let elapsed = start.duration(to: clock.now)
 
         #expect(!completed)
         #expect(elapsed < .seconds(1))
+        #expect(registry.observeInFlight?.waiters.isEmpty == true)
     }
 
     private func topProcess(
@@ -199,9 +285,11 @@ struct AgentChatSessionRegistryClaudeObservationTests {
         name: String,
         path: String?,
         workspaceID: UUID,
-        surfaceID: UUID
+        surfaceID: UUID,
+        isForeground: Bool = true
     ) -> CmuxTopProcessInfo {
-        CmuxTopProcessInfo(
+        let processGroupID = pid
+        return CmuxTopProcessInfo(
             pid: pid,
             parentPID: 1,
             name: name,
@@ -210,8 +298,8 @@ struct AgentChatSessionRegistryClaudeObservationTests {
             cmuxWorkspaceID: workspaceID,
             cmuxSurfaceID: surfaceID,
             cmuxAttributionReason: "test",
-            processGroupID: nil,
-            terminalProcessGroupID: nil,
+            processGroupID: processGroupID,
+            terminalProcessGroupID: isForeground ? processGroupID : processGroupID + 1,
             cpuPercent: 0,
             residentBytes: 1,
             virtualBytes: 1,

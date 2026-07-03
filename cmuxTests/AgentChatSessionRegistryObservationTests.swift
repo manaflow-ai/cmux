@@ -402,9 +402,11 @@ struct AgentChatSessionRegistryObservationTests {
         name: String,
         path: String?,
         workspaceID: UUID,
-        surfaceID: UUID
+        surfaceID: UUID,
+        isForeground: Bool = true
     ) -> CmuxTopProcessInfo {
-        CmuxTopProcessInfo(
+        let processGroupID = pid
+        return CmuxTopProcessInfo(
             pid: pid,
             parentPID: 1,
             name: name,
@@ -413,8 +415,8 @@ struct AgentChatSessionRegistryObservationTests {
             cmuxWorkspaceID: workspaceID,
             cmuxSurfaceID: surfaceID,
             cmuxAttributionReason: "test",
-            processGroupID: nil,
-            terminalProcessGroupID: nil,
+            processGroupID: processGroupID,
+            terminalProcessGroupID: isForeground ? processGroupID : processGroupID + 1,
             cpuPercent: 0,
             residentBytes: 1,
             virtualBytes: 1,

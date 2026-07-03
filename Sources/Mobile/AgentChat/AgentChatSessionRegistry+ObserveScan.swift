@@ -35,16 +35,19 @@ enum AgentChatObservationScope: Equatable, Sendable {
     }
 }
 
-private final class AgentChatObservationWaitResume: @unchecked Sendable {
-    private let lock = NSLock()
-    private var didResume = false
+struct AgentChatObservationHandle: Sendable {
+    let id: UUID
+    let task: Task<Void, Never>
+}
 
-    func resume(_ continuation: CheckedContinuation<Bool, Never>, returning value: Bool) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didResume else { return }
-        didResume = true
-        continuation.resume(returning: value)
+struct AgentChatObservationInFlight {
+    let id: UUID
+    let scope: AgentChatObservationScope
+    let task: Task<Void, Never>
+    var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
+
+    var handle: AgentChatObservationHandle {
+        AgentChatObservationHandle(id: id, task: task)
     }
 }
 
@@ -111,8 +114,8 @@ extension AgentChatSessionRegistry {
     }
 
     func observeAgentProcesses() async {
-        if let task = observeAgentProcessesTask(scope: .all, force: true) {
-            await task.value
+        if let observation = observeAgentProcessesTask(scope: .all, force: true) {
+            await observation.task.value
         }
     }
 
@@ -122,42 +125,58 @@ extension AgentChatSessionRegistry {
         }
         let scope = AgentChatObservationScope(surfaceIDs: surfaceIDs)
         let force = surfaceIDs != nil
-        guard let task = observeAgentProcessesTask(scope: scope, force: force) else {
+        guard let observation = observeAgentProcessesTask(scope: scope, force: force) else {
             return true
         }
-        return await waitForObservation(task, upTo: timeout)
+        return await waitForObservation(observation, upTo: timeout)
     }
 
     func scheduleAgentProcessObservation() {
         _ = observeAgentProcessesTask(scope: .all, force: false)
     }
 
-    private func waitForObservation(_ task: Task<Void, Never>, upTo timeout: Duration) async -> Bool {
-        await Self.waitForObservationTask(task, upTo: timeout)
-    }
-
-    nonisolated static func waitForObservationTask(_ task: Task<Void, Never>, upTo timeout: Duration) async -> Bool {
-        await withCheckedContinuation { continuation in
-            let resume = AgentChatObservationWaitResume()
-            Task {
-                await task.value
-                resume.resume(continuation, returning: true)
+    func waitForObservation(_ observation: AgentChatObservationHandle, upTo timeout: Duration) async -> Bool {
+        guard observeInFlight?.id == observation.id else {
+            return true
+        }
+        let waiterID = UUID()
+        return await withCheckedContinuation { continuation in
+            guard var inFlight = observeInFlight, inFlight.id == observation.id else {
+                continuation.resume(returning: true)
+                return
             }
-            Task {
+            inFlight.waiters[waiterID] = continuation
+            observeInFlight = inFlight
+            Task { @MainActor [weak self] in
                 do {
                     try await Task.sleep(for: timeout)
-                    resume.resume(continuation, returning: false)
                 } catch {
-                    resume.resume(continuation, returning: true)
+                    return
                 }
+                guard let self,
+                      var current = self.observeInFlight,
+                      current.id == observation.id,
+                      current.waiters.removeValue(forKey: waiterID) != nil else { return }
+                self.observeInFlight = current
+                continuation.resume(returning: false)
             }
         }
     }
 
-    private func observeAgentProcessesTask(scope: AgentChatObservationScope, force: Bool) -> Task<Void, Never>? {
+    private func finishAgentProcessObservation(id: UUID) {
+        guard let inFlight = observeInFlight, inFlight.id == id else {
+            return
+        }
+        observeInFlight = nil
+        for continuation in inFlight.waiters.values {
+            continuation.resume(returning: true)
+        }
+    }
+
+    private func observeAgentProcessesTask(scope: AgentChatObservationScope, force: Bool) -> AgentChatObservationHandle? {
         if let inFlight = observeInFlight,
            inFlight.scope.covers(scope) {
-            return inFlight.task
+            return inFlight.handle
         }
         if !force,
            let observeLastStartedAt {
@@ -175,11 +194,12 @@ extension AgentChatSessionRegistry {
             guard let self else { return }
             self.applyObservedSessions(observed)
             if self.observeInFlight?.id == id {
-                self.observeInFlight = nil
+                self.finishAgentProcessObservation(id: id)
             }
         }
-        observeInFlight = (id, scope, task)
-        return task
+        let inFlight = AgentChatObservationInFlight(id: id, scope: scope, task: task)
+        observeInFlight = inFlight
+        return inFlight.handle
     }
 
     /// Off-main: one entry per distinct live codex/claude session under any cmux
@@ -215,7 +235,8 @@ extension AgentChatSessionRegistry {
                 }
                 return details
             }
-            guard let surfaceID = process.cmuxSurfaceID,
+            guard process.isTerminalForegroundProcessGroup,
+                  let surfaceID = process.cmuxSurfaceID,
                   surfaceIDs.map({ $0.contains(surfaceID) }) ?? true,
                   let def = codingAgentDefinition(
                       for: process,

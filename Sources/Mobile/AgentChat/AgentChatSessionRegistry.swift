@@ -100,15 +100,16 @@ final class AgentChatSessionRegistry {
         source.resume()
     }
 
-    /// Observe-floor liveness: the pid of a live agent process matching `kind`
-    /// anywhere under `surfaceID`'s process tree, or nil if none.
+    /// Observe-floor liveness: the pid of a live foreground agent process
+    /// matching `kind` under `surfaceID`'s process tree, or nil if none.
     ///
     /// A launcher or intermediate process (a subrouter like `sr`, a `node`
     /// shim) is NOT the agent; the real agent binary (e.g. `codex`, `claude`)
     /// appears deeper in the tree. So liveness must be judged from the whole
-    /// process tree under the surface, never from a single recorded pid that may
-    /// be a launcher. Nonisolated and snapshot-based so it runs off the main
-    /// actor; callers hop back to the main actor to apply the result. The
+    /// foreground process tree under the surface, never from a single recorded
+    /// pid that may be a launcher or from background descendants that would not
+    /// receive terminal input. Nonisolated and snapshot-based so it runs off the
+    /// main actor; callers hop back to the main actor to apply the result. The
     /// classifier is shared with observe-floor detection, so argv-hosted agents
     /// (`node …/claude-code`, `npx …/codex`) rebind the same way they are first
     /// discovered.
@@ -137,6 +138,7 @@ final class AgentChatSessionRegistry {
         let wantedID = kind.sourceName
         for pid in snapshot.expandedPIDs(rootPIDs: rootPIDs).sorted() {
             guard let info = snapshot.process(pid: pid),
+                  info.isTerminalForegroundProcessGroup,
                   let def = codingAgentDefinition(
                       for: info,
                       processArgumentsAndEnvironment: processArgumentsAndEnvironment
@@ -147,7 +149,7 @@ final class AgentChatSessionRegistry {
         return nil
     }
 
-    var observeInFlight: (id: UUID, scope: AgentChatObservationScope, task: Task<Void, Never>)?
+    var observeInFlight: AgentChatObservationInFlight?
     var observeLastStartedAt: Date?
     static let observeThrottleInterval: TimeInterval = 2
 
