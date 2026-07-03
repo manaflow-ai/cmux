@@ -94,10 +94,16 @@ host's mirror *location* to a `(windowId, groupId?)` pair:
 - Dedicated-window mirror: `groupId == nil` (today's shape).
 - Group mirror: both set.
 
-Either extend the existing registry to store the pair, or add a parallel
-`groupId` map alongside the `windowId` map. The `beginAttach`/`endAttach`
-connection-hash guard (prevents a double mirror across the await gap) is reused
-verbatim.
+**Decision:** extend the existing `RemoteTmuxWindowRegistry` to store an
+optional `groupId` alongside each host's `windowId` (a small value struct or
+parallel dict inside the same type), rather than a separate registry — every
+call site (`windowId(forHostHash:)`, `bind`, `unbind`, `beginAttach`/
+`endAttach`) already keys on the same host connection-hash, so one registry
+keeps reuse/teardown atomic and avoids two structures drifting out of sync.
+Rename to `RemoteTmuxMirrorRegistry` if the added responsibility warrants it;
+otherwise keep the name and add `groupId(forHostHash:)` /
+`bind(host:windowId:groupId:)`. The `beginAttach`/`endAttach` connection-hash
+guard is reused verbatim.
 
 ### 3.3 Reuse of existing plumbing
 
@@ -121,6 +127,13 @@ assigns each created member's `groupId` to the new group.
   return the same `{auth_required, ssh_argv}` / `{mirrored, …}` shapes. The
   group path returns `{mirrored, window_id, group_id}`.
 - Success print for the group path: `OK host=<dest> group=<group_id>`.
+- **`--no-focus` semantics for the group path** (D2/J-focus): `activate=false`
+  means *don't steal focus* — don't raise the target window to the front and
+  don't change the window's selected workspace to a group member. The group is
+  still created and revealed (expanded) in the sidebar, just not selected. With
+  `activate=true` (default) the window is raised and the group's anchor member
+  is selected. (Mirrors the window path's activate=raise-window intent, adapted
+  to "select the group" since no new window is created.)
 - Update `cli.help.ssh-tmux` localized help text to document `--new-window`.
 
 ### 4.2 Socket command (`Sources/TerminalController+RemoteTmux.swift`)
@@ -145,8 +158,11 @@ a group in an existing window:
 1. **Reuse check** — host already mirrored (group *or* window)? Reveal/select
    it, return `.mirrored`. (J4/J5.)
 2. **`beginAttach` guard** — bail if a concurrent attach is in flight.
-3. **Resolve target window** — focused/current main window's `TabManager`; if
-   none, `createMainWindow` as a **plain** window (D3) and use it.
+3. **Resolve target window** (verified) — reuse
+   `preferredMainWindowContextForWorkspaceCreation(...)` (`AppDelegate` ~line
+   8090), the same resolver local new-workspace uses. If `mainWindowContexts`
+   is empty, `createMainWindow` as a **plain** window (D3) and use it. Skip an
+   existing dedicated mirror window for a *different* host as the target.
 4. **Discover sessions** (BatchMode). Recoverable auth failure →
    `.authRequired(sshArgv:)`, no group created. Empty host → throw, no empty
    group. (Same guards as the window path.)
@@ -168,33 +184,64 @@ a group in an existing window:
 
 ### 5.1 New workspace → new tmux session (group-scoped) — D4/J6
 
+**Verified against code.** The group header
+`Sources/SidebarWorkspaceGroupHeaderView.swift` already renders a
+"new workspace in group" affordance (a11y key
+`workspaceGroup.newWorkspaceInGroup.a11y`, line ~208), and
+`TabManager.addWorkspaceToGroup(workspaceId:groupId:)` exists. The remote
+new-session interception is modeled on the existing
+`handleRemoteWindowNewWorkspaceRequested(windowId:)` (which today runs
+`tmux new-session -d -P -F '#{session_name}'` then `mirrorSession(...)`).
+
 - Today: `handleRemoteWindowNewWorkspaceRequested(windowId:)` intercepts *any*
-  new-workspace in the dedicated window.
-- New: the **sole trigger is the group's own "+" affordance** on a group with
-  `remoteHostHash != nil` (the window-level new-workspace shortcut is NOT
-  intercepted — J6). When that "+" fires, resolve the host from
-  `remoteHostHash`, create the tmux session on the host,
-  and let the live `%window-add` / `%sessions-changed` feed materialize the
-  member (one source of truth — never create a local orphan). A plain
-  new-workspace with no remote-group context falls through to normal local
-  creation, untouched.
+  new-workspace in the dedicated window (gated on
+  `windowRegistry.host(forWindowId:)` + `selectedTab.isRemoteTmuxMirror`).
+- New: a sibling `handleRemoteGroupNewWorkspaceRequested(groupId:)` whose **sole
+  trigger is the group header's "new workspace in group" affordance** on a group
+  with `remoteHostHash != nil` (the window-level new-workspace shortcut is NOT
+  intercepted — J6). It resolves the host from `remoteHostHash`, runs the same
+  detached-`new-session` + `mirrorSession(...into:)` sequence as the window path
+  (assigning the new member's `groupId`), and lets the live tmux feed be the
+  source of truth. A plain new-workspace with no remote-group context falls
+  through to normal local creation, untouched.
+- Note: `createEmptyWorkspaceGroup` is already gated with
+  `selectedTab?.isRemoteTmuxMirror != true`
+  (`Sources/TabItemView+WorkspaceGroups.swift`), so the codebase already
+  distinguishes remote vs. group creation — extend that reasoning, don't fight
+  it.
 
 ### 5.2 Group lifecycle — dissolve on host end, keep the window — D5/J1/J2
 
-- Today: `resolveSessionEndAction(...)` may close the dedicated window when the
-  host's sessions end.
-- New: the equivalent operates on the **group**. Definitive host end (last
-  mirrored session gone / user detach) → close the group's member workspaces
-  and dissolve the group via the existing group-removal machinery; unbind the
-  registry. **Do not close the window.** This is the core inversion from
-  today's window-close behavior.
-- Per-session: one session ending (others remain) closes only that member
-  (existing per-session teardown); the group persists until the last one ends.
-- Recoverable disconnect (J2): no dissolve; members show reconnecting state.
-- Selection after dissolve (J1): nearest surviving neighbor.
+**Verified against code.** `handleSessionEndedRemotely(host:sessionName:workspaceId:)`
+in `Sources/RemoteTmuxController.swift` (~line 918) is the definitive-end hook.
+Its doc comment already states: *"A transient transport loss does NOT reach here
+— the connection reconnects instead."* That is exactly the J2 distinction,
+already implemented — no new reconnect logic needed. It also already separates
+one-session-ends (`hostHasOtherMirrors == true` → close only that workspace)
+from last-session-gone. The pure decision function
+`sessionEndAction(dedicatedWindowId:dedicatedWindowOwnedByEndingHost:otherMainWindowCount:)`
+returns `RemoteTmuxSessionEndAction` (today: `.closeWorkspace` /
+`.closeDedicatedWindow(UUID)`).
+
+- **The only change is the last-session action for a group mirror.** Extend
+  `RemoteTmuxSessionEndAction` with a `.dissolveGroup(UUID)` case. When the
+  ending host's mirror is a *group* (registry has a `groupId`, not a dedicated
+  window), the decision function returns `.dissolveGroup(groupId)` and the
+  switch closes the group's member workspaces + removes the group via the
+  existing group-removal machinery (`dissolveGroupsAnchoredBy` /
+  `normalizeWorkspaceGroupContiguity`), then unbinds the registry. **The window
+  is never closed.**
+- Blast-radius guard reused: the window path already refuses to discard a window
+  holding non-host workspaces (`ownedByEndingHost`). The group path applies the
+  same care — only dissolve members still owned by the ending host; a member
+  dragged out of the group before host-end is left alone.
+- Per-session end (others remain): unchanged — `hostHasOtherMirrors` path closes
+  only that member; the group persists until the last one ends.
+- Selection after dissolve (J1): nearest surviving neighbor (reuses the
+  workspace-close neighbor pick).
 - The existing anchor rule still holds as a floor: closing the anchor member
-  dissolves the group. Since the anchor is a mirrored session, its remote end
-  reaches dissolve through the lifecycle path anyway.
+  dissolves the group; since the anchor is a mirrored session, its remote end
+  reaches dissolve through this path anyway.
 
 ## 6. Persistence
 
