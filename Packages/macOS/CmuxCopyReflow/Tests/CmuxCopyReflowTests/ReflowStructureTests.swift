@@ -91,6 +91,11 @@ struct ReflowStructureTests {
         #expect(reflow(input) == "- https://example.com/a/b/c\n")
     }
 
+    @Test func urlBehindOrderedListMarkerJoinsWithoutSpace() {
+        let input = "1. https://example.com/a\n/b/c\n"
+        #expect(reflow(input) == "1. https://example.com/a/b/c\n")
+    }
+
     @Test func mentionURLJoinsWithSpaceNotConcatenated() {
         let lead = "Refer to https://docs.example.com/guide which explains the entire onboarding flow in"
         let input = "\(lead)\nmore detail.\n"

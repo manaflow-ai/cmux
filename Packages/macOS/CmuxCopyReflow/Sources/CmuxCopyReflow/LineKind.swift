@@ -129,8 +129,8 @@ public enum LineKind: Equatable, Sendable {
             && urlPrefixes.contains { afterMarker.lowercased().hasPrefix($0) }
     }
 
-    /// Drop at most one leading list/quote marker (`- `, `* `, `+ `, `• `,
-    /// `> `) so a URL behind such a marker is still recognised.
+    /// Drop at most one leading list/quote marker (`- `, `1. `, `> `, etc.)
+    /// so a URL behind such a marker is still recognised.
     private static func stripSingleLeadingMarker(_ trimmed: Substring) -> Substring {
         guard let first = trimmed.first else { return trimmed }
         if first == "-" || first == "*" || first == "+" || first == "•" || first == ">" {
@@ -138,6 +138,21 @@ public enum LineKind: Equatable, Sendable {
             if rest.first == " " {
                 return rest.drop { $0 == " " }
             }
+        }
+        if first.isNumber {
+            var cursor = trimmed.startIndex
+            while cursor < trimmed.endIndex, trimmed[cursor].isNumber {
+                cursor = trimmed.index(after: cursor)
+            }
+            guard cursor < trimmed.endIndex,
+                  trimmed[cursor] == "." || trimmed[cursor] == ")" else {
+                return trimmed
+            }
+            let afterDelimiter = trimmed.index(after: cursor)
+            guard afterDelimiter < trimmed.endIndex, trimmed[afterDelimiter] == " " else {
+                return trimmed
+            }
+            return trimmed[afterDelimiter...].drop { $0 == " " }
         }
         return trimmed
     }
