@@ -5566,6 +5566,7 @@ extension TabManager {
             hasher.combine(workspace.currentDirectory)
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")
+            hasher.combine(workspace.effectiveCustomDescriptionSource?.rawValue ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
             hasher.combine(workspace.panels.count)

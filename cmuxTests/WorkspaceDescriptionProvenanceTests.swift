@@ -123,6 +123,20 @@ import Testing
         #expect(workspace.customDescription == "human note")
     }
 
+    @Test func autosaveFingerprintTracksDescriptionProvenanceChange() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+
+        manager.setCustomDescription(tabId: workspace.id, description: "same summary")
+        let userOwnedFingerprint = manager.sessionAutosaveFingerprint()
+
+        manager.setCustomDescription(tabId: workspace.id, description: "same summary", source: .agent)
+
+        #expect(workspace.customDescription == "same summary")
+        #expect(workspace.effectiveCustomDescriptionSource == .agent)
+        #expect(manager.sessionAutosaveFingerprint() != userOwnedFingerprint)
+    }
+
     // MARK: - Snapshot round-trip
 
     @Test func snapshotRoundTripPreservesDescriptionProvenance() throws {
