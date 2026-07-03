@@ -133,6 +133,19 @@ When adding a regression test for a bug fix, use a two-commit structure so CI pr
 
 This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the test genuinely fails without the fix.
 
+## First pass, then dogfood
+
+A task's first pass ends when the change is implemented, the tagged build succeeded, focused tests ran, the branch is pushed, and the PR is open. Then hand off to the user for dogfood. Do not fix CI failures, merge conflicts, or review findings inline in the main conversation after that point; delegate them to background subagents while the user dogfoods. This applies to Claude Code (agent/task tool) and Codex (background sub-task or bounded background `codex exec`) alike.
+
+Delegate two background passes at handoff, each with a bounded prompt (PR URL, worktree, base ref, failing checks plus log URLs, allowed write scope, required verification), never a vague "make it green":
+
+1. **CI repair subagent** watches PR checks and fixes failures and merge conflicts within its write scope.
+2. **Autoreview subagent** runs the review loop (structured review plus PR feedback) and fixes accepted findings. Neither subagent merges.
+
+The main agent inspects every subagent diff, rejects out-of-scope edits, and owns dogfood, approval, and merge. Merging app/runtime/UI changes still requires the user's explicit approval after dogfood. If a subagent pushes app/runtime changes after the user started dogfooding, rebuild the tag and re-notify; the earlier dogfood verdict is stale.
+
+Notify through `cmux notify` so the user can leave and return. At handoff the main agent sends `cmux notify --title "Dogfood ready: <short task>" --subtitle "<branch> · <tag>" --body "Was: <prior bad behavior>. Now: <expected behavior>. <concrete check>. CI + review in background. PR: <pr-url>"`. Each subagent sends its outcome when done or blocked, e.g. `--title "CI green: <branch>"`, `--title "Review clean: <branch>" --body "fixed <n> findings, pushed"`, or `--title "CI blocked: <branch>" --body "<check>: <one-line cause>, needs your decision"`. Titles carry the outcome and branch; bodies say what happened and the single next action. If there is no cmux socket, skip notify and rely on the chat handoff.
+
 ## Shared behavior policy
 
 - When a behavior is exposed through multiple entrypoints (keyboard shortcut, command palette, context menu, CLI, settings, debug menu), implement one shared action/model path and verify every entrypoint that should invoke it. Do not patch one surface while leaving the others with duplicated logic.
