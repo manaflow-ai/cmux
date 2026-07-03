@@ -3815,7 +3815,7 @@ final class WorkspaceTabColorPaletteStoreTests: XCTestCase {
 
     func testDisplayColorLightModeKeepsOriginalHex() {
         let originalHex = "#1A5276"
-        let rendered = WorkspaceTabColorPaletteStore().displayNSColor(
+        let rendered = WorkspaceTabColorPaletteStore.displayNSColor(
             hex: originalHex,
             colorScheme: .light
         )
@@ -3826,7 +3826,7 @@ final class WorkspaceTabColorPaletteStoreTests: XCTestCase {
     func testDisplayColorDarkModeBrightensColor() {
         let originalHex = "#1A5276"
         guard let base = NSColor(hex: originalHex),
-              let rendered = WorkspaceTabColorPaletteStore().displayNSColor(
+              let rendered = WorkspaceTabColorPaletteStore.displayNSColor(
                   hex: originalHex,
                   colorScheme: .dark
               ) else {
@@ -3841,7 +3841,7 @@ final class WorkspaceTabColorPaletteStoreTests: XCTestCase {
     func testDisplayColorDarkModeKeepsGrayscaleNeutral() {
         let originalHex = "#808080"
         guard let base = NSColor(hex: originalHex),
-              let rendered = WorkspaceTabColorPaletteStore().displayNSColor(
+              let rendered = WorkspaceTabColorPaletteStore.displayNSColor(
                   hex: originalHex,
                   colorScheme: .dark
               ),
@@ -3858,7 +3858,7 @@ final class WorkspaceTabColorPaletteStoreTests: XCTestCase {
     func testDisplayColorForceBrightensInLightMode() {
         let originalHex = "#1A5276"
         guard let base = NSColor(hex: originalHex),
-              let rendered = WorkspaceTabColorPaletteStore().displayNSColor(
+              let rendered = WorkspaceTabColorPaletteStore.displayNSColor(
                   hex: originalHex,
                   colorScheme: .light,
                   forceBright: true

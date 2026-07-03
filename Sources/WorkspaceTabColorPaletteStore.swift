@@ -141,6 +141,19 @@ struct WorkspaceTabColorPaletteStore {
         colorScheme: ColorScheme,
         forceBright: Bool = false
     ) -> NSColor? {
+        Self.displayNSColor(
+            hex: hex,
+            colorScheme: colorScheme,
+            forceBright: forceBright
+        )
+    }
+
+    /// Returns the display color for a raw hex without reading palette state.
+    static func displayNSColor(
+        hex: String,
+        colorScheme: ColorScheme,
+        forceBright: Bool = false
+    ) -> NSColor? {
         WorkspaceColorHex(hex)?.displayNSColor(
             colorScheme: WorkspaceColorScheme(colorScheme),
             forceBright: forceBright

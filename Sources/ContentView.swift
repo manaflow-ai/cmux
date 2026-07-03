@@ -14506,7 +14506,7 @@ struct TabItemView: View, Equatable {
     }
 
     private func tabColorSwatchColor(for hex: String) -> NSColor {
-        WorkspaceTabColorPaletteStore().displayNSColor(
+        WorkspaceTabColorPaletteStore.displayNSColor(
             hex: hex,
             colorScheme: colorScheme,
             forceBright: activeTabIndicatorStyle == .leftRail
