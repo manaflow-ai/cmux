@@ -77,11 +77,17 @@ public struct WorkspaceMountPlan: Equatable {
 
         // Ensure pinned ids (retiring handoff workspaces) are always retained at highest priority.
         // This runs after warming to prevent neighbor warming from evicting the retiring workspace.
+        let orderIndexByWorkspaceId = Dictionary(
+            orderedTabIds.enumerated().map { index, workspaceId in
+                (workspaceId, index)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         let prioritizedPinnedIds = pinnedIds
             .filter { activeWorkspaceIds.contains($0) && $0 != selected }
             .sorted { lhs, rhs in
-                let lhsIndex = orderedTabIds.firstIndex(of: lhs) ?? .max
-                let rhsIndex = orderedTabIds.firstIndex(of: rhs) ?? .max
+                let lhsIndex = orderIndexByWorkspaceId[lhs] ?? .max
+                let rhsIndex = orderIndexByWorkspaceId[rhs] ?? .max
                 return lhsIndex < rhsIndex
             }
         if let selected, shouldKeepSelectedMounted {

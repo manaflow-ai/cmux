@@ -3237,26 +3237,31 @@ struct ContentView: View {
             isCycleHot: isCycleHot,
             maxMounted: maxMounted
         ).mountedWorkspaceIds
-        let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
+        let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
         let portalRenderingChanges = WorkspacePortalRenderingPlan(
             previousStatesByWorkspaceId: lastReconciledPortalRenderingStatesByWorkspaceId,
-            mountedWorkspaceIds: Set(mountedWorkspaceIds),
+            mountedWorkspaceIds: mountedWorkspaceIdSet,
             orderedWorkspaceIds: renderingSyncWorkspaces.map(\.id)
         ).applying(to: &lastReconciledPortalRenderingStatesByWorkspaceId)
-        let workspacesById = Dictionary(renderingSyncWorkspaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let workspacesById = Dictionary(
+            renderingSyncWorkspaces.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         for change in portalRenderingChanges {
             workspacesById[change.workspaceId]?.setPortalRenderingEnabled(change.isEnabled, reason: "workspaceMount")
         }
 #if DEBUG
         if mountedWorkspaceIds != previousMountedIds {
-            let added = mountedWorkspaceIds.filter { !previousMountedIds.contains($0) }
+            let previousMountedIdSet = Set(previousMountedIds)
+            let added = mountedWorkspaceIds.filter { !previousMountedIdSet.contains($0) }
+            let removed = previousMountedIds.filter { !mountedWorkspaceIdSet.contains($0) }
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
                     "ws.mount.reconcile id=\(snapshot.id) dt=\(debugMsText(dtMs)) hot=\(isCycleHot ? 1 : 0) " +
                     "selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
                     "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds)) " +
-                    "added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removedIds))"
+                    "added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removed))"
                 )
             } else {
                 cmuxDebugLog(
