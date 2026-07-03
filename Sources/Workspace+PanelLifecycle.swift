@@ -39,10 +39,12 @@ extension Workspace {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
         var agentPIDsForPanel: [String: pid_t] = [:]
+        var agentPIDIdentitiesForPanel: [String: AgentPIDProcessIdentity] = [:]
         var statusEntriesForPanel: [String: SidebarStatusEntry] = [:]
         for key in pidKeys {
             if let pid = agentPIDs[key] {
                 agentPIDsForPanel[key] = pid
+                agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
             if let statusEntry = statusEntries[statusKey] {
@@ -54,6 +56,7 @@ extension Workspace {
             panelId: panelId,
             statusEntries: statusEntriesForPanel,
             agentPIDs: agentPIDsForPanel,
+            agentPIDProcessIdentities: agentPIDIdentitiesForPanel,
             agentPIDKeys: pidKeys
         )
     }
@@ -195,7 +198,7 @@ extension Workspace {
         return currentIdentity == recordedIdentity
     }
 
-    private static func agentPIDProcessIdentity(pid: pid_t) -> AgentPIDProcessIdentity? {
+    static func agentPIDProcessIdentity(pid: pid_t) -> AgentPIDProcessIdentity? {
         guard pid > 0 else { return nil }
         var info = proc_bsdinfo()
         let expectedSize = MemoryLayout<proc_bsdinfo>.stride
@@ -371,6 +374,9 @@ extension Workspace {
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
             recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
+            if let recordedIdentity = runtimeState.agentPIDProcessIdentities[key] {
+                agentPIDProcessIdentitiesByKey[key] = recordedIdentity
+            }
             didAdoptAgentPID = true
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
@@ -460,6 +466,7 @@ extension Workspace {
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
         restoredAgentAutoResumeOnVisitPanelIds.remove(panelId)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)

@@ -14,16 +14,18 @@ final class DockSplitStore: BonsplitDelegate {
     let bonsplitController: BonsplitController
 
     /// Which Dock this store backs: `.workspace` (per-workspace, seeded from the
-    /// project `.cmux/dock.json`) or `.global` (one app-wide Dock seeded from
-    /// `~/.config/cmux/dock.json` that persists everywhere). Drives config
-    /// resolution and how cross-container moves resolve a reference window.
+    /// project `.cmux/dock.json`) or `.global` (a per-window Dock seeded from
+    /// the global `~/.config/cmux/dock.json`, owner id == window id). Drives
+    /// config resolution and how cross-container moves resolve a reference window.
     let scope: DockScope
 
     private(set) var sourceLabel: String = ""
     private(set) var errorMessage: String?
     private(set) var trustRequest: DockTrustRequest?
     private(set) var isVisibleInUI: Bool = false
-    private(set) var renderHostId: UUID?
+    /// Host views currently showing this Dock. Normally at most one (the owning
+    /// window's right sidebar), but SwiftUI remounts can briefly overlap an old
+    /// and new host, so visibility is the union rather than a single flag.
     private var visibleUIHostIds: Set<UUID> = []
 
     private let baseDirectoryProvider: () -> String?
@@ -33,7 +35,7 @@ final class DockSplitStore: BonsplitDelegate {
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
-    var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
+    @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     private var hasLoadedConfiguration = false
     private var configurationLoadTask: Task<Void, Never>?
     private var configurationIdentityTask: Task<Void, Never>?
@@ -213,7 +215,6 @@ final class DockSplitStore: BonsplitDelegate {
     func setVisibleInUI(_ visible: Bool) {
         if !visible {
             visibleUIHostIds.removeAll()
-            renderHostId = nil
         }
         guard isVisibleInUI != visible else { return }
         isVisibleInUI = visible
@@ -221,20 +222,13 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
     func setVisibleInUI(_ visible: Bool, hostId: UUID) {
-        let previousRenderHostId = renderHostId
         if visible {
             visibleUIHostIds.insert(hostId)
-            if renderHostId == nil {
-                renderHostId = hostId
-            }
         } else {
             visibleUIHostIds.remove(hostId)
-            if renderHostId == hostId {
-                renderHostId = visibleUIHostIds.first
-            }
         }
         let anyHostVisible = !visibleUIHostIds.isEmpty
-        guard isVisibleInUI != anyHostVisible || renderHostId != previousRenderHostId else { return }
+        guard isVisibleInUI != anyHostVisible else { return }
         isVisibleInUI = anyHostVisible
         applyFocusedDockSelection()
     }
@@ -413,6 +407,10 @@ final class DockSplitStore: BonsplitDelegate {
         bonsplitController.focusPane(paneId)
         bonsplitController.selectTab(tabId)
         applyDockSelection(tabId: tabId, inPane: paneId)
+    }
+
+    func triggerFocusFlash(panelId: UUID) {
+        panels[panelId]?.triggerFlash(reason: .navigation)
     }
 
     private func resolveSourcePanelId(_ requested: UUID?) -> UUID? {
@@ -636,6 +634,7 @@ final class DockSplitStore: BonsplitDelegate {
             panelCancellables.removeValue(forKey: panelId)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
+            detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
             if let panel = panels.removeValue(forKey: panelId) { panel.close() }
         }
     }

@@ -22,29 +22,45 @@ import Testing
     }
 
     @Test func leadingTitleReservesBackAndTrailingControls() {
-        let expected = 393
+        let expected = min(
+            MobileLeadingToolbarTitleWidth.maximumMeasuredCap,
+            393
             - MobileLeadingToolbarTitleWidth.backButtonReserve
             - MobileLeadingToolbarTitleWidth.trailingReserveBase
             - MobileLeadingToolbarTitleWidth.chatToggleReserve
             - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
+        )
 
         #expect(cap(393) == expected)
     }
 
     @Test func titleGainsRoomWithoutChatToggle() {
-        #expect(cap(393, hasChatToggle: false) > cap(393, hasChatToggle: true))
+        #expect(cap(260, hasChatToggle: false) > cap(260, hasChatToggle: true))
+    }
+
+    @Test func iPhoneWidthCapsTitleBeforeTrailingControlsOverflow() {
+        #expect(cap(393, hasChatToggle: true) <= 140)
+        #expect(cap(393, hasChatToggle: false) == 140)
     }
 
     @Test func titleGainsRoomWithoutBackButton() {
-        #expect(cap(393, hasBackButton: false) > cap(393, hasBackButton: true))
+        #expect(cap(260, hasBackButton: false) > cap(260, hasBackButton: true))
     }
 
     @Test func noTrailingClusterDoesNotReserveChatToggle() {
-        let withoutTrailing = cap(393, hasTrailingCluster: false)
-        let expected = 393
+        let contentWidth: CGFloat = 220
+        let withoutTrailing = cap(contentWidth, hasTrailingCluster: false)
+        let expected = min(
+            MobileLeadingToolbarTitleWidth.maximumMeasuredCap,
+            contentWidth
             - MobileLeadingToolbarTitleWidth.backButtonReserve
             - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
+        )
 
         #expect(withoutTrailing == expected)
+    }
+
+    @Test func measuredWidthDoesNotExpandPastInitialFallback() {
+        #expect(cap(800, hasChatToggle: false) == MobileLeadingToolbarTitleWidth.unmeasuredFallback)
     }
 }
