@@ -237,6 +237,16 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int, inRow rowIndex: Int) {
+        // SwiftUI supplies offsets in displayed-row coordinates, while the
+        // configuration mutates raw row coordinates. The terminal scope is expected
+        // to be unfiltered; if that ever changes, this path must translate indices.
+        guard configuration.displayRows.indices.contains(rowIndex),
+              displayedItemRows.indices.contains(rowIndex),
+              displayedItemRows[rowIndex].map(\.id) == configuration.displayRows[rowIndex]
+        else {
+            assertionFailure("Terminal row reordering requires unfiltered row indices")
+            return
+        }
         configuration.moveItems(from: offsets, to: destination, inRow: rowIndex)
     }
 }
