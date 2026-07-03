@@ -1033,7 +1033,6 @@
 		A1577A00DEB60000000000A0 /* StartupAppearanceDebugReloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1577A00DEB60000000000A1 /* StartupAppearanceDebugReloader.swift */; };
 		D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B71010000000000000002 /* StartupBreadcrumbLog.swift */; };
 		A50016AA /* SurfaceResumeApprovalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016AB /* SurfaceResumeApprovalStore.swift */; };
-		F6572000A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 		C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000000D /* SystemCommandRunner.swift */; };
 		BF175DB391C50FA2DD216865 /* SystemWideHotkeyController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36E622F38A32C27960E93E6C /* SystemWideHotkeyController.swift */; };
@@ -2367,7 +2366,6 @@
 		A1577A00DEB60000000000A1 /* StartupAppearanceDebugReloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupAppearanceDebugReloader.swift; sourceTree = "<group>"; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
 		A50016AB /* SurfaceResumeApprovalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalStore.swift; sourceTree = "<group>"; };
-		F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift"; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		C7B0FACE000000000000000D /* SystemCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCommandRunner.swift; sourceTree = "<group>"; };
 		36E622F38A32C27960E93E6C /* SystemWideHotkeyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemWideHotkeyController.swift; sourceTree = "<group>"; };
@@ -3093,7 +3091,6 @@
 				C7B0FACE0000000000000019 /* SleepyStatusProviding.swift */,
 				C7B0FACE0000000000000017 /* SleepyStatusSample.swift */,
 				5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */,
-				F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */,
 				C7B0FACE000000000000000D /* SystemCommandRunner.swift */,
 				DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */,
 				C0DE00000000000000000D83 /* TerminalController+ControlPaneDock.swift */,
@@ -5243,7 +5240,6 @@
 				A1577A00DEB60000000000A0 /* StartupAppearanceDebugReloader.swift in Sources */,
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
 				A50016AA /* SurfaceResumeApprovalStore.swift in Sources */,
-				F6572000A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
 				C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */,
 				BF175DB391C50FA2DD216865 /* SystemWideHotkeyController.swift in Sources */,

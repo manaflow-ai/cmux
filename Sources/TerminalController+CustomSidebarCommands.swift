@@ -3,6 +3,7 @@ import CmuxControlSocket
 import CmuxSettings
 import CmuxSwiftRenderUI
 import Foundation
+import CmuxSidebar
 
 extension TerminalController {
     nonisolated func v2CustomSidebarValidate(params: [String: Any]) -> V2CallResult {

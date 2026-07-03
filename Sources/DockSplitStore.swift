@@ -6,6 +6,10 @@ import CmuxCore
 import CmuxTerminal
 import Observation
 import SwiftUI
+import CmuxWorkspaces
+import CmuxSidebar
+import CmuxCommandPalette
+import CmuxBrowser
 
 @MainActor
 @Observable

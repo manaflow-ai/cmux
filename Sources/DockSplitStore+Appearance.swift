@@ -3,6 +3,8 @@ import CmuxAppKitSupportUI
 import CmuxSettings
 import CmuxTerminal
 import CoreGraphics
+import CmuxWindowing
+import CmuxTerminalCore
 
 extension DockSplitStore {
     /// Minimum Dock pane size (points) in either axis. Smaller than Bonsplit's

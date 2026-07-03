@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 /// Category an agent hook attaches to a notification so the app can gate
 /// delivery by user config. Mirrors the CLI's `ClaudeNotifyCategory`; serialized

@@ -1,5 +1,6 @@
 import CmuxFoundation
 import Foundation
+import CmuxGit
 
 /// Runs non-locking `git status --porcelain` and parses results into a path-to-status map.
 struct GitStatusProvider: Sendable {

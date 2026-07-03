@@ -1,6 +1,9 @@
 import AppKit
 import Foundation
 import WebKit
+import CmuxTestSupport
+import CmuxControlSocket
+import CmuxCommandPalette
 
 /// Window-Dock routing for the browser socket commands.
 ///

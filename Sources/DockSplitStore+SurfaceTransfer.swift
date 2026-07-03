@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxTerminal
 import CmuxTerminalCore
+import CmuxCommandPalette
 
 /// Cross-container surface transfer for the Dock.
 ///

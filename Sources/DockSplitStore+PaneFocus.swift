@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxCommandPalette
 
 extension DockSplitStore {
     func noteKeyboardFocusIntent(window: NSWindow?) {

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSidebar
 
 #if DEBUG
 private enum CustomSidebarDirectoryOverrideForTesting {

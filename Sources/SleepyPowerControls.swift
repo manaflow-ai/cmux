@@ -1,4 +1,5 @@
 import Foundation
+import CmuxControlSocket
 
 /// App power-action adapter for Sleepy Mode, constructed by the composition root
 /// (`SleepyModeController`) and injected into the scene. It owns no global

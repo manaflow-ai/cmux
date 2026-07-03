@@ -1,6 +1,7 @@
 import CmuxCanvas
 import CmuxPanes
 import CmuxSettings
+import CmuxBrowser
 
 extension AppDelegate {
     @discardableResult

@@ -1,6 +1,9 @@
 import AppKit
 import CmuxControlSocket
 import Foundation
+import CmuxTestSupport
+import CmuxSidebar
+import CmuxGit
 
 extension TerminalController {
     func validateDockSurfaceCreateRouting(

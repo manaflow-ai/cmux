@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxCore
 
 @MainActor
 final class CustomSidebarPanel: Panel, ObservableObject {

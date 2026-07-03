@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import CmuxWorkspaces
 
 private let submitTimeoutSeconds: TimeInterval = 180
 

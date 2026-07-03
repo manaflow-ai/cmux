@@ -86,6 +86,43 @@ final class CmuxWebView: WKWebView {
     // each event's keyCode + modifierFlags into it.
     private static let pasteAsPlainTextShortcut = BrowserPasteAsPlainTextShortcut()
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
+    // Session-download members restored during the main merge: the conflict
+    // resolver kept our CmuxWebView but dropped main's session-download system
+    // (its consumers, e.g. CmuxWebView+ScriptedDownloads / BrowserSessionDownloadSaver,
+    // were kept).
+    private static var cmuxDownloadDelegateKey: UInt8 = 0
+    var onSessionDownloadEvent: (([String: Any]) -> Void)?
+    private lazy var sessionDownloadSaver = BrowserSessionDownloadSaver(
+        parentWindow: { [weak self] in self?.window },
+        notifyDownloadState: { [weak self] in self?.notifyContextMenuDownloadState($0) },
+        notifyEvent: { [weak self] in self?.notifySessionDownloadEvent($0) },
+        debugLog: { [weak self] in self?.debugContextDownload($0) },
+        runFallback: { [weak self] action, target, sender, traceID, reason in
+            self?.runContextMenuFallback(action: action, target: target, sender: sender, traceID: traceID, reason: reason)
+        }
+    )
+    var cmuxDownloadDelegate: WKDownloadDelegate? {
+        get {
+            objc_getAssociatedObject(self, &Self.cmuxDownloadDelegateKey) as? WKDownloadDelegate
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &Self.cmuxDownloadDelegateKey,
+                newValue,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+    private func notifySessionDownloadEvent(_ event: [String: Any]) {
+        if Thread.isMainThread {
+            onSessionDownloadEvent?(event)
+        } else {
+            Task { @MainActor [weak self] in
+                self?.onSessionDownloadEvent?(event)
+            }
+        }
+    }
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
     var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?

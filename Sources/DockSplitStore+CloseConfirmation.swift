@@ -1,6 +1,8 @@
 import AppKit
 import Bonsplit
 import CmuxSettings
+import CmuxTestSupport
+import CmuxCommandPalette
 
 private struct DockPaneCloseConfirmationPrompt: Sendable {
     let title: String

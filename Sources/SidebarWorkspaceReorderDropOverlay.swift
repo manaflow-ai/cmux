@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CmuxSidebar
 
 struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
     typealias Target = SidebarWorkspaceReorderDropOverlayTarget

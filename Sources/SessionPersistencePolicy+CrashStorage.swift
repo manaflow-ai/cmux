@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 extension SessionPersistencePolicy {
     static func defaultCmuxCrashDirectoryURL(

@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxControlSocket
 import Foundation
+import CmuxCommandPalette
 
 extension TerminalController {
     /// Creates a pane in the routed window's right-sidebar Dock instead of the

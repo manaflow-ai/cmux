@@ -1,5 +1,7 @@
 import AppKit
 import CmuxTerminal
+import CmuxTestSupport
+import CmuxCommandPalette
 
 extension AppDelegate.MainWindowContext {
     /// The Dock for this window, created on first access and retained until

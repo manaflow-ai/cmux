@@ -3,6 +3,7 @@ import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxWorkspaces
+import CmuxSidebar
 
 /// Perform the configured action for opening a local file from the file explorer.
 @MainActor

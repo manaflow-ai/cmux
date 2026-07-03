@@ -1,5 +1,9 @@
 import AppKit
 import Foundation
+import CmuxUpdater
+import CmuxTestSupport
+import CmuxRemoteWorkspace
+import CmuxBrowser
 
 @MainActor
 final class BrowserSessionDownloadSaver {

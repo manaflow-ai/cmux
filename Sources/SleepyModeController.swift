@@ -2,6 +2,7 @@ import AppKit
 import CmuxSettingsUI
 import IOKit.pwr_mgt
 import SwiftUI
+import CmuxAppKitSupportUI
 
 /// Owns "Sleepy Mode": a cute full-screen keep-awake screensaver. It holds
 /// IOKit power assertions so the Mac (and its display) stay awake — useful for

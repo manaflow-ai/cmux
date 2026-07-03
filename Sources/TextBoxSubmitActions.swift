@@ -1,6 +1,7 @@
 import AppKit
 import CmuxWorkspaces
 import SwiftUI
+import CMUXAgentLaunch
 
 extension TextBoxInputContainer {
     static let pendingProviderLaunchTimeoutSeconds: TimeInterval = 12

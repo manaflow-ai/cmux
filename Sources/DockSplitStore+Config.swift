@@ -1,5 +1,9 @@
 import Foundation
 import SwiftUI
+import CmuxWorkspaces
+import CmuxUpdater
+import CmuxSidebar
+import CmuxCommandPalette
 
 extension DockSplitStore {
     // MARK: - Config resolution

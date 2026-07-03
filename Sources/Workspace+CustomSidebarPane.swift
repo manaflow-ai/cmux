@@ -1,6 +1,8 @@
 import Bonsplit
 import Foundation
 import CmuxWorkspaces
+import CmuxSidebar
+import CmuxCommandPalette
 
 extension Workspace {
     func customSidebarSessionSnapshot(for panel: any Panel) -> SessionCustomSidebarPanelSnapshot? {

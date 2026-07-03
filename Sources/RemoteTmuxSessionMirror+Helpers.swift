@@ -1,5 +1,6 @@
 import Foundation
 import CmuxRemoteSession
+import CmuxRemoteWorkspace
 
 extension RemoteTmuxSessionMirror {
     nonisolated static func shouldSeedSinglePaneDisplay(for window: RemoteTmuxWindow) -> Bool {

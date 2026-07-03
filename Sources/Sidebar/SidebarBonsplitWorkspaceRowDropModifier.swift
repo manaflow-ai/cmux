@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import CmuxSidebarUI
 
 struct SidebarBonsplitWorkspaceRowDropModifier: ViewModifier {
     let isEnabled: Bool
