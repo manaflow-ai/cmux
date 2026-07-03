@@ -454,6 +454,9 @@ public struct SettingsWindowRoot: View {
         TextBoxSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .textBox))
 
+        SleepyModeSection(hostActions: hostActions, store: hostActions.sleepyModeStore())
+            .id(anchorID(for: .sleepyMode))
+
         MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .mobile))
 
@@ -518,7 +521,8 @@ public struct SettingsWindowRoot: View {
         ResetSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
-            catalog: catalog
+            catalog: catalog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .reset))
     }
