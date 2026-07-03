@@ -102,6 +102,7 @@ extension AgentChatSessionRegistry {
         guard let current = record(sessionID: canonicalSessionID),
               current.state == .ended,
               endedPendingClaudeSessionHasHistoryIdentity(current),
+              observationCanReviveEndedSession(current: current, observedAt: session.sampledAt),
               session.agentKind == .claude,
               Self.isPendingClaudeSessionID(canonicalSessionID) else {
             return canonicalSessionID

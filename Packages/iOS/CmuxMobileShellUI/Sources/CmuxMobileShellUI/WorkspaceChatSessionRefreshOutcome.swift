@@ -58,3 +58,26 @@ extension Collection where Element == ChatSessionDescriptor {
             .id
     }
 }
+
+extension Array where Element == ChatSessionDescriptor {
+    func preservingPinnedPendingAliasRemoval(
+        previous: [ChatSessionDescriptor],
+        frame: ChatSessionEventFrame,
+        pinnedID: String?,
+        cachedTerminalID: String?
+    ) -> [ChatSessionDescriptor] {
+        guard case .sessionRemoved = frame.event,
+              let pinnedID,
+              frame.sessionID == pinnedID,
+              pinnedID.hasPrefix("pending-claude-"),
+              !contains(where: { $0.id == pinnedID }),
+              replacementSessionIDForPinnedChat(
+                  pinnedID: pinnedID,
+                  cachedTerminalID: cachedTerminalID
+              ) == nil,
+              let pinned = previous.first(where: { $0.id == pinnedID }) else {
+            return self
+        }
+        return self + [pinned.withState(.ended)]
+    }
+}

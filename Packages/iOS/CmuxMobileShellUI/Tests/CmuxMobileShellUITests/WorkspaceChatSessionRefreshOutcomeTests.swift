@@ -98,4 +98,66 @@ import Testing
             cachedTerminalID: "terminal"
         ) == nil)
     }
+
+    @Test func removedPinnedPendingAliasIsPreservedUntilReplacementDescriptorArrives() {
+        let previous = [
+            descriptor("pending-claude-terminal", terminalID: "terminal", state: .idle),
+        ]
+        let frame = ChatSessionEventFrame(
+            sessionID: "pending-claude-terminal",
+            event: .sessionRemoved(version: 3)
+        )
+
+        let result = [ChatSessionDescriptor]().preservingPinnedPendingAliasRemoval(
+            previous: previous,
+            frame: frame,
+            pinnedID: "pending-claude-terminal",
+            cachedTerminalID: "terminal"
+        )
+
+        #expect(result.count == 1)
+        #expect(result.first?.id == "pending-claude-terminal")
+        #expect(result.first?.state == .ended)
+    }
+
+    @Test func removedPinnedPendingAliasDoesNotPreserveWhenReplacementAlreadyExists() {
+        let previous = [
+            descriptor("pending-claude-terminal", terminalID: "terminal", state: .idle),
+        ]
+        let next = [
+            descriptor("real-session", terminalID: "terminal", state: .idle),
+        ]
+        let frame = ChatSessionEventFrame(
+            sessionID: "pending-claude-terminal",
+            event: .sessionRemoved(version: 3)
+        )
+
+        let result = next.preservingPinnedPendingAliasRemoval(
+            previous: previous,
+            frame: frame,
+            pinnedID: "pending-claude-terminal",
+            cachedTerminalID: "terminal"
+        )
+
+        #expect(result == next)
+    }
+
+    @Test func removedNonPendingPinnedSessionDoesNotPreserve() {
+        let previous = [
+            descriptor("real-session", terminalID: "terminal", state: .idle),
+        ]
+        let frame = ChatSessionEventFrame(
+            sessionID: "real-session",
+            event: .sessionRemoved(version: 3)
+        )
+
+        let result = [ChatSessionDescriptor]().preservingPinnedPendingAliasRemoval(
+            previous: previous,
+            frame: frame,
+            pinnedID: "real-session",
+            cachedTerminalID: "terminal"
+        )
+
+        #expect(result.isEmpty)
+    }
 }

@@ -201,7 +201,13 @@ extension WorkspaceDetailView {
                   sourceIdentity == store.agentChatEventSourceIdentity
             else { break }
             let current = visibleChatSessions
-            let next = reducer.applying(frame, to: current)
+            let reduced = reducer.applying(frame, to: current)
+            let next = reduced.preservingPinnedPendingAliasRemoval(
+                previous: current,
+                frame: frame,
+                pinnedID: pinnedChatSessionID,
+                cachedTerminalID: cachedChatToggleTerminalID
+            )
             guard next != current else {
                 _ = await refreshAfterIgnoredChatSessionFrameIfNeeded(
                     frame,

@@ -131,6 +131,53 @@ struct AgentChatSessionRegistryLifecycleTests {
     }
 
     @MainActor
+    @Test func stalePendingClaudeObservationDoesNotCreateNewLiveAlias() throws {
+        let registry = AgentChatSessionRegistry()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
+        let nextPendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID, pid: 222)
+        let transcriptPath = "/Users/example/.claude/projects/-Users-example-project/session.jsonl"
+
+        registry.applyObservedSessions([
+            ObservedAgentSession(
+                sessionID: pendingID,
+                agentKind: .claude,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                pid: 111,
+                workingDirectory: "/Users/example/project",
+                transcriptPath: nil,
+                sampledAt: Date(timeIntervalSince1970: 100)
+            ),
+        ])
+        registry.update(sessionID: pendingID) { record in
+            record.transcriptPath = transcriptPath
+            record.state = .ended
+        }
+        let endedAt = try #require(registry.record(sessionID: pendingID)?.endedAt)
+
+        registry.applyObservedSessions([
+            ObservedAgentSession(
+                sessionID: pendingID,
+                agentKind: .claude,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                pid: 222,
+                workingDirectory: "/Users/example/project",
+                transcriptPath: nil,
+                sampledAt: endedAt.addingTimeInterval(-1)
+            ),
+        ])
+
+        let ended = try #require(registry.record(sessionID: pendingID))
+        #expect(ended.state == .ended)
+        #expect(ended.pid == 111)
+        #expect(registry.record(sessionID: nextPendingID) == nil)
+        #expect(registry.liveSession(surfaceID: surfaceID) == nil)
+    }
+
+    @MainActor
     @Test func hookBackedEndedPendingClaudeIsPreservedWhenNewIdleProcessAppears() throws {
         let registry = AgentChatSessionRegistry()
         let workspaceID = UUID().uuidString
