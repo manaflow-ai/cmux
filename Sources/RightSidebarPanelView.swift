@@ -413,20 +413,20 @@ struct RightSidebarPanelView: View {
         sessionIndexStore.currentDirectory
     }
 
-    /// Renders the app-wide Global Dock, shared across every workspace and
-    /// window.
+    /// Renders this window's own Dock (created lazily on first show); no
+    /// window ever defers to a Dock rendered elsewhere.
     @ViewBuilder
     private func dockPanel(windowAppearance: WindowAppearanceSnapshot) -> some View {
-        if let app = AppDelegate.shared {
+        if let app = AppDelegate.shared, let dock = app.windowDock(for: tabManager) {
             DockPanelView(
-                store: app.globalDock,
+                store: dock,
                 isSidebarVisible: fileExplorerState.isVisible,
                 mode: fileExplorerState.mode,
                 rootDirectory: nil,
                 windowAppearance: windowAppearance,
                 rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
             )
-            .id("dock.global")
+            .id("dock.window.\(dock.workspaceId.uuidString)")
         } else {
             Color.clear
         }

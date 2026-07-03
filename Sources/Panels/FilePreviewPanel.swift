@@ -999,10 +999,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
-    private weak var textView: NSTextView?
+    weak var textView: NSTextView?
     private var hasLoadedTextContent = false
     private var pendingTextNavigation: (lineNumber: Int, columnNumber: Int)?
-    private let focusCoordinator: FilePreviewFocusCoordinator
+    let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
     var fileURL: URL {
