@@ -174,13 +174,13 @@ import Testing
         #expect(endpoint.daemon?.expiresAt == Date(timeIntervalSince1970: 1_900_000_000))
     }
 
-    @Test func leaseExpiresAtIsNilForNonPositiveValue() throws {
-        // A missing/zero lease expiry must not pin the lease to the 1970 epoch
-        // (which would read as instantly expired); it is treated as absent.
+    @Test func leaseExpiresAtPreservesNonPositiveValueAsExpiredDate() throws {
+        // A required zero lease expiry should remain the Unix epoch so callers
+        // treat the lease as expired instead of as open-ended.
         let endpoint = try CmxCloudAttach().decode(
             data(freestyleResponseJSON(daemonExpiresAtUnix: 0))
         )
         #expect(endpoint.daemon?.expiresAtUnix == 0)
-        #expect(endpoint.daemon?.expiresAt == nil)
+        #expect(endpoint.daemon?.expiresAt == Date(timeIntervalSince1970: 0))
     }
 }

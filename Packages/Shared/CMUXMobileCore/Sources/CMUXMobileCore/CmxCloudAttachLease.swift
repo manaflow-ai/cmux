@@ -24,14 +24,11 @@ public struct CmxCloudAttachLease: Codable, Equatable, Sendable {
     /// The backend stores `new Date(expiresAtUnix * 1000)`.
     public let expiresAtUnix: Double
 
-    /// The lease expiry as a `Date`, or `nil` when no positive expiry exists.
+    /// The lease expiry as a `Date`.
     ///
-    /// A missing or zero expiry is treated as absent rather than as the 1970
-    /// epoch, which would make the lease appear instantly expired.
-    public var expiresAt: Date? {
-        guard expiresAtUnix.isFinite, expiresAtUnix > 0 else {
-            return nil
-        }
+    /// The backend field is required. Preserving `0` or negative values as real
+    /// dates makes invalid leases appear expired instead of open-ended.
+    public var expiresAt: Date {
         return Date(timeIntervalSince1970: expiresAtUnix)
     }
 
