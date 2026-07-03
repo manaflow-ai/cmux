@@ -246,15 +246,23 @@ final class MobileTerminalRenderObserver {
                 requiredTopics: Set<String>,
                 excludedTopics: Set<String>
             )] = []
+            var deferredHybridByteSurfaceIDs = Set<UUID>()
             for surfaceID in renderSurfaceIDs {
-                if let payload = renderGridPayload(surfaceID: surfaceID) {
-                    orderedEvents.append((
-                        topic: "terminal.render_grid",
-                        payload: payload,
-                        requiredTopics: [],
-                        excludedTopics: []
-                    ))
+                guard let renderPayload = renderGridPayload(surfaceID: surfaceID) else {
+                    if pendingByteEventsBySurfaceID[surfaceID] != nil,
+                       hasTerminalSurface(surfaceID: surfaceID) {
+                        deferredHybridByteSurfaceIDs.insert(surfaceID)
+                    } else {
+                        pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
+                    }
+                    continue
                 }
+                orderedEvents.append((
+                    topic: "terminal.render_grid",
+                    payload: renderPayload,
+                    requiredTopics: [],
+                    excludedTopics: []
+                ))
                 if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
                     orderedEvents.append((
                         topic: "terminal.bytes",
@@ -265,15 +273,13 @@ final class MobileTerminalRenderObserver {
                 }
             }
             for surfaceID in surfaceIDs.union(pendingByteSurfaceIDs).subtracting(renderSurfaceIDs) {
-                if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
-                    orderedEvents.append((
-                        topic: "terminal.bytes",
-                        payload: payload,
-                        requiredTopics: ["terminal.render_grid"],
-                        excludedTopics: []
-                    ))
+                if hasTerminalSurface(surfaceID: surfaceID) {
+                    deferredHybridByteSurfaceIDs.insert(surfaceID)
+                } else {
+                    pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
                 }
             }
+            pendingSurfaceIDs.formUnion(deferredHybridByteSurfaceIDs)
             if !orderedEvents.isEmpty {
                 MobileHostService.emitConstrainedEventsInOrder(orderedEvents)
             }
@@ -309,6 +315,10 @@ final class MobileTerminalRenderObserver {
             "seq": pending.seq,
             "data_b64": pending.data.base64EncodedString(),
         ]
+    }
+
+    private func hasTerminalSurface(surfaceID: UUID) -> Bool {
+        GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) != nil
     }
 
     private func renderGridPayload(surfaceID: UUID) -> [String: Any]? {

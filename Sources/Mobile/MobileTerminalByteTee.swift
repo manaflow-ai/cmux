@@ -151,6 +151,9 @@ final class MobileTerminalByteTee {
             )
         }
 
+        if hasRenderGridSubscriber, !hasHybridSubscriber {
+            MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
+        }
         guard hasHybridSubscriber else {
             return
         }
