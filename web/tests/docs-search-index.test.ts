@@ -22,9 +22,11 @@ describe("docs search index", () => {
 
     expect(pages).toHaveLength(routes.length);
 
-    const routeCount = routes.length / routing.locales.length;
     for (const locale of routing.locales) {
-      expect(pages.filter((page) => page.locale === locale)).toHaveLength(routeCount);
+      const localeRoutes = routes.filter((route) => route.locale === locale);
+      expect(pages.filter((page) => page.locale === locale)).toHaveLength(
+        localeRoutes.length,
+      );
 
       const gettingStarted = pages.find(
         (page) => page.locale === locale && page.href === "/docs/getting-started",
@@ -39,6 +41,19 @@ describe("docs search index", () => {
         gettingStarted?.sections.some((section) => section.texts.length > 0),
       ).toBe(true);
     }
+
+    expect(
+      pages.some((page) => page.locale === "de" && page.href === "/docs/vault"),
+    ).toBe(false);
+    expect(
+      pages.some((page) => page.locale === "de" && page.href === "/docs/task-manager"),
+    ).toBe(false);
+    expect(
+      pages.some((page) => page.locale === "ja" && page.href === "/docs/vault"),
+    ).toBe(true);
+    expect(
+      pages.some((page) => page.locale === "ja" && page.href === "/docs/task-manager"),
+    ).toBe(true);
   });
 
   test("uses the API page message namespace in every locale", async () => {
