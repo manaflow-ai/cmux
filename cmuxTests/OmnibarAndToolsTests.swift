@@ -754,6 +754,94 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         }
         XCTAssertEqual(launchCalls, 2)
     }
+
+    func testRestartWaitsForStoppedServeWebProcessBeforeLaunchingAgain() throws {
+        let firstCompletionCalled = expectation(description: "first generation completion called")
+        let restartCompletionCalled = expectation(description: "restart completion called")
+        let secondLaunchSemaphore = DispatchSemaphore(value: 0)
+        let launchCallLock = NSLock()
+        var launchCallCount = 0
+        var firstProcess: Process?
+        var secondLaunchSawFirstProcessRunning: Bool?
+
+        let releaseFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vscode-restart-\(UUID().uuidString)")
+        defer {
+            try? Data().write(to: releaseFileURL)
+            if let firstProcess, firstProcess.isRunning {
+                firstProcess.terminate()
+            }
+            try? FileManager.default.removeItem(at: releaseFileURL)
+        }
+
+        let controller = VSCodeServeWebController(launchProcessOverride: { _, _ in
+            launchCallLock.lock()
+            launchCallCount += 1
+            let callNumber = launchCallCount
+            let trackedProcess = firstProcess
+            launchCallLock.unlock()
+
+            if callNumber == 1 {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/sh", isDirectory: false)
+                process.arguments = [
+                    "-c",
+                    "trap '' TERM; while [ ! -f \"$1\" ]; do sleep 0.05; done",
+                    "cmux-vscode-restart-test",
+                    releaseFileURL.path,
+                ]
+                do {
+                    try process.run()
+                } catch {
+                    XCTFail("Failed to launch delayed-exit process: \(error)")
+                    return nil
+                }
+
+                launchCallLock.lock()
+                firstProcess = process
+                launchCallLock.unlock()
+                return (
+                    process,
+                    URL(string: "http://127.0.0.1:50080/?tkn=first")!
+                )
+            }
+
+            launchCallLock.lock()
+            secondLaunchSawFirstProcessRunning = trackedProcess?.isRunning
+            launchCallLock.unlock()
+            secondLaunchSemaphore.signal()
+            return nil
+        })
+
+        let vscodeAppURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
+            XCTAssertEqual(url?.absoluteString, "http://127.0.0.1:50080/?tkn=first")
+            firstCompletionCalled.fulfill()
+        }
+        wait(for: [firstCompletionCalled], timeout: 2)
+
+        controller.restart(vscodeApplicationURL: vscodeAppURL) { url in
+            XCTAssertNil(url)
+            restartCompletionCalled.fulfill()
+        }
+
+        let earlyLaunchResult = secondLaunchSemaphore.wait(timeout: .now() + 0.2)
+        XCTAssertEqual(earlyLaunchResult, .timedOut)
+
+        try Data().write(to: releaseFileURL)
+        if earlyLaunchResult == .timedOut {
+            XCTAssertEqual(secondLaunchSemaphore.wait(timeout: .now() + 2), .success)
+        }
+        wait(for: [restartCompletionCalled], timeout: 2)
+
+        launchCallLock.lock()
+        let launchCalls = launchCallCount
+        let sawFirstProcessRunning = secondLaunchSawFirstProcessRunning
+        launchCallLock.unlock()
+
+        XCTAssertEqual(launchCalls, 2)
+        XCTAssertEqual(sawFirstProcessRunning, false)
+    }
 }
 
 final class OmnibarStateMachineTests: XCTestCase {

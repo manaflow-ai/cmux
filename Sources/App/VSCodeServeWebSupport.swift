@@ -504,6 +504,11 @@ final class VSCodeServeWebController {
     /// identifier (e.g. some test hosts). Matches the release bundle id.
     private static let fallbackBundleIdentifier = "com.cmuxterm.app"
 
+    private struct TerminationWait {
+        var pendingProcessIDs: Set<ObjectIdentifier>
+        let completion: () -> Void
+    }
+
     private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
     private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
     private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
@@ -514,6 +519,8 @@ final class VSCodeServeWebController {
     private var isLaunching = false
     private var activeLaunchGeneration: UInt64?
     private var lifecycleGeneration: UInt64 = 0
+    private var nextTerminationWaitID: UInt64 = 0
+    private var terminationWaits: [UInt64: TerminationWait] = [:]
 
     // Internal (not private) so tests can inject `launchProcessOverride` via
     // `@testable import` instead of a `#if DEBUG` production test seam.
@@ -522,7 +529,27 @@ final class VSCodeServeWebController {
     }
 
     func ensureServeWebURL(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
+        ensureServeWebURL(
+            vscodeApplicationURL: vscodeApplicationURL,
+            requiredLifecycleGeneration: nil,
+            completion: completion
+        )
+    }
+
+    private func ensureServeWebURL(
+        vscodeApplicationURL: URL,
+        requiredLifecycleGeneration: UInt64?,
+        completion: @escaping (URL?) -> Void
+    ) {
         queue.async {
+            if let requiredLifecycleGeneration,
+               self.lifecycleGeneration != requiredLifecycleGeneration {
+                DispatchQueue.main.async {
+                    completion(nil)
+                }
+                return
+            }
+
             if let process = self.serveWebProcess,
                process.isRunning,
                let url = self.serveWebURL {
@@ -607,10 +634,14 @@ final class VSCodeServeWebController {
     }
 
     func stop() {
+        stopAndNotifyAfterTermination(nil)
+    }
+
+    private func stopAndNotifyAfterTermination(_ completion: ((UInt64) -> Void)?) {
         // The connection-token file is now persisted under the stable server data
         // dir and reused across launches, so stop() must NOT delete it — doing so
         // would change the server URL and drop VS Code Web auth/Settings Sync.
-        let (processes, completions): ([Process], [(URL?) -> Void]) = queue.sync {
+        let (stoppedGeneration, processes, completions): (UInt64, [Process], [(URL?) -> Void]) = queue.sync {
             self.lifecycleGeneration &+= 1
             self.isLaunching = false
             self.activeLaunchGeneration = nil
@@ -627,7 +658,13 @@ final class VSCodeServeWebController {
             self.serveWebURL = nil
             let completions = self.pendingCompletions.map(\.completion)
             self.pendingCompletions.removeAll()
-            return (processes, completions)
+            return (self.lifecycleGeneration, processes, completions)
+        }
+
+        if let completion {
+            notifyAfterTermination(of: processes) {
+                completion(stoppedGeneration)
+            }
         }
 
         for process in processes where process.isRunning {
@@ -642,8 +679,13 @@ final class VSCodeServeWebController {
     }
 
     func restart(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
-        stop()
-        ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
+        stopAndNotifyAfterTermination { [weak self] stoppedGeneration in
+            self?.ensureServeWebURL(
+                vscodeApplicationURL: vscodeApplicationURL,
+                requiredLifecycleGeneration: stoppedGeneration,
+                completion: completion
+            )
+        }
     }
 
     func isServeWebURL(_ candidateURL: URL?) -> Bool {
@@ -856,6 +898,52 @@ final class VSCodeServeWebController {
                 collector.append(data)
             case .wouldBlock, .endOfFile:
                 return
+            }
+        }
+    }
+
+    private func notifyAfterTermination(of processes: [Process], completion: @escaping () -> Void) {
+        let runningProcesses = processes.filter(\.isRunning)
+        guard !runningProcesses.isEmpty else {
+            completion()
+            return
+        }
+
+        let processIDs = Set(runningProcesses.map(ObjectIdentifier.init))
+        let waitID: UInt64 = queue.sync {
+            self.nextTerminationWaitID &+= 1
+            let waitID = self.nextTerminationWaitID
+            self.terminationWaits[waitID] = TerminationWait(
+                pendingProcessIDs: processIDs,
+                completion: completion
+            )
+            return waitID
+        }
+
+        for process in runningProcesses {
+            let previousTerminationHandler = process.terminationHandler
+            process.terminationHandler = { [weak self] terminatedProcess in
+                previousTerminationHandler?(terminatedProcess)
+                self?.finishTerminationWait(waitID: waitID, process: terminatedProcess)
+            }
+            if !process.isRunning {
+                finishTerminationWait(waitID: waitID, process: process)
+            }
+        }
+    }
+
+    private func finishTerminationWait(waitID: UInt64, process: Process) {
+        let processID = ObjectIdentifier(process)
+        queue.async {
+            guard var wait = self.terminationWaits[waitID],
+                  wait.pendingProcessIDs.remove(processID) != nil else {
+                return
+            }
+            if wait.pendingProcessIDs.isEmpty {
+                self.terminationWaits.removeValue(forKey: waitID)
+                wait.completion()
+            } else {
+                self.terminationWaits[waitID] = wait
             }
         }
     }
