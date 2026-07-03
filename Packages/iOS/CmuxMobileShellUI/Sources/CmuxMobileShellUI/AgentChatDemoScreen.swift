@@ -28,7 +28,8 @@ struct AgentChatDemoScreen: View {
                 } else {
                     ProgressView()
                         .task {
-                            let (messages, descriptor) = ChatFixtureConversation().make()
+                            var (messages, descriptor) = ChatFixtureConversation().make()
+                            messages = repeatedUITestMessagesIfNeeded(messages)
                             let source = FixtureChatEventSource(backlog: messages, replyToSends: true)
                             stack = DemoStack(
                                 store: ChatConversationStore(descriptor: descriptor, source: source)
@@ -185,6 +186,33 @@ struct AgentChatDemoScreen: View {
         default:
             break
         }
+    }
+
+    private func repeatedUITestMessagesIfNeeded(_ messages: [ChatMessage]) -> [ChatMessage] {
+        let env = ProcessInfo.processInfo.environment
+        guard let rawRepeatCount = env["CMUX_UITEST_AGENT_CHAT_FIXTURE_REPEAT_COUNT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let repeatCount = Int(rawRepeatCount),
+              repeatCount > 1
+        else {
+            return messages
+        }
+        var repeatedMessages: [ChatMessage] = []
+        repeatedMessages.reserveCapacity(messages.count * repeatCount)
+        for repeatIndex in 0..<repeatCount {
+            for message in messages {
+                repeatedMessages.append(
+                    ChatMessage(
+                        id: "\(message.id)-repeat-\(repeatIndex)",
+                        seq: repeatedMessages.count,
+                        role: message.role,
+                        timestamp: message.timestamp.addingTimeInterval(TimeInterval(repeatIndex * messages.count)),
+                        kind: message.kind
+                    )
+                )
+            }
+        }
+        return repeatedMessages
     }
 
     private var inlineWorkspaceTitle: String? {

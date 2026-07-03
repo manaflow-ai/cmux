@@ -29,19 +29,10 @@ struct StreamingChatPreviewView: View {
     @MainActor
     private func start() async {
         guard model == nil else { return }
-        let descriptor = ChatSessionDescriptor(
-            id: "streaming-preview",
-            agentKind: .claude,
-            title: "Streaming preview"
-        )
-        let prompt = ChatMessage(
-            id: "preview-user-0",
-            seq: 0,
-            role: .user,
-            timestamp: Date(),
-            kind: .prose(ChatProse(text: "Reply with three short sentences about the color blue."))
-        )
-        let source = FixtureChatEventSource(backlog: [prompt])
+        let (messages, descriptor) = StreamingPreviewSeedConversation(
+            environment: ProcessInfo.processInfo.environment
+        ).make()
+        let source = FixtureChatEventSource(backlog: messages)
         let store = ChatConversationStore(descriptor: descriptor, source: source)
         let model = Model(store: store, source: source)
         model.runTask = Task { await store.run() }
@@ -103,4 +94,5 @@ struct StreamingChatPreviewView: View {
         }
     }
 }
+
 #endif
