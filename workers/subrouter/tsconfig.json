@@ -6,6 +6,11 @@
     "lib": ["ES2022"],
     "types": ["@cloudflare/workers-types/experimental"],
     "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
     "noEmit": true,
     "skipLibCheck": true
   },

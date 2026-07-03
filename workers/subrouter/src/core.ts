@@ -41,7 +41,14 @@ export function normalizeEndpoint(rawValue: string): SubrouterEndpointConfig | n
   } catch {
     return null;
   }
-  if ((url.protocol !== "http:" && url.protocol !== "https:") || !url.host || url.search || url.hash) {
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    !url.host ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
     return null;
   }
 

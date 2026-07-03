@@ -35,6 +35,7 @@ describe("normalizeEndpoint", () => {
   test("rejects non-http and query-bearing URLs", () => {
     expect(normalizeEndpoint("ssh://host:31415")).toBeNull();
     expect(normalizeEndpoint("http://host:31415/v1?token=secret")).toBeNull();
+    expect(normalizeEndpoint("https://user:pass@subrouter.example.com")).toBeNull();
     expect(normalizeEndpoint("not a url")).toBeNull();
   });
 });

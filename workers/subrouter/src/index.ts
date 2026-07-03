@@ -11,6 +11,7 @@ import { json, upstreamErrorResponse } from "./http";
 import {
   consumeRateLimitResetCredit,
   fetchRateLimitResetCredits,
+  parseConsumeRateLimitResetCreditBody,
 } from "./rate-limit-reset-credits";
 
 export { SubrouterControl };
@@ -70,8 +71,8 @@ async function handleRateLimitResetCredits(request: Request): Promise<Response> 
   try {
     const result = await fetchRateLimitResetCredits("https://chatgpt.com", auth.token);
     return json(result);
-  } catch {
-    return upstreamErrorResponse();
+  } catch (error) {
+    return upstreamErrorResponse(error);
   }
 }
 
@@ -86,8 +87,8 @@ async function handleConsumeRateLimitResetCredit(request: Request): Promise<Resp
   } catch {
     return json({ error: "invalid_json" }, 400);
   }
-  const consumeRequest = body as { credit_id?: string; redeem_request_id?: string };
-  if (!consumeRequest.credit_id || !consumeRequest.redeem_request_id) {
+  const consumeRequest = parseConsumeRateLimitResetCreditBody(body);
+  if (!consumeRequest) {
     return json({ error: "missing_credit_id_or_redeem_request_id" }, 400);
   }
   try {
@@ -96,15 +97,16 @@ async function handleConsumeRateLimitResetCredit(request: Request): Promise<Resp
       redeem_request_id: consumeRequest.redeem_request_id,
     });
     return json(result);
-  } catch {
-    return upstreamErrorResponse();
+  } catch (error) {
+    return upstreamErrorResponse(error);
   }
 }
 
 function extractAuthToken(request: Request): { token: string } | null {
   const header = request.headers.get("authorization");
   if (header) {
-    return { token: header };
+    const bearer = header.match(/^Bearer\s+(.+)$/iu);
+    return { token: bearer?.[1]?.trim() || header.trim() };
   }
   return null;
 }

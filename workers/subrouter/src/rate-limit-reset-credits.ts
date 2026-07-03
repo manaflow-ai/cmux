@@ -46,6 +46,27 @@ export const RATE_LIMIT_RESET_CREDITS_PATH = "/backend-api/wham/rate-limit-reset
 export const RATE_LIMIT_RESET_CREDITS_CONSUME_PATH =
   "/backend-api/wham/rate-limit-reset-credits/consume";
 
+export function parseConsumeRateLimitResetCreditBody(
+  body: unknown,
+): ConsumeRateLimitResetCreditsRequest | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return null;
+  }
+  const record = body as Record<string, unknown>;
+  const creditID = record["credit_id"];
+  const redeemRequestID = record["redeem_request_id"];
+  if (typeof creditID !== "string" || typeof redeemRequestID !== "string") {
+    return null;
+  }
+  if (!creditID || !redeemRequestID) {
+    return null;
+  }
+  return {
+    credit_id: creditID,
+    redeem_request_id: redeemRequestID,
+  };
+}
+
 function chatgptBackendURL(base: string): string {
   const trimmed = base.trim().replace(/\/+$/u, "");
   if (trimmed.endsWith("/backend-api")) {
@@ -58,8 +79,10 @@ function chatgptBackendURL(base: string): string {
 }
 
 function authHeaders(authToken: string): Record<string, string> {
+  const bearer = authToken.match(/^Bearer\s+(.+)$/iu);
+  const token = bearer?.[1]?.trim() || authToken;
   return {
-    authorization: authToken.startsWith("Bearer ") ? authToken : `Bearer ${authToken}`,
+    authorization: `Bearer ${token}`,
     "content-type": "application/json",
   };
 }
@@ -69,7 +92,7 @@ export async function fetchRateLimitResetCredits(
   authToken: string,
   fetcher: typeof fetch = fetch,
 ): Promise<RateLimitResetCreditsResponse> {
-  const url = `${chatgptBackendURL(backendBaseURL)}/wham/rate-limit-reset-credits`;
+  const url = `${chatgptBackendURL(backendBaseURL)}${RATE_LIMIT_RESET_CREDITS_PATH.slice("/backend-api".length)}`;
   const response = await fetcher(url, {
     method: "GET",
     headers: authHeaders(authToken),
@@ -92,7 +115,7 @@ export async function consumeRateLimitResetCredit(
   request: ConsumeRateLimitResetCreditsRequest,
   fetcher: typeof fetch = fetch,
 ): Promise<unknown> {
-  const url = `${chatgptBackendURL(backendBaseURL)}/wham/rate-limit-reset-credits/consume`;
+  const url = `${chatgptBackendURL(backendBaseURL)}${RATE_LIMIT_RESET_CREDITS_CONSUME_PATH.slice("/backend-api".length)}`;
   const response = await fetcher(url, {
     method: "POST",
     headers: authHeaders(authToken),

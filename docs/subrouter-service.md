@@ -78,6 +78,7 @@ Use the hosted control plane without setting local environment variables:
 cmux sr doctor --hosted
 cmux sr env --hosted --format codex-toml
 cmux sr credits --hosted --token "$CODEX_AUTH_TOKEN"
+cmux sr credits consume --hosted --token "$CODEX_AUTH_TOKEN" --credit-id "<credit-id>" --redeem-request-id "<request-id>"
 ```
 
 `cmux sr credits` defaults to the hosted control plane when neither

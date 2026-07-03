@@ -23,6 +23,8 @@ extension CMUXCLI {
                                              Print environment or Codex config values for a Subrouter endpoint.
               credits [--token <token>] [--control-plane-url <url>|--hosted]
                                              Show Codex rate-limit reset credits for the authenticated account.
+              credits consume --credit-id <id> --redeem-request-id <id> [--token <token>] [--control-plane-url <url>|--hosted]
+                                             Redeem a Codex rate-limit reset credit.
 
             Hosted endpoint: %@
 
@@ -43,7 +45,7 @@ extension CMUXCLI {
         static let statusNextSetup = String(localized: "cli.subrouter.status.nextSetup", defaultValue: "  Next setup command: cmux %@ env --hosted")
         static let usageDoctor = String(localized: "cli.subrouter.usage.doctor", defaultValue: "Usage: cmux %@ doctor [--url <url>|--hosted]")
         static let usageEnv = String(localized: "cli.subrouter.usage.env", defaultValue: "Usage: cmux %@ env [--url <url>|--hosted] [--format shell|codex-toml|json]")
-        static let usageCredits = String(localized: "cli.subrouter.usage.credits", defaultValue: "Usage: cmux %@ credits [--token <token>] [--control-plane-url <url>|--hosted]")
+        static let usageCredits = String(localized: "cli.subrouter.usage.credits", defaultValue: "Usage: cmux %@ credits [consume --credit-id <id> --redeem-request-id <id>] [--token <token>] [--control-plane-url <url>|--hosted]")
         static let endpointConfiguredDetail = String(localized: "cli.subrouter.doctor.detail.endpointConfigured", defaultValue: "Subrouter endpoint configured.")
         static let endpointMissingDetail = String(localized: "cli.subrouter.doctor.detail.endpointMissing", defaultValue: "Set SUBROUTER_REMOTE_URL, CUSTOM_BASE_URL, HERMES_CODEX_BASE_URL, pass --url, or pass --hosted.")
         static let agentLaunchDetail = String(localized: "cli.subrouter.doctor.detail.agentLaunch", defaultValue: "cmux preserves CUSTOM_BASE_URL and HERMES_CODEX_BASE_URL for agent launches.")
@@ -74,9 +76,8 @@ extension CMUXCLI {
         static let creditsMissingToken = String(localized: "cli.subrouter.credits.error.missingToken", defaultValue: """
             cmux %@ credits requires a Codex auth token.
 
-            Pass --token or set CODEX_AUTH_TOKEN. The token is forwarded to the
-            Subrouter control plane, which proxies the ChatGPT rate-limit-reset-credits
-            endpoint. cmux does not persist the token.
+            Pass --token or configure a Codex auth token in the environment.
+            cmux does not persist the token.
             """)
         static let creditsUnexpectedResponse = String(localized: "cli.subrouter.credits.error.unexpectedResponse", defaultValue: "Unexpected response from Subrouter control plane")
         static let creditsTitle = String(localized: "cli.subrouter.credits.title", defaultValue: "Codex rate-limit reset credits")
@@ -89,6 +90,10 @@ extension CMUXCLI {
         static let creditsConsumed = String(localized: "cli.subrouter.credits.consumed", defaultValue: "consumed")
         static let creditsNotConsumed = String(localized: "cli.subrouter.credits.notConsumed", defaultValue: "not consumed")
         static let creditsItem = String(localized: "cli.subrouter.credits.item", defaultValue: "    - %@: %@ (%@, %@)")
+        static let creditsConsumeMissing = String(localized: "cli.subrouter.credits.error.consumeMissing", defaultValue: "cmux %@ credits consume requires --credit-id and --redeem-request-id")
+        static let creditsConsumeSuccess = String(localized: "cli.subrouter.credits.consume.success", defaultValue: "Codex rate-limit reset credit consumed")
+        static let creditsConsumeCreditID = String(localized: "cli.subrouter.credits.consume.creditID", defaultValue: "  credit_id: %@")
+        static let creditsConsumeRedeemRequestID = String(localized: "cli.subrouter.credits.consume.redeemRequestID", defaultValue: "  redeem_request_id: %@")
         static let creditsInvalidURL = String(localized: "cli.subrouter.credits.error.invalidURL", defaultValue: "Invalid Subrouter credits URL: %@")
         static let creditsNoData = String(localized: "cli.subrouter.credits.error.noData", defaultValue: "No data received from Subrouter control plane")
         static let creditsNonHTTP = String(localized: "cli.subrouter.credits.error.nonHTTP", defaultValue: "Non-HTTP response from Subrouter control plane")
@@ -299,6 +304,8 @@ extension CMUXCLI {
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               url.host?.isEmpty == false,
+              url.user == nil,
+              url.password == nil,
               url.query == nil,
               url.fragment == nil else {
             throw CLIError(message: String.localizedStringWithFormat(SubrouterText.invalidURL, source, rawValue))
@@ -428,13 +435,23 @@ extension CMUXCLI {
     }
 
     private func runSubrouterCredits(commandName: String, commandArgs: [String], jsonOutput: Bool) async throws {
-        let (tokenOpt, afterToken) = parseOption(commandArgs, name: "--token")
+        let mode = commandArgs.first == "consume" ? "consume" : "list"
+        let args = mode == "consume" ? Array(commandArgs.dropFirst()) : commandArgs
+        let (tokenOpt, afterToken) = parseOption(args, name: "--token")
         let (controlPlaneURLOpt, afterControlPlaneURL) = parseOption(afterToken, name: "--control-plane-url")
-        let (useHosted, remaining) = removeSubrouterFlag(afterControlPlaneURL, name: "--hosted")
+        let (creditIDOpt, afterCreditID) = parseOption(afterControlPlaneURL, name: "--credit-id")
+        let (redeemRequestIDOpt, afterRedeemRequestID) = parseOption(afterCreditID, name: "--redeem-request-id")
+        let (useHosted, remaining) = removeSubrouterFlag(afterRedeemRequestID, name: "--hosted")
         if useHosted && controlPlaneURLOpt != nil {
             throw CLIError(message: String.localizedStringWithFormat(SubrouterText.usageCredits, commandName))
         }
         try rejectUnexpectedSubrouterArguments(remaining, commandName: commandName, subcommand: "credits")
+        if mode == "list", creditIDOpt != nil || redeemRequestIDOpt != nil {
+            throw CLIError(message: String.localizedStringWithFormat(SubrouterText.usageCredits, commandName))
+        }
+        if mode == "consume", creditIDOpt == nil || redeemRequestIDOpt == nil {
+            throw CLIError(message: String.localizedStringWithFormat(SubrouterText.creditsConsumeMissing, commandName))
+        }
 
         let environment = ProcessInfo.processInfo.environment
         let authToken = tokenOpt ?? environment["CODEX_AUTH_TOKEN"]
@@ -448,7 +465,7 @@ extension CMUXCLI {
         } else if let explicit = controlPlaneURLOpt {
             controlPlaneInput = (explicit, "--control-plane-url")
         } else if let explicit = environment["SUBROUTER_CONTROL_PLANE_URL"] {
-            controlPlaneInput = (explicit, "SUBROUTER_CONTROL_PLANE_URL")
+            controlPlaneInput = (explicit, "environment")
         } else if let endpoint = try configuredSubrouterEndpoint(environment: environment) {
             controlPlaneInput = (endpoint.originURL, endpoint.source)
         } else {
@@ -460,7 +477,29 @@ extension CMUXCLI {
         )
 
         let creditsURL = "\(controlPlaneEndpoint.originURL)/v1/subrouter/rate-limit-reset-credits"
-        let result = try await fetchSubrouterRateLimitResetCredits(url: creditsURL, authToken: authToken)
+        if mode == "consume" {
+            let creditID = creditIDOpt ?? ""
+            let redeemRequestID = redeemRequestIDOpt ?? ""
+            let result = try await fetchSubrouterJSON(
+                url: "\(creditsURL)/consume",
+                method: "POST",
+                authToken: authToken,
+                body: [
+                    "credit_id": creditID,
+                    "redeem_request_id": redeemRequestID
+                ]
+            )
+            if jsonOutput {
+                print(jsonString(result))
+                return
+            }
+            print(SubrouterText.creditsConsumeSuccess)
+            print(String.localizedStringWithFormat(SubrouterText.creditsConsumeCreditID, creditID))
+            print(String.localizedStringWithFormat(SubrouterText.creditsConsumeRedeemRequestID, redeemRequestID))
+            return
+        }
+
+        let result = try await fetchSubrouterJSON(url: creditsURL, method: "GET", authToken: authToken)
 
         if jsonOutput {
             print(jsonString(result))
@@ -489,15 +528,25 @@ extension CMUXCLI {
         }
     }
 
-    private func fetchSubrouterRateLimitResetCredits(url: String, authToken: String) async throws -> [String: Any] {
+    private func fetchSubrouterJSON(url: String, method: String, authToken: String, body: [String: Any]? = nil) async throws -> [String: Any] {
         guard let requestURL = URL(string: url) else {
             throw CLIError(message: String.localizedStringWithFormat(SubrouterText.creditsInvalidURL, url))
         }
 
         var request = URLRequest(url: requestURL)
-        request.httpMethod = "GET"
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue(authToken.starts(with: "Bearer ") ? authToken : "Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        }
+        let bearerToken: String
+        if authToken.range(of: #"^Bearer\s+"#, options: [.regularExpression, .caseInsensitive]) == nil {
+            bearerToken = "Bearer \(authToken)"
+        } else {
+            bearerToken = authToken
+        }
+        request.setValue(bearerToken, forHTTPHeaderField: "Authorization")
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30

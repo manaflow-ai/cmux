@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   consumeRateLimitResetCredit,
   fetchRateLimitResetCredits,
+  parseConsumeRateLimitResetCreditBody,
   type RateLimitResetCreditsResponse,
 } from "../src/rate-limit-reset-credits";
 
@@ -30,14 +31,36 @@ describe("fetchRateLimitResetCredits", () => {
     );
 
     expect(result.rate_limit_reset_credits.available_count).toBe(1);
-    expect(result.rate_limit_reset_credits.credits[0].id).toBe("credit-1");
-    expect(result.rate_limit_reset_credits.credits[0].status).toBe("available");
-    expect(fetcher.requests[0].url).toBe(
+    const credit = result.rate_limit_reset_credits.credits[0];
+    expect(credit).toBeDefined();
+    if (!credit) throw new Error("missing credit");
+    expect(credit.id).toBe("credit-1");
+    expect(credit.status).toBe("available");
+    const request = fetcher.requests[0];
+    expect(request).toBeDefined();
+    if (!request) throw new Error("missing request");
+    expect(request.url).toBe(
       "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
     );
-    expect(fetcher.requests[0].init.headers).toMatchObject({
+    expect(request.init.headers).toMatchObject({
       authorization: "Bearer test-token",
       "content-type": "application/json",
+    });
+  });
+
+  test("normalizes bearer auth case", async () => {
+    const response: RateLimitResetCreditsResponse = {
+      rate_limit_reset_credits: { available_count: 0, credits: [] },
+    };
+    const fetcher = makeFetcher(200, response);
+
+    await fetchRateLimitResetCredits("https://chatgpt.com", "bearer test-token", fetcher);
+
+    const request = fetcher.requests[0];
+    expect(request).toBeDefined();
+    if (!request) throw new Error("missing request");
+    expect(request.init.headers).toMatchObject({
+      authorization: "Bearer test-token",
     });
   });
 
@@ -53,7 +76,10 @@ describe("fetchRateLimitResetCredits", () => {
       fetcher,
     );
 
-    expect(fetcher.requests[0].url).toBe(
+    const request = fetcher.requests[0];
+    expect(request).toBeDefined();
+    if (!request) throw new Error("missing request");
+    expect(request.url).toBe(
       "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
     );
   });
@@ -68,6 +94,18 @@ describe("fetchRateLimitResetCredits", () => {
 });
 
 describe("consumeRateLimitResetCredit", () => {
+  test("parses consume request bodies defensively", () => {
+    expect(parseConsumeRateLimitResetCreditBody(null)).toBeNull();
+    expect(parseConsumeRateLimitResetCreditBody({})).toBeNull();
+    expect(parseConsumeRateLimitResetCreditBody({
+      credit_id: "credit-1",
+      redeem_request_id: "req-1",
+    })).toEqual({
+      credit_id: "credit-1",
+      redeem_request_id: "req-1",
+    });
+  });
+
   test("posts credit_id and redeem_request_id", async () => {
     const fetcher = makeFetcher(200, { success: true });
 
@@ -79,11 +117,14 @@ describe("consumeRateLimitResetCredit", () => {
     )) as { success: boolean };
 
     expect(result.success).toBe(true);
-    expect(fetcher.requests[0].url).toBe(
+    const requestRecord = fetcher.requests[0];
+    expect(requestRecord).toBeDefined();
+    if (!requestRecord) throw new Error("missing request");
+    expect(requestRecord.url).toBe(
       "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume",
     );
-    expect(fetcher.requests[0].init.method).toBe("POST");
-    expect(JSON.parse((fetcher.requests[0].init.body as string) ?? "{}")).toEqual({
+    expect(requestRecord.init.method).toBe("POST");
+    expect(JSON.parse((requestRecord.init.body as string) ?? "{}")).toEqual({
       credit_id: "credit-1",
       redeem_request_id: "req-1",
     });
