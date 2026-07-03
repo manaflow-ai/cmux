@@ -3357,7 +3357,7 @@ struct CMUXCLI {
         return true
     }
 
-    func run() throws {
+    func run() async throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
         var explicitSocketPath: String? = nil
@@ -3449,7 +3449,7 @@ struct CMUXCLI {
         }
 
         if command == "help" { print(usage()); return }
-        if command == "subrouter" || command == "sr" { try runSubrouter(commandName: command, commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "subrouter" || command == "sr" { try await runSubrouter(commandName: command, commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
@@ -34187,12 +34187,12 @@ private enum CMUXCLIOutput {
 
 @main
 struct CMUXTermMain {
-    static func main() {
+    static func main() async {
         // CLI tools should ignore SIGPIPE so closed stdout pipes do not terminate the process.
         _ = signal(SIGPIPE, SIG_IGN)
         let cli = CMUXCLI(args: CommandLine.arguments)
         do {
-            try cli.run()
+            try await cli.run()
         } catch {
             CMUXCLIOutput.writeStandardError("Error: \(error)\n")
             let exitCode = (error as? CLIError)?.exitCode ?? 1
