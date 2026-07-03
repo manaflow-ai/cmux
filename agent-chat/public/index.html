@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cmux agent</title>
 <style>
-  /* Base palette; the server overrides --bg/--fg/--bg-body/--accent and the
-     status colors from the resolved Ghostty theme (see __THEME__ below). */
+  /* Base palette; the server overrides --bg/--fg/--bg-body/--bg-html/--accent
+     and the status colors from the resolved Ghostty theme (see __THEME__). */
   :root {
     --bg: #101014;
     --fg: #e8e8ec;
     --bg-body: var(--bg);
+    --bg-html: var(--bg);
     --accent: #7aa2f7;
     --green: #6fbf82;
     --red: #e06c75;
@@ -21,55 +22,102 @@
   /* Everything else derives from bg/fg so any terminal theme works. */
   :root {
     --text: var(--fg);
-    --text-dim: color-mix(in srgb, var(--fg) 62%, var(--bg));
-    --text-faint: color-mix(in srgb, var(--fg) 42%, var(--bg));
+    --text-dim: color-mix(in srgb, var(--fg) 60%, var(--bg));
+    --text-faint: color-mix(in srgb, var(--fg) 40%, var(--bg));
     --border: color-mix(in srgb, var(--fg) 15%, var(--bg));
-    --bg-raised: color-mix(in srgb, var(--fg) 4%, var(--bg));
-    --bg-input: color-mix(in srgb, var(--fg) 7%, var(--bg));
-    --bg-code: color-mix(in srgb, var(--fg) 8%, var(--bg));
-    --accent-wash: color-mix(in srgb, var(--accent) 12%, transparent);
+    --border-strong: color-mix(in srgb, var(--fg) 26%, var(--bg));
+    --bg-raised: color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --bg-input: color-mix(in srgb, var(--fg) 8%, var(--bg));
+    --bg-hover: color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --bg-code: color-mix(in srgb, var(--fg) 9%, var(--bg));
+    --accent-wash: color-mix(in srgb, var(--accent) 15%, transparent);
+    --accent-fg: color-mix(in srgb, var(--accent) 88%, white 12%);
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
-  html { background: transparent; }
+  /* html gets the SAME background as body so nothing behind the webview
+     (a terminal surface) can composite through a transparent root. In
+     transparent mode the server sets --bg-html to transparent on purpose. */
+  html { background: var(--bg-html); }
   body { background: var(--bg-body); color: var(--text); font: 14px/1.55 var(--sans); }
   #main { height: 100%; display: flex; flex-direction: column; min-width: 0; }
 
-  /* composer view */
+  /* ---------- composer ---------- */
   #composer-view {
     flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 24px; gap: 18px;
+    padding: 24px; gap: 16px;
   }
-  #composer-view h1 { font-size: 22px; font-weight: 600; margin: 0; }
-  #composer-view .sub { color: var(--text-dim); margin: -10px 0 4px; font-size: 13px; }
-  #composer-box { width: min(640px, 100%); display: flex; flex-direction: column; gap: 12px; }
-  #providers { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
-  .provider-pill {
-    padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); cursor: pointer;
-    background: transparent; color: var(--text-dim); font: 500 13px var(--sans);
+  #composer-view h1 { font-size: 21px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+  #composer-card {
+    position: relative; width: min(660px, 100%);
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 16px;
+    padding: 6px; display: flex; flex-direction: column;
+    box-shadow: 0 1px 3px rgba(0,0,0,.18);
   }
-  .provider-pill.selected { border-color: var(--accent); color: var(--text); background: var(--accent-wash); }
-  #prompt-input, #chat-input {
-    width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px;
-    color: var(--text); font: 14px/1.5 var(--sans); padding: 12px 14px; resize: none; outline: none;
-    min-height: 92px;
+  #composer-card:focus-within { border-color: var(--border-strong); }
+  #prompt-input {
+    width: 100%; background: transparent; border: 0; outline: none; resize: none;
+    color: var(--text); font: 15px/1.5 var(--sans); padding: 12px 12px 6px;
+    min-height: 76px; max-height: 300px;
   }
-  #prompt-input:focus, #chat-input:focus { border-color: var(--accent); }
-  #composer-opts { display: flex; gap: 12px; align-items: center; font-size: 12px; color: var(--text-dim); flex-wrap: wrap; }
-  #cwd-input {
-    flex: 1; min-width: 220px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
-    color: var(--text-dim); font: 12px var(--mono); padding: 6px 9px; outline: none;
-  }
-  label.toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
-  #composer-hint { text-align: center; color: var(--text-faint); font-size: 12px; }
+  #prompt-input::placeholder { color: var(--text-faint); }
 
-  /* chat view */
+  .toolbar { display: flex; align-items: center; gap: 6px; padding: 4px; }
+  .tb-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .tb-spacer { flex: 1; }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;
+    border-radius: 8px; border: 1px solid var(--border); background: transparent;
+    color: var(--text-dim); font: 500 12.5px var(--sans); cursor: pointer; white-space: nowrap;
+    max-width: 260px; user-select: none;
+  }
+  .chip:hover { background: var(--bg-hover); color: var(--text); }
+  .chip .chev { opacity: .7; margin-left: 1px; }
+  .chip #cwd-label { overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: 11.5px; }
+  .cwd-edit {
+    height: 30px; width: 320px; max-width: 46vw; padding: 0 10px; border-radius: 8px;
+    border: 1px solid var(--border-strong); background: var(--bg); color: var(--text);
+    font: 11.5px var(--mono); outline: none;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--text-faint); box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 12%, transparent); }
+
+  .chip.toggle .chk { opacity: 0; transition: opacity .1s; }
+  .chip.toggle.on { color: var(--text); border-color: color-mix(in srgb, var(--green) 55%, var(--border)); }
+  .chip.toggle.on .chk { opacity: 1; color: var(--green); }
+
+  .send {
+    flex: none; width: 32px; height: 32px; border-radius: 9px; border: 0; cursor: pointer;
+    background: var(--accent); color: #fff; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .send:hover { background: var(--accent-fg); }
+  .send:disabled { background: var(--bg-hover); color: var(--text-faint); cursor: default; }
+
+  /* provider dropdown */
+  .menu {
+    position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 20; min-width: 220px;
+    background: var(--bg-raised); border: 1px solid var(--border-strong); border-radius: 12px;
+    padding: 6px; box-shadow: 0 12px 32px rgba(0,0,0,.4); display: flex; flex-direction: column; gap: 1px;
+  }
+  #composer-card .menu { bottom: auto; top: calc(100% + 8px); }
+  .menu-item {
+    display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 8px; cursor: pointer;
+    color: var(--text-dim); font: 500 13px var(--sans);
+  }
+  .menu-item:hover { background: var(--bg-hover); color: var(--text); }
+  .menu-item.selected { color: var(--text); }
+  .menu-item .mi-check { margin-left: auto; opacity: 0; color: var(--accent); }
+  .menu-item.selected .mi-check { opacity: 1; }
+
+  #composer-hint { color: var(--text-faint); font-size: 12px; }
+
+  /* ---------- chat ---------- */
   #chat-view { flex: 1; display: none; flex-direction: column; min-height: 0; }
-  #messages { flex: 1; overflow-y: auto; padding: 20px 0 10px; }
+  #messages { flex: 1; overflow-y: auto; padding: 22px 0 10px; }
   .msg { max-width: 760px; margin: 0 auto; padding: 0 24px 16px; }
   .msg.user { display: flex; justify-content: flex-end; }
   .msg.user .body {
-    background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px;
     white-space: pre-wrap; overflow-wrap: break-word; max-width: 85%;
   }
   .msg.assistant .body { overflow-wrap: break-word; }
@@ -88,9 +136,7 @@
   details.thinking .t-body { white-space: pre-wrap; font-size: 12.5px; font-style: italic; padding: 6px 0 0; overflow-wrap: break-word; }
 
   .tool { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; }
-  .tool details {
-    border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); overflow: hidden;
-  }
+  .tool details { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-raised); overflow: hidden; }
   .tool summary {
     display: flex; align-items: center; gap: 8px; padding: 7px 11px; cursor: pointer; user-select: none;
     font: 12px var(--mono); color: var(--text-dim); list-style: none;
@@ -112,12 +158,23 @@
   .error-block-wrap { max-width: 760px; margin: 0 auto 14px; padding: 0 24px; }
   .status-line { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; font-size: 11.5px; color: var(--text-faint); }
 
-  #chat-input-row { flex: none; padding: 12px 24px 16px; max-width: 808px; width: 100%; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
-  #chat-input { min-height: 44px; max-height: 200px; }
-  #stop-btn {
-    flex: none; padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-input);
-    color: var(--red); font: 500 13px var(--sans); cursor: pointer; display: none;
+  #chat-input-row { flex: none; padding: 10px 24px 18px; max-width: 808px; width: 100%; margin: 0 auto; }
+  #chat-card {
+    display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 6px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 14px;
   }
+  #chat-card:focus-within { border-color: var(--border-strong); }
+  #chat-input {
+    flex: 1; background: transparent; border: 0; outline: none; resize: none;
+    color: var(--text); font: 14px/1.5 var(--sans); padding: 9px 8px; min-height: 24px; max-height: 200px;
+  }
+  #chat-input::placeholder { color: var(--text-faint); }
+  .chat-actions { display: flex; align-items: center; gap: 6px; padding-bottom: 1px; }
+  #stop-btn {
+    height: 32px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border); background: transparent;
+    color: var(--red); font: 500 12.5px var(--sans); cursor: pointer; display: none;
+  }
+  #stop-btn:hover { background: var(--bg-hover); }
 </style>
 <style id="theme">/*__THEME__*/</style>
 </head>
@@ -125,14 +182,31 @@
   <main id="main">
     <section id="composer-view">
       <h1>What should the agent do?</h1>
-      <div class="sub">One chat UI, any coding agent.</div>
-      <div id="composer-box">
-        <div id="providers"></div>
+      <div id="composer-card">
         <textarea id="prompt-input" placeholder="Describe a task or ask a question…" autofocus></textarea>
-        <div id="composer-opts">
-          <input id="cwd-input" spellcheck="false" title="working directory">
-          <label class="toggle"><input type="checkbox" id="auto-approve" checked> auto-approve tools</label>
+        <div class="toolbar">
+          <div class="tb-group">
+            <button id="provider-btn" class="chip" type="button" aria-haspopup="listbox">
+              <span class="dot" id="provider-dot"></span>
+              <span id="provider-name">Claude Code</span>
+              <svg class="chev" viewBox="0 0 10 6" width="10" height="6"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button id="cwd-chip" class="chip" type="button" title="working directory">
+              <svg viewBox="0 0 14 12" width="13" height="11" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1 3.4c0-.7.5-1.3 1.2-1.3h2.5l1.2 1.4h5.7c.7 0 1.2.6 1.2 1.3v4.9c0 .7-.5 1.3-1.2 1.3H2.2C1.5 11 1 10.4 1 9.7z"/></svg>
+              <span id="cwd-label"></span>
+            </button>
+            <input id="cwd-input" class="cwd-edit" spellcheck="false" hidden>
+          </div>
+          <div class="tb-spacer"></div>
+          <button id="approve-chip" class="chip toggle on" type="button" aria-pressed="true">
+            <svg class="chk" viewBox="0 0 12 12" width="12" height="12"><path d="M2.5 6.2l2.3 2.3L9.5 3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            auto-approve
+          </button>
+          <button id="send-btn" class="send" type="button" aria-label="Start" disabled>
+            <svg viewBox="0 0 16 16" width="16" height="16"><path d="M8 13V3.5M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </div>
+        <div id="provider-menu" class="menu" hidden role="listbox"></div>
       </div>
       <div id="composer-hint">Enter to start · Shift+Enter for newline</div>
     </section>
@@ -140,8 +214,15 @@
     <section id="chat-view">
       <div id="messages"></div>
       <div id="chat-input-row">
-        <textarea id="chat-input" placeholder="Reply… (Enter to send)"></textarea>
-        <button id="stop-btn">Stop</button>
+        <div id="chat-card">
+          <textarea id="chat-input" placeholder="Reply…"></textarea>
+          <div class="chat-actions">
+            <button id="stop-btn" type="button">Stop</button>
+            <button id="chat-send" class="send" type="button" aria-label="Send" disabled>
+              <svg viewBox="0 0 16 16" width="16" height="16"><path d="M8 13V3.5M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
       </div>
     </section>
   </main>
@@ -149,6 +230,21 @@
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
+
+// Per-provider accent dot. Unknown providers get a stable hashed hue.
+const PROVIDER_COLOR = {
+  claude: "#d97757", codex: "#10a37f", opencode: "#f2a600", pi: "#8b7cff", gemini: "#4285f4",
+};
+function colorFor(id) {
+  if (PROVIDER_COLOR[id]) return PROVIDER_COLOR[id];
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `hsl(${h} 60% 60%)`;
+}
+function basename(p) {
+  const t = String(p || "").replace(/\/+$/, "");
+  return t.split("/").pop() || t || "~";
+}
 
 // ---------- tiny markdown ----------
 function escapeHtml(s) {
@@ -220,8 +316,10 @@ function handle(msg) {
   switch (msg.kind) {
     case "hello":
       providers = msg.providers;
-      if (!$("cwd-input").value) $("cwd-input").value = localStorage.getItem("agentui.cwd") || msg.defaultCwd;
-      renderProviders();
+      if (!$("cwd-input").value) setCwd(localStorage.getItem("agentui.cwd") || msg.defaultCwd);
+      if (!providers.some((p) => p.id === selectedProvider)) selectedProvider = providers[0]?.id || selectedProvider;
+      buildProviderMenu();
+      setProvider(selectedProvider);
       if (ws.onceOpenSubscribe) {
         send({ op: "subscribe", sessionId: ws.onceOpenSubscribe });
         ws.onceOpenSubscribe = null;
@@ -235,7 +333,6 @@ function handle(msg) {
       openChat(msg.session, msg.events);
       break;
     case "no-session":
-      // Server restarted or bad id: fall back to a fresh composer.
       history.replaceState(null, "", "/");
       showComposer();
       break;
@@ -248,23 +345,93 @@ function handle(msg) {
   }
 }
 
-// ---------- composer ----------
-function renderProviders() {
-  const box = $("providers");
-  box.innerHTML = "";
+// ---------- composer: provider dropdown ----------
+function buildProviderMenu() {
+  const menu = $("provider-menu");
+  menu.innerHTML = "";
   for (const p of providers) {
-    const b = document.createElement("button");
-    b.className = "provider-pill" + (p.id === selectedProvider ? " selected" : "");
-    b.textContent = p.label;
-    b.onclick = () => { selectedProvider = p.id; localStorage.setItem("agentui.provider", p.id); renderProviders(); };
-    box.appendChild(b);
+    const row = document.createElement("div");
+    row.className = "menu-item" + (p.id === selectedProvider ? " selected" : "");
+    row.setAttribute("role", "option");
+    row.innerHTML =
+      `<span class="dot" style="background:${colorFor(p.id)};color:${colorFor(p.id)}"></span>` +
+      `<span class="mi-name">${escapeHtml(p.label)}</span>` +
+      `<svg class="mi-check" viewBox="0 0 12 12" width="12" height="12"><path d="M2.5 6.2l2.3 2.3L9.5 3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    row.onclick = () => { setProvider(p.id); closeMenu(); };
+    menu.appendChild(row);
   }
 }
+function setProvider(id) {
+  selectedProvider = id;
+  localStorage.setItem("agentui.provider", id);
+  const p = providers.find((x) => x.id === id);
+  const dot = $("provider-dot");
+  dot.style.background = colorFor(id);
+  dot.style.color = colorFor(id);
+  $("provider-name").textContent = p ? p.label : id;
+  for (const row of $("provider-menu").children) row.classList.remove("selected");
+  const idx = providers.findIndex((x) => x.id === id);
+  if (idx >= 0) $("provider-menu").children[idx]?.classList.add("selected");
+}
+function openMenu() { $("provider-menu").hidden = false; }
+function closeMenu() { $("provider-menu").hidden = true; }
+$("provider-btn").onclick = (e) => {
+  e.stopPropagation();
+  $("provider-menu").hidden ? openMenu() : closeMenu();
+};
+document.addEventListener("click", (e) => {
+  if (!$("provider-menu").hidden && !e.target.closest("#provider-menu") && !e.target.closest("#provider-btn")) closeMenu();
+});
+
+// ---------- composer: cwd chip ----------
+function setCwd(path) {
+  $("cwd-input").value = path || "";
+  $("cwd-label").textContent = basename(path);
+  $("cwd-chip").title = path || "working directory";
+}
+$("cwd-chip").onclick = () => {
+  $("cwd-chip").hidden = true;
+  const input = $("cwd-input");
+  input.hidden = false;
+  input.focus();
+  input.select();
+};
+function commitCwd() {
+  const input = $("cwd-input");
+  if (input.hidden) return;
+  setCwd(input.value.trim());
+  localStorage.setItem("agentui.cwd", input.value.trim());
+  input.hidden = true;
+  $("cwd-chip").hidden = false;
+}
+$("cwd-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); commitCwd(); }
+  else if (e.key === "Escape") { $("cwd-input").hidden = true; $("cwd-chip").hidden = false; }
+});
+$("cwd-input").addEventListener("blur", commitCwd);
+
+// ---------- composer: auto-approve + send ----------
+$("approve-chip").onclick = () => {
+  const on = $("approve-chip").classList.toggle("on");
+  $("approve-chip").setAttribute("aria-pressed", String(on));
+};
+function autoApprove() { return $("approve-chip").classList.contains("on"); }
+
+function autoGrow(el, max) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, max) + "px";
+}
+$("prompt-input").addEventListener("input", () => {
+  $("send-btn").disabled = !$("prompt-input").value.trim();
+  autoGrow($("prompt-input"), 300);
+});
+
 function showComposer() {
   currentSession = null;
   document.title = "cmux agent";
   $("composer-view").style.display = "flex";
   $("chat-view").style.display = "none";
+  $("send-btn").disabled = !$("prompt-input").value.trim();
   $("prompt-input").focus();
 }
 function startSession() {
@@ -272,9 +439,15 @@ function startSession() {
   if (!prompt) return;
   const cwd = $("cwd-input").value.trim();
   localStorage.setItem("agentui.cwd", cwd);
-  send({ op: "start", provider: selectedProvider, cwd, prompt, autoApprove: $("auto-approve").checked });
+  send({ op: "start", provider: selectedProvider, cwd, prompt, autoApprove: autoApprove() });
   $("prompt-input").value = "";
+  $("send-btn").disabled = true;
+  autoGrow($("prompt-input"), 300);
 }
+$("send-btn").onclick = startSession;
+$("prompt-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); startSession(); }
+});
 
 // ---------- chat ----------
 function openChat(session, events) {
@@ -408,19 +581,23 @@ function appendThinking(text) {
   curThinking.bodyEl.textContent = curThinking.text;
 }
 
-// ---------- input wiring ----------
-$("prompt-input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); startSession(); }
+// ---------- chat input wiring ----------
+function sendReply() {
+  const text = $("chat-input").value.trim();
+  if (!text || !currentSession) return;
+  send({ op: "send", sessionId: currentSession.id, prompt: text });
+  $("chat-input").value = "";
+  $("chat-send").disabled = true;
+  autoGrow($("chat-input"), 200);
+}
+$("chat-input").addEventListener("input", () => {
+  $("chat-send").disabled = !$("chat-input").value.trim();
+  autoGrow($("chat-input"), 200);
 });
 $("chat-input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    const text = e.target.value.trim();
-    if (!text || !currentSession) return;
-    send({ op: "send", sessionId: currentSession.id, prompt: text });
-    e.target.value = "";
-  }
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(); }
 });
+$("chat-send").onclick = sendReply;
 $("stop-btn").onclick = () => { if (currentSession) send({ op: "stop", sessionId: currentSession.id }); };
 
 if (!routedSessionId) showComposer();

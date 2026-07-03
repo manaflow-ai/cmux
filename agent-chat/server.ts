@@ -122,8 +122,13 @@ function renderPage(url: URL): string {
   const green = theme.isLight ? "#2b8a3e" : "#6fbf82";
   const red = theme.isLight ? "#c92a2a" : "#e06c75";
   const amber = theme.isLight ? "#e8590c" : "#d8a657";
+  // In opaque mode html paints the same solid bg as body, so nothing behind
+  // the webview (a terminal surface) can composite through the transparent
+  // document root. In transparent mode html stays clear on purpose so
+  // background-opacity/blur show through.
+  const bgHtml = transparent ? "transparent" : theme.background;
   const css = `:root { --bg: ${theme.background}; --fg: ${theme.foreground}; ` +
-    `--bg-body: rgba(${rgb}, ${opacity}); --accent: ${accent}; ` +
+    `--bg-body: rgba(${rgb}, ${opacity}); --bg-html: ${bgHtml}; --accent: ${accent}; ` +
     `--green: ${green}; --red: ${red}; --amber: ${amber}; }`;
   const html = readPageTemplate();
   return html.replace("/*__THEME__*/", css);
