@@ -1113,6 +1113,18 @@ private func unsequencedTerminalBytesEventFrame(
         router: router,
         "the setup viewport replay must settle before proving the pre-swap guard"
     )
+    let preSwapViewportBaseline = await router.count(of: "mobile.terminal.viewport")
+    let preSwapReplayBaseline = await router.count(of: "mobile.terminal.replay")
+    await router.enqueueReplayRenderGrid(try MobileTerminalRenderGridFrame(
+        surfaceID: "live-terminal",
+        stateSeq: 40,
+        columns: 20,
+        rows: 6,
+        full: true,
+        rowSpans: [
+            MobileTerminalRenderGridFrame.RowSpan(row: 0, column: 0, styleID: 0, text: "PRE-SWAP-CONVERGED"),
+        ]
+    ))
 
     // Prove the confirmation actually armed the guard on the original client
     // before swapping, so the later leak check is not inferred from the RPC
@@ -1126,6 +1138,24 @@ private func unsequencedTerminalBytesEventFrame(
         text: "PRE-SWAP-OVERSIZED",
         full: false
     ))
+    let preSwapReplayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > preSwapReplayBaseline
+    }
+    #expect(
+        preSwapReplayRequested,
+        "the empirically confirmed guard must arm recovery replay before the client swap"
+    )
+    let preSwapViewportReasserted = try await pollUntil {
+        await router.count(of: "mobile.terminal.viewport") > preSwapViewportBaseline
+    }
+    #expect(
+        preSwapViewportReasserted,
+        "the empirically confirmed guard must reassert the viewport before the client swap"
+    )
+    let preSwapConverged = try await pollUntil {
+        collector.lines.contains { $0.contains("PRE-SWAP-CONVERGED") }
+    }
+    #expect(preSwapConverged, "the pre-swap recovery replay must repaint after withholding the oversized frame")
     _ = try await pollUntil(attempts: 30) {
         collector.lines.contains { $0.contains("PRE-SWAP-OVERSIZED") }
     }
