@@ -7,6 +7,7 @@ public enum TextBoxAgentDetection: CaseIterable {
     case claudeCode
     case codex
     case opencode
+    case pi
 
     private var definitionID: String {
         switch self {
@@ -16,6 +17,8 @@ public enum TextBoxAgentDetection: CaseIterable {
             return "codex"
         case .opencode:
             return "opencode"
+        case .pi:
+            return "pi"
         }
     }
 
@@ -27,6 +30,8 @@ public enum TextBoxAgentDetection: CaseIterable {
             return ["codex", "omx"]
         case .opencode:
             return ["opencode", "open-code", "opencode-ai", "omo"]
+        case .pi:
+            return ["pi", "pi-coding-agent"]
         }
     }
 
@@ -47,6 +52,56 @@ public enum TextBoxAgentDetection: CaseIterable {
         claudeCode.matches(context: context)
     }
 
+    /// Whether any metadata line in `context` marks an active agent (via `agentPIDKey:`)
+    /// that supports prompt prefixes.
+    public static func supportsActiveAgentPrefixes(context: String) -> Bool {
+        allCases.contains { agent in
+            context
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .contains { agent.matchesActive(metadataLine: String($0)) }
+        }
+    }
+
+    /// Whether `context` carries a pending text-box launch command line.
+    public static func hasPendingTextBoxLaunchContext(_ context: String) -> Bool {
+        context
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .contains { line in
+                metadataValue(String(line), prefix: "textBoxPendingLaunchCommand:") != nil
+            }
+    }
+
+    /// The first trimmed metadata line in `context` that marks an active agent, if any.
+    public static func activeAgentHookContext(from context: String) -> String? {
+        context
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { line in
+                allCases.contains { $0.matchesActive(metadataLine: line) }
+            }
+    }
+
+    /// The bounded active-context command for the agent whose launch executable
+    /// matches `rawCommand`, if any.
+    public static func boundedLaunchCommandContext(from rawCommand: String) -> String? {
+        let command = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return nil }
+        return allCases.first { $0.matchesLaunchExecutable(command: command) }?.boundedActiveContextCommand
+    }
+
+    private var boundedActiveContextCommand: String {
+        switch self {
+        case .claudeCode:
+            return "claude"
+        case .codex:
+            return "codex"
+        case .opencode:
+            return "opencode"
+        case .pi:
+            return "pi"
+        }
+    }
+
     private func matches(metadataLine rawLine: String) -> Bool {
         let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return false }
@@ -64,6 +119,38 @@ public enum TextBoxAgentDetection: CaseIterable {
             return matchesCommand(value)
         }
         return false
+    }
+
+    private func matchesActive(metadataLine rawLine: String) -> Bool {
+        let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty else { return false }
+        if let value = Self.metadataValue(line, prefix: "agentPIDKey:") {
+            return matchesIdentity(value)
+        }
+        return false
+    }
+
+    private func matchesLaunchExecutable(command: String) -> Bool {
+        let tokens = Self.shellLikeTokens(command)
+        guard !tokens.isEmpty else { return false }
+        return Self.commandSegments(from: tokens).contains { segment in
+            matchesLaunchExecutableSegment(segment, depth: 0)
+        }
+    }
+
+    private func matchesLaunchExecutableSegment(_ tokens: [String], depth: Int) -> Bool {
+        guard !tokens.isEmpty else { return false }
+        let resolved = Self.resolvedCommandSegment(tokens)
+        guard let executable = resolved.arguments.first else { return false }
+        let basename = (executable as NSString).lastPathComponent
+        if matchesIdentity(basename) {
+            return true
+        }
+
+        guard depth < 2 else { return false }
+        return Self.shellSubcommandSegments(from: resolved.arguments).contains { segment in
+            matchesLaunchExecutableSegment(segment, depth: depth + 1)
+        }
     }
 
     private func matchesIdentity(_ rawValue: String) -> Bool {
