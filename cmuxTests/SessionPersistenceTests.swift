@@ -4424,7 +4424,10 @@ extension SessionPersistenceTests {
         XCTAssertEqual(process.terminationStatus, 0, errorText)
 
         let output = try String(contentsOf: outputURL, encoding: .utf8)
-        XCTAssertTrue(output.contains("resume session-duplicate-turn --yolo"), output)
+        XCTAssertTrue(
+            output.contains("resume session-duplicate-turn -c check_for_update_on_startup=false --yolo"),
+            output
+        )
         XCTAssertFalse(output.hasPrefix("\(deletedCwd.path)|"), output)
     }
 
@@ -5592,7 +5595,10 @@ extension SessionPersistenceTests {
             let startupPayload = try restoredStartupPayload(for: restoredPanel)
 
             XCTAssertNil(restoredPanel.requestedWorkingDirectory)
-            XCTAssertTrue(startupPayload.contains("codex resume session-duplicate-turn --yolo"), startupPayload)
+            XCTAssertTrue(
+                startupPayload.contains("codex resume session-duplicate-turn -c check_for_update_on_startup=false --yolo"),
+                startupPayload
+            )
             // The guard is the fish-safe, brace-free form (https://github.com/manaflow-ai/cmux/issues/6285):
             // `cd -- '<dir>' 2>/dev/null || [ ! -d '<dir>' ] && <cmd>`.
             XCTAssertFalse(startupPayload.contains("{ cd -- "), startupPayload)
