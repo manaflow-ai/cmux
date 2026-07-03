@@ -200,29 +200,69 @@ enum RemoteInteractiveShellBootstrapBuilder {
         return lines
     }
 
-    private static func terminalSetupLines(terminfoSource: String?) -> [String] {
-        var lines: [String] = [
+    static func terminalSetupLines(terminfoSource: String?) -> [String] {
+        let trimmedTerminfoSource = terminfoSource?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmedTerminfoSource, !trimmedTerminfoSource.isEmpty else {
+            // Without a bundled terminfo to install we can only probe what the
+            // remote already has and fall back to a universally-present entry.
+            return [
+                "cmux_term='xterm-256color'",
+                "if command -v infocmp >/dev/null 2>&1 && infocmp xterm-ghostty >/dev/null 2>&1; then",
+                "  cmux_term='xterm-ghostty'",
+                "fi",
+                "export TERM=\"$cmux_term\"",
+            ]
+        }
+        // Install the bundled xterm-ghostty terminfo *synchronously*, before
+        // deciding TERM, so a full-screen TUI (e.g. Claude Code) never starts
+        // against a TERM whose terminfo entry is missing or half-written.
+        //
+        // The previous design deferred `tic` to a background job and decided
+        // TERM up front, so the first shell on a host without the entry got
+        // xterm-256color while a later pass could select xterm-ghostty mid-write
+        // and garble output (#6352). Here we compile into a private temp
+        // directory on the same filesystem as ~/.terminfo, then move each
+        // compiled entry into place with an atomic rename, so a concurrent reader
+        // in another cmux ssh session sharing $HOME never observes a partially
+        // written database. The temp directory comes from `mktemp` when present,
+        // otherwise a per-process `$$` directory (unique among live processes) so
+        // the atomic-rename path applies even without `mktemp` — no branch ever
+        // compiles terminfo directly into ~/.terminfo.
+        return [
             "cmux_term='xterm-256color'",
             "if command -v infocmp >/dev/null 2>&1 && infocmp xterm-ghostty >/dev/null 2>&1; then",
             "  cmux_term='xterm-ghostty'",
+            "elif command -v tic >/dev/null 2>&1; then",
+            "  mkdir -p \"$HOME/.terminfo\" 2>/dev/null",
+            "  cmux_ti_tmp=$(mktemp -d \"$HOME/.terminfo.cmux.XXXXXX\" 2>/dev/null) || cmux_ti_tmp=''",
+            "  if [ -z \"$cmux_ti_tmp\" ]; then",
+            "    cmux_ti_tmp=\"$HOME/.terminfo.cmux.$$\"",
+            "    rm -rf \"$cmux_ti_tmp\" 2>/dev/null",
+            "    mkdir \"$cmux_ti_tmp\" 2>/dev/null || cmux_ti_tmp=''",
+            "  fi",
+            "  {",
+            "    cat <<'CMUXTERMINFO'",
+            trimmedTerminfoSource,
+            "CMUXTERMINFO",
+            "  } | {",
+            "    if [ -n \"$cmux_ti_tmp\" ] && tic -x -o \"$cmux_ti_tmp\" - >/dev/null 2>&1; then",
+            "      find \"$cmux_ti_tmp\" -type f 2>/dev/null | while IFS= read -r cmux_ti_file; do",
+            "        cmux_ti_rel=${cmux_ti_file#\"$cmux_ti_tmp\"/}",
+            "        cmux_ti_dest=\"$HOME/.terminfo/$cmux_ti_rel\"",
+            "        mkdir -p \"$(dirname \"$cmux_ti_dest\")\" 2>/dev/null",
+            "        mv -f \"$cmux_ti_file\" \"$cmux_ti_dest\" 2>/dev/null || cp -f \"$cmux_ti_file\" \"$cmux_ti_dest\" 2>/dev/null",
+            "      done",
+            "    fi",
+            "  }",
+            "  [ -n \"$cmux_ti_tmp\" ] && rm -rf \"$cmux_ti_tmp\" 2>/dev/null",
+            "  if infocmp xterm-ghostty >/dev/null 2>&1; then",
+            "    cmux_term='xterm-ghostty'",
+            "  fi",
+            "  unset cmux_ti_tmp cmux_ti_file cmux_ti_rel cmux_ti_dest 2>/dev/null || true",
             "fi",
             "export TERM=\"$cmux_term\"",
         ]
-        guard let terminfoSource else { return lines }
-        let trimmedTerminfoSource = terminfoSource.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTerminfoSource.isEmpty else { return lines }
-        lines += [
-            "if [ \"$cmux_term\" != 'xterm-ghostty' ]; then",
-            "  (",
-            "    command -v tic >/dev/null 2>&1 || exit 0",
-            "    mkdir -p \"$HOME/.terminfo\" 2>/dev/null || exit 0",
-            "    cat <<'CMUXTERMINFO' | tic -x - >/dev/null 2>&1",
-            trimmedTerminfoSource,
-            "CMUXTERMINFO",
-            "  ) </dev/null >/dev/null 2>&1 &",
-            "fi",
-        ]
-        return lines
     }
 
     private static func shellExportLines(shellFeatures: String) -> [String] {
