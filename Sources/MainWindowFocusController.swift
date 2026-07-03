@@ -208,9 +208,18 @@ final class MainWindowFocusController {
 
     @discardableResult
     func restoreTargetAfterWindowBecameKey() -> Bool {
-        guard case .rightSidebar(let mode) = intent else {
+        switch intent {
+        case .rightSidebar(let mode):
+            return restoreRightSidebarTargetAfterWindowBecameKey(mode: mode)
+        case .mainPanel:
+            return restoreMainPanelTargetAfterWindowBecameKey()
+        case nil:
             return false
         }
+    }
+
+    @discardableResult
+    private func restoreRightSidebarTargetAfterWindowBecameKey(mode: RightSidebarMode) -> Bool {
         if let responder = window?.firstResponder,
            rightSidebarModeOwning(responder) == mode {
             publishFeedFocusSnapshot()
@@ -226,6 +235,49 @@ final class MainWindowFocusController {
             mode: mode,
             focusFirstItem: false
         )
+    }
+
+    @discardableResult
+    private func restoreMainPanelTargetAfterWindowBecameKey() -> Bool {
+        guard let window,
+              let tabManager,
+              let workspace = tabManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.panels[panelId] else {
+            return false
+        }
+
+        if let responder = window.firstResponder {
+            if panel.ownedFocusIntent(for: responder, in: window) != nil {
+                noteMainPanelInteraction(workspaceId: workspace.id, panelId: panelId)
+                return true
+            }
+            if liveRightSidebarModeOwning(responder, in: window) != nil {
+                syncAfterResponderChange(responder: responder)
+                return true
+            }
+            if terminalFocusRequest(for: responder) == nil,
+               selectedFocusedPanelRequest(owning: responder) == nil,
+               shouldRespectForeignFirstResponder(responder, in: window, isRightSidebarOwner: {
+                   liveRightSidebarModeOwning($0, in: window) != nil
+               }) {
+                return false
+            }
+        }
+
+        rightSidebarFocus.state = .inactive
+        intent = .mainPanel(workspaceId: workspace.id, panelId: panelId)
+        publishFeedFocusSnapshot()
+        workspace.focusPanel(panelId)
+        return panel.restoreFocusIntent(panel.preferredFocusIntentForActivation())
+    }
+
+    private func liveRightSidebarModeOwning(
+        _ responder: NSResponder,
+        in window: NSWindow
+    ) -> RightSidebarMode? {
+        guard (responder as? NSView)?.window === window else { return nil }
+        return rightSidebarModeOwning(responder)
     }
 
     @discardableResult

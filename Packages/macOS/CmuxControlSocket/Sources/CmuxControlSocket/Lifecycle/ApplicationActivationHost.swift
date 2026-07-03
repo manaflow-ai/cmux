@@ -53,4 +53,10 @@ public protocol ApplicationActivationHost: AnyObject {
     /// Saves a scrollback-free session snapshot on resign if the session
     /// persistence policy allows it.
     func saveSessionSnapshotOnResignIfNeeded()
+
+    /// Pauses or resumes idle tracked-agent port scanning. Scanning is paused on
+    /// resign and resumed on activation so background agent-port pollers are gated
+    /// to the active app; the concrete `PortScanner` lives in the app target and
+    /// is reached only through this seam.
+    func setTrackedAgentPortScanningPaused(_ paused: Bool)
 }

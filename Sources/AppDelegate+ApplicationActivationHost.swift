@@ -57,4 +57,8 @@ extension AppDelegate: ApplicationActivationHost {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
     }
+
+    func setTrackedAgentPortScanningPaused(_ paused: Bool) {
+        PortScanner.shared.setTrackedAgentScanningPaused(paused)
+    }
 }

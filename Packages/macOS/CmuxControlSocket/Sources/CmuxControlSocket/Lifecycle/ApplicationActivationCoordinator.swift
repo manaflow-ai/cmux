@@ -41,6 +41,7 @@ public final class ApplicationActivationCoordinator {
     /// record the lifecycle breadcrumb, track the active analytics event, then
     /// reconcile notification activation/unread state for the active selection.
     public func applicationDidBecomeActive() {
+        host.setTrackedAgentPortScanningPaused(false)
         host.restoreMainWindowVisibilityAfterActivation()
         host.recordDidBecomeActiveBreadcrumb()
         if host.isActiveAnalyticsTrackingEnabled {
@@ -54,6 +55,7 @@ public final class ApplicationActivationCoordinator {
     /// snapshot if the persistence policy allows it.
     public func applicationWillResignActive() {
         guard !host.isTerminatingApp else { return }
+        host.setTrackedAgentPortScanningPaused(true)
         host.clearConfiguredShortcutChordState()
         host.saveSessionSnapshotOnResignIfNeeded()
     }
