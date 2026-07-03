@@ -26,4 +26,24 @@ import Testing
             "remote.tmux.window",
         ].allSatisfy { advertisedMethods.contains($0) })
     }
+
+    /// Regression guard for `remote.tmux.attach_here`: sending a request with no
+    /// `host` param must fail one of the two network-free guards in
+    /// `v2RemoteTmuxAttachHere` (beta-gate or param validation) - never dispatch
+    /// as an unknown method, and never touch the network. This proves the method
+    /// stays registered/dispatched and keeps validating before SSH regardless of
+    /// which way the `remoteTmux.beta.enabled` flag happens to be set in the test
+    /// environment.
+    @Test func attachHereWithoutHostReturnsStructuredErrorBeforeNetwork() throws {
+        let request = #"{"jsonrpc":"2.0","id":1,"method":"remote.tmux.attach_here","params":{}}"#
+        let responseText = TerminalController.shared.handleSocketLine(request)
+        let responseData = try #require(responseText.data(using: .utf8))
+        let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+
+        #expect(response["ok"] as? Bool == false)
+        let error = try #require(response["error"] as? [String: Any])
+        let code = try #require(error["code"] as? String)
+
+        #expect(code == "disabled" || code == "invalid_params")
+    }
 }
