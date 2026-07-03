@@ -6,7 +6,7 @@ extension Image {
     /// with the raster-point-size clamp inlined (positive, NaN-guarded) so the
     /// browser top-chrome views moved into this package carry no dependency on
     /// the app-target symbol namespace.
-    public func cmuxSymbolRasterSize(
+    func cmuxSymbolRasterSize(
         _ pointSize: CGFloat,
         weight: Font.Weight? = nil,
         alignment: Alignment = .center
