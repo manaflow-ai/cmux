@@ -2590,6 +2590,15 @@ class TabManager {
         surfaceMetadata.focusedSurfaceTitleDidChange(tabId: tabId)
     }
 
+    /// Flushes any coalesced panel-title updates immediately so a workspace
+    /// snapshot (e.g. move-tab-to-new-workspace) captures the current titles
+    /// rather than stale pre-coalesce ones. Forwards to the metadata coordinator
+    /// that owns the title-update coalescer (`panelTitleUpdateCoalescer` on the
+    /// pre-refactor `TabManager`).
+    func flushPendingPanelTitleUpdatesForWorkspaceSnapshot() {
+        surfaceMetadata.flushPendingPanelTitleUpdates()
+    }
+
     // MARK: SurfaceMetadataTitleHosting (panel-title app effects)
     // Witnesses live here in the class body because they touch the selected
     // workspace's `NSWindow` title chrome and the DEBUG id/title formatters; the
