@@ -1572,6 +1572,60 @@ final class NotificationDockBadgeTests: XCTestCase {
         store.clearLatestNotification(forTabId: tab)
         XCTAssertEqual(store.latestNotification(forTabId: tab)?.id, previousNotification.id)
     }
+
+    func testWorkspaceNotificationMenuProjectionFiltersAndSortsNewestFirst() {
+        let tabA = UUID()
+        let tabB = UUID()
+        let unrelatedTab = UUID()
+        let older = TerminalNotification(
+            id: UUID(),
+            tabId: tabA,
+            surfaceId: nil,
+            title: "Older",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 100),
+            isRead: true
+        )
+        let latest = TerminalNotification(
+            id: UUID(),
+            tabId: tabB,
+            surfaceId: nil,
+            title: "Latest",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 300),
+            isRead: false
+        )
+        let middle = TerminalNotification(
+            id: UUID(),
+            tabId: tabA,
+            surfaceId: nil,
+            title: "Middle",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 200),
+            isRead: false
+        )
+        let unrelated = TerminalNotification(
+            id: UUID(),
+            tabId: unrelatedTab,
+            surfaceId: nil,
+            title: "Unrelated",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 400),
+            isRead: false
+        )
+
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([older, unrelated, latest, middle])
+
+        XCTAssertEqual(
+            store.notifications(forTabIds: [tabA, tabB]).map(\.id),
+            [latest.id, middle.id, older.id]
+        )
+    }
 }
 
 
