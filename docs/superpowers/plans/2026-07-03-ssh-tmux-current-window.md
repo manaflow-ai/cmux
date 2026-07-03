@@ -48,7 +48,7 @@
 
 **Files:**
 - Modify: `Sources/RemoteTmuxController.swift:428-446` (the current `mirrorHost`)
-- Test: `cmuxTests/RemoteTmuxAttachHereTests.swift` (create)
+- Test: none for this task — the flow is integration-shaped (SSH + live app + window creation); verified by the Task 5 E2E run. See the Testing note below.
 
 **Interfaces:**
 - Consumes: `mirrorSession(host:sessionName:into:)` (existing, `Sources/RemoteTmuxController.swift:450`); `transport(for:).discoverMirrorSessions(createIfEmpty:)`; `ensureControlMasterReadyForBurst(host:)`; `RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(_:)`; `windowRegistry.beginAttach(hostHash:)`/`endAttach(hostHash:)`; `AppDelegate.shared?.tabManager`, `.createMainWindow(shouldActivate:)`, `.tabManagerFor(windowId:)`; `RemoteTmuxAttachOutcome`.
@@ -56,85 +56,19 @@
 
 **Design note:** model the body on `mirrorHostInNewWindow` (`Sources/RemoteTmuxController.swift:318-422`) but target the current window's `TabManager` and never discard the window on failure. Keep `mirrorHost(host:)` deleted (its only caller, `v2RemoteTmuxMirror`, is retargeted in Task 2) — its behavior is subsumed by the new method with `activateWindow: true`.
 
-- [ ] **Step 1: Write the failing test for pure session-mirror idempotency helper**
+**Testing note (revised):** the reuse decision is a single `Set.contains()` on
+live-mirror connection hashes — wrapping it in a named helper and unit-testing
+it would be over-abstraction + a test-of-a-trivial-helper (both parsimony
+anti-patterns in the testing rules). It is inlined in Step 1. The behavior that
+matters (don't double-mirror a host) is genuine integration behavior — the whole
+`mirrorHostInCurrentWindow` flow needs SSH + a live app + window creation and is
+verified by the **Task 5 E2E** run (idempotent repeat attach, no-window
+fallback, kill-session close, network-drop reconnect). Task 1 therefore adds no
+standalone unit test file; this is honest about the task being integration-shaped
+rather than manufacturing a fake unit seam. `RemoteTmuxAttachHereTests.swift` is
+NOT created.
 
-The full attach flow requires SSH + a live app; the unit-testable seam is the reuse decision. Add a `nonisolated static` pure helper that later steps call, and test it directly.
-
-Create `cmuxTests/RemoteTmuxAttachHereTests.swift`:
-
-```swift
-import AppKit
-import Foundation
-import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
-/// Coverage for `cmux ssh-tmux` mirroring into the current window
-/// (`remote.tmux.attach_here`). See
-/// docs/superpowers/specs/2026-07-03-ssh-tmux-current-window-design.md.
-@Suite struct RemoteTmuxAttachHereTests {
-    /// A host that already has live mirror workspaces must be reused, not
-    /// re-mirrored: the reuse decision is `true` when any live session mirror
-    /// exists for the host's connection hash.
-    @Test func reusesWhenHostAlreadyMirrored() {
-        #expect(
-            RemoteTmuxController.shouldReuseExistingMirror(
-                hostConnectionHash: "abc",
-                liveMirrorHashes: ["abc", "def"]
-            ) == true
-        )
-    }
-
-    @Test func doesNotReuseWhenHostNotYetMirrored() {
-        #expect(
-            RemoteTmuxController.shouldReuseExistingMirror(
-                hostConnectionHash: "abc",
-                liveMirrorHashes: ["def"]
-            ) == false
-        )
-    }
-}
-```
-
-- [ ] **Step 2: Wire the new test file into the Xcode project**
-
-Add `RemoteTmuxAttachHereTests.swift` to `cmux.xcodeproj/project.pbxproj` following the four entries for `RemoteTmuxNewWindowCwdTests.swift` (PBXBuildFile, PBXFileReference, the file's group children, and the cmuxTests PBXSourcesBuildPhase). Then:
-
-Run: `./scripts/lint-pbxproj-test-wiring.sh`
-Expected: passes (no unwired test files reported).
-
-- [ ] **Step 3: Run the test to verify it fails**
-
-Run: `xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/cmux-sub-workspace test -only-testing:cmuxTests/RemoteTmuxAttachHereTests 2>&1 | tail -20`
-Expected: FAIL — `shouldReuseExistingMirror` is not a member of `RemoteTmuxController`.
-
-- [ ] **Step 4: Add the pure reuse helper**
-
-In `Sources/RemoteTmuxController.swift`, add near the other `nonisolated static` helpers:
-
-```swift
-/// Whether an attach for `hostConnectionHash` should reuse existing mirror
-/// workspaces instead of creating new ones. Pure so it is unit-testable
-/// without SSH/app state; `liveMirrorHashes` is the set of connection hashes
-/// of currently-live session mirrors.
-nonisolated static func shouldReuseExistingMirror(
-    hostConnectionHash: String,
-    liveMirrorHashes: some Sequence<String>
-) -> Bool {
-    liveMirrorHashes.contains(hostConnectionHash)
-}
-```
-
-- [ ] **Step 5: Run the test to verify it passes**
-
-Run: `xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/cmux-sub-workspace test -only-testing:cmuxTests/RemoteTmuxAttachHereTests 2>&1 | tail -20`
-Expected: PASS (2 tests).
-
-- [ ] **Step 6: Replace `mirrorHost` with `mirrorHostInCurrentWindow`**
+- [ ] **Step 1: Replace `mirrorHost` with `mirrorHostInCurrentWindow`**
 
 In `Sources/RemoteTmuxController.swift`, replace the `mirrorHost(host:)` method (lines 424-446) with:
 
@@ -157,13 +91,11 @@ func mirrorHostInCurrentWindow(
         throw RemoteTmuxError.unreachable("app not ready")
     }
 
-    // Reuse: if the host already has live mirror workspaces, reveal the first
-    // and return instead of mirroring twice. The mirror struct's `tabManager`
+    // Reuse: if the host already has a live mirror workspace, reveal it and
+    // return instead of mirroring twice. The mirror struct's `tabManager`
     // is private/weak, so resolve the manager from the workspace id via the
     // confirmed `tabManagerFor(tabId:)` (Sources/AppDelegate+RecoverableMainWindowRoutes.swift:385).
-    let liveHashes = sessionMirrors.values.map { $0.host.connectionHash }
-    if Self.shouldReuseExistingMirror(hostConnectionHash: host.connectionHash, liveMirrorHashes: liveHashes),
-       let workspaceId = sessionMirrors.values
+    if let workspaceId = sessionMirrors.values
            .first(where: { $0.host.connectionHash == host.connectionHash })?
            .mirroredWorkspaceId,
        let manager = appDelegate.tabManagerFor(tabId: workspaceId) {
@@ -247,15 +179,20 @@ func mirrorHostInCurrentWindow(
 - `windowRegistry.beginAttach`/`endAttach` — window path lines ~333-336 (confirmed).
 - `AppDelegate.tabManager` (the current window's manager, `weak var`) — `Sources/AppDelegate.swift:674`.
 
-- [ ] **Step 7: Build to verify it compiles**
+- [ ] **Step 2: Build to verify it compiles**
 
 Run: `xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/cmux-sub-workspace build 2>&1 | tail -20`
-Expected: `** BUILD SUCCEEDED **`. Fix any name mismatches surfaced by the "verify" note above.
+Expected: `** BUILD SUCCEEDED **`. Fix any name mismatches surfaced by the "APIs referenced" note above (in particular the `windowId(for:)` fallback).
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 3: Confirm `mirrorHost` is fully removed and nothing else references it**
+
+Run: `rg -n "func mirrorHost\b|\.mirrorHost\(" Sources/`
+Expected: no matches (the only caller, `v2RemoteTmuxMirror`, is retargeted in Task 2).
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add Sources/RemoteTmuxController.swift cmuxTests/RemoteTmuxAttachHereTests.swift cmux.xcodeproj/project.pbxproj
+git add Sources/RemoteTmuxController.swift
 git commit -m "feat(remote-tmux): mirror ssh-tmux into current window (harden mirrorHost)"
 ```
 
@@ -502,7 +439,7 @@ Note in the PR/summary which tiers of the live-target probe ran (Tier 1/2 reuse-
 **Spec coverage:**
 - D1 (no group, plain workspaces) → Task 1 (mirror into `TabManager`, no group). ✓
 - D2 (new default + `--new-window`) → Task 3 (routing). ✓
-- D3 (no window → plain window) → Task 1 Step 6 (createMainWindow fallback). ✓
+- D3 (no window → plain window) → Task 1 Step 1 (createMainWindow fallback). ✓
 - D4 (network-loss reconnect) → reused existing path; verified in Task 5 Step 5. ✓
 - D5 (killed session closes workspace) → reused `handleSessionEndedRemotely`; verified in Task 5 Step 4. ✓
 - D6 (no new-session creation) → nothing built (correctly absent); no interception added. ✓
@@ -510,7 +447,7 @@ Note in the PR/summary which tiers of the live-target probe ran (Tier 1/2 reuse-
 - Socket registration three-sited → Task 2. ✓
 - Localization + docs → Tasks 3-4. ✓
 
-**Placeholder scan:** No TBD/TODO in steps. The socket method name and controller method name are fixed in "Method naming (locked)". All TabManager/AppDelegate selectors in Task 1 Step 6 were verified against the codebase (file:line cited inline); the only residual is the exact label of `windowId(for:)`, which has a cited fallback.
+**Placeholder scan:** No TBD/TODO in steps. The socket method name and controller method name are fixed in "Method naming (locked)". All TabManager/AppDelegate selectors in Task 1 Step 1 were verified against the codebase (file:line cited inline); the only residual is the exact label of `windowId(for:)`, which has a cited fallback. The `shouldReuseExistingMirror` helper and its two trivial unit tests were removed (parsimony) — the reuse check is inlined and the behavior is E2E-verified in Task 5.
 
 **Type consistency:** `mirrorHostInCurrentWindow` (Task 1) is the exact name called in Task 2. `"remote.tmux.attach_here"` is identical across Task 2 (all three registration sites) and Task 3 (CLI routing). `RemoteTmuxAttachOutcome` cases (`.mirrored(windowId:)`, `.authRequired(sshArgv:)`) match the existing enum and the Task 2 switch.
 
