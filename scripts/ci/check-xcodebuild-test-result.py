@@ -167,6 +167,7 @@ def _aggregate_failure_summary(output: str) -> tuple[int, int, int] | None:
     for index, line in enumerate(lines):
         if FAILED_COMPLETION_RE.search(line) is None:
             continue
+        result = None
         for follow in lines[index + 1 : index + 4]:
             summary_match = SUMMARY_RE.search(follow)
             if summary_match:

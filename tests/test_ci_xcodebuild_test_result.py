@@ -242,6 +242,23 @@ Test Suite 'Selected tests' failed at 2026-06-29 00:00:00.000
     )
 
 
+def test_rejects_later_failed_aggregate_without_its_own_summary() -> None:
+    # Cubic P1 follow-up: if a completed attempt prints a failed aggregate with
+    # its expected-failure summary, then a later retry/attempt aborts after only
+    # "Selected tests failed" and no paired summary, the later aggregate is the
+    # final outcome. The earlier aggregate summary must not be reused to accept
+    # the aborted final attempt.
+    expect_fail(
+        65,
+        """
+Test Suite 'Selected tests' failed at 2026-06-29 00:00:00.000
+    Executed 3 tests, with 1 failure (0 unexpected) in 1.000 seconds
+xcodebuild: error: Test runner exited before all tests completed.
+Test Suite 'Selected tests' failed at 2026-06-29 00:01:00.000
+""",
+    )
+
+
 def test_accepts_failed_aggregate_when_its_paired_summary_records_expected_failures() -> None:
     # The real app-host case #5641 must keep green (mirrors the live shard 1/4
     # log): app-host restarts churn the run, xcodebuild finishes the whole plan
@@ -355,6 +372,7 @@ def main() -> int:
     test_rejects_logs_without_xctest_execution_summaries()
     test_rejects_failed_aggregate_when_no_summary_explains_the_failure()
     test_rejects_failed_aggregate_when_only_earlier_suite_has_expected_failure()
+    test_rejects_later_failed_aggregate_without_its_own_summary()
     test_accepts_failed_aggregate_when_its_paired_summary_records_expected_failures()
     test_accepts_failed_aggregate_whose_paired_summary_counts_skipped_tests()
     test_rejects_swift_testing_failed_run_even_when_xctest_side_is_all_expected()
