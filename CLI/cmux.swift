@@ -2851,7 +2851,7 @@ struct CMUXCLI {
             return nil
         }
         let normalized = trimmed.lowercased()
-        guard normalized == "e2b" || normalized == "freestyle" else {
+        guard normalized == "e2b" || normalized == "freestyle" || normalized == "daytona" else {
             throw CLIError(message: """
                 vm new: unsupported Cloud VM service override.
 
