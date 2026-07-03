@@ -2626,6 +2626,32 @@ class GhosttyApp {
         )
     }
 
+    @MainActor
+    private static func deliverSurfaceDesktopNotificationIfNeeded(
+        tabId: UUID,
+        surfaceId: UUID?,
+        actionTitle: String,
+        actionBody: String
+    ) {
+        guard let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager,
+              let workspace = owningManager.tabs.first(where: { $0.id == tabId }) else { return }
+        if let surfaceId, workspace.panels[surfaceId] == nil {
+            return
+        }
+        if workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
+            return
+        }
+        let tabTitle = owningManager.titleForTab(tabId) ?? fallbackDesktopNotificationTitle()
+        let command = actionTitle.isEmpty ? tabTitle : actionTitle
+        TerminalNotificationStore.shared.addNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: command,
+            subtitle: "",
+            body: actionBody
+        )
+    }
+
     private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
         if Thread.isMainThread {
             return MainActor.assumeIsolated { work() }
@@ -3050,27 +3076,15 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             let actionBody = action.action.desktop_notification.body
                 .flatMap { String(cString: $0) } ?? ""
-            Task { @MainActor [tabId, surfaceId, actionTitle, actionBody] in
-                let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
-                if let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
-                   workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
-                    return
-                }
-                let tabTitle = owningManager?.titleForTab(tabId) ?? String(
-                    localized: "notification.fallback_title",
-                    defaultValue: "Terminal"
-                )
-                let command = actionTitle.isEmpty ? tabTitle : actionTitle
-                let body = actionBody
-                TerminalNotificationStore.shared.addNotification(
+            return performOnMain {
+                Self.deliverSurfaceDesktopNotificationIfNeeded(
                     tabId: tabId,
                     surfaceId: surfaceId,
-                    title: command,
-                    subtitle: "",
-                    body: body
+                    actionTitle: actionTitle,
+                    actionBody: actionBody
                 )
+                return true
             }
-            return true
         case GHOSTTY_ACTION_COLOR_CHANGE:
             let change = action.action.color_change
             let newColor = color(from: change)

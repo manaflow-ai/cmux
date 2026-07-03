@@ -6,7 +6,7 @@
 16471	Sources/ContentView.swift
 14270	Sources/TerminalController.swift
 13160	Sources/Workspace.swift
-12434	Sources/GhosttyTerminalView.swift
+12448	Sources/GhosttyTerminalView.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11669	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
@@ -30,7 +30,7 @@
 3934	Sources/Feed/FeedPanelView.swift
 3896	cmuxTests/WindowAndDragTests.swift
 3668	cmuxTests/CLIGenericHookPersistenceTests.swift
-3488	Sources/CmuxConfig.swift
+3492	Sources/CmuxConfig.swift
 3364	cmuxTests/TabManagerSessionSnapshotTests.swift
 3058	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift

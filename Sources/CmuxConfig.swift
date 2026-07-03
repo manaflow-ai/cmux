@@ -2011,10 +2011,13 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     private static func notificationHookCacheKey(for directory: String?) -> String? {
+        notificationHookSearchDirectory(for: directory).map { ($0 as NSString).standardizingPath }
+    }
+
+    private static func notificationHookSearchDirectory(for directory: String?) -> String? {
         guard let directory else { return nil }
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return (trimmed as NSString).standardizingPath
+        guard !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return directory
     }
 
     init(
@@ -2081,8 +2084,9 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     func notificationHooks(startingFrom directory: String?) -> [CmuxResolvedNotificationHook] {
+        let searchDirectory = Self.notificationHookSearchDirectory(for: directory)
         let cacheKey = Self.notificationHookCacheKey(for: directory)
-        let localConfigPaths = cacheKey.map { findCmuxConfigHierarchy(startingFrom: $0) } ?? []
+        let localConfigPaths = searchDirectory.map { findCmuxConfigHierarchy(startingFrom: $0) } ?? []
         var seenConfigPaths = Set<String>()
         let configPaths = ([globalConfigPath] + localConfigPaths).filter { path in
             seenConfigPaths.insert(path).inserted
