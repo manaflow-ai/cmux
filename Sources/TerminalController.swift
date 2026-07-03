@@ -9766,14 +9766,12 @@ class TerminalController {
     }
 
     private func v2BrowserViewportSet(params: [String: Any]) -> V2CallResult {
-        guard let width = v2Double(params, "width"),
-              let height = v2Double(params, "height"),
-              width.isFinite,
-              height.isFinite,
+        guard let width = v2StrictInt(params, "width"),
+              let height = v2StrictInt(params, "height"),
               width >= 0,
               height >= 0,
-              width <= Double(BrowserPanel.maximumMinimumViewportDimension),
-              height <= Double(BrowserPanel.maximumMinimumViewportDimension) else {
+              width <= Int(BrowserPanel.maximumMinimumViewportDimension),
+              height <= Int(BrowserPanel.maximumMinimumViewportDimension) else {
             return .err(
                 code: "invalid_params",
                 message: String(

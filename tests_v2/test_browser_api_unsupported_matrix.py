@@ -187,6 +187,12 @@ def main() -> int:
             {"surface_id": sid, "width": 1e100, "height": 900},
             "invalid_params",
         )
+        _expect_error(
+            c,
+            "browser.viewport.set",
+            {"surface_id": sid, "width": 1400.5, "height": 900},
+            "invalid_params",
+        )
 
         for method, extra in WKWEBVIEW_NOT_SUPPORTED.items():
             payload = {"surface_id": sid}

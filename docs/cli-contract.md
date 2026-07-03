@@ -328,7 +328,7 @@ Browser subcommands:
 | `browser highlight` | Highlight an element. |
 | `browser state` | Save or load browser state. |
 | `browser addinitscript`, `browser addscript`, `browser addstyle` | Inject scripts or CSS. |
-| `browser viewport` | Set minimum CSS viewport size. Width and height must be between 0 and 100000 CSS pixels and within the current pane's emulation range. `0 0` clears emulation. If the browser pane has not been laid out yet, the command returns `not_ready` and should be retried. Successful calls return `handled: true`; `changed` reports whether the stored viewport state or magnification changed. |
+| `browser viewport` | Set minimum CSS viewport size. Width and height must be integer CSS pixels between 0 and 100000 and within the current pane's emulation range. `0 0` clears emulation. If the browser pane has not been laid out yet, the command returns `not_ready` and should be retried. Successful calls return `handled: true`; `changed` reports whether the stored viewport state or magnification changed. |
 | `browser geolocation`, `browser geo` | Set geolocation. |
 | `browser offline` | Toggle offline state. |
 | `browser trace` | Start or stop trace capture. |
