@@ -117,8 +117,13 @@ private typealias SettingsShortcutStroke = CmuxSettings.ShortcutStroke
         #expect(ShortcutAction.focusLeft.defaultStroke == SettingsShortcutStroke(key: "[", command: true))
         #expect(ShortcutAction.focusRight.defaultStroke == SettingsShortcutStroke(key: "]", command: true))
 
-        #expect(KeyboardShortcutSettings.Action.focusLeft.hasPriorityShortcutRouting)
-        #expect(KeyboardShortcutSettings.Action.focusRight.hasPriorityShortcutRouting)
+        #expect(!KeyboardShortcutSettings.Action.focusLeft.hasPriorityShortcutRouting)
+        #expect(!KeyboardShortcutSettings.Action.focusRight.hasPriorityShortcutRouting)
+        #expect(KeyboardShortcutSettings.Action.focusLeft.hasShortcutConflictPriority(over: .focusHistoryBack))
+        #expect(KeyboardShortcutSettings.Action.focusLeft.hasShortcutConflictPriority(over: .browserBack))
+        #expect(KeyboardShortcutSettings.Action.focusRight.hasShortcutConflictPriority(over: .focusHistoryForward))
+        #expect(KeyboardShortcutSettings.Action.focusRight.hasShortcutConflictPriority(over: .browserForward))
+        #expect(!KeyboardShortcutSettings.Action.focusLeft.hasShortcutConflictPriority(over: .closeTab))
 
         var splitContext = ShortcutContext()
         splitContext.setInt(ShortcutContextKnownKey.paneCount.rawValue, 2)
@@ -139,17 +144,28 @@ private typealias SettingsShortcutStroke = CmuxSettings.ShortcutStroke
         #expect(
             !ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.Action.focusHistoryBack.shortcutContext.defaultWhenClause,
-                lhsHasPriority: KeyboardShortcutSettings.Action.focusHistoryBack.hasPriorityShortcutRouting,
+                lhsHasPriority: KeyboardShortcutSettings.Action.focusHistoryBack
+                    .hasShortcutConflictPriority(over: .focusLeft),
                 KeyboardShortcutSettings.Action.focusLeft.shortcutContext.defaultWhenClause,
-                rhsHasPriority: KeyboardShortcutSettings.Action.focusLeft.hasPriorityShortcutRouting
+                rhsHasPriority: KeyboardShortcutSettings.Action.focusLeft
+                    .hasShortcutConflictPriority(over: .focusHistoryBack)
             )
         )
         #expect(
             !ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.Action.browserBack.shortcutContext.defaultWhenClause,
-                lhsHasPriority: KeyboardShortcutSettings.Action.browserBack.hasPriorityShortcutRouting,
+                lhsHasPriority: KeyboardShortcutSettings.Action.browserBack
+                    .hasShortcutConflictPriority(over: .focusLeft),
                 KeyboardShortcutSettings.Action.focusLeft.shortcutContext.defaultWhenClause,
-                rhsHasPriority: KeyboardShortcutSettings.Action.focusLeft.hasPriorityShortcutRouting
+                rhsHasPriority: KeyboardShortcutSettings.Action.focusLeft
+                    .hasShortcutConflictPriority(over: .browserBack)
+            )
+        )
+        #expect(
+            KeyboardShortcutSettings.Action.closeTab.conflicts(
+                with: focusLeft,
+                proposedAction: .focusLeft,
+                configuredShortcut: focusLeft
             )
         )
     }

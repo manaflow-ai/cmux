@@ -646,9 +646,9 @@ enum KeyboardShortcutSettings {
             // with the sidebar's ⌃1…5 by priority.
             guard ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.effectiveWhenClause(for: self),
-                lhsHasPriority: hasPriorityShortcutRouting,
+                lhsHasPriority: hasShortcutConflictPriority(over: proposedAction),
                 KeyboardShortcutSettings.effectiveWhenClause(for: proposedAction),
-                rhsHasPriority: proposedAction.hasPriorityShortcutRouting
+                rhsHasPriority: proposedAction.hasShortcutConflictPriority(over: self)
             ) else {
                 return false
             }

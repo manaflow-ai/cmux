@@ -134,10 +134,24 @@ extension KeyboardShortcutSettings.Action {
 
     var hasPriorityShortcutRouting: Bool {
         switch self {
-        case .focusLeft, .focusRight:
-            return true
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func hasShortcutConflictPriority(over other: KeyboardShortcutSettings.Action) -> Bool {
+        if hasPriorityShortcutRouting {
+            return true
+        }
+
+        switch (self, other) {
+        case (.focusLeft, .focusHistoryBack),
+             (.focusLeft, .browserBack),
+             (.focusRight, .focusHistoryForward),
+             (.focusRight, .browserForward):
             return true
         default:
             return false

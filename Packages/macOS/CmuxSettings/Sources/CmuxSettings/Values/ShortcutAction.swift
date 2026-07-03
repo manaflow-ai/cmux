@@ -322,10 +322,28 @@ extension ShortcutAction {
     /// `handleCustomShortcut`; a drift test asserts the two stay aligned.
     public var hasPriorityShortcutRouting: Bool {
         switch self {
-        case .focusLeft, .focusRight:
-            return true
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Whether this action wins a shortcut conflict against `other` in runtime routing.
+    ///
+    /// Some priority is pair-specific: pane-focus shortcuts route before focus/browser
+    /// history, but not before every general shortcut action.
+    public func hasShortcutConflictPriority(over other: ShortcutAction) -> Bool {
+        if hasPriorityShortcutRouting {
+            return true
+        }
+
+        switch (self, other) {
+        case (.focusLeft, .focusHistoryBack),
+             (.focusLeft, .browserBack),
+             (.focusRight, .focusHistoryForward),
+             (.focusRight, .browserForward):
             return true
         default:
             return false
