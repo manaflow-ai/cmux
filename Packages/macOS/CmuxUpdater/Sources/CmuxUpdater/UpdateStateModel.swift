@@ -34,6 +34,9 @@ public final class UpdateStateModel {
     public private(set) var dismissedUpdateReadyToastVersion: String?
     /// Whether the user asked to defer the staged update's restart until the Mac is idle.
     public private(set) var isRestartWhenIdleArmed = false
+    /// The deadline until which the update-ready toast is muted (any version). Persisted so a
+    /// multi-day mute survives relaunches; the pill remains the ambient affordance meanwhile.
+    public private(set) var updateReadyToastMutedUntil: Date?
     #if DEBUG
     /// A debug override for the pill's title text.
     public var debugOverrideText: String?
@@ -43,8 +46,22 @@ public final class UpdateStateModel {
     @ObservationIgnored
     private var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
-    /// Creates an empty model in the ``UpdateState/idle`` state.
-    public init() {}
+    /// The `UserDefaults` key persisting ``updateReadyToastMutedUntil`` (epoch seconds).
+    public static let toastMuteDefaultsKey = "cmux.update.readyToastMutedUntil"
+    @ObservationIgnored
+    private let defaults: UserDefaults
+    /// Current-time source; injectable so mute-expiry behavior is testable.
+    @ObservationIgnored
+    var now: () -> Date = Date.init
+
+    /// Creates an empty model in the ``UpdateState/idle`` state, restoring any persisted
+    /// toast-mute deadline from `defaults`.
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let epoch = defaults.object(forKey: Self.toastMuteDefaultsKey) as? Double {
+            updateReadyToastMutedUntil = Date(timeIntervalSince1970: epoch)
+        }
+    }
 
     // MARK: - Change stream
 
@@ -181,10 +198,29 @@ public final class UpdateStateModel {
             return nil
         }
         guard !isRestartWhenIdleArmed else { return nil }
+        if let mutedUntil = updateReadyToastMutedUntil, now() < mutedUntil {
+            return nil
+        }
         guard dismissedUpdateReadyToastVersion != Self.toastVersionKey(for: installing) else {
             return nil
         }
         return installing
+    }
+
+    /// Mutes the update-ready toast (for any staged version) for `duration`, persisting the
+    /// deadline across relaunches. The pill keeps showing the staged install. An expired mute
+    /// re-surfaces the toast on the next update-state change or launch.
+    public func muteUpdateReadyToast(for duration: TimeInterval) {
+        let until = now().addingTimeInterval(duration)
+        updateReadyToastMutedUntil = until
+        defaults.set(until.timeIntervalSince1970, forKey: Self.toastMuteDefaultsKey)
+        notifyStateChanged()
+    }
+
+    /// Clears any toast mute (used by test scaffolding for deterministic launches).
+    public func clearUpdateReadyToastMute() {
+        updateReadyToastMutedUntil = nil
+        defaults.removeObject(forKey: Self.toastMuteDefaultsKey)
     }
 
     /// Hides the update-ready toast for the currently staged version. It re-shows only when a

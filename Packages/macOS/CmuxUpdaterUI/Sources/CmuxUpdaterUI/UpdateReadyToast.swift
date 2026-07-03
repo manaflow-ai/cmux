@@ -3,9 +3,8 @@ public import SwiftUI
 public import CmuxUpdater
 import AppKit
 
-/// Positions ``UpdateReadyToast`` in the window's bottom-trailing corner above the terminal
-/// content. The window root mounts this as its top layer; it renders nothing (and hit-tests
-/// nothing) while no toast is due or no actions host exists.
+/// Hosts ``UpdateReadyToast`` in the sidebar, directly above the footer. Renders nothing (and
+/// hit-tests nothing) while no toast is due or no actions host exists.
 public struct UpdateReadyToastOverlay: View {
     private let model: UpdateStateModel
     private let actions: (any UpdateActionsHost)?
@@ -19,18 +18,18 @@ public struct UpdateReadyToastOverlay: View {
     public var body: some View {
         if let actions {
             UpdateReadyToast(model: model, actions: actions)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding([.bottom, .trailing], 16)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 6)
         }
     }
 }
 
-/// A transient corner toast shown when an update has been downloaded and staged in the
+/// A transient toast shown in the sidebar when an update has been downloaded and staged in the
 /// background: one click on "Restart" finishes the install.
 ///
-/// Rendered by the window root as a bottom-corner overlay; visibility is derived entirely
-/// from ``UpdateStateModel/updateReadyToastInstalling`` (staged auto-update present, not
-/// dismissed for this version, restart-when-idle not armed).
+/// Visibility is derived entirely from ``UpdateStateModel/updateReadyToastInstalling``
+/// (staged auto-update present, not dismissed for this version, not muted, restart-when-idle
+/// not armed). Sized to fill the sidebar width, so the actions stack vertically.
 public struct UpdateReadyToast: View {
     private let model: UpdateStateModel
     private let actions: any UpdateActionsHost
@@ -41,6 +40,15 @@ public struct UpdateReadyToast: View {
         self.model = model
         self.actions = actions
     }
+
+    /// The mute choices offered by the bell menu.
+    private static let muteOptions: [(label: String, duration: TimeInterval)] = [
+        (String(localized: "update.toast.mute.oneHour", defaultValue: "For 1 Hour"), 60 * 60),
+        (String(localized: "update.toast.mute.eightHours", defaultValue: "For 8 Hours"), 8 * 60 * 60),
+        (String(localized: "update.toast.mute.oneDay", defaultValue: "For 1 Day"), 24 * 60 * 60),
+        (String(localized: "update.toast.mute.threeDays", defaultValue: "For 3 Days"), 3 * 24 * 60 * 60),
+        (String(localized: "update.toast.mute.oneWeek", defaultValue: "For 1 Week"), 7 * 24 * 60 * 60),
+    ]
 
     public var body: some View {
         ZStack {
@@ -54,17 +62,36 @@ public struct UpdateReadyToast: View {
 
     @ViewBuilder
     private func toastCard(_ installing: UpdateState.Installing) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
                 Image(systemName: "shippingbox.fill")
-                    .cmuxFont(size: 12)
+                    .cmuxFont(size: 11)
                     .foregroundStyle(.tint)
 
                 Text(title(for: installing))
                     .cmuxFont(size: 12, weight: .semibold)
                     .lineLimit(1)
+                    .truncationMode(.tail)
 
-                Spacer(minLength: 12)
+                Spacer(minLength: 6)
+
+                Menu {
+                    ForEach(Self.muteOptions, id: \.duration) { option in
+                        Button(option.label) {
+                            model.muteUpdateReadyToast(for: option.duration)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "bell.slash")
+                        .cmuxFont(size: 10)
+                        .foregroundColor(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .safeHelp(String(localized: "update.toast.mute", defaultValue: "Mute"))
+                .accessibilityLabel(String(localized: "update.toast.mute", defaultValue: "Mute"))
+                .accessibilityIdentifier("UpdateReadyToastMute")
 
                 Button {
                     model.dismissUpdateReadyToast()
@@ -85,43 +112,56 @@ public struct UpdateReadyToast: View {
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 8) {
-                if let notes = installing.releaseNotes {
-                    Button(String(localized: "update.toast.seeChanges", defaultValue: "See Changes")) {
-                        openURL(notes.url)
-                    }
-                    .controlSize(.small)
-                    .accessibilityIdentifier("UpdateReadyToastSeeChanges")
-                }
-
-                Spacer(minLength: 8)
-
-                Button(String(localized: "update.toast.restartWhenIdle", defaultValue: "Restart When Idle")) {
-                    actions.requestRestartWhenIdle()
-                }
-                .controlSize(.small)
-                .accessibilityIdentifier("UpdateReadyToastRestartWhenIdle")
-
-                Button(String(localized: "update.toast.restart", defaultValue: "Restart")) {
+            VStack(spacing: 6) {
+                Button {
                     installing.retryTerminatingApplication()
+                } label: {
+                    Text(String(localized: "update.toast.restart", defaultValue: "Restart"))
+                        .frame(maxWidth: .infinity)
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .accessibilityIdentifier("UpdateReadyToastRestart")
+
+                Button {
+                    actions.requestRestartWhenIdle()
+                } label: {
+                    Text(String(localized: "update.toast.restartWhenIdle", defaultValue: "Restart When Idle"))
+                        .frame(maxWidth: .infinity)
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("UpdateReadyToastRestartWhenIdle")
+            }
+
+            if let notes = installing.releaseNotes {
+                Button {
+                    openURL(notes.url)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(String(localized: "update.toast.seeChanges", defaultValue: "See Changes"))
+                            .cmuxFont(size: 10, weight: .medium)
+                        Image(systemName: "arrow.up.right")
+                            .cmuxFont(size: 8)
+                    }
+                    .foregroundColor(.secondary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("UpdateReadyToastSeeChanges")
             }
         }
-        .padding(14)
-        .frame(width: 340)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(.regularMaterial)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.25), radius: 14, y: 4)
+        .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("UpdateReadyToast")
     }

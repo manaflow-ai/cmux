@@ -23,6 +23,9 @@ public struct UpdateTestSupport {
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_MODE"] == "1" else { return }
 
+        // A persisted toast mute from a previous UI-test launch would hide the toast this run.
+        model.clearUpdateReadyToastMute()
+
         if let detectedVersion = env["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"],
            !detectedVersion.isEmpty {
             if let item = Self.makeAppcastItem(displayVersion: detectedVersion) {

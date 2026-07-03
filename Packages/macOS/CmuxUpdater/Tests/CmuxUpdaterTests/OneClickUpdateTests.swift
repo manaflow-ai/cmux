@@ -95,6 +95,42 @@ import Testing
         #expect(!model.isRestartWhenIdleArmed)
     }
 
+    @Test func muteHidesToastUntilDeadlineAcrossVersions() throws {
+        let model = UpdateStateModel(defaults: try makeScratchDefaults())
+        var currentTime = Date(timeIntervalSince1970: 1_000_000)
+        model.now = { currentTime }
+
+        model.setState(.installing(stagedInstalling(version: "1.2.3")))
+        model.muteUpdateReadyToast(for: 60 * 60)
+        #expect(model.updateReadyToastInstalling == nil)
+
+        // A newer staged version is still muted — mute is time-based, not per-version.
+        model.setState(.installing(stagedInstalling(version: "1.2.4")))
+        #expect(model.updateReadyToastInstalling == nil)
+
+        // Past the deadline the toast returns.
+        currentTime = currentTime.addingTimeInterval(60 * 60 + 1)
+        #expect(model.updateReadyToastInstalling?.stagedVersion == "1.2.4")
+    }
+
+    @Test func mutePersistsAcrossModelInstances() throws {
+        let defaults = try makeScratchDefaults()
+        let first = UpdateStateModel(defaults: defaults)
+        let base = Date(timeIntervalSince1970: 2_000_000)
+        first.now = { base }
+        first.muteUpdateReadyToast(for: 24 * 60 * 60)
+
+        // A relaunch constructs a fresh model over the same defaults: still muted.
+        let second = UpdateStateModel(defaults: defaults)
+        second.now = { base.addingTimeInterval(60) }
+        second.setState(.installing(stagedInstalling()))
+        #expect(second.updateReadyToastInstalling == nil)
+
+        second.clearUpdateReadyToastMute()
+        #expect(second.updateReadyToastInstalling != nil)
+        #expect(defaults.object(forKey: UpdateStateModel.toastMuteDefaultsKey) == nil)
+    }
+
     @Test func stagedInstallingPillTextOffersRestart() {
         let model = UpdateStateModel()
         model.setState(.installing(stagedInstalling()))
