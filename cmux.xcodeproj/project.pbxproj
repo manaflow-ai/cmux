@@ -524,7 +524,6 @@
 		C2E5F551B056C2D4FA57E1B3 /* FileExplorerError+LocalizedError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81286D3BD7CA3455EB38FAF3 /* FileExplorerError+LocalizedError.swift */; };
 		FE0A1102FE0A1102FE0A1102 /* FileExplorerExternalOpenMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0A1002FE0A1002FE0A1002 /* FileExplorerExternalOpenMenu.swift */; };
 		FE0A1101FE0A1101FE0A1101 /* FileExplorerFileOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0A1001FE0A1001FE0A1001 /* FileExplorerFileOpener.swift */; };
-		FE001105 /* FileExplorerKeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001005 /* FileExplorerKeyboardShortcuts.swift */; };
 		FE002101 /* FileExplorerRootResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002001 /* FileExplorerRootResolverTests.swift */; };
 		9F8A6669D6F54F0EA8E8BEB8 /* FileExplorerRootSyncPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */; };
 		FE001103 /* FileExplorerSearchController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001003 /* FileExplorerSearchController.swift */; };
@@ -1869,7 +1868,6 @@
 		81286D3BD7CA3455EB38FAF3 /* FileExplorerError+LocalizedError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerError+LocalizedError.swift"; sourceTree = "<group>"; };
 		FE0A1002FE0A1002FE0A1002 /* FileExplorerExternalOpenMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerExternalOpenMenu.swift; sourceTree = "<group>"; };
 		FE0A1001FE0A1001FE0A1001 /* FileExplorerFileOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerFileOpener.swift; sourceTree = "<group>"; };
-		FE001005 /* FileExplorerKeyboardShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerKeyboardShortcuts.swift; sourceTree = "<group>"; };
 		FE002001 /* FileExplorerRootResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootResolverTests.swift; sourceTree = "<group>"; };
 		120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootSyncPolicyTests.swift; sourceTree = "<group>"; };
 		FE001003 /* FileExplorerSearchController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerSearchController.swift; sourceTree = "<group>"; };
@@ -3012,7 +3010,6 @@
 				DCDC1000000000000000B018 /* DockSplitStore+TerminalStartup.swift */,
 				DCDC0000000000000000A002 /* DockSplitStore.swift */,
 				DCDC1000000000000000B00E /* DockSurfaceKind.swift */,
-				FE001005 /* FileExplorerKeyboardShortcuts.swift */,
 				A5001B01 /* GhosttyTerminalScrollBoost.swift */,
 				D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */,
 				FE001006 /* GitStatusProvider.swift */,
@@ -4896,7 +4893,6 @@
 				C2E5F551B056C2D4FA57E1B3 /* FileExplorerError+LocalizedError.swift in Sources */,
 				FE0A1102FE0A1102FE0A1102 /* FileExplorerExternalOpenMenu.swift in Sources */,
 				FE0A1101FE0A1101FE0A1101 /* FileExplorerFileOpener.swift in Sources */,
-				FE001105 /* FileExplorerKeyboardShortcuts.swift in Sources */,
 				FE001103 /* FileExplorerSearchController.swift in Sources */,
 				B37A00000000000000000009 /* FileExplorerState.swift in Sources */,
 				FE001101 /* FileExplorerStore.swift in Sources */,
