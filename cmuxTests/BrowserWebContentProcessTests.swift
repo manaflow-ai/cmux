@@ -331,6 +331,45 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func recoverableTerminationArmsRecoveryBeforeMediaTeardownCanDiscard() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL
+        )
+        defer { panel.close() }
+        let oldWebView = panel.webView
+        let oldInstanceID = panel.webViewInstanceID
+        panel.webView.stopLoading()
+        panel.applyMediaPlaybackReport(frameID: "main", isPlaying: true, isAudible: true)
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: Date(timeIntervalSince1970: 0))
+        #expect(panel.isPlayingMedia)
+
+        simulateWebContentProcessTermination(for: panel)
+
+        #expect(panel.webView === oldWebView)
+        #expect(panel.webViewInstanceID == oldInstanceID)
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.isPlayingMedia)
+    }
+
+    @Test
+    func recoverableTerminationClearsReactGrabState() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL
+        )
+        defer { panel.close() }
+        panel.isReactGrabActive = true
+        panel.armReactGrabRoundTrip(returnTo: UUID())
+
+        simulateWebContentProcessTermination(for: panel)
+
+        #expect(!panel.isReactGrabActive)
+        #expect(panel.pendingReactGrabReturnTargetPanelId == nil)
+        #expect(panel.pendingReactGrabRoundTripToken == nil)
+    }
+
+    @Test
     func visibleRecoverableTerminatedWebViewDoesNotMemoryDiscard() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
