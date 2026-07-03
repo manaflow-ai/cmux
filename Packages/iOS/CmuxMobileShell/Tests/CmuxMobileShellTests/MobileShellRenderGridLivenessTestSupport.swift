@@ -379,8 +379,11 @@ actor LivenessHostRouter {
                 if let sequence = payload.sequence {
                     result["seq"] = sequence
                 }
-                if let renderGrid = payload.renderGrid,
-                   let renderGridObject = try? renderGrid.jsonObject() {
+                if let renderGrid = payload.renderGrid {
+                    guard let renderGridObject = try? renderGrid.jsonObject() else {
+                        Issue.record("enqueued replay render-grid frame failed to serialize")
+                        return try? Self.resultFrame(id: id, result: [:])
+                    }
                     result["render_grid"] = renderGridObject
                     result["columns"] = renderGrid.columns
                     result["rows"] = renderGrid.rows

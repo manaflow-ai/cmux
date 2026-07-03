@@ -4239,6 +4239,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
         reportedViewportSizesByTerminalKey[key] = viewportSize
+        reportedTerminalViewportGridsBySurfaceID[terminalID.rawValue] = (
+            columns: viewportSize.columns,
+            rows: viewportSize.rows
+        )
     }
 
     /// Open the workspace preview, switching the foreground Mac first when the workspace belongs to another paired Mac.

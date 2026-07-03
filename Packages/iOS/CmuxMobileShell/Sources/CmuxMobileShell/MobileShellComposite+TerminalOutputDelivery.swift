@@ -50,6 +50,22 @@ extension MobileShellComposite {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
+        // A producer grid larger than this phone's reported viewport can never
+        // replay faithfully (issue #7202): rows beyond the local grid clamp
+        // onto the bottom row and over-wide rows wrap, splicing adjacent rows.
+        // Hold the surface's output and drive the Mac back to a capped grid
+        // instead of painting the divergence. The grid dimensions are a valid
+        // divergence signal even on a stale frame or hybrid advisory event.
+        guard renderGridFrameFitsReportedViewport(renderGrid, surfaceID: renderGrid.surfaceID) else {
+            holdTerminalOutputForOversizedGrid(
+                columns: renderGrid.columns,
+                rows: renderGrid.rows,
+                surfaceID: renderGrid.surfaceID,
+                source: source
+            )
+            return
+        }
+        noteFittingRenderGridFrame(surfaceID: renderGrid.surfaceID)
         // The stale floor is the delivered high-water mark, surviving a replay
         // barrier via the pre-barrier stash: a buffered frame from before the
         // barrier must not paint (and must not establish an outdated baseline)

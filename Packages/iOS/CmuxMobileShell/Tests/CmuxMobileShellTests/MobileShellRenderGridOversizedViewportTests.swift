@@ -100,6 +100,12 @@ private func unsequencedTerminalBytesEventFrame(
 
     // The phone's natural grid, as the surface view reports it on didResize.
     _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    let viewportReplayCount = await router.count(of: "mobile.terminal.replay")
+    try await waitForReplayResponsesServed(
+        viewportReplayCount,
+        router: router,
+        "the setup viewport replay must settle before injecting the oversized frame"
+    )
     let viewportReportBaseline = await router.count(of: "mobile.terminal.viewport")
     let replayBaseline = await router.count(of: "mobile.terminal.replay")
 
@@ -174,6 +180,10 @@ private func unsequencedTerminalBytesEventFrame(
         convergedDelivered,
         "the recovery replay must repaint the mirror once the Mac grid fits the phone's viewport again"
     )
+    #expect(
+        collector.lines.contains { $0.contains("SPLICE-BYTES") } == false,
+        "bytes held during divergence must not be released when the mirror reconverges"
+    )
 
     // Live output resumes after convergence.
     await transport.deliver(try unsequencedTerminalBytesEventFrame(
@@ -213,6 +223,12 @@ private func unsequencedTerminalBytesEventFrame(
     #expect(probeDelivered, "raw bytes must flow before the oversized frame arrives")
 
     _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    let viewportReplayCount = await router.count(of: "mobile.terminal.replay")
+    try await waitForReplayResponsesServed(
+        viewportReplayCount,
+        router: router,
+        "the setup viewport replay must settle before parking the recovery replay"
+    )
     let replayBaseline = await router.count(of: "mobile.terminal.replay")
 
     // The Mac has not re-applied the cap when the recovery replay resolves:
@@ -771,7 +787,14 @@ private func unsequencedTerminalBytesEventFrame(
     // The report is still recorded locally (and attempted), but the fixture
     // host answers without an effective grid, so viewport support stays
     // unconfirmed.
+    await router.emptyNextViewportResponses(count: 1)
     _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    let viewportReplayCount = await router.count(of: "mobile.terminal.replay")
+    try await waitForReplayResponsesServed(
+        viewportReplayCount,
+        router: router,
+        "the legacy setup replay count must settle before checking recovery requests"
+    )
     let replayBaseline = await router.count(of: "mobile.terminal.replay")
 
     await transport.deliver(try renderGridEventFrame(
@@ -903,6 +926,10 @@ private func unsequencedTerminalBytesEventFrame(
     #expect(
         collector.lines.contains { $0.contains("FALLBACK-SPLICE") } == false,
         "diverged fallback responses must never paint"
+    )
+    #expect(
+        collector.lines.contains { $0.contains("fits-early") } == false,
+        "a fitting frame observed mid-recovery must not paint ahead of the eventual convergence"
     )
     collector.unmount()
 }
@@ -1080,6 +1107,32 @@ private func unsequencedTerminalBytesEventFrame(
     // The first client confirms viewport support via a successful round-trip.
     let echoed = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
     #expect(echoed != nil, "the fixture host must echo an effective grid to confirm support")
+    let viewportReplayCount = await router.count(of: "mobile.terminal.replay")
+    try await waitForReplayResponsesServed(
+        viewportReplayCount,
+        router: router,
+        "the setup viewport replay must settle before proving the pre-swap guard"
+    )
+
+    // Prove the confirmation actually armed the guard on the original client
+    // before swapping, so the later leak check is not inferred from the RPC
+    // return value alone.
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 20,
+        columns: 90,
+        rows: 40,
+        text: "PRE-SWAP-OVERSIZED",
+        full: false
+    ))
+    _ = try await pollUntil(attempts: 30) {
+        collector.lines.contains { $0.contains("PRE-SWAP-OVERSIZED") }
+    }
+    #expect(
+        collector.lines.contains { $0.contains("PRE-SWAP-OVERSIZED") } == false,
+        "the confirmed guard must withhold oversized output before the client swap"
+    )
 
     // A connection swap (e.g. promoting another Mac's client to foreground)
     // replaces the remote client. The old client's empirical confirmation
@@ -1205,6 +1258,12 @@ private func unsequencedTerminalBytesEventFrame(
     #expect(probeDelivered, "raw bytes must flow after mount")
 
     _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 40, rows: 12)
+    let viewportReplayCount = await router.count(of: "mobile.terminal.replay")
+    try await waitForReplayResponsesServed(
+        viewportReplayCount,
+        router: router,
+        "the setup viewport replay must settle before injecting the fitting frame"
+    )
     let viewportReportBaseline = await router.count(of: "mobile.terminal.viewport")
 
     // A producer grid within the phone's viewport (the letterboxed multi-pane

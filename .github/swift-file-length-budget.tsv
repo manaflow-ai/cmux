@@ -12,7 +12,7 @@
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8032	Sources/Panels/BrowserPanelView.swift
 8016	CLI/cmux_open.swift
-7788	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+7792	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7405	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
@@ -71,13 +71,13 @@
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1317	Sources/FileExplorerStore.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift
+1293	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridOversizedViewportTests.swift
 1291	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1290	cmuxTests/TextBoxSubmitActionTests.swift
 1287	cmuxTests/RestorableAgentSessionIndexTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1258	Sources/Feed/FeedCoordinator.swift
 1240	cmuxTests/SidebarOrderingTests.swift
-1234	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridOversizedViewportTests.swift
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1205	Sources/RemoteTmuxController.swift
 1204	cmuxTests/FileExplorerStoreTests.swift
@@ -154,8 +154,8 @@
 683	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 683	Sources/Panels/CodexAppServerSession.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
+680	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTestSupport.swift
 680	Sources/FileExplorerSearchController.swift
-677	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTestSupport.swift
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
 672	cmuxTests/SessionPersistenceResumeBindingTests.swift
 668	cmuxTests/FeedCoordinatorTests.swift
