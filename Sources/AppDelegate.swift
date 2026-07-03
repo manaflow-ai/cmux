@@ -2367,8 +2367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
-        let terminalControl = terminalControl
-        agentChatTranscriptService.start { terminalControl.adoptDetectedAgentSessions(workspaceID: $0) }
+        agentChatTranscriptService.start()
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded(notificationStore: notificationStore)

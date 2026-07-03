@@ -52,11 +52,11 @@ final class MobileChatRPCHandler {
         case "mobile.chat.history":
             return await history(params: params)
         case "mobile.chat.send":
-            return send(params: params)
+            return await send(params: params)
         case "mobile.chat.interrupt":
-            return interrupt(params: params)
+            return await interrupt(params: params)
         case "mobile.chat.answer":
-            return answer(params: params)
+            return await answer(params: params)
         default:
             return .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": method
@@ -110,38 +110,13 @@ final class MobileChatRPCHandler {
         adoptDetectedAgentSessions(workspace: resolved.workspace)
     }
 
-    /// Workspace-typed core of ``adoptDetectedAgentSessions(workspaceID:)``, for
-    /// callers that already hold the `Workspace` (the workspace-list RPC
-    /// enumerates every workspace and adopts inline, so the toggle is known
-    /// before the user enters the workspace — no per-open resolution and no
-    /// pop-in). Each `adoptDetectedClaudeSession` short-circuits in memory once
-    /// the surface has a session, so a repeat scan of an already-adopted
-    /// workspace touches no filesystem.
-    func adoptDetectedAgentSessions(workspace: Workspace) {
-        let workspaceID = workspace.id.uuidString
-        guard let service = host.mobileChatTranscriptService else { return }
-        for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
-            let context = workspace.terminalAgentContext(panel: panel)
-            let title = workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle
-            let normalizedTitle = title.lowercased()
-            // Claude is the case the wrapper-launched workflow hits; detect by
-            // launch metadata (hook PID key / initial command) or the live
-            // terminal title claude sets ("✳ Claude Code", then "✳ <ai-title>").
-            let isClaude = TextBoxAgentDetection.isClaudeCode(context: context)
-                || normalizedTitle.contains("claude")
-                || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
-            guard isClaude else { continue }
-            let cwd = workspace.panelDirectories[panel.id]
-                ?? (panel.directory.isEmpty ? nil : panel.directory)
-                ?? (workspace.currentDirectory.isEmpty ? nil : workspace.currentDirectory)
-            guard let cwd, !cwd.isEmpty else { continue }
-            service.adoptDetectedClaudeSession(
-                workspaceID: workspaceID,
-                surfaceID: panel.id.uuidString,
-                workingDirectory: cwd,
-                titleHint: title
-            )
-        }
+    /// Workspace-typed core of ``adoptDetectedAgentSessions(workspaceID:)``, kept
+    /// for callers that already hold the `Workspace` (the workspace-list RPC
+    /// enumerates every workspace and previously adopted inline). Now a no-op:
+    /// the agent-session SoT (PR 6631) discovers sessions from hook events, so
+    /// there is no title/filesystem-based adoption to perform here.
+    func adoptDetectedAgentSessions(workspace _: Workspace) {
+        // Agent-session SoT (PR 6631) tracks sessions via hook events only; title/filesystem-based adoption was removed. Kept as a no-op so existing mobile call sites compile; hook-based registration in AgentChatTranscriptService now owns session discovery.
     }
 
     /// `mobile.chat.history`: one transcript page for a session.
@@ -164,7 +139,7 @@ final class MobileChatRPCHandler {
             #if DEBUG
             cmuxDebugLog("mobile.chat.history transcript unresolved session=\(sessionID.prefix(8)); refreshing bindings")
             #endif
-            let refreshed = service.refreshSessionBindings(sessionID: sessionID)
+            let refreshed = await service.refreshSessionBindings(sessionID: sessionID)
             if refreshed?.transcriptPath != staleRecord.transcriptPath
                 || refreshed?.workingDirectory != staleRecord.workingDirectory {
                 page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
@@ -189,7 +164,7 @@ final class MobileChatRPCHandler {
 
     /// `mobile.chat.send`: deliver attachments then inject the prompt into the
     /// session's terminal (bracketed paste + submit key).
-    func send(params: [String: Any]) -> TerminalController.V2CallResult {
+    func send(params: [String: Any]) async -> TerminalController.V2CallResult {
         guard let sessionID = host.mobileChatRawStringParam(params, "session_id") else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
@@ -198,12 +173,12 @@ final class MobileChatRPCHandler {
         guard !text.isEmpty || !attachments.isEmpty else {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
         }
-        guard let terminalParams = terminalParams(sessionID: sessionID) else {
+        guard let terminalParams = await terminalParams(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.terminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
-        guard let terminalPanel = terminalPanel(sessionID: sessionID) else {
+        guard let terminalPanel = await terminalPanel(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.terminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
@@ -269,12 +244,12 @@ final class MobileChatRPCHandler {
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of the
     /// session's agent.
-    func interrupt(params: [String: Any]) -> TerminalController.V2CallResult {
+    func interrupt(params: [String: Any]) async -> TerminalController.V2CallResult {
         guard let sessionID = host.mobileChatRawStringParam(params, "session_id") else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
         let hard = (params["hard"] as? Bool) ?? false
-        guard let terminalPanel = terminalPanel(sessionID: sessionID) else {
+        guard let terminalPanel = await terminalPanel(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.terminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
@@ -292,12 +267,12 @@ final class MobileChatRPCHandler {
 
     /// `mobile.chat.answer`: answer an in-terminal choice by display index
     /// (agent TUIs accept the option's number key).
-    func answer(params: [String: Any]) -> TerminalController.V2CallResult {
+    func answer(params: [String: Any]) async -> TerminalController.V2CallResult {
         guard let sessionID = host.mobileChatRawStringParam(params, "session_id"),
               let optionIndex = host.mobileChatIntParam(params, "option_index"), optionIndex >= 0, optionIndex < 9 else {
             return .err(code: "invalid_params", message: "Missing session_id or option_index", data: nil)
         }
-        guard let terminalPanel = terminalPanel(sessionID: sessionID) else {
+        guard let terminalPanel = await terminalPanel(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.terminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
@@ -325,7 +300,7 @@ final class MobileChatRPCHandler {
     /// (every hook event rewrites it with the current panel) and retried. If it
     /// still doesn't resolve we fail with an actionable error rather than
     /// redirect the prompt to some other terminal.
-    private func terminalParams(sessionID: String) -> [String: Any]? {
+    private func terminalParams(sessionID: String) async -> [String: Any]? {
         guard let service = host.mobileChatTranscriptService else { return nil }
         guard let record = service.sessionRecord(sessionID: sessionID),
               let workspaceID = record.workspaceID else {
@@ -339,7 +314,7 @@ final class MobileChatRPCHandler {
         #if DEBUG
         cmuxDebugLog("mobile.chat binding stale session=\(sessionID.prefix(8)) surface=\(record.surfaceID?.prefix(8) ?? "nil"); refreshing from hook store")
         #endif
-        if let refreshed = service.refreshSessionBindings(sessionID: sessionID),
+        if let refreshed = await service.refreshSessionBindings(sessionID: sessionID),
            let surfaceID = refreshed.surfaceID,
            bindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
            bindingIsCurrentAgent(refreshed) {
@@ -396,8 +371,8 @@ final class MobileChatRPCHandler {
         }
     }
 
-    private func terminalPanel(sessionID: String) -> TerminalPanel? {
-        guard let terminalParams = terminalParams(sessionID: sessionID),
+    private func terminalPanel(sessionID: String) async -> TerminalPanel? {
+        guard let terminalParams = await terminalParams(sessionID: sessionID),
               let resolved = host.mobileChatResolveWorkspaceAndSurface(params: terminalParams, requireTerminal: true),
               let surfaceId = resolved.surfaceId else {
             #if DEBUG
