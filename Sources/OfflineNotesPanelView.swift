@@ -176,36 +176,3 @@ struct OfflineNotesPanelView: View {
         .disabled(disabled)
     }
 }
-
-private extension OfflineNoteStatus {
-    var displayLabel: String {
-        switch self {
-        case .pending:
-            return String(localized: "offlineNotes.badge.pending", defaultValue: "Pending")
-        case .sending:
-            return String(localized: "offlineNotes.badge.sending", defaultValue: "Sending")
-        case .sent:
-            return String(localized: "offlineNotes.badge.sent", defaultValue: "Sent")
-        case .failed:
-            return String(localized: "offlineNotes.badge.failed", defaultValue: "Failed")
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .pending: return "clock"
-        case .sending: return "paperplane"
-        case .sent: return "checkmark.circle.fill"
-        case .failed: return "exclamationmark.triangle.fill"
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .pending: return .secondary
-        case .sending: return .blue
-        case .sent: return .green
-        case .failed: return .red
-        }
-    }
-}
