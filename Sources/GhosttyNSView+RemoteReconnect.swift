@@ -4,7 +4,7 @@ extension GhosttyNSView {
     func appendReconnectRemotePaneMenuItem(to menu: NSMenu) {
         guard let workspace = remoteWorkspaceForCurrentSurface(),
               canReconnectRemotePane(in: workspace),
-              terminalSurface?.id != nil else { return }
+              remoteReconnectPlaceholderPanel(in: workspace) != nil else { return }
         menu.addItem(.separator())
         let item = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.reconnectPane", defaultValue: "Reconnect Pane"),
@@ -35,10 +35,17 @@ extension GhosttyNSView {
         }
     }
 
+    private func remoteReconnectPlaceholderPanel(in workspace: Workspace) -> TerminalPanel? {
+        guard let surfaceId = terminalSurface?.id,
+              workspace.remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
+              let panel = workspace.panels[surfaceId] as? TerminalPanel else { return nil }
+        return panel
+    }
+
     @objc private func reconnectRemotePane(_ sender: Any?) {
         guard let workspace = remoteWorkspaceForCurrentSurface(),
               canReconnectRemotePane(in: workspace),
-              let surfaceId = terminalSurface?.id else { return }
-        workspace.reconnectRemoteConnection(surfaceId: surfaceId)
+              let panel = remoteReconnectPlaceholderPanel(in: workspace) else { return }
+        panel.sendInput("\r")
     }
 }
