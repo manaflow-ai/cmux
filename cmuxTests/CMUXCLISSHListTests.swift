@@ -50,24 +50,61 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment: scrubbedSSHListEnvironment(),
             timeout: 10
         )
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
 
         let object = try parseSSHListJSON(result.stdout)
-        let hosts = try XCTUnwrap(object["hosts"] as? [[String: Any]])
+        let hosts = try #require(object["hosts"] as? [[String: Any]], Comment(rawValue: result.stdout))
         let aliases = hosts.compactMap { $0["alias"] as? String }
-        XCTAssertTrue(aliases.contains("top"), result.stdout)
-        XCTAssertTrue(aliases.contains("alpha"), result.stdout)
-        XCTAssertTrue(aliases.contains("beta"), result.stdout)
+        #expect(aliases.contains("top"), Comment(rawValue: result.stdout))
+        #expect(aliases.contains("alpha"), Comment(rawValue: result.stdout))
+        #expect(aliases.contains("beta"), Comment(rawValue: result.stdout))
 
-        let alpha = try XCTUnwrap(hosts.first { ($0["alias"] as? String) == "alpha" })
-        XCTAssertEqual(alpha["hostName"] as? String, "alpha.example.com")
-        XCTAssertEqual(alpha["localForwards"] as? [String], ["8080 localhost:80"])
-        XCTAssertEqual(alpha["dynamicForwards"] as? [String], ["1080"])
+        let alpha = try #require(hosts.first { ($0["alias"] as? String) == "alpha" })
+        #expect(alpha["hostName"] as? String == "alpha.example.com")
+        #expect(alpha["localForwards"] as? [String] == ["8080 localhost:80"])
+        #expect(alpha["dynamicForwards"] as? [String] == ["1080"])
 
-        let top = try XCTUnwrap(hosts.first { ($0["alias"] as? String) == "top" })
-        XCTAssertEqual(top["user"] as? String, "alice")
-        XCTAssertEqual(top["port"] as? Int, 2222)
+        let top = try #require(hosts.first { ($0["alias"] as? String) == "top" })
+        #expect(top["user"] as? String == "alice")
+        #expect(top["port"] as? Int == 2222)
+    }
+
+    /// `Include dir/*` follows OpenSSH/glob behavior and does not match
+    /// dotfiles unless the pattern explicitly names the leading dot.
+    @Test func testSSHListIncludeGlobDoesNotReadDotfiles() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-list-dotfiles-\(UUID().uuidString)", isDirectory: true)
+        let includes = root.appendingPathComponent("includes", isDirectory: true)
+        try FileManager.default.createDirectory(at: includes, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configPath = root.appendingPathComponent("config")
+        try "Include \(includes.path)/*\n".write(to: configPath, atomically: true, encoding: .utf8)
+        try """
+        Host visible
+            HostName visible.example.com
+        """.write(to: includes.appendingPathComponent("visible"), atomically: true, encoding: .utf8)
+        try """
+        Host hidden
+            HostName hidden.example.com
+        """.write(to: includes.appendingPathComponent(".hidden"), atomically: true, encoding: .utf8)
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ssh", "list", "--config", configPath.path, "--json"],
+            environment: scrubbedSSHListEnvironment(),
+            timeout: 10
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+
+        let object = try parseSSHListJSON(result.stdout)
+        let hosts = try #require(object["hosts"] as? [[String: Any]], Comment(rawValue: result.stdout))
+        let aliases = hosts.compactMap { $0["alias"] as? String }
+        #expect(aliases.contains("visible"), Comment(rawValue: result.stdout))
+        #expect(!aliases.contains("hidden"), Comment(rawValue: result.stdout))
     }
 
     /// An explicit `--config` path that cannot be read is an error, not a
@@ -84,9 +121,9 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment: scrubbedSSHListEnvironment(),
             timeout: 10
         )
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stdout.contains("--config"), result.stdout)
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(result.stdout.contains("--config"), Comment(rawValue: result.stdout))
     }
 
     /// `cmux ssh list --config` with no value must fail rather than silently
@@ -99,8 +136,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment: scrubbedSSHListEnvironment(),
             timeout: 10
         )
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertNotEqual(result.status, 0, result.stdout)
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
     }
 
     /// A non-regular top-level config (e.g. a FIFO) must error quickly, not
@@ -112,7 +149,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let fifoPath = dir.appendingPathComponent("config").path
-        XCTAssertEqual(mkfifo(fifoPath, 0o600), 0, "mkfifo failed")
+        #expect(mkfifo(fifoPath, 0o600) == 0, "mkfifo failed")
 
         let result = runProcess(
             executablePath: cliPath,
@@ -120,8 +157,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment: scrubbedSSHListEnvironment(),
             timeout: 8
         )
-        XCTAssertFalse(result.timedOut, "ssh list hung on a FIFO config: \(result.stdout)")
-        XCTAssertNotEqual(result.status, 0, result.stdout)
+        #expect(!result.timedOut, Comment(rawValue: "ssh list hung on a FIFO config: \(result.stdout)"))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
     }
 
     /// An unknown or misspelled flag is rejected, not silently ignored.
@@ -133,9 +170,9 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment: scrubbedSSHListEnvironment(),
             timeout: 10
         )
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stdout.contains("--bogus"), result.stdout)
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(result.stdout.contains("--bogus"), Comment(rawValue: result.stdout))
     }
 
     private func scrubbedSSHListEnvironment() -> [String: String] {
@@ -154,8 +191,8 @@ extension CMUXCLIErrorOutputRegressionTests {
         guard let start = output.firstIndex(of: "{"), let end = output.lastIndex(of: "}"), start <= end else {
             throw SSHListJSONError.notFound(output)
         }
-        let data = try XCTUnwrap(String(output[start...end]).data(using: .utf8))
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let data = try #require(String(output[start...end]).data(using: .utf8))
+        return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
     private enum SSHListJSONError: Error {
