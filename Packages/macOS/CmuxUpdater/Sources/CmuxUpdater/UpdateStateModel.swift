@@ -391,7 +391,11 @@ public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
         case .diskImageTranslocation: return "Disk Image / Translocated (1003)"
         case .signatureError: return "Signature Error (3001)"
         case .noInternet: return "No Internet"
-        case .installDidNotStart: return "Install Didn’t Start (watchdog)"
+        case .installDidNotStart:
+            return String(
+                localized: "update.debug.error.installDidNotStart",
+                defaultValue: "Install Didn’t Start (watchdog)"
+            )
         }
     }
 

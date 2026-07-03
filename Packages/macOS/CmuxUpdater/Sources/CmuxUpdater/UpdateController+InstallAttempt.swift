@@ -72,7 +72,7 @@ extension UpdateController {
             // prompt vanished in the meantime (e.g. the user dismissed it mid-drain), the
             // attempt is over — disarm the watchdog so the leftover deadline can't fire a
             // spurious "Update Didn't Start" over whatever the user does next.
-            if case .updateAvailable = model.state {
+            if case .updateAvailable(let available) = model.state, !available.reply.isConsumed {
                 log.append("attemptUpdate installing freshly resolved update")
                 model.state.confirm()
             } else {

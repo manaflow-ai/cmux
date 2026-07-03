@@ -238,6 +238,35 @@ import Testing
         #expect(harness.model.state.isIdle)
     }
 
+    /// If the live prompt is still visible but already answered before the queued confirm
+    /// hand-off runs, the controller must not log a fake install attempt or leave the watchdog
+    /// armed for a prompt Sparkle will never accept again.
+    @Test func answeredPromptSkipsHandOffAndDisarms() async {
+        let harness = Harness()
+        let stalePrompt = ChoiceBox()
+
+        harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
+        harness.controller.attemptUpdate()
+        await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
+
+        harness.model.setState(.idle)
+        harness.model.setState(.checking(.init(cancel: {})))
+        let freshPrompt = ChoiceBox()
+        harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
+        if case .updateAvailable(let available) = harness.model.state {
+            available.reply(.skip)
+        }
+
+        await waitUntil("watchdog to disarm") { !harness.controller.installWatchdog.isArmed }
+        #expect(freshPrompt.choice == .skip)
+        await harness.clock.fireDeadlines()
+        guard case .updateAvailable(let available) = harness.model.state else {
+            Issue.record("answered prompt should stay visible until Sparkle dismisses it")
+            return
+        }
+        #expect(available.reply.isConsumed)
+    }
+
     /// The user cancelling the attempt's fresh check ends the attempt: the watchdog disarms, so
     /// releasing its deadline later must NOT surface a spurious "Update Didn't Start" error over
     /// whatever the user does next.
