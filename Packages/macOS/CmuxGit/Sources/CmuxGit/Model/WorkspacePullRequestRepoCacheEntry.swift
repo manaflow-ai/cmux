@@ -12,15 +12,23 @@ public struct WorkspacePullRequestRepoCacheEntry: Sendable {
     /// Branches positively known to have no pull request (so a cached entry
     /// doesn't re-trigger per-branch lookups for them).
     public let knownAbsentBranches: Set<String>
+    /// Whether this cache entry already includes token-gated CI rollup data.
+    public let includesCIStatus: Bool
+    /// CI rollups keyed by PR number, reused for targeted branch lookups inside the same cache window.
+    public let ciStatusByPullRequestNumber: [Int: PullRequestCIStatus]
 
     /// Creates a cache entry.
     public init(
         fetchedAt: Date,
         pullRequestsByBranch: [String: GitHubPullRequestProbeItem],
-        knownAbsentBranches: Set<String> = []
+        knownAbsentBranches: Set<String> = [],
+        includesCIStatus: Bool = false,
+        ciStatusByPullRequestNumber: [Int: PullRequestCIStatus] = [:]
     ) {
         self.fetchedAt = fetchedAt
         self.pullRequestsByBranch = pullRequestsByBranch
         self.knownAbsentBranches = knownAbsentBranches
+        self.includesCIStatus = includesCIStatus
+        self.ciStatusByPullRequestNumber = ciStatusByPullRequestNumber
     }
 }

@@ -6,6 +6,7 @@ typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
 enum SidebarWorkspaceDetailDefaults {
     static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
     static let showPullRequestsKey = "sidebarShowPullRequest"
+    static let showPullRequestCIStatusKey = "sidebarShowPullRequestCIStatus"
     static let watchGitStatusKey = "sidebarWatchGitStatus"
     static let showSSHKey = "sidebarShowSSH"
     static let showPortsKey = "sidebarShowPorts"
@@ -15,6 +16,7 @@ enum SidebarWorkspaceDetailDefaults {
 
     static let showBranchDirectory = true
     static let showPullRequests = true
+    static let showPullRequestCIStatus = false
     static let watchGitStatus = true
     static let showSSH = true
     static let showPorts = true
@@ -46,6 +48,10 @@ extension SidebarWorkspaceDetailDefaults {
 
     static func showPullRequestsValue(defaults: UserDefaults) -> Bool {
         boolValue(defaults: defaults, key: showPullRequestsKey, defaultValue: showPullRequests)
+    }
+
+    static func showPullRequestCIStatusValue(defaults: UserDefaults) -> Bool {
+        boolValue(defaults: defaults, key: showPullRequestCIStatusKey, defaultValue: showPullRequestCIStatus)
     }
 
     static func watchGitStatusValue(defaults: UserDefaults) -> Bool {
@@ -230,6 +236,10 @@ enum SidebarSettingsFileMapping {
             defaultsKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey
         ),
         .init(
+            jsonKey: "showPullRequestCIStatus",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showPullRequestCIStatusKey
+        ),
+        .init(
             jsonKey: "watchGitStatus",
             defaultsKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey
         ),
@@ -403,6 +413,7 @@ extension CmuxSettingsFileStore {
         "sidebar.showNotificationMessage",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",
+        "sidebar.showPullRequestCIStatus",
         "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",
         "sidebar.openPullRequestLinksInCmuxBrowser",

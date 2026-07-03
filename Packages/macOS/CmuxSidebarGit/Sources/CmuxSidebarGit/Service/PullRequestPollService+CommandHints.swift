@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxGit
+import CmuxGit
 
 // MARK: - Settings toggles, command-hint reconciliation, and test seams.
 
@@ -8,10 +8,17 @@ extension PullRequestPollService {
 
     public func sidebarPullRequestPollingSettingsDidChange() {
         let isEnabled = sidebarPullRequestPollingEnabled
-        guard isEnabled != lastSidebarPullRequestPollingEnabled else {
+        let isCIStatusEnabled = sidebarPullRequestCIStatusEnabled
+        let pollingChanged = isEnabled != lastSidebarPullRequestPollingEnabled
+        let ciStatusChanged = isCIStatusEnabled != lastSidebarPullRequestCIStatusEnabled
+        guard pollingChanged || ciStatusChanged else {
             return
         }
         lastSidebarPullRequestPollingEnabled = isEnabled
+        lastSidebarPullRequestCIStatusEnabled = isCIStatusEnabled
+        if ciStatusChanged {
+            workspacePullRequestRepoCacheBySlug.removeAll()
+        }
 
         guard isEnabled else {
             resetWorkspacePullRequestRefreshState()
@@ -19,7 +26,10 @@ extension PullRequestPollService {
             return
         }
 
-        refreshTrackedWorkspacePullRequestsIfNeeded(reason: "pullRequestVisibilityEnabled")
+        refreshTrackedWorkspacePullRequestsIfNeeded(
+            reason: pollingChanged ? "pullRequestVisibilityEnabled" : "pullRequestCIStatusVisibilityChanged",
+            allowCachedResultsOverride: ciStatusChanged ? false : nil
+        )
     }
 
     // MARK: Command hints
@@ -89,7 +99,8 @@ extension PullRequestPollService {
                 url: currentPullRequest.url,
                 status: nextStatus,
                 branch: currentPullRequest.branch,
-                isStale: false
+                isStale: false,
+                ciStatus: nextStatus == .open ? currentPullRequest.ciStatus : .neutral
             )
         )
     }

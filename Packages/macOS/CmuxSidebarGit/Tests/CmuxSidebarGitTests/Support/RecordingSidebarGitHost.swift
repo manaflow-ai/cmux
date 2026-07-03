@@ -32,6 +32,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     var workspaces: [(id: UUID, state: WorkspaceState)] = []
     var watchEnabled = true
     var pollingEnabled = false
+    var ciStatusEnabled = false
     var mobileHostActive = false
     var selectedWorkspaceId: UUID?
     private(set) var events: [ProjectionEvent] = []
@@ -173,6 +174,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
 
     var isGitMetadataWatchEnabled: Bool { watchEnabled }
     var isPullRequestPollingEnabled: Bool { pollingEnabled }
+    var isPullRequestCIStatusEnabled: Bool { pollingEnabled && ciStatusEnabled }
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool { mobileHostActive }
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval { mobileHostActive ? interval : 0 }
 }

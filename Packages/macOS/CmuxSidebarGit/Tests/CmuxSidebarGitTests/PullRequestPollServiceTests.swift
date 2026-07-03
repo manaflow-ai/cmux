@@ -21,13 +21,19 @@ import CmuxGit
         return service
     }
 
-    private func badge(number: Int, status: PullRequestStatus, branch: String? = "feature/x") -> SidebarPullRequestBadge {
+    private func badge(
+        number: Int,
+        status: PullRequestStatus,
+        branch: String? = "feature/x",
+        ciStatus: PullRequestCIStatus = .neutral
+    ) -> SidebarPullRequestBadge {
         SidebarPullRequestBadge(
             number: number,
             label: "PR",
             url: URL(string: "https://github.com/o/r/pull/\(number)")!,
             status: status,
-            branch: branch
+            branch: branch,
+            ciStatus: ciStatus
         )
     }
 
@@ -75,7 +81,7 @@ import CmuxGit
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
-        host.workspaces[0].state.panels[panelId]?.badge = badge(number: 42, status: .open)
+        host.workspaces[0].state.panels[panelId]?.badge = badge(number: 42, status: .open, ciStatus: .success)
         let service = makeService(host: host, clock: ManualGitPollClock())
 
         service.handleWorkspacePullRequestCommandHint(
@@ -87,6 +93,7 @@ import CmuxGit
 
         #expect(host.workspaces[0].state.panels[panelId]?.badge?.status == .merged)
         #expect(host.workspaces[0].state.panels[panelId]?.badge?.isStale == false)
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.ciStatus == .neutral)
     }
 
     /// A hint whose target names a different PR number does not reconcile.
@@ -178,5 +185,24 @@ import CmuxGit
         #expect(host.events.contains(.clearAllPullRequestMetadata))
         #expect(host.workspaces[0].state.panels[panelId]?.badge == nil)
         #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
+    }
+
+    /// Toggling only the CI-status setting invalidates the repo cache so the
+    /// next normal PR poll can include or drop rollup data, without treating
+    /// PR visibility itself as disabled.
+    @Test func changingCIStatusSettingClearsRepoCacheWithoutClearingBadges() {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        service.workspacePullRequestRepoCacheBySlug["o/r"] = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(),
+            pullRequestsByBranch: [:]
+        )
+
+        host.ciStatusEnabled = true
+        service.sidebarPullRequestPollingSettingsDidChange()
+
+        #expect(service.workspacePullRequestRepoCacheBySlug.isEmpty)
+        #expect(!host.events.contains(.clearAllPullRequestMetadata))
     }
 }

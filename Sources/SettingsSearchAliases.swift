@@ -113,6 +113,7 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:show-notification-message": localized("settings.search.alias.setting.app.show-notification-message", defaultValue: "sidebar.showNotificationMessage latest message unread notification text sidebar"),
         "sidebarAppearance:show-branch-directory": localized("settings.search.alias.setting.app.show-branch-directory", defaultValue: "sidebar.showBranchDirectory git branch cwd path directory folder repo sidebar"),
         "sidebarAppearance:show-pull-requests": localized("settings.search.alias.setting.app.show-pull-requests", defaultValue: "sidebar.showPullRequests pr mr review github gitlab bitbucket pull request merge request"),
+        "sidebarAppearance:show-pr-ci-status": localized("settings.search.alias.setting.app.show-pr-ci-status", defaultValue: "sidebar.showPullRequestCIStatus ci checks github actions build status pull request"),
         "sidebarAppearance:watch-git-status": localized("settings.search.alias.setting.app.watch-git-status", defaultValue: "sidebar.watchGitStatus git status branch watcher index lock"),
         "sidebarAppearance:make-pr-clickable": localized("settings.search.alias.setting.sidebarAppearance.make-pr-clickable", defaultValue: "sidebar.makePullRequestsClickable clickable pull requests pr mr reviews links select workspace row"),
         "sidebarAppearance:open-pr-links": localized("settings.search.alias.setting.app.open-pr-links", defaultValue: "sidebar.openPullRequestLinksInCmuxBrowser pr links github browser default external embedded"),

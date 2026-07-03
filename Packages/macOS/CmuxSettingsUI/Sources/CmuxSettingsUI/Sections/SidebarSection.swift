@@ -26,6 +26,7 @@ public struct SidebarSection: View {
     @State private var showNotification: DefaultsValueModel<Bool>
     @State private var showBranchDir: DefaultsValueModel<Bool>
     @State private var showPR: DefaultsValueModel<Bool>
+    @State private var showPRCI: DefaultsValueModel<Bool>
     @State private var watchGit: DefaultsValueModel<Bool>
     @State private var prClickable: DefaultsValueModel<Bool>
     @State private var prLinks: DefaultsValueModel<Bool>
@@ -52,6 +53,7 @@ public struct SidebarSection: View {
         _showNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
+        _showPRCI = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequestCIStatus))
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
         _prClickable = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.makePullRequestsClickable))
         _prLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPullRequestLinksInCmuxBrowser))
@@ -85,6 +87,7 @@ public struct SidebarSection: View {
             showNotification,
             showBranchDir,
             showPR,
+            showPRCI,
             watchGit,
             prClickable,
             prLinks,
@@ -358,17 +361,13 @@ public struct SidebarSection: View {
             .disabled(hideAll.current)
             SettingsCardDivider()
 
-            SettingsCardRow(
-                configurationReview: .json("sidebar.showPullRequests"),
-                String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"),
-                subtitle: String(localized: "settings.app.showPullRequests.subtitle", defaultValue: "Display review items (PR/MR/etc.) with status and number.")
-            ) {
-                Toggle("", isOn: Binding(get: { showPR.current }, set: { showPR.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-            }
-            .disabled(hideAll.current)
-            SettingsCardDivider()
+            SidebarPullRequestSettingsRows(
+                hideAll: hideAll,
+                showPR: showPR,
+                showPRCI: showPRCI,
+                prClickable: prClickable,
+                prLinks: prLinks
+            )
 
             SettingsCardRow(
                 configurationReview: .json("sidebar.watchGitStatus"),
@@ -380,31 +379,6 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
-            SettingsCardDivider()
-
-            SettingsCardRow(
-                configurationReview: .json("sidebar.makePullRequestsClickable"),
-                String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"),
-                subtitle: String(localized: "settings.app.makeSidebarPullRequestClickable.subtitle", defaultValue: "Review items stay visible as plain text, and clicks in that area select the workspace row.")
-            ) {
-                Toggle("", isOn: Binding(get: { prClickable.current }, set: { prClickable.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .accessibilityIdentifier("SettingsSidebarPullRequestClickableToggle")
-            }
-            .disabled(hideAll.current || !showPR.current)
-            SettingsCardDivider()
-
-            SettingsCardRow(
-                configurationReview: .json("sidebar.openPullRequestLinksInCmuxBrowser"),
-                String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),
-                subtitle: prLinksSubtitle(prVisible: showPR.current, prClickable: prClickable.current, openInCmux: prLinks.current)
-            ) {
-                Toggle("", isOn: Binding(get: { prLinks.current }, set: { prLinks.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-            }
-            .disabled(hideAll.current || !showPR.current || !prClickable.current)
             SettingsCardDivider()
 
             SettingsCardRow(
@@ -482,15 +456,4 @@ public struct SidebarSection: View {
         }
     }
 
-    private func prLinksSubtitle(prVisible: Bool, prClickable: Bool, openInCmux: Bool) -> String {
-        if !prVisible {
-            return String(localized: "settings.app.openSidebarPRLinks.subtitleHidden", defaultValue: "Enable sidebar PR visibility to choose where PR links open.")
-        }
-        if !prClickable {
-            return String(localized: "settings.app.openSidebarPRLinks.subtitleDisabled", defaultValue: "Enable sidebar PR clickability to choose where PR links open.")
-        }
-        return openInCmux
-            ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.")
-            : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")
-    }
 }

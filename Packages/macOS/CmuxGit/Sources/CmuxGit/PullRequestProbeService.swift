@@ -7,7 +7,7 @@ public import CmuxFoundation
 /// The pipeline has three stages, called by the app's orchestration in order:
 /// 1. ``resolveCandidateSeeds(_:gitMetadata:)`` — map each panel's directory to
 ///    its GitHub `owner/name` slugs (reading git config via ``GitMetadataService``).
-/// 2. ``fetchRepoResults(repoDirectoriesBySlug:candidateBranchesByRepo:cacheBySlug:now:allowCachedResults:)``
+/// 2. ``fetchRepoResults(repoDirectoriesBySlug:candidateBranchesByRepo:cacheBySlug:now:allowCachedResults:includeCIStatus:)``
 ///    — fetch each repository's recent PRs (REST, paged), with per-branch
 ///    fallback lookups, honoring the caller-owned repo cache.
 /// 3. ``resolveRefreshResults(candidates:repoResults:)`` — match candidates
@@ -173,7 +173,8 @@ public struct PullRequestProbeService: Sendable {
                         number: matchedPullRequest.number,
                         urlString: matchedPullRequest.url,
                         statusRawValue: status.rawValue,
-                        branch: candidate.branch
+                        branch: candidate.branch,
+                        ciStatus: status == .open ? matchedPullRequest.ciStatus : .neutral
                     )
                 )
                 usedCachedRepoData = matchedPullRequestUsedCache

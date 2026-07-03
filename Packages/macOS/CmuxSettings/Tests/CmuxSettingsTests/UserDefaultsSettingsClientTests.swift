@@ -26,6 +26,7 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.sidebar.branchVerticalLayout) == true)
         #expect(client.value(for: catalog.sidebar.stackBranchDirectory) == false)
         #expect(client.value(for: catalog.sidebar.pathLastSegmentOnly) == false)
+        #expect(client.value(for: catalog.sidebar.showPullRequestCIStatus) == false)
         #expect(client.value(for: catalog.sidebar.makePullRequestsClickable) == true)
         #expect(client.value(for: catalog.app.keepWorkspaceOpenWhenClosingLastSurface) == true)
         #expect(client.value(for: catalog.app.workspaceInheritWorkingDirectory) == true)
@@ -73,6 +74,10 @@ struct UserDefaultsSettingsClientTests {
         client.set(true, for: catalog.terminal.titleUpdateDiagnostics)
         #expect(defaults.object(forKey: "terminal.titleUpdates.diagnostics") as? Bool == true)
         #expect(client.value(for: catalog.terminal.titleUpdateDiagnostics) == true)
+
+        client.set(true, for: catalog.sidebar.showPullRequestCIStatus)
+        #expect(defaults.object(forKey: "sidebarShowPullRequestCIStatus") as? Bool == true)
+        #expect(client.value(for: catalog.sidebar.showPullRequestCIStatus) == true)
     }
 
     @Test func resetRestoresDefault() throws {

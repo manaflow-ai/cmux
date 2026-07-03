@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxGit
+import CmuxGit
 
 // MARK: - Applying refresh results, poll-deadline math, and tracking bookkeeping.
 
@@ -102,7 +102,8 @@ extension PullRequestPollService {
                         url: url,
                         status: status,
                         branch: resolvedPullRequest.branch,
-                        isStale: false
+                        isStale: false,
+                        ciStatus: status == .open ? resolvedPullRequest.ciStatus : .neutral
                     )
                 )
             case .notFound:
@@ -134,7 +135,8 @@ extension PullRequestPollService {
                             url: currentPullRequest.url,
                             status: currentPullRequest.status,
                             branch: currentPullRequest.branch,
-                            isStale: true
+                            isStale: true,
+                            ciStatus: currentPullRequest.status == .open ? currentPullRequest.ciStatus : .neutral
                         )
                     )
                 }
