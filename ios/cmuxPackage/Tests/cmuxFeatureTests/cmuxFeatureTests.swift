@@ -1908,6 +1908,34 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func newPairingValidationClearsStaleManualHostTrustWarning() async throws {
+    let responses = ScriptedTransportResponses([])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.manualHost],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-stale-manual-warning"
+    )
+    let store = CMUXMobileShellStore.preview(
+        runtime: runtime,
+        manualHostTrustStore: InMemoryMobileManualHostTrustStore()
+    )
+
+    store.signIn()
+    let firstResult = await store.connectPairingURLResult(
+        "cmux-ios://attach?v=3&pc=1&m=studio-mac.local:61234"
+    )
+    let secondResult = await store.connectPairingURLResult("not a cmux pairing url")
+    let staleApprovalResult = await store.acceptManualHostTrustWarning()
+
+    #expect(firstResult == .needsUserApproval)
+    #expect(secondResult == .failed)
+    #expect(staleApprovalResult == .failed)
+    #expect(store.manualHostTrustWarning == nil)
+    #expect(store.connectionState == .disconnected)
+    #expect(try await responses.sentRequests().isEmpty)
+}
+
+@MainActor
 @Test func mixedPairingQRCodeBlocksManualFallbackUntilApproved() async throws {
     let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(

@@ -3063,6 +3063,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         clearPairingError()
         clearPairingVersionWarning()
+        clearManualHostTrustWarning()
         let ticket: CmxAttachTicket
         do {
             ticket = try CmxAttachTicketInput.decode(rawURL)

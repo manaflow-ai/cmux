@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// A normalized user-entered host for explicit manual mobile pairing routes.
@@ -5,8 +6,8 @@ import Foundation
 /// Manual hosts are DNS names or IP literals that a user deliberately chooses
 /// outside automatic Tailscale discovery. The value is only a host, never a URL:
 /// schemes, paths, query/fragment markers, user-info markers, bare colon host
-/// text, whitespace, and control characters are rejected before the host is
-/// advertised or dialed.
+/// text, non-QR-safe characters, whitespace, and control characters are rejected
+/// before the host is advertised or dialed.
 public struct CmxManualHost: Equatable, Sendable {
     /// The normalized bare host, with IPv6 brackets removed when present.
     public let rawValue: String
@@ -35,15 +36,37 @@ public struct CmxManualHost: Equatable, Sendable {
             host = trimmed
             isBracketedHost = false
         }
-        let forbiddenCharacters = isBracketedHost ? "/?#@[]" : "/?#@[]:"
-
         guard !host.isEmpty,
               host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
               host.rangeOfCharacter(from: .controlCharacters) == nil,
-              host.rangeOfCharacter(from: CharacterSet(charactersIn: forbiddenCharacters)) == nil,
               host.range(of: "://") == nil else {
             return nil
         }
+        if isBracketedHost {
+            guard Self.isIPv6Literal(host) else {
+                return nil
+            }
+        } else {
+            guard Self.isUnbracketedQRHost(host) else {
+                return nil
+            }
+        }
         self.rawValue = host
+    }
+
+    private static func isUnbracketedQRHost(_ host: String) -> Bool {
+        host.utf8.allSatisfy { byte in
+            (48...57).contains(byte)        // 0-9
+                || (65...90).contains(byte) // A-Z
+                || (97...122).contains(byte) // a-z
+                || byte == UInt8(ascii: ".")
+                || byte == UInt8(ascii: "-")
+                || byte == UInt8(ascii: "_")
+        }
+    }
+
+    private static func isIPv6Literal(_ host: String) -> Bool {
+        var address = in6_addr()
+        return host.withCString { inet_pton(AF_INET6, $0, &address) } == 1
     }
 }
