@@ -199,10 +199,15 @@ extension AgentChatSessionRegistry {
         }
         observeLastStartedAt = Date()
         let id = UUID()
+        let scanTask = Task.detached {
+            Self.scanObservedAgentSessions(onlySurfaceIDs: scope.surfaceIDs)
+        }
         let task = Task { @MainActor [weak self] in
-            let observed = await Task.detached {
-                Self.scanObservedAgentSessions(onlySurfaceIDs: scope.surfaceIDs)
-            }.value
+            let observed = await withTaskCancellationHandler {
+                await scanTask.value
+            } onCancel: {
+                scanTask.cancel()
+            }
             guard !Task.isCancelled,
                   let self,
                   self.observeInFlight?.id == id else { return }
@@ -219,10 +224,12 @@ extension AgentChatSessionRegistry {
     private nonisolated static func scanObservedAgentSessions(
         onlySurfaceIDs surfaceIDs: Set<UUID>? = nil
     ) -> [ObservedAgentSession] {
+        guard !Task.isCancelled else { return [] }
         let snapshot = CmuxTopProcessSnapshot.capture(
             includeProcessDetails: true,
             includeCMUXScope: true
         )
+        guard !Task.isCancelled else { return [] }
         return scanObservedAgentSessions(
             in: snapshot,
             onlySurfaceIDs: surfaceIDs,
@@ -251,6 +258,7 @@ extension AgentChatSessionRegistry {
             return roots
         }
         for process in snapshot.cmuxScopedProcesses() {
+            if Task.isCancelled { return [] }
             var details: CmuxTopProcessArguments?
             func loadDetails() -> CmuxTopProcessArguments? {
                 if details == nil {
@@ -389,18 +397,6 @@ extension AgentChatSessionRegistry {
             }
         }
         return nil
-    }
-
-    nonisolated static func pendingClaudeSessionID(surfaceID: String) -> String {
-        "pending-claude-\(surfaceID)"
-    }
-
-    nonisolated static func pendingClaudeSessionID(surfaceID: String, pid: Int) -> String {
-        "pending-claude-\(surfaceID)-pid-\(pid)"
-    }
-
-    nonisolated static func isPendingClaudeSessionID(_ sessionID: String) -> Bool {
-        sessionID.hasPrefix("pending-claude-")
     }
 
     private func endedPendingClaudeSessionHasHistoryIdentity(_ record: AgentChatSessionRecord) -> Bool {

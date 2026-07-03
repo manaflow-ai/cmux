@@ -230,6 +230,43 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
         #expect(session.workingDirectory == nil)
     }
 
+    @Test func canceledObservationScanReturnsBeforeProcessDetailReads() async {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let detailReads = LockedCounter()
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 7001,
+                    parentPID: 7000,
+                    name: "claude.exe",
+                    path: "/Users/example/.local/share/claude/versions/2.1.199/claude.exe",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 7001),
+            includesProcessDetails: true
+        )
+
+        let scan = Task.detached {
+            try? await Task.sleep(for: .milliseconds(10))
+            return AgentChatSessionRegistry.scanObservedAgentSessions(
+                in: snapshot,
+                processArgumentsAndEnvironment: { _ in
+                    detailReads.increment()
+                    return CmuxTopProcessArguments(arguments: ["claude.exe"], environment: [:])
+                },
+                codexRolloutPath: { _ in nil }
+            )
+        }
+        scan.cancel()
+
+        let observed = await scan.value
+        #expect(observed.isEmpty)
+        #expect(detailReads.value == 0)
+    }
+
     private func topProcess(
         pid: Int,
         parentPID: Int,
@@ -256,5 +293,22 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
             virtualBytes: 1,
             threadCount: 1
         )
+    }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
     }
 }

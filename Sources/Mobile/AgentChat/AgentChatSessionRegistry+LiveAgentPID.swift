@@ -173,6 +173,18 @@ extension AgentChatSessionRegistry {
         return depth
     }
 
+    nonisolated static func pendingClaudeSessionID(surfaceID: String) -> String {
+        "pending-claude-\(surfaceID)"
+    }
+
+    nonisolated static func pendingClaudeSessionID(surfaceID: String, pid: Int) -> String {
+        "pending-claude-\(surfaceID)-pid-\(pid)"
+    }
+
+    nonisolated static func isPendingClaudeSessionID(_ sessionID: String) -> Bool {
+        sessionID.hasPrefix("pending-claude-")
+    }
+
     private nonisolated static func observedSessionID(
         agentID: String,
         pid: Int,
