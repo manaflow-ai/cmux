@@ -183,8 +183,4 @@ struct AccessibilityWindowCacheTests {
 
         #expect(buildCount == 2, "Expected NSWindow.willCloseNotification to invalidate the cache")
     }
-
-    private final class ZeroWindowNumberWindow: NSWindow {
-        override var windowNumber: Int { 0 }
-    }
 }
