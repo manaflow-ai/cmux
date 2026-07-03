@@ -27,6 +27,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var pendingCheckTransitionTask: Task<Void, Never>?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
+    private var pendingPromptDismissCallbacks = 0
 
     init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock, isDevLikeBundle: Bool = false) {
         self.model = model
@@ -66,7 +67,14 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
-        setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)))
+        setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: { [weak self] choice in
+            if choice == .dismiss {
+                MainActor.assumeIsolated {
+                    self?.recordPromptDismissCallbackExpected()
+                }
+            }
+            reply(choice)
+        })))
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
@@ -174,6 +182,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func dismissUpdateInstallation() {
         log.append("dismiss update installation")
+        let isExpectedPromptDismissCallback = takePromptDismissCallbackIfExpected()
         if case .error = model.state {
             log.append("dismiss update installation ignored (error visible)")
             return
@@ -186,13 +195,6 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             log.append("dismiss update installation ignored (checking)")
             return
         }
-        switch model.state {
-        case .downloading, .extracting, .installing:
-            log.append("dismiss update installation ignored (install progress visible)")
-            return
-        default:
-            break
-        }
         if case .updateAvailable(let available) = model.state, !available.reply.isConsumed {
             // An unanswered prompt cannot be the one this dismissal belongs to: Sparkle dismisses
             // a session after its reply (or abort), so this callback is a stale session's — for
@@ -203,7 +205,26 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             log.append("dismiss update installation ignored (unanswered prompt visible)")
             return
         }
+        if isExpectedPromptDismissCallback {
+            switch model.state {
+            case .downloading, .extracting, .installing:
+                log.append("dismiss update installation ignored (superseded prompt dismissal)")
+                return
+            default:
+                break
+            }
+        }
         setState(.idle)
+    }
+
+    func recordPromptDismissCallbackExpected() {
+        pendingPromptDismissCallbacks += 1
+    }
+
+    private func takePromptDismissCallbackIfExpected() -> Bool {
+        guard pendingPromptDismissCallbacks > 0 else { return false }
+        pendingPromptDismissCallbacks -= 1
+        return true
     }
 
     // MARK: - State transition helpers

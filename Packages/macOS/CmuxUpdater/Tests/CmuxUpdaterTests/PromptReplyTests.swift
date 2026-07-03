@@ -72,7 +72,7 @@ import Testing
             clock: SystemUpdateClock(),
             isDevLikeBundle: false
         )
-
+        driver.recordPromptDismissCallbackExpected()
         model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 10)))
         driver.dismissUpdateInstallation()
 
@@ -81,6 +81,52 @@ import Testing
             return
         }
         #expect(download.progress == 10)
+    }
+
+    /// A normal Sparkle progress teardown still clears the model; only a known superseded prompt
+    /// dismissal may be ignored while progress is visible.
+    @Test func activeProgressDismissalClearsState() {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+
+        model.setState(.extracting(.init(progress: 0.5)))
+        driver.dismissUpdateInstallation()
+
+        #expect(model.state.isIdle)
+    }
+
+    /// If a superseded prompt's Sparkle dismissal arrives while an error is visible, it is drained
+    /// there; it must not make a later real progress dismissal look stale.
+    @Test func promptDismissIgnoredByErrorDoesNotLeakToNextProgress() {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        driver.recordPromptDismissCallbackExpected()
+        model.setState(.error(.init(
+            error: NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode),
+            retry: {},
+            dismiss: {}
+        )))
+
+        driver.dismissUpdateInstallation()
+        guard case .error = model.state else {
+            Issue.record("error was unexpectedly dismissed")
+            return
+        }
+
+        model.setState(.extracting(.init(progress: 0.5)))
+        driver.dismissUpdateInstallation()
+
+        #expect(model.state.isIdle)
     }
 
     /// A real user download cancel still clears progress immediately; the stale dismissal guard
