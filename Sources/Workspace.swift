@@ -2255,8 +2255,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
     /// Provenance of `customDescription`: `.user` for hand-typed notes (the
-    /// Edit Workspace Description UI, workspace creation), `.agent` for an
-    /// agent/CLI `set-description`. `nil` when no description is set. A present
+    /// Edit Workspace Description UI, workspace creation, CLI notes), `.agent`
+    /// for explicit agent-authored summaries. `nil` when no description is set. A present
     /// description with absent provenance is treated as `.user` so a context
     /// reset never wipes a note it cannot prove an agent owns.
     var customDescriptionSource: CustomDescriptionSource?

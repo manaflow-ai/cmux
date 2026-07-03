@@ -102,7 +102,7 @@ import Testing
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
 
-        // Mirrors the `set_description` control message path
+        // Mirrors an explicit agent `set_description` control message path
         // (TerminalController -> TabManager.setCustomDescription(source: .agent)).
         manager.setCustomDescription(tabId: workspace.id, description: "agent summary text", source: .agent)
         #expect(workspace.effectiveCustomDescriptionSource == .agent)
@@ -121,6 +121,47 @@ import Testing
 
         workspace.resetSidebarContext(reason: "test")
         #expect(workspace.customDescription == "human note")
+    }
+
+    @Test func workspaceActionSetDescriptionDefaultsToUserSource() throws {
+        let controller = TerminalController.shared
+        let originalTabManager = controller.tabManager
+        let manager = TabManager()
+        controller.tabManager = manager
+        defer { controller.tabManager = originalTabManager }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        _ = controller.v2WorkspaceAction(params: [
+            "action": "set_description",
+            "description": "CLI note",
+        ])
+
+        #expect(workspace.customDescription == "CLI note")
+        #expect(workspace.effectiveCustomDescriptionSource == .user)
+
+        workspace.resetSidebarContext(reason: "test")
+        #expect(workspace.customDescription == "CLI note")
+    }
+
+    @Test func workspaceActionSetDescriptionCanMarkAgentSource() throws {
+        let controller = TerminalController.shared
+        let originalTabManager = controller.tabManager
+        let manager = TabManager()
+        controller.tabManager = manager
+        defer { controller.tabManager = originalTabManager }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        _ = controller.v2WorkspaceAction(params: [
+            "action": "set_description",
+            "description": "agent summary text",
+            "description_source": "agent",
+        ])
+
+        #expect(workspace.customDescription == "agent summary text")
+        #expect(workspace.effectiveCustomDescriptionSource == .agent)
+
+        workspace.resetSidebarContext(reason: "test")
+        #expect(workspace.customDescription == nil)
     }
 
     @Test func autosaveFingerprintTracksDescriptionProvenanceChange() throws {

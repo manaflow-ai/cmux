@@ -7005,9 +7005,10 @@ struct CMUXCLI {
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
         let (colorOpt, rem3) = parseOption(rem2, name: "--color")
         let (descriptionOpt, rem4) = parseOption(rem3, name: "--description")
-        let (windowOpt, rem5) = parseOption(rem4, name: "--window")
+        let (descriptionSourceOpt, rem5) = parseOption(rem4, name: "--description-source")
+        let (windowOpt, rem6) = parseOption(rem5, name: "--window")
 
-        var positional = rem5
+        var positional = rem6
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -7070,6 +7071,10 @@ struct CMUXCLI {
         }
         if let description, !description.isEmpty {
             params["description"] = description
+        }
+        if let descriptionSource = descriptionSourceOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !descriptionSource.isEmpty {
+            params["description_source"] = descriptionSource
         }
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
