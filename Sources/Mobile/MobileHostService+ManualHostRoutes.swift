@@ -45,20 +45,20 @@ extension MobileHostService {
     func publishCurrentRoutes(port: Int) {
         let manualHost = Self.configuredManualHost()
         advertisedManualHost = manualHost
-        MobileHostPublicStatusCache.update(routes: currentRoutes(port: port, manualHost: manualHost))
+        updatePublicStatusSnapshot(routes: currentRoutes(port: port, manualHost: manualHost))
     }
 
     func publishCurrentRoutes(port: Int, tailscaleHosts: [String]) {
         let manualHost = Self.configuredManualHost()
         advertisedManualHost = manualHost
-        MobileHostPublicStatusCache.update(
+        updatePublicStatusSnapshot(
             routes: currentRoutes(port: port, tailscaleHosts: tailscaleHosts, manualHost: manualHost)
         )
     }
 
     func clearAdvertisedRoutes() {
         advertisedManualHost = nil
-        MobileHostPublicStatusCache.update(routes: [])
+        updatePublicStatusSnapshot(routes: [])
     }
 
     func refreshAdvertisedRoutesIfRunning(defaults: UserDefaults = .standard) {
@@ -70,6 +70,6 @@ extension MobileHostService {
             return
         }
         advertisedManualHost = manualHost
-        MobileHostPublicStatusCache.update(routes: currentRoutes(port: listenerPort, manualHost: manualHost))
+        updatePublicStatusSnapshot(routes: currentRoutes(port: listenerPort, manualHost: manualHost))
     }
 }

@@ -149,17 +149,18 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
     }
 }
 
-enum MobileHostPublicStatusCache {
-    private static let lock = NSLock()
-    private nonisolated(unsafe) static var routes: [CmxAttachRoute] = []
-    static func update(routes nextRoutes: [CmxAttachRoute]) {
+private final class MobileHostPublicStatusSnapshot: @unchecked Sendable {
+    private let lock = NSLock()
+    private var routes: [CmxAttachRoute] = []
+
+    func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()
         routes = nextRoutes
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    static func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
+    func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = routes
         lock.unlock()
@@ -293,7 +294,7 @@ final class MobileHostService {
     nonisolated private static let maximumActiveConnectionCount = 10
 
     /// The single shape every public `mobile.host.status` reply uses (the
-    /// public-status cache, the network status gate, and
+    /// public-status snapshot, the network status gate, and
     /// `TerminalController`'s no-private-metadata branch), so the fields
     /// cannot drift. Identity-free: routes, fidelity, and capabilities are a
     /// reachability probe any peer may ask for, but the Mac's stable identity
@@ -355,21 +356,22 @@ final class MobileHostService {
     /// degrades to identity-free and the phone's identity-recovery retry
     /// picks it up later). A flood of unique garbage tokens therefore cannot
     /// queue unbounded Stack lookups behind this verb.
-    nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+    nonisolated func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedToken?.isEmpty == false else {
-            return MobileHostPublicStatusCache.result(includeIdentity: false)
+            return publicStatusSnapshot.result(includeIdentity: false)
         }
-        let verified = await MobileHostService.shared.verifiedStackCaller(for: request)
+        let verified = await verifiedStackCaller(for: request)
         if !verified {
             mobileHostLog.error("mobile host status identity withheld: stack verification failed")
         }
-        return MobileHostPublicStatusCache.result(includeIdentity: verified)
+        return publicStatusSnapshot.result(includeIdentity: verified)
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     let routeResolver = MobileRouteResolver()
     private let ticketStore = MobileAttachTicketStore()
+    nonisolated private let publicStatusSnapshot = MobileHostPublicStatusSnapshot()
     private var listener: NWListener?
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
@@ -936,6 +938,10 @@ final class MobileHostService {
         )
     }
 
+    func updatePublicStatusSnapshot(routes: [CmxAttachRoute]) {
+        publicStatusSnapshot.update(routes: routes)
+    }
+
     /// Reconcile the live listener with current settings (enable/disable and
     /// preferred-port changes). Safe to call on any settings change: it no-ops
     /// unless the enabled state or the configured port actually changed, so an
@@ -1022,7 +1028,7 @@ final class MobileHostService {
                 },
                 handleRequest: { request in
                     if request.method == "mobile.host.status" {
-                        return await MobileHostService.networkStatusResult(for: request)
+                        return await MobileHostService.shared.networkStatusResult(for: request)
                     }
                     let result = await TerminalController.shared.mobileHostHandleRPC(request)
                     await MobileHostService.shared.recordCreatedResourcesIfNeeded(
@@ -1141,7 +1147,7 @@ final class MobileHostService {
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
-                    return await MobileHostService.networkStatusResult(for: request)
+                    return await MobileHostService.shared.networkStatusResult(for: request)
                 }
                 let result = await TerminalController.shared.mobileHostHandleRPC(request)
                 await MobileHostService.shared.recordCreatedResourcesIfNeeded(
