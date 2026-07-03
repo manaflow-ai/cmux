@@ -150,21 +150,15 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
 }
 
 private final class MobileHostPublicStatusSnapshot: @unchecked Sendable {
-    private let lock = NSLock()
-    private var routes: [CmxAttachRoute] = []
+    private let routes = OSAllocatedUnfairLock(initialState: [CmxAttachRoute]())
 
     func update(routes nextRoutes: [CmxAttachRoute]) {
-        lock.lock()
-        routes = nextRoutes
-        lock.unlock()
+        routes.withLock { $0 = nextRoutes }
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
     func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
-        lock.lock()
-        let cachedRoutes = routes
-        lock.unlock()
-        let routesPayload = cachedRoutes.map(\.mobileHostJSONObject)
+        let routesPayload = routes.withLock { $0.map(\.mobileHostJSONObject) }
         return .ok(
             includeIdentity
                 ? MobileHostService.identityStatusPayload(routesPayload: routesPayload)
@@ -938,9 +932,7 @@ final class MobileHostService {
         )
     }
 
-    func updatePublicStatusSnapshot(routes: [CmxAttachRoute]) {
-        publicStatusSnapshot.update(routes: routes)
-    }
+    func updatePublicStatusSnapshot(routes: [CmxAttachRoute]) { publicStatusSnapshot.update(routes: routes) }
 
     /// Reconcile the live listener with current settings (enable/disable and
     /// preferred-port changes). Safe to call on any settings change: it no-ops
