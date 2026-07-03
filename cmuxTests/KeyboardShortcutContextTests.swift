@@ -279,16 +279,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
                 action.hasPriorityShortcutRouting,
                 action.rawValue
             )
-            for other in KeyboardShortcutSettings.Action.allCases {
-                guard let settingsOther = ShortcutAction(rawValue: other.rawValue) else {
-                    continue
-                }
-                XCTAssertEqual(
-                    settingsAction.hasShortcutConflictPriority(over: settingsOther),
-                    action.hasShortcutConflictPriority(over: other),
-                    "\(action.rawValue) over \(other.rawValue)"
-                )
-            }
         }
     }
 

@@ -211,4 +211,22 @@ private typealias SettingsShortcutStroke = CmuxSettings.ShortcutStroke
         #expect(KeyboardShortcutSettings.menuShortcut(for: .browserBack) == .unbound)
         #expect(KeyboardShortcutSettings.menuShortcut(for: .browserForward) == .unbound)
     }
+
+    @Test func settingsPackageShortcutConflictPriorityMatchesRuntime() {
+        for action in KeyboardShortcutSettings.Action.allCases {
+            guard let settingsAction = ShortcutAction(rawValue: action.rawValue) else {
+                continue
+            }
+            for other in KeyboardShortcutSettings.Action.allCases {
+                guard let settingsOther = ShortcutAction(rawValue: other.rawValue) else {
+                    continue
+                }
+                #expect(
+                    settingsAction.hasShortcutConflictPriority(over: settingsOther) ==
+                        action.hasShortcutConflictPriority(over: other),
+                    "\(action.rawValue) over \(other.rawValue)"
+                )
+            }
+        }
+    }
 }
