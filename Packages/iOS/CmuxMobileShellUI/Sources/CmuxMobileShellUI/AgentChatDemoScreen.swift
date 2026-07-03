@@ -2,6 +2,7 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import Foundation
 import SwiftUI
 
@@ -68,30 +69,20 @@ struct AgentChatDemoScreen: View {
                             action: {}
                         )
                     }
-                    if #available(iOS 26.0, *) {
-                        ToolbarSpacer(.fixed, placement: .topBarLeading)
-                    }
-                    ToolbarItem(placement: .topBarLeading) {
-                        Menu {
+                    ToolbarItem(placement: .principal) {
+                        WorkspaceTitleMenu(
+                            contentWidth: contentWidth,
+                            hasBackButton: true,
+                            hasTrailingCluster: true,
+                            hasChatToggle: true
+                        ) {
                             Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
                                 .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
                             Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
-                                .accessibilityIdentifier("MobileWorkspaceTitleMarkReadMenuItem")
+                                .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
                         } label: {
                             header(for: stack)
-                                .frame(
-                                    minWidth: MobileNavTitleWidth.floor,
-                                    maxWidth: MobileNavTitleWidth(
-                                        contentWidth: contentWidth,
-                                        hasBackButton: true,
-                                        hasChatToggle: true
-                                    ).leadingCap,
-                                    alignment: .leading
-                                )
-                                .layoutPriority(1)
                         }
-                        .mobileGlassCompactToolbarControl()
-                        .accessibilityIdentifier("MobileWorkspaceTitleMenu")
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -113,11 +104,22 @@ struct AgentChatDemoScreen: View {
     }
 
     private func baseChatScreen(for stack: DemoStack) -> some View {
-        ChatScreen(
-            store: stack.store,
-            providesOwnChrome: false,
-            onOpenTerminal: {}
-        )
+        switch style {
+        case .standalone:
+            ChatScreen(
+                store: stack.store,
+                providesOwnChrome: false,
+                onOpenTerminal: {}
+            )
+        case .inlineWorkspace:
+            ChatScreen(
+                store: stack.store,
+                accessoryLeadingShortcuts: previewLeadingShortcuts,
+                accessoryShortcuts: previewScrollableShortcuts(for: stack),
+                providesOwnChrome: false,
+                onOpenTerminal: {}
+            )
+        }
     }
 
     private func header(for stack: DemoStack) -> some View {
@@ -129,6 +131,60 @@ struct AgentChatDemoScreen: View {
             subtitle: style == .inlineWorkspace ? inlineWorkspaceSubtitle : nil,
             style: style == .inlineWorkspace ? .toolbarCompact : .regular
         )
+    }
+
+    private var previewLeadingShortcuts: [ChatAccessoryShortcut] {
+        [
+            ChatAccessoryShortcut(
+                id: "terminal.inputAccessory.hideKeyboard",
+                title: "",
+                systemImage: "keyboard.chevron.compact.down",
+                accessibilityLabel: L10n.string(
+                    "terminal.input_accessory.hideKeyboard",
+                    defaultValue: "Hide Keyboard"
+                ),
+                tint: .secondary,
+                semanticAction: .dismissKeyboard
+            ) {},
+            ChatAccessoryShortcut(
+                id: "terminal.inputAccessory.composer",
+                title: "",
+                systemImage: "terminal",
+                accessibilityLabel: L10n.string(
+                    "mobile.terminal.select",
+                    defaultValue: "Terminal"
+                )
+            ) {},
+        ]
+    }
+
+    private func previewScrollableShortcuts(for stack: DemoStack) -> [ChatAccessoryShortcut] {
+        TerminalInputAccessoryAction.defaultConfigurableOrder.compactMap { action in
+            guard action.isSupportedInAgentChat else { return nil }
+            return ChatAccessoryShortcut(
+                id: action.accessibilityIdentifier,
+                title: action.title(isMacRemote: true),
+                systemImage: action.symbolName,
+                accessibilityLabel: action.accessibilityLabel ?? action.settingsDisplayName,
+                semanticAction: action == .paste ? .paste : nil
+            ) {
+                performPreviewShortcut(action, store: stack.store)
+            }
+        }
+    }
+
+    private func performPreviewShortcut(
+        _ action: TerminalInputAccessoryAction,
+        store: ChatConversationStore
+    ) {
+        switch action {
+        case .escape:
+            Task { await store.interrupt(hard: false) }
+        case .ctrlC:
+            Task { await store.interrupt(hard: true) }
+        default:
+            break
+        }
     }
 
     private var inlineWorkspaceTitle: String? {

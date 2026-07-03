@@ -363,7 +363,7 @@ struct ChatConversationStoreTests {
             .compactMap { snapshot -> String? in
                 if case .prose(let prose) = snapshot.message.kind { return prose.text }
                 return nil
-            }
+        }
         #expect(proseTexts == ["The sky is blue"])
     }
 

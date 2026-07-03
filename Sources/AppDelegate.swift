@@ -549,6 +549,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var cmuxConfigStore: CmuxConfigStore?
         var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
+        /// Per-window Dock owned by this context and torn down with it.
+        var windowDock: DockSplitStore?
 
         init(
             windowId: UUID,
@@ -4594,7 +4596,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    private func notifyMainWindowContextsDidChange() {
+    // Internal (not private): the test target's main-window testing seams
+    // (cmuxTests/AppDelegateMainWindowTestingSupport.swift, via @testable
+    // import) drive the same registration paths.
+    func notifyMainWindowContextsDidChange() {
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
@@ -4723,32 +4728,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
-    @discardableResult
-    func registerMainWindowContextForTesting(
-        windowId: UUID = UUID(),
-        tabManager: TabManager,
-        cmuxConfigStore: CmuxConfigStore? = nil,
-        fileExplorerState: FileExplorerState? = nil
-    ) -> UUID {
-        tabManager.windowId = windowId
-        mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
-            windowId: windowId,
-            tabManager: tabManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: fileExplorerState,
-            cmuxConfigStore: cmuxConfigStore,
-            window: nil
-        )
-        ensureMobileWorkspaceListObserver(for: tabManager)
-        notifyMainWindowContextsDidChange()
-        return windowId
-    }
-
     func sessionSnapshotForTesting(includeScrollback: Bool = false) -> AppSessionSnapshot? {
         buildSessionSnapshot(includeScrollback: includeScrollback)
     }
-
 #endif
 
     /// Lifted to ``CmuxWindowing/MainWindowSummary``; aliased so existing
@@ -6013,6 +5995,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
         guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
+        removed.teardownWindowDock()
         let removedKeys = mainWindowContexts.compactMap { key, value in
             value === removed ? key : nil
         }
@@ -6025,7 +6008,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return removed
     }
 
-    private func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+    // Internal (not private): see notifyMainWindowContextsDidChange.
+    func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+        context.teardownWindowDock()
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
         }
@@ -6043,6 +6028,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if let store = notificationStore {
+            store.clearNotifications(forTabId: context.windowId)
             for tab in context.tabManager.tabs {
                 store.clearNotifications(forTabId: tab.id)
             }
@@ -6055,11 +6041,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-#if DEBUG
-    func unregisterMainWindowContextForTesting(windowId: UUID) {
-        mainWindowContexts.values.filter { $0.windowId == windowId }.forEach { discardOrphanedMainWindowContext($0, allowWindowlessFallback: true) }
-    }
-#endif
 
     private func mainWindowId(for window: NSWindow) -> UUID? {
         if let context = mainWindowContexts[ObjectIdentifier(window)] {
@@ -13067,7 +13048,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        if shouldBypassPrintableOptionTextForShortcutRouting(event: event) {
             return false
         }
 
@@ -13483,6 +13464,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        if matchConfiguredShortcut(event: event, action: .newWorkspaceGroup) {
+            return createEmptyWorkspaceGroup(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+            )
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleFocusedWorkspaceGroupCollapsed) {
             // Only consume the event when the toggle actually fired (focused
             // workspace was in a group). Otherwise fall through so a rebinding
@@ -13581,9 +13568,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Numeric shortcuts for specific workspaces (9 = last workspace)
         // Always consume the event when the digit matches to prevent Ghostty's
         // goto_tab fallback from creating a new window when the index is out of bounds.
-        if shortcutWhenClauseAllows(action: .selectWorkspaceByNumber, event: event),
-           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
-            if let manager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
+        if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
+            if let manager = tabManagerForNumberedShortcut(event: event),
                let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
                 cmuxDebugLog(
@@ -13597,12 +13583,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Numeric shortcuts for surfaces: focused pane in split layout,
         // workspace Canvas order in Canvas layout (9 = last).
-        if shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event),
-           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+        if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+            let manager = tabManagerForNumberedShortcut(event: event)
             if digit == 9 {
-                (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectLastSurface()
+                manager?.selectLastSurface()
             } else {
-                (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectSurface(at: digit - 1)
+                manager?.selectSurface(at: digit - 1)
             }
             return true
         }
@@ -14668,6 +14654,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
+    /// Route numbered workspace/surface key-equivalent fallbacks through the same
+    /// app shortcut dispatcher before terminal-owned non-Command keys go to Ghostty.
+    @discardableResult
+    func handleRoutableNumberedShortcutKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard eventCouldMatchNumberedShortcutDigit(event) else {
+            return false
+        }
+        guard routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) != nil ||
+            routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil else {
+            return false
+        }
+        return handleCustomShortcut(event: event)
+    }
+
     /// WebKit can consume the configured Find shortcut as a browser find key equivalent before SwiftUI
     /// command actions run. Keep this pre-menu route narrow so normal menu-backed
     /// browser shortcuts such as New Workspace, Close Tab, and Reload Page still use AppKit.
@@ -14708,6 +14708,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         tabManager.toggleWorkspaceGroupCollapsed(groupId: groupId)
         return true
+    }
+
+    @discardableResult
+    func createEmptyWorkspaceGroup(tabManager explicitTabManager: TabManager? = nil, preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let resolvedTabs: TabManager? = explicitTabManager ?? contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
+        guard let tabs = resolvedTabs, tabs.selectedTab?.isRemoteTmuxMirror != true else { return false }
+        return tabs.createWorkspaceGroup(name: "") != nil
     }
 
     @discardableResult
@@ -14969,6 +14977,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
         return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
+    }
+
+    private func routableNumberedConfiguredShortcutDigit(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> Int? {
+        if let digit = numberedConfiguredShortcutDigit(event: event, action: action), shortcutWhenClauseAllows(action: action, event: event) { return digit }
+        return nil
+    }
+
+    fileprivate func shouldBypassPrintableOptionTextForShortcutRouting(event: NSEvent) -> Bool {
+        guard shortcutRoutingShouldBypassForPrintableOptionText(event: event) else {
+            return false
+        }
+
+        if routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) != nil {
+            return false
+        }
+
+        if routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil {
+            return false
+        }
+
+        return true
+    }
+
+    private func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
+        preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
     }
 
     private func matchConfiguredDirectionalShortcut(
@@ -15431,6 +15467,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         guard let digit = Int(normalized), (1...9).contains(digit) else { return nil }
         return digit
+    }
+
+    private func eventCouldMatchNumberedShortcutDigit(_ event: NSEvent) -> Bool {
+        if digitForNumberKeyCode(event.keyCode) != nil {
+            return true
+        }
+        return numberedShortcutDigit(
+            eventCharacter: event.charactersIgnoringModifiers,
+            applyShiftSymbolNormalization: false,
+            eventKeyCode: event.keyCode
+        ) != nil
     }
 
     private func normalizedShortcutEventCharacter(
@@ -16000,6 +16047,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
+            store.clearNotifications(forTabId: removed.windowId)
             for tab in removed.tabManager.tabs {
                 store.clearNotifications(forTabId: tab.id)
             }
@@ -17109,7 +17157,7 @@ private extension NSWindow {
             return true
         }
         let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        if AppDelegate.shared?.shouldBypassPrintableOptionTextForShortcutRouting(event: event) == true {
             if browserWebKitKeyDownReentry { return false }
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
@@ -17175,6 +17223,10 @@ private extension NSWindow {
 
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
+                if AppDelegate.shared?.handleRoutableNumberedShortcutKeyEquivalent(event) == true {
+                    return true
+                }
+
                 if shouldDispatchTerminalArrowViaFirstResponderKeyDown(
                     keyCode: event.keyCode,
                     firstResponderIsTerminal: true,

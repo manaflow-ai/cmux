@@ -8,8 +8,7 @@ import Observation
 /// It depends only on the ``ChatEventSource`` seam, injected at init.
 ///
 /// Lifecycle: the owning view runs ``run()`` inside its `.task` modifier so
-/// the live subscription is structured — it is cancelled automatically when
-/// the view disappears, and the store never stores a `Task` it could leak.
+/// the live subscription is cancelled automatically when the view disappears.
 ///
 /// ```swift
 /// @State private var store: ChatConversationStore
@@ -565,14 +564,14 @@ public final class ChatConversationStore {
     private func apply(_ event: ChatSessionEvent) {
         switch event {
         case .appended(let newMessages):
-            reconcilePending(against: newMessages)
-            // The authoritative agent prose for the in-flight turn just landed:
-            // drop the live preview so the committed message takes over with no
-            // duplicate, even if the host's explicit clear is delayed or lost.
-            if streamingMessage != nil,
-               newMessages.contains(where: { $0.role == .agent && Self.isProse($0) }) {
-                streamingMessage = nil
-            }
+            let freshMessages = newMessages.filter { !knownWindowIDs.contains($0.id) }
+            var reconciledPendingEchoIDs = Set<String>()
+            reconcilePending(against: newMessages) { reconciledPendingEchoIDs.insert($0.id) }
+            let pendingEchoIDs = pendingEchoBatchIDs(in: newMessages, reconciledPendingEchoIDs: reconciledPendingEchoIDs)
+            let hasAuthoritativeAgentProse = newMessages.contains { $0.role == .agent && messageContainsProse($0) }
+            let hasFreshClearingUser = freshMessages.contains { $0.role == .user && !pendingEchoIDs.contains($0.id) }
+            let didClearStreamingMessage = streamingMessage != nil && (hasAuthoritativeAgentProse || hasFreshClearingUser)
+            if didClearStreamingMessage { streamingMessage = nil }
             // A live append whose seq regresses below the window tail means
             // the transcript was truncated/replaced and the tailer reset;
             // appending would corrupt window ordering. Re-anchor instead.
@@ -586,6 +585,7 @@ public final class ChatConversationStore {
             } else {
                 appendToWindow(newMessages)
             }
+            if didClearStreamingMessage { reproject() }
         case .updated(let changed):
             var didChange = false
             for message in changed {
@@ -618,7 +618,7 @@ public final class ChatConversationStore {
             // The preview is a whole-value replace; an agent session only. A
             // terminal session has no agent prose, so ignore it there.
             guard descriptor.kind != .terminal else { break }
-            let next = message.flatMap { Self.isProse($0) ? $0 : nil }
+            let next = message.flatMap { Self.isProse($0) && (streamingMessage != nil || !livePreviewEchoesLatestUserPrompt($0, in: messages, pending: pending)) ? $0 : nil }
             guard next != streamingMessage else { break }
             streamingMessage = next
             reproject()
@@ -673,7 +673,7 @@ public final class ChatConversationStore {
 
     /// Drops optimistic rows whose prompt text has echoed back through the
     /// transcript as a real user message.
-    private func reconcilePending(against newMessages: [ChatMessage]) {
+    private func reconcilePending(against newMessages: [ChatMessage], onReconciled: (ChatMessage) -> Void = { _ in }) {
         guard !pending.isEmpty else { return }
         var maxReconciledCounter: Int?
         for message in newMessages where message.role == .user {
@@ -738,6 +738,7 @@ public final class ChatConversationStore {
             }
             if let index {
                 let removed = pending.remove(at: index)
+                onReconciled(message)
                 if let counter = Self.pendingCounter(removed.id) {
                     maxReconciledCounter = max(maxReconciledCounter ?? counter, counter)
                 }
@@ -827,8 +828,7 @@ public final class ChatConversationStore {
 
     private func reproject() {
         // A terminal session is a flat ordered command log, not a grouped
-        // conversation, so it bypasses the bubble-grouping projector. The
-        // agent branch is unchanged.
+        // conversation, so it bypasses the bubble-grouping projector.
         if descriptor.kind == .terminal {
             // Include optimistic sends so the user sees their command (and any
             // failure/retry) until the shell echoes it back as a command
