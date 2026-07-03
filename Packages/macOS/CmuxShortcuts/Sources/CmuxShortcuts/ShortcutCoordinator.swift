@@ -111,6 +111,24 @@ public final class ShortcutCoordinator: ShortcutEventDecoding {
         return numberKeyDigit
     }
 
+    /// Cheap, modifier-agnostic preflight: whether the event's key code or printed
+    /// characters could resolve to a numbered digit 1–9 at all. Lets the app's
+    /// numbered key-equivalent fallback skip per-keystroke settings lookups for
+    /// non-digit terminal keys.
+    public func eventCouldMatchNumberedDigit(
+        eventKeyCode: UInt16,
+        eventCharactersIgnoringModifiers: String?
+    ) -> Bool {
+        if Self.digitForNumberKeyCode(eventKeyCode) != nil {
+            return true
+        }
+        return numberedShortcutDigit(
+            eventCharacter: eventCharactersIgnoringModifiers,
+            applyShiftSymbolNormalization: false,
+            eventKeyCode: eventKeyCode
+        ) != nil
+    }
+
     /// The digit 1–9 a physical number-row key code maps to, or `nil`. The 0 key
     /// (kVK_ANSI_0, keyCode 29) is intentionally excluded: numbered shortcuts run
     /// 1–9 only. Faithful relocation of `AppDelegate.digitForNumberKeyCode(_:)`.

@@ -7763,7 +7763,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        if shouldBypassPrintableOptionTextForShortcutRouting(event: event) {
             return false
         }
 
@@ -8151,6 +8151,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        if matchConfiguredShortcut(event: event, action: .newWorkspaceGroup) {
+            return createEmptyWorkspaceGroup(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+            )
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleFocusedWorkspaceGroupCollapsed) {
             // Only consume the event when the toggle actually fired (focused
             // workspace was in a group). Otherwise fall through so a rebinding
@@ -8248,9 +8254,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Numeric shortcuts for specific workspaces (9 = last workspace)
         // Always consume the event when the digit matches to prevent Ghostty's
         // goto_tab fallback from creating a new window when the index is out of bounds.
-        if shortcutWhenClauseAllows(action: .selectWorkspaceByNumber, event: event),
-           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
-            if let manager = tabManager,
+        if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
+            if let manager = tabManagerForNumberedShortcut(event: event),
                let targetIndex = WorkspaceShortcutMapper(workspaceCount: manager.tabs.count).workspaceIndex(forDigit: digit) {
 #if DEBUG
                 cmuxDebugLog(
@@ -8263,12 +8268,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Numeric shortcuts for surfaces within the focused pane (9 = last)
-        if shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event),
-           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+        if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+            let manager = tabManagerForNumberedShortcut(event: event)
             if digit == 9 {
-                tabManager?.selectLastSurface()
+                manager?.selectLastSurface()
             } else {
-                tabManager?.selectSurface(at: digit - 1)
+                manager?.selectSurface(at: digit - 1)
             }
             return true
         }
@@ -9286,6 +9291,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
+    /// Route numbered workspace/surface key-equivalent fallbacks through the same
+    /// app shortcut dispatcher before terminal-owned non-Command keys go to Ghostty.
+    @discardableResult
+    func handleRoutableNumberedShortcutKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard eventCouldMatchNumberedShortcutDigit(event) else {
+            return false
+        }
+        guard routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) != nil ||
+            routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil else {
+            return false
+        }
+        return handleCustomShortcut(event: event)
+    }
+
     /// WebKit can consume the configured Find shortcut as a browser find key equivalent before SwiftUI
     /// command actions run. Keep this pre-menu route narrow so normal menu-backed
     /// browser shortcuts such as New Workspace, Close Tab, and Reload Page still use AppKit.
@@ -9326,6 +9345,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         tabManager.toggleWorkspaceGroupCollapsed(groupId: groupId)
         return true
+    }
+
+    /// Create a new empty workspace group (anchor only, no children). Backs the
+    /// New Workspace Group menu item and its configured shortcut. Resolves the
+    /// TabManager for the preferred/key/main window so multi-window users get the
+    /// group in the window they were looking at. Declines when the focused
+    /// workspace is a remote tmux mirror (group creation isn't meaningful there).
+    @discardableResult
+    func createEmptyWorkspaceGroup(tabManager explicitTabManager: TabManager? = nil, preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let resolvedTabs: TabManager? = explicitTabManager ?? contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
+        guard let tabs = resolvedTabs, tabs.selectedTab?.isRemoteTmuxMirror != true else { return false }
+        return tabs.createWorkspaceGroup(name: "") != nil
     }
 
     @discardableResult
@@ -9567,6 +9599,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         KeyboardShortcutSettings.shortcut(for: action).numberedConfiguredDigit(
             activeChordPrefix: activeConfiguredShortcutChordPrefixForCurrentEvent
         ) { numberedShortcutDigit(event: event, stroke: $0) }
+    }
+
+    /// Resolves the configured numbered-shortcut digit for `action` only when the
+    /// action's effective `when` clause allows routing for this event. Rebinding a
+    /// numbered workspace/surface shortcut (including Option-modified digits) has to
+    /// flow through the same gate the terminal-key fallback consults, so both the
+    /// per-keystroke dispatch and the key-equivalent fallback share this resolver.
+    private func routableNumberedConfiguredShortcutDigit(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> Int? {
+        if let digit = numberedConfiguredShortcutDigit(event: event, action: action),
+           shortcutWhenClauseAllows(action: action, event: event) {
+            return digit
+        }
+        return nil
+    }
+
+    /// Wraps the printable-Option-text bypass so a rebound numbered
+    /// workspace/surface shortcut isn't stolen by the bypass before it can be
+    /// routed. Only the app routing layer consults this; the low-level
+    /// `StoredShortcut.matches(event:)` matcher still uses the plain bypass.
+    fileprivate func shouldBypassPrintableOptionTextForShortcutRouting(event: NSEvent) -> Bool {
+        guard shortcutRoutingShouldBypassForPrintableOptionText(event: event) else {
+            return false
+        }
+
+        if routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) != nil {
+            return false
+        }
+
+        if routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil {
+            return false
+        }
+
+        return true
+    }
+
+    /// The TabManager a numbered workspace/surface shortcut should act on: the
+    /// preferred main window's manager for this event, falling back to the
+    /// app-level manager. Matches the window-routing idiom the rest of the
+    /// shortcut dispatch uses.
+    private func tabManagerForNumberedShortcut(event: NSEvent) -> TabManager? {
+        preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
     }
 
     private func matchConfiguredDirectionalShortcut(
@@ -9979,6 +10055,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // The non-chord first-stroke digit decision lives on `StoredShortcut` in
         // CmuxShortcuts; this witness supplies the per-stroke digit resolver.
         shortcut.firstStrokeNumberedDigit { numberedShortcutDigit(event: event, stroke: $0) }
+    }
+
+    /// Cheap, modifier-agnostic preflight: could this event's key code or printed
+    /// characters resolve to a numbered digit (1–9) at all? Keeps the numbered
+    /// key-equivalent fallback from doing per-keystroke settings lookups for
+    /// non-digit terminal keys.
+    private func eventCouldMatchNumberedShortcutDigit(_ event: NSEvent) -> Bool {
+        shortcutCoordinator.eventCouldMatchNumberedDigit(
+            eventKeyCode: event.keyCode,
+            eventCharactersIgnoringModifiers: event.charactersIgnoringModifiers
+        )
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
@@ -11502,7 +11589,7 @@ private extension NSWindow {
             return true
         }
         let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+        if AppDelegate.shared?.shouldBypassPrintableOptionTextForShortcutRouting(event: event) == true {
             if browserWebKitKeyDownReentry { return false }
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
@@ -11562,6 +11649,10 @@ private extension NSWindow {
 
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
+                if AppDelegate.shared?.handleRoutableNumberedShortcutKeyEquivalent(event) == true {
+                    return true
+                }
+
                 if event.modifierFlags.shouldDispatchTerminalArrowViaFirstResponderKeyDown(
                     keyCode: event.keyCode,
                     firstResponderIsTerminal: true,
