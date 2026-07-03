@@ -750,6 +750,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                         isWorkspaceInputActive: isInputActive,
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
+                        windowAppearance: appearance,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
                             scheduleTitlebarThemeRefreshFromWorkspace(
                                 workspaceId: tab.id,
@@ -2773,6 +2774,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        case .customSidebar:
+            return String(localized: "commandPalette.kind.customSidebar", defaultValue: "Custom Sidebar")
         }
     }
 
@@ -2794,6 +2797,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             return .project
         case .extensionBrowser:
             return .extensionBrowser
+        case .customSidebar:
+            return .rightSidebarTool
         }
     }
 
@@ -6484,6 +6489,8 @@ struct VerticalTabsSidebar: View {
             return .project
         case .extensionBrowser:
             return .unknown
+        case .customSidebar:
+            return .unknown
         }
     }
 
@@ -7927,7 +7934,7 @@ struct TabItemView: View, Equatable {
 
     private func refreshWorkspaceSnapshot(force: Bool = false) {
         let nextSnapshot = makeWorkspaceSnapshot()
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: workspaceSnapshotStorage,
             next: nextSnapshot,
             force: force,
