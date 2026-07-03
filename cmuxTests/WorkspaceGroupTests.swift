@@ -44,6 +44,19 @@ struct WorkspaceGroupTests {
         }
     }
 
+    @Test func createEmptyGroupInsertsAnchorOnlyGroup() throws {
+        let manager = makeTabManager()
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: ""))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        #expect(group.name == "Group 1")
+        #expect(manager.tabs.map(\.id) == [group.anchorWorkspaceId] + originalIds)
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [group.anchorWorkspaceId])
+        #expect(manager.selectedTabId == group.anchorWorkspaceId)
+    }
+
     @Test func createGroupKeepsFirstChildPosition() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
