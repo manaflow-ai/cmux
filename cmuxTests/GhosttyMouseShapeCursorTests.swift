@@ -44,6 +44,44 @@ struct GhosttyMouseShapeCursorTests {
         #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_CROSSHAIR) == NSCursor.crosshair)
     }
 
+    @Test
+    func verticalTextShapeMapsToVerticalIBeam() {
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT) == NSCursor.iBeamCursorForVerticalLayout)
+    }
+
+    @Test
+    func grabShapesMapToHandCursors() {
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_GRAB) == NSCursor.openHand)
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_GRABBING) == NSCursor.closedHand)
+    }
+
+    @Test
+    func disallowedShapesMapToOperationNotAllowed() {
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED) == NSCursor.operationNotAllowed)
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_NO_DROP) == NSCursor.operationNotAllowed)
+    }
+
+    @Test
+    func contextMenuShapeMapsToContextualMenu() {
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU) == NSCursor.contextualMenu)
+    }
+
+    @Test
+    func horizontalResizeShapesMapToLeftRightResize() {
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_COL_RESIZE) == NSCursor.resizeLeftRight)
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_E_RESIZE) == NSCursor.resizeLeftRight)
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_W_RESIZE) == NSCursor.resizeLeftRight)
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_EW_RESIZE) == NSCursor.resizeLeftRight)
+    }
+
+    @Test
+    func verticalResizeShapesMapToUpDownResize() {
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_ROW_RESIZE) == NSCursor.resizeUpDown)
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_N_RESIZE) == NSCursor.resizeUpDown)
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_S_RESIZE) == NSCursor.resizeUpDown)
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_NS_RESIZE) == NSCursor.resizeUpDown)
+    }
+
     /// Before libghostty emits any mouse-shape action, the viewport must already
     /// present the text I-beam — this is the exact symptom from the issue
     /// (hovering text shows an arrow on a freshly opened pane).
