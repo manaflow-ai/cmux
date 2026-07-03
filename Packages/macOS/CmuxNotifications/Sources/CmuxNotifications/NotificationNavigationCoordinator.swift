@@ -214,6 +214,17 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         )
     }
 
+    /// Opens a notification response from the OS notification center by first
+    /// resolving the stored notification snapshot. This preserves panel and
+    /// scroll context that is app-local and not serialized into `userInfo`.
+    @discardableResult
+    public func openNotification(id: UUID, fallbackTabId: UUID, fallbackSurfaceId: UUID?) -> Bool {
+        if let notification = store.orderedNotifications.first(where: { $0.id == id }) {
+            return openNotification(notification)
+        }
+        return open(tabId: fallbackTabId, surfaceId: fallbackSurfaceId, notificationId: id)
+    }
+
     private func openNotificationViaClickRouting(_ notification: NotificationNavSnapshot) -> Bool {
         guard let action = notification.clickAction else { return false }
         let didPerform = clickRouting.perform(action)

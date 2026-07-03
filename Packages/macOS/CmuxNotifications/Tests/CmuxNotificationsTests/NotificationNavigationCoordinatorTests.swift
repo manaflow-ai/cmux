@@ -386,6 +386,46 @@ struct NotificationNavigationCoordinatorTests {
         #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),panel=\(short(panelId)),notif=\(short(notif.id)),row=42,total=100)"])
     }
 
+    @Test("openNotification by id preserves stored panel and scroll context")
+    func openNotificationByIdPreservesStoredContext() {
+        let store = FakeStore()
+        let openRouting = FakeOpenRouting()
+        let fallbackTabId = UUID()
+        let fallbackSurfaceId = UUID()
+        let panelId = UUID()
+        let notif = snapshot(tabId: UUID(), surfaceId: UUID(), panelId: panelId, scrollRow: 42, scrollTotalRows: 100)
+        store.orderedNotifications = [notif]
+        let coordinator = makeCoordinator(store: store, openRouting: openRouting)
+
+        let opened = coordinator.openNotification(
+            id: notif.id,
+            fallbackTabId: fallbackTabId,
+            fallbackSurfaceId: fallbackSurfaceId
+        )
+
+        #expect(opened)
+        #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),panel=\(short(panelId)),notif=\(short(notif.id)),row=42,total=100)"])
+    }
+
+    @Test("openNotification by id falls back when stored notification is missing")
+    func openNotificationByIdFallsBackToUserInfoTarget() {
+        let store = FakeStore()
+        let openRouting = FakeOpenRouting()
+        let fallbackTabId = UUID()
+        let fallbackSurfaceId = UUID()
+        let notificationId = UUID()
+        let coordinator = makeCoordinator(store: store, openRouting: openRouting)
+
+        let opened = coordinator.openNotification(
+            id: notificationId,
+            fallbackTabId: fallbackTabId,
+            fallbackSurfaceId: fallbackSurfaceId
+        )
+
+        #expect(opened)
+        #expect(openRouting.log == ["routed(tab=\(short(fallbackTabId)),surf=\(short(fallbackSurfaceId)),notif=\(short(notificationId)),row=nil,total=nil)"])
+    }
+
     // MARK: - Focus signal (the #if DEBUG recorder hook)
 
     @Test("a successful workspace-unread jump signals onDidFocusForJumpUnread")
