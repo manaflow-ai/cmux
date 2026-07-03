@@ -884,13 +884,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutBottomDock()
         syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
-
-    /// Test hook: geometry/spacing tests run in a scene-less xctest host where
-    /// a Metal present can never complete, so a real render dispatch stalls,
-    /// trips the render-pipeline stall recovery, and pauses geometry (and with
-    /// it the viewport reports under test). True skips the render dispatch
-    /// entirely; geometry (`set_size` + measure) never needs a present.
-    var debugSkipRenderDispatchForTesting = false
     #endif
 
     var currentGridSize: TerminalGridSize {
@@ -3003,6 +2996,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// in `scrollInitialOutputToBottomIfNeeded`).
     private func handleUserProducedInput() {
         resetCursorBlink()
+        // A flick that is still decelerating would fight the snap: coalesced
+        // deltas already in `pendingScrollLines` flush on the next display-link
+        // frame (after the snap below), and UIScrollView momentum keeps
+        // producing more. Drop the pending deltas and freeze the scroll
+        // mechanics at the current offset (the standard kill-deceleration
+        // idiom) so typed input deterministically lands at the bottom.
+        pendingScrollLines = 0
+        scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
         enqueueScrollToBottom()
     }
 
@@ -3174,7 +3175,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               let surface,
               !isDismantled else { return }
         #if DEBUG
-        if debugSkipRenderDispatchForTesting { return }
+        if Self.debugSkipRenderDispatchForTesting { return }
         #endif
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)

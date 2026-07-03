@@ -40,8 +40,8 @@ struct TerminalInputScrollToBottomTests {
     private func makeHarness() throws -> Harness {
         let runtime = try GhosttyRuntime.shared()
         let delegate = InputCollectingDelegate()
+        GhosttySurfaceView.debugSkipRenderDispatchForTesting = true
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
-        view.debugSkipRenderDispatchForTesting = true
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         window.addSubview(view)
         view.frame = window.bounds
