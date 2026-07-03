@@ -57,6 +57,10 @@ extension PullRequestProbeService {
             debugLog("workspace.prRefresh.ci.fail repo=\(repoSlug)")
             return nil
         }
+        if !response.errors.isEmpty {
+            let messages = response.errors.map(\.message).prefix(3).joined(separator: " | ")
+            debugLog("workspace.prRefresh.ci.errors repo=\(repoSlug) count=\(response.errors.count) messages=\(messages)")
+        }
         return response.ciStatusesByPullRequestNumber
     }
 
@@ -193,9 +197,13 @@ private struct GitHubGraphQLRequest: Encodable {
     let variables: [String: String]
 }
 
-struct GitHubPullRequestCIStatusGraphQLResponse: Decodable, Sendable {
+private struct GitHubPullRequestCIStatusGraphQLResponse: Decodable, Sendable {
     struct DataContainer: Decodable, Sendable {
         let repository: Repository?
+    }
+
+    struct GraphQLErrorEntry: Decodable, Sendable {
+        let message: String
     }
 
     struct Repository: Decodable, Sendable {
@@ -220,7 +228,16 @@ struct GitHubPullRequestCIStatusGraphQLResponse: Decodable, Sendable {
     }
 
     struct CommitConnection: Decodable, Sendable {
-        let nodes: [CommitNode?]?
+        let nodes: [CommitNode?]
+
+        private enum CodingKeys: String, CodingKey {
+            case nodes
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            nodes = try container.decodeIfPresent([CommitNode?].self, forKey: .nodes) ?? []
+        }
     }
 
     struct CommitNode: Decodable, Sendable {
@@ -236,6 +253,17 @@ struct GitHubPullRequestCIStatusGraphQLResponse: Decodable, Sendable {
     }
 
     let data: DataContainer?
+    let errors: [GraphQLErrorEntry]
+
+    private enum CodingKeys: String, CodingKey {
+        case data, errors
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        data = try container.decodeIfPresent(DataContainer.self, forKey: .data)
+        errors = try container.decodeIfPresent([GraphQLErrorEntry].self, forKey: .errors) ?? []
+    }
 
     var ciStatusesByPullRequestNumber: [Int: PullRequestCIStatus] {
         var statuses: [Int: PullRequestCIStatus] = [:]
@@ -246,7 +274,7 @@ struct GitHubPullRequestCIStatusGraphQLResponse: Decodable, Sendable {
             guard let pullRequest else {
                 continue
             }
-            let latestCommitNode = pullRequest.commits?.nodes?.compactMap { $0 }.last
+            let latestCommitNode = pullRequest.commits?.nodes.compactMap { $0 }.last
             let state = latestCommitNode?.commit.statusCheckRollup?.state
             statuses[pullRequest.number] = PullRequestCIStatus(statusCheckRollupState: state)
         }

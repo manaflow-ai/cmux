@@ -180,26 +180,55 @@ import Testing
         #expect(PullRequestCIStatus(statusCheckRollupState: raw) == expected)
     }
 
-    @Test func graphQLCIStatusResponseDecodesLatestCommitRollups() throws {
-        let json = """
-        {
-          "data": {
-            "repository": {
-              "pr0": {"number": 1, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}},
-              "pr1": {"number": 2, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "ERROR"}}}]}},
-              "pr2": {"number": 3, "commits": {"nodes": [{"commit": {"statusCheckRollup": null}}]}},
-              "pr3": null
-            }
-          }
-        }
-        """
-        let response = try #require(
-            PullRequestProbeService.decodeJSON(
-                GitHubPullRequestCIStatusGraphQLResponse.self,
-                from: Data(json.utf8)
+    @Test func ciStatusFetchQueriesExactPullRequestNumbersAndDecodesRollups() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PullRequestCIMockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        PullRequestCIMockURLProtocol.handler = { request in
+            let body = String(
+                decoding: PullRequestCIMockURLProtocol.bodyData(from: request),
+                as: UTF8.self
             )
+            #expect(body.contains("pullRequest(number: 1)"))
+            #expect(body.contains("pullRequest(number: 2)"))
+            #expect(body.contains("pullRequest(number: 3)"))
+            #expect(!body.contains("pullRequests(states: OPEN"))
+            let json = """
+            {
+              "data": {
+                "repository": {
+                  "pr0": {"number": 1, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}},
+                  "pr1": {"number": 2, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "ERROR"}}}]}},
+                  "pr2": {"number": 3, "commits": {"nodes": [{"commit": {"statusCheckRollup": null}}]}},
+                  "pr3": null
+                }
+              },
+              "errors": [{"message": "partial but decodable"}]
+            }
+            """
+            guard let url = request.url else {
+                throw URLError(.badURL)
+            }
+            guard let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            ) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, Data(json.utf8))
+        }
+        defer { PullRequestCIMockURLProtocol.handler = nil }
+
+        let service = PullRequestProbeService()
+        let statuses = await service.pullRequestCIStatusesByNumber(
+            repoSlug: "manaflow-ai/cmux",
+            pullRequestNumbers: [1, 2, 3],
+            session: session,
+            authHeader: "Bearer test-token"
         )
-        #expect(response.ciStatusesByPullRequestNumber == [1: .success, 2: .failure, 3: .neutral])
+        #expect(statuses == [1: .success, 2: .failure, 3: .neutral])
     }
 
     @Test func openPullRequestNumbersOnlyIncludesRequestedOpenBranches() {
@@ -366,5 +395,62 @@ import Testing
         }
         #expect(resolved.statusRawValue == PullRequestStatus.merged.rawValue)
         #expect(resolved.ciStatus == .neutral)
+    }
+}
+
+private final class PullRequestCIMockURLProtocol: URLProtocol {
+    // Test-only URLProtocol hook; each test clears it before returning.
+    nonisolated(unsafe) static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+
+    static func bodyData(from request: URLRequest) -> Data {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            return Data()
+        }
+
+        stream.open()
+        defer { stream.close() }
+
+        var data = Data()
+        let bufferSize = 1024
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+
+        while stream.hasBytesAvailable {
+            let count = stream.read(buffer, maxLength: bufferSize)
+            guard count > 0 else {
+                break
+            }
+            data.append(buffer, count: count)
+        }
+        return data
     }
 }

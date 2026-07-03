@@ -13944,6 +13944,7 @@ struct TabItemView: View, Equatable {
                                     .foregroundColor(pullRequestCIStatusColor(ciStatus))
                                     .frame(width: scaledFontSize(12), height: scaledFontSize(12))
                                     .safeHelp(ciStatus.localizedHelp)
+                                    .accessibilityLabel(ciStatus.localizedHelp)
                             }
                             Spacer(minLength: 0)
                         }
