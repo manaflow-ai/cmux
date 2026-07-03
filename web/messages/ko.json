@@ -799,6 +799,8 @@
       "exampleConfig": "예시 설정",
       "metaTitle": "설정",
       "schemaDescriptions": {
+        "paneBorderColor": "분할된 작업 공간에서 cmux 창 구분선 색상을 재정의합니다. Ghostty 내부 분할이 아니라 cmux 창 경계에 적용됩니다.",
+        "activePaneBorderColor": "분할된 작업 공간에서 포커스된 cmux 창 주위에 그릴 선택적 테두리 색상입니다.",
         "automation": {
           "ampIntegration": "Amp의 cmux 통합 훅을 활성화합니다. 비활성화하면 번들된 플러그인은 제거하지 않고도 비활성 상태로 유지됩니다.",
           "suppressSubagentNotifications": "중첩된 Codex 또는 Claude 하위 에이전트의 표시되는 완료 알림과 상태 변경을 억제하면서 해당 이벤트는 Feed 텔레메트리에 유지합니다.",
