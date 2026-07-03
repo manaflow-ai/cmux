@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxMobileSupport
 
 /// Errors surfaced while connecting to or talking with a paired Mac over the
 /// mobile-sync RPC transport.
@@ -25,15 +26,30 @@ public enum MobileShellConnectionError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidResponse:
-            return "Invalid mobile sync response"
+            return L10n.string(
+                "mobile.connection.invalidResponse",
+                defaultValue: "Invalid mobile sync response"
+            )
         case .connectionClosed:
-            return "Mobile sync connection closed"
+            return L10n.string(
+                "mobile.connection.closed",
+                defaultValue: "Mobile sync connection closed"
+            )
         case .requestTimedOut:
-            return "Mobile sync request timed out"
+            return L10n.string(
+                "mobile.connection.timedOut",
+                defaultValue: "Mobile sync request timed out"
+            )
         case .insecureManualRoute:
-            return "Manual host route needs approval before mobile sync can send account credentials"
+            return L10n.string(
+                "mobile.connection.insecureManualRoute",
+                defaultValue: "Manual host route needs approval before mobile sync can send account credentials"
+            )
         case .attachTicketExpired:
-            return "Mobile attach ticket expired"
+            return L10n.string(
+                "mobile.connection.attachTicketExpired",
+                defaultValue: "Mobile attach ticket expired"
+            )
         case let .authorizationFailed(message):
             return message
         case let .accountMismatch(message):

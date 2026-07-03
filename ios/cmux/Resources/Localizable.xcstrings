@@ -8279,6 +8279,91 @@
           }
         }
       }
+    },
+    "mobile.connection.invalidResponse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid mobile sync response"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル同期の応答が無効です"
+          }
+        }
+      }
+    },
+    "mobile.connection.closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile sync connection closed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル同期接続が閉じられました"
+          }
+        }
+      }
+    },
+    "mobile.connection.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile sync request timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル同期リクエストがタイムアウトしました"
+          }
+        }
+      }
+    },
+    "mobile.connection.insecureManualRoute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual host route needs approval before mobile sync can send account credentials"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル同期がアカウント認証情報を送信する前に、手動ホストルートの承認が必要です"
+          }
+        }
+      }
+    },
+    "mobile.connection.attachTicketExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile attach ticket expired"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル接続チケットの有効期限が切れました"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
