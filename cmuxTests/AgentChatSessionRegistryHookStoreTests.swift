@@ -95,6 +95,45 @@ struct AgentChatSessionRegistryHookStoreTests {
         #expect(!AgentChatSessionRegistry.allowsUnidentifiedClaudeLivenessFallback(for: real))
     }
 
+    @Test func mobileChatObserverRejectsArgvOnlyClaudeNeedleWithoutLaunchKind() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 122,
+                    name: "node",
+                    path: "/opt/homebrew/bin/node",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 116),
+            includesProcessDetails: true
+        )
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 122 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "node",
+                        "/Users/example/.claude/local/node_modules/@anthropic-ai/claude-code/cli.js",
+                    ],
+                    environment: [
+                        "CLAUDE_CODE_SESSION_ID": sessionID,
+                        "CMUX_AGENT_LAUNCH_CWD": "/Users/example/not-authoritative",
+                    ]
+                )
+            },
+            codexRolloutPath: { _ in nil }
+        )
+
+        #expect(observed.isEmpty)
+    }
+
     @MainActor
     @Test func hookStoreSeedKeepsStaleRealEntrySeparateFromPendingClaudeSession() async throws {
         let home = try temporaryHomeDirectory()

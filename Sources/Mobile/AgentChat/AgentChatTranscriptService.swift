@@ -21,6 +21,7 @@ final class AgentChatTranscriptService {
     /// explicit history request retries, so per-hook-event resolution
     /// failures don't rescan the filesystem during tool storms.
     private var failedResolutions: Set<String> = []
+    private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
     /// Creates the service with a hook-store-backed registry.
     ///
@@ -232,7 +233,7 @@ final class AgentChatTranscriptService {
         case .codex:
             return true
         case .claude, .other:
-            return hasBoundedReadableTranscript(record)
+            return endedListability.shouldList(record)
         }
     }
 
@@ -423,6 +424,7 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
+        endedListability.update(record, previous: previous, resolver: resolver)
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
         if stateChanged, record.state == .ended {
@@ -458,6 +460,7 @@ final class AgentChatTranscriptService {
             Task { await tailer.stop() }
         }
         failedResolutions.remove(record.sessionID)
+        endedListability.remove(sessionID: record.sessionID)
         guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
         emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
     }

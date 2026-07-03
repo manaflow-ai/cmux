@@ -379,6 +379,7 @@ final class AgentChatSessionRegistry {
                 records[sessionID] = record
                 syncProcessExitWatch(for: record)
                 updateLiveSessionIndex(previous: nil, current: record)
+                onRecordChanged?(record, nil)
             }
         }
     }

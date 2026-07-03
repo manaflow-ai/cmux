@@ -37,6 +37,7 @@ struct AgentChatSessionRegistryClaudeObservationTests {
                         "/Users/example/.bun/install/global/node_modules/@anthropic-ai/claude-code/cli.js",
                     ],
                     environment: [
+                        "CMUX_AGENT_LAUNCH_KIND": "claude",
                         "CLAUDE_CODE_SESSION_ID": sessionID,
                         "CMUX_AGENT_LAUNCH_CWD": "/Users/example/bun-project",
                     ]
@@ -212,6 +213,7 @@ struct AgentChatSessionRegistryClaudeObservationTests {
                         "/Users/example/.bun/install/global/node_modules/@anthropic-ai/claude-code/cli.js",
                     ],
                     environment: [
+                        "CMUX_AGENT_LAUNCH_KIND": "claude",
                         "CLAUDE_CODE_SESSION_ID": includedSessionID,
                         "CMUX_AGENT_LAUNCH_CWD": "/Users/example/scoped-project",
                     ]
@@ -338,6 +340,7 @@ struct AgentChatSessionRegistryClaudeObservationTests {
                 return CmuxTopProcessArguments(
                     arguments: ["claude"],
                     environment: [
+                        "CMUX_AGENT_LAUNCH_KIND": "claude",
                         "CLAUDE_CODE_SESSION_ID": expectedSessionID,
                     ]
                 )

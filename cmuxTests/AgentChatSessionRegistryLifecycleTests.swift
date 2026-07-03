@@ -382,6 +382,15 @@ struct AgentChatSessionRegistryLifecycleTests {
         try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         #expect(service.hasBoundedReadableTranscript(record))
+        _ = service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID, hookEventName: .sessionEnd, source: "claude",
+            workspaceId: record.workspaceID, surfaceId: record.surfaceID,
+            transcriptPath: transcriptURL.path, cwd: "/Users/example/project", ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 250)
+        ))
+        let cachedRecord = try #require(service.sessionRecord(sessionID: sessionID))
+        #expect(cachedRecord.state == .ended)
+        #expect(service.shouldListEndedSession(cachedRecord))
     }
 
     @MainActor
@@ -450,7 +459,6 @@ struct AgentChatSessionRegistryLifecycleTests {
         record.rememberHookStoreSessionID(realSessionID)
 
         #expect(service.hasBoundedReadableTranscript(record))
-        #expect(service.shouldListEndedSession(record))
     }
 
     private func temporaryHomeDirectory() throws -> URL {

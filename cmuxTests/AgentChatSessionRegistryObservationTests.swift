@@ -37,6 +37,7 @@ struct AgentChatSessionRegistryObservationTests {
                         "/Users/example/.claude/local/node_modules/@anthropic-ai/claude-code/cli.js",
                     ],
                     environment: [
+                        "CMUX_AGENT_LAUNCH_KIND": "claude",
                         "CLAUDE_CODE_SESSION_ID": sessionID,
                         "CMUX_AGENT_LAUNCH_CWD": "/Users/example/project",
                     ]
@@ -348,6 +349,7 @@ struct AgentChatSessionRegistryObservationTests {
                         "/Users/example/.claude/local/node_modules/@anthropic-ai/claude-code/cli.js",
                     ],
                     environment: [
+                        "CMUX_AGENT_LAUNCH_KIND": "claude",
                         "CLAUDE_CODE_SESSION_ID": "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
                     ]
                 )

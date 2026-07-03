@@ -294,7 +294,7 @@ extension AgentChatSessionRegistry {
             processName: process.name,
             processPath: process.path
         )
-        if let direct = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+        if let direct = authoritativeCodingAgentDefinition(
             processName: process.name,
             processPath: process.path,
             arguments: [],
@@ -308,12 +308,46 @@ extension AgentChatSessionRegistry {
         guard let details = processArgumentsAndEnvironment(process.pid) else {
             return nil
         }
-        return CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+        return authoritativeCodingAgentDefinition(
             processName: process.name,
             processPath: process.path,
             arguments: details.arguments,
             environment: details.environment
         )
+    }
+
+    private nonisolated static func authoritativeCodingAgentDefinition(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String]
+    ) -> CmuxTaskManagerCodingAgentDefinition? {
+        let definitions = CmuxTaskManagerCodingAgentDefinition.builtIns
+        if let launchKind = normalizedObserverValue(environment["CMUX_AGENT_LAUNCH_KIND"]),
+           let def = definitions.first(where: { $0.launchKinds.contains(launchKind) }) {
+            return def
+        }
+        let basenames = Set([processName, processPath, arguments.first].compactMap(observerBasename))
+        if let def = definitions.first(where: { def in basenames.contains { def.directBasenames.contains($0) } }) {
+            return def
+        }
+        guard let path = normalizedObserverValue(processPath) else { return nil }
+        return definitions.first { def in
+            def.argumentNeedles.contains { needle in
+                guard needle.hasSuffix("/"),
+                      let normalizedNeedle = normalizedObserverValue(needle) else { return false }
+                return path.contains(normalizedNeedle)
+            }
+        }
+    }
+
+    private nonisolated static func observerBasename(_ value: String?) -> String? {
+        normalizedObserverValue(value.map { ($0 as NSString).lastPathComponent })
+    }
+
+    private nonisolated static func normalizedObserverValue(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     private nonisolated static func observedWorkingDirectory(_ environment: [String: String]?) -> String? {
