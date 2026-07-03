@@ -9925,8 +9925,7 @@ struct CMUXCLI {
             ? ""
             : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
         let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
-        let trimmedControlPathPreflight = controlPathPreflightShellFunction?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedControlPathPreflight = controlPathPreflightShellFunction?.trimmingCharacters(in: .whitespacesAndNewlines)
         var scriptLines: [String] = []
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
@@ -9946,7 +9945,7 @@ struct CMUXCLI {
             "CMUX_SSH_CHILD_PID=",
             "CMUX_SSH_PENDING_SIGNAL=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
-            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
+            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }; \(sshRemoteReconnectShellFunction())",
             "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129' HUP",
@@ -9989,10 +9988,11 @@ struct CMUXCLI {
             "    if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
             "  done",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
+            "  cmux_ssh_session_end",
             "  printf \(shellQuote(sshManualReconnectExitPromptFormat())) \"$cmux_ssh_status\" >&2 || true",
             "  if IFS= read -r _cmux_dismiss_key 2>/dev/null; then",
             "    case \"$_cmux_dismiss_key\" in",
-            "      r|R|retry|reconnect) continue ;;",
+            "      r|R|retry|reconnect) cmux_ssh_remote_reconnect && CMUX_SSH_SESSION_ENDED=0 && continue ;;",
             "    esac",
             "  fi",
             "  break",

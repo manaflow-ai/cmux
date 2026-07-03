@@ -54,9 +54,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "2",
             "manual `r` retry must re-run the SSH connect loop a second time"
         )
-        let sessionEndCalls = ((try? String(contentsOf: logFile, encoding: .utf8)) ?? "")
+        let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
+        let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, result.stderr)
+        XCTAssertEqual(sessionEndCalls.count, 2, result.stderr)
+        XCTAssertTrue(
+            recordedCalls.contains("rpc workspace.remote.reconnect {\"workspace_id\":\"11111111-1111-1111-1111-111111111111\",\"surface_id\":\"22222222-2222-2222-2222-222222222222\"}"),
+            recordedCalls
+        )
     }
 }
