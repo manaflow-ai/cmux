@@ -1,6 +1,19 @@
 public import Foundation
 @preconcurrency import Sparkle
 
+private let sparkleResumeAppcastErrorCode = 1004
+private let sparkleTemporaryDirectoryErrorCode = 2000
+private let sparkleDownloadErrorCode = 2001
+private let sparkleUnarchivingErrorCode = 3000
+private let sparkleFileCopyFailureErrorCode = 4000
+private let sparkleAuthenticationFailureErrorCode = 4001
+private let sparkleMissingUpdateErrorCode = 4002
+private let sparkleMissingInstallerToolErrorCode = 4003
+private let sparkleRelaunchErrorCode = 4004
+private let sparkleInstallationErrorCode = 4005
+private let sparkleAgentInvalidationErrorCode = 4010
+private let sparkleInstallationWriteNoPermissionErrorCode = 4012
+
 /// Chooses a direct-download recovery URL for update failures where the in-app install path is
 /// broken but fetching the active channel manually is still safe.
 public struct UpdateManualDownloadRecovery: Sendable {
@@ -39,11 +52,18 @@ public struct UpdateManualDownloadRecovery: Sendable {
         }
         guard nsError.domain == SUSparkleErrorDomain else { return nil }
         switch nsError.code {
-        case 1004,                                    // SUResumeAppcastError
-             2000, 2001,                              // temp-directory / download failures
-             3000,                                    // SUUnarchivingError
-             4000, 4001, 4002, 4003, 4004, 4005, 4006, // file copy / auth / installer failures
-             4010, 4012:                              // agent invalidation / write-permission failures
+        case sparkleResumeAppcastErrorCode,
+             sparkleTemporaryDirectoryErrorCode,
+             sparkleDownloadErrorCode,
+             sparkleUnarchivingErrorCode,
+             sparkleFileCopyFailureErrorCode,
+             sparkleAuthenticationFailureErrorCode,
+             sparkleMissingUpdateErrorCode,
+             sparkleMissingInstallerToolErrorCode,
+             sparkleRelaunchErrorCode,
+             sparkleInstallationErrorCode,
+             sparkleAgentInvalidationErrorCode,
+             sparkleInstallationWriteNoPermissionErrorCode:
             return channelURL(feedURLString: feedURLString)
         default:
             return nil

@@ -184,7 +184,7 @@ import Testing
         #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
     }
 
-    @Test(arguments: [1000, 1001, 1002, 3, 4, 3001, 3002])
+    @Test(arguments: [1000, 1001, 1002, 3, 4, 3001, 3002, 4006])
     func feedSignatureAndNoUpdateErrorsDoNotOfferManualDownload(code: Int) {
         let err = NSError(domain: "SUSparkleErrorDomain", code: code)
         #expect(UpdateManualDownloadRecovery().url(for: err) == nil)
