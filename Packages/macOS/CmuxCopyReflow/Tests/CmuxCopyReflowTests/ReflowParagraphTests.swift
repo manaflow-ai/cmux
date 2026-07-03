@@ -89,6 +89,13 @@ struct ReflowParagraphTests {
         #expect(reflow(input) == input)
     }
 
+    @Test func longUniformlyIndentedCodeBlockIsNotJoined() {
+        let input =
+            "    let firstValue = computeSomethingWithSeveralArguments(foo, bar, baz)\n"
+            + "    let secondValue = computeSomethingElse(foo)\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func shortAssignmentContinuationIsNotJoined() {
         let input = "let value =\n    compute()\n"
         #expect(reflow(input) == input)

@@ -129,6 +129,7 @@ private extension ReflowOptions {
                     prevEndsTerminator: lastNonSpaceIsTerminator(line),
                     prevHasSpace: line.contains(" "),
                     prevContent: String(line),
+                    allowsWidthJoin: true,
                     isProse: false
                 )
 
@@ -157,6 +158,7 @@ private extension ReflowOptions {
                         prevEndsTerminator: endsTerminator,
                         prevHasSpace: hasSpace,
                         prevContent: content,
+                        allowsWidthJoin: commonIndent < 4,
                         isProse: true
                     )
                 }
@@ -180,6 +182,7 @@ private extension ReflowOptions {
                     let previousLineWasFull = p.prevVisibleLength >= minWrapWidth
                         && p.prevVisibleLength + max(0, widthTolerance) >= candidateMaxVisibleLength
                     let s4 = p.prevHasSpace
+                        && p.allowsWidthJoin
                         && previousLineWasFull
                         && (startsLowercaseLetter(content) || startsCommandContinuationToken(content))
                     let canJoin = !p.prevEndsTerminator && (s1 || s3 || s4)
@@ -405,6 +408,9 @@ private struct Paragraph {
     var prevHasSpace: Bool
     /// Normalized content of the most recently appended physical line.
     var prevContent: String
+    /// Whether the paragraph can use width-only joins. Uniform code-block-sized
+    /// indentation is preserved unless a stronger continuation-indent signal fires.
+    var allowsWidthJoin: Bool
     /// Whether this paragraph is ordinary prose (vs a list item). Only prose
     /// paragraphs participate in blank-line paragraph separation.
     var isProse: Bool
