@@ -6,3 +6,16 @@ public struct UpdateStateChange {
     /// The override state captured when the transition was emitted.
     public let overrideState: UpdateState?
 }
+
+extension UpdateStateChange {
+    func canCoalesceProgress(with newer: UpdateStateChange) -> Bool {
+        guard overrideState == nil, newer.overrideState == nil else { return false }
+        switch (state, newer.state) {
+        case (.downloading, .downloading),
+             (.extracting, .extracting):
+            return true
+        default:
+            return false
+        }
+    }
+}

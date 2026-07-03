@@ -88,9 +88,17 @@ public final class UpdateStateModel {
     }
 
     private func notifyStateChanged() {
-        pendingChanges.append(UpdateStateChange(state: state, overrideState: overrideState))
+        appendPendingChange(UpdateStateChange(state: state, overrideState: overrideState))
         for continuation in changeObservers.values {
             continuation.yield(())
+        }
+    }
+
+    private func appendPendingChange(_ change: UpdateStateChange) {
+        if let last = pendingChanges.last, last.canCoalesceProgress(with: change) {
+            pendingChanges[pendingChanges.count - 1] = change
+        } else {
+            pendingChanges.append(change)
         }
     }
 

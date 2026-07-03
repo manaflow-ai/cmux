@@ -26,6 +26,34 @@ import Testing
         #expect(model.overrideState == .notFound(.init(acknowledgement: {})))
     }
 
+    @Test func progressStateChangesCoalesceBeforeDrain() {
+        let model = UpdateStateModel()
+
+        model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 10)))
+        model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 50)))
+        model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 90)))
+
+        let changes = model.drainPendingChanges()
+        #expect(changes.count == 1)
+        guard case .downloading(let download) = changes.first?.state else {
+            Issue.record("expected latest downloading state")
+            return
+        }
+        #expect(download.progress == 90)
+    }
+
+    @Test func controlStateChangesStayOrderedBeforeDrain() {
+        let model = UpdateStateModel()
+
+        model.setState(.idle)
+        model.setState(.checking(.init(cancel: {})))
+        model.setState(.idle)
+
+        let changes = model.drainPendingChanges()
+        #expect(changes.count == 3)
+        #expect(changes.map(\.state) == [.idle, .checking(.init(cancel: {})), .idle])
+    }
+
     @Test func effectiveStatePrefersOverride() {
         let model = UpdateStateModel()
         model.setState(.idle)
