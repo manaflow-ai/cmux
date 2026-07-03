@@ -749,6 +749,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Last oversized-grid recovery attempt per surface, pacing viewport
     /// re-assertion and barrier re-arming while a producer stays diverged.
     var oversizedTerminalGridRecoveryLastAttemptsBySurfaceID: [String: Date] = [:]
+    /// The replay barrier token whose recovery already re-asserted this
+    /// phone's viewport, per surface. A new barrier (a fresh recovery episode)
+    /// always gets its first re-assert even when the per-surface pacing
+    /// timestamp is still warm from the previous episode — the re-assert is
+    /// the only signal that drives the Mac to re-cap.
+    var oversizedRecoveryReassertedBarrierTokensBySurfaceID: [String: UUID] = [:]
     /// The remote client through which the Mac proved it honors
     /// `mobile.terminal.viewport` by returning an effective grid. Together
     /// with the advertised `terminal.viewport.v1` capability this gates the
@@ -5273,6 +5279,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalActiveScreenBySurfaceID = [:]
         oversizedTerminalGridRecoveryLastAttemptsBySurfaceID = [:]
+        oversizedRecoveryReassertedBarrierTokensBySurfaceID = [:]
         oversizedRecoveryObservedFittingFrameSurfaceIDs = []
         terminalViewportRPCConfirmedClientID = nil
         terminalReplaySurfaceIDsInFlight = []
@@ -7000,6 +7007,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
         reportedTerminalViewportGridsBySurfaceID.removeValue(forKey: surfaceID)
         oversizedTerminalGridRecoveryLastAttemptsBySurfaceID.removeValue(forKey: surfaceID)
+        oversizedRecoveryReassertedBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         oversizedRecoveryObservedFittingFrameSurfaceIDs.remove(surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.

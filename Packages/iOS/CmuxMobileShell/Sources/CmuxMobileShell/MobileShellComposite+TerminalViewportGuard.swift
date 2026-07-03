@@ -127,6 +127,7 @@ extension MobileShellComposite {
             recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
             requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
             oversizedTerminalGridRecoveryLastAttemptsBySurfaceID[surfaceID] = now
+            oversizedRecoveryReassertedBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
             logOversizedGridHold(columns: columns, rows: rows, surfaceID: surfaceID, source: source)
             reassertReportedViewport(surfaceID: surfaceID)
             return
@@ -137,11 +138,23 @@ extension MobileShellComposite {
             // recovery instead of releasing the still-diverged stream.
             recordWithheldOutputForReplayBarrier(surfaceID: surfaceID)
         }
-        if let lastAttempt = oversizedTerminalGridRecoveryLastAttemptsBySurfaceID[surfaceID],
+        // Pace within one recovery episode, but always give a NEW barrier its
+        // first viewport re-assert: a replay-origin barrier (reset/self-heal)
+        // whose response reveals the divergence may be the only signal on an
+        // idle surface, and skipping its re-assert because a previous episode
+        // ran recently would leave the Mac uncapped and the stream held.
+        let currentBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID]
+        let isNewBarrierEpisode = currentBarrierToken != nil
+            && oversizedRecoveryReassertedBarrierTokensBySurfaceID[surfaceID] != currentBarrierToken
+        if !isNewBarrierEpisode,
+           let lastAttempt = oversizedTerminalGridRecoveryLastAttemptsBySurfaceID[surfaceID],
            now.timeIntervalSince(lastAttempt) < Self.oversizedTerminalGridRecoveryInterval {
             return
         }
         oversizedTerminalGridRecoveryLastAttemptsBySurfaceID[surfaceID] = now
+        if let currentBarrierToken {
+            oversizedRecoveryReassertedBarrierTokensBySurfaceID[surfaceID] = currentBarrierToken
+        }
         logOversizedGridHold(columns: columns, rows: rows, surfaceID: surfaceID, source: source)
         reassertReportedViewport(surfaceID: surfaceID)
         // Leave an in-flight barrier replay alone; otherwise nudge the
@@ -278,6 +291,7 @@ extension MobileShellComposite {
             // No barrier holds the stream: the recovery episode is over. Drop
             // the pacing marker so a later divergence starts fresh.
             oversizedTerminalGridRecoveryLastAttemptsBySurfaceID.removeValue(forKey: surfaceID)
+            oversizedRecoveryReassertedBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
             oversizedRecoveryObservedFittingFrameSurfaceIDs.remove(surfaceID)
             return
         }

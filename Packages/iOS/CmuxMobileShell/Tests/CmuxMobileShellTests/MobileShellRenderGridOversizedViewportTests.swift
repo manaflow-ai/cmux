@@ -1097,6 +1097,93 @@ private func unsequencedTerminalBytesEventFrame(
 }
 
 @MainActor
+@Test func replayOriginBarrierGetsFirstReassertDespiteWarmPacing() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 0,
+        text: "pre-probe"
+    ))
+    let probeDelivered = try await pollUntil { collector.lines.contains { $0.contains("pre-probe") } }
+    #expect(probeDelivered, "raw bytes must flow before the oversized frame arrives")
+
+    _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+
+    // Episode 1: a live oversized frame recovers via a fitting replay,
+    // leaving the per-surface pacing timestamp warm.
+    await router.enqueueReplayRenderGridFrames([
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 40,
+            columns: 20,
+            rows: 6,
+            full: true,
+            rowSpans: [
+                MobileTerminalRenderGridFrame.RowSpan(row: 0, column: 0, styleID: 0, text: "converged"),
+            ]
+        ),
+    ])
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 20,
+        columns: 90,
+        rows: 40,
+        text: "oversized",
+        full: false
+    ))
+    let firstConverged = try await pollUntil { collector.lines.contains { $0.contains("converged") } }
+    #expect(firstConverged, "the first recovery must repaint the mirror")
+    let viewportBaseline = await router.count(of: "mobile.terminal.viewport")
+
+    // Episode 2, within the pacing interval: a replay-origin barrier (idle
+    // self-heal) whose response reveals the diverged grid. Its FIRST
+    // re-assert must not be skipped by the warm pacing — it is the only
+    // signal that drives the Mac to re-cap.
+    await router.enqueueReplayRawTail(text: "FALLBACK-SPLICE", columns: 90, rows: 40)
+    let episodeTwoFrames = try (0..<2).map { index in
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 41 + UInt64(index),
+            columns: 20,
+            rows: 6,
+            full: true,
+            rowSpans: [
+                MobileTerminalRenderGridFrame.RowSpan(row: 0, column: 0, styleID: 0, text: "converged"),
+            ]
+        )
+    }
+    await router.enqueueReplayRenderGridFrames(episodeTwoFrames)
+    store.terminalOutputNeedsReplay(surfaceID: "live-terminal")
+
+    let sawEpisodeTwoReassert = try await pollUntil {
+        await router.count(of: "mobile.terminal.viewport") > viewportBaseline
+    }
+    #expect(
+        sawEpisodeTwoReassert,
+        "a new replay-origin barrier must get its first viewport re-assert even while the pacing timestamp is warm"
+    )
+    let secondConverged = try await pollUntil {
+        collector.lines.filter { $0.contains("converged") }.count >= 2
+    }
+    #expect(secondConverged, "the retried replay must repaint the mirror again")
+    #expect(
+        collector.lines.contains { $0.contains("FALLBACK-SPLICE") } == false,
+        "diverged fallback responses must never paint"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func fittingRenderGridFramesKeepOutputFlowing() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
