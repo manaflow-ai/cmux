@@ -1,8 +1,8 @@
-import XCTest
+import Testing
 import Darwin
 
 extension CLINotifyProcessIntegrationRegressionTests {
-    func testSSHPaneCloseSignalDoesNotReportSessionEndToSharedTransport() throws {
+    @Test func testSSHPaneCloseSignalDoesNotReportSessionEndToSharedTransport() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-pane-close-\(UUID().uuidString)", isDirectory: true)
@@ -51,21 +51,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 timeout: 5
             )
 
-            XCTAssertFalse(result.timedOut, result.stderr)
-            let expectedStatus = try XCTUnwrap(expectedStatuses[signal])
-            XCTAssertEqual(result.status, expectedStatus, result.stderr)
+            #expect(!result.timedOut, "\(result.stderr)")
+            let expectedStatus = try #require(expectedStatuses[signal])
+            #expect(result.status == expectedStatus, "\(result.stderr)")
             let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
             let sessionEndCalls = recordedCalls
                 .split(separator: "\n")
                 .filter { $0.contains("ssh-session-end") }
-            XCTAssertTrue(
+            #expect(
                 sessionEndCalls.isEmpty,
                 "Pane-close \(signal) must not call ssh-session-end because that can tear down the shared SSH transport and kill sibling panes; recorded: \(recordedCalls)"
             )
         }
     }
 
-    func testSSHPaneCloseSignalDoesNotTerminateWrappedSSHChild() throws {
+    @Test func testSSHPaneCloseSignalDoesNotTerminateWrappedSSHChild() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-pane-close-child-\(UUID().uuidString)", isDirectory: true)
@@ -122,10 +122,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 timeout: 5
             )
 
-            XCTAssertFalse(result.timedOut, result.stderr)
-            let expectedStatus = try XCTUnwrap(expectedStatuses[signal])
-            XCTAssertEqual(result.status, expectedStatus, result.stderr)
-            XCTAssertTrue(
+            #expect(!result.timedOut, "\(result.stderr)")
+            let expectedStatus = try #require(expectedStatuses[signal])
+            #expect(result.status == expectedStatus, "\(result.stderr)")
+            #expect(
                 waitForSSHSignalLifecycleLog(childSignalLog) { contents in
                     contents.contains("child-completed") ||
                     contents.contains("child-hup") ||
@@ -135,22 +135,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "Timed out waiting for fake SSH child to record completion or signal for \(signal)"
             )
             let childSignalLogContents = (try? String(contentsOf: childSignalLog, encoding: .utf8)) ?? ""
-            XCTAssertTrue(childSignalLogContents.contains("child-started"), childSignalLogContents)
-            XCTAssertFalse(
-                childSignalLogContents.contains("child-hup") ||
-                childSignalLogContents.contains("child-int") ||
-                childSignalLogContents.contains("child-term"),
+            #expect(childSignalLogContents.contains("child-started"), "\(childSignalLogContents)")
+            #expect(
+                !(childSignalLogContents.contains("child-hup") ||
+                    childSignalLogContents.contains("child-int") ||
+                    childSignalLogContents.contains("child-term")),
                 "Pane-close \(signal) should let the terminal/PTY teardown own the child process; explicitly signaling the SSH child can kill the shared control-master path and sibling panes. Log: \(childSignalLogContents)"
             )
             let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
             let sessionEndCalls = recordedCalls
                 .split(separator: "\n")
                 .filter { $0.contains("ssh-session-end") }
-            XCTAssertTrue(sessionEndCalls.isEmpty, recordedCalls)
+            #expect(sessionEndCalls.isEmpty, "\(recordedCalls)")
         }
     }
 
-    func testSSHStartupRetriesTransientSSHExitBeforeReportingSessionEnd() throws {
+    @Test func testSSHStartupRetriesTransientSSHExitBeforeReportingSessionEnd() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-reconnect-\(UUID().uuidString)", isDirectory: true)
@@ -196,21 +196,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 0, "\(result.stderr)")
         // The regular `cmux ssh` bootstrap path runs one SSH command to install
         // the remote bootstrap and another to open the session. A transient
         // install-channel failure therefore yields three raw SSH invocations:
         // failed install, retried install, successful session.
-        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
+        #expect((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) == "3")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        #expect(sessionEndCalls.count == 1, "\(recordedCalls)")
     }
 
-    func testSSHStartupRemovesStaleCmuxControlSocketBeforeLaunchingPaneSSH() throws {
+    @Test func testSSHStartupRemovesStaleCmuxControlSocketBeforeLaunchingPaneSSH() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-stale-control-\(UUID().uuidString)", isDirectory: true)
@@ -228,7 +228,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let staleSocketFD = try bindUnixSocket(at: staleControlPath.path)
         Darwin.close(staleSocketFD)
-        XCTAssertTrue(fileManager.fileExists(atPath: staleControlPath.path))
+        #expect(fileManager.fileExists(atPath: staleControlPath.path))
 
         try writeShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
@@ -282,16 +282,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertFalse(fileManager.fileExists(atPath: staleControlPath.path))
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 0, "\(result.stderr)")
+        #expect(!fileManager.fileExists(atPath: staleControlPath.path))
 
         let sshLog = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
-        XCTAssertTrue(sshLog.contains("-G"), sshLog)
-        XCTAssertTrue(sshLog.contains("-O check"), sshLog)
+        #expect(sshLog.contains("-G"), "\(sshLog)")
+        #expect(sshLog.contains("-O check"), "\(sshLog)")
     }
 
-    func testSSHStartupStopsAtConfiguredReconnectLimit() throws {
+    @Test func testSSHStartupStopsAtConfiguredReconnectLimit() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-retry-limit-\(UUID().uuidString)", isDirectory: true)
@@ -337,17 +337,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 255, result.stderr)
-        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 255, "\(result.stderr)")
+        #expect((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) == "3")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        #expect(sessionEndCalls.count == 1, "\(recordedCalls)")
     }
 
-    func testSSHStartupDoesNotRetryNonTransientSSHExit() throws {
+    @Test func testSSHStartupDoesNotRetryNonTransientSSHExit() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-no-retry-\(UUID().uuidString)", isDirectory: true)
@@ -392,17 +392,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 1, result.stderr)
-        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "1")
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 1, "\(result.stderr)")
+        #expect((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) == "1")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        #expect(sessionEndCalls.count == 1, "\(recordedCalls)")
     }
 
-    func testSSHSignalDerivedChildExitReportsSessionEnd() throws {
+    @Test func testSSHSignalDerivedChildExitReportsSessionEnd() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-child-signal-exit-\(UUID().uuidString)", isDirectory: true)
@@ -441,16 +441,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 130, result.stderr)
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 130, "\(result.stderr)")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        #expect(sessionEndCalls.count == 1, "\(recordedCalls)")
     }
 
-    func testSSHSignalDuringReconnectDelayDoesNotStartAnotherSSH() throws {
+    @Test func testSSHSignalDuringReconnectDelayDoesNotStartAnotherSSH() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-signal-during-reconnect-\(UUID().uuidString)", isDirectory: true)
@@ -500,17 +500,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 143, result.stderr)
-        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "1")
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 143, "\(result.stderr)")
+        #expect((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) == "1")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        #expect(sessionEndCalls.count == 1, "\(recordedCalls)")
     }
 
-    func testSSHStartupPrintsFinalErrorBannerWhenStderrIsCaptured() throws {
+    @Test func testSSHStartupPrintsFinalErrorBannerWhenStderrIsCaptured() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-error-banner-\(UUID().uuidString)", isDirectory: true)
@@ -549,13 +549,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 1, result.stderr)
-        XCTAssertTrue(result.stderr.contains("[cmux] ssh exited with status 1."), result.stderr)
-        XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 1, "\(result.stderr)")
+        #expect(result.stderr.contains("[cmux] ssh exited with status 1."), "\(result.stderr)")
+        #expect(result.stderr.contains("[cmux] press Enter to close this pane."), "\(result.stderr)")
     }
 
-    func testSSHStartupForwardsStdinToBackgroundedSSH() throws {
+    @Test func testSSHStartupForwardsStdinToBackgroundedSSH() throws {
         // Regression test for cmux ssh sessions where output flowed back from
         // the remote (prompt rendered) but typed keystrokes never reached the
         // remote shell after PR #3786 backgrounded `ssh` inside the startup
@@ -608,18 +608,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 0, "\(result.stderr)")
         let recorded = (try? String(contentsOf: stdinCapture, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        XCTAssertEqual(
-            recorded,
-            "FORWARDED_KEYSTROKE",
+        #expect(
+            recorded == "FORWARDED_KEYSTROKE",
             "Backgrounded ssh in the startup wrapper must inherit the wrapper's stdin so that keystrokes from the surface PTY reach the remote shell. Got: \(recorded.isEmpty ? "<empty>" : recorded)"
         )
     }
 
-    func testSSHStartupWaitsForLockedAgentInsteadOfExhaustingReconnectLimit() throws {
+    @Test func testSSHStartupWaitsForLockedAgentInsteadOfExhaustingReconnectLimit() throws {
         // Regression test for https://github.com/manaflow-ai/cmux/issues/6549.
         // On wake from sleep the 1Password SSH agent is still locked, so every
         // reconnect attempt fails instantly with `agent refused operation`.
@@ -681,24 +680,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 10
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(
-            result.status,
-            0,
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(
+            result.status == 0,
             "A locked SSH agent must not exhaust the network reconnect budget; the session should auto-reconnect once the agent is unlocked. stderr: \(result.stderr)"
         )
         let attempts = Int(
             (try? String(contentsOf: attemptFile, encoding: .utf8))?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         ) ?? 0
-        XCTAssertGreaterThan(
-            attempts,
-            3,
+        #expect(
+            attempts > 3,
             "Wrapper should have kept retrying past the network reconnect limit (2) while the agent was locked; saw \(attempts) attempts."
         )
     }
 
-    func testSSHStartupSurfacesAgentUnavailableBannerWhenAgentStaysLocked() throws {
+    @Test func testSSHStartupSurfacesAgentUnavailableBannerWhenAgentStaysLocked() throws {
         // Companion to the issue #6549 fix: when the SSH agent never unlocks, the
         // dedicated agent-wait budget is exhausted and the wrapper must surface a
         // distinct "unlock your agent and press Reconnect" banner instead of the
@@ -751,26 +748,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 10
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 255, result.stderr)
-        XCTAssertTrue(
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 255, "\(result.stderr)")
+        #expect(
             result.stderr.contains("SSH agent unavailable"),
             "Expected the agent-unavailable banner; got: \(result.stderr)"
         )
-        XCTAssertFalse(
-            result.stderr.contains("the remote VM may have been paused"),
+        #expect(
+            !result.stderr.contains("the remote VM may have been paused"),
             "A locked agent must not be reported as a paused/unreachable VM; got: \(result.stderr)"
         )
         let attempts = (try? String(contentsOf: attemptFile, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        XCTAssertEqual(
-            attempts,
-            "3",
+        #expect(
+            attempts == "3",
             "Wrapper should stop on the agent-wait budget (limit 2 => 3 attempts), not the 20-attempt network budget."
         )
     }
 
-    func testSSHStartupTreatsNonAgentSigningFailureAsNetworkFailure() throws {
+    @Test func testSSHStartupTreatsNonAgentSigningFailureAsNetworkFailure() throws {
         // Guards the issue #6549 classifier against false positives. A remote
         // startup command can print the bare "agent refused operation" phrase on
         // SSH's combined stderr stream, and OpenSSH also prints the
@@ -826,20 +822,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 10
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 255, result.stderr)
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 255, "\(result.stderr)")
         let attempts = (try? String(contentsOf: attemptFile, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        XCTAssertEqual(
-            attempts,
-            "3",
+        #expect(
+            attempts == "3",
             "A non-agent signing failure must follow the network reconnect budget (limit 2 => 3 attempts), not the agent-wait budget."
         )
-        XCTAssertFalse(
-            result.stderr.contains("SSH agent unavailable"),
+        #expect(
+            !result.stderr.contains("SSH agent unavailable"),
             "A non-agent signing failure must not be reported as a locked agent; got: \(result.stderr)"
         )
-        XCTAssertTrue(
+        #expect(
             result.stderr.contains("the remote VM may have been paused"),
             "Expected the generic SSH failure banner for a non-agent failure; got: \(result.stderr)"
         )
@@ -929,19 +924,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 0, "\(result.stderr)")
+        #expect(result.stderr.isEmpty, "\(result.stderr)")
 
         let requests = try state.commands.map { line -> [String: Any] in
-            let data = try XCTUnwrap(line.data(using: .utf8))
-            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+            let data = try #require(line.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
         }
-        let configureRequest = try XCTUnwrap(
+        let configureRequest = try #require(
             requests.first { ($0["method"] as? String) == "workspace.remote.configure" }
         )
-        let configureParams = try XCTUnwrap(configureRequest["params"] as? [String: Any])
-        return try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        let configureParams = try #require(configureRequest["params"] as? [String: Any])
+        return try #require(configureParams["terminal_startup_command"] as? String)
     }
 
     private func generatedVMSSHInitialStartupCommand() throws -> String {
@@ -968,8 +963,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.attach_info":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["id"] as? String, vmID)
-                XCTAssertEqual(params["require_daemon"] as? Bool, true)
+                #expect(params["id"] as? String == vmID)
+                #expect(params["require_daemon"] as? Bool == true)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -1031,19 +1026,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        #expect(!result.timedOut, "\(result.stderr)")
+        #expect(result.status == 0, "\(result.stderr)")
+        #expect(result.stderr.isEmpty, "\(result.stderr)")
 
         let requests = try state.commands.map { line -> [String: Any] in
-            let data = try XCTUnwrap(line.data(using: .utf8))
-            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+            let data = try #require(line.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
         }
-        let createRequest = try XCTUnwrap(
+        let createRequest = try #require(
             requests.first { ($0["method"] as? String) == "workspace.create" }
         )
-        let createParams = try XCTUnwrap(createRequest["params"] as? [String: Any])
-        return try XCTUnwrap(createParams["initial_command"] as? String)
+        let createParams = try #require(createRequest["params"] as? [String: Any])
+        return try #require(createParams["initial_command"] as? String)
     }
 
     private func writeShellFile(at url: URL, lines: [String]) throws {
