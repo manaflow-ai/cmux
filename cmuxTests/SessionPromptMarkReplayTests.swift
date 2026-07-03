@@ -53,7 +53,7 @@ struct SessionPromptMarkReplayTests {
         let reset = "\(esc)[0m"
         let message = "fix the flaky test"
         let lines = [
-            "> \(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test",
+            "\(esc)[2m> \(reset)\(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test",
             "\(esc)[33m⏺\(reset) Here's the plan:",
             "> fix the flaky test",
             "\(esc)[32m● done\(reset)",
@@ -69,13 +69,35 @@ struct SessionPromptMarkReplayTests {
         #expect(marked == scrollback)
     }
 
+    @Test func doesNotMarkSinglePlainBlockquoteWithoutPromptRow() {
+        let esc = "\u{001B}"
+        let message = "fix the flaky test"
+        let scrollback = [
+            "\(esc)[33m⏺\(esc)[0m Here's the plan:",
+            "> fix the flaky test",
+            "\(esc)[32m● done\(esc)[0m",
+        ].joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+
+        #expect(marked == scrollback)
+        #expect(!marked.contains("\(esc)]133;A"))
+        #expect(
+            SessionScrollbackReplayStore.persistablePromptMatchKey(forScrollback: scrollback, lastUserMessage: message)
+                == nil
+        )
+    }
+
     @Test func marksSinglePromptThroughInterleavedSGR() {
         let esc = "\u{001B}"
         let reset = "\(esc)[0m"
         let message = "fix the flaky test"
         let lines = [
             "\(esc)[1mready\(reset)",
-            "> \(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test",
+            "\(esc)[2m> \(reset)\(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test",
             "\(esc)[32m● done\(reset)",
         ]
         let scrollback = lines.joined(separator: "\n")
@@ -94,7 +116,7 @@ struct SessionPromptMarkReplayTests {
         let esc = "\u{001B}"
         let reset = "\(esc)[0m"
         let message = "please refactor the authentication flow and add regression tests"
-        let firstRow = "> please refactor the authentication flow and"
+        let firstRow = "\(esc)[2m> \(reset)please refactor the authentication flow and"
         let secondRow = "add regression tests"
         let lines = [
             "\(esc)[1magent ready\(reset)",
@@ -187,9 +209,10 @@ struct SessionPromptMarkReplayTests {
 
     @Test func marksMultilinePromptAcrossRows() {
         let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
         let message = "first line\nsecond line of the prompt"
         let scrollback = [
-            "> first line",
+            "\(esc)[2m> \(reset)first line",
             "second line of the prompt",
             "\(esc)[32m● ok\(esc)[0m",
         ].joined(separator: "\n")
@@ -211,7 +234,8 @@ struct SessionPromptMarkReplayTests {
         let esc = "\u{001B}"
         let reset = "\(esc)[0m"
         let message = "add a dark mode toggle"
-        let scrollback = "\(esc)[1mclaude\(reset)\n> \(message)\n\(esc)[32m● Done\(reset)\n"
+        let promptPrefix = "\(esc)[2m> \(reset)"
+        let scrollback = "\(esc)[1mclaude\(reset)\n\(promptPrefix)\(message)\n\(esc)[32m● Done\(reset)\n"
 
         let environment = SessionScrollbackReplayStore.replayEnvironment(
             for: scrollback,
@@ -221,7 +245,7 @@ struct SessionPromptMarkReplayTests {
         let path = try #require(environment[SessionScrollbackReplayStore.environmentKey])
         let contents = try String(contentsOfFile: path, encoding: .utf8)
 
-        #expect(contents.contains("\(SessionScrollbackReplayStore.semanticPromptStartMark)> \(message)"))
+        #expect(contents.contains("\(SessionScrollbackReplayStore.semanticPromptStartMark)\(promptPrefix)\(message)"))
         #expect(contents.contains("claude"))
         #expect(contents.contains("● Done"))
     }
@@ -229,7 +253,8 @@ struct SessionPromptMarkReplayTests {
     @Test func terminalSnapshotPromptMarkKeyRoundTripsIntoReplayInjection() throws {
         let esc = "\u{001B}"
         let message = "wire up the settings panel"
-        let scrollback = "\(esc)[1mclaude\(esc)[0m\n> \(message)\n\(esc)[32m● Done\(esc)[0m\n"
+        let promptPrefix = "\(esc)[2m> \(esc)[0m"
+        let scrollback = "\(esc)[1mclaude\(esc)[0m\n\(promptPrefix)\(message)\n\(esc)[32m● Done\(esc)[0m\n"
         let key = try #require(SessionScrollbackReplayStore.persistablePromptMatchKey(
             forScrollback: scrollback,
             lastUserMessage: message
@@ -253,7 +278,7 @@ struct SessionPromptMarkReplayTests {
         let path = try #require(environment[SessionScrollbackReplayStore.environmentKey])
         let contents = try String(contentsOfFile: path, encoding: .utf8)
 
-        #expect(contents.contains("\(SessionScrollbackReplayStore.semanticPromptStartMark)> \(message)"))
+        #expect(contents.contains("\(SessionScrollbackReplayStore.semanticPromptStartMark)\(promptPrefix)\(message)"))
     }
 
     @Test func persistablePromptMatchKeyGatesPersistenceAndBoundsKey() {
@@ -274,7 +299,7 @@ struct SessionPromptMarkReplayTests {
         #expect(SessionScrollbackReplayStore.persistablePromptMatchKey(forScrollback: withPrompt, lastUserMessage: nil) == nil)
 
         let longMessage = String(repeating: "alpha bravo ", count: 30)
-        let longScrollback = "> \(longMessage)\noutput\n"
+        let longScrollback = "\(esc)[2m> \(esc)[0m\(longMessage)\noutput\n"
         let key = SessionScrollbackReplayStore.persistablePromptMatchKey(
             forScrollback: longScrollback,
             lastUserMessage: longMessage

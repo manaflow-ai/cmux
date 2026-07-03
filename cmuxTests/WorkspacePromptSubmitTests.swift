@@ -276,8 +276,9 @@ struct WorkspacePromptSubmitTests {
         let unrelatedPanel = workspace.createReplacementTerminalPanel()
         workspace.focusPanel(submittedPanelId)
 
+        let esc = "\u{001B}"
         let message = "deploy the release"
-        workspace.restoredTerminalScrollbackByPanelId[submittedPanelId] = "> \(message)\nowner output\n"
+        workspace.restoredTerminalScrollbackByPanelId[submittedPanelId] = "\(esc)[2m> \(esc)[0m\(message)\nowner output\n"
         workspace.restoredTerminalScrollbackByPanelId[unrelatedPanel.id] = "$ \(message)\nunrelated output\n"
 
         #expect(workspace.recordSubmittedMessage(message))

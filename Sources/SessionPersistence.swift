@@ -2137,14 +2137,13 @@ enum SessionScrollbackReplayStore {
     ///     output that echoes the user's words mid-sentence ("I'll refactor the
     ///     login flow"), Markdown list/heading echoes ("- refactor…", "# Refactor…"),
     ///     and bare output lines that merely open with the same words ("refactor the
-    ///     login flow is done…"). Real shell/agent prompts always lead with a sigil,
-    ///     so requiring one keeps the workspace-scoped key off unrelated panels.
+    ///     login flow is done…"). A plain `>` is also Markdown blockquote syntax,
+    ///     so angle prompts require the styled agent-prompt prefix shape; unstyled
+    ///     single blockquotes fail closed when the real prompt row is absent.
     ///  2. Mark ONLY when exactly one sigil-prefixed row matches. If two or more
-    ///     match — because the user repeated the prompt, or because an agent
-    ///     rendered a Markdown blockquote echo of the request (`>` is both a prompt
-    ///     sigil and a blockquote marker, indistinguishable by shape once Ghostty's
-    ///     export has dropped the original OSC 133) — we cannot reliably tell the
-    ///     real prompt from the echo/duplicate, so we no-op rather than risk marking
+    ///     match — because the user repeated the prompt or because two prompt-shaped
+    ///     rows carry the same request — we cannot reliably tell the real prompt
+    ///     from the echo/duplicate, so we no-op rather than risk marking
     ///     the wrong row (agent output or a stale turn). Best-effort and safe: when
     ///     it acts there is a single unambiguous candidate.
     /// The match is whitespace-stripped (robust to soft and hard wraps) and may
@@ -2166,6 +2165,9 @@ enum SessionScrollbackReplayStore {
             // Require at least one prompt sigil; never match a bare line.
             guard sigil >= 1 else { continue }
             let rowMatches = (1...sigil).contains { offset in
+                guard promptSigilOffsetCanStartPrompt(row: row, rawLine: lines[index], offset: offset) else {
+                    return false
+                }
                 compactPrefixMatches(needleChars, rows: compactRows, startRow: index, startOffset: offset)
             }
             guard rowMatches else { continue }
@@ -2173,6 +2175,25 @@ enum SessionScrollbackReplayStore {
             match = index
         }
         return match
+    }
+
+    private static func promptSigilOffsetCanStartPrompt(row: [Character], rawLine: String, offset: Int) -> Bool {
+        let sigils = row.prefix(offset)
+        guard sigils.contains(">") else { return true }
+        guard sigils.allSatisfy({ $0 == ">" }) else { return true }
+        return rawLineHasStyledAnglePromptSigil(rawLine)
+    }
+
+    private static func rawLineHasStyledAnglePromptSigil(_ line: String) -> Bool {
+        guard line.contains("\u{001B}"),
+              let promptIndex = line.firstIndex(of: ">") else {
+            return false
+        }
+        if line[..<promptIndex].contains("\u{001B}") {
+            return true
+        }
+        let afterPrompt = line[line.index(after: promptIndex)...]
+        return afterPrompt.prefix(16).contains("\u{001B}[0m")
     }
 
     /// Whether `needle` matches the compacted row text starting at
