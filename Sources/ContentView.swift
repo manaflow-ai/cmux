@@ -13791,27 +13791,24 @@ struct TabItemView: View, Equatable {
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: titleRowSpacing) {
-                // Leading status slot: badge and left spinner share it, and its
-                // animated width slides the title. Width/opacity only — never
-                // row height, which would churn the LazyVStack (#5764).
-                ZStack {
-                    if badgeOnLeading {
-                        // Intentional: the spinner takes the shared slot while
-                        // loading; the badge returns when loading ends.
-                        unreadBadgeView(size: scaledUnreadBadgeSize)
-                            .opacity(spinnerOnLeading ? 0 : 1)
+                if leadingSlotActive {
+                    // Leading status slot: badge and left spinner share it. The
+                    // slot is only inserted when visible so plain workspace rows
+                    // keep the title aligned with the subtitle.
+                    ZStack {
+                        if badgeOnLeading {
+                            // Intentional: the spinner takes the shared slot
+                            // while loading; the badge returns when loading ends.
+                            unreadBadgeView(size: scaledUnreadBadgeSize)
+                                .opacity(spinnerOnLeading ? 0 : 1)
+                        }
+                        if spinnerOnLeading {
+                            loadingSpinnerView(side: scaledUnreadBadgeSize)
+                        }
                     }
-                    if spinnerOnLeading {
-                        loadingSpinnerView(side: scaledUnreadBadgeSize)
-                    }
+                    .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+                    .clipped()
                 }
-                .frame(
-                    width: leadingSlotActive ? scaledUnreadBadgeSize : 0,
-                    height: scaledUnreadBadgeSize
-                )
-                .opacity(leadingSlotActive ? 1 : 0)
-                .padding(.trailing, leadingSlotActive ? 0 : -titleRowSpacing)
-                .clipped()
 
                 if workspaceSnapshot.isPinned {
                     CmuxSystemSymbolImage(magnified: "pin.fill", pointSize: scaledFontSize(9), weight: .semibold)

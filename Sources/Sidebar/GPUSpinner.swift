@@ -223,11 +223,14 @@ final class GPUSpinnerNSView: NSView {
         }
     }
 
-    /// Anchors `beginTime` to a multiple of `duration` in layer time so all
-    /// spinners of the same duration stay phase-locked.
+    /// Anchors `beginTime` to the shared Core Animation media clock so all
+    /// spinners of the same duration stay phase-locked, even when their layer
+    /// hierarchies have different local time bases.
     private func syncedBeginTime(duration: CFTimeInterval) -> CFTimeInterval {
-        let now = contentLayer.convertTime(CACurrentMediaTime(), from: nil)
-        return now - now.truncatingRemainder(dividingBy: duration)
+        let globalNow = CACurrentMediaTime()
+        let layerNow = contentLayer.convertTime(globalNow, from: nil)
+        let sharedPhase = globalNow.truncatingRemainder(dividingBy: duration)
+        return layerNow - sharedPhase
     }
 
     private func installAnimationIfNeeded() {
