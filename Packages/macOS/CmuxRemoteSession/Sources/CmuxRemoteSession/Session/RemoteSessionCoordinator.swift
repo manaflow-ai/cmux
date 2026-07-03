@@ -84,6 +84,9 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]
     var remoteScannedPortsByPanel: [UUID: [Int]] = [:]
+    /// Consecutive empty-scan count per panel, used to retain a panel's
+    /// last-known ports across the TTY attribution's transient misses.
+    var remotePortScanEmptyMissByPanel: [UUID: Int] = [:]
     var remotePortScanBurstActive = false
     var remotePortScanActiveReason: PortScanKickReason?
     var remotePortScanPendingReason: PortScanKickReason?

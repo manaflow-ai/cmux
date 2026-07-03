@@ -11,6 +11,15 @@ public import Foundation
 extension RemoteSessionCoordinator {
     static let remotePortScanCoalesceDelayMilliseconds = 200
 
+    /// How many consecutive empty scans a panel's last-known ports survive
+    /// before they are cleared. The TTY-scoped scan attributes ports through
+    /// the emitting process's controlling TTY, which races under load and can
+    /// momentarily report no port for a still-listening server; retaining the
+    /// last-known ports across a few such misses stops the sidebar port badge
+    /// from flickering, while a port that stays gone past the limit still
+    /// clears.
+    static let remotePortScanEmptyRetentionLimit = 2
+
     /// Replaces the tracked panel-to-TTY map (from shell integration) on the
     /// coordinator queue; panels whose TTY changed lose their scanned ports.
     public func updateRemotePortScanTTYs(_ ttyNames: [UUID: String]) {
@@ -80,6 +89,7 @@ extension RemoteSessionCoordinator {
         cancelBootstrapRemoteTTYRetryLocked()
         bootstrapRemoteTTYRetryCount = 0
         remoteScannedPortsByPanel.removeAll()
+        remotePortScanEmptyMissByPanel.removeAll()
         stopRemotePortPollingLocked()
         polledRemotePorts = []
         remotePortPollBaselinePorts = nil
@@ -215,19 +225,44 @@ extension RemoteSessionCoordinator {
         let ttyNamesByPanel = remotePortScanTTYNames
         guard !ttyNamesByPanel.isEmpty else {
             remoteScannedPortsByPanel.removeAll()
+            remotePortScanEmptyMissByPanel.removeAll()
             keepPolledRemotePortsUntilTTYScan = false
             publishPortsSnapshotLocked()
             return
         }
 
         do {
-            remoteScannedPortsByPanel = try scanRemotePortsByPanelLocked(ttyNamesByPanel: ttyNamesByPanel)
+            let scanned = try scanRemotePortsByPanelLocked(ttyNamesByPanel: ttyNamesByPanel)
+            remoteScannedPortsByPanel = retainingTransientEmptyScansLocked(scanned)
             keepPolledRemotePortsUntilTTYScan = false
             polledRemotePorts = []
             publishPortsSnapshotLocked()
         } catch {
             debugLog("remote.ports.scan.failed error=\(error.localizedDescription) \(debugConfigSummary())")
         }
+    }
+
+    /// Reconciles a fresh scan against the last-known ports so the best-effort
+    /// TTY attribution's transient misses don't drop a still-listening port. A
+    /// panel that scans non-empty adopts the fresh ports; a panel that scans
+    /// empty keeps its previous ports until it has been empty more than
+    /// `remotePortScanEmptyRetentionLimit` scans in a row, then clears.
+    private func retainingTransientEmptyScansLocked(_ scanned: [UUID: [Int]]) -> [UUID: [Int]] {
+        var reconciled: [UUID: [Int]] = [:]
+        var misses: [UUID: Int] = [:]
+        for (panelId, ports) in scanned {
+            if !ports.isEmpty {
+                reconciled[panelId] = ports
+                continue
+            }
+            let previous = remoteScannedPortsByPanel[panelId] ?? []
+            let missCount = (remotePortScanEmptyMissByPanel[panelId] ?? 0) + 1
+            guard !previous.isEmpty, missCount <= Self.remotePortScanEmptyRetentionLimit else { continue }
+            reconciled[panelId] = previous
+            misses[panelId] = missCount
+        }
+        remotePortScanEmptyMissByPanel = misses
+        return reconciled
     }
 
     private func scanRemotePortsByPanelLocked(ttyNamesByPanel: [UUID: String]) throws -> [UUID: [Int]] {
