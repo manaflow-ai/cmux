@@ -68,7 +68,7 @@ extension TerminalController {
         let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
         v2MainSync {
             UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
-            CmuxExtensionSidebarSelection.setProviderId(providerId)
+            CmuxExtensionSidebarSelection().setProviderId(providerId)
             NotificationCenter.default.post(
                 name: .customSidebarReloadRequested,
                 object: nil,
@@ -190,12 +190,12 @@ extension TerminalController {
     }
 
     private nonisolated func v2CustomSidebarValidationReport(name: String?) -> CustomSidebarValidationReport {
-        CustomSidebarValidator().validate(directory: CmuxExtensionSidebarSelection.customSidebarsDirectory, name: name)
+        CustomSidebarValidator().validate(directory: CmuxExtensionSidebarSelection().customSidebarsDirectory, name: name)
     }
 
     private nonisolated func v2CustomSidebarReportPayload(_ report: CustomSidebarValidationReport) -> [String: Any] {
         [
-            "directory": CmuxExtensionSidebarSelection.customSidebarsDirectory.path,
+            "directory": CmuxExtensionSidebarSelection().customSidebarsDirectory.path,
             "valid_count": report.validCount,
             "error_count": report.errorCount,
             "sidebars": report.entries.map { entry in

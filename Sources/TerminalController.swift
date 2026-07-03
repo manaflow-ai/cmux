@@ -1636,6 +1636,14 @@ class TerminalController: MobileViewportSurfaceLimiting {
         return v2MainSync { v2EnsureHandleRef(kind: kind, uuid: uuid) }
     }
 
+    /// A legacy `tab:`-prefixed handle ref for `uuid`, derived from its surface
+    /// ref (there is no distinct tab handle kind). Backs `tab_ref` payload fields.
+    nonisolated func v2TabRef(uuid: UUID?) -> Any {
+        guard let uuid else { return NSNull() }
+        guard let surfaceRef = v2Ref(kind: .surface, uuid: uuid) as? String else { return NSNull() }
+        return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
+    }
+
     // `internal` (not `private`): the workspace-domain conformance lives in a
     // separate extension file (`TerminalController+ControlWorkspaceContext.swift`),
     // whose `controlWorkspaceEnv` witness reproduces the legacy `v2WorkspaceEnv`
