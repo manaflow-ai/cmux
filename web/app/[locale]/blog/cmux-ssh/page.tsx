@@ -84,17 +84,17 @@ export default async function CmuxSshPage({
             <li>{t("workflowNotify")}</li>
             <li>{t("workflowUpload")}</li>
           </ol>
-
-          <h2>{t("featureTitle")}</h2>
-          <ul className="mt-4 space-y-1">
-            <li>{t.rich("featureBrowser", { code: (chunks) => <code>{chunks}</code> })}</li>
-            <li>{t("featureUpload")}</li>
-            <li>{t("featureNotify")}</li>
-            <li>{t.rich("featureAgents", { code: (chunks) => <code>{chunks}</code> })}</li>
-            <li>{t("featureSidebar")}</li>
-          </ul>
         </>
       ) : null}
+
+      <h2>{t("featureTitle")}</h2>
+      <ul className="mt-4 space-y-1">
+        <li>{t.rich("featureBrowser", { code: (chunks) => <code>{chunks}</code> })}</li>
+        <li>{t("featureUpload")}</li>
+        <li>{t("featureNotify")}</li>
+        <li>{t.rich("featureAgents", { code: (chunks) => <code>{chunks}</code> })}</li>
+        <li>{t("featureSidebar")}</li>
+      </ul>
 
       <iframe
         className="my-6 rounded-lg w-full aspect-video"

@@ -110,17 +110,7 @@ function setFeatureWorkflowDocLinkHeader(
 }
 
 function requestOrigin(request: NextRequest) {
-  const forwardedProto = firstHeaderValue(request.headers.get("x-forwarded-proto"));
-  const forwardedHost = firstHeaderValue(request.headers.get("x-forwarded-host"));
-  const host = forwardedHost ?? request.headers.get("host");
-  if (host) {
-    return `${forwardedProto ?? request.nextUrl.protocol.replace(/:$/, "")}://${host}`;
-  }
   return request.nextUrl.origin;
-}
-
-function firstHeaderValue(value: string | null) {
-  return value?.split(",")[0]?.trim() || null;
 }
 
 export const config = {
