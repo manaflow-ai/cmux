@@ -437,7 +437,7 @@ extension CMUXCLI {
     }
 
     private func runSubrouterCredits(commandName: String, commandArgs: [String], jsonOutput: Bool) async throws {
-        let mode = commandArgs.first == "consume" ? "consume" : "list"
+        let mode = commandArgs.first?.lowercased() == "consume" ? "consume" : "list"
         let args = mode == "consume" ? Array(commandArgs.dropFirst()) : commandArgs
         let (tokenOpt, afterToken) = parseOption(args, name: "--token")
         let (controlPlaneURLOpt, afterControlPlaneURL) = parseOption(afterToken, name: "--control-plane-url")
@@ -451,7 +451,9 @@ extension CMUXCLI {
         if mode == "list", creditIDOpt != nil || redeemRequestIDOpt != nil {
             throw CLIError(message: String.localizedStringWithFormat(SubrouterText.usageCredits, commandName))
         }
-        if mode == "consume", creditIDOpt == nil || redeemRequestIDOpt == nil {
+        let creditID = normalizedSubrouterEnvValue(creditIDOpt)
+        let redeemRequestID = normalizedSubrouterEnvValue(redeemRequestIDOpt)
+        if mode == "consume", creditID == nil || redeemRequestID == nil {
             throw CLIError(message: String.localizedStringWithFormat(SubrouterText.creditsConsumeMissing, commandName))
         }
 
@@ -478,8 +480,9 @@ extension CMUXCLI {
 
         let creditsURL = "\(controlPlaneEndpoint.originURL)/v1/subrouter/rate-limit-reset-credits"
         if mode == "consume" {
-            let creditID = creditIDOpt ?? ""
-            let redeemRequestID = redeemRequestIDOpt ?? ""
+            guard let creditID, let redeemRequestID else {
+                throw CLIError(message: String.localizedStringWithFormat(SubrouterText.creditsConsumeMissing, commandName))
+            }
             let result = try await fetchSubrouterJSON(
                 url: "\(creditsURL)/consume",
                 method: "POST",
