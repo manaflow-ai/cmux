@@ -52,6 +52,7 @@ extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        restorableAgentLivenessIsFresh: Bool = false,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
@@ -76,10 +77,16 @@ extension Workspace {
                     panelId: panelId,
                     includeScrollback: includeScrollback,
                     restorableAgent: indexedRestorableAgent,
-                    restorableAgentHasLiveProcess: restorableAgentIndex?.hasLiveProcess(
-                        workspaceId: id,
-                        panelId: panelId
-                    ) ?? false,
+                    // Only trust the index's live-PID set when the caller loaded it
+                    // freshly (the quit/save path runs sysctl per session at save time).
+                    // Close/undo-history callers pass the stale-tolerant
+                    // SharedLiveAgentIndex cache, whose documented contract is
+                    // session-identity-only; trusting its live-PID set there could
+                    // resurrect an agent the user just exited, within the cache's
+                    // refresh window. Default-false keeps every non-fresh path safe.
+                    restorableAgentHasLiveProcess: restorableAgentLivenessIsFresh
+                        ? (restorableAgentIndex?.hasLiveProcess(workspaceId: id, panelId: panelId) ?? false)
+                        : false,
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -707,7 +714,11 @@ extension Workspace {
             panelId: panelId,
             includeScrollback: true,
             restorableAgent: restorableAgent,
-            restorableAgentHasLiveProcess: agentIndex.hasLiveProcess(workspaceId: id, panelId: panelId),
+            // `agentIndex` above is the stale-tolerant SharedLiveAgentIndex cache, whose
+            // contract is session-identity-only. Its live-PID set is not authoritative
+            // here, so do not let it override an observed prompt-idle state (which would
+            // resurrect an exited agent on close/undo within the cache refresh window).
+            restorableAgentHasLiveProcess: false,
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil

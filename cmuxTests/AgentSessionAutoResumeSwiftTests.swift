@@ -166,9 +166,24 @@ struct AgentSessionAutoResumeSwiftTests {
             ])
 
             source.updatePanelShellActivityState(panelId: sourcePanelId, state: .promptIdle)
+
+            // Stale-liveness guard: close/undo-history paths pass the default
+            // (restorableAgentLivenessIsFresh == false), so a prompt-idle agent must NOT
+            // be persisted as running off a possibly-stale cached PID set — otherwise
+            // undo could resurrect an agent the user already exited.
+            let staleSnapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: index,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+            #expect(staleSnapshot.panels.first?.terminal?.wasAgentRunning != true)
+
+            // Quit/save path loads liveness freshly, so the live idle agent IS persisted
+            // as running and auto-resumes on restore.
             let snapshot = source.sessionSnapshot(
                 includeScrollback: false,
                 restorableAgentIndex: index,
+                restorableAgentLivenessIsFresh: true,
                 surfaceResumeBindingIndex: bindingIndex
             )
             let terminalSnapshot = try #require(snapshot.panels.first?.terminal)
@@ -1419,6 +1434,17 @@ struct AgentSessionAutoResumeSwiftTests {
     ) throws -> RestorableAgentSessionIndex {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-live-codex-index-\(UUID().uuidString)", isDirectory: true)
+        // Isolate from an ambient CMUX_AGENT_HOOK_STATE_DIR: both hookStoreFileURL(...) and
+        // RestorableAgentSessionIndex.load(homeDirectory:) honor that override, so without
+        // clearing it this helper would write and read the real hook-state directory (which
+        // the temp-home cleanup below would not remove). Restore the prior value on exit.
+        let previousHookStateDir = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
+        unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
+        defer {
+            if let previousHookStateDir {
+                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDir, 1)
+            }
+        }
         let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
         try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }

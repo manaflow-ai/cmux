@@ -5829,6 +5829,7 @@ extension TabManager {
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        restorableAgentLivenessIsFresh: Bool = false,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
         panelTitleUpdateCoalescer.flushNow()
@@ -5840,6 +5841,7 @@ extension TabManager {
                 $0.sessionSnapshot(
                     includeScrollback: includeScrollback,
                     restorableAgentIndex: restorableAgentIndex,
+                    restorableAgentLivenessIsFresh: restorableAgentLivenessIsFresh,
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             }

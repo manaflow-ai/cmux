@@ -4486,6 +4486,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 for: context,
                 includeScrollback: includeScrollback,
                 restorableAgentIndex: restorableAgentIndex,
+                // The quit/save build loads the index freshly (see the fresh
+                // `?? RestorableAgentSessionIndex.load()` above), so its live-PID set is
+                // authoritative and may override a prompt-idle agent as still running.
+                restorableAgentLivenessIsFresh: true,
                 surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
             )
             // A dedicated remote-tmux mirror window needs a live SSH control
@@ -4526,11 +4530,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for context: MainWindowContext,
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
+        restorableAgentLivenessIsFresh: Bool = false,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWindowSnapshot {
         let tabManagerSnapshot = context.tabManager.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
+            restorableAgentLivenessIsFresh: restorableAgentLivenessIsFresh,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
 
