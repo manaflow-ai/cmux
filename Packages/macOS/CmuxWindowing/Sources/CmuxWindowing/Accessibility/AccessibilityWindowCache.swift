@@ -43,7 +43,7 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
         @MainActor
         public init(windows: [NSWindow]) {
             self.windows = windows.compactMap {
-                guard let windowNumber = AccessibilityWindowCache.axWindowNumber(for: $0) else {
+                guard let windowNumber = $0.cmuxAccessibilityWindowNumber else {
                     return nil
                 }
                 return WindowToken(
@@ -64,7 +64,7 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
         /// expose a valid CoreGraphics window id to AX clients.
         @MainActor
         public init(windows: [NSWindow]) {
-            self.windows = windows.filter { AccessibilityWindowCache.axWindowNumber(for: $0) != nil }
+            self.windows = windows.filter { $0.cmuxAccessibilityWindowNumber != nil }
         }
     }
 
@@ -141,10 +141,12 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     private static func supportsCaching(_ attribute: NSAccessibility.Attribute) -> Bool {
         attribute.rawValue == NSAccessibility.Attribute.windows.rawValue
     }
+}
 
+private extension NSWindow {
     @MainActor
-    private static func axWindowNumber(for window: NSWindow) -> Int? {
-        let windowNumber = window.windowNumber
+    var cmuxAccessibilityWindowNumber: Int? {
+        let windowNumber = self.windowNumber
         // A zero window number is not targetable by tiling window managers
         // and is how AppKit reports status-item backing windows such as Item-0.
         guard windowNumber > 0 else { return nil }
