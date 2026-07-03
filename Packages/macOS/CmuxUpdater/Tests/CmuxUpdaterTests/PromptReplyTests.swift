@@ -101,6 +101,29 @@ import Testing
         #expect(download.progress == 10)
     }
 
+    /// A stale dismissal can also land after the fresh prompt was auto-confirmed but before Sparkle
+    /// reports download progress. That must not tear down the live install hand-off.
+    @Test func staleDismissalDoesNotClobberInstallConfirmedPrompt() {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        let available = UpdateState.UpdateAvailable(appcastItem: makeItem("0.64.16"), reply: { _ in })
+
+        driver.recordPromptDismissCallbackExpected()
+        model.setState(.updateAvailable(available))
+        available.reply(.install)
+        driver.dismissUpdateInstallation()
+
+        guard case .updateAvailable = model.state else {
+            Issue.record("install-confirmed prompt was clobbered to \(model.state)")
+            return
+        }
+    }
+
     /// A normal Sparkle progress teardown still clears the model; only a known superseded prompt
     /// dismissal may be ignored while progress is visible.
     @Test func activeProgressDismissalClearsState() {
@@ -113,6 +136,25 @@ import Testing
         )
 
         model.setState(.extracting(.init(progress: 0.5)))
+        driver.dismissUpdateInstallation()
+
+        #expect(model.state.isIdle)
+    }
+
+    /// The current prompt's own dismissal is not stale and should still clear the prompt.
+    @Test func expectedDismissalForCurrentPromptClearsState() {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        let available = UpdateState.UpdateAvailable(appcastItem: makeItem("0.64.16"), reply: { _ in })
+
+        driver.recordPromptDismissCallbackExpected()
+        model.setState(.updateAvailable(available))
+        available.reply(.dismiss)
         driver.dismissUpdateInstallation()
 
         #expect(model.state.isIdle)

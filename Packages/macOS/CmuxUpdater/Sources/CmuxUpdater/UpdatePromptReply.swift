@@ -11,6 +11,9 @@
 public final class UpdatePromptReply {
     private var handler: (@Sendable (SPUUserUpdateChoice) -> Void)?
 
+    /// The first choice sent to Sparkle, or `nil` until this prompt is answered.
+    public private(set) var consumedChoice: SPUUserUpdateChoice?
+
     /// Wraps `handler` so it runs on the first call only.
     public init(_ handler: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         self.handler = handler
@@ -18,13 +21,14 @@ public final class UpdatePromptReply {
 
     /// Whether a choice has already been sent.
     public var isConsumed: Bool {
-        handler == nil
+        consumedChoice != nil
     }
 
     /// Sends `choice` to Sparkle; subsequent calls are no-ops.
     public func callAsFunction(_ choice: SPUUserUpdateChoice) {
-        let handler = self.handler
+        guard let handler = self.handler else { return }
         self.handler = nil
-        handler?(choice)
+        consumedChoice = choice
+        handler(choice)
     }
 }

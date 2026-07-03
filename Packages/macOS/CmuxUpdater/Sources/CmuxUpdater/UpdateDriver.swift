@@ -197,10 +197,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         }
         if isExpectedPromptDismissCallback {
             switch model.state {
-            case .updateAvailable(let available) where !available.reply.isConsumed:
+            case .updateAvailable(let available)
+                where !available.reply.isConsumed || available.reply.consumedChoice == .install:
                 // Sparkle can deliver a dismissed old prompt's teardown after a fresh check has
-                // already resolved a new prompt. Only this tracked callback may leave the new
-                // prompt alive; unexpected dismissals still clear it below.
+                // already resolved or auto-confirmed a new prompt. Only this tracked callback may
+                // leave the new prompt alive; unexpected dismissals still clear it below.
                 log.append("dismiss update installation ignored (superseded prompt dismissal)")
                 return
             case .downloading, .extracting, .installing:

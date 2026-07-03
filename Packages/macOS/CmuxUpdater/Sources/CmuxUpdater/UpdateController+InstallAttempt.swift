@@ -54,7 +54,10 @@ extension UpdateController {
                 self?.attemptUpdate()
             },
             dismiss: { [weak self] in self?.model.setState(.idle) },
-            technicalDetails: "install attempt stalled without reaching download",
+            technicalDetails: String(
+                localized: "update.error.didNotStart.technicalDetails",
+                defaultValue: "Install attempt stalled without reaching download."
+            ),
             feedURLString: driver.resolvedFeedURLString()
         )))
     }
