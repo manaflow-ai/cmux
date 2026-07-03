@@ -589,7 +589,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         // ever writing its ack (whereas HID key delivery uses the always-serviced
         // event path, as the sibling Cmd+A test relies on).
         app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
 
         var valueAfterDelete = ""
         let revealedTypedPrefix = waitForCondition(timeout: 3.0) {
@@ -600,6 +599,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             revealedTypedPrefix,
             "Expected Backspace with inline suffix selected to remove one typed prefix character. value=\(valueAfterDelete)"
         )
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
     }
 
     func testCmdASelectAllDoesNotClearInlineCompletion() {
