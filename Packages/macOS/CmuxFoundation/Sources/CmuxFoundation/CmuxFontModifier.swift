@@ -1,14 +1,4 @@
-import AppKit
 import SwiftUI
-
-/// The app-wide UI font family: Berkeley Mono everywhere when it's installed
-/// (checked once at launch), otherwise Inter. Berkeley Mono is a licensed
-/// font, so machines without it get the Inter fallback instead of the system
-/// font.
-public enum CmuxUIFontFamily {
-    public static let preferred: String =
-        NSFont(name: "Berkeley Mono", size: 12) != nil ? "Berkeley Mono" : "Inter"
-}
 
 struct CmuxFontModifier: ViewModifier {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var percent
@@ -22,11 +12,10 @@ struct CmuxFontModifier: ViewModifier {
     }
 
     private var resolvedFont: Font {
-        // One family everywhere (Berkeley Mono when installed): monospaced
-        // requests always ask for Berkeley Mono; proportional UI text uses the
-        // preferred family. Font.custom falls back to the system font if a
-        // family is missing.
-        let familyName = (design == .monospaced) ? "Berkeley Mono" : CmuxUIFontFamily.preferred
+        // Linear typography: Inter for proportional UI text, Berkeley Mono for
+        // monospaced text (paths, code). Font.custom falls back to the system
+        // font automatically if a family is not installed.
+        let familyName = (design == .monospaced) ? "Berkeley Mono" : "Inter"
         var font = Font.custom(familyName, size: scaledSize).weight(weight)
         if monospacedDigit {
             font = font.monospacedDigit()

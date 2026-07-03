@@ -13475,8 +13475,9 @@ struct TabItemView: View, Equatable {
         monospacedDigit: Bool = false
     ) -> Font {
         let size = GlobalFontMagnification.scaledSize(baseSize, percent: globalFontMagnificationPercent)
-        // One family everywhere: Berkeley Mono when installed, Inter fallback.
-        let familyName = (design == .monospaced) ? "Berkeley Mono" : CmuxUIFontFamily.preferred
+        // Linear typography: Inter for proportional UI text, Berkeley Mono for
+        // monospaced bits (paths, branch/dir).
+        let familyName = (design == .monospaced) ? "Berkeley Mono" : "Inter"
         var font = Font.custom(familyName, size: size).weight(weight)
         if monospacedDigit {
             font = font.monospacedDigit()
