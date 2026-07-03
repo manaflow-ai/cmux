@@ -2259,7 +2259,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// agent/CLI `set-description`. `nil` when no description is set. A present
     /// description with absent provenance is treated as `.user` so a context
     /// reset never wipes a note it cannot prove an agent owns.
-    @Published var customDescriptionSource: CustomDescriptionSource?
+    var customDescriptionSource: CustomDescriptionSource?
     @Published var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
@@ -4484,17 +4484,7 @@ final class Workspace: Identifiable, ObservableObject {
         case auto
     }
 
-    /// Who set the workspace `customDescription`. An agent's `set-description`
-    /// summary and a human's hand-typed note land in the same field, so a
-    /// context reset cannot safely wipe stale agent summaries without this
-    /// marker (clearing blindly would also nuke user-authored notes). `.user`
-    /// for the Edit-Description UI and workspace creation, `.agent` for the
-    /// `set_description` control message. Round-trips through session
-    /// persistence.
-    enum CustomDescriptionSource: String, Codable, Sendable {
-        case user
-        case agent
-    }
+    typealias CustomDescriptionSource = WorkspaceCustomDescriptionSource
 
     var hasCustomTitle: Bool {
         let trimmed = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

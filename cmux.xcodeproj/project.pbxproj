@@ -1232,6 +1232,7 @@
 		5732A0045732A0045732A004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0045732B0045732B004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift */; };
 		A5001407 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001417 /* WorkspaceContentView.swift */; };
 		F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */; };
+		D67530010000000000000001 /* WorkspaceCustomDescriptionSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D67530010000000000000002 /* WorkspaceCustomDescriptionSource.swift */; };
 		281F3AEA52379AF45C5C1189 /* WorkspaceCustomSidebarPullRequestContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE74DFAC5946F9C2EEDBE577 /* WorkspaceCustomSidebarPullRequestContextTests.swift */; };
 		A733CDB36B0523D9DA5289AB /* WorkspaceDescriptionProvenanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35FA958F1F8A7D8EA577B575 /* WorkspaceDescriptionProvenanceTests.swift */; };
 		E6FA9084A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */; };
@@ -2515,6 +2516,7 @@
 		5732B0045732B0045732B004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentMinimalModeSafeAreaModifier.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
 		F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentViewVisibilityTests.swift; sourceTree = "<group>"; };
+		D67530010000000000000002 /* WorkspaceCustomDescriptionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCustomDescriptionSource.swift; sourceTree = "<group>"; };
 		CE74DFAC5946F9C2EEDBE577 /* WorkspaceCustomSidebarPullRequestContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCustomSidebarPullRequestContextTests.swift; sourceTree = "<group>"; };
 		35FA958F1F8A7D8EA577B575 /* WorkspaceDescriptionProvenanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDescriptionProvenanceTests.swift; sourceTree = "<group>"; };
 		E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDescriptionUITests.swift; sourceTree = "<group>"; };
@@ -3051,6 +3053,7 @@
 				C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
 				42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */,
 				DCDC1000000000000000B014 /* Workspace+DockBrowserLookup.swift */,
+				D67530010000000000000002 /* WorkspaceCustomDescriptionSource.swift */,
 				E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */,
 				EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */,
 				EE30D5000000000000000003 /* WorkspaceRemoteRelayCommandRewriter.swift */,
@@ -5143,6 +5146,7 @@
 				D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */,
 					5732A0045732A0045732A004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift in Sources */,
 				A5001407 /* WorkspaceContentView.swift in Sources */,
+				D67530010000000000000001 /* WorkspaceCustomDescriptionSource.swift in Sources */,
 				C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */,
 				C9A57203C9A57203C9A57203 /* WorkspaceGroupMenuSnapshot.swift in Sources */,
 				C9A57206C9A57206C9A57206 /* WorkspaceGroupMoveToMenuState.swift in Sources */,
