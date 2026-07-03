@@ -152,6 +152,11 @@ public enum UpdateState: Equatable {
             self.reply = UpdatePromptReply(reply)
         }
 
+        init(appcastItem: SUAppcastItem, reply: UpdatePromptReply) {
+            self.appcastItem = appcastItem
+            self.reply = reply
+        }
+
         /// A link to the release notes for this update, derived from its version string.
         public var releaseNotes: ReleaseNotes? {
             ReleaseNotes(displayVersionString: appcastItem.displayVersionString)

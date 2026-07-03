@@ -27,7 +27,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var pendingCheckTransitionTask: Task<Void, Never>?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
-    private var pendingPromptDismissCallbacks = 0
+    private var pendingPromptDismissCallbacks: [ObjectIdentifier] = []
 
     init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock, isDevLikeBundle: Bool = false) {
         self.model = model
@@ -67,14 +67,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
-        setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: { [weak self] choice in
-            if choice == .dismiss {
-                MainActor.assumeIsolated {
-                    self?.recordPromptDismissCallbackExpected()
-                }
-            }
-            reply(choice)
-        })))
+        let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
+        available.reply.onDismissConsumed = { [weak self] reply in
+            self?.recordPromptDismissCallbackExpected(for: reply)
+        }
+        setStateAfterMinimumCheckDelay(.updateAvailable(available))
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
@@ -182,7 +179,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func dismissUpdateInstallation() {
         log.append("dismiss update installation")
-        let isExpectedPromptDismissCallback = takePromptDismissCallbackIfExpected()
+        let promptDismissCallback = takePromptDismissCallbackForCurrentState()
         if case .error = model.state {
             log.append("dismiss update installation ignored (error visible)")
             return
@@ -195,7 +192,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             log.append("dismiss update installation ignored (checking)")
             return
         }
-        if isExpectedPromptDismissCallback {
+        if promptDismissCallback.expected && !promptDismissCallback.currentPrompt {
             switch model.state {
             case .updateAvailable(let available)
                 where !available.reply.isConsumed || available.reply.consumedChoice == .install:
@@ -214,14 +211,21 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         setState(.idle)
     }
 
-    func recordPromptDismissCallbackExpected() {
-        pendingPromptDismissCallbacks += 1
+    func recordPromptDismissCallbackExpected(for reply: UpdatePromptReply) {
+        pendingPromptDismissCallbacks.append(ObjectIdentifier(reply))
     }
 
-    private func takePromptDismissCallbackIfExpected() -> Bool {
-        guard pendingPromptDismissCallbacks > 0 else { return false }
-        pendingPromptDismissCallbacks -= 1
-        return true
+    private func takePromptDismissCallbackForCurrentState() -> (expected: Bool, currentPrompt: Bool) {
+        guard !pendingPromptDismissCallbacks.isEmpty else { return (false, false) }
+        if case .updateAvailable(let available) = model.state {
+            let currentID = ObjectIdentifier(available.reply)
+            if let index = pendingPromptDismissCallbacks.firstIndex(of: currentID) {
+                pendingPromptDismissCallbacks.remove(at: index)
+                return (true, true)
+            }
+        }
+        pendingPromptDismissCallbacks.removeFirst()
+        return (true, false)
     }
 
     // MARK: - State transition helpers

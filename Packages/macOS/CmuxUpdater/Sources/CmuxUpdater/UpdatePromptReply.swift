@@ -10,6 +10,7 @@
 @MainActor
 public final class UpdatePromptReply {
     private var handler: (@Sendable (SPUUserUpdateChoice) -> Void)?
+    var onDismissConsumed: ((UpdatePromptReply) -> Void)?
 
     /// The first choice sent to Sparkle, or `nil` until this prompt is answered.
     public private(set) var consumedChoice: SPUUserUpdateChoice?
@@ -29,6 +30,9 @@ public final class UpdatePromptReply {
         guard let handler = self.handler else { return }
         self.handler = nil
         consumedChoice = choice
+        if choice == .dismiss {
+            onDismissConsumed?(self)
+        }
         handler(choice)
     }
 }

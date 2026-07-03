@@ -53,8 +53,11 @@ import Testing
             isDevLikeBundle: false
         )
 
-        driver.recordPromptDismissCallbackExpected()
-        model.setState(.updateAvailable(.init(appcastItem: makeItem("0.64.16"), reply: { _ in })))
+        let oldReply = UpdatePromptReply { _ in }
+        let freshReply = UpdatePromptReply { _ in }
+
+        driver.recordPromptDismissCallbackExpected(for: oldReply)
+        model.setState(.updateAvailable(.init(appcastItem: makeItem("0.64.16"), reply: freshReply)))
         driver.dismissUpdateInstallation()
 
         guard case .updateAvailable = model.state else {
@@ -90,7 +93,9 @@ import Testing
             clock: SystemUpdateClock(),
             isDevLikeBundle: false
         )
-        driver.recordPromptDismissCallbackExpected()
+        let oldReply = UpdatePromptReply { _ in }
+
+        driver.recordPromptDismissCallbackExpected(for: oldReply)
         model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 10)))
         driver.dismissUpdateInstallation()
 
@@ -111,9 +116,11 @@ import Testing
             clock: SystemUpdateClock(),
             isDevLikeBundle: false
         )
-        let available = UpdateState.UpdateAvailable(appcastItem: makeItem("0.64.16"), reply: { _ in })
+        let oldReply = UpdatePromptReply { _ in }
+        let freshReply = UpdatePromptReply { _ in }
+        let available = UpdateState.UpdateAvailable(appcastItem: makeItem("0.64.16"), reply: freshReply)
 
-        driver.recordPromptDismissCallbackExpected()
+        driver.recordPromptDismissCallbackExpected(for: oldReply)
         model.setState(.updateAvailable(available))
         available.reply(.install)
         driver.dismissUpdateInstallation()
@@ -150,14 +157,46 @@ import Testing
             clock: SystemUpdateClock(),
             isDevLikeBundle: false
         )
-        let available = UpdateState.UpdateAvailable(appcastItem: makeItem("0.64.16"), reply: { _ in })
+        let reply = UpdatePromptReply { _ in }
+        let available = UpdateState.UpdateAvailable(appcastItem: makeItem("0.64.16"), reply: reply)
 
-        driver.recordPromptDismissCallbackExpected()
+        driver.recordPromptDismissCallbackExpected(for: reply)
         model.setState(.updateAvailable(available))
         available.reply(.dismiss)
         driver.dismissUpdateInstallation()
 
         #expect(model.state.isIdle)
+    }
+
+    /// If the current prompt's dismiss callback arrives before an older prompt's pending stale
+    /// callback, clearing the current prompt must not spend the old prompt's marker.
+    @Test func currentPromptDismissalDoesNotConsumeOlderStaleMarker() {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        let oldReply = UpdatePromptReply { _ in }
+        let currentReply = UpdatePromptReply { _ in }
+        let available = UpdateState.UpdateAvailable(appcastItem: makeItem("0.64.16"), reply: currentReply)
+
+        driver.recordPromptDismissCallbackExpected(for: oldReply)
+        driver.recordPromptDismissCallbackExpected(for: currentReply)
+        model.setState(.updateAvailable(available))
+        available.reply(.dismiss)
+        driver.dismissUpdateInstallation()
+        #expect(model.state.isIdle)
+
+        model.setState(.downloading(.init(cancel: {}, expectedLength: 100, progress: 10)))
+        driver.dismissUpdateInstallation()
+
+        guard case .downloading(let download) = model.state else {
+            Issue.record("old stale dismissal clobbered progress to \(model.state)")
+            return
+        }
+        #expect(download.progress == 10)
     }
 
     /// If a superseded prompt's Sparkle dismissal arrives while an error is visible, it is drained
@@ -170,7 +209,8 @@ import Testing
             clock: SystemUpdateClock(),
             isDevLikeBundle: false
         )
-        driver.recordPromptDismissCallbackExpected()
+        let oldReply = UpdatePromptReply { _ in }
+        driver.recordPromptDismissCallbackExpected(for: oldReply)
         model.setState(.error(.init(
             error: NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode),
             retry: {},
