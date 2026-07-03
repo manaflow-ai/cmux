@@ -339,22 +339,7 @@ extension RemoteSessionCoordinator {
         scpArgs += [localBinary.path, "\(configuration.destination):\(remoteTempPath)"]
         let scpResult = try scpExec(arguments: scpArgs, timeout: 45)
         if scpResult.status != 0 {
-            // OrbStack's built-in SSH server (a custom Go implementation) — and
-            // other minimal/restricted servers — omit the OpenSSH sftp
-            // subsystem that modern scp (OpenSSH 9+) transfers over, so scp
-            // fails with "subsystem request failed on channel 0" even though
-            // the plain exec channel the rest of the bootstrap uses (platform
-            // probe, daemon hello) works. Fall back to streaming the binary
-            // over an exec channel with `cat`, which needs only a shell.
-            // https://github.com/manaflow-ai/cmux/issues/7130
-            let scpDetail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout)
-                ?? "scp exited \(scpResult.status)"
-            debugLog("remote.upload.scpFailed detail=\(scpDetail) fallback=exec-channel remoteTemp=\(remoteTempPath)")
-            try uploadRemoteDaemonBinaryViaExecChannelLocked(
-                localBinary: localBinary,
-                remoteTempPath: remoteTempPath,
-                scpFailureDetail: scpDetail
-            )
+            try uploadRemoteDaemonBinaryViaExecChannelLocked(localBinary: localBinary, remoteTempPath: remoteTempPath, scpResult: scpResult)
         }
 
         let finalizeScript = """
@@ -369,45 +354,6 @@ extension RemoteSessionCoordinator {
                 NSLocalizedDescriptionKey: "failed to install remote daemon binary: \(detail)",
             ])
         }
-    }
-
-    /// Uploads the local daemon binary to `remoteTempPath` by streaming it over
-    /// an ssh exec channel (`sh -c 'cat > tmp'`). This is the scp fallback for
-    /// SSH servers that lack the sftp subsystem modern scp requires (OrbStack's
-    /// built-in Go server, dropbear without sftp, restricted servers): it needs
-    /// only a shell and `cat`, the same capability the platform probe and
-    /// daemon hello already rely on. `-T` disables the pty so the binary
-    /// streams over the channel byte-for-byte, and the binary is read straight
-    /// from disk into ssh's stdin so the transfer stays bounded by the timeout
-    /// and never buffers in memory.
-    func uploadRemoteDaemonBinaryViaExecChannelLocked(
-        localBinary: URL,
-        remoteTempPath: String,
-        scpFailureDetail: String
-    ) throws {
-        let script = "cat > \(remoteTempPath.shellSingleQuoted)"
-        let command = "sh -c \(script.shellSingleQuoted)"
-        let result: RemoteCommandResult
-        do {
-            result = try sshExec(
-                arguments: ["-T"] + sshCommonArguments(batchMode: true)
-                    + ["-o", "RequestTTY=no", configuration.destination, command],
-                standardInputFile: localBinary,
-                timeout: 60
-            )
-        } catch {
-            throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
-                NSLocalizedDescriptionKey: "failed to upload cmuxd-remote (scp: \(scpFailureDetail)): \(error.localizedDescription)",
-            ])
-        }
-        guard result.status == 0 else {
-            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
-                ?? "ssh exited \(result.status)"
-            throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
-                NSLocalizedDescriptionKey: "failed to upload cmuxd-remote (scp: \(scpFailureDetail)): \(detail)",
-            ])
-        }
-        debugLog("remote.upload.execChannel.ok remoteTemp=\(remoteTempPath)")
     }
 
     func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {
