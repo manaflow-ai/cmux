@@ -136,7 +136,7 @@
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 739	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 738	Packages/macOS/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
-723	Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
+728	Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 716	Sources/TaskManagerSnapshot.swift
 715	Sources/AppleScriptSupport.swift
 710	Sources/TerminalSSHSessionDetector.swift

@@ -42,6 +42,7 @@ extension AuthCoordinator {
                     self?.timedOutTokenTouchingPhaseStates[phase] = nil
                 }
                 self?.activeTokenTouchingPhases[phaseID] = nil
+                self?.abandonedTokenTouchingPhaseIDs.remove(phaseID)
             }
         }
         activeTokenTouchingPhases[phaseID] = AuthTrackedTokenWork(
@@ -147,19 +148,21 @@ extension AuthCoordinator {
         // once the bounded hard window elapses so the next caller can retry,
         // matching AuthPhaseTimeoutRegistry's time-based recovery (#6311).
         //
-        // The reopen is intentionally unconditional (no concurrency cap): the
-        // issue's requirement is that reconnects recover WITHOUT an app restart,
-        // and any cap would, after enough never-completing tasks, leave the
-        // phase gated forever — recreating this very bug. The wedged task is also
-        // deliberately left in `activeTokenTouchingPhases`: a cancellation-
-        // ignoring SDK call may still be mid-write, and sign-in preflight relies
-        // on awaiting that work so a late stale token write cannot race a new
-        // session — evicting it would break that invariant. Retained work is
-        // instead bounded by the Stack SDK's own URLSession request timeout: a
-        // stuck refresh fails within its timeout, so the phase task completes and
-        // its completion handler drains the registry. Reopens are paced one per
-        // hard window, so concurrent retained tasks stay ~1 in practice.
+        // Detach one wedged task from coordinator-owned active work before
+        // reopening, otherwise repeated hard-expiry retries would retain an
+        // unbounded chain of never-finishing tasks. If that detached task also
+        // never completes, keep the phase gated after the current retry until
+        // cleanup frees the abandoned slot. The detached task still runs its own
+        // stale-completion guard if it ever resumes, so a late SDK token write
+        // cannot survive a newer session/sign-in transition.
         guard let hardExpiresAt = timedOut.hardExpiresAt, now >= hardExpiresAt else { return }
+        guard abandonedTokenTouchingPhaseIDs.count < maxAbandonedTokenTouchingPhases else {
+            return
+        }
+        if let work = activeTokenTouchingPhases.removeValue(forKey: timedOut.id) {
+            work.cancel()
+            abandonedTokenTouchingPhaseIDs.insert(timedOut.id)
+        }
         timedOutTokenTouchingPhaseStates[phase] = nil
     }
 
@@ -168,10 +171,16 @@ extension AuthCoordinator {
         signOutEpoch: UInt64,
         storeWriteHighWater: UInt64
     ) async throws {
-        guard signOutEpoch != self.signOutEpoch else { return }
-        await waitForSignOutCredentialCapture()
-        guard tokenStoreWriteHighWater == storeWriteHighWater else {
-            throw CancellationError()
+        let signOutBeganAfterPhaseStart = signOutEpoch != self.signOutEpoch
+        let sessionMovedAfterPhaseStart = generation != sessionGeneration
+        let tokenStoreOwnerMovedAfterPhaseStart = tokenStoreWriteHighWater != storeWriteHighWater
+        guard signOutBeganAfterPhaseStart
+            || sessionMovedAfterPhaseStart
+            || tokenStoreOwnerMovedAfterPhaseStart else {
+            return
+        }
+        if signOutBeganAfterPhaseStart {
+            await waitForSignOutCredentialCapture()
         }
         let refreshTokenAfterOperation = await client.refreshToken()
         var clearedStaleRefreshToken = false
@@ -180,7 +189,8 @@ extension AuthCoordinator {
             await client.clearLocalSession(ifRefreshTokenMatches: refreshTokenAfterOperation)
             clearedStaleRefreshToken = await client.refreshToken() == nil
         }
-        guard generation == sessionGeneration,
+        guard !signOutBeganAfterPhaseStart,
+              generation == sessionGeneration,
               tokenStoreWriteHighWater == storeWriteHighWater else {
             if clearedStaleRefreshToken, isAuthenticated {
                 clearAuthState(preservePendingCode: true)

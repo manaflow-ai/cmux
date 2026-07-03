@@ -55,36 +55,46 @@ import Testing
         await #expect(throws: AuthError.timedOut) { try await first.value }
         #expect(await client.accessStartCount == 1)
 
-        // Second and third attempts WITHOUT releasing the first probe. The
-        // hard-expiry window has elapsed, so the gate must reopen each time and
-        // start a fresh probe. Before the fix the phase stayed gated on the
-        // still-active first task forever, so token acquisition for every session
-        // was wedged until the app restarted (#6311): later attempts fast-failed
-        // without ever starting a probe. Driving more than one retry also proves
-        // the reopen is unconditional, not a one-shot.
-        for expected in 2...3 {
-            let attempt = Task { try await coordinator.accessToken() }
-            let restarted = await waitForAccessStartCount(client, atLeast: expected)
-            #expect(restarted)
-            if restarted {
-                await clock.waitUntilSleepers()
-                clock.advance(by: Self.testTimeouts.network)
-            }
-            await #expect(throws: AuthError.timedOut) { try await attempt.value }
-            #expect(await client.accessStartCount == expected)
+        // Second attempt WITHOUT releasing the first probe. The hard-expiry
+        // window has elapsed, so the gate must reopen once and start a fresh
+        // probe. Before the fix the phase stayed gated on the still-active first
+        // task forever, so token acquisition for every session was wedged until
+        // the app restarted (#6311).
+        let second = Task { try await coordinator.accessToken() }
+        let restarted = await waitForAccessStartCount(client, atLeast: 2)
+        #expect(restarted)
+        if restarted {
+            await clock.waitUntilSleepers()
+            clock.advance(by: Self.testTimeouts.network)
         }
+        await #expect(throws: AuthError.timedOut) { try await second.value }
+        #expect(await client.accessStartCount == 2)
+        #expect(coordinator.activeTokenTouchingPhases.count == 1)
+        #expect(coordinator.abandonedTokenTouchingPhaseIDs.count == 1)
+
+        // A third never-finishing SDK call would grow retained task state
+        // without bound. While one abandoned task is still outstanding, the gate
+        // fails fast instead of starting another probe.
+        let capped = Task { try await coordinator.accessToken() }
+        await #expect(throws: AuthError.timedOut) { try await capped.value }
+        #expect(await client.accessStartCount == 2)
+        #expect(coordinator.activeTokenTouchingPhases.count == 1)
+        #expect(coordinator.abandonedTokenTouchingPhaseIDs.count == 1)
 
         await client.releaseHangingAccessTokenProbe()
-        await waitUntilTokenTouchingCleanupFinished(coordinator)
+        #expect(await waitUntilTokenTouchingCleanupFinished(coordinator))
     }
 
-    private func waitUntilTokenTouchingCleanupFinished(_ coordinator: AuthCoordinator) async {
+    private func waitUntilTokenTouchingCleanupFinished(_ coordinator: AuthCoordinator) async -> Bool {
         for _ in 0..<100 {
-            if coordinator.activeTokenTouchingPhases.isEmpty {
-                return
+            if coordinator.activeTokenTouchingPhases.isEmpty,
+               coordinator.abandonedTokenTouchingPhaseIDs.isEmpty {
+                return true
             }
             await Task.yield()
         }
+        return coordinator.activeTokenTouchingPhases.isEmpty
+            && coordinator.abandonedTokenTouchingPhaseIDs.isEmpty
     }
 
     /// Bounded poll for `accessStartCount` so a still-gated phase (the pre-fix
