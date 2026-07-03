@@ -26,24 +26,44 @@ export function hasFeatureWorkflowContent(
 export function featureWorkflowDocPathForRequest(
   pathname: string,
 ): (typeof featureWorkflowDocPaths)[number] | null {
+  return featureWorkflowDocRequestForPathname(pathname)?.path ?? null;
+}
+
+export function featureWorkflowDocRequestForPathname(
+  pathname: string,
+): {
+  path: (typeof featureWorkflowDocPaths)[number];
+  locale: Locale | null;
+} | null {
+  const { locale, path } = unprefixLocale(pathname);
+  if (
+    featureWorkflowDocPaths.includes(
+      path as (typeof featureWorkflowDocPaths)[number],
+    )
+  ) {
+    return {
+      path: path as (typeof featureWorkflowDocPaths)[number],
+      locale,
+    };
+  }
+  return null;
+}
+
+function unprefixLocale(pathname: string): { locale: Locale | null; path: string } {
   const normalized =
     pathname.length > 1 && pathname.endsWith("/")
       ? pathname.slice(0, -1)
       : pathname;
-  const unprefixed = unprefixLocale(normalized);
-  return featureWorkflowDocPaths.includes(
-    unprefixed as (typeof featureWorkflowDocPaths)[number],
-  )
-    ? (unprefixed as (typeof featureWorkflowDocPaths)[number])
-    : null;
-}
-
-function unprefixLocale(pathname: string): string {
   for (const locale of locales) {
-    if (pathname === `/${locale}`) return "/";
-    if (pathname.startsWith(`/${locale}/`)) {
-      return pathname.slice(locale.length + 1) || "/";
+    if (normalized === `/${locale}`) {
+      return { locale, path: "/" };
+    }
+    if (normalized.startsWith(`/${locale}/`)) {
+      return {
+        locale,
+        path: normalized.slice(locale.length + 1) || "/",
+      };
     }
   }
-  return pathname;
+  return { locale: null, path: normalized };
 }
