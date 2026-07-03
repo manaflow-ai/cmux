@@ -66,6 +66,11 @@ final class WindowContext {
     /// The window's cmux-config store, or `nil` when the window has none.
     var configStore: CmuxConfigStore?
 
+    /// The window's independent Dock store (per-window Dock, #7144), created
+    /// lazily on first access via `windowDockStore()` and torn down with the
+    /// window. `nil` until the window first shows its Dock.
+    var windowDock: DockSplitStore?
+
     init(
         windowId: WindowID,
         tabManager: TabManager,

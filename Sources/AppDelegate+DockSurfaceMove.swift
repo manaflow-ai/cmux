@@ -44,10 +44,10 @@ extension AppDelegate {
     /// re-activate a main terminal while the sidebar is focused.
     func rightSidebarOwnsInputFocus(for workspace: Workspace) -> Bool {
         guard let manager = workspace.owningTabManager,
-              let context = mainWindowContexts.values.first(where: { $0.tabManager === manager }) else {
+              let context = registeredMainWindows.first(where: { $0.tabManager === manager }) else {
             return false
         }
-        return context.fileExplorerState?.rightSidebarOwnsInputFocus ?? false
+        return fileExplorerState(for: context)?.rightSidebarOwnsInputFocus ?? false
     }
 
     /// Finds the Dock (any window's Dock or any workspace's local Dock) that
@@ -57,7 +57,7 @@ extension AppDelegate {
         if let windowDock = windowDockContainingPane(paneId.id) {
             return windowDock
         }
-        for context in mainWindowContexts.values {
+        for context in registeredMainWindows {
             for workspace in context.tabManager.tabs {
                 if let dock = workspace._dockSplit, dock.containsPane(paneId.id) {
                     return dock
@@ -78,7 +78,7 @@ extension AppDelegate {
                 return (windowDock, panel.id)
             }
         }
-        for context in mainWindowContexts.values {
+        for context in registeredMainWindows {
             for workspace in context.tabManager.tabs {
                 guard let dock = workspace._dockSplit,
                       let panel = dock.panel(for: bonsplitTabId) else { continue }

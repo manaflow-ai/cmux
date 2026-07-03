@@ -1093,6 +1093,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `remove(_:)` calls; the reverse-index drop now lives on the coordinator.
     func removeWindowModelSlices(for id: WindowID) -> (tabManager: TabManager, focusController: MainWindowFocusController?)? {
         guard let context = windowRegistry.removeContext(for: id) else { return nil }
+        // Tear down this window's independent Dock (#7144) so its live
+        // terminals/browsers and their portals die with the window instead of
+        // outliving it as headless PTYs.
+        context.teardownWindowDock()
         return (context.tabManager, context.focusController)
     }
 

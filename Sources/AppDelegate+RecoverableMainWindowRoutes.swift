@@ -40,7 +40,7 @@ extension AppDelegate {
         // when its NSWindow is gone (mid-teardown) or absent (windowless test
         // contexts); otherwise window-scoped routing silently falls back to
         // another window's manager.
-        return mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
+        return registeredMainWindows.first(where: { $0.windowId == windowId })?.tabManager
     }
 
     func windowId(for tabManager: TabManager) -> UUID? {

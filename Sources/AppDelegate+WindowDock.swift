@@ -3,14 +3,14 @@ import CmuxTerminal
 import CmuxTestSupport
 import CmuxCommandPalette
 
-extension AppDelegate.MainWindowContext {
+extension WindowContext {
     /// The Dock for this window, created on first access and retained until
     /// the context is unregistered. Seeded from `~/.config/cmux/dock.json`
     /// with a home base directory, like the app-wide Dock was on a fresh launch.
     func windowDockStore() -> DockSplitStore {
         if let existing = windowDock { return existing }
         let store = DockSplitStore(
-            workspaceId: windowId,
+            workspaceId: windowId.rawValue,
             scope: .global,
             baseDirectoryProvider: { nil },
             remoteBrowserSettingsProvider: { .local }
@@ -61,8 +61,8 @@ extension AppDelegate {
         return AppDelegate.shared?.mainWindowContext(forWindowId: id) != nil
     }
 
-    private func mainWindowContext(forWindowId windowId: UUID) -> MainWindowContext? {
-        mainWindowContexts.values.first { $0.windowId == windowId }
+    private func mainWindowContext(forWindowId windowId: UUID) -> WindowContext? {
+        windowRegistry.context(for: WindowID(windowId))
     }
 
     /// The Dock for the window `windowId`, created on first access and retained
@@ -86,7 +86,7 @@ extension AppDelegate {
     /// would have no teardown owner, leaving headless panels running until
     /// quit. Only an existing store remains addressable during close races.
     func windowDock(for tabManager: TabManager) -> DockSplitStore? {
-        if let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
+        if let context = windowRegistry.contexts.first(where: { $0.tabManager === tabManager }) {
             return context.windowDockStore()
         }
         guard let windowId = windowId(for: tabManager) else { return nil }
@@ -115,7 +115,7 @@ extension AppDelegate {
     /// Every live per-window Dock store.
     var existingWindowDocks: [DockSplitStore] {
         var seen: Set<ObjectIdentifier> = []
-        return mainWindowContexts.values.compactMap { context in
+        return windowRegistry.contexts.compactMap { context in
             guard seen.insert(ObjectIdentifier(context)).inserted else { return nil }
             return context.existingWindowDock()
         }
