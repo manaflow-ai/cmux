@@ -588,7 +588,7 @@ struct BrowserPanelView: View {
 
     private var shouldRenderOmnibarSuggestionsInPortal: Bool {
         hasVisibleOmnibarSuggestions &&
-            panel.shouldRenderWebView &&
+            panel.shouldAttachWebViewInUI &&
             !panel.shouldUseLocalInlineDeveloperToolsHosting()
     }
 
@@ -1809,7 +1809,7 @@ struct BrowserPanelView: View {
             canvasInlineBrowserHosting
 
         return Group {
-            if panel.shouldRenderWebView {
+            if panel.shouldAttachWebViewInUI {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,

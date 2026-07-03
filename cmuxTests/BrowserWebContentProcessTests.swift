@@ -231,7 +231,7 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func webViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
+    func webContentProcessTerminationDefersReplacementUntilExplicitRecovery() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: recoveryURL
@@ -240,13 +240,195 @@ struct BrowserWebContentProcessTests {
         let oldWebView = panel.webView
         let oldInstanceID = panel.webViewInstanceID
 
-        panel.debugSimulateWebContentProcessTermination()
+        simulateWebContentProcessTermination(for: panel)
+
+        #expect(panel.webView === oldWebView)
+        #expect(panel.webViewInstanceID == oldInstanceID)
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.shouldAttachWebViewInUI)
+        #expect(oldWebView.navigationDelegate == nil)
+        #expect(oldWebView.uiDelegate == nil)
+
+        #expect(panel.recoverTerminatedWebContent(reason: "test"))
 
         #expect(!(panel.webView === oldWebView))
         #expect(panel.webViewInstanceID != oldInstanceID)
-        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(panel.shouldAttachWebViewInUI)
         #expect(panel.webView.navigationDelegate != nil)
         #expect(panel.webView.uiDelegate != nil)
+    }
+
+    @Test
+    func systemMemoryPressureDiscardsRecoverableTerminatedHiddenWebView() {
+        let committedURL = URL(string: "https://example.com/committed")!
+        let provisionalURL = URL(string: "https://example.com/provisional")!
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: committedURL
+        )
+        defer { panel.close() }
+        let oldWebView = panel.webView
+        let oldInstanceID = panel.webViewInstanceID
+        let now = Date(timeIntervalSince1970: 3_000)
+        panel.applyMediaPlaybackReport(frameID: "main", isPlaying: true, isAudible: true)
+        #expect(panel.isPlayingMedia)
+        #expect(panel.isPlayingAudio)
+        panel.navigate(to: provisionalURL)
+        panel.webView.navigationDelegate?.webView?(panel.webView, didStartProvisionalNavigation: nil)
+
+        simulateWebContentProcessTermination(for: panel)
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: now)
+
+        #expect(panel.webView === oldWebView)
+        #expect(panel.webViewInstanceID == oldInstanceID)
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.shouldAttachWebViewInUI)
+        #expect(!panel.isPlayingMedia)
+        #expect(!panel.isPlayingAudio)
+
+        #expect(panel.discardHiddenWebViewForSystemMemoryPressure(now: now.addingTimeInterval(1)))
+
+        #expect(!(panel.webView === oldWebView))
+        #expect(panel.webViewInstanceID != oldInstanceID)
+        #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(!panel.shouldRenderWebView)
+        #expect(!panel.shouldAttachWebViewInUI)
+        #expect(panel.currentURL == provisionalURL)
+
+        #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.visible"))
+        #expect(panel.shouldAttachWebViewInUI)
+        #expect(panel.currentURL == provisionalURL)
+    }
+
+    @Test
+    func systemMemoryPressureDiscardsRecoverableTerminationWithOnlyProvisionalURL() {
+        let provisionalURL = URL(string: "https://example.com/provisional-only")!
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let oldWebView = panel.webView
+        let oldInstanceID = panel.webViewInstanceID
+        let now = Date(timeIntervalSince1970: 3_100)
+
+        panel.navigate(to: provisionalURL)
+        panel.webView.navigationDelegate?.webView?(panel.webView, didStartProvisionalNavigation: nil)
+        #expect(panel.currentURL == nil)
+
+        simulateWebContentProcessTermination(for: panel)
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: now)
+
+        #expect(panel.webView === oldWebView)
+        #expect(panel.webViewInstanceID == oldInstanceID)
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(panel.hiddenWebViewDiscardSnapshot.hasCurrentURL)
+        #expect(panel.discardHiddenWebViewForSystemMemoryPressure(now: now.addingTimeInterval(1)))
+
+        #expect(!(panel.webView === oldWebView))
+        #expect(panel.webViewInstanceID != oldInstanceID)
+        #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(panel.currentURL == provisionalURL)
+    }
+
+    @Test
+    func webContentProcessTerminationDisablesHistoryTraversalUntilRecovery() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL
+        )
+        defer { panel.close() }
+        let oldWebView = panel.webView
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: ["https://example.com/a"],
+            forwardHistoryURLStrings: ["https://example.com/d"],
+            currentURLString: "https://example.com/c"
+        )
+        #expect(panel.canGoBack)
+        #expect(panel.canGoForward)
+
+        simulateWebContentProcessTermination(for: panel)
+
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.canGoBack)
+        #expect(!panel.canGoForward)
+
+        panel.goBack()
+        panel.goForward()
+
+        #expect(panel.webView === oldWebView)
+        #expect(panel.hasRecoverableWebContentTermination)
+    }
+
+    @Test
+    func recoverableTerminationClosesBackgroundPreloadHost() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            preloadInitialNavigationInBackground: true,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+        #expect(panel.hasBackgroundPreloadHost)
+
+        simulateWebContentProcessTermination(for: panel)
+
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.hasBackgroundPreloadHost)
+    }
+
+    @Test
+    func recoverableTerminationArmsRecoveryBeforeMediaTeardownCanDiscard() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL
+        )
+        defer { panel.close() }
+        let oldWebView = panel.webView
+        let oldInstanceID = panel.webViewInstanceID
+        panel.webView.stopLoading()
+        panel.applyMediaPlaybackReport(frameID: "main", isPlaying: true, isAudible: true)
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: Date(timeIntervalSince1970: 0))
+        #expect(panel.isPlayingMedia)
+
+        simulateWebContentProcessTermination(for: panel)
+
+        #expect(panel.webView === oldWebView)
+        #expect(panel.webViewInstanceID == oldInstanceID)
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.isPlayingMedia)
+    }
+
+    @Test
+    func recoverableTerminationClearsReactGrabState() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL
+        )
+        defer { panel.close() }
+        panel.isReactGrabActive = true
+        panel.armReactGrabRoundTrip(returnTo: UUID())
+
+        simulateWebContentProcessTermination(for: panel)
+
+        #expect(!panel.isReactGrabActive)
+        #expect(panel.pendingReactGrabReturnTargetPanelId == nil)
+        #expect(panel.pendingReactGrabRoundTripToken == nil)
+    }
+
+    @Test
+    func visibleRecoverableTerminatedWebViewDoesNotMemoryDiscard() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL
+        )
+        defer { panel.close() }
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+
+        simulateWebContentProcessTermination(for: panel)
+
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.shouldAttachWebViewInUI)
+        #expect(!panel.discardHiddenWebViewForSystemMemoryPressure(now: Date(timeIntervalSince1970: 4_000)))
+        #expect(panel.hasRecoverableWebContentTermination)
     }
 
     @Test
@@ -261,7 +443,10 @@ struct BrowserWebContentProcessTests {
         defer { panel.close() }
         let originalStore = panel.webView.configuration.websiteDataStore
 
-        panel.debugSimulateWebContentProcessTermination()
+        simulateWebContentProcessTermination(for: panel)
+        #expect(panel.webView.configuration.websiteDataStore === originalStore)
+
+        #expect(panel.recoverTerminatedWebContent(reason: "test"))
 
         #expect(panel.webView.configuration.websiteDataStore === originalStore)
     }
@@ -274,7 +459,7 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.debugSimulateWebContentProcessTermination()
+        simulateWebContentProcessTermination(for: panel)
         #expect(panel.hasRecoverableWebContentTermination)
 
         panel.reload()
@@ -291,7 +476,7 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.debugSimulateWebContentProcessTermination()
+        simulateWebContentProcessTermination(for: panel)
         #expect(panel.hasRecoverableWebContentTermination)
 
         panel.resetForWorkspaceContextChange(reason: "test")
@@ -315,7 +500,7 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.debugSimulateWebContentProcessTermination()
+        simulateWebContentProcessTermination(for: panel)
         #expect(panel.hasRecoverableWebContentTermination)
 
         #expect(panel.switchToProfile(profile.id))
@@ -329,10 +514,35 @@ struct BrowserWebContentProcessTests {
         defer { panel.close() }
         #expect(!panel.shouldRenderWebView)
 
-        panel.debugSimulateWebContentProcessTermination()
+        simulateWebContentProcessTermination(for: panel)
 
         #expect(!panel.shouldRenderWebView)
         #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(!panel.shouldAttachWebViewInUI)
+    }
+
+    @Test
+    func nonRecoverableWebContentTerminationKeepsNavigationCallbacksActive() {
+        let failedURL = URL(string: "https://example.invalid/nonrecoverable")!
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+
+        simulateWebContentProcessTermination(for: panel)
+        #expect(!panel.hasRecoverableWebContentTermination)
+
+        panel.navigate(to: failedURL)
+        panel.webView.navigationDelegate?.webView?(
+            panel.webView,
+            didFailProvisionalNavigation: nil,
+            withError: NSError(
+                domain: NSURLErrorDomain,
+                code: NSURLErrorCannotFindHost,
+                userInfo: [NSURLErrorFailingURLStringErrorKey: failedURL.absoluteString]
+            )
+        )
+
+        #expect(panel.currentURL == failedURL)
+        #expect(panel.pageTitle == failedURL.absoluteString)
     }
 
     @Test
@@ -391,6 +601,8 @@ struct BrowserWebContentProcessTests {
         #expect(!popupWindow.isVisible)
     }
 }
+
+@MainActor private func simulateWebContentProcessTermination(for panel: BrowserPanel) { panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(panel.webView) }
 
 private final class BrowserWebContentProcessLoadDelegate: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Error>?
