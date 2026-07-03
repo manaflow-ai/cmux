@@ -16181,6 +16181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 id: notification.id,
                 tabId: notification.tabId,
                 surfaceId: notification.surfaceId,
+                panelId: notification.panelId,
                 isRead: notification.isRead,
                 clickAction: notification.clickAction.map(Self.navClickAction),
                 scrollRow: notification.scrollPosition?.row
@@ -16218,13 +16219,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ position: TerminalNotificationScrollPosition?,
         tabId: UUID,
         surfaceId: UUID?,
+        panelId: UUID?,
         workspace: Workspace?
     ) {
         guard let position else { return }
         guard let workspace = workspace ?? workspaceFor(tabId: tabId) ?? tabManager?.tabs.first(where: { $0.id == tabId }) else {
             return
         }
-        _ = terminalPanelForNotificationScroll(workspace: workspace, surfaceId: surfaceId, panelId: nil)?
+        _ = terminalPanelForNotificationScroll(workspace: workspace, surfaceId: surfaceId, panelId: panelId)?
             .restoreNotificationScrollPosition(position)
     }
 
@@ -16251,6 +16253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func openNotification(
         tabId: UUID,
         surfaceId: UUID?,
+        panelId: UUID? = nil,
         notificationId: UUID?,
         scrollPosition: TerminalNotificationScrollPosition? = nil
     ) -> Bool {
@@ -16281,6 +16284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let ok = openNotificationFallback(
                 tabId: tabId,
                 surfaceId: surfaceId,
+                panelId: panelId,
                 notificationId: notificationId,
                 scrollPosition: scrollPosition
             )
@@ -16300,6 +16304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             context,
             tabId: tabId,
             surfaceId: surfaceId,
+            panelId: panelId,
             notificationId: notificationId,
             scrollPosition: scrollPosition
         )
@@ -16309,6 +16314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ context: MainWindowContext,
         tabId: UUID,
         surfaceId: UUID?,
+        panelId: UUID? = nil,
         notificationId: UUID?,
         scrollPosition: TerminalNotificationScrollPosition? = nil
     ) -> Bool {
@@ -16360,6 +16366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             scrollPosition,
             tabId: tabId,
             surfaceId: surfaceId,
+            panelId: panelId,
             workspace: context.tabManager.tabs.first(where: { $0.id == tabId })
         )
 
@@ -16380,6 +16387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func openNotificationFallback(
         tabId: UUID,
         surfaceId: UUID?,
+        panelId: UUID? = nil,
         notificationId: UUID?,
         scrollPosition: TerminalNotificationScrollPosition? = nil
     ) -> Bool {
@@ -16438,6 +16446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             scrollPosition,
             tabId: tabId,
             surfaceId: surfaceId,
+            panelId: panelId,
             workspace: tabManager.tabs.first(where: { $0.id == tabId })
         )
 #if DEBUG

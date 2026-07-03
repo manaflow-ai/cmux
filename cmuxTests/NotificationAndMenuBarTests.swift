@@ -1620,11 +1620,38 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         let store = TerminalNotificationStore.shared
         store.replaceNotificationsForTesting([older, unrelated, latest, middle])
+        defer { store.replaceNotificationsForTesting([]) }
 
         XCTAssertEqual(
             store.notifications(forTabIds: [tabA, tabB]).map(\.id),
             [latest.id, middle.id, older.id]
         )
+    }
+
+    func testWorkspaceNotificationMenuProjectionCapsNewestItems() {
+        let tab = UUID()
+        let notifications = (0 ..< 60).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: tab,
+                surfaceId: nil,
+                title: "\(index)",
+                subtitle: "",
+                body: "",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: false
+            )
+        }
+
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting(notifications)
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let menuItems = store.notifications(forTabIds: [tab])
+
+        XCTAssertEqual(menuItems.count, 50)
+        XCTAssertEqual(menuItems.first?.title, "59")
+        XCTAssertEqual(menuItems.last?.title, "10")
     }
 }
 

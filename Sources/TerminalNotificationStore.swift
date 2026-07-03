@@ -230,6 +230,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
 
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
+    private static let workspaceContextMenuNotificationLimit = 50
+
     private struct TabSurfaceKey: Hashable {
         let tabId: UUID
         let surfaceId: UUID?
@@ -875,9 +877,10 @@ final class TerminalNotificationStore: ObservableObject {
     func notifications(forTabIds tabIds: [UUID]) -> [TerminalNotification] {
         guard !tabIds.isEmpty else { return [] }
         let targetIds = Set(tabIds)
-        return notifications
+        let sorted = notifications
             .filter { targetIds.contains($0.tabId) }
             .sorted(by: Self.notificationSortPrecedes)
+        return Array(sorted.prefix(Self.workspaceContextMenuNotificationLimit))
     }
 
     func clearLatestNotification(forTabId tabId: UUID) {

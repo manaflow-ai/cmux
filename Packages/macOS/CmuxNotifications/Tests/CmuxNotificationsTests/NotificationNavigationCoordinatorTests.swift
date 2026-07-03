@@ -67,24 +67,25 @@ private final class FakeOpenRouting: NotificationOpenRouting {
     var titles: [UUID: String] = [:]
     private(set) var log: [String] = []
 
-    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
-        log.append("routed(tab=\(short(tabId)),surf=\(short(surfaceId)),notif=\(short(notificationId)),row=\(row(scrollRow)))")
+    func openRouted(tabId: UUID, surfaceId: UUID?, panelId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
+        log.append("routed(tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)))")
         return routedSucceeds
     }
 
-    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
-        log.append("window(\(short(windowId)),tab=\(short(tabId)),surf=\(short(surfaceId)),notif=\(short(notificationId)),row=\(row(scrollRow)))")
+    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, panelId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
+        log.append("window(\(short(windowId)),tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)))")
         return windowSucceeds
     }
 
-    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
-        log.append("fallback(tab=\(short(tabId)),surf=\(short(surfaceId)),notif=\(short(notificationId)),row=\(row(scrollRow)))")
+    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, panelId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
+        log.append("fallback(tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)))")
         return fallbackSucceeds
     }
 
     func tabTitle(forTabId tabId: UUID) -> String? { titles[tabId] }
 
     private func short(_ id: UUID?) -> String { id.map { String($0.uuidString.prefix(4)) } ?? "nil" }
+    private func panel(_ id: UUID?) -> String { id.map { ",panel=\(short($0))" } ?? "" }
     private func row(_ row: Int?) -> String { row.map(String.init) ?? "nil" }
 }
 
@@ -122,6 +123,7 @@ private func makeCoordinator(
 private func snapshot(
     tabId: UUID,
     surfaceId: UUID? = nil,
+    panelId: UUID? = nil,
     isRead: Bool = false,
     clickAction: NotificationNavClickAction? = nil,
     scrollRow: Int? = nil,
@@ -131,6 +133,7 @@ private func snapshot(
         id: id,
         tabId: tabId,
         surfaceId: surfaceId,
+        panelId: panelId,
         isRead: isRead,
         clickAction: clickAction,
         scrollRow: scrollRow
@@ -349,13 +352,14 @@ struct NotificationNavigationCoordinatorTests {
     @Test("openNotification routes captured scroll row for terminal notifications")
     func openNotificationRoutesCapturedScrollRow() {
         let openRouting = FakeOpenRouting()
-        let notif = snapshot(tabId: UUID(), surfaceId: UUID(), scrollRow: 42)
+        let panelId = UUID()
+        let notif = snapshot(tabId: UUID(), surfaceId: UUID(), panelId: panelId, scrollRow: 42)
         let coordinator = makeCoordinator(openRouting: openRouting)
 
         let opened = coordinator.openNotification(notif)
 
         #expect(opened)
-        #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),notif=\(short(notif.id)),row=42)"])
+        #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),panel=\(short(panelId)),notif=\(short(notif.id)),row=42)"])
     }
 
     // MARK: - Focus signal (the #if DEBUG recorder hook)

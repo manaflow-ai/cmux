@@ -15,6 +15,8 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
     /// The id of the surface within the workspace, when the notification is
     /// scoped to a specific surface rather than the workspace as a whole.
     public let surfaceId: UUID?
+    /// The owning terminal panel id, when known by the app target.
+    public let panelId: UUID?
     /// Whether the notification has already been read.
     public let isRead: Bool
     /// The notification's click action, if any. When present the notification
@@ -29,6 +31,7 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         id: UUID,
         tabId: UUID,
         surfaceId: UUID?,
+        panelId: UUID? = nil,
         isRead: Bool,
         clickAction: NotificationNavClickAction?,
         scrollRow: Int? = nil
@@ -36,6 +39,7 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         self.id = id
         self.tabId = tabId
         self.surfaceId = surfaceId
+        self.panelId = panelId
         self.isRead = isRead
         self.clickAction = clickAction
         self.scrollRow = scrollRow
