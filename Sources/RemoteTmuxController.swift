@@ -370,10 +370,17 @@ final class RemoteTmuxController {
                 mirror.host.connectionHash == host.connectionHash
                     && mirror.mirroredWorkspaceId.map(newWindowWorkspaceIds.contains) == true
             }
+            let hostHasMirrorOutsideNewWindow = sessionMirrors.values.contains { mirror in
+                guard mirror.host.connectionHash == host.connectionHash,
+                      let workspaceId = mirror.mirroredWorkspaceId else { return false }
+                return !newWindowWorkspaceIds.contains(workspaceId)
+            }
             guard newWindowHasMirrorForHost else {
                 windowRegistry.unbind(hostHash: host.connectionHash)
-                transportRegistry.remove(connectionHash: host.connectionHash)
-                RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+                if !hostHasMirrorOutsideNewWindow {
+                    transportRegistry.remove(connectionHash: host.connectionHash)
+                    RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+                }
                 appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
                 throw RemoteTmuxError.unreachable("could not mirror any tmux session on \(host.destination)")
             }

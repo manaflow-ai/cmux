@@ -134,12 +134,17 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
         let activate = (params["activate"] as? Bool) ?? true
+        let targetWindowId = remoteTmuxCallerWindowId(from: params)
         return v2VmCall(id: id, timeoutSeconds: 60) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
             else {
                 throw RemoteTmuxError.unreachable("app not ready")
             }
-            let outcome = try await controller.mirrorHostInCurrentWindow(host: host, activateWindow: activate)
+            let outcome = try await controller.mirrorHostInCurrentWindow(
+                host: host,
+                activateWindow: activate,
+                targetWindowId: targetWindowId
+            )
             switch outcome {
             case .mirrored(let windowId):
                 return [
@@ -155,6 +160,22 @@ extension TerminalController {
                 ]
             }
         }
+    }
+
+    private nonisolated func remoteTmuxCallerWindowId(from params: [String: Any]) -> UUID? {
+        guard let workspaceId = Self.remoteTmuxCallerWorkspaceId(from: params) else { return nil }
+        return v2MainSync {
+            guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return nil }
+            return AppDelegate.shared?.windowId(for: manager)
+        }
+    }
+
+    private nonisolated static func remoteTmuxCallerWorkspaceId(from params: [String: Any]) -> UUID? {
+        guard let caller = params["caller"] as? [String: Any],
+              let raw = caller["workspace_id"] as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return UUID(uuidString: trimmed)
     }
 
     /// `remote.tmux.window` — open a dedicated cmux window mirroring every tmux

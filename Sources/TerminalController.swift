@@ -1132,7 +1132,7 @@ class TerminalController {
             return v2RemoteTmuxDetach(id: request.id, params: request.params)
         case "remote.tmux.state":
             return v2RemoteTmuxState(id: request.id, params: request.params)
-        case "remote.tmux.attach_here":
+        case "remote.tmux.attach_here", "remote.tmux.mirror":
             return v2RemoteTmuxAttachHere(id: request.id, params: request.params)
         case "remote.tmux.window":
             return v2RemoteTmuxWindow(id: request.id, params: request.params)
@@ -2032,7 +2032,7 @@ class TerminalController {
             "workspace.remote.pty_bridge",
             "workspace.remote.pty_resize",
             "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.attach_here", "remote.tmux.window",
+            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.attach_here", "remote.tmux.mirror", "remote.tmux.window",
             "session.restore_previous",
             "settings.open",
             "feedback.open",

@@ -23,6 +23,7 @@ import Testing
             "remote.tmux.detach",
             "remote.tmux.state",
             "remote.tmux.attach_here",
+            "remote.tmux.mirror",
             "remote.tmux.window",
         ].allSatisfy { advertisedMethods.contains($0) })
     }
@@ -34,8 +35,9 @@ import Testing
     /// stays registered/dispatched and keeps validating before SSH regardless of
     /// which way the `remoteTmux.beta.enabled` flag happens to be set in the test
     /// environment.
-    @Test func attachHereWithoutHostReturnsStructuredErrorBeforeNetwork() throws {
-        let request = #"{"jsonrpc":"2.0","id":1,"method":"remote.tmux.attach_here","params":{}}"#
+    @Test(arguments: ["remote.tmux.attach_here", "remote.tmux.mirror"])
+    func attachHereWithoutHostReturnsStructuredErrorBeforeNetwork(method: String) throws {
+        let request = #"{"jsonrpc":"2.0","id":1,"method":"\#(method)","params":{}}"#
         let responseText = TerminalController.shared.handleSocketLine(request)
         let responseData = try #require(responseText.data(using: .utf8))
         let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])

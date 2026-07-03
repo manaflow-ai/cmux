@@ -8573,7 +8573,7 @@ struct CMUXCLI {
         if let port { params["port"] = port }
         if let identityFile, !identityFile.isEmpty { params["identity_file"] = identityFile }
         if noFocus { params["activate"] = false }
-
+        if let caller = treeCallerContextFromEnvironment() { params["caller"] = caller }
         // The first call runs a non-interactive (BatchMode) discovery in the app,
         // which can take a couple of seconds; show progress so it doesn't look idle.
         if !jsonOutput {

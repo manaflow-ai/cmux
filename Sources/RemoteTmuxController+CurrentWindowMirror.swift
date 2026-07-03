@@ -5,7 +5,8 @@ extension RemoteTmuxController {
     @discardableResult
     func mirrorHostInCurrentWindow(
         host: RemoteTmuxHost,
-        activateWindow: Bool = true
+        activateWindow: Bool = true,
+        targetWindowId: UUID? = nil
     ) async throws -> RemoteTmuxAttachOutcome {
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
@@ -17,6 +18,9 @@ extension RemoteTmuxController {
         ) {
             return existing
         }
+        let capturedTargetManager = targetWindowId.flatMap {
+            appDelegate.tabManagerFor(windowId: $0)
+        } ?? appDelegate.tabManager
 
         return try await withMirrorAttachGuard(host: host) {
             let preflight = try await prepareMirrorAttach(host: host, createIfEmpty: false) { _ in
@@ -37,7 +41,11 @@ extension RemoteTmuxController {
             }
 
             let manager: TabManager
-            if let current = appDelegate.tabManager {
+            if let capturedTargetManager,
+               let capturedWindowId = appDelegate.windowId(for: capturedTargetManager),
+               appDelegate.windowForMainWindowId(capturedWindowId) != nil {
+                manager = capturedTargetManager
+            } else if let current = appDelegate.tabManager {
                 manager = current
             } else {
                 let windowId = appDelegate.createMainWindow(shouldActivate: activateWindow)
