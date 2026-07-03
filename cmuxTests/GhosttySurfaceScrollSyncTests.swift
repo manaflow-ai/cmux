@@ -11,6 +11,30 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct GhosttySurfaceScrollSyncTests {
+    private func waitUntil(
+        timeout: TimeInterval = 1,
+        predicate: () -> Bool
+    ) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while Date() < deadline {
+            if predicate() {
+                return true
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002))
+        }
+        return predicate()
+    }
+
+    private func waitForScrollOrigin(
+        _ expectedY: CGFloat,
+        in scrollView: NSScrollView,
+        tolerance: CGFloat = 0.01
+    ) -> Bool {
+        waitUntil {
+            abs(scrollView.contentView.bounds.origin.y - expectedY) <= tolerance
+        }
+    }
+
     private func makeScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
         GhosttyScrollbar(
             c: ghostty_action_scrollbar_s(
@@ -51,9 +75,12 @@ struct GhosttySurfaceScrollSyncTests {
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
         hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         let scrollView = try #require(hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView)
+        #expect(waitUntil {
+            hostedView.layoutSubtreeIfNeeded()
+            return scrollView.documentView != nil && scrollView.contentView.bounds.height > 0
+        })
         shouldKeepWindow = true
         return (window, surfaceView, scrollView)
     }
@@ -67,7 +94,6 @@ struct GhosttySurfaceScrollSyncTests {
             object: surfaceView,
             userInfo: [GhosttyNotificationKey.scrollbar: scrollbar]
         )
-        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
     }
 
     private func simulateNativeScrollerDrag(
@@ -84,7 +110,6 @@ struct GhosttySurfaceScrollSyncTests {
             name: NSScrollView.didEndLiveScrollNotification,
             object: scrollView
         )
-        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
     }
 
     @Test
@@ -96,13 +121,13 @@ struct GhosttySurfaceScrollSyncTests {
             makeScrollbar(total: 100, offset: 90, len: 10),
             from: fixture.surfaceView
         )
-        #expect(abs(fixture.scrollView.contentView.bounds.origin.y - 0) <= 0.01)
+        #expect(waitForScrollOrigin(0, in: fixture.scrollView))
 
         simulateNativeScrollerDrag(on: fixture.scrollView, to: 500)
-        #expect(abs(fixture.scrollView.contentView.bounds.origin.y - 500) <= 0.01)
+        #expect(waitForScrollOrigin(500, in: fixture.scrollView))
 
         simulateNativeScrollerDrag(on: fixture.scrollView, to: 0)
-        #expect(abs(fixture.scrollView.contentView.bounds.origin.y - 0) <= 0.01)
+        #expect(waitForScrollOrigin(0, in: fixture.scrollView))
 
         postScrollbar(
             makeScrollbar(total: 100, offset: 80, len: 10),
@@ -110,7 +135,7 @@ struct GhosttySurfaceScrollSyncTests {
         )
 
         #expect(
-            abs(fixture.scrollView.contentView.bounds.origin.y - 100) <= 0.01,
+            waitForScrollOrigin(100, in: fixture.scrollView),
             "Dragging the native scroller back to the non-flipped document bottom should restore passive scrollbar following"
         )
     }
@@ -124,12 +149,12 @@ struct GhosttySurfaceScrollSyncTests {
             makeScrollbar(total: 100, offset: 90, len: 10),
             from: fixture.surfaceView
         )
-        #expect(abs(fixture.scrollView.contentView.bounds.origin.y - 0) <= 0.01)
+        #expect(waitForScrollOrigin(0, in: fixture.scrollView))
 
         let documentView = try #require(fixture.scrollView.documentView)
         let topOriginY = documentView.frame.height - fixture.scrollView.contentView.bounds.height
         simulateNativeScrollerDrag(on: fixture.scrollView, to: topOriginY)
-        #expect(abs(fixture.scrollView.contentView.bounds.origin.y - topOriginY) <= 0.01)
+        #expect(waitForScrollOrigin(topOriginY, in: fixture.scrollView))
 
         postScrollbar(
             makeScrollbar(total: 100, offset: 90, len: 10),
@@ -137,7 +162,7 @@ struct GhosttySurfaceScrollSyncTests {
         )
 
         #expect(
-            abs(fixture.scrollView.contentView.bounds.origin.y - topOriginY) <= 0.01,
+            waitForScrollOrigin(topOriginY, in: fixture.scrollView),
             "Dragging the native scroller to the top of scrollback should keep passive bottom packets from yanking the viewport"
         )
     }
