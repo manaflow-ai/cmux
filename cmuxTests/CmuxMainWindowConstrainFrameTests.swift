@@ -1,5 +1,5 @@
 import AppKit
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,8 +8,8 @@ import XCTest
 #endif
 
 #if DEBUG
-@MainActor
-final class CmuxMainWindowConstrainFrameTests: XCTestCase {
+@MainActor @Suite
+struct CmuxMainWindowConstrainFrameTests {
     // On a display/system sleep→wake, AppKit re-runs its constrain pass over
     // every window and repositions even windows that are already fully
     // on-screen; cmux never re-asserts its saved frame afterward, so the window
@@ -18,10 +18,9 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
     // flush under the menu bar is one such on-screen frame (and an easy,
     // deterministic one to construct), but it is not the only triggering
     // arrangement — see the screen-agnostic helper cases below.
-    func testConstrainPreservesOnScreenFrameOverlappingMenuBar() throws {
-        guard let screen = NSScreen.main else {
-            throw XCTSkip("No screen available for constrainFrameRect regression")
-        }
+    @Test
+    func constrainPreservesOnScreenFrameOverlappingMenuBar() throws {
+        let screen = try #require(NSScreen.main, "No screen available for constrainFrameRect regression")
         let window = CmuxMainWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -47,54 +46,59 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
 
         let constrained = window.constrainFrameRect(proposed, to: screen)
 
-        XCTAssertEqual(constrained.origin.x, proposed.origin.x, accuracy: 0.5)
-        XCTAssertEqual(constrained.origin.y, proposed.origin.y, accuracy: 0.5)
-        XCTAssertEqual(constrained.size.width, proposed.size.width, accuracy: 0.5)
-        XCTAssertEqual(constrained.size.height, proposed.size.height, accuracy: 0.5)
+        #expect(abs(constrained.origin.x - proposed.origin.x) <= 0.5)
+        #expect(abs(constrained.origin.y - proposed.origin.y) <= 0.5)
+        #expect(abs(constrained.size.width - proposed.size.width) <= 0.5)
+        #expect(abs(constrained.size.height - proposed.size.height) <= 0.5)
     }
 
     // The decision helper is screen-agnostic, so these cases run deterministically
     // on CI regardless of the test host's display configuration.
 
-    func testPreservesFrameFullyInsideVisibleArea() {
+    @Test
+    func preservesFrameFullyInsideVisibleArea() {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let frame = NSRect(x: 100, y: 100, width: 800, height: 600)
-        XCTAssertTrue(
+        #expect(
             CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
         )
     }
 
-    func testPreservesFrameWhoseTitlebarOverlapsMenuBarBand() {
+    @Test
+    func preservesFrameWhoseTitlebarOverlapsMenuBarBand() {
         // The visible area excludes a 37pt menu-bar band at the top; the window's
         // titlebar pokes into it — the placement AppKit would otherwise push down.
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 863)
         let frame = NSRect(x: 320, y: 263, width: 800, height: 637) // maxY 900 > 863
-        XCTAssertTrue(
+        #expect(
             CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
         )
     }
 
-    func testDoesNotPreserveFrameStrandedOffScreen() {
+    @Test
+    func doesNotPreserveFrameStrandedOffScreen() {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let frame = NSRect(x: 3000, y: 2000, width: 800, height: 600)
-        XCTAssertFalse(
-            CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
+        #expect(
+            !CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
         )
     }
 
-    func testDoesNotPreserveBarelyPeekingFrame() {
+    @Test
+    func doesNotPreserveBarelyPeekingFrame() {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
         // Only ~20pt of the window overlaps the bottom-left corner — not grabbable.
         let frame = NSRect(x: -780, y: -580, width: 800, height: 600)
-        XCTAssertFalse(
-            CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
+        #expect(
+            !CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
         )
     }
 
-    func testDoesNotPreserveWhenNoScreensAvailable() {
+    @Test
+    func doesNotPreserveWhenNoScreensAvailable() {
         let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
-        XCTAssertFalse(
-            CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [])
+        #expect(
+            !CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [])
         )
     }
 
@@ -106,63 +110,67 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
     // the app is inactive is never user-driven, reverting to the frame the user
     // last left it at is safe.
 
-    func testRestoresFrameThatShrankWhileInactive() {
+    @Test
+    func restoresFrameThatShrankWhileInactive() {
         // 1000×700 ≈ the default window, ~2/3 the width of a 1512pt MacBook display.
         let visible = NSRect(x: 0, y: 0, width: 1512, height: 944)
         let maximized = NSRect(x: 0, y: 0, width: 1512, height: 944)
         let shrunkToDefault = NSRect(x: 256, y: 122, width: 1000, height: 700)
-        XCTAssertEqual(
+        #expect(
             CmuxMainWindow.restoredFrameAfterInactiveDisplayTransition(
                 current: shrunkToDefault,
                 beforeDeactivation: maximized,
                 visibleFrames: [visible]
-            ),
-            maximized
+            ) == maximized
         )
     }
 
-    func testDoesNotRestoreWhenFrameUnchanged() {
+    @Test
+    func doesNotRestoreWhenFrameUnchanged() {
         let visible = NSRect(x: 0, y: 0, width: 1512, height: 944)
         let frame = NSRect(x: 0, y: 0, width: 1512, height: 944)
-        XCTAssertNil(
+        #expect(
             CmuxMainWindow.restoredFrameAfterInactiveDisplayTransition(
                 current: frame,
                 beforeDeactivation: frame,
                 visibleFrames: [visible]
-            )
+            ) == nil
         )
     }
 
-    func testDoesNotRestoreWhenWindowGrewWhileInactive() {
+    @Test
+    func doesNotRestoreWhenWindowGrewWhileInactive() {
         let visible = NSRect(x: 0, y: 0, width: 1512, height: 944)
         let small = NSRect(x: 100, y: 100, width: 800, height: 600)
         let large = NSRect(x: 0, y: 0, width: 1400, height: 900)
-        XCTAssertNil(
+        #expect(
             CmuxMainWindow.restoredFrameAfterInactiveDisplayTransition(
                 current: large,
                 beforeDeactivation: small,
                 visibleFrames: [visible]
-            )
+            ) == nil
         )
     }
 
-    func testDoesNotRestorePreviousFrameStrandedOffScreen() {
+    @Test
+    func doesNotRestorePreviousFrameStrandedOffScreen() {
         // The window was maximized on an external display that is now unplugged;
         // its previous frame no longer overlaps any current screen, so leave the
         // already-on-screen shrunken frame alone rather than push it off-screen.
         let builtIn = NSRect(x: 0, y: 0, width: 1512, height: 944)
         let onExternal = NSRect(x: 3000, y: 0, width: 2560, height: 1440)
         let clampedToBuiltIn = NSRect(x: 256, y: 122, width: 1000, height: 700)
-        XCTAssertNil(
+        #expect(
             CmuxMainWindow.restoredFrameAfterInactiveDisplayTransition(
                 current: clampedToBuiltIn,
                 beforeDeactivation: onExternal,
                 visibleFrames: [builtIn]
-            )
+            ) == nil
         )
     }
 
-    func testDoesNotRestorePreviousFrameMostlyOffScreen() {
+    @Test
+    func doesNotRestorePreviousFrameMostlyOffScreen() {
         // Old frame straddled an adjacent external display that is now unplugged:
         // it still overlaps the built-in by >60pt (passes the constrain
         // reachability bar) but only ~7% of its area is on-screen, so restoring
@@ -170,47 +178,48 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         let builtIn = NSRect(x: 0, y: 0, width: 1512, height: 944)
         let mostlyOffScreen = NSRect(x: 1400, y: 0, width: 1500, height: 900)
         let current = NSRect(x: 256, y: 122, width: 1000, height: 700)
-        XCTAssertNil(
+        #expect(
             CmuxMainWindow.restoredFrameAfterInactiveDisplayTransition(
                 current: current,
                 beforeDeactivation: mostlyOffScreen,
                 visibleFrames: [builtIn]
-            )
+            ) == nil
         )
     }
 
-    func testDoesNotRestorePreviousFrameLargerThanCurrentDisplay() {
+    @Test
+    func doesNotRestorePreviousFrameLargerThanCurrentDisplay() {
         // Display woke at a smaller mode; the old maximized frame no longer fits,
         // so restoring it would overflow the current display. Must refuse.
         let smallerMode = NSRect(x: 0, y: 0, width: 1280, height: 800)
         let oldLarge = NSRect(x: 0, y: 0, width: 2560, height: 1440)
         let current = NSRect(x: 140, y: 90, width: 1000, height: 620)
-        XCTAssertNil(
+        #expect(
             CmuxMainWindow.restoredFrameAfterInactiveDisplayTransition(
                 current: current,
                 beforeDeactivation: oldLarge,
                 visibleFrames: [smallerMode]
-            )
+            ) == nil
         )
     }
 
-    func testDoesNotRestoreOnNegligibleShrink() {
+    @Test
+    func doesNotRestoreOnNegligibleShrink() {
         let visible = NSRect(x: 0, y: 0, width: 1512, height: 944)
         let before = NSRect(x: 0, y: 0, width: 1512, height: 944)
         let tinyShrink = NSRect(x: 0, y: 0, width: 1500, height: 936) // <40pt in both dims
-        XCTAssertNil(
+        #expect(
             CmuxMainWindow.restoredFrameAfterInactiveDisplayTransition(
                 current: tinyShrink,
                 beforeDeactivation: before,
                 visibleFrames: [visible]
-            )
+            ) == nil
         )
     }
 
-    func testApplyRestoresShrunkWindowFrame() throws {
-        guard let screen = NSScreen.main else {
-            throw XCTSkip("No screen available for inactive-display-transition restore")
-        }
+    @Test
+    func applyRestoresShrunkWindowFrame() throws {
+        let screen = try #require(NSScreen.main, "No screen available for inactive-display-transition restore")
         let visible = screen.visibleFrame
         let window = CmuxMainWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
@@ -241,9 +250,9 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
             visibleFrames: [visible]
         )
 
-        XCTAssertTrue(didRestore)
-        XCTAssertEqual(window.frame.width, restoredTarget.width, accuracy: 1.0)
-        XCTAssertEqual(window.frame.height, restoredTarget.height, accuracy: 1.0)
+        #expect(didRestore)
+        #expect(abs(window.frame.width - restoredTarget.width) <= 1.0)
+        #expect(abs(window.frame.height - restoredTarget.height) <= 1.0)
     }
 
     // MARK: - MainWindowFrameRestorer gating (issue #5492)
@@ -268,10 +277,9 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         )
     }
 
-    func testRestorerRestoresShrunkWindowAfterInactiveDisplayTransition() throws {
-        guard let screen = NSScreen.main else {
-            throw XCTSkip("No screen available for MainWindowFrameRestorer")
-        }
+    @Test
+    func restorerRestoresShrunkWindowAfterInactiveDisplayTransition() throws {
+        let screen = try #require(NSScreen.main, "No screen available for MainWindowFrameRestorer")
         let visible = screen.visibleFrame
         let window = makeTestMainWindow()
         defer { window.orderOut(nil); window.close() }
@@ -284,17 +292,16 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         window.setFrame(shrunkFrame(in: visible), display: false)
         restorer.restoreIfNeeded(windows: [window], visibleFrames: [visible])
 
-        XCTAssertEqual(window.frame.width, visible.width, accuracy: 1.0)
-        XCTAssertEqual(window.frame.height, visible.height, accuracy: 1.0)
+        #expect(abs(window.frame.width - visible.width) <= 1.0)
+        #expect(abs(window.frame.height - visible.height) <= 1.0)
     }
 
-    func testRestorerLeavesWindowAloneWithoutDisplayTransition() throws {
+    @Test
+    func restorerLeavesWindowAloneWithoutDisplayTransition() throws {
         // The regression the review caught: a background resize NOT tied to a
         // display transition (keyboard window manager, AppleScript, macOS window
         // management) must be left alone, not reverted on the next activation.
-        guard let screen = NSScreen.main else {
-            throw XCTSkip("No screen available for MainWindowFrameRestorer")
-        }
+        let screen = try #require(NSScreen.main, "No screen available for MainWindowFrameRestorer")
         let visible = screen.visibleFrame
         let window = makeTestMainWindow()
         defer { window.orderOut(nil); window.close() }
@@ -308,17 +315,16 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         window.setFrame(shrunk, display: false)
         restorer.restoreIfNeeded(windows: [window], visibleFrames: [visible])
 
-        XCTAssertEqual(
-            window.frame.width, shrunk.width, accuracy: 1.0,
+        #expect(
+            abs(window.frame.width - shrunk.width) <= 1.0,
             "Without an observed display transition the window must not be resized"
         )
-        XCTAssertEqual(window.frame.height, shrunk.height, accuracy: 1.0)
+        #expect(abs(window.frame.height - shrunk.height) <= 1.0)
     }
 
-    func testRestorerIgnoresTransitionObservedWhileActive() throws {
-        guard let screen = NSScreen.main else {
-            throw XCTSkip("No screen available for MainWindowFrameRestorer")
-        }
+    @Test
+    func restorerIgnoresTransitionObservedWhileActive() throws {
+        let screen = try #require(NSScreen.main, "No screen available for MainWindowFrameRestorer")
         let visible = screen.visibleFrame
         let window = makeTestMainWindow()
         defer { window.orderOut(nil); window.close() }
@@ -332,7 +338,7 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         window.setFrame(shrunk, display: false)
         restorer.restoreIfNeeded(windows: [window], visibleFrames: [visible])
 
-        XCTAssertEqual(window.frame.width, shrunk.width, accuracy: 1.0)
+        #expect(abs(window.frame.width - shrunk.width) <= 1.0)
     }
 }
 #endif
