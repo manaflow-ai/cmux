@@ -6116,7 +6116,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func applyUpdateIfAvailable(_ sender: Any?) {
         updateController.model.setOverrideState(nil)
-        updateController.installUpdate()
+        // Main's UpdateController consolidated the force-install path into
+        // `attemptUpdate()` (single "install the update" entry point that
+        // re-resolves to the latest release first), so both this and the
+        // Attempt Update menu action route through it.
+        updateController.attemptUpdate()
     }
 
     @objc func attemptUpdate(_ sender: Any?) {
