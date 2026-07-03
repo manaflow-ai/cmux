@@ -1403,8 +1403,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// replayed scrollback on restore (Ghostty's VT export drops OSC 133). Only
     /// the bounded match key is stored — and only when the saved scrollback
     /// already contains the matching prompt row — so no prompt text beyond what
-    /// the scrollback already carries is persisted. Nil for non-agent terminals
-    /// and legacy snapshots. See https://github.com/manaflow-ai/cmux/issues/6691.
+    /// the scrollback already carries is persisted. Nil for terminals that did
+    /// not own the submitted prompt and for legacy snapshots. See
+    /// https://github.com/manaflow-ai/cmux/issues/6691.
     var lastPromptMarkKey: String?
 
     init(

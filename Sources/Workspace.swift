@@ -527,17 +527,16 @@ extension Workspace {
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: agentWasRunning,
                 // Persist only the bounded prompt match KEY, and only into the
-                // snapshot of the terminal whose saved scrollback actually contains
-                // that prompt row, so restore can re-inject the OSC 133 mark Ghostty's
-                // export drops (#6691). `latestSubmittedMessage` is workspace-scoped;
-                // `persistablePromptMatchKey` returns the ≤48-char needle iff the
-                // scrollback carries the matching row (else nil), keeping it out of
-                // unrelated panels' snapshots and never writing prompt text the saved
-                // scrollback does not already contain (also nil when scrollback is omitted).
-                lastPromptMarkKey: SessionScrollbackReplayStore.persistablePromptMatchKey(
-                    forScrollback: resolvedScrollback,
-                    lastUserMessage: latestSubmittedMessage
-                )
+                // snapshot of the terminal that owned the submitted prompt and whose
+                // saved scrollback actually contains that prompt row. The owner gate
+                // keeps a workspace-scoped prompt out of unrelated panels that happen
+                // to contain the same text.
+                lastPromptMarkKey: latestSubmittedPanelId == panelId
+                    ? SessionScrollbackReplayStore.persistablePromptMatchKey(
+                        forScrollback: resolvedScrollback,
+                        lastUserMessage: latestSubmittedMessage
+                    )
+                    : nil
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -2553,6 +2552,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var latestConversationMessage: String?
     @Published private(set) var latestSubmittedMessage: String?
     @Published private(set) var latestSubmittedAt: Date?
+    private(set) var latestSubmittedPanelId: UUID?
     var logEntries: [SidebarLogEntry] {
         get { sidebarMetadata.logEntries }
         set { sidebarMetadata.logEntries = newValue }
@@ -5136,6 +5136,7 @@ final class Workspace: Identifiable, ObservableObject {
         latestConversationMessage = nil
         latestSubmittedMessage = nil
         latestSubmittedAt = nil
+        latestSubmittedPanelId = nil
         logEntries.removeAll()
         progress = nil
         gitBranch = nil
@@ -5556,12 +5557,19 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func recordSubmittedMessage(_ message: String?) -> Bool {
+    func recordSubmittedMessage(_ message: String?, panelId: UUID? = nil) -> Bool {
         guard let preview = Self.conversationMessagePreview(from: message) else { return false }
         _ = recordConversationMessage(preview)
         latestSubmittedMessage = preview
         latestSubmittedAt = Date()
+        latestSubmittedPanelId = submittedPromptOwnerPanelId(panelId)
         return true
+    }
+
+    private func submittedPromptOwnerPanelId(_ panelId: UUID?) -> UUID? {
+        let candidate = panelId ?? focusedPanelId
+        guard let candidate, panels[candidate] is TerminalPanel else { return nil }
+        return candidate
     }
 
     var isRemoteWorkspace: Bool {
