@@ -20,6 +20,11 @@
 </p>
 
 <p align="center">
+  <strong>WeChat:</strong> Scansiona il codice QR per unirti alla community.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="Codice QR WeChat per unirti alla community di cmux" width="240" />
+</p>
+
+<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="Screenshot di cmux" width="900" />
 </p>
 
