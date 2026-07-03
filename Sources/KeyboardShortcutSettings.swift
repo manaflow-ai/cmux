@@ -1806,6 +1806,17 @@ struct ShortcutStroke: Equatable, Hashable {
         Self.usesDirectKeyCodeMatching(key)
     }
 
+    var usesDirectKeyCodeMatching: Bool {
+        Self.usesDirectKeyCodeMatching(key.lowercased())
+    }
+
+    static func isRecordableDirectKeyCodeEvent(_ event: NSEvent) -> Bool {
+        guard let key = recordableKey(from: event)?.key.lowercased() else {
+            return false
+        }
+        return usesDirectKeyCodeMatching(key)
+    }
+
     private static func recordableKey(from event: NSEvent) -> RecordableKey? {
         if event.type == .systemDefined {
             return mediaKey(from: event)

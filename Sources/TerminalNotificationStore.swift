@@ -454,6 +454,8 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var restoredUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
+    // Panel-local badges can be dismissible even when they do not contribute to the workspace unread count.
+    private var panelDismissibleActivityWorkspaceIds: Set<UUID> = []
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:] {
         didSet {
             // The sidebar/pane read-indicator presentation derives from this map
@@ -495,6 +497,9 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.scheduleUserNotification(notification, effects: effects)
     }
+#if DEBUG
+    private var detailedDismissLookupObserverForTesting: ((String) -> Void)?
+#endif
     private var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
@@ -750,9 +755,28 @@ final class TerminalNotificationStore: ObservableObject {
         return true
     }
 
+    @discardableResult
+    private func setPanelDismissibleActivity(_ isActive: Bool, forTabId tabId: UUID) -> Bool {
+        var nextIds = panelDismissibleActivityWorkspaceIds
+        let didChange: Bool
+        if isActive {
+            didChange = nextIds.insert(tabId).inserted
+        } else {
+            didChange = nextIds.remove(tabId) != nil
+        }
+        guard didChange else { return false }
+        panelDismissibleActivityWorkspaceIds = nextIds
+        return true
+    }
+
     private func clearPanelDerivedWorkspaceUnread() {
         guard !panelDerivedUnreadWorkspaceIds.isEmpty else { return }
         panelDerivedUnreadWorkspaceIds = []
+    }
+
+    private func clearPanelDismissibleActivity() {
+        guard !panelDismissibleActivityWorkspaceIds.isEmpty else { return }
+        panelDismissibleActivityWorkspaceIds = []
     }
 
     private func clearWorkspacePanelUnread(forTabId tabId: UUID) {
@@ -788,7 +812,10 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func hasManualUnread(forTabId tabId: UUID) -> Bool {
-        manualUnreadWorkspaceIds.contains(tabId)
+#if DEBUG
+        detailedDismissLookupObserverForTesting?("hasManualUnread")
+#endif
+        return manualUnreadWorkspaceIds.contains(tabId)
     }
 
     func hasPanelDerivedUnread(forTabId tabId: UUID) -> Bool {
@@ -796,12 +823,20 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func hasRestoredUnreadIndicator(forTabId tabId: UUID) -> Bool {
-        restoredUnreadWorkspaceIds.contains(tabId)
+#if DEBUG
+        detailedDismissLookupObserverForTesting?("hasRestoredUnreadIndicator")
+#endif
+        return restoredUnreadWorkspaceIds.contains(tabId)
     }
 
     @discardableResult
     func setPanelDerivedUnread(_ isUnread: Bool, forTabId tabId: UUID) -> Bool {
         setPanelDerivedWorkspaceUnread(isUnread, forTabId: tabId)
+    }
+
+    @discardableResult
+    func setPanelDismissibleUnreadActivity(_ isActive: Bool, forTabId tabId: UUID) -> Bool {
+        setPanelDismissibleActivity(isActive, forTabId: tabId)
     }
 
     @discardableResult
@@ -841,7 +876,10 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func hasUnreadNotification(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
-        indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
+#if DEBUG
+        detailedDismissLookupObserverForTesting?("hasUnreadNotification")
+#endif
+        return indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
     }
 
     func hasUnreadNotificationRequiringPaneFlash(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
@@ -853,8 +891,17 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func hasVisibleNotificationIndicator(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
-        hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) ||
+#if DEBUG
+        detailedDismissLookupObserverForTesting?("hasVisibleNotificationIndicator")
+#endif
+        return hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) ||
             (focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false)
+    }
+
+    func hasDismissibleActivity(forTabId tabId: UUID) -> Bool {
+        workspaceIsUnread(forTabId: tabId) ||
+            focusedReadIndicatorByTabId[tabId] != nil ||
+            panelDismissibleActivityWorkspaceIds.contains(tabId)
     }
 
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
@@ -1393,6 +1440,7 @@ final class TerminalNotificationStore: ObservableObject {
         setWorkspaceManualUnread(false, forTabId: tabId)
         clearWorkspacePanelUnread(forTabId: tabId)
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
+        setPanelDismissibleActivity(false, forTabId: tabId)
         setWorkspaceRestoredUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -1429,6 +1477,7 @@ final class TerminalNotificationStore: ObservableObject {
         if surfaceId == nil {
             clearWorkspacePanelUnread(forTabId: tabId)
             setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
+            setPanelDismissibleActivity(false, forTabId: tabId)
             setWorkspaceRestoredUnread(false, forTabId: tabId)
         }
         if !idsToClear.isEmpty {
@@ -1495,6 +1544,7 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         var idsToClear: [String] = []
         var tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds
+            .union(panelDismissibleActivityWorkspaceIds)
         for index in updated.indices {
             if !updated[index].isRead {
                 tabIdsToClearPanelUnread.insert(updated[index].tabId)
@@ -1508,6 +1558,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearWorkspaceManualUnread()
         clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
         clearPanelDerivedWorkspaceUnread()
+        clearPanelDismissibleActivity()
         clearWorkspaceRestoredUnread()
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -1603,13 +1654,17 @@ final class TerminalNotificationStore: ObservableObject {
             !focusedReadIndicatorByTabId.isEmpty ||
             !manualUnreadWorkspaceIds.isEmpty ||
             !panelDerivedUnreadWorkspaceIds.isEmpty ||
+            !panelDismissibleActivityWorkspaceIds.isEmpty ||
             !restoredUnreadWorkspaceIds.isEmpty else { return }
-        let tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds.union(notifications.map(\.tabId))
+        let tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds
+            .union(panelDismissibleActivityWorkspaceIds)
+            .union(notifications.map(\.tabId))
         let ids = notifications.map { $0.id.uuidString }
         replaceNotificationsForClear([])
         clearWorkspaceManualUnread()
         clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
         clearPanelDerivedWorkspaceUnread()
+        clearPanelDismissibleActivity()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
@@ -1626,6 +1681,7 @@ final class TerminalNotificationStore: ObservableObject {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId) }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false
         let hadRestoredWorkspaceUnread = surfaceId == nil && restoredUnreadWorkspaceIds.contains(tabId)
+        let hadPanelDismissibleActivity = surfaceId == nil && panelDismissibleActivityWorkspaceIds.contains(tabId)
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
@@ -1645,11 +1701,17 @@ final class TerminalNotificationStore: ObservableObject {
                 updated.append(notification)
             }
         }
-        guard !idsToClear.isEmpty || hadFocusedReadIndicator || hadRestoredWorkspaceUnread else { return }
+        guard !idsToClear.isEmpty ||
+            hadFocusedReadIndicator ||
+            hadRestoredWorkspaceUnread ||
+            hadPanelDismissibleActivity else { return }
         if !idsToClear.isEmpty {
             replaceNotificationsForClear(updated)
         }
         if surfaceId == nil {
+            clearWorkspacePanelUnread(forTabId: tabId)
+            setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
+            setPanelDismissibleActivity(false, forTabId: tabId)
             setWorkspaceRestoredUnread(false, forTabId: tabId)
         }
         clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
@@ -1713,6 +1775,7 @@ final class TerminalNotificationStore: ObservableObject {
         setWorkspaceManualUnread(false, forTabId: tabId)
         clearWorkspacePanelUnread(forTabId: tabId)
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
+        setPanelDismissibleActivity(false, forTabId: tabId)
         setWorkspaceRestoredUnread(false, forTabId: tabId)
         guard !idsToClear.isEmpty || hadFocusedReadIndicator else { return }
         if !idsToClear.isEmpty {
@@ -2121,6 +2184,14 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    func configureDetailedDismissLookupObserverForTesting(_ observer: @escaping (String) -> Void) {
+        detailedDismissLookupObserverForTesting = observer
+    }
+
+    func resetDetailedDismissLookupObserverForTesting() {
+        detailedDismissLookupObserverForTesting = nil
+    }
+
     func promptToEnableNotificationsForTesting() {
         promptToEnableNotifications()
     }
@@ -2130,8 +2201,10 @@ final class TerminalNotificationStore: ObservableObject {
         self.notifications = notifications
         clearWorkspaceManualUnread()
         clearPanelDerivedWorkspaceUnread()
+        clearPanelDismissibleActivity()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
+        resetDetailedDismissLookupObserverForTesting()
     }
 #endif
 

@@ -66,6 +66,16 @@ private final class FakeHost: NotificationDismissalHosting {
         return visibleIndicatorSurfaces.contains(surfaceId)
     }
 
+    func storeHasDismissibleActivity(workspaceId: UUID) -> Bool {
+        workspaceWideUnread.contains(workspaceId) ||
+            !unreadNotificationSurfaces.isEmpty ||
+            !visibleIndicatorSurfaces.isEmpty ||
+            !manualPanelUnread.isEmpty ||
+            !restoredPanelUnread.isEmpty ||
+            manualWorkspaceUnread.contains(workspaceId) ||
+            restoredWorkspaceUnread.contains(workspaceId)
+    }
+
     func storeMarkRead(workspaceId: UUID, surfaceId: UUID?) {
         log.append("markRead:\(short(surfaceId))")
     }

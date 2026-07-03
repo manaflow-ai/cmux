@@ -1141,11 +1141,15 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     ]
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
+    private var savedFeedEnabled: Any?
+    private var savedDockEnabled: Any?
     private var temporaryDirectoryURL: URL?
 
     override func setUpWithError() throws {
         try super.setUpWithError()
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        savedFeedEnabled = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        savedDockEnabled = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         savedShortcutData = Dictionary(
             uniqueKeysWithValues: touchedShortcutActions.map { action in
                 (action, UserDefaults.standard.data(forKey: action.defaultsKey))
@@ -1164,10 +1168,16 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         for action in touchedShortcutActions {
             UserDefaults.standard.removeObject(forKey: action.defaultsKey)
         }
+        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         KeyboardShortcutSettings.notifySettingsFileDidChange()
+        RightSidebarMode.preloadModeShortcutCache()
     }
 
     override func tearDownWithError() throws {
+        #if DEBUG
+        KeyboardShortcutSettings.shortcutLookupObserver = nil
+        #endif
         for action in touchedShortcutActions {
             if case let .some(.some(data)) = savedShortcutData[action] {
                 UserDefaults.standard.set(data, forKey: action.defaultsKey)
@@ -1175,12 +1185,22 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
                 UserDefaults.standard.removeObject(forKey: action.defaultsKey)
             }
         }
+        restore(savedFeedEnabled, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        restore(savedDockEnabled, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         KeyboardShortcutSettings.notifySettingsFileDidChange()
         if let temporaryDirectoryURL {
             try? FileManager.default.removeItem(at: temporaryDirectoryURL)
         }
         try super.tearDownWithError()
+    }
+
+    private func restore(_ value: Any?, forKey key: String) {
+        if let value {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     func testModeShortcutActionsMatchModeSwitchingActions() {
@@ -1212,6 +1232,97 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
         )
+    }
+
+    func testPlainTypingDoesNotLookUpModeShortcutBindings() throws {
+        #if DEBUG
+        var observedActions: [KeyboardShortcutSettings.Action] = []
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            observedActions.append(action)
+        }
+
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "a", modifiers: [], keyCode: 0))
+        )
+        XCTAssertTrue(
+            observedActions.isEmpty,
+            "Plain terminal typing must return before resolving right-sidebar shortcut bindings"
+        )
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "A", modifiers: [.shift], keyCode: 0))
+        )
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: " ", modifiers: [], keyCode: 49))
+        )
+        XCTAssertTrue(
+            observedActions.isEmpty,
+            "Common terminal typing must match against cached right-sidebar shortcut bindings only"
+        )
+        #else
+        throw XCTSkip("shortcutLookupObserver is only available in DEBUG builds")
+        #endif
+    }
+
+    func testModeShortcutSupportsShiftOnlyConfiguredBinding() {
+        let customFilesShortcut = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: true,
+            option: false,
+            control: false
+        )
+        KeyboardShortcutSettings.setShortcut(customFilesShortcut, for: .switchRightSidebarToFiles)
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.shift], keyCode: 18)),
+            .files
+        )
+    }
+
+    func testModeShortcutSupportsModifierlessDirectKeyConfiguredBinding() {
+        let f5 = String(UnicodeScalar(NSF5FunctionKey)!)
+        let f5Shortcut = StoredShortcut(
+            key: "f5",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 96
+        )
+        KeyboardShortcutSettings.setShortcut(f5Shortcut, for: .switchRightSidebarToFiles)
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: f5, modifiers: [], keyCode: 96)),
+            .files
+        )
+
+        let spaceShortcut = StoredShortcut(
+            key: "space",
+            command: false,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 49
+        )
+        KeyboardShortcutSettings.setShortcut(spaceShortcut, for: .switchRightSidebarToFiles)
+
+        #if DEBUG
+        var observedActions: [KeyboardShortcutSettings.Action] = []
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            observedActions.append(action)
+        }
+        #endif
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: " ", modifiers: [], keyCode: 49)),
+            .files
+        )
+        #if DEBUG
+        XCTAssertTrue(
+            observedActions.isEmpty,
+            "Configured modifierless direct-key mode shortcuts should be served from the cache during keyDown"
+        )
+        #endif
     }
 
     func testModeShortcutUsesConfiguredBindings() {

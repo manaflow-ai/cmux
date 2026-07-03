@@ -1960,10 +1960,24 @@ final class CmuxConfigStore: ObservableObject {
         let issue: CmuxConfigIssue?
     }
 
+    private struct ConfigFileSignature: Equatable {
+        let fileSize: UInt64?
+        let modificationDate: Date?
+    }
+
+    private struct NotificationHooksCacheEntry {
+        let configPaths: [String]
+        let configSignatures: [String: ConfigFileSignature]
+        let hooks: [CmuxResolvedNotificationHook]
+    }
+
     private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
     private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
     private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
+    private var notificationHooksByDirectoryCache: [String: NotificationHooksCacheEntry] = [:]
+    private var notificationHooksByDirectoryCacheOrder: [String] = []
+    private var notificationHooksWithoutDirectoryCache: NotificationHooksCacheEntry?
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
     // The local config still uses a bespoke DispatchSource watcher because it
@@ -1982,6 +1996,7 @@ final class CmuxConfigStore: ObservableObject {
 
     private static let maxReattachAttempts = 5
     private static let reattachDelay: TimeInterval = 0.5
+    private static let maxNotificationHooksDirectoryCacheEntries = 128
 
     private static func searchDirectoryForLocalConfigPath(_ path: String) -> String {
         let configDirectory = (path as NSString).deletingLastPathComponent
@@ -1993,6 +2008,16 @@ final class CmuxConfigStore: ObservableObject {
 
     private static func canonicalPath(_ path: String) -> String {
         URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    private static func notificationHookCacheKey(for directory: String?) -> String? {
+        notificationHookSearchDirectory(for: directory)
+    }
+
+    private static func notificationHookSearchDirectory(for directory: String?) -> String? {
+        guard let directory else { return nil }
+        guard !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return (directory as NSString).standardizingPath
     }
 
     init(
@@ -2059,19 +2084,86 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     func notificationHooks(startingFrom directory: String?) -> [CmuxResolvedNotificationHook] {
-        let globalConfig = parseConfig(at: globalConfigPath).config
-        let localConfigs: [(path: String, config: CmuxConfigFile)]
-        if let directory, !directory.isEmpty {
-            localConfigs = findCmuxConfigHierarchy(startingFrom: directory).compactMap { path in
-                parseConfig(at: path).config.map { (path: path, config: $0) }
-            }
-        } else {
-            localConfigs = []
+        let searchDirectory = Self.notificationHookSearchDirectory(for: directory)
+        let cacheKey = Self.notificationHookCacheKey(for: directory)
+        let localConfigPaths = searchDirectory.map { findCmuxConfigHierarchy(startingFrom: $0) } ?? []
+        var seenConfigPaths = Set<String>()
+        let configPaths = ([globalConfigPath] + localConfigPaths).filter { path in
+            seenConfigPaths.insert(path).inserted
         }
-        return resolveNotificationHooks(
+        let configSignatures = notificationHookConfigSignatures(for: configPaths)
+        if let cacheKey, let cached = notificationHooksByDirectoryCache[cacheKey],
+           cached.configPaths == configPaths,
+           cached.configSignatures == configSignatures {
+            touchNotificationHooksDirectoryCacheEntry(cacheKey)
+            return cached.hooks
+        }
+        if cacheKey == nil,
+           let cached = notificationHooksWithoutDirectoryCache,
+           cached.configPaths == configPaths,
+           cached.configSignatures == configSignatures {
+            return cached.hooks
+        }
+
+        let globalConfig = parseConfig(at: globalConfigPath).config
+        let localConfigs = localConfigPaths.compactMap { path in
+            parseConfig(at: path).config.map { (path: path, config: $0) }
+        }
+        let hooks = resolveNotificationHooks(
             globalConfig: globalConfig,
             localConfigs: localConfigs
         )
+        let entry = NotificationHooksCacheEntry(
+            configPaths: configPaths,
+            configSignatures: configSignatures,
+            hooks: hooks
+        )
+        if let cacheKey {
+            storeNotificationHooksDirectoryCacheEntry(entry, for: cacheKey)
+        } else {
+            notificationHooksWithoutDirectoryCache = entry
+        }
+        return hooks
+    }
+
+    private func notificationHookConfigSignatures(for paths: [String]) -> [String: ConfigFileSignature] {
+        Dictionary(uniqueKeysWithValues: paths.map { path in
+            (path, notificationHookConfigSignature(at: path))
+        })
+    }
+
+    private func notificationHookConfigSignature(at path: String) -> ConfigFileSignature {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        guard let attributes else {
+            return ConfigFileSignature(fileSize: nil, modificationDate: nil)
+        }
+        return ConfigFileSignature(
+            fileSize: (attributes[.size] as? NSNumber)?.uint64Value,
+            modificationDate: attributes[.modificationDate] as? Date
+        )
+    }
+
+    private func touchNotificationHooksDirectoryCacheEntry(_ cacheKey: String) {
+        guard let existingIndex = notificationHooksByDirectoryCacheOrder.firstIndex(of: cacheKey) else {
+            return
+        }
+        notificationHooksByDirectoryCacheOrder.remove(at: existingIndex)
+        notificationHooksByDirectoryCacheOrder.append(cacheKey)
+    }
+
+    private func storeNotificationHooksDirectoryCacheEntry(
+        _ entry: NotificationHooksCacheEntry,
+        for cacheKey: String
+    ) {
+        notificationHooksByDirectoryCache[cacheKey] = entry
+        touchNotificationHooksDirectoryCacheEntry(cacheKey)
+        if !notificationHooksByDirectoryCacheOrder.contains(cacheKey) {
+            notificationHooksByDirectoryCacheOrder.append(cacheKey)
+        }
+        while notificationHooksByDirectoryCacheOrder.count > Self.maxNotificationHooksDirectoryCacheEntries {
+            let evictedKey = notificationHooksByDirectoryCacheOrder.removeFirst()
+            notificationHooksByDirectoryCache.removeValue(forKey: evictedKey)
+        }
     }
 
     private func updateLocalConfigPath(_ directory: String?) {
@@ -2318,6 +2410,9 @@ final class CmuxConfigStore: ObservableObject {
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
         notificationHooks = resolvedNotificationHooks
+        notificationHooksByDirectoryCache.removeAll(keepingCapacity: true)
+        notificationHooksByDirectoryCacheOrder.removeAll(keepingCapacity: true)
+        notificationHooksWithoutDirectoryCache = nil
         resolvedNewWorkspaceActionCache = resolvedNewWorkspaceAction.action
         resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceAction.command
         if let issue = resolvedNewWorkspaceAction.issue {

@@ -64,6 +64,9 @@ public protocol NotificationDismissalHosting: AnyObject {
     /// Whether a visible notification indicator exists for the workspace
     /// (or surface).
     func storeHasVisibleNotificationIndicator(workspaceId: UUID, surfaceId: UUID?) -> Bool
+    /// Whether any notification/unread state could be dismissed for the
+    /// workspace.
+    func storeHasDismissibleActivity(workspaceId: UUID) -> Bool
 
     // MARK: Mutations
 

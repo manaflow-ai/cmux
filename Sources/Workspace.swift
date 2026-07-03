@@ -4149,9 +4149,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func syncPanelDerivedWorkspaceUnread() {
+        let hasPanelUnreadIndicator = !manualUnreadPanelIds.isEmpty || !restoredUnreadPanelIndicators.isEmpty
+        let contributesToWorkspaceUnread = !manualUnreadPanelIds.isEmpty ||
+            restoredUnreadPanelIndicators.values.contains { $0.contributesToWorkspaceUnread }
+        AppDelegate.shared?.notificationStore?.setPanelDismissibleUnreadActivity(
+            hasPanelUnreadIndicator,
+            forTabId: id
+        )
         AppDelegate.shared?.notificationStore?.setPanelDerivedUnread(
-            !manualUnreadPanelIds.isEmpty ||
-                hasWorkspaceContributingRestoredUnreadIndicator,
+            contributesToWorkspaceUnread,
             forTabId: id
         )
     }

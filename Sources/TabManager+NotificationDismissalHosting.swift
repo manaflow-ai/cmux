@@ -70,6 +70,10 @@ extension TabManager: NotificationDismissalHosting {
             .hasVisibleNotificationIndicator(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
+    func storeHasDismissibleActivity(workspaceId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?.hasDismissibleActivity(forTabId: workspaceId) ?? false
+    }
+
     func storeMarkRead(workspaceId: UUID, surfaceId: UUID?) {
         AppDelegate.shared?.notificationStore?.markRead(forTabId: workspaceId, surfaceId: surfaceId)
     }

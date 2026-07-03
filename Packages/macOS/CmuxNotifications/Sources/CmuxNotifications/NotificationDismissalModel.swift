@@ -123,6 +123,7 @@ public final class NotificationDismissalModel: NotificationDismissing {
             }
         }
         guard host.hasNotificationStore else { return false }
+        guard host.storeHasDismissibleActivity(workspaceId: workspaceId) else { return false }
         let targetPanelId = surfaceId.flatMap {
             host.panelId(forSurfaceOrPanelId: $0, in: workspaceId)
         }
