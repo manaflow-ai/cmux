@@ -17,12 +17,6 @@ typedef struct {
 } ghostty_string_s;
 
 bool ghostty_surface_clear_selection(void *surface);
-bool ghostty_surface_select_screen_rows(void *surface,
-                                        unsigned int top_y,
-                                        unsigned int bottom_y);
-bool ghostty_surface_selection_screen_rows(void *surface,
-                                           unsigned int *top_y,
-                                           unsigned int *bottom_y);
 
 void ghostty_config_diagnostics_count(void);
 void ghostty_config_get_diagnostic(void);

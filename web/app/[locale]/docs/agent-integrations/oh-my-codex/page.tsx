@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "../../../components/code-block";
 import { DocsHeading } from "../../../components/docs-heading";
 import { buildAlternates } from "../../../../../i18n/seo";
+import { DocsSchema } from "../../docs-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -19,6 +20,7 @@ export default function OhMyCodexPage() {
 
   return (
     <>
+      <DocsSchema namespace="docs.ohMyCodex" path="/docs/agent-integrations/oh-my-codex" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
 
       <p>{t("intro")}</p>
