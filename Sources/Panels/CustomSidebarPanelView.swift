@@ -132,7 +132,7 @@ struct CustomSidebarPanelView: View {
             isSelected: workspace.id == selectedId,
             isPinned: workspace.isPinned,
             index: index,
-            directory: workspace.currentDirectory,
+            directory: workspace.presentedCurrentDirectory ?? "",
             listeningPorts: workspace.listeningPorts,
             unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
             surfaces: customSidebarSurfaceSnapshots(workspace, focusedPanelId: focusedPanelId),

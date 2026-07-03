@@ -408,6 +408,9 @@ extension Workspace {
                !directory.isEmpty {
                 return directory
             }
+            if isRemoteTerminalSurface(panelId) {
+                return nil
+            }
             if let agentPanel = panel as? AgentSessionPanel,
                let agentDirectory = agentPanel.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !agentDirectory.isEmpty {
@@ -5311,13 +5314,29 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private var reportedRemoteCurrentDirectory: String? {
+        if let focusedPanelId,
+           activeRemoteTerminalSurfaceIds.contains(focusedPanelId),
+           let directory = normalizedSidebarDirectory(panelDirectories[focusedPanelId]) {
+            return directory
+        }
+        let directories = Set(activeRemoteTerminalSurfaceIds.compactMap {
+            normalizedSidebarDirectory(panelDirectories[$0])
+        })
+        return directories.count == 1 ? directories.first : nil
+    }
+
+    var presentedCurrentDirectory: String? {
+        isRemoteWorkspace ? reportedRemoteCurrentDirectory : normalizedSidebarDirectory(currentDirectory)
+    }
+
     private func sidebarHomeDirectoryForCanonicalization(
         resolvedPanelDirectories: [UUID: String]
     ) -> String? {
         if isRemoteWorkspace {
             return SidebarBranchOrdering().inferredRemoteHomeDirectory(
                 from: Array(resolvedPanelDirectories.values),
-                fallbackDirectory: normalizedSidebarDirectory(currentDirectory)
+                fallbackDirectory: reportedRemoteCurrentDirectory
             )
         }
         return FileManager.default.homeDirectoryForCurrentUser.path
@@ -5327,6 +5346,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let directory = normalizedSidebarDirectory(panelDirectories[panelId]) {
             return directory
         }
+        guard !isRemoteWorkspace else { return nil }
         if let requestedDirectory = normalizedSidebarDirectory(
             terminalPanel(for: panelId)?.requestedWorkingDirectory
         ) {
@@ -5429,7 +5449,7 @@ final class Workspace: Identifiable, ObservableObject {
             ))
         }
 
-        if includeFallback, ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
+        if includeFallback, ordered.isEmpty, let fallbackDirectory = presentedCurrentDirectory {
             return [SidebarDisplayedDirectory(text: fallbackDirectory, isDisplayLabel: false)]
         }
 
@@ -5476,7 +5496,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelBranches: panelGitBranches,
             panelDirectories: resolvedDirectories,
             panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
-            defaultDirectory: normalizedSidebarDirectory(currentDirectory),
+            defaultDirectory: presentedCurrentDirectory,
             homeDirectoryForTildeExpansion: sidebarHomeDirectoryForCanonicalization(
                 resolvedPanelDirectories: resolvedDirectories
             ),

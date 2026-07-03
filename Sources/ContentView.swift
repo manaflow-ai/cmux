@@ -2398,7 +2398,7 @@ struct ContentView: View {
                         sshOptions: config.sshOptions
                     ),
                     displayTarget: config.displayTarget,
-                    rootPath: tab.currentDirectory,
+                    rootPath: tab.presentedCurrentDirectory,
                     isAvailable: tab.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )
@@ -2433,16 +2433,13 @@ struct ContentView: View {
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             return nil
         }
-        // Use focused panel's directory if available
+        if tab.isRemoteWorkspace { return tab.presentedCurrentDirectory }
         if let focusedPanelId = tab.focusedPanelId,
-           let panelDir = tab.panelDirectories[focusedPanelId] {
-            let trimmed = panelDir.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
+           let panelDir = tab.panelDirectories[focusedPanelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !panelDir.isEmpty {
+            return panelDir
         }
-        let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return dir.isEmpty ? nil : dir
+        return tab.presentedCurrentDirectory
     }
 
     private func contentAndSidebarLayout(appearance: WindowAppearanceSnapshot) -> AnyView {
@@ -5504,7 +5501,7 @@ struct ContentView: View {
 
     private func commandPaletteWorkspaceSearchMetadata(for workspace: Workspace) -> CommandPaletteSwitcherSearchMetadata {
         // Keep workspace rows coarse and stable for predictable workspace switching queries.
-        let directories = [workspace.currentDirectory]
+        let directories = [workspace.presentedCurrentDirectory].compactMap { $0 }
         let branches = [workspace.gitBranch?.branch].compactMap { $0 }
         let ports = workspace.listeningPorts
         return CommandPaletteSwitcherSearchMetadata(
@@ -9487,6 +9484,7 @@ struct ContentView: View {
 
     private func focusedTerminalDirectoryURL() -> URL? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
+        guard !workspace.isRemoteWorkspace else { return nil }
         let rawDirectory: String = {
             if let focusedPanelId = workspace.focusedPanelId,
                let directory = workspace.panelDirectories[focusedPanelId] {
@@ -10130,7 +10128,7 @@ struct VerticalTabsSidebar: View {
             isSelected: workspace.id == selectedId,
             isPinned: workspace.isPinned,
             index: index,
-            directory: workspace.currentDirectory,
+            directory: workspace.presentedCurrentDirectory ?? "",
             listeningPorts: workspace.listeningPorts,
             unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
             surfaces: customSidebarSurfaceSnapshots(workspace, focusedPanelId: focusedPanelId),
@@ -11273,7 +11271,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func extensionSidebarRootPath(for workspace: Workspace) -> String? {
-        workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        workspace.presentedCurrentDirectory?.nilIfEmpty
     }
 
     private func extensionBrowserStackSidebar(
