@@ -7303,8 +7303,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @objc private func reconnectRemotePane(_ sender: Any?) {
-        guard let workspace = remoteWorkspaceForCurrentSurface() else { return }
-        workspace.reconnectRemoteConnection(surfaceId: terminalSurface?.id)
+        guard let workspace = remoteWorkspaceForCurrentSurface(),
+              let surfaceId = terminalSurface?.id else { return }
+        workspace.reconnectRemoteConnection(surfaceId: surfaceId)
     }
 
     override func mouseMoved(with event: NSEvent) {
