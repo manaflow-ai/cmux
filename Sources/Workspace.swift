@@ -5898,7 +5898,8 @@ final class Workspace: Identifiable, ObservableObject {
             remoteDisconnectPlaceholderPanelIds.remove(reconnectingSurfaceId)
             trackRemoteTerminalSurface(reconnectingSurfaceId)
         }
-        guard remoteConnectionState != .connected, remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return }
+        if reconnectingSurfaceId != nil, remoteConnectionState == .connected { return }
+        guard remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return }
         configureRemoteConnection(configuration, autoConnect: true)
     }
 
