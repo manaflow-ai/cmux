@@ -314,6 +314,7 @@ final class GhosttyTitleNotificationDispatcher {
     private struct SurfaceKey: Hashable {
         let tabId: UUID
         let surfaceId: UUID
+        let sourceId: ObjectIdentifier?
     }
 
     private let lock = NSLock()
@@ -330,7 +331,7 @@ final class GhosttyTitleNotificationDispatcher {
         tabId: UUID,
         surfaceId: UUID,
         title: String,
-        object: Any?,
+        object: AnyObject?,
         center: NotificationCenter = .default,
         deliver: (@escaping () -> Void) -> Void = { block in
             DispatchQueue.main.async {
@@ -338,10 +339,9 @@ final class GhosttyTitleNotificationDispatcher {
             }
         }
     ) -> Bool {
-        guard reserveTitleIfChanged(tabId: tabId, surfaceId: surfaceId, title: title) else {
+        guard reserveTitleIfChanged(tabId: tabId, surfaceId: surfaceId, title: title, object: object) else {
             return false
         }
-
         deliver {
             let change = GhosttyTitleChange(tabId: tabId, surfaceId: surfaceId, title: title)
             center.post(
@@ -353,8 +353,8 @@ final class GhosttyTitleNotificationDispatcher {
         return true
     }
 
-    private func reserveTitleIfChanged(tabId: UUID, surfaceId: UUID, title: String) -> Bool {
-        let key = SurfaceKey(tabId: tabId, surfaceId: surfaceId)
+    private func reserveTitleIfChanged(tabId: UUID, surfaceId: UUID, title: String, object: AnyObject?) -> Bool {
+        let key = SurfaceKey(tabId: tabId, surfaceId: surfaceId, sourceId: object.map(ObjectIdentifier.init))
         lock.lock()
         defer { lock.unlock() }
         guard lastPostedTitleBySurface[key] != title else { return false }
