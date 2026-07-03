@@ -1315,7 +1315,7 @@ extension Workspace {
         }
     }
 
-    private func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
+    func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
         }
@@ -1934,7 +1934,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels);
     /// stored in the split-layout sub-model.
-    private var isProgrammaticSplit: Bool {
+    var isProgrammaticSplit: Bool {
         get { splitLayout.isProgrammaticSplit }
         set { splitLayout.isProgrammaticSplit = newValue }
     }
