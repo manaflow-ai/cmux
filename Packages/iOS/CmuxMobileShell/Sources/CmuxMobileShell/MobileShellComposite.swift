@@ -6728,11 +6728,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return bytes
     }
 
-    /// Whether a surface currently has an attached output stream consumer.
-    private func hasTerminalOutputSink(surfaceID: String) -> Bool {
-        terminalByteContinuationsBySurfaceID[surfaceID] != nil
-    }
-
     @discardableResult
     private func registerTerminalOutput(
         surfaceID: String,
