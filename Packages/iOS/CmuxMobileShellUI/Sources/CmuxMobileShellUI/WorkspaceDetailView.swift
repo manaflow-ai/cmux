@@ -243,18 +243,20 @@ struct WorkspaceDetailView: View {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .overlay {
-                        TerminalLoadingDiagnosticsOverlay(
-                            workspace: workspace,
-                            host: host,
-                            connectionStatus: connectionStatus,
-                            tailnetStatus: tailscaleStatusMonitor?.status,
-                            activeRoute: activeLoadingDiagnosticsRoute,
-                            storedRouteDescription: loadingDiagnosticsMacSnapshot?.routeDescription,
-                            connectionError: loadingDiagnosticsConnectionError,
-                            connectionErrorGuidance: loadingDiagnosticsConnectionErrorGuidance,
-                            createTerminal: createTerminal,
-                            canCreateTerminal: true
-                        )
+                        if loadingDiagnosticsConnectionStatus == .connected {
+                            TerminalLoadingDiagnosticsOverlay(
+                                workspace: workspace,
+                                host: host,
+                                connectionStatus: loadingDiagnosticsConnectionStatus,
+                                tailnetStatus: tailscaleStatusMonitor?.status,
+                                activeRoute: activeLoadingDiagnosticsRoute,
+                                storedRouteDescription: loadingDiagnosticsMacSnapshot?.routeDescription,
+                                connectionError: loadingDiagnosticsConnectionError,
+                                connectionErrorGuidance: loadingDiagnosticsConnectionErrorGuidance,
+                                createTerminal: createTerminal,
+                                canCreateTerminal: true
+                            )
+                        }
                     }
             }
             #else
@@ -270,8 +272,8 @@ struct WorkspaceDetailView: View {
         }
         .overlay {
             // Show a reconnecting/offline state instead of a black terminal.
-            if connectionStatus != .connected {
-                TerminalDisconnectedOverlay(status: connectionStatus, host: host) {
+            if loadingDiagnosticsConnectionStatus != .connected {
+                TerminalDisconnectedOverlay(status: loadingDiagnosticsConnectionStatus, host: host) {
                     Task {
                         if let macDeviceID = workspace.macDeviceID,
                            !macDeviceID.isEmpty,

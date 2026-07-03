@@ -8212,6 +8212,40 @@
         }
       }
     },
+    "mobile.terminal.loading.emptyMessageFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is connected. Create a terminal, or wait for terminal metadata to arrive."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続済みです。ターミナルを作成するか、ターミナル情報の到着を待ってください。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.loading.emptyTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminals yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルはまだありません"
+          }
+        }
+      }
+    },
     "mobile.terminal.loading.mac": {
       "extractionState": "manual",
       "localizations": {

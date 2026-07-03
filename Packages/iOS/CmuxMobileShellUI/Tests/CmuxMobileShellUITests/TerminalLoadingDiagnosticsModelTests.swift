@@ -24,8 +24,8 @@ import Testing
             connectionErrorGuidance: nil
         )
 
-        #expect(model.title == "Loading terminals")
-        #expect(model.message == "Waiting for Studio to send terminal metadata for this workspace.")
+        #expect(model.title == "No terminals yet")
+        #expect(model.message == "Studio is connected. Create a terminal, or wait for terminal metadata to arrive.")
         #expect(model.rows[id: "mac"]?.value == "Studio · Connected")
         #expect(model.rows[id: "tailscale"]?.value == "Active")
         #expect(model.rows[id: "route"]?.value == "Tailscale · 100.64.0.10:58465")

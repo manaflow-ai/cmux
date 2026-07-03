@@ -81,15 +81,14 @@ struct TerminalLoadingDiagnosticsModel: Equatable {
             ))
         }
 
+        let text = headerText(
+            terminalCount: terminalCount,
+            connectionStatus: connectionStatus,
+            resolvedMacName: resolvedMacName
+        )
         return Self(
-            title: L10n.string("mobile.terminal.loading.title", defaultValue: "Loading terminals"),
-            message: String.localizedStringWithFormat(
-                L10n.string(
-                    "mobile.terminal.loading.messageFormat",
-                    defaultValue: "Waiting for %@ to send terminal metadata for this workspace."
-                ),
-                resolvedMacName
-            ),
+            title: text.title,
+            message: text.message,
             rows: rows
         )
     }
@@ -104,6 +103,35 @@ struct TerminalLoadingDiagnosticsModel: Equatable {
             return L10n.string("mobile.terminal.loading.terminalsWaiting", defaultValue: "No terminal list yet")
         }
         return L10n.terminalCount(count)
+    }
+
+    private static func headerText(
+        terminalCount: Int,
+        connectionStatus: MobileMacConnectionStatus,
+        resolvedMacName: String
+    ) -> (title: String, message: String) {
+        if connectionStatus == .connected && terminalCount == 0 {
+            return (
+                L10n.string("mobile.terminal.loading.emptyTitle", defaultValue: "No terminals yet"),
+                String.localizedStringWithFormat(
+                    L10n.string(
+                        "mobile.terminal.loading.emptyMessageFormat",
+                        defaultValue: "%@ is connected. Create a terminal, or wait for terminal metadata to arrive."
+                    ),
+                    resolvedMacName
+                )
+            )
+        }
+        return (
+            L10n.string("mobile.terminal.loading.title", defaultValue: "Loading terminals"),
+            String.localizedStringWithFormat(
+                L10n.string(
+                    "mobile.terminal.loading.messageFormat",
+                    defaultValue: "Waiting for %@ to send terminal metadata for this workspace."
+                ),
+                resolvedMacName
+            )
+        )
     }
 
     private static func tailnetStatusText(_ status: TailnetStatus?) -> String {
@@ -291,6 +319,10 @@ struct TerminalLoadingDiagnosticsOverlay: View {
 }
 
 extension WorkspaceDetailView {
+    var loadingDiagnosticsConnectionStatus: MobileMacConnectionStatus {
+        workspace.macConnectionStatus ?? connectionStatus
+    }
+
     var loadingDiagnosticsMacSnapshot: MacComputerSnapshot? {
         guard let macDeviceID = workspace.macDeviceID,
               !macDeviceID.isEmpty else {
