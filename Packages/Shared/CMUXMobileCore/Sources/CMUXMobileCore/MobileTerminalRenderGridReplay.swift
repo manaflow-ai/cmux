@@ -28,8 +28,9 @@ public struct MobileTerminalRenderGridReplay: Sendable {
     /// terminal, restores dynamic default colors, repaints scrollback and the
     /// visible viewport as a natural scrolling flow, restores the active screen
     /// (`?1049h` for the alternate screen), reapplies non-default DEC/ANSI
-    /// modes, and finally restores the cursor. A **delta** frame clears and
-    /// repaints only the changed viewport rows.
+    /// modes, and finally restores the cursor. A **delta** frame normalizes
+    /// coordinate-affecting modes, then clears and repaints only the changed
+    /// viewport rows using absolute producer row indexes.
     ///
     /// - Returns: The synthesized escape-sequence bytes.
     public func patchBytes() -> Data {
@@ -44,16 +45,13 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         patchBytes()
     }
 
-    /// DEC private mode codes that switch screens or save the cursor. The
-    /// active screen is restored explicitly via the frame's `activeScreen`, so
-    /// these are never replayed from `modes` (replaying them would
-    /// double-switch).
-    private let screenSwitchModeCodes: Set<Int> = [47, 1047, 1048, 1049]
-
     private func deltaPatchBytes() -> Data {
         var bytes = Data()
         let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
+        let autowrapMode = deltaReplayAutowrapMode()
+        if frame.cursor == nil { bytes.append(Data("\u{1B}[s".utf8)) }
+        bytes.append(deltaReplayModeNormalizationBytes())
         let rowsToClear = Set(frame.clearedRows).union(frame.rowSpans.map(\.row)).sorted()
         for row in rowsToClear {
             bytes.append(sgrBytes(for: defaultStyle))
@@ -70,6 +68,12 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             }
         }
         bytes.append(sgrBytes(for: defaultStyle))
+        // Current producers list autowrap in every delta frame, so a missing
+        // entry is a legacy-producer delta. Defaulting the restore to on is
+        // safe there: replay is the surface's only writer and each patch
+        // re-normalizes modes before painting.
+        bytes.append(modeBytes(autowrapMode ?? .init(code: MobileTerminalRenderGridFrame.ModeSetting.decAutowrapModeCode, ansi: false, on: true)))
+        if frame.cursor == nil { bytes.append(Data("\u{1B}[u".utf8)) }
         // A delta never hides the cursor while painting, so (unlike a full
         // snapshot) it leaves a nil cursor untouched instead of forcing it
         // visible.
@@ -78,7 +82,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             if cursor.visible {
                 bytes.append(Data("\u{1B}[?25h\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
             } else {
-                bytes.append(Data("\u{1B}[?25l".utf8))
+                bytes.append(Data("\u{1B}[?25l\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
             }
         }
         return bytes
@@ -88,17 +92,56 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         var bytes = Data()
         let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
+        // Leads with DECSCUSR 0: cursor shape is per-screen state in Ghostty
+        // and survives the alternate-screen roundtrip, so without this a stale
+        // bar/underline shape from the reused surface's primary screen would
+        // resurface when a replayed TUI later exits the alternate screen. RIS
+        // used to clear it; the frame's captured cursor style is reapplied on
+        // the active screen at the end of the restore.
+        let screenStateReset = "\u{1B}[0 q\u{1B}[1\"q\u{1B}[0\"q\u{1B}[999<u\u{1B}[0;1=u\u{0F}\u{1B}(B\u{1B})B\u{1B}*B\u{1B}+B"
+        let hyperlinkStateReset = "\u{1B}]8;;\u{1B}\\"
+        // OSC 133;D returns the cursor's semantic content to `.output`, the
+        // fresh-screen default. RIS used to clear this; without it a reused
+        // surface still inside an OSC 133 prompt/input region would stamp that
+        // stale semantic state onto every replayed cell. Per-screen state, so
+        // emit it alongside each hyperlink reset (once per screen).
+        let semanticPromptReset = "\u{1B}]133;D\u{1B}\\"
 
-        // Reset to a known state, then apply everything inside a synchronized
-        // update so the client never shows a partially-restored screen.
-        bytes.append(Data("\u{1B}c".utf8))
-        bytes.append(Data("\u{1B}[?2026h".utf8))
+        // Apply the whole restore inside a synchronized update so the client
+        // never presents the empty reset/clear frame before the snapshot lands.
+        // Avoid `ESC c`: RIS clears before synchronized output can be enabled.
+        // These are Ghostty-supported resets for state the replay depends on:
+        // main display, protected cells, key/input flags, OSC 8 hyperlinks,
+        // charset mapping, scroll margins, tabs, both screens, cursor position,
+        // viewport contents, and scrollback.
+        bytes.append(Data("\u{1B}[?2026h\u{1B}[0$}\u{1B}[>m\u{1B}[r\u{1B}[?69l\u{1B}[?5W".utf8))
+        appendStructuralScreenReset(to: &bytes)
+        bytes.append(Data(hyperlinkStateReset.utf8))
+        bytes.append(Data(semanticPromptReset.utf8))
+        bytes.append(Data(screenStateReset.utf8))
+        appendDefaultModeBaseline(to: &bytes)
+        appendSavedModeBankReset(to: &bytes)
+        appendPrePaintModeRestores(to: &bytes)
 
-        // Dynamic default colors (OSC 10/11/12). Cells already carry explicit
-        // RGB, so these mainly fix the cursor color and color queries.
-        if let osc = oscColorBytes(10, frame.terminalForeground) { bytes.append(osc) }
-        if let osc = oscColorBytes(11, frame.terminalBackground) { bytes.append(osc) }
-        if let osc = oscColorBytes(12, frame.terminalCursorColor) { bytes.append(osc) }
+        // Dynamic default colors (OSC 10/11/12). Nil frame values reset the
+        // previous override so a full snapshot behaves like the old RIS path.
+        // Apply them before clearing so blank cells use the captured defaults.
+        bytes.append(oscColorOrResetBytes(10, reset: 110, frame.terminalForeground))
+        bytes.append(oscColorOrResetBytes(11, reset: 111, frame.terminalBackground))
+        bytes.append(oscColorOrResetBytes(12, reset: 112, frame.terminalCursorColor))
+        bytes.append(sgrBytes(for: defaultStyle))
+        // DECSC at home with the default pen resets each screen's saved
+        // cursor to the RIS baseline; a stale DECSC from the reused surface
+        // must not survive the replay, and the snapshot cursor is never
+        // saved (a later bare DECRC/?1048l restore should land on the
+        // default, matching what RIS left behind).
+        bytes.append(Data("\u{1B}[H\u{1B}7\u{1B}[2J\u{1B}[3J\u{1B}[?1049h".utf8))
+
+        bytes.append(Data(hyperlinkStateReset.utf8))
+        bytes.append(Data(semanticPromptReset.utf8))
+        bytes.append(Data(screenStateReset.utf8))
+        bytes.append(sgrBytes(for: defaultStyle))
+        bytes.append(Data("\u{1B}[H\u{1B}7\u{1B}[2J\u{1B}[?1049l\u{1B}[H".utf8))
 
         // Paint with autowrap and the cursor off so a full-width row plus an
         // explicit newline cannot wrap into a phantom blank line, and so the
@@ -119,6 +162,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                 terminateLast: true
             )
             bytes.append(Data("\u{1B}[?1049h".utf8))
+            bytes.append(Data(screenStateReset.utf8))
             bytes.append(sgrBytes(for: defaultStyle))
             appendFlowLines(
                 &bytes,
@@ -152,13 +196,30 @@ public struct MobileTerminalRenderGridReplay: Sendable {
 
         // Reapply modes last so autowrap returns to its captured value
         // (undoing the temporary `?7l`) and mouse/paste/app-key modes are live.
-        for mode in frame.modes where !screenSwitchModeCodes.contains(mode.code) {
+        // The baseline also covers older frames that omitted `modes`, so stale
+        // state from a reused surface cannot leak through the full replay.
+        appendDefaultModeBaseline(to: &bytes)
+        for mode in frame.modes where !isReplayExcludedMode(mode) {
             bytes.append(modeBytes(mode))
         }
 
         appendCursorRestore(&bytes)
         bytes.append(Data("\u{1B}[?2026l".utf8))
         return bytes
+    }
+
+    private func deltaReplayModeNormalizationBytes() -> Data {
+        // Disable origin mode so CUP row indexes target absolute viewport rows,
+        // and disable autowrap while painting so full-width spans cannot scroll
+        // a preserved scroll region.
+        Data((
+            "\u{1B}[?\(MobileTerminalRenderGridFrame.ModeSetting.decOriginModeCode)l" +
+            "\u{1B}[?\(MobileTerminalRenderGridFrame.ModeSetting.decAutowrapModeCode)l"
+        ).utf8)
+    }
+
+    private func deltaReplayAutowrapMode() -> MobileTerminalRenderGridFrame.ModeSetting? {
+        frame.modes.first(where: \.isDECAutowrapMode)
     }
 
     /// Append `lineCount` lines (rows `0..<lineCount` of `spans`) as a natural
@@ -378,6 +439,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         return Data("\(prefix)\(mode.code)\(mode.on ? "h" : "l")".utf8)
     }
 
+
     private func oscColorBytes(_ ps: Int, _ hex: String?) -> Data? {
         guard let rgb = rgbComponents(hex) else { return nil }
         let spec = String(
@@ -387,6 +449,10 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             rgb.blue
         )
         return Data("\u{1B}]\(ps);\(spec)\u{1B}\\".utf8)
+    }
+
+    private func oscColorOrResetBytes(_ ps: Int, reset resetPs: Int, _ hex: String?) -> Data {
+        oscColorBytes(ps, hex) ?? Data("\u{1B}]\(resetPs)\u{1B}\\".utf8)
     }
 
     private func appendVTPrintable(_ text: String, to bytes: inout Data) {
