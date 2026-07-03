@@ -2527,7 +2527,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testGhosttyConfigDoesNotRetainNumberedGotoTabFallback() throws {
         // Regression for https://github.com/manaflow-ai/cmux/issues/5189.
-        // cmux owns "Select Workspace 1…9" (default ⌘1–9) through KeyboardShortcutSettings.
+        // cmux owns numbered shortcuts through KeyboardShortcutSettings.
         // Ghostty's built-in super+1…8 = goto_tab and super+9 = last_tab fallbacks must be
         // unbound — exactly like cmux already unbinds super+d / super+w — so the numbered
         // shortcut is driven solely by the configured value. Otherwise a remapped-away ⌘1–9
@@ -2558,7 +2558,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                     modifiers: [.command],
                     keyCode: keyCode
                 ),
-                "Ghostty must not retain its super+\(digit) goto_tab/last_tab fallback; the numbered workspace shortcut is owned by KeyboardShortcutSettings"
+                "Ghostty must not retain its super+\(digit) goto_tab/last_tab fallback; numbered cmux shortcuts are owned by KeyboardShortcutSettings"
             )
         }
     }
@@ -2566,7 +2566,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testRebindingSelectWorkspaceByNumberHonorsNewModifierAndDropsDefault() {
         // Companion to testGhosttyConfigDoesNotRetainNumberedGotoTabFallback (#5189):
         // the cmux routing layer must drive the numbered shortcut from the configured
-        // value, so a rebound modifier selects the workspace and the old ⌘ default no
+        // value, so a rebound modifier selects the workspace and the old ⌃ default no
         // longer routes through cmux.
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -2597,19 +2597,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let rebound = StoredShortcut(key: "1", command: false, shift: false, option: true, control: true)
         withTemporaryShortcut(action: .selectWorkspaceByNumber, shortcut: rebound) {
-            guard let staleCmd1 = makeKeyDownEvent(
+            guard let staleCtrl1 = makeKeyDownEvent(
                 key: "1",
-                modifiers: [.command],
+                modifiers: [.control],
                 keyCode: UInt16(kVK_ANSI_1),
                 windowNumber: mainWindow.windowNumber
             ) else {
-                XCTFail("Failed to construct Cmd+1 event")
+                XCTFail("Failed to construct Ctrl+1 event")
                 return
             }
 #if DEBUG
             XCTAssertFalse(
-                appDelegate.debugHandleCustomShortcut(event: staleCmd1),
-                "After rebinding Select Workspace 1…9, the old ⌘1 must not be routed by cmux"
+                appDelegate.debugHandleCustomShortcut(event: staleCtrl1),
+                "After rebinding Select Workspace 1…9, the old ⌃1 must not be routed by cmux"
             )
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
@@ -2617,7 +2617,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertEqual(
                 manager.selectedTabId,
                 selectionBeforeStaleDefault,
-                "⌘1 must not change workspace selection after the shortcut is rebound away from ⌘"
+                "⌃1 must not change workspace selection after the shortcut is rebound away from ⌃"
             )
 
             guard let reboundEvent = makeKeyDownEvent(

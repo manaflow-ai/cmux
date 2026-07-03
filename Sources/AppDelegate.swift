@@ -15340,7 +15340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func shouldSuppressStaleCmuxMenuShortcut(event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
         // While a Settings recorder is armed, every keystroke must reach it to be
-        // captured — including a remapped-away default like the old ⌘1 the user is
+        // captured — including a remapped-away default like an old numbered shortcut the user is
         // trying to record. Suppressing the stale menu shortcut here would consume
         // that keystroke before `RecorderHostButton.performKeyEquivalent` sees it,
         // so stand down for both recorders (issue #5189).

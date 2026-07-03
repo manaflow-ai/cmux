@@ -1299,7 +1299,7 @@ class GhosttyApp {
     }
 
     /// Unbinds Ghostty's built-in `super+1…8 = goto_tab` / `super+9 = last_tab`
-    /// fallbacks so the numbered "Select Workspace 1…9" shortcut is owned solely
+    /// fallbacks so numbered cmux shortcuts are owned solely
     /// by `KeyboardShortcutSettings`.
     ///
     /// Without this, a `⌘1–9` remapped away in Settings still falls through to the
