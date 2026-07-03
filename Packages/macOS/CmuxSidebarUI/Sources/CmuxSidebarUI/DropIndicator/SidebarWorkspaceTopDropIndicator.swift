@@ -13,6 +13,8 @@ public struct SidebarWorkspaceTopDropIndicator: View {
     private let isFirstRow: Bool
     private let rowSpacing: CGFloat
     private let accent: Color
+    private let isBottomEdge: Bool
+    private let leadingInset: CGFloat
 
     /// - Parameters:
     ///   - isVisible: Whether the drop indicator is shown for this row.
@@ -20,16 +22,23 @@ public struct SidebarWorkspaceTopDropIndicator: View {
     ///     row spacing so the bar sits in the gap above the row.
     ///   - rowSpacing: The sidebar's inter-row spacing, used for the offset.
     ///   - accent: The accent color used to fill the bar.
+    ///   - isBottomEdge: When `true`, the bar sits in the gap *below* the row
+    ///     (offset down by half the row spacing) for a bottom-edge drop.
+    ///   - leadingInset: Extra leading inset (e.g. group-scoped indentation).
     public init(
         isVisible: Bool,
         isFirstRow: Bool,
         rowSpacing: CGFloat,
-        accent: Color
+        accent: Color,
+        isBottomEdge: Bool = false,
+        leadingInset: CGFloat = 0
     ) {
         self.isVisible = isVisible
         self.isFirstRow = isFirstRow
         self.rowSpacing = rowSpacing
         self.accent = accent
+        self.isBottomEdge = isBottomEdge
+        self.leadingInset = leadingInset
     }
 
     public var body: some View {
@@ -37,8 +46,15 @@ public struct SidebarWorkspaceTopDropIndicator: View {
             Rectangle()
                 .fill(accent)
                 .frame(height: 2)
-                .padding(.horizontal, 8)
-                .offset(y: isFirstRow ? 0 : -(rowSpacing / 2))
+                .padding(.leading, Self.horizontalPadding + max(leadingInset, 0))
+                .padding(.trailing, Self.horizontalPadding)
+                .offset(y: indicatorOffset)
         }
+    }
+
+    private static let horizontalPadding: CGFloat = 8
+
+    private var indicatorOffset: CGFloat {
+        isBottomEdge ? rowSpacing / 2 : (isFirstRow ? 0 : -(rowSpacing / 2))
     }
 }

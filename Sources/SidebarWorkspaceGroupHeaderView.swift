@@ -307,6 +307,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 isVisible: bottomDropIndicatorVisible,
                 isFirstRow: false,
                 rowSpacing: rowSpacing,
+                accent: cmuxAccentColor(),
                 isBottomEdge: true,
                 leadingInset: metrics.groupScopedBottomDropIndicatorLeadingInset
             )
