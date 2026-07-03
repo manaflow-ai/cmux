@@ -3341,7 +3341,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     private static func decodedSSHPTYCommandB64(in command: String) -> String? {
-        // Prefer the compressed flag (deflate+base64) the producers now emit; fall
+        // Prefer the compressed flag (zlib+base64) the producers now emit; fall
         // back to plain base64 for legacy/restored commands (manaflow-ai/cmux#6738).
         if let token = tokenAfterMarker("--command-zb64 ", in: command) {
             return String(deflatedBase64: token)

@@ -35,7 +35,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             lines += foregroundAuthLines(foregroundAuth)
         }
         let requireExistingFlag = requireExisting ? " --require-existing" : ""
-        // Carry the remote bootstrap compressed (deflate+base64) so a restored
+        // Carry the remote bootstrap compressed (zlib+base64) so a restored
         // session's attach command does not inline ≈280 KB of base64 into argv
         // and bloat `ps aux` (manaflow-ai/cmux#6738). Fall back to plain base64 if
         // compression somehow fails so the command is always well-formed.

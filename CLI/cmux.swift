@@ -9892,7 +9892,7 @@ struct CMUXCLI {
         remoteShellCommand: String
     ) -> String {
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        // Carry the remote bootstrap compressed (deflate+base64) so the live
+        // Carry the remote bootstrap compressed (zlib+base64) so the live
         // surface command does not inline ≈280 KB of base64 into argv and bloat
         // `ps aux` past 1 MiB (manaflow-ai/cmux#6738). Fall back to plain base64 if
         // compression somehow fails so the command is always well-formed.
@@ -11294,7 +11294,7 @@ struct CMUXCLI {
             throw CLIError(message: "ssh-pty-attach: unknown flag '\(unknown)'")
         }
         guard remaining.isEmpty else {
-            throw CLIError(message: "Usage: cmux ssh-pty-attach --workspace <workspace> --session-id <id> [--attachment-id <id>] [--command-zb64 <deflate+base64> | --command-b64 <base64>] [--require-existing]")
+            throw CLIError(message: String(localized: "cli.sshPtyAttach.usage", defaultValue: "Usage: cmux ssh-pty-attach --workspace <workspace> --session-id <id> [--attachment-id <id>] [--command-zb64 <zlib+base64> | --command-b64 <base64>] [--require-existing]"))
         }
         let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         guard let workspaceRaw,
@@ -11311,13 +11311,13 @@ struct CMUXCLI {
         let surfaceID = environmentSurfaceID ?? (explicitAttachmentID.flatMap { UUID(uuidString: $0) == nil ? nil : $0 })
         let attachmentID = explicitAttachmentID ?? environmentSurfaceID ?? UUID().uuidString.lowercased()
         let command: String? = try { () throws -> String? in
-            // --command-zb64 (deflate+base64) is the compact form that keeps argv
+            // --command-zb64 (zlib+base64) is the compact form that keeps argv
             // small; --command-b64 (plain base64) stays accepted for sessions
             // restored from snapshots written before #6738.
             let rawDecoded: String?
             if let zEncoded = commandZB64Opt {
                 guard let decoded = String(deflatedBase64: zEncoded) else {
-                    throw CLIError(message: "ssh-pty-attach: --command-zb64 must be valid base64 raw-DEFLATE UTF-8")
+                    throw CLIError(message: String(localized: "cli.sshPtyAttach.error.invalidZlibCommand", defaultValue: "ssh-pty-attach: --command-zb64 must be valid base64 zlib-compressed UTF-8"))
                 }
                 rawDecoded = decoded
             } else if let encoded = commandB64Opt {

@@ -26,8 +26,8 @@ import Testing
         #expect(String(deflatedBase64: "not valid base64 @@@") == nil)
     }
 
-    @Test func nonDeflatePayloadDecodesToNil() {
-        // Valid base64, but the bytes are not a raw-DEFLATE stream.
+    @Test func nonZlibPayloadDecodesToNil() {
+        // Valid base64, but the bytes are not a zlib stream.
         let plainBase64 = Data("hello world".utf8).base64EncodedString()
         #expect(String(deflatedBase64: plainBase64) == nil)
     }

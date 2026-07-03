@@ -11,13 +11,13 @@ import Foundation
 /// of `argv`. That bloats `ps aux` output enough to break tools that scan the
 /// process table with a bounded buffer (see manaflow-ai/cmux#6738).
 ///
-/// `deflatedBase64` raw-DEFLATEs the UTF-8 bytes (RFC 1951, via `NSData`'s
-/// `.zlib` algorithm) and base64-encodes the result; a real shell script
+/// `deflatedBase64` zlib-compresses the UTF-8 bytes (RFC 1950 zlib format,
+/// via `NSData`'s `.zlib` algorithm) and base64-encodes the result; a real shell script
 /// compresses 5–13×, so the inlined literal shrinks proportionally.
 /// `init?(deflatedBase64:)` reverses it. Both ends run the same Foundation API,
 /// so the format never has to interoperate with command-line `gzip`.
 public extension String {
-    /// This string raw-DEFLATEd and base64-encoded, or `nil` for an empty string
+    /// This string zlib-compressed and base64-encoded, or `nil` for an empty string
     /// or if compression fails — so callers can fall back to a plain base64 literal.
     var deflatedBase64: String? {
         let data = Data(utf8)
@@ -30,7 +30,7 @@ public extension String {
     }
 
     /// Decode a payload produced by ``deflatedBase64`` — base64-decode then inflate.
-    /// Fails (returns `nil`) if `encoded` is not valid base64 raw-DEFLATE UTF-8.
+    /// Fails (returns `nil`) if `encoded` is not valid base64 zlib-compressed UTF-8.
     init?(deflatedBase64 encoded: String) {
         guard let compressed = Data(base64Encoded: encoded),
               !compressed.isEmpty,
