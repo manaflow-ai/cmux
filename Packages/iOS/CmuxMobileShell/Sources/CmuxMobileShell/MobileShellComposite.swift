@@ -3966,10 +3966,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     #if DEBUG
-    /// Test seam: seed the foreground Mac's workspaces/groups (the per-Mac source
-    /// of truth) so the derived ``workspaces``/``workspaceGroups`` reflect them,
-    /// for tests downstream of the list that do not run a live connection.
-    func setWorkspacesForTesting(
+    /// Replace the foreground Mac's workspaces/groups for DEBUG-only preview
+    /// harnesses that exercise shell state without opening a live connection.
+    public func replaceForegroundWorkspaceState(
         _ workspaces: [MobileWorkspacePreview],
         groups: [MobileWorkspaceGroupPreview] = []
     ) {
@@ -4061,7 +4060,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Apply an optimistic mutation to the foreground Mac's workspace list (e.g. a
     /// just-created workspace or terminal) directly on the per-Mac source of
     /// truth, so the derived list reflects it immediately.
-    private func mutateForegroundWorkspaces(_ body: (inout [MobileWorkspacePreview]) -> Void) {
+    func mutateForegroundWorkspaces(_ body: (inout [MobileWorkspacePreview]) -> Void) {
         let key = foregroundMacKey
         var state = workspacesByMac[key] ?? MacWorkspaceState(macDeviceID: key)
         body(&state.workspaces)
@@ -4081,6 +4080,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
+        if createLocalWorkspaceWithoutTerminalForDelayedUITestIfNeeded() { return }
         let nextIndex = workspaces.count + 1
         let workspace = MobileWorkspacePreview(
             id: .init(rawValue: "workspace-\(nextIndex)"),
@@ -4097,7 +4097,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = workspace.terminals.first?.id
         suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
     }
-
     /// Creates a terminal in `workspaceID`, or the selected workspace when nil.
     ///
     /// Callers that act on a specific workspace (e.g. the "+" button on a
