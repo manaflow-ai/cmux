@@ -383,20 +383,11 @@ struct CMUXMobileRootView: View {
         }
     }
 
-    private func showAddDevice() {
+    func showAddDevice() {
         #if os(iOS)
         addDeviceSheetDetent = .large
         #endif
         isShowingAddDeviceSheet = true
-    }
-
-    private func showManualHostTrustWarningIfNeeded(
-        _ warning: MobileManualHostTrustWarning? = nil
-    ) {
-        guard warning ?? store.manualHostTrustWarning != nil else {
-            return
-        }
-        showAddDevice()
     }
 
     private func connectAttachURL(_ rawURL: String) {
