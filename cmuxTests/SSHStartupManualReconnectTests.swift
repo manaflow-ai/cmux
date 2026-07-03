@@ -2,6 +2,12 @@ import Darwin
 import Foundation
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 @Suite(.serialized)
 struct SSHStartupManualReconnectTests {
     private final class BundleToken {}
@@ -91,6 +97,43 @@ struct SSHStartupManualReconnectTests {
             recordedCalls.contains("rpc workspace.remote.reconnect {\"workspace_id\":\"11111111-1111-1111-1111-111111111111\",\"surface_id\":\"22222222-2222-2222-2222-222222222222\"}"),
             Comment(rawValue: recordedCalls)
         )
+    }
+
+    @MainActor
+    @Test func reconnectRejectsUnendedTerminalSurfaceId() throws {
+        let workspace = Workspace()
+        let initialPanelId = try #require(workspace.focusedTerminalPanel?.id)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64007",
+            target: "cmux-macmini"
+        )
+
+        let unrelatedPanel = TerminalPanel(workspaceId: workspace.id)
+        workspace.panels[unrelatedPanel.id] = unrelatedPanel
+
+        #expect(workspace.isRemoteTerminalSurface(initialPanelId))
+        #expect(!workspace.isRemoteTerminalSurface(unrelatedPanel.id))
+        let sessionCountBefore = workspace.activeRemoteTerminalSessionCount
+
+        workspace.reconnectRemoteConnection(surfaceId: unrelatedPanel.id)
+
+        #expect(workspace.activeRemoteTerminalSessionCount == sessionCountBefore)
+        #expect(!workspace.isRemoteTerminalSurface(unrelatedPanel.id))
+        #expect(workspace.remoteConnectionState == .connected)
     }
 
     private static func generatedVMSSHInitialStartupCommand() throws -> String {
