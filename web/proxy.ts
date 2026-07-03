@@ -2,6 +2,11 @@ import { type NextRequest, NextResponse } from "next/server";
 import createMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
+import {
+  featureWorkflowContentLocales,
+  featureWorkflowDocPathForRequest,
+} from "./i18n/locale-availability";
+import { buildAlternateLinkHeader } from "./i18n/seo";
 
 const intlMiddleware = createMiddleware(routing);
 
@@ -63,7 +68,34 @@ export default function middleware(request: NextRequest) {
     }
   }
 
-  return intlMiddleware(request);
+  const response = intlMiddleware(request);
+  const featureWorkflowDocPath = featureWorkflowDocPathForRequest(pathname);
+  if (featureWorkflowDocPath) {
+    response.headers.set(
+      "Link",
+      buildAlternateLinkHeader(
+        requestOrigin(request),
+        featureWorkflowDocPath,
+        featureWorkflowContentLocales,
+      ),
+    );
+  }
+
+  return response;
+}
+
+function requestOrigin(request: NextRequest) {
+  const forwardedProto = firstHeaderValue(request.headers.get("x-forwarded-proto"));
+  const forwardedHost = firstHeaderValue(request.headers.get("x-forwarded-host"));
+  const host = forwardedHost ?? request.headers.get("host");
+  if (host) {
+    return `${forwardedProto ?? request.nextUrl.protocol.replace(/:$/, "")}://${host}`;
+  }
+  return request.nextUrl.origin;
+}
+
+function firstHeaderValue(value: string | null) {
+  return value?.split(",")[0]?.trim() || null;
 }
 
 export const config = {

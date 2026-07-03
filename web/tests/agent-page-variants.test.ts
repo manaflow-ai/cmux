@@ -6,6 +6,11 @@ import {
 } from "../app/lib/agent-page-paths";
 import sitemap from "../app/sitemap";
 import {
+  featureWorkflowContentLocales,
+  featureWorkflowDocPathForRequest,
+} from "../i18n/locale-availability";
+import { buildAlternateLinkHeader } from "../i18n/seo";
+import {
   extractReadableHtml,
   headersForAgentPage,
   markdownFromHtml,
@@ -366,6 +371,21 @@ describe("agent page variants", () => {
     expect(sitemapPaths).toContain("/docs/task-manager");
     expect(sitemapPaths).toContain("/ja/docs/task-manager");
     expect(sitemapPaths).not.toContain("/de/docs/task-manager");
+  });
+
+  test("limits en-ja docs alternate links to live localized routes", () => {
+    const path = featureWorkflowDocPathForRequest("/de/docs/vault");
+    expect(path).toBe("/docs/vault");
+
+    const header = buildAlternateLinkHeader(
+      "https://cmux.com",
+      path!,
+      featureWorkflowContentLocales,
+    );
+    expect(header).toContain("<https://cmux.com/docs/vault>; rel=\"alternate\"; hreflang=\"en\"");
+    expect(header).toContain("<https://cmux.com/ja/docs/vault>; rel=\"alternate\"; hreflang=\"ja\"");
+    expect(header).toContain("<https://cmux.com/docs/vault>; rel=\"alternate\"; hreflang=\"x-default\"");
+    expect(header).not.toContain("/de/docs/vault");
   });
 
   test("supports Markdown and text variants for sitemap pages", () => {

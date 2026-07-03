@@ -110,14 +110,14 @@ export default async function SessionRestoreBlogPage({
           <p>{t("faqCrashBody")}</p>
           <h3>{t("faqTmuxTitle")}</h3>
           <p>{t("faqTmuxBody")}</p>
-
-          <p className="mt-6">
-            {t.rich("docsCta", {
-              link: (chunks) => <Link href="/docs/session-restore">{chunks}</Link>,
-            })}
-          </p>
         </>
       ) : null}
+
+      <p className="mt-6">
+        {t.rich("docsCta", {
+          link: (chunks) => <Link href="/docs/session-restore">{chunks}</Link>,
+        })}
+      </p>
     </>
   );
 }

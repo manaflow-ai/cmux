@@ -111,14 +111,14 @@ export default async function CmuxSshPage({
           <p>{t("faqPortBody")}</p>
           <h3>{t("faqConfigTitle")}</h3>
           <p>{t("faqConfigBody")}</p>
-
-          <p className="mt-6">
-            {t.rich("docsCta", {
-              link: (chunks) => <Link href="/docs/ssh">{chunks}</Link>,
-            })}
-          </p>
         </>
       ) : null}
+
+      <p className="mt-6">
+        {t.rich("docsCta", {
+          link: (chunks) => <Link href="/docs/ssh">{chunks}</Link>,
+        })}
+      </p>
     </>
   );
 }
