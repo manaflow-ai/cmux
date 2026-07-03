@@ -1359,11 +1359,11 @@ struct HiddenTitlebarSidebarControlsView: View {
 
     var body: some View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
-
         ZStack(alignment: .leading) {
             WindowAccessor { window in
                 let nextWindowNumber = window.windowNumber
                 viewModel.setHostWindow(window)
+                isHoveringWindowChrome = nextWindowNumber == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber
                 #if DEBUG
                 TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: window)
                 _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
