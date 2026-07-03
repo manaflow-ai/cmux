@@ -2885,7 +2885,7 @@ class GhosttyApp {
             DispatchQueue.main.async { [weak surfaceView] in
                 MainActor.assumeIsolated {
                     guard let surfaceView,
-                          let stableTitle = surfaceView.titleChurnFilter.titleToDispatch(for: rawTitle, surfaceID: sourceSurface.id)
+                          let stableTitle = surfaceView.titleToDispatch(for: rawTitle, surfaceID: sourceSurface.id)
                     else { return }
                     let change = GhosttyTitleChange(tabId: tabId, surfaceId: sourceSurface.id, title: stableTitle)
                     NotificationCenter.default.post(
@@ -3358,6 +3358,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Per-surface spinner-frame title dedup (``TerminalTitleChurnFilter``;
     /// #6507 / #4735). Main-actor only, used in the deferred title post below.
     private var titleChurnFilter = TerminalTitleChurnFilter()
+
+    fileprivate func titleToDispatch(for rawTitle: String, surfaceID: UUID) -> String? {
+        titleChurnFilter.titleToDispatch(for: rawTitle, surfaceID: surfaceID)
+    }
 
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
