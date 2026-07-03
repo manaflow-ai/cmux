@@ -352,6 +352,7 @@ final class CmuxSettingsFileStore {
 
         var snapshot = ResolvedSettingsSnapshot(path: sourcePath)
 
+        parsePaneChromeSettings(root, sourcePath: sourcePath, snapshot: &snapshot)
         if let appSection = root["app"] as? [String: Any] {
             parseAppSection(appSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -394,6 +395,24 @@ final class CmuxSettingsFileStore {
 
         return snapshot
     }
+
+    private func parsePaneChromeSettings(
+        _ root: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let keys = [
+            PaneChromeSettings.paneBorderColorKey,
+            PaneChromeSettings.activePaneBorderColorKey,
+        ]
+        for key in keys where root.keys.contains(key) {
+            guard let value = parseNullableHex(root[key], path: key, sourcePath: sourcePath) else {
+                continue
+            }
+            snapshot.managedUserDefaults[key] = .nullableString(value)
+        }
+    }
+
     private func parseAppSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -1596,9 +1615,15 @@ final class CmuxSettingsFileStore {
             var agentSessionAutoResumeDidChange = false
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
+            var paneChromeDidChange = false
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == PaneChromeSettings.paneBorderColorKey ||
+                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey {
+                    paneChromeDidChange = true
                 }
 
                 if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
@@ -1646,6 +1671,9 @@ final class CmuxSettingsFileStore {
             }
             if rendererRealizationDidChange {
                 RendererRealizationSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if paneChromeDidChange {
+                PaneChromeSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
         }
         if Thread.isMainThread {

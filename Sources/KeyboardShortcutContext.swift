@@ -5,6 +5,7 @@ import WebKit
 struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
     let markdownPanel: MarkdownPanel?
+    let filePreviewTextEditorFocused: Bool
     let rightSidebarFocused: Bool
     /// The full context snapshot a ``ShortcutWhenClause`` evaluates against.
     let shortcutContext: ShortcutContext
@@ -15,7 +16,8 @@ struct ShortcutEventFocusContext {
         ShortcutFocusState(
             browser: browserPanel != nil,
             markdown: markdownPanel != nil,
-            sidebar: rightSidebarFocused
+            sidebar: rightSidebarFocused,
+            filePreviewTextEditor: filePreviewTextEditorFocused
         )
     }
 }
@@ -63,15 +65,20 @@ extension AppDelegate {
         // Only treat a markdown panel as focused when no browser panel owns the
         // event, so a focused browser never routes markdown shortcuts.
         let markdownPanel = browserPanel == nil ? shortcutFocusedMarkdownPanel(in: shortcutWindow) : nil
+        let filePreviewTextEditorFocused = browserPanel == nil && markdownPanel == nil
+            ? shortcutFocusedFilePreviewTextEditor(in: shortcutWindow)
+            : false
         let rightSidebarFocused = shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false
         let focusState = ShortcutFocusState(
             browser: browserPanel != nil,
             markdown: markdownPanel != nil,
-            sidebar: rightSidebarFocused
+            sidebar: rightSidebarFocused,
+            filePreviewTextEditor: filePreviewTextEditorFocused
         )
         let context = ShortcutEventFocusContext(
             browserPanel: browserPanel,
             markdownPanel: markdownPanel,
+            filePreviewTextEditorFocused: filePreviewTextEditorFocused,
             rightSidebarFocused: rightSidebarFocused,
             shortcutContext: buildShortcutContext(focusState: focusState, window: shortcutWindow)
         )
@@ -132,6 +139,35 @@ extension AppDelegate {
         }
 
         return tabManager?.focusedMarkdownPanel
+    }
+
+    private func shortcutFocusedFilePreviewTextEditor(in window: NSWindow?) -> Bool {
+        guard let focusedFilePreviewPanel = shortcutContextTabManager(in: window)?.focusedTextFilePreviewPanel,
+              let textView = shortcutFocusedSavingTextView(in: window),
+              let owningFilePreviewPanel = textView.panel as? FilePreviewPanel,
+              owningFilePreviewPanel === focusedFilePreviewPanel else {
+            return false
+        }
+
+        return true
+    }
+
+    private func shortcutFocusedSavingTextView(in window: NSWindow?) -> SavingTextView? {
+        guard let responder = window?.firstResponder ?? NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder else {
+            return nil
+        }
+        if let textView = responder as? SavingTextView {
+            return textView
+        }
+
+        var current = responder.nextResponder
+        while let next = current {
+            if let textView = next as? SavingTextView {
+                return textView
+            }
+            current = next.nextResponder
+        }
+        return nil
     }
 
     @discardableResult

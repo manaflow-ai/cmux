@@ -144,9 +144,7 @@ class TerminalController {
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     private struct MobileViewportReport {
-        var columns: Int
-        var rows: Int
-        var updatedAt: Date
+        var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
         /// Sticky reports come from the dedicated `mobile.terminal.viewport`
         /// RPC and live for the client's connection lifetime (cleared on
         /// disconnect or surface detach), so an idle paired device keeps its
@@ -156,7 +154,7 @@ class TerminalController {
         var sticky: Bool = false
     }
     private static let mobileViewportReportTTL: TimeInterval = 5
-    private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
+    private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]; private var mobileViewportGenerationsBySurfaceID: [UUID: [String: UInt64]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
@@ -13572,16 +13570,13 @@ class TerminalController {
     }
 
     func clearAllMobileViewportReports(reason: String) {
-        guard !mobileViewportReportsBySurfaceID.isEmpty ||
-            !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else {
-            return
-        }
+        guard !mobileViewportReportsBySurfaceID.isEmpty || !mobileViewportGenerationsBySurfaceID.isEmpty || !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else { return }
 
         for timer in mobileViewportReportCleanupTimersBySurfaceID.values {
             timer.cancel()
         }
-        let surfaceIDs = Array(mobileViewportReportsBySurfaceID.keys)
-        mobileViewportReportsBySurfaceID.removeAll()
+        let surfaceIDs = Array(Set(mobileViewportReportsBySurfaceID.keys).union(mobileViewportGenerationsBySurfaceID.keys))
+        mobileViewportReportsBySurfaceID.removeAll(); mobileViewportGenerationsBySurfaceID.removeAll()
         mobileViewportReportCleanupTimersBySurfaceID.removeAll()
 
         for surfaceID in surfaceIDs {
@@ -13681,6 +13676,11 @@ class TerminalController {
             #endif
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        let hasViewportReportFields = params["client_id"] != nil || params["viewport_columns"] != nil || params["viewport_rows"] != nil
+        if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
+            return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
+        }
+        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel, reason: "mobile.terminal.replay")
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
         let renderGrid = mobileTerminalRenderGridFrame(
@@ -13744,23 +13744,38 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
+        let reportedGrid: (columns: Int, rows: Int)?
+        let allowLiveSurfaceFallback: Bool
         if v2Bool(params, "clear") == true {
             if let clientID = v2String(params, "client_id") {
-                clearMobileViewportReport(
+                reportedGrid = clearMobileViewportReport(
                     surfaceID: terminalPanel.id,
-                    clientID: clientID,
+                    clientID: clientID, generation: v2Int(params, "viewport_generation").flatMap { $0 >= 0 ? UInt64($0) : nil }, requireGeneration: true,
                     reason: "mobile.terminal.viewport.clear"
                 )
+            } else {
+                reportedGrid = nil
             }
+            allowLiveSurfaceFallback = false
         } else {
-            applyMobileViewportReport(params: params, terminalPanel: terminalPanel, sticky: true)
+            reportedGrid = applyMobileViewportReport(
+                params: params,
+                terminalPanel: terminalPanel,
+                sticky: true,
+                reason: "mobile.terminal.viewport"
+            )
+            allowLiveSurfaceFallback = true
         }
 
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": surfaceId.uuidString,
         ]
-        if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalViewport") {
+        if let reportedGrid {
+            payload["columns"] = reportedGrid.columns
+            payload["rows"] = reportedGrid.rows
+        } else if allowLiveSurfaceFallback,
+                  let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalViewport") {
             let size = ghostty_surface_size(surface)
             payload["columns"] = max(Int(size.columns), 1)
             payload["rows"] = max(Int(size.rows), 1)
@@ -13838,7 +13853,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
-        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
@@ -13896,7 +13911,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
-        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
         guard let escapedPath = GhosttyApp.terminalPasteboard.saveImageData(imageData, fileExtension: format) else {
             return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
@@ -13992,7 +14007,7 @@ class TerminalController {
             submitKeyName = "ctrl+enter"
         }
 
-        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
         // Send through the TerminalPanel explicit-input wrappers (not the raw
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
@@ -14056,38 +14071,73 @@ class TerminalController {
     private func applyMobileViewportReport(
         params: [String: Any],
         terminalPanel: TerminalPanel,
-        sticky: Bool = false
-    ) {
+        sticky: Bool = false,
+        reason: String = "mobile.terminal.input"
+    ) -> (columns: Int, rows: Int)? {
         guard let clientID = v2String(params, "client_id"),
               let rawColumns = v2Int(params, "viewport_columns"),
               let rawRows = v2Int(params, "viewport_rows") else {
-            return
+            return nil
         }
-
         let columns = min(max(rawColumns, 20), 300)
-        let rows = min(max(rawRows, 5), 120)
+        let rows = min(max(rawRows, 5), 120); let generation = v2Int(params, "viewport_generation").flatMap { $0 >= 0 ? UInt64($0) : nil }
         let now = Date()
         var reports = mobileViewportReportsBySurfaceID[terminalPanel.id] ?? [:]
         reports = reports.filter { _, report in
             report.sticky || now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
         }
+        // The generation fence orders only the dedicated viewport reports
+        // (which carry viewport_generation) against each other and against
+        // generation-carrying clears. Generationless piggybacks from
+        // terminal.input / terminal.paste / scroll / mobile.terminal.replay
+        // stay accepted: they ride live requests, so their dimensions are
+        // current by construction, and they remain the recovery path when a
+        // dedicated report fails or exhausts its retries. The separate fence
+        // map survives their overwrites, so a later stale dedicated report is
+        // still rejected.
+        if let generation {
+            if let existingGeneration = reports[clientID]?.generation
+                ?? mobileViewportGenerationsBySurfaceID[terminalPanel.id]?[clientID],
+               existingGeneration > generation { return nil }
+            mobileViewportGenerationsBySurfaceID[terminalPanel.id, default: [:]][clientID] = generation
+        } else if reports[clientID] == nil,
+                  mobileViewportGenerationsBySurfaceID[terminalPanel.id]?[clientID] != nil {
+            // A generation-carrying clear tombstoned this client (fence entry
+            // recorded, report removed) and no newer dedicated report has
+            // re-pinned it, so a generationless report arriving now was sent
+            // before the detach. Reject it: a detached device must not
+            // resurrect its viewport pin. Attached clients keep a sticky
+            // dedicated report, so their piggyback recovery path is
+            // unaffected.
+            return nil
+        } else if reports[clientID]?.generation != nil {
+            // A generationless report cannot supersede a generation-carrying
+            // pin: modern clients attach generations to every dims-carrying
+            // request once a dedicated report exists, so a generationless
+            // arrival here is a stale pre-fence report (for example cached
+            // dimensions surviving a reconnect) that must not overwrite newer
+            // geometry. Legacy clients never record a generation, so their
+            // reports keep replacing each other freely.
+            return nil
+        }
+        let reportIsSticky = sticky || (reports[clientID]?.sticky ?? false)
         reports[clientID] = MobileViewportReport(
             columns: columns,
             rows: rows,
-            updatedAt: now,
-            sticky: sticky
+            updatedAt: now, generation: generation,
+            sticky: reportIsSticky
         )
         mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
         scheduleMobileViewportReportCleanup(surfaceID: terminalPanel.id, reports: reports)
 
         guard let minColumns = reports.values.map(\.columns).min(),
               let minRows = reports.values.map(\.rows).min() else {
-            return
+            return nil
         }
-        terminalPanel.surface.applyMobileViewportLimit(
+        return terminalPanel.surface.applyMobileViewportLimit(
             columns: minColumns,
             rows: minRows,
-            reason: "mobile.terminal.input"
+            reason: reason
         )
     }
 
@@ -14095,28 +14145,34 @@ class TerminalController {
     /// `mobile.terminal.viewport` clear, or a disconnect), then recompute the
     /// remaining min and re-apply or clear the surface's viewport limit so the
     /// macOS border reflects only the devices still attached.
-    private func clearMobileViewportReport(surfaceID: UUID, clientID: String, reason: String) {
-        guard var reports = mobileViewportReportsBySurfaceID[surfaceID],
-              reports.removeValue(forKey: clientID) != nil else {
-            return
-        }
+    private func clearMobileViewportReport(
+        surfaceID: UUID,
+        clientID: String, generation: UInt64? = nil, requireGeneration: Bool = false,
+        reason: String
+    ) -> (columns: Int, rows: Int)? {
+        if requireGeneration, let generation { if let existingGeneration = mobileViewportReportsBySurfaceID[surfaceID]?[clientID]?.generation ?? mobileViewportGenerationsBySurfaceID[surfaceID]?[clientID], existingGeneration > generation { return nil }; mobileViewportGenerationsBySurfaceID[surfaceID, default: [:]][clientID] = generation }
+        else if requireGeneration, (mobileViewportReportsBySurfaceID[surfaceID]?[clientID]?.generation ?? mobileViewportGenerationsBySurfaceID[surfaceID]?[clientID]) != nil { return nil }
+        else if var generations = mobileViewportGenerationsBySurfaceID[surfaceID] { generations.removeValue(forKey: clientID); mobileViewportGenerationsBySurfaceID[surfaceID] = generations.isEmpty ? nil : generations }
+        guard var reports = mobileViewportReportsBySurfaceID[surfaceID], reports[clientID] != nil else { return nil }
+        reports.removeValue(forKey: clientID)
         if reports.isEmpty {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
             terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
-            return
+            return nil
         }
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
         if let minColumns = reports.values.map(\.columns).min(),
            let minRows = reports.values.map(\.rows).min() {
-            terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
+            return terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
                 columns: minColumns,
                 rows: minRows,
                 reason: reason
             )
         }
+        return nil
     }
 
     /// Drop every viewport report owned by the given client IDs across all
@@ -14125,9 +14181,9 @@ class TerminalController {
     /// clear. Sticky reports rely on this signal instead of the TTL.
     func clearMobileViewportReports(clientIDs: Set<String>, reason: String) {
         guard !clientIDs.isEmpty else { return }
-        for surfaceID in Array(mobileViewportReportsBySurfaceID.keys) {
+        for surfaceID in Set(mobileViewportReportsBySurfaceID.keys).union(mobileViewportGenerationsBySurfaceID.keys) {
             for clientID in clientIDs {
-                clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: reason)
+                _ = clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: reason)
             }
         }
     }
@@ -14182,7 +14238,7 @@ class TerminalController {
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         if let minColumns = reports.values.map(\.columns).min(),
            let minRows = reports.values.map(\.rows).min() {
-            terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
+            _ = terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
                 columns: minColumns,
                 rows: minRows,
                 reason: reason
