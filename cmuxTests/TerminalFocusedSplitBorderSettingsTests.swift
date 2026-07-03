@@ -14,6 +14,7 @@ import Testing
 /// `terminal.focusedSplitBorder*` cmux.json parsing path.
 @Suite("Terminal focused split border settings", .serialized)
 struct TerminalFocusedSplitBorderSettingsTests {
+    private let focusedSplitBorderSettings = TerminalFocusedSplitBorderSettings()
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
 
@@ -22,30 +23,30 @@ struct TerminalFocusedSplitBorderSettingsTests {
     @Test
     func enabledDefaultsToTrueWhenUnset() {
         let defaults = ephemeralDefaults()
-        #expect(TerminalFocusedSplitBorderSettings.isEnabled(defaults: defaults) == true)
+        #expect(focusedSplitBorderSettings.isEnabled(defaults: defaults) == true)
     }
 
     @Test
     func enabledReadsStoredValue() {
         let defaults = ephemeralDefaults()
         defaults.set(false, forKey: TerminalFocusedSplitBorderSettings.enabledKey)
-        #expect(TerminalFocusedSplitBorderSettings.isEnabled(defaults: defaults) == false)
+        #expect(focusedSplitBorderSettings.isEnabled(defaults: defaults) == false)
     }
 
     @Test
     func widthClampsToSupportedRange() {
         #expect(
-            TerminalFocusedSplitBorderSettings.sanitizedWidth(99)
+            focusedSplitBorderSettings.sanitizedWidth(99)
                 == TerminalFocusedSplitBorderSettings.maximumWidth
         )
         #expect(
-            TerminalFocusedSplitBorderSettings.sanitizedWidth(0)
+            focusedSplitBorderSettings.sanitizedWidth(0)
                 == TerminalFocusedSplitBorderSettings.minimumWidth
         )
-        #expect(TerminalFocusedSplitBorderSettings.sanitizedWidth(3) == 3)
+        #expect(focusedSplitBorderSettings.sanitizedWidth(3) == 3)
         // Non-finite input falls back to the default rather than propagating NaN.
         #expect(
-            TerminalFocusedSplitBorderSettings.sanitizedWidth(.nan)
+            focusedSplitBorderSettings.sanitizedWidth(.nan)
                 == TerminalFocusedSplitBorderSettings.defaultWidth
         )
     }
@@ -54,7 +55,7 @@ struct TerminalFocusedSplitBorderSettingsTests {
     func widthDefaultsWhenUnset() {
         let defaults = ephemeralDefaults()
         #expect(
-            TerminalFocusedSplitBorderSettings.resolvedWidth(defaults: defaults)
+            focusedSplitBorderSettings.resolvedWidth(defaults: defaults)
                 == TerminalFocusedSplitBorderSettings.defaultWidth
         )
     }
@@ -62,16 +63,16 @@ struct TerminalFocusedSplitBorderSettingsTests {
     @Test
     func colorResolvesValidHexOverride() {
         #expect(
-            TerminalFocusedSplitBorderSettings.resolvedColor(colorHex: "#ff8800").hexString() == "#FF8800"
+            focusedSplitBorderSettings.resolvedColor(colorHex: "#ff8800").hexString() == "#FF8800"
         )
     }
 
     @Test
     func colorFallsBackToAccentForMissingOrInvalidHex() {
         let accent = cmuxAccentNSColor().hexString()
-        #expect(TerminalFocusedSplitBorderSettings.resolvedColor(colorHex: nil).hexString() == accent)
-        #expect(TerminalFocusedSplitBorderSettings.resolvedColor(colorHex: "").hexString() == accent)
-        #expect(TerminalFocusedSplitBorderSettings.resolvedColor(colorHex: "not-a-color").hexString() == accent)
+        #expect(focusedSplitBorderSettings.resolvedColor(colorHex: nil).hexString() == accent)
+        #expect(focusedSplitBorderSettings.resolvedColor(colorHex: "").hexString() == accent)
+        #expect(focusedSplitBorderSettings.resolvedColor(colorHex: "not-a-color").hexString() == accent)
     }
 
     // MARK: - cmux.json parsing (issue #6709 repro path)
@@ -80,14 +81,14 @@ struct TerminalFocusedSplitBorderSettingsTests {
     func settingsFileDisablesFocusedSplitBorder() throws {
         try loadTerminalSection("\"focusedSplitBorder\": false") { defaults in
             #expect(defaults.object(forKey: TerminalFocusedSplitBorderSettings.enabledKey) as? Bool == false)
-            #expect(TerminalFocusedSplitBorderSettings.isEnabled(defaults: defaults) == false)
+            #expect(focusedSplitBorderSettings.isEnabled(defaults: defaults) == false)
         }
     }
 
     @Test
     func settingsFileAppliesColorOverride() throws {
         try loadTerminalSection("\"focusedSplitBorderColor\": \"#ff8800\"") { defaults in
-            #expect(TerminalFocusedSplitBorderSettings.resolvedColorHex(defaults: defaults) == "#FF8800")
+            #expect(focusedSplitBorderSettings.resolvedColorHex(defaults: defaults) == "#FF8800")
         }
     }
 
@@ -99,7 +100,7 @@ struct TerminalFocusedSplitBorderSettingsTests {
                     == TerminalFocusedSplitBorderSettings.maximumWidth
             )
             #expect(
-                TerminalFocusedSplitBorderSettings.resolvedWidth(defaults: defaults)
+                focusedSplitBorderSettings.resolvedWidth(defaults: defaults)
                     == TerminalFocusedSplitBorderSettings.maximumWidth
             )
         }
@@ -116,7 +117,7 @@ struct TerminalFocusedSplitBorderSettingsTests {
             // Seed a stale override so the null in the file has something to clear.
             defaults.set("#123456", forKey: TerminalFocusedSplitBorderSettings.colorHexKey)
             try loadTerminalSectionPreservingExternally("\"focusedSplitBorderColor\": null") { defaults in
-                #expect(TerminalFocusedSplitBorderSettings.resolvedColorHex(defaults: defaults) == nil)
+                #expect(focusedSplitBorderSettings.resolvedColorHex(defaults: defaults) == nil)
             }
         }
     }

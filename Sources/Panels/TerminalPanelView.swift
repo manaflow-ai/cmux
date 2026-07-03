@@ -20,6 +20,7 @@ struct TerminalPanelView: View {
     private var focusedSplitBorderWidth = TerminalFocusedSplitBorderSettings.defaultWidth
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+    private let focusedSplitBorderSettings = TerminalFocusedSplitBorderSettings()
     @State private var terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
     let paneId: PaneID
     let isFocused: Bool
@@ -89,8 +90,8 @@ struct TerminalPanelView: View {
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
                 showsFocusBorder: isSplit && isFocused && focusedSplitBorderEnabled && !showsUnreadRing,
-                focusBorderColor: TerminalFocusedSplitBorderSettings.resolvedColor(colorHex: focusedSplitBorderColorHex),
-                focusBorderWidth: TerminalFocusedSplitBorderSettings.sanitizedWidth(focusedSplitBorderWidth),
+                focusBorderColor: focusedSplitBorderSettings.resolvedColor(colorHex: focusedSplitBorderColorHex),
+                focusBorderWidth: focusedSplitBorderSettings.sanitizedWidth(focusedSplitBorderWidth),
                 searchState: panel.searchState,
                 reattachToken: panel.viewReattachToken,
                 onFocus: { _ in

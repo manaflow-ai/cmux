@@ -608,7 +608,7 @@ final class CmuxSettingsFileStore {
 
         if let value = jsonDouble(section["focusedSplitBorderWidth"]) {
             snapshot.managedUserDefaults[TerminalFocusedSplitBorderSettings.widthKey] = .double(
-                TerminalFocusedSplitBorderSettings.sanitizedWidth(value)
+                TerminalFocusedSplitBorderSettings().sanitizedWidth(value)
             )
         } else if section.keys.contains("focusedSplitBorderWidth") {
             logInvalid("terminal.focusedSplitBorderWidth", sourcePath: sourcePath)
