@@ -47,6 +47,7 @@ struct RemoteTmuxLayoutContainer: View {
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     isSplit: true,
+                    hasMultiplePanes: true,
                     appearance: appearance,
                     hasUnreadNotification: false,
                     terminalAgentContext: "",

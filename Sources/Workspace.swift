@@ -2836,14 +2836,6 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
-        bonsplitAppearance(
-            from: config.backgroundColor,
-            backgroundOpacity: config.backgroundOpacity,
-            tabTitleFontSize: config.surfaceTabBarFontSize
-        )
-    }
-
     nonisolated static func usesSharedSurfaceBackdrop(defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: "sidebarMatchTerminalBackground")
     }
@@ -2879,14 +2871,15 @@ final class Workspace: Identifiable, ObservableObject {
         backgroundColor: NSColor,
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
+        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
+        paneBorderColorHex: String? = nil
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
-        let borderHex = WindowChromeColorResolver()
+        let borderHex = paneBorderColorHex ?? WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
 
@@ -2918,12 +2911,13 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated static func resolvedChromeColors(
         from backgroundColor: NSColor,
         sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
+        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
+        paneBorderColorHex: String? = nil
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         // Keep this signature aligned with bonsplitChromeHex for settings tests
         // and future background-image handling.
         let backgroundHex = backgroundColor.hexString()
-        let borderHex = WindowChromeColorResolver()
+        let borderHex = paneBorderColorHex ?? WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
 
@@ -2974,9 +2968,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private static func bonsplitAppearance(
-        from backgroundColor: NSColor,
-        backgroundOpacity: Double,
-        tabTitleFontSize: CGFloat = 11
+        from backgroundColor: NSColor, backgroundOpacity: Double,
+        tabTitleFontSize: CGFloat = 11,
+        paneBorderColorHex: String? = nil
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
@@ -2986,7 +2980,8 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
-            renderingMode: renderingMode
+            renderingMode: renderingMode,
+            paneBorderColorHex: paneBorderColorHex
         )
         return BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
@@ -3008,7 +3003,8 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundColor: config.backgroundColor,
             backgroundOpacity: config.backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
-            renderingMode: renderingMode
+            renderingMode: renderingMode,
+            paneBorderColorHex: PaneAppearanceSettings.paneBorderColorHex()
         )
         let nextTabTitleFontSize = config.surfaceTabBarFontSize
         let currentAppearance = bonsplitController.configuration.appearance
@@ -3066,7 +3062,8 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
-            renderingMode: renderingMode
+            renderingMode: renderingMode,
+            paneBorderColorHex: PaneAppearanceSettings.paneBorderColorHex()
         )
         let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
         let currentUsesSharedBackdrop = bonsplitController.configuration.appearance.usesSharedBackdrop
@@ -3146,7 +3143,8 @@ final class Workspace: Identifiable, ObservableObject {
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
             backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
-            tabTitleFontSize: initialSurfaceTabBarFontSize
+            tabTitleFontSize: initialSurfaceTabBarFontSize,
+            paneBorderColorHex: PaneAppearanceSettings.paneBorderColorHex()
         )
         let config = BonsplitConfiguration(
             allowSplits: true,

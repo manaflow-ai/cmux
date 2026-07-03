@@ -4,7 +4,7 @@ import CmuxSettings
 import Foundation
 import os
 
-nonisolated private let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
+nonisolated let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
 @MainActor
 final class KeyboardShortcutSettingsObserver: ObservableObject {
@@ -446,6 +446,7 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("globalFontMagnification") {
             logInvalid("app.globalFontMagnification", sourcePath: sourcePath)
         }
+        guard parsePaneAppearanceSettings(from: section, sourcePath: sourcePath, snapshot: &snapshot) else { return }
         if let raw = jsonString(section["forkConversationDefaultDestination"]) {
             if let destination = AgentConversationForkDestination(rawValue: raw) {
                 snapshot.managedUserDefaults[AgentConversationForkDefaultSettings.key] = .string(destination.rawValue)
@@ -1121,22 +1122,6 @@ final class CmuxSettingsFileStore {
         )
     }
 
-    private func parseNullableHex(
-        _ rawValue: Any?,
-        path: String,
-        sourcePath: String
-    ) -> String?? {
-        if rawValue is NSNull {
-            return .some(nil)
-        }
-        guard let raw = jsonString(rawValue),
-              let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
-            logInvalid(path, sourcePath: sourcePath)
-            return nil
-        }
-        return .some(normalized)
-    }
-
     private func applyManagedSettings(
         snapshot: ResolvedSettingsSnapshot,
         importedManagedDefaults: [String: ManagedSettingsValue],
@@ -1596,6 +1581,7 @@ final class CmuxSettingsFileStore {
             var agentSessionAutoResumeDidChange = false
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
+            var paneAppearanceDidChange = false
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
@@ -1618,6 +1604,12 @@ final class CmuxSettingsFileStore {
                     change.defaultsKey == RendererRealizationSettings.idleSecondsKey ||
                     change.defaultsKey == RendererRealizationSettings.maxWarmRenderersKey {
                     rendererRealizationDidChange = true
+                }
+                if change.defaultsKey == AppCatalogSection().paneBorderColorHex.userDefaultsKey ||
+                    change.defaultsKey == AppCatalogSection().activePaneBorderColorHex.userDefaultsKey ||
+                    change.defaultsKey == AppCatalogSection().notificationRingColorHex.userDefaultsKey ||
+                    change.defaultsKey == AppCatalogSection().unfocusedPaneOpacity.userDefaultsKey {
+                    paneAppearanceDidChange = true
                 }
 
                 if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
@@ -1646,6 +1638,9 @@ final class CmuxSettingsFileStore {
             }
             if rendererRealizationDidChange {
                 RendererRealizationSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if paneAppearanceDidChange {
+                PaneAppearanceSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
         }
         if Thread.isMainThread {
@@ -1755,10 +1750,6 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func logInvalid(_ path: String, sourcePath: String) {
-        cmuxSettingsFileStoreLogger.warning("ignoring invalid setting '\(path, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
-    }
-
     private func jsonString(_ rawValue: Any?) -> String? {
         rawValue as? String
     }
@@ -1777,12 +1768,6 @@ final class CmuxSettingsFileStore {
         return number.intValue
     }
 
-    private func jsonDouble(_ rawValue: Any?) -> Double? {
-        guard let number = rawValue as? NSNumber else { return nil }
-        guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
-        return number.doubleValue
-    }
-
     private func jsonStringArray(_ rawValue: Any?) -> [String]? {
         guard let values = rawValue as? [Any] else { return nil }
         var strings: [String] = []
@@ -1798,7 +1783,7 @@ final class CmuxSettingsFileStore {
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 
-private struct ResolvedSettingsSnapshot {
+struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a
@@ -1869,12 +1854,12 @@ private struct ManagedDefaultBatchSideEffects {
     }
 }
 
-private enum ManagedStringOverride: Equatable {
+enum ManagedStringOverride: Equatable {
     case set(String)
     case clear
 }
 
-private struct ManagedCustomSettings: Equatable {
+struct ManagedCustomSettings: Equatable {
     var socketPassword: ManagedStringOverride?
 
     var isEmpty: Bool {
@@ -1896,7 +1881,7 @@ private struct ManagedCustomSettings: Equatable {
     }
 }
 
-private enum ManagedSettingsValue: Codable, Equatable {
+enum ManagedSettingsValue: Codable, Equatable {
     case bool(Bool)
     case int(Int)
     case double(Double)

@@ -15,6 +15,7 @@ struct PanelContentView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let isSplit: Bool
+    let hasMultiplePanes: Bool
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
     let customSidebarTabManager: TabManager?
@@ -32,9 +33,34 @@ struct PanelContentView: View {
 
     var body: some View {
         renderedPanel
+            .opacity(nonTerminalUnfocusedOpacity)
+            .overlay {
+                activePaneBorderOverlay
+            }
             .overlay {
                 paneDropTargetOverlay
             }
+    }
+
+    private var nonTerminalUnfocusedOpacity: Double {
+        guard panel.panelType != .terminal,
+              panel.panelType != .browser,
+              isSplit,
+              !isFocused else { return 1 }
+        return appearance.unfocusedPaneOpacity
+    }
+
+    @ViewBuilder
+    private var activePaneBorderOverlay: some View {
+        if panel.panelType != .terminal,
+           panel.panelType != .browser,
+           hasMultiplePanes,
+           isFocused,
+           let color = appearance.activePaneBorderNSColor {
+            Rectangle()
+                .strokeBorder(Color(nsColor: color), lineWidth: 2)
+                .allowsHitTesting(false)
+        }
     }
 
     @ViewBuilder
@@ -49,6 +75,7 @@ struct PanelContentView: View {
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     isSplit: isSplit,
+                    hasMultiplePanes: hasMultiplePanes,
                     appearance: appearance,
                     hasUnreadNotification: hasUnreadNotification,
                     terminalAgentContext: terminalAgentContext,

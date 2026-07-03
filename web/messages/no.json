@@ -812,7 +812,11 @@
           "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
           "forkConversationDefaultDestination": "Standardmål for den primære Fork Conversation-handlingen i fanehurtigmenyen. Undermenyen viser fortsatt alle mål.",
-          "globalFontMagnification": "Skalerer cmux-eide terminaler, fanetitler, sidefelt, innstillinger, overlegg og app-chrome med denne prosenten. Rendret innhold på nettlesersider er utelatt."
+          "globalFontMagnification": "Skalerer cmux-eide terminaler, fanetitler, sidefelt, innstillinger, overlegg og app-chrome med denne prosenten. Rendret innhold på nettlesersider er utelatt.",
+          "paneBorderColor": "Overstyrer fargen på cmux-paneldelere og -kanter. Sett til null eller utelat for å hente fargen fra aktiv terminal eller vinduets chrome.",
+          "activePaneBorderColor": "Tegner denne fargen rundt fokusert terminalpanel eller SwiftUI-hostet panel når et workspace eller Dock har flere paneler. Portal-hostede nettleserpaneler beholder eksisterende chrome. Sett til null eller utelat for å slå av aktiv panelkant.",
+          "notificationRingColor": "Overstyrer fargen på ringen for uleste varsler. Sett til null eller utelat for å beholde standard blå cmux-aksent.",
+          "unfocusedPaneOpacity": "Valgfri overstyring av opasitet for inaktive terminalpaneler eller SwiftUI-hostede paneler i delte oppsett. Portal-hostede nettleserpaneler beholder eksisterende opasitet. Utelat for å bevare eksisterende Ghostty-avledet dimming; 1 holder inaktive paneler helt opake."
         },
         "terminal": {
           "copyOnSelect": "Når verdien er true, kopieres markert terminaltekst til systemutklippstavlen når markeringen bekreftes. Når verdien er false, sender ikke cmux ut en Ghostty copy-on-select-overstyring; Ghostty-konfigurasjon og standardverdier styrer oppførselen til markeringsutklippstavlen.",

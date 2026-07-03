@@ -20,10 +20,12 @@ struct DockPanelView: View {
     var rightSidebarOwnsInputFocus: Bool = false
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
+    @State private var paneAppearanceSignature = PaneAppearanceSettings.signature()
     @State private var visibilityHostId = UUID()
 
     private var appearance: PanelAppearance {
-        PanelAppearance.fromConfig(appearanceConfig)
+        _ = paneAppearanceSignature
+        return PanelAppearance.fromConfig(appearanceConfig)
     }
 
     var body: some View {
@@ -61,6 +63,7 @@ struct DockPanelView: View {
     private func refreshAppearance(reason: String) {
         let next = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.\(reason)")
         appearanceConfig = next
+        paneAppearanceSignature = PaneAppearanceSettings.signature()
         store.applyGhosttyChrome(from: next)
     }
 
@@ -123,6 +126,7 @@ private struct DockSplitContentView: View {
                 isVisibleInUI: isVisibleInUI,
                 portalPriority: Self.portalPriority,
                 isSplit: isSplit,
+                hasMultiplePanes: isSplit,
                 appearance: appearance,
                 windowAppearance: windowAppearance,
                 customSidebarTabManager: nil,
