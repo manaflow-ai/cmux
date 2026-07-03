@@ -7417,12 +7417,12 @@ struct TabItemView: View, Equatable {
     /// DEBUG trace for a debounced sidebar-row invalidation. Extracted from the
     /// `.onReceive` closure so its string building doesn't push the row's
     /// modifier-chain body over the SwiftUI type-checker's time budget.
-    static func logSidebarRowInvalidate(tab: Tab) {
+    static func logSidebarRowInvalidate(tab: Tab, source: String) {
 #if DEBUG
         let description = tab.customDescription ?? ""
         cmuxDebugLog(
             "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
-            "source=debounced " +
+            "source=\(source) " +
             "title=\"\((tab.title).commandPaletteDebugPreview())\" " +
             "descLen=\((description as NSString).length) " +
             "desc=\"\((description).commandPaletteDebugPreview())\""
@@ -7872,16 +7872,7 @@ struct TabItemView: View, Equatable {
             tab.sidebarImmediateObservationPublisher
                 .receive(on: RunLoop.main)
         ) { _ in
-#if DEBUG
-            let description = tab.customDescription ?? ""
-            cmuxDebugLog(
-                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
-                "source=immediate " +
-                "title=\"\((tab.title).commandPaletteDebugPreview())\" " +
-                "descLen=\((description as NSString).length) " +
-                "desc=\"\((description).commandPaletteDebugPreview())\""
-            )
-#endif
+            Self.logSidebarRowInvalidate(tab: tab, source: "immediate")
             refreshWorkspaceSnapshot()
         }
         .onReceive(
@@ -7892,7 +7883,7 @@ struct TabItemView: View, Equatable {
                 // row redraws once with the settled state instead of blinking.
                 .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
         ) { _ in
-            Self.logSidebarRowInvalidate(tab: tab)
+            Self.logSidebarRowInvalidate(tab: tab, source: "debounced")
             refreshWorkspaceSnapshot()
         }
         .onChange(of: settings) { _ in
