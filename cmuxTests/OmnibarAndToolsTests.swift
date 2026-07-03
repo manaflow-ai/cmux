@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import Darwin
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -769,7 +770,7 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         defer {
             try? Data().write(to: releaseFileURL)
             if let firstProcess, firstProcess.isRunning {
-                firstProcess.terminate()
+                kill(firstProcess.processIdentifier, SIGKILL)
             }
             try? FileManager.default.removeItem(at: releaseFileURL)
         }
@@ -811,7 +812,7 @@ final class VSCodeServeWebControllerTests: XCTestCase {
             launchCallLock.unlock()
             secondLaunchSemaphore.signal()
             return nil
-        })
+        }, terminationGraceSeconds: 1)
 
         let vscodeAppURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
         controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
@@ -841,6 +842,80 @@ final class VSCodeServeWebControllerTests: XCTestCase {
 
         XCTAssertEqual(launchCalls, 2)
         XCTAssertEqual(sawFirstProcessRunning, false)
+    }
+
+    func testRestartCompletesWithoutRelaunchWhenStoppedProcessIgnoresTermination() throws {
+        let firstCompletionCalled = expectation(description: "first generation completion called")
+        let restartCompletionCalled = expectation(description: "restart completion called")
+        let launchCallLock = NSLock()
+        var launchCallCount = 0
+        var firstProcess: Process?
+        var restartURL: URL?
+
+        let releaseFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vscode-restart-deadline-\(UUID().uuidString)")
+        defer {
+            try? Data().write(to: releaseFileURL)
+            if let firstProcess, firstProcess.isRunning {
+                kill(firstProcess.processIdentifier, SIGKILL)
+            }
+            try? FileManager.default.removeItem(at: releaseFileURL)
+        }
+
+        let controller = VSCodeServeWebController(launchProcessOverride: { _, _ in
+            launchCallLock.lock()
+            launchCallCount += 1
+            let callNumber = launchCallCount
+            launchCallLock.unlock()
+
+            if callNumber == 1 {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/sh", isDirectory: false)
+                process.arguments = [
+                    "-c",
+                    "trap '' TERM; while [ ! -f \"$1\" ]; do sleep 0.05; done",
+                    "cmux-vscode-restart-deadline-test",
+                    releaseFileURL.path,
+                ]
+                do {
+                    try process.run()
+                } catch {
+                    XCTFail("Failed to launch delayed-exit process: \(error)")
+                    return nil
+                }
+
+                launchCallLock.lock()
+                firstProcess = process
+                launchCallLock.unlock()
+                return (
+                    process,
+                    URL(string: "http://127.0.0.1:50080/?tkn=first")!
+                )
+            }
+
+            return nil
+        }, terminationGraceSeconds: 0.1)
+
+        let vscodeAppURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
+            XCTAssertEqual(url?.absoluteString, "http://127.0.0.1:50080/?tkn=first")
+            firstCompletionCalled.fulfill()
+        }
+        wait(for: [firstCompletionCalled], timeout: 2)
+
+        controller.restart(vscodeApplicationURL: vscodeAppURL) { url in
+            restartURL = url
+            restartCompletionCalled.fulfill()
+        }
+
+        wait(for: [restartCompletionCalled], timeout: 2)
+
+        launchCallLock.lock()
+        let launchCalls = launchCallCount
+        launchCallLock.unlock()
+
+        XCTAssertNil(restartURL)
+        XCTAssertEqual(launchCalls, 1)
     }
 }
 
