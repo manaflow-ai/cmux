@@ -67,6 +67,23 @@ struct TerminalShortcutsSettingsView: View {
                             }
                         }
                     }
+                } else if configuration.rowCount > 1 {
+                    ForEach(displayedNonEmptyRowSections) { rowSection in
+                        Section {
+                            ForEach(rowSection.items) { item in
+                                row(for: item, rowIndex: rowSection.index)
+                            }
+                            .onMove { offsets, destination in
+                                moveDisplayedItems(from: offsets, to: destination, inRow: rowSection.index)
+                            }
+                        } header: {
+                            Text(rowTitle(rowSection.index))
+                        } footer: {
+                            if rowSection.id == displayedNonEmptyRowSections.last?.id {
+                                Text(scope.footer)
+                            }
+                        }
+                    }
                 } else {
                     Section {
                         ForEach(displayedItems) { item in
@@ -209,6 +226,10 @@ struct TerminalShortcutsSettingsView: View {
         }
     }
 
+    private var displayedNonEmptyRowSections: [TerminalShortcutRowSection] {
+        displayedRowSections.filter { !$0.items.isEmpty }
+    }
+
     private func rowIndex(for id: ToolbarItemID) -> Int? {
         configuration.displayRows.firstIndex { row in row.contains(id) }
     }
@@ -221,14 +242,13 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int) {
-        // Agent-chat ("Shared Shortcuts") scope only: a single flat list whose items
-        // may be spread across several terminal rows. Reorder strictly *within* each
-        // item's current row (`limitedTo:`) so a drag never silently reshuffles the
-        // terminal row layout. A flat reorder cannot move one item across a
-        // fixed-length row boundary without either changing row lengths or cascading
-        // another item into a different row — the silent row scramble fixed for this
-        // path. Cross-row moves are intentionally routed through the Terminal
-        // Shortcuts per-item row picker (`moveItem(_:toRow:)`) instead.
+        // Agent-chat ("Shared Shortcuts") scope with one configured toolbar row:
+        // flat order is equivalent to row-local order. Multi-row layouts render
+        // row sections and route through the row-local overload below.
+        guard configuration.rowCount <= 1 else {
+            assertionFailure("Flat shortcut reordering is only valid for one-row layouts")
+            return
+        }
         let visibleIDs = displayedItems.map(\.id)
         let visibleSet = Set(visibleIDs)
         var reorderedVisibleIDs = visibleIDs
@@ -237,17 +257,28 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int, inRow rowIndex: Int) {
-        // SwiftUI supplies offsets in displayed-row coordinates, while the
-        // configuration mutates raw row coordinates. The terminal scope is expected
-        // to be unfiltered; if that ever changes, this path must translate indices.
-        guard configuration.displayRows.indices.contains(rowIndex),
-              displayedItemRows.indices.contains(rowIndex),
-              displayedItemRows[rowIndex].map(\.id) == configuration.displayRows[rowIndex]
-        else {
-            assertionFailure("Terminal row reordering requires unfiltered row indices")
+        guard displayedItemRows.indices.contains(rowIndex) else { return }
+        let displayedRowIDs = displayedItemRows[rowIndex].map(\.id)
+        guard !displayedRowIDs.isEmpty else { return }
+
+        if scope == .terminal {
+            // SwiftUI supplies offsets in displayed-row coordinates, while the
+            // configuration mutates raw row coordinates. The terminal scope is
+            // expected to be unfiltered; if that ever changes, this path must
+            // translate indices.
+            guard configuration.displayRows.indices.contains(rowIndex),
+                  displayedRowIDs == configuration.displayRows[rowIndex]
+            else {
+                assertionFailure("Terminal row reordering requires unfiltered row indices")
+                return
+            }
+            configuration.moveItems(from: offsets, to: destination, inRow: rowIndex)
             return
         }
-        configuration.moveItems(from: offsets, to: destination, inRow: rowIndex)
+
+        var reorderedIDs = displayedRowIDs
+        reorderedIDs.move(fromOffsets: offsets, toOffset: destination)
+        configuration.reorderItems(reorderedIDs, limitedTo: Set(displayedRowIDs))
     }
 }
 #endif
