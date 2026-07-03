@@ -1948,7 +1948,40 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func layoutBottomDock(using snapshot: TerminalViewportSnapshot) {
         composerContainer.frame = snapshot.composerFrame
         dockedToolbar?.frame = snapshot.toolbarFrame
+        #if DEBUG
+        // The marker's BOTTOM edge = the dock's keyboard edge, positioned by the
+        // exact math under test (never by the keyboard guide), so a UI test can
+        // measure our dock against the real keyboard's on-screen frame.
+        kbEdgeMarkerView?.frame = CGRect(
+            x: 0,
+            y: snapshot.composerFrame.maxY - 2,
+            width: snapshot.bounds.width,
+            height: 2
+        )
+        #endif
     }
+
+    #if DEBUG
+    private var kbEdgeMarkerView: UIView?
+
+    /// UI-test seam: a red bar whose bottom edge is the dock's keyboard edge,
+    /// frame-set by ``layoutBottomDock(using:)`` on every layout/tracking tick.
+    /// The pixel-alignment UI test reads its accessibility frame against the
+    /// real keyboard's frame to verify the dock rides the ACTUAL keyboard, not
+    /// merely the layout guide.
+    public func debugInstallKeyboardEdgeMarkerForUITest() {
+        guard kbEdgeMarkerView == nil else { return }
+        let marker = UIView()
+        marker.backgroundColor = .systemRed
+        marker.isUserInteractionEnabled = false
+        marker.isAccessibilityElement = true
+        marker.accessibilityIdentifier = "MobileKbEdgeMarker"
+        marker.layer.zPosition = Self.bottomChromeZPosition + 50
+        addSubview(marker)
+        kbEdgeMarkerView = marker
+        layoutBottomDock()
+    }
+    #endif
 
     /// Animate the whole bottom dock (composer band + toolbar) to its current target
     /// frames over the given duration/curve. Used by the HIDE/show and composer close

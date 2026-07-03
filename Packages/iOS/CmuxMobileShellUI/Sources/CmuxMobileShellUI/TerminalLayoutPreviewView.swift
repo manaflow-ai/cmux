@@ -58,6 +58,9 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         if ProcessInfo.processInfo.environment["CMUX_UITEST_SHOW_ZOOM"] == "1" {
             view.debugShowZoomControlOverlayForPreview()
         }
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_KB_EDGE_MARKER"] == "1" {
+            view.debugInstallKeyboardEdgeMarkerForUITest()
+        }
         return view
     }
 

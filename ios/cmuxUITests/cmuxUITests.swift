@@ -390,6 +390,89 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// Pixel-level alignment of the dock against the REAL keyboard (not the
+    /// layout guide): a red marker bar whose bottom edge is positioned by the
+    /// dock-layout math under test is measured against the keyboard element's
+    /// on-screen frame. Mid-animation the two frame reads are ~100ms apart, so
+    /// each sample brackets the marker read with two keyboard reads and only
+    /// counts when the keyboard barely moved between them (coherent sample).
+    /// Every sample is printed (`KBEDGE ...`) so the run log doubles as the
+    /// measurement record.
+    @MainActor
+    func testTerminalKeyboardEdgePixelAlignment() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_PREVIEW": "1",
+            "CMUX_UITEST_KB_EDGE_MARKER": "1",
+        ])
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+        let marker = app.otherElements["MobileKbEdgeMarker"]
+        XCTAssertTrue(marker.waitForExistence(timeout: 4), "keyboard-edge marker missing")
+        let hideKeyboard = app.buttons["terminal.inputAccessory.hideKeyboard"]
+
+        surface.tap()
+        guard app.keyboards.firstMatch.waitForExistence(timeout: 4) else {
+            throw XCTSkip("Simulator presented no software keyboard; pixel alignment needs one.")
+        }
+
+        var settledDeltas: [CGFloat] = []
+        var midFlightDeltas: [CGFloat] = []
+
+        func sampleThroughTransition(context: String) {
+            let deadline = Date().addingTimeInterval(3.5)
+            var stableReads = 0
+            var lastKbTop: CGFloat?
+            while Date() < deadline, stableReads < 3 {
+                let kb = app.keyboards.firstMatch
+                guard kb.exists else { continue }
+                let kbTopBefore = kb.frame.minY
+                let markerBottom = marker.frame.maxY
+                let kbTopAfter = kb.frame.minY
+                guard kbTopBefore > 1, markerBottom > 1 else { continue }
+                let coherent = abs(kbTopBefore - kbTopAfter) <= 2
+                let kbTop = (kbTopBefore + kbTopAfter) / 2
+                let delta = markerBottom - kbTop
+                let settled = coherent && lastKbTop.map { abs($0 - kbTop) <= 0.5 } ?? false
+                print("KBEDGE context=\(context) kbTop=\(kbTop) markerBottom=\(markerBottom) delta=\(delta) coherent=\(coherent) settled=\(settled)")
+                if coherent {
+                    if settled {
+                        stableReads += 1
+                        settledDeltas.append(delta)
+                    } else {
+                        stableReads = 0
+                        midFlightDeltas.append(delta)
+                    }
+                }
+                if coherent { lastKbTop = kbTop }
+            }
+        }
+
+        sampleThroughTransition(context: "show1")
+        for cycle in 1...2 {
+            XCTAssertTrue(hideKeyboard.waitForExistence(timeout: 4))
+            hideKeyboard.tap()
+            _ = app.keyboards.firstMatch.waitForNonExistence(withTimeout: 4)
+            surface.tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
+            sampleThroughTransition(context: "show\(cycle + 1)")
+        }
+
+        print("KBEDGE summary settled=\(settledDeltas) midFlight=\(midFlightDeltas)")
+        XCTAssertGreaterThanOrEqual(settledDeltas.count, 3, "never observed a settled keyboard-up state")
+        for delta in settledDeltas {
+            XCTAssertLessThanOrEqual(
+                abs(delta), 1.5,
+                "settled dock edge is not pixel-aligned with the real keyboard top (delta=\(delta))"
+            )
+        }
+        for delta in midFlightDeltas {
+            XCTAssertLessThanOrEqual(
+                abs(delta), 3.0,
+                "mid-animation dock edge diverged from the real keyboard top (delta=\(delta))"
+            )
+        }
+    }
+
     @MainActor
     func testBottomScrollStaysPinnedAcrossComposerViewportShrink() throws {
         let app = launchApp(mockData: false, environment: [
