@@ -261,6 +261,27 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
     }
 
+    func testViewZoomContextStillForwardsMenuEquivalentShortcutsToFocusedTerminal() {
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.browserReload.shortcutContext.forwardsMenuEquivalentToFocusedTerminal
+        )
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext.forwardsMenuEquivalentToFocusedTerminal
+        )
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.browserZoomOut.shortcutContext.forwardsMenuEquivalentToFocusedTerminal
+        )
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.browserZoomReset.shortcutContext.forwardsMenuEquivalentToFocusedTerminal
+        )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext.forwardsMenuEquivalentToFocusedTerminal
+        )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.renameTab.shortcutContext.forwardsMenuEquivalentToFocusedTerminal
+        )
+    }
+
     func testSurfaceDigitFamilyCoexistsWithPrioritizedSidebarModeShortcuts() {
         let surfaceDigits = KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut
         let sidebarFiles = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.defaultShortcut

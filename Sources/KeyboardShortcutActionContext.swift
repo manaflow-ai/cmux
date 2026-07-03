@@ -14,6 +14,15 @@ extension KeyboardShortcutSettings.Action {
 
         var isAlwaysAvailable: Bool { self == .application }
 
+        var forwardsMenuEquivalentToFocusedTerminal: Bool {
+            switch self {
+            case .browserPanel, .browserOrFilePreviewTextEditor:
+                return true
+            default:
+                return false
+            }
+        }
+
         func isAvailable(
             focusedBrowserPanel: Bool,
             focusedMarkdownPanel: Bool,
