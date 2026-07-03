@@ -1240,6 +1240,63 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testNotificationHooksStartingFromDirectoryIgnoresDotDotAncestors() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let siblingDirectory = root.appendingPathComponent("sibling", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let siblingConfigDirectory = siblingDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        let projectConfigDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: siblingConfigDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectConfigDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let siblingConfigURL = siblingConfigDirectory.appendingPathComponent("cmux.json")
+        let projectConfigURL = projectConfigDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "global", "command": "cat" }]
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "sibling", "command": "cat" }]
+          }
+        }
+        """.write(to: siblingConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "project", "command": "cat" }]
+          }
+        }
+        """.write(to: projectConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            startFileWatchers: false
+        )
+        let dotDotProjectPath = siblingDirectory.path + "/../project"
+
+        XCTAssertEqual(
+            store.notificationHooks(startingFrom: dotDotProjectPath).map(\.id),
+            ["global", "project"]
+        )
+        XCTAssertEqual(
+            store.notificationHooks(startingFrom: projectDirectory.path).map(\.id),
+            ["global", "project"]
+        )
+    }
+
+    @MainActor
     func testNotificationHooksStartingFromDirectoryRefreshesNewAncestorConfig() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
