@@ -59,7 +59,7 @@ export function buildStageCommitCommand(repoRoot: string | undefined, message: s
   }
 
   const newline = String.fromCharCode(10);
-  const commitMessage = normalizedMessage.endsWith(newline) ? normalizedMessage : `${normalizedMessage}${newline}`;
+  const commitMessage = `${normalizedMessage}${newline}`;
   const delimiter = safeHereDocDelimiter(commitMessage, "CMUX_COMMIT_MESSAGE");
   const quotedRepoRoot = shellSingleQuote(repoRoot);
   return [

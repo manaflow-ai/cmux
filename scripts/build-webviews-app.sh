@@ -52,14 +52,16 @@ vendor_normalized_signature() {
 }
 
 is_ignorable_vendor_diff() {
-  diff_output="$1"
-  tmp_dir="$2"
-  vendor_chunk="chunks/vendor.mjs"
+  local diff_output="$1"
+  local tmp_dir="$2"
+  local vendor_chunk="chunks/vendor.mjs"
 
   if grep -v "$vendor_chunk" "$diff_output" >/dev/null; then
     return 1
   fi
 
+  local committed_signature
+  local generated_signature
   committed_signature="$(vendor_normalized_signature "$OUT_DIR/$vendor_chunk")"
   generated_signature="$(vendor_normalized_signature "$tmp_dir/$vendor_chunk")"
   [ -n "$committed_signature" ] && [ "$committed_signature" = "$generated_signature" ]
