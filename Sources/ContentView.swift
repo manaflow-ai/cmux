@@ -7732,7 +7732,7 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
-        SidebarWorkspaceRowContent(
+        let rowContent = SidebarWorkspaceRowContent(
             snapshot: workspaceSnapshot,
             detailVisibility: detailVisibility,
             isActive: palette.usesInvertedActiveForeground,
@@ -7806,6 +7806,11 @@ struct TabItemView: View, Equatable {
         // row is always animating, so the sidebar-wide layout re-runs at display
         // refresh rate (#5764 / #5845). Lazy rows must be height-stable after
         // they appear; content changes now apply in one discrete layout pass.
+        //
+        // Split into `let` bindings so the SwiftUI type-checker resolves the row
+        // constructor and the long modifier chain in separate, smaller passes
+        // (the combined expression exceeds its time budget after the merge).
+        let decoratedRow = rowContent
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
@@ -7827,6 +7832,8 @@ struct TabItemView: View, Equatable {
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
         .background { SidebarRowHeightProbe { rowHeight = $0 } }
+
+        return decoratedRow
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
