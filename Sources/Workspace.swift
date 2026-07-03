@@ -4763,12 +4763,15 @@ final class Workspace: Identifiable, ObservableObject {
         reportedDirectory: String
     ) -> String? {
         guard isResumeCwdRepairEligible(restoredAgentResumeStatesByPanelId[panelId]) else { return nil }
-        guard !isRemoteWorkspace, !isRemoteTerminalSurface(panelId) else { return nil }
+        guard !isRemoteTerminalSurface(panelId) else { return nil }
         guard let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
             restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
         ) else { return nil }
         if reportedDirectory == sessionDirectory { return nil }
-        guard Self.directoryExistsOnDisk(sessionDirectory) else { return nil }
+        guard Self.directoryExistsOnDisk(sessionDirectory) ||
+            Self.unmountedVolumeRoot(for: sessionDirectory) != nil else {
+            return nil
+        }
         return sessionDirectory
     }
 

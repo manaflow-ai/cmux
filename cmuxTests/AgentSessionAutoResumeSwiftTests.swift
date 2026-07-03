@@ -256,6 +256,46 @@ struct AgentSessionAutoResumeSwiftTests {
         }
     }
 
+    /// A remote workspace can host local terminal panes. Those panes still
+    /// report local cwd values, so the resumed-run repair must not be disabled
+    /// just because the workspace itself is remote.
+    @MainActor
+    @Test func spuriousHomeReportsForLocalPaneInsideRemoteWorkspaceKeepTrackedCwd() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-remote-workspace-local-repair")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId) = try restoreWorkspaceWithAutoResumedClaudeAgent(
+                savedDirectory: projectDir
+            )
+            restored.remoteConfiguration = WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64000,
+                relayID: "relay-local-repair",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-local-repair.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            )
+            try #require(restored.isRemoteWorkspace)
+            try #require(!restored.isRemoteTerminalSurface(restoredPanelId))
+
+            let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+            try #require(homeDir != projectDir)
+
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeDir)
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeDir)
+
+            #expect(restored.panelDirectories[restoredPanelId] == projectDir)
+            #expect(restored.currentDirectory == projectDir)
+        }
+    }
+
     /// A split from a pane that received repeated spurious live cwd reports must
     /// still inherit the resumed session directory, because the tracked cwd was
     /// repaired at report time rather than left clobbered.
@@ -411,6 +451,42 @@ struct AgentSessionAutoResumeSwiftTests {
             try #require(homeDir != projectDir)
             destination.updatePanelDirectory(panelId: attachedPanelId, directory: homeDir)
             #expect(destination.panelDirectories[attachedPanelId] == projectDir)
+        }
+    }
+
+    /// A moved resumed pane can target a temporarily unmounted external volume.
+    /// The one-shot restore guard is not transferred, so the resumed-run repair
+    /// must keep protecting the unmounted anchor after attach.
+    @MainActor
+    @Test func detachCarriesUnmountedResumeSessionDirectorySoHealSurvivesWorkspaceMove() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let unmountedSessionDir = "/Volumes/cmux-missing-\(UUID().uuidString)/project"
+            try #require(!FileManager.default.fileExists(atPath: unmountedSessionDir))
+
+            let (source, sourcePanelId) = try restoreWorkspaceWithAutoResumedClaudeAgent(
+                savedDirectory: unmountedSessionDir
+            )
+            try #require(source.restoredResumeSessionWorkingDirectoriesByPanelId[sourcePanelId] == unmountedSessionDir)
+
+            let detached = try #require(source.detachSurface(panelId: sourcePanelId))
+            #expect(detached.restoredResumeSessionWorkingDirectory == unmountedSessionDir)
+
+            let destination = Workspace()
+            let destinationPaneId = try #require(destination.bonsplitController.focusedPaneId)
+            let attachedPanelId = try #require(
+                destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false)
+            )
+            #expect(
+                destination.restoredResumeSessionWorkingDirectoriesByPanelId[attachedPanelId] == unmountedSessionDir
+            )
+
+            let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+            try #require(homeDir != unmountedSessionDir)
+            destination.updatePanelDirectory(panelId: attachedPanelId, directory: homeDir)
+            destination.updatePanelDirectory(panelId: attachedPanelId, directory: homeDir)
+            #expect(destination.panelDirectories[attachedPanelId] == unmountedSessionDir)
         }
     }
 
