@@ -43,7 +43,8 @@
     "language": "Jezik",
     "assets": "Materijali",
     "openSource": "Otvoreni kod",
-    "guides": "Vodiči"
+    "guides": "Vodiči",
+    "compare": "Uporedi"
   },
   "home": {
     "taglinePrefix": "Terminal napravljen za ",
@@ -1757,7 +1758,9 @@
       "geminiCli": "Terminal za Gemini CLI",
       "aider": "Terminal za Aider",
       "amp": "Terminal za Amp",
-      "cursorCli": "Terminal za Cursor CLI"
+      "cursorCli": "Terminal za Cursor CLI",
+      "keyboardShortcuts": "Prečice tastature",
+      "browserAutomation": "Automatizacija browsera"
     },
     "agents": {
       "metaTitle": "Terminal za agente za kodiranje: cmux",
@@ -1873,6 +1876,439 @@
       "faqA3": "Panel zazvoni a bočna traka pokaže oznaku nepročitanog kada Cursor CLI završi ili zatraži unos, tako da ga možete pustiti da radi i vratiti se kada vas treba.",
       "faqQ4": "Je li cmux besplatan za korištenje s Cursor CLI-jem?",
       "faqA4": "Da. cmux je besplatan i otvorenog koda za macOS."
+    },
+    "compare": {
+      "metaTitle": "Uporedite cmux s terminalima za AI kodiranje i radnim prostorima agenata",
+      "metaDescription": "Uporedite cmux sa Supersetom, Cursorom, Warpom, Ghosttyjem i drugim alatima za pokretanje Claude Codea, Codexa, OpenCodea i drugih coding agenata.",
+      "title": "Uporedite cmux",
+      "intro": "Fokusirana poređenja za programere koji biraju terminal ili radni prostor za AI coding agente. cmux je najjači kada želite nativne macOS performanse, vidljivi multitasking, brzu navigaciju tastaturom i bez vezivanja za jedan agent runtime.",
+      "pages": {
+        "bestTerminalForAgents": {
+          "metaTitle": "Najbolji terminal za AI coding agente u 2026 - cmux",
+          "metaDescription": "Uporedite cmux, Superset, Warp, Ghostty, iTerm2, tmux i druge terminale za pokretanje AI coding agenata.",
+          "title": "Najbolji terminal za AI coding agente u 2026",
+          "intro": "Najbolji terminal za coding agente je onaj koji mnoge dugotrajne sesije drži vidljivim, responsivnim i lakim za kontrolu. cmux je napravljen za taj tok rada: nativne Swift/AppKit performanse, vertikalni radni prostori, prstenovi obavještenja, prečice tastature i programabilni CLI.",
+          "summaryTitle": "Kratak odgovor",
+          "summaryBody": "Odaberite cmux ako želite nativni macOS terminal koji može nadgledati mnogo agenata bez nametanja novog agenta, editora, cloud runtimea ili sistema kredita. Odaberite agent workspace ako želite orkestraciju zadataka i ugrađene review tokove. Odaberite klasični terminal ako uglavnom pokrećete jednog agenta odjednom.",
+          "table": {
+            "headers": [
+              "Alat",
+              "Najbolje za",
+              "Podrška za agente",
+              "Kompromis"
+            ],
+            "rows": [
+              [
+                "cmux",
+                "Nativni terminalski nadzor za mnogo agenata",
+                "Bilo koji CLI agent",
+                "Samo macOS"
+              ],
+              [
+                "Superset",
+                "Orkestracija agenata zasnovana na worktreeju",
+                "Mnogi CLI agenti",
+                "Electron aplikacija i više usmjeren tok rada"
+              ],
+              [
+                "Warp",
+                "AI terminalske funkcije u upravljanom proizvodu",
+                "AI tok rada oko Warpa",
+                "Više platformskog lock-ina"
+              ],
+              [
+                "Ghostty",
+                "Brz terminal opće namjene",
+                "Bilo koji CLI agent",
+                "Nema ugrađene organizacije agenata"
+              ],
+              [
+                "iTerm2",
+                "Zreli macOS terminalski tokovi rada",
+                "Bilo koji CLI agent",
+                "Status agenta ostaje ručan"
+              ],
+              [
+                "tmux",
+                "Terminalski multiplexing preko SSH-a",
+                "Bilo koji CLI agent",
+                "Tok rada s prefix tipkom i bez nativnog app UI-ja"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "Zašto je cmux drugačiji",
+              "body": "cmux polazi od terminala umjesto od agenta. Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp i Cursor CLI rade normalno, dok cmux oko njih dodaje nedostajući control plane: radne prostore, split paneove, unread stanje, prstenove obavještenja i socket API."
+            },
+            {
+              "title": "Multitasking i organizacija",
+              "body": "Agent-heavy rad se raspada kada svaka sesija postane još jedan tab s nejasnim naslovom. cmux drži rad u vertikalnim radnim prostorima koji prikazuju branch, direktorij, portove i najnoviji tekst obavještenja, pa više agenata ostaje čitljivo dok rade."
+            },
+            {
+              "title": "Performanse pod opterećenjem",
+              "body": "cmux je nativna Swift/AppKit aplikacija izgrađena na libghosttyju, ne Electron. To je važno kada cijeli dan držite mnogo terminala, browsera i agenata živim, jer manji UI overhead ostavlja više CPU-a i memorije agentima i dev serverima koji rade pravi posao."
+            },
+            {
+              "title": "Nadzor prvo tastaturom",
+              "body": "cmux tretira pažnju kao prvorazredni tok rada. Prečice kao jump to latest unread vode vas direktno do panea kojem treba odluka, umjesto da skenirate svaki tab ili čekate da desktop obavještenja dobiju smisao."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "Je li cmux AI coding agent?",
+          "faqA1": "Ne. cmux je nativni terminal i browser workspace oko agenata koje već koristite.",
+          "faqQ2": "Koji agenti rade u cmuxu?",
+          "faqA2": "Radi bilo koji CLI agent, uključujući Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp i Cursor CLI.",
+          "faqQ3": "Zašto ne koristiti samo terminal tabs?",
+          "faqA3": "Tabovi rade za nekoliko shellova. cmux dodaje metadata radnih prostora, prstenove obavještenja, unread navigaciju, split paneove, browser automation i scriptable socket za agent-heavy tokove rada."
+        },
+        "multipleClaudeAgents": {
+          "metaTitle": "Kako pokretati više Claude Code agenata paralelno - cmux",
+          "metaDescription": "Pokrećite više Claude Code sesija paralelno uz cmux radne prostore, prstenove obavještenja, vertikalne tabove i prečice tastature.",
+          "title": "Kako pokretati više Claude Code agenata paralelno",
+          "intro": "Paralelni Claude Code rad treba izolaciju, vidljivost i brz način da pronađete sesiju kojoj treba input. cmux svakoj zadaći daje vidljiv radni prostor i drži Claude sesije čitljivim dok rade jedna pored druge.",
+          "summaryTitle": "Siguran paralelni tok rada",
+          "summaryBody": "Napravite jedan branch ili worktree po zadatku, otvorite svaki u svom cmux radnom prostoru, pokrenite Claude Code normalno, zatim koristite prstenove obavještenja i unread prečice da pregledate sesije kojima ste potrebni. Claude ostaje agent; cmux upravlja površinom za nadzor.",
+          "table": {
+            "headers": [
+              "Pristup",
+              "Izolacija",
+              "Vidljivost",
+              "Najbolja upotreba"
+            ],
+            "rows": [
+              [
+                "Jedan terminal tab po zadatku",
+                "Ručno",
+                "Slaba",
+                "Mali eksperimenti"
+              ],
+              [
+                "tmux paneovi",
+                "Ručno",
+                "Srednja",
+                "Remote shell tokovi rada"
+              ],
+              [
+                "Ručni Git worktreeovi",
+                "Jaka",
+                "Ručna",
+                "Pažljiv paralelni rad"
+              ],
+              [
+                "cmux radni prostori",
+                "Radi s vašim branch/worktree setupom",
+                "Jaka",
+                "Mnogo vidljivih Claude sesija na macOS-u"
+              ],
+              [
+                "cmux claude-teams",
+                "Nativno mapiranje paneova za teammate sesije",
+                "Jaka",
+                "Claude teammate mode bez skrivenih tmux paneova"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "Dajte svakom zadatku vidljiv dom",
+              "body": "Glavni način kvara paralelnih agenata je gubitak traga o tome koji terminal posjeduje koji zadatak. cmux radni prostori drže branch, direktorij, portove i najnoviji output vidljivim u sidebaru."
+            },
+            {
+              "title": "Koristite prstenove obavještenja kao review queue",
+              "body": "Kada Claude završi ili zatraži input, cmux označi pane kao unread i prstenuje ga. Prečica jump-to-latest-unread pretvara paralelni rad u review queue umjesto lova po tabovima."
+            },
+            {
+              "title": "Zadržite Claude Code nepromijenjenim",
+              "body": "cmux ne zamjenjuje Claude Code niti proxyja njegove zahtjeve. Pokrećete isti Claude CLI sa svojim postojećim nalogom i postavkama, pa nema lock-ina na cmux-specifičan agent runtime."
+            },
+            {
+              "title": "Koristite teammate mode kada odgovara",
+              "body": "Za Claude Code teammate mode, cmux može prevesti tmux-style teammate paneove u nativne cmux splitove, pa spawned teammates ostaju vidljivi sa sidebar metapodacima i obavještenjima."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "Da li cmux automatski kreira Git worktreeove?",
+          "faqA1": "cmux se može skriptovati da kreira radne prostore oko vašeg branch ili worktree toka, a njegov CLI/socket API omogućava timovima da automatizuju taj setup. Compare stranice se fokusiraju na vidljivi sloj nadzora.",
+          "faqQ2": "Mogu li Claude Code i Codex raditi jedan pored drugog?",
+          "faqA2": "Da. cmux je agent-agnostic, pa Claude Code, Codex, OpenCode i drugi CLI agenti mogu istovremeno raditi u odvojenim radnim prostorima.",
+          "faqQ3": "Koja prečica je najvažnija za paralelne agente?",
+          "faqA3": "Jump to latest unread je osnovna prečica za nadzor jer vas vodi direktno do agenta koji čeka odluku."
+        },
+        "cmuxVsSuperset": {
+          "metaTitle": "cmux vs Superset za AI coding agente - cmux",
+          "metaDescription": "Uporedite cmux i Superset za paralelne coding agente, nativne performanse, agent lock-in, organizaciju i programabilnost.",
+          "title": "cmux vs Superset",
+          "intro": "cmux i Superset pomažu programerima da pokrenu više od jednog coding agenta. Razlika je u obliku proizvoda: Superset je agent workspace s worktree orkestracijom, dok je cmux nativni terminal i browser napravljen za nadzor bilo kojeg CLI agenta.",
+          "summaryTitle": "Birajte prema toku rada",
+          "summaryBody": "Odaberite cmux kada želite brz nativni terminal, vidljiv multitasking, upravljanje pažnjom preko tastature i programabilni socket API. Odaberite Superset kada želite više usmjeren task workspace centriran oko worktree orkestracije i ugrađenog review toka.",
+          "table": {
+            "headers": [
+              "Dimenzija",
+              "cmux",
+              "Superset"
+            ],
+            "rows": [
+              [
+                "Osnovni proizvod",
+                "Nativni macOS terminal i browser",
+                "Agent orchestration workspace"
+              ],
+              [
+                "Runtime",
+                "Swift/AppKit plus libghostty",
+                "Electron desktop aplikacija"
+              ],
+              [
+                "Model agenta",
+                "Bilo koji CLI agent, bez cmux runtime lock-ina",
+                "Mnogi CLI agenti u upravljanom workspaceu"
+              ],
+              [
+                "Organizacija",
+                "Vertikalni radni prostori, splitovi, unread stanje, prstenovi obavještenja",
+                "Zadaci, worktreeovi, review površine"
+              ],
+              [
+                "Programabilnost",
+                "CLI, Unix socket API, browser automation, hooks",
+                "Orkestracija na nivou proizvoda"
+              ],
+              [
+                "Najbolje za",
+                "Programeri koji žive u terminalu i pokreću mnogo alata",
+                "Programeri koji žele upakovan agent task manager"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux zadržava terminal kao primitive",
+              "body": "Ako agent radi u shellu, radi u cmuxu. Zato je cmux dobar za timove koji se prebacuju između Claude Codea, Codexa, OpenCodea, Gemini CLI-ja, Aidera, skripti, SSH-a i lokalnih dev servera."
+            },
+            {
+              "title": "Nativne performanse su važne pri visokoj konkurentnosti",
+              "body": "Pokretanje mnogo agenata već je teško za CPU i memoriju. cmux koristi Swift/AppKit i libghostty kako bi terminal surface ostao lagan dok agentski procesi, compileri i dev serveri troše resurse koji su im potrebni."
+            },
+            {
+              "title": "Pažnja je površina proizvoda",
+              "body": "cmux se fokusira na trenutak kada agent treba čovjeka. Prstenovi obavještenja, unread badges, panel obavještenja i jump-to-latest-unread čine završene ili blokirane sesije lakim za pronalazak."
+            },
+            {
+              "title": "Programabilnost je izlaz",
+              "body": "cmux izlaže workspaces, paneove, čitanje ekrana, screenshots i browser automation kroz CLI i socket API. To naprednim korisnicima omogućava da izgrade vlastitu orkestraciju iznad njega umjesto čekanja da jedan product workflow odgovara svima."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "Je li cmux zamjena za Superset?",
+          "faqA1": "Zavisi za šta koristite Superset. cmux zamjenjuje terminal supervision layer, dok Superset uključuje više opinionated task i worktree workflow.",
+          "faqQ2": "Može li cmux pokretati iste agente?",
+          "faqA2": "Da. cmux direktno pokreće CLI agente, uključujući Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp i Cursor CLI.",
+          "faqQ3": "Zašto odabrati cmux ako Superset ima worktreeove?",
+          "faqA3": "Odaberite cmux ako su vam prioritet nativne terminalske performanse, keyboard-driven multitasking, bez agent lock-ina i programabilna površina koju možete prilagoditi svom toku rada."
+        },
+        "cmuxVsCursor": {
+          "metaTitle": "cmux vs Cursor za AI coding agente - cmux",
+          "metaDescription": "Uporedite cmux i Cursor za agent workflows, terminal supervision, editor integration, nativne macOS performanse i lock-in.",
+          "title": "cmux vs Cursor",
+          "intro": "Cursor je AI editor i agent platform. cmux je nativni terminal i browser za pokretanje agenata i alata koje izaberete. Mnogi programeri koriste oba: Cursor za uređivanje, cmux za nadzor terminalskih agenata.",
+          "summaryTitle": "Različiti slojevi",
+          "summaryBody": "Koristite Cursor kada želite AI unutar editora. Koristite cmux kada želite pokretati i nadgledati CLI agente, dev servere, SSH sesije i browser provjere bez vezivanja toka rada za jedan editor ili hosted runtime.",
+          "table": {
+            "headers": [
+              "Dimenzija",
+              "cmux",
+              "Cursor"
+            ],
+            "rows": [
+              [
+                "Primarna površina",
+                "Terminal, browser, radni prostori, splitovi",
+                "Editor, chat, hosted agents"
+              ],
+              [
+                "Izbor agenta",
+                "Bilo koji CLI agent",
+                "AI workflow centriran oko Cursora plus integracije"
+              ],
+              [
+                "Lock-in",
+                "Donesite svoje agente i ključeve",
+                "Cursor nalog, planovi i platform features"
+              ],
+              [
+                "Profil performansi",
+                "Nativni Swift/AppKit terminal",
+                "Editor i hosted-agent suite"
+              ],
+              [
+                "Najbolje za",
+                "Nadzor mnogo shell-based agenata",
+                "Pisanje i uređivanje koda uz AI pomoć"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux radi pored bilo kojeg editora",
+              "body": "cmux ne mora postati vaš editor. Možete nastaviti koristiti Cursor, Xcode, Neovim, VS Code ili JetBrains dok cmux pokreće agente, testove, shellove, browser paneove i remote sesije."
+            },
+            {
+              "title": "CLI agenti ostaju prenosivi",
+              "body": "Claude Code, Codex, OpenCode i drugi CLI-jevi zadržavaju vlastite naloge, izbore modela i konfiguraciju. cmux dodaje nadzor bez premještanja agent runtimea u novu hosted platformu."
+            },
+            {
+              "title": "Terminalski tokovi rada trebaju terminal controls",
+              "body": "Rad agenata često uključuje test runs, logove, dev servere, SSH i lokalne skripte. cmux drži te površine u jednoj nativnoj aplikaciji i čini ih upravljivim preko prečica tastature i socket API-ja."
+            },
+            {
+              "title": "Kombinacija je jaka",
+              "body": "Praktičan setup je Cursor za fokusirano uređivanje i cmux za paralelne terminalske agente. Editor ostaje čist dok cmux prati koje autonomne sesije rade, završile su ili su blokirane."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "Trebam li prestati koristiti Cursor ako koristim cmux?",
+          "faqA1": "Ne. cmux je terminal i browser workspace, pa dobro radi pored Cursora ili bilo kojeg drugog editora.",
+          "faqQ2": "Može li cmux pokrenuti Cursor CLI?",
+          "faqA2": "Da. Cursor CLI radi u cmuxu kao bilo koji drugi terminalski agent.",
+          "faqQ3": "Šta cmux dodaje Cursoru?",
+          "faqA3": "cmux dodaje nativni terminalski multitasking, vidljive agent workspaces, prstenove obavještenja, unread navigaciju i programabilnu kontrolu browsera i terminala."
+        },
+        "cmuxVsWarp": {
+          "metaTitle": "cmux vs Warp za AI coding agente - cmux",
+          "metaDescription": "Uporedite cmux i Warp za terminal AI workflows, agent supervision, nativne macOS performanse, programabilnost i lock-in.",
+          "title": "cmux vs Warp",
+          "intro": "Warp je AI-enhanced terminalski proizvod. cmux je nativni macOS terminal izgrađen oko mnogih coding-agent sesija, s vertikalnim radnim prostorima, prstenovima obavještenja i scriptable socketom.",
+          "summaryTitle": "AI terminal vs agent supervision terminal",
+          "summaryBody": "Warp je najjači kada želite AI funkcije integrisane u terminalski proizvod. cmux je najjači kada već koristite CLI agente i treba vam nativno, organizovano, programabilno mjesto za pokretanje mnogih od njih.",
+          "table": {
+            "headers": [
+              "Dimenzija",
+              "cmux",
+              "Warp"
+            ],
+            "rows": [
+              [
+                "Osnovni tok rada",
+                "Nadziranje mnogo CLI agenata",
+                "AI terminal experience"
+              ],
+              [
+                "Izbor agenta",
+                "Bilo koji shell-based agent",
+                "Warp product workflow"
+              ],
+              [
+                "Organizacija",
+                "Vertikalni radni prostori, prstenovi obavještenja, unread jumps",
+                "Terminal tabs i Warp workflows"
+              ],
+              [
+                "Programabilnost",
+                "Unix socket, CLI, browser automation",
+                "Warp-specific features"
+              ],
+              [
+                "Najbolje za",
+                "Agent-heavy macOS korisnici",
+                "Timovi koji usvajaju Warp kao terminal"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux tretira agente kao dugotrajan rad",
+              "body": "Coding agenti provode mnogo vremena pokrećući testove, postavljajući pitanja i čekajući review. cmux drži te sesije vidljivim i označava one kojima treba pažnja."
+            },
+            {
+              "title": "Bez agent lock-ina",
+              "body": "cmux ne brine koji CLI posjeduje pane. Možete pokrenuti Claude Code u jednom radnom prostoru, Codex u drugom, OpenCode u trećem i obične shell komande pored svih njih."
+            },
+            {
+              "title": "Nativne Mac performanse",
+              "body": "cmux je Swift/AppKit s libghostty renderingom. To drži UI sloj laganim kada su otvoreni mnogi terminali, browser paneovi, dev serveri i agenti."
+            },
+            {
+              "title": "Programabilnost za custom workflows",
+              "body": "cmux CLI i socket API omogućavaju skriptama i agentima da kreiraju radne prostore, split paneove, šalju input, čitaju ekrane, prave screenshots i upravljaju ugrađenim browserom."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "Je li cmux AI terminal kao Warp?",
+          "faqA1": "cmux je terminal za AI agente, a ne AI assistant ugrađen u terminal.",
+          "faqQ2": "Mogu li koristiti Warp i cmux zajedno?",
+          "faqA2": "Da. Koristite terminal koji odgovara svakom zadatku. cmux je najjači kada mnogim agent sessions trebaju organizacija i attention tracking.",
+          "faqQ3": "Zašto odabrati cmux za coding agente?",
+          "faqA3": "cmux dodaje workspaces, prstenove obavještenja, unread navigaciju, browser automation i programabilni socket oko CLI agenata koje već koristite."
+        },
+        "cmuxVsGhostty": {
+          "metaTitle": "cmux vs Ghostty za coding agente - cmux",
+          "metaDescription": "Uporedite cmux i Ghostty za macOS terminal workflows, coding agente, libghostty performanse, vertikalne tabove, obavještenja i programabilnost.",
+          "title": "cmux vs Ghostty",
+          "intro": "Ghostty je brz terminal emulator. cmux je odvojena nativna macOS aplikacija izgrađena na libghosttyju, koja dodaje radne prostore, vertikalne tabove, prstenove obavještenja, browser paneove i socket API za coding-agent tokove rada.",
+          "summaryTitle": "Ista porodica rendering enginea, drugačiji posao",
+          "summaryBody": "Koristite Ghostty kada želite fokusiran terminal opće namjene. Koristite cmux kada želite Ghostty-class terminal rendering plus organizaciju, obavještenja i automation za mnoge coding-agent sesije.",
+          "table": {
+            "headers": [
+              "Dimenzija",
+              "cmux",
+              "Ghostty"
+            ],
+            "rows": [
+              [
+                "Primarni posao",
+                "Agent supervision i multitasking",
+                "Terminal opće namjene"
+              ],
+              [
+                "Rendering",
+                "Izgrađen na libghosttyju",
+                "Ghostty terminal engine"
+              ],
+              [
+                "Organizacija",
+                "Vertikalni radni prostori, splitovi, sidebar metadata",
+                "Terminal windows, tabs, splits"
+              ],
+              [
+                "Pažnja agenta",
+                "Prstenovi obavještenja i unread navigacija",
+                "Samo terminal notifications"
+              ],
+              [
+                "Automation",
+                "cmux CLI, socket API, browser automation",
+                "Terminal configuration i shell tooling"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux nije Ghostty fork",
+              "body": "cmux koristi libghostty kao rendering engine, slično kao što nativne aplikacije koriste WebKit za web views. Ghostty ostaje svoj terminal; cmux je druga aplikacija namijenjena agent-heavy tokovima rada."
+            },
+            {
+              "title": "Vertikalni radni prostori bolje skaliraju za agente",
+              "body": "Agent sessions imaju koristi od persistent names, branch contexta, directory contexta, portova i unread stanja. cmux stavlja te metapodatke u sidebar kako bi deseci sesija ostali pregledni."
+            },
+            {
+              "title": "Obavještenja postaju navigable state",
+              "body": "Desktop obavještenja nestaju. cmux čuva unread stanje u aplikaciji, prstenuje pane i omogućava vam da tastaturom skočite na najnoviju sesiju koja čeka."
+            },
+            {
+              "title": "Automation izlazi izvan shella",
+              "body": "cmux izlaže app-level akcije kroz CLI i Unix socket, uključujući browser automation. Agenti mogu pregledati web stranice, klikati, tipkati, čitati terminalske ekrane i praviti screenshots iz istog radnog prostora."
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "Da li cmux pravi Ghostty tim?",
+          "faqA1": "Ne. cmux je odvojen projekat koji koristi libghostty za terminal rendering.",
+          "faqQ2": "Čita li cmux Ghostty config?",
+          "faqA2": "Da. cmux čita vaš Ghostty config za izbore terminal renderinga kao što su fontovi, teme, boje i ponašanje kursora.",
+          "faqQ3": "Kada trebam koristiti cmux umjesto Ghosttyja?",
+          "faqA3": "Koristite cmux kada pokrećete više coding agenata i želite workspaces, prstenove obavještenja, unread navigaciju, browser paneove i programabilnost oko njih."
+        }
+      }
     }
   },
   "platforms": {

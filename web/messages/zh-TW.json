@@ -43,7 +43,8 @@
     "language": "語言",
     "assets": "素材",
     "openSource": "開源",
-    "guides": "指南"
+    "guides": "指南",
+    "compare": "比較"
   },
   "home": {
     "taglinePrefix": "開源終端，專為 ",
@@ -1736,6 +1737,274 @@
       "title": "指南",
       "intro": "cmux 的對比、背景與使用場景指南。產品文件請參閱文件。"
     },
+    "compare": {
+      "metaTitle": "比較 cmux 與 AI 編程終端機和 agent 工作區",
+      "metaDescription": "比較 cmux 與 Superset、Cursor、Warp、Ghostty 等工具，了解它們如何執行 Claude Code、Codex、OpenCode 和其他編程 agent。",
+      "title": "比較 cmux",
+      "intro": "面向正在為 AI 編程 agent 選擇終端機或工作區的開發者的聚焦比較。cmux 的優勢在於原生 macOS 效能、可見的多工處理、快速鍵盤導覽，以及不鎖定某一種 agent 執行階段。",
+      "pages": {
+        "bestTerminalForAgents": {
+          "metaTitle": "2026 年 AI 編程 agent 的最佳終端機 — cmux",
+          "metaDescription": "比較 cmux、Superset、Warp、Ghostty、iTerm2、tmux 等終端機，了解它們如何執行 AI 編程 agent。",
+          "title": "2026 年 AI 編程 agent 的最佳終端機",
+          "intro": "適合編程 agent 的最佳終端機，是能讓許多長時間執行的工作階段保持可見、反應迅速且易於控制的終端機。cmux 正是為這種工作流程而建構：原生 Swift/AppKit 效能、垂直工作區、通知環、鍵盤快捷鍵和可程式化 CLI。",
+          "summaryTitle": "簡短結論",
+          "summaryBody": "如果你想要一個原生 macOS 終端機來監督許多 agent，同時不強制使用新的 agent、編輯器、雲端執行階段或點數系統，請選擇 cmux。如果你想要任務編排和內建審查流程，請選擇 agent 工作區。如果你大多一次只執行一個 agent，傳統終端機就夠了。",
+          "table": {
+            "headers": ["工具", "最適合", "Agent 支援", "取捨"],
+            "rows": [
+              ["cmux", "以原生終端機監督多個 agent", "任意 CLI agent", "僅限 macOS"],
+              ["Superset", "基於 worktree 的 agent 編排", "多個 CLI agent", "Electron 應用程式，工作流程更有主張"],
+              ["Warp", "受管理產品中的 AI 終端機功能", "以 Warp 為中心的 AI 工作流程", "平台鎖定更強"],
+              ["Ghostty", "高速通用終端機", "任意 CLI agent", "沒有內建 agent 組織能力"],
+              ["iTerm2", "成熟的 macOS 終端機工作流程", "任意 CLI agent", "Agent 狀態需要手動追蹤"],
+              ["tmux", "透過 SSH 做終端機複用", "任意 CLI agent", "前綴鍵工作流程，沒有原生應用程式 UI"]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux 的不同之處",
+              "body": "cmux 從終端機出發，而不是從 agent 出發。Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp 和 Cursor CLI 都能照常執行，cmux 則在它們周圍補上控制層：工作區、分割面板、未讀狀態、通知環和 socket API。"
+            },
+            {
+              "title": "多工與組織",
+              "body": "當每個工作階段都變成另一個標題模糊的分頁時，agent 密集型工作很容易失控。cmux 把工作放在垂直工作區中，並顯示分支、目錄、連接埠和最新通知文字，因此多個 agent 執行時仍然清晰可見。"
+            },
+            {
+              "title": "高負載下的效能",
+              "body": "cmux 是基於 libghostty 建構的原生 Swift/AppKit 應用程式，而不是 Electron。當你整天保留許多終端機、瀏覽器和 agent 時，更低的 UI 開銷會把更多 CPU 和記憶體留給真正工作的 agent 和開發伺服器。"
+            },
+            {
+              "title": "鍵盤優先的監督",
+              "body": "cmux 把注意力管理當作一等工作流程。跳到最新未讀等快捷鍵可以讓你直接進入需要決策的面板，而不用逐個掃描分頁或等待桌面通知變得有意義。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux 是 AI 編程 agent 嗎？",
+          "faqA1": "不是。cmux 是圍繞你已在使用的 agent 建構的原生終端機和瀏覽器工作區。",
+          "faqQ2": "哪些 agent 可以在 cmux 中執行？",
+          "faqA2": "任意 CLI agent 都可以，包括 Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp 和 Cursor CLI。",
+          "faqQ3": "為什麼不只用終端機分頁？",
+          "faqA3": "分頁適合少量 shell。cmux 為 agent 密集型工作流程增加了工作區元資料、通知環、未讀導覽、分割面板、瀏覽器自動化和可腳本化 socket。"
+        },
+        "multipleClaudeAgents": {
+          "metaTitle": "如何並行執行多個 Claude Code agent — cmux",
+          "metaDescription": "使用 cmux 工作區、通知環、垂直分頁和鍵盤快捷鍵並行執行多個 Claude Code 工作階段。",
+          "title": "如何並行執行多個 Claude Code agent",
+          "intro": "並行 Claude Code 工作需要隔離、可見性，以及快速找到需要輸入的工作階段。cmux 為每個任務提供可見工作區，並讓 Claude 工作階段並排執行時依然易讀。",
+          "summaryTitle": "安全的並行工作流程",
+          "summaryBody": "為每個任務建立一個分支或 worktree，在各自的 cmux 工作區中開啟，正常執行 Claude Code，然後用通知環和未讀快捷鍵審查需要你處理的工作階段。Claude 仍然是 agent；cmux 負責監督介面。",
+          "table": {
+            "headers": ["方式", "隔離", "可見性", "最佳用途"],
+            "rows": [
+              ["每個任務一個終端機分頁", "手動", "弱", "小實驗"],
+              ["tmux 面板", "手動", "中等", "遠端 shell 工作流程"],
+              ["手動 Git worktree", "強", "手動", "謹慎的並行工作"],
+              ["cmux 工作區", "配合你的分支/worktree 設定", "強", "在 macOS 上保持多個 Claude 工作階段可見"],
+              ["cmux claude-teams", "把 teammate 工作階段映射為原生面板", "強", "無需隱藏 tmux 面板即可使用 Claude teammate mode"]
+            ]
+          },
+          "sections": [
+            {
+              "title": "給每個任務一個可見位置",
+              "body": "並行 agent 最常見的失敗模式，是忘記哪個終端機屬於哪個任務。cmux 工作區會在側邊欄顯示分支、目錄、連接埠和最新輸出。"
+            },
+            {
+              "title": "把通知環當作審查佇列",
+              "body": "當 Claude 完成或請求輸入時，cmux 會把面板標記為未讀並響鈴。跳到最新未讀快捷鍵會把並行工作變成審查佇列，而不是查找分頁。"
+            },
+            {
+              "title": "保持 Claude Code 不變",
+              "body": "cmux 不會替代 Claude Code，也不會代理它的請求。你使用現有帳號和設定執行同一個 Claude CLI，因此不會鎖定到 cmux 專屬 agent 執行階段。"
+            },
+            {
+              "title": "在合適時使用 teammate mode",
+              "body": "對於 Claude Code teammate mode，cmux 可以把 tmux 風格的 teammate 面板轉換成原生 cmux 分割，讓派生的 teammate 也帶著側邊欄元資料和通知保持可見。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux 會自動建立 Git worktree 嗎？",
+          "faqA1": "cmux 可以透過腳本圍繞你的分支或 worktree 流程建立工作區，CLI/socket API 也能讓團隊自動化這類設定。比較頁面重點介紹可見的監督層。",
+          "faqQ2": "Claude Code 和 Codex 可以並排執行嗎？",
+          "faqA2": "可以。cmux 不綁定 agent，因此 Claude Code、Codex、OpenCode 和其他 CLI agent 可以同時在不同工作區中執行。",
+          "faqQ3": "並行 agent 最重要的快捷鍵是什麼？",
+          "faqA3": "跳到最新未讀是核心監督快捷鍵，因為它會直接帶你到正在等待決策的 agent。"
+        },
+        "cmuxVsSuperset": {
+          "metaTitle": "用於 AI 編程 agent 的 cmux vs Superset — cmux",
+          "metaDescription": "比較 cmux 與 Superset 在並行編程 agent、原生效能、agent 鎖定、組織方式和可程式化性上的差異。",
+          "title": "cmux vs Superset",
+          "intro": "cmux 和 Superset 都幫助開發者執行多個編程 agent。差別在產品形態：Superset 是帶 worktree 編排的 agent 工作區，而 cmux 是用於監督任意 CLI agent 的原生終端機和瀏覽器。",
+          "summaryTitle": "按工作流程選擇",
+          "summaryBody": "如果你想要快速的原生終端機、可見的多工處理、鍵盤驅動的注意力管理和可程式化 socket API，請選擇 cmux。如果你想要圍繞 worktree 編排和內建審查流程的、更有主張的任務工作區，請選擇 Superset。",
+          "table": {
+            "headers": ["維度", "cmux", "Superset"],
+            "rows": [
+              ["核心產品", "原生 macOS 終端機和瀏覽器", "Agent 編排工作區"],
+              ["執行階段", "Swift/AppKit 加 libghostty", "Electron 桌面應用程式"],
+              ["Agent 模型", "任意 CLI agent，不鎖定 cmux 執行階段", "受管理工作區中的多個 CLI agent"],
+              ["組織方式", "垂直工作區、分割、未讀狀態、通知環", "任務、worktree、審查介面"],
+              ["可程式化性", "CLI、Unix socket API、瀏覽器自動化、hooks", "產品級編排"],
+              ["最適合", "以終端機為中心並執行許多工具的開發者", "想要打包好的 agent 任務管理器的開發者"]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux 把終端機保留為基礎單元",
+              "body": "只要 agent 能在 shell 中執行，它就能在 cmux 中執行。這讓 cmux 適合在 Claude Code、Codex、OpenCode、Gemini CLI、Aider、腳本、SSH 和本地開發伺服器之間切換的團隊。"
+            },
+            {
+              "title": "高併發下原生效能很重要",
+              "body": "執行許多 agent 本來就佔用 CPU 和記憶體。cmux 使用 Swift/AppKit 和 libghostty，讓終端機介面保持輕量，同時把資源留給 agent 行程、編譯器和開發伺服器。"
+            },
+            {
+              "title": "注意力也是產品介面",
+              "body": "cmux 關注 agent 需要人類介入的時刻。通知環、未讀標記、通知面板和跳到最新未讀讓已完成或被阻塞的工作階段更容易找到。"
+            },
+            {
+              "title": "可程式化性是逃生口",
+              "body": "cmux 透過 CLI 和 socket API 暴露工作區、面板、螢幕讀取、截圖和瀏覽器自動化。這讓進階使用者可以在其上建構自己的編排，而不是等待某個產品工作流程正好適配。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux 是 Superset 的替代品嗎？",
+          "faqA1": "取決於你如何使用 Superset。cmux 可以替代終端機監督層，而 Superset 包含更有主張的任務和 worktree 工作流程。",
+          "faqQ2": "cmux 能執行相同的 agent 嗎？",
+          "faqA2": "可以。cmux 直接執行 CLI agent，包括 Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp 和 Cursor CLI。",
+          "faqQ3": "如果 Superset 有 worktree，為什麼選擇 cmux？",
+          "faqA3": "如果你的優先順序是原生終端機效能、鍵盤驅動的多工處理、不鎖定 agent，以及可以適配自己工作流程的可程式化介面，請選擇 cmux。"
+        },
+        "cmuxVsCursor": {
+          "metaTitle": "用於 AI 編程 agent 的 cmux vs Cursor — cmux",
+          "metaDescription": "比較 cmux 與 Cursor 在 agent 工作流程、終端機監督、編輯器整合、原生 macOS 效能和鎖定上的差異。",
+          "title": "cmux vs Cursor",
+          "intro": "Cursor 是 AI 編輯器和 agent 平台。cmux 是用於執行你選擇的 agent 和工具的原生終端機和瀏覽器。許多開發者同時使用兩者：用 Cursor 編輯，用 cmux 監督終端機 agent。",
+          "summaryTitle": "不同層級",
+          "summaryBody": "如果你想在編輯器內使用 AI，請使用 Cursor。如果你想執行和監控 CLI agent、開發伺服器、SSH 工作階段和瀏覽器檢查，同時不把工作流程綁定到一個編輯器或託管執行階段，請使用 cmux。",
+          "table": {
+            "headers": ["維度", "cmux", "Cursor"],
+            "rows": [
+              ["主要介面", "終端機、瀏覽器、工作區、分割", "編輯器、聊天、託管 agent"],
+              ["Agent 選擇", "任意 CLI agent", "以 Cursor 為中心的 AI 工作流程和整合"],
+              ["鎖定", "自帶 agent 和金鑰", "Cursor 帳號、方案和平台功能"],
+              ["效能形態", "原生 Swift/AppKit 終端機", "編輯器和託管 agent 套件"],
+              ["最適合", "監督許多基於 shell 的 agent", "用 AI 輔助編寫和編輯程式碼"]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux 可以在任何編輯器旁邊工作",
+              "body": "cmux 不需要成為你的編輯器。你可以繼續使用 Cursor、Xcode、Neovim、VS Code 或 JetBrains，同時用 cmux 執行 agent、測試、shell、瀏覽器面板和遠端工作階段。"
+            },
+            {
+              "title": "CLI agent 保持可遷移",
+              "body": "Claude Code、Codex、OpenCode 和其他 CLI 保留各自的帳號、模型選擇和設定。cmux 增加監督能力，而不把 agent 執行階段遷移到新的託管平台。"
+            },
+            {
+              "title": "終端機工作流程需要終端機控制",
+              "body": "Agent 工作經常涉及測試執行、日誌、開發伺服器、SSH 和本地腳本。cmux 把這些介面放在一個原生應用程式中，並透過鍵盤快捷鍵和 socket API 讓它們可控。"
+            },
+            {
+              "title": "組合使用很強",
+              "body": "實用設定是用 Cursor 做專注編輯，用 cmux 管理並行終端機 agent。編輯器保持乾淨，cmux 追蹤哪些自主工作階段正在執行、已完成或被阻塞。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "如果使用 cmux，我應該停止使用 Cursor 嗎？",
+          "faqA1": "不需要。cmux 是終端機和瀏覽器工作區，因此可以很好地配合 Cursor 或其他編輯器。",
+          "faqQ2": "cmux 能執行 Cursor CLI 嗎？",
+          "faqA2": "可以。Cursor CLI 像其他終端機 agent 一樣在 cmux 中執行。",
+          "faqQ3": "cmux 為 Cursor 補充了什麼？",
+          "faqA3": "cmux 增加原生終端機多工、可見的 agent 工作區、通知環、未讀導覽，以及可程式化的瀏覽器和終端機控制。"
+        },
+        "cmuxVsWarp": {
+          "metaTitle": "用於 AI 編程 agent 的 cmux vs Warp — cmux",
+          "metaDescription": "比較 cmux 與 Warp 在終端機 AI 工作流程、agent 監督、原生 macOS 效能、可程式化性和鎖定上的差異。",
+          "title": "cmux vs Warp",
+          "intro": "Warp 是 AI 增強型終端機產品。cmux 是圍繞多個編程 agent 工作階段建構的原生 macOS 終端機，提供垂直工作區、通知環和可腳本化 socket。",
+          "summaryTitle": "AI 終端機 vs agent 監督終端機",
+          "summaryBody": "如果你想要整合在終端機產品裡的 AI 功能，Warp 更強。如果你已經使用 CLI agent，並且需要一個原生、有組織、可程式化的地方來執行許多 agent，cmux 更強。",
+          "table": {
+            "headers": ["維度", "cmux", "Warp"],
+            "rows": [
+              ["核心工作流程", "監督許多 CLI agent", "AI 終端機體驗"],
+              ["Agent 選擇", "任意基於 shell 的 agent", "Warp 產品工作流程"],
+              ["組織方式", "垂直工作區、通知環、未讀跳轉", "終端機分頁和 Warp 工作流程"],
+              ["可程式化性", "Unix socket、CLI、瀏覽器自動化", "Warp 專屬功能"],
+              ["最適合", "以 agent 為重心的 macOS 使用者", "把 Warp 作為團隊終端機採用的團隊"]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux 把 agent 當作長時間執行的工作",
+              "body": "編程 agent 會花很多時間執行測試、提問並等待審查。cmux 讓這些工作階段保持可見，並標記需要注意的工作階段。"
+            },
+            {
+              "title": "沒有 agent 鎖定",
+              "body": "cmux 不關心哪個 CLI 擁有面板。你可以在一個工作區執行 Claude Code，在另一個執行 Codex，在第三個執行 OpenCode，也可以把普通 shell 命令放在旁邊。"
+            },
+            {
+              "title": "原生 Mac 效能",
+              "body": "cmux 是使用 libghostty 渲染的 Swift/AppKit 應用程式。當許多終端機、瀏覽器面板、開發伺服器和 agent 開啟時，UI 層保持輕量。"
+            },
+            {
+              "title": "面向自訂工作流程的可程式化性",
+              "body": "cmux CLI 和 socket API 讓腳本和 agent 可以建立工作區、拆分面板、傳送輸入、讀取螢幕、截圖並驅動內建瀏覽器。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux 是像 Warp 一樣的 AI 終端機嗎？",
+          "faqA1": "cmux 是面向 AI agent 的終端機，而不是嵌入終端機內的 AI 助手。",
+          "faqQ2": "我可以同時使用 Warp 和 cmux 嗎？",
+          "faqA2": "可以。每個任務使用最合適的終端機。cmux 在許多 agent 工作階段需要組織和注意力追蹤時最強。",
+          "faqQ3": "為什麼為編程 agent 選擇 cmux？",
+          "faqA3": "cmux 在你已使用的 CLI agent 周圍增加工作區、通知環、未讀導覽、瀏覽器自動化和可程式化 socket。"
+        },
+        "cmuxVsGhostty": {
+          "metaTitle": "用於編程 agent 的 cmux vs Ghostty — cmux",
+          "metaDescription": "比較 cmux 與 Ghostty 在 macOS 終端機工作流程、編程 agent、libghostty 效能、垂直分頁、通知和可程式化性上的差異。",
+          "title": "cmux vs Ghostty",
+          "intro": "Ghostty 是高速終端機模擬器。cmux 是基於 libghostty 建構的獨立原生 macOS 應用程式，為編程 agent 工作流程增加工作區、垂直分頁、通知環、瀏覽器面板和 socket API。",
+          "summaryTitle": "同一渲染引擎家族，不同任務",
+          "summaryBody": "如果你想要專注的通用終端機，請使用 Ghostty。如果你想要 Ghostty 級終端機渲染，並為多個編程 agent 工作階段增加組織、通知和自動化，請使用 cmux。",
+          "table": {
+            "headers": ["維度", "cmux", "Ghostty"],
+            "rows": [
+              ["主要任務", "Agent 監督和多工處理", "通用終端機"],
+              ["渲染", "基於 libghostty 建構", "Ghostty 終端機引擎"],
+              ["組織方式", "垂直工作區、分割、側邊欄元資料", "終端機視窗、分頁、分割"],
+              ["Agent 注意力", "通知環和未讀導覽", "僅終端機通知"],
+              ["自動化", "cmux CLI、socket API、瀏覽器自動化", "終端機設定和 shell 工具"]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux 不是 Ghostty fork",
+              "body": "cmux 使用 libghostty 作為渲染引擎，類似原生應用程式使用 WebKit 來顯示網頁。Ghostty 仍然是自己的終端機；cmux 是面向 agent 密集型工作流程的另一個應用程式。"
+            },
+            {
+              "title": "垂直工作區更適合 agent 擴展",
+              "body": "Agent 工作階段受益於持久名稱、分支上下文、目錄上下文、連接埠和未讀狀態。cmux 把這些元資料放在側邊欄中，讓數十個工作階段仍然易於瀏覽。"
+            },
+            {
+              "title": "通知變成可導覽狀態",
+              "body": "桌面通知會消失。cmux 在應用程式內保留未讀狀態，讓面板響鈴，並允許你用鍵盤跳到最新等待中的工作階段。"
+            },
+            {
+              "title": "自動化延伸到 shell 之外",
+              "body": "cmux 透過 CLI 和 Unix socket 暴露應用程式級操作，包括瀏覽器自動化。Agent 可以在同一個工作區中檢查網頁、點擊、輸入、讀取終端機螢幕並截圖。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux 是 Ghostty 團隊建構的嗎？",
+          "faqA1": "不是。cmux 是一個使用 libghostty 做終端機渲染的獨立專案。",
+          "faqQ2": "cmux 會讀取 Ghostty config 嗎？",
+          "faqA2": "會。cmux 會讀取你的 Ghostty config 中關於終端機渲染的選擇，例如字型、主題、顏色和游標行為。",
+          "faqQ3": "什麼時候應該用 cmux 而不是 Ghostty？",
+          "faqA3": "當你執行多個編程 agent，並希望圍繞它們擁有工作區、通知環、未讀導覽、瀏覽器面板和可程式化性時，請使用 cmux。"
+        }
+      }
+    },
     "cta": {
       "freeOpenSource": "cmux 是專為 macOS 打造的免費開源軟體。",
       "seeAlso": "另請參閱"
@@ -1757,7 +2026,9 @@
       "geminiCli": "為 Gemini CLI 打造的終端機",
       "aider": "為 Aider 打造的終端機",
       "amp": "為 Amp 打造的終端機",
-      "cursorCli": "為 Cursor CLI 打造的終端機"
+      "cursorCli": "為 Cursor CLI 打造的終端機",
+      "keyboardShortcuts": "鍵盤快捷鍵",
+      "browserAutomation": "瀏覽器自動化"
     },
     "agents": {
       "metaTitle": "為編程 agent 打造的終端機 | cmux",

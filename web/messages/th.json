@@ -43,7 +43,8 @@
     "language": "ภาษา",
     "assets": "แอสเซ็ต",
     "openSource": "โอเพนซอร์ส",
-    "guides": "คู่มือ"
+    "guides": "คู่มือ",
+    "compare": "เปรียบเทียบ"
   },
   "home": {
     "taglinePrefix": "เทอร์มินัลที่สร้างมาเพื่อ",
@@ -1736,6 +1737,439 @@
       "title": "คู่มือ",
       "intro": "การเปรียบเทียบ ภูมิหลัง และคู่มือกรณีใช้งานสำหรับ cmux สำหรับเอกสารผลิตภัณฑ์ ดูได้ที่ docs"
     },
+    "compare": {
+      "metaTitle": "เปรียบเทียบ cmux กับเทอร์มินัล AI coding และพื้นที่ทำงานเอเจนต์",
+      "metaDescription": "เปรียบเทียบ cmux กับ Superset, Cursor, Warp, Ghostty และเครื่องมืออื่นๆ สำหรับรัน Claude Code, Codex, OpenCode และ coding agent อื่นๆ",
+      "title": "เปรียบเทียบ cmux",
+      "intro": "การเปรียบเทียบแบบเจาะจงสำหรับนักพัฒนาที่กำลังเลือกเทอร์มินัลหรือพื้นที่ทำงานสำหรับ AI coding agent จุดแข็งของ cmux คือประสิทธิภาพแบบ macOS native การทำงานหลายอย่างที่มองเห็นได้ การนำทางด้วยคีย์บอร์ดที่รวดเร็ว และไม่ผูกติดกับ agent runtime ตัวเดียว",
+      "pages": {
+        "bestTerminalForAgents": {
+          "metaTitle": "เทอร์มินัลที่ดีที่สุดสำหรับ AI coding agent ในปี 2026 — cmux",
+          "metaDescription": "เปรียบเทียบ cmux, Superset, Warp, Ghostty, iTerm2, tmux และเทอร์มินัลอื่นๆ สำหรับรัน AI coding agent",
+          "title": "เทอร์มินัลที่ดีที่สุดสำหรับ AI coding agent ในปี 2026",
+          "intro": "เทอร์มินัลที่ดีที่สุดสำหรับ coding agent คือเทอร์มินัลที่ทำให้เซสชันที่รันนานหลายรายการยังมองเห็นได้ ตอบสนองไว และควบคุมง่าย cmux สร้างมาเพื่อเวิร์กโฟลว์นั้น: ประสิทธิภาพแบบ Swift/AppKit native, เวิร์กสเปซแนวตั้ง, notification rings, คีย์ลัด และ CLI ที่เขียนโปรแกรมได้",
+          "summaryTitle": "คำตอบสั้นๆ",
+          "summaryBody": "เลือก cmux ถ้าคุณต้องการเทอร์มินัล macOS native ที่ดูแลเอเจนต์หลายตัวได้โดยไม่บังคับให้ใช้เอเจนต์ เอดิเตอร์ cloud runtime หรือระบบเครดิตใหม่ เลือก agent workspace ถ้าคุณต้องการ orchestration ของงานและ flow รีวิวในตัว เลือกเทอร์มินัลคลาสสิกถ้าคุณรันเอเจนต์ครั้งละตัวเป็นหลัก",
+          "table": {
+            "headers": [
+              "เครื่องมือ",
+              "เหมาะกับ",
+              "การรองรับเอเจนต์",
+              "ข้อแลกเปลี่ยน"
+            ],
+            "rows": [
+              [
+                "cmux",
+                "การดูแลเอเจนต์หลายตัวในเทอร์มินัล native",
+                "CLI agent ใดก็ได้",
+                "เฉพาะ macOS"
+              ],
+              [
+                "Superset",
+                "orchestration ของเอเจนต์บน worktree",
+                "CLI agent หลายตัว",
+                "แอป Electron และเวิร์กโฟลว์ที่กำหนดทิศทางมากกว่า"
+              ],
+              [
+                "Warp",
+                "ฟีเจอร์ AI terminal ในผลิตภัณฑ์ที่จัดการให้",
+                "เวิร์กโฟลว์ AI ที่อยู่ใน Warp",
+                "ผูกกับแพลตฟอร์มมากกว่า"
+              ],
+              [
+                "Ghostty",
+                "เทอร์มินัลอเนกประสงค์ที่เร็ว",
+                "CLI agent ใดก็ได้",
+                "ไม่มีการจัดระเบียบเอเจนต์ในตัว"
+              ],
+              [
+                "iTerm2",
+                "เวิร์กโฟลว์เทอร์มินัล macOS ที่ครบเครื่อง",
+                "CLI agent ใดก็ได้",
+                "สถานะเอเจนต์ต้องติดตามเอง"
+              ],
+              [
+                "tmux",
+                "การ multiplex เทอร์มินัลผ่าน SSH",
+                "CLI agent ใดก็ได้",
+                "เวิร์กโฟลว์ prefix key และไม่มี UI แบบแอป native"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "ทำไม cmux ต่างออกไป",
+              "body": "cmux เริ่มจากเทอร์มินัล ไม่ใช่จากเอเจนต์ Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp และ Cursor CLI รันได้ตามปกติ ขณะที่ cmux เพิ่ม control plane ที่ขาดหายไปรอบๆ มัน: เวิร์กสเปซ, split panes, unread state, notification rings และ socket API"
+            },
+            {
+              "title": "การทำงานหลายอย่างและการจัดระเบียบ",
+              "body": "งานที่ใช้เอเจนต์หนักๆ พังง่ายเมื่อทุกเซสชันกลายเป็นอีกแท็บที่มีชื่อคลุมเครือ cmux เก็บงานไว้ในเวิร์กสเปซแนวตั้งที่แสดง branch, directory, ports และข้อความแจ้งเตือนล่าสุด ทำให้เอเจนต์หลายตัวอ่านง่ายระหว่างรัน"
+            },
+            {
+              "title": "ประสิทธิภาพเมื่อโหลดสูง",
+              "body": "cmux เป็นแอป Swift/AppKit native ที่สร้างบน libghostty ไม่ใช่ Electron เรื่องนี้สำคัญเมื่อคุณเปิดเทอร์มินัล เบราว์เซอร์ และเอเจนต์หลายตัวทั้งวัน เพราะ UI overhead ที่น้อยลงเหลือ CPU และ memory ให้เอเจนต์กับ dev server ที่ทำงานจริงมากขึ้น"
+            },
+            {
+              "title": "การดูแลแบบเน้นคีย์บอร์ด",
+              "body": "cmux ถือว่า attention เป็นเวิร์กโฟลว์ระดับแรก คีย์ลัดอย่าง jump to latest unread พาคุณไปยัง pane ที่ต้องการการตัดสินใจโดยตรง แทนที่จะสแกนทุกแท็บหรือรอให้ desktop notification สื่อความหมายได้"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux เป็น AI coding agent หรือไม่?",
+          "faqA1": "ไม่ใช่ cmux คือเทอร์มินัลและ browser workspace แบบ native รอบเอเจนต์ที่คุณใช้อยู่แล้ว",
+          "faqQ2": "เอเจนต์ตัวไหนทำงานใน cmux ได้บ้าง?",
+          "faqA2": "CLI agent ใดก็ได้ทำงานได้ รวมถึง Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp และ Cursor CLI",
+          "faqQ3": "ทำไมไม่ใช้แค่แท็บเทอร์มินัล?",
+          "faqA3": "แท็บใช้ได้กับ shell ไม่กี่ตัว cmux เพิ่ม workspace metadata, notification rings, unread navigation, split panes, browser automation และ socket ที่เขียนสคริปต์ได้สำหรับเวิร์กโฟลว์ที่ใช้เอเจนต์หนักๆ"
+        },
+        "multipleClaudeAgents": {
+          "metaTitle": "วิธีรัน Claude Code หลายเอเจนต์พร้อมกัน — cmux",
+          "metaDescription": "รันเซสชัน Claude Code หลายตัวแบบขนานด้วย cmux workspaces, notification rings, แท็บแนวตั้ง และคีย์ลัด",
+          "title": "วิธีรัน Claude Code หลายเอเจนต์พร้อมกัน",
+          "intro": "งาน Claude Code แบบขนานต้องมี isolation, visibility และวิธีเร็วๆ ในการหาเซสชันที่ต้องการอินพุต cmux ให้ทุกงานมีเวิร์กสเปซที่มองเห็นได้ และทำให้เซสชัน Claude อ่านง่ายระหว่างรันเคียงข้างกัน",
+          "summaryTitle": "เวิร์กโฟลว์ขนานที่ปลอดภัย",
+          "summaryBody": "สร้างหนึ่ง branch หรือ worktree ต่อหนึ่งงาน เปิดแต่ละอันใน cmux workspace ของตัวเอง รัน Claude Code ตามปกติ แล้วใช้ notification rings และ unread shortcuts เพื่อตรวจเซสชันที่ต้องการคุณ Claude ยังเป็นเอเจนต์ ส่วน cmux ดูแลพื้นผิวสำหรับการควบคุม",
+          "table": {
+            "headers": [
+              "แนวทาง",
+              "Isolation",
+              "Visibility",
+              "เหมาะที่สุดกับ"
+            ],
+            "rows": [
+              [
+                "หนึ่งแท็บเทอร์มินัลต่อหนึ่งงาน",
+                "ทำเอง",
+                "อ่อน",
+                "การทดลองเล็กๆ"
+              ],
+              [
+                "tmux panes",
+                "ทำเอง",
+                "ปานกลาง",
+                "เวิร์กโฟลว์ shell ระยะไกล"
+              ],
+              [
+                "Git worktrees แบบทำเอง",
+                "แข็งแรง",
+                "ทำเอง",
+                "งานขนานที่ต้องระวัง"
+              ],
+              [
+                "cmux workspaces",
+                "ทำงานกับ branch/worktree setup ของคุณ",
+                "แข็งแรง",
+                "เซสชัน Claude จำนวนมากที่มองเห็นได้บน macOS"
+              ],
+              [
+                "cmux claude-teams",
+                "แมป teammate sessions เป็น pane native",
+                "แข็งแรง",
+                "โหมด Claude teammate โดยไม่มี tmux pane ที่ซ่อนอยู่"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "ให้ทุกงานมีบ้านที่มองเห็นได้",
+              "body": "ปัญหาหลักของเอเจนต์แบบขนานคือจำไม่ได้ว่าเทอร์มินัลไหนเป็นของงานไหน cmux workspaces ทำให้ branch, directory, ports และ output ล่าสุดมองเห็นอยู่ใน sidebar"
+            },
+            {
+              "title": "ใช้ notification rings เป็นคิวรีวิว",
+              "body": "เมื่อ Claude ทำเสร็จหรือขออินพุต cmux จะทำเครื่องหมาย pane เป็น unread และ ring มัน คีย์ลัด jump-to-latest-unread เปลี่ยนงานขนานให้เป็นคิวรีวิวแทนการไล่หาแท็บ"
+            },
+            {
+              "title": "คง Claude Code ไว้เหมือนเดิม",
+              "body": "cmux ไม่แทนที่ Claude Code และไม่ proxy requests ของมัน คุณรัน Claude CLI ตัวเดิมด้วยบัญชีและ settings เดิม จึงไม่ lock-in กับ agent runtime เฉพาะของ cmux"
+            },
+            {
+              "title": "ใช้ teammate mode เมื่อตรงงาน",
+              "body": "สำหรับ Claude Code teammate mode, cmux แปลง teammate panes แบบ tmux ให้เป็น cmux splits แบบ native ได้ ทำให้ teammates ที่ spawn ขึ้นมายังมองเห็นพร้อม sidebar metadata และ notifications"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux สร้าง Git worktrees ให้อัตโนมัติหรือไม่?",
+          "faqA1": "cmux สามารถเขียนสคริปต์ให้สร้าง workspaces รอบ branch หรือ worktree flow ของคุณได้ และ CLI/socket API ช่วยให้ทีม automate setup นั้นได้ หน้า compare โฟกัสที่ชั้น supervision ที่มองเห็นได้",
+          "faqQ2": "Claude Code และ Codex รันข้างกันได้ไหม?",
+          "faqA2": "ได้ cmux ไม่ผูกกับเอเจนต์ตัวใด ดังนั้น Claude Code, Codex, OpenCode และ CLI agents อื่นๆ จึงรันในเวิร์กสเปซแยกกันพร้อมกันได้",
+          "faqQ3": "คีย์ลัดไหนสำคัญที่สุดสำหรับเอเจนต์แบบขนาน?",
+          "faqA3": "Jump to latest unread คือคีย์ลัดหลักสำหรับ supervision เพราะพาคุณไปยังเอเจนต์ที่รอการตัดสินใจโดยตรง"
+        },
+        "cmuxVsSuperset": {
+          "metaTitle": "cmux vs Superset สำหรับ AI coding agents — cmux",
+          "metaDescription": "เปรียบเทียบ cmux และ Superset สำหรับ coding agents แบบขนาน, ประสิทธิภาพ native, agent lock-in, การจัดระเบียบ และ programmability",
+          "title": "cmux vs Superset",
+          "intro": "cmux และ Superset ต่างช่วยให้นักพัฒนารัน coding agent มากกว่าหนึ่งตัว ความต่างคือรูปทรงผลิตภัณฑ์: Superset เป็น agent workspace ที่มี worktree orchestration ส่วน cmux เป็นเทอร์มินัลและเบราว์เซอร์ native สำหรับดูแล CLI agent ใดก็ได้",
+          "summaryTitle": "เลือกตามเวิร์กโฟลว์",
+          "summaryBody": "เลือก cmux เมื่อต้องการเทอร์มินัล native ที่เร็ว, multitasking ที่มองเห็นได้, การจัดการ attention ด้วยคีย์บอร์ด และ socket API ที่เขียนโปรแกรมได้ เลือก Superset เมื่อต้องการ task workspace ที่กำหนดทิศทางมากกว่า โดยมี worktree orchestration และ review flow ในตัว",
+          "table": {
+            "headers": [
+              "มิติ",
+              "cmux",
+              "Superset"
+            ],
+            "rows": [
+              [
+                "ผลิตภัณฑ์หลัก",
+                "เทอร์มินัลและเบราว์เซอร์ macOS native",
+                "พื้นที่ทำงาน orchestration สำหรับเอเจนต์"
+              ],
+              [
+                "Runtime",
+                "Swift/AppKit plus libghostty",
+                "แอปเดสก์ท็อป Electron"
+              ],
+              [
+                "โมเดลเอเจนต์",
+                "CLI agent ใดก็ได้ ไม่มี runtime lock-in ของ cmux",
+                "CLI agent หลายตัวใน workspace ที่จัดการให้"
+              ],
+              [
+                "การจัดระเบียบ",
+                "เวิร์กสเปซแนวตั้ง, splits, unread state, notification rings",
+                "Tasks, worktrees, review surfaces"
+              ],
+              [
+                "Programmability",
+                "CLI, Unix socket API, browser automation, hooks",
+                "orchestration ระดับผลิตภัณฑ์"
+              ],
+              [
+                "เหมาะที่สุด",
+                "นักพัฒนาที่อยู่ในเทอร์มินัลและรันหลายเครื่องมือ",
+                "นักพัฒนาที่ต้องการ agent task manager แบบแพ็กเกจสำเร็จ"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux คงเทอร์มินัลเป็น primitive",
+              "body": "ถ้าเอเจนต์รันใน shell ได้ มันก็รันใน cmux ได้ ทำให้ cmux เหมาะกับทีมที่สลับระหว่าง Claude Code, Codex, OpenCode, Gemini CLI, Aider, scripts, SSH และ local dev servers"
+            },
+            {
+              "title": "ประสิทธิภาพ native สำคัญเมื่อ concurrency สูง",
+              "body": "การรันเอเจนต์จำนวนมากกิน CPU และ memory อยู่แล้ว cmux ใช้ Swift/AppKit และ libghostty เพื่อให้ terminal surface ยังเบา ขณะที่ agent processes, compilers และ dev servers ใช้ทรัพยากรที่ต้องการ"
+            },
+            {
+              "title": "Attention คือพื้นผิวของผลิตภัณฑ์",
+              "body": "cmux โฟกัสจังหวะที่เอเจนต์ต้องการมนุษย์ Notification rings, unread badges, notification panel และ jump-to-latest-unread ทำให้เจอเซสชันที่เสร็จหรือ blocked ได้ง่าย"
+            },
+            {
+              "title": "Programmability คือทางออก",
+              "body": "cmux เปิด workspaces, panes, screen reads, screenshots และ browser automation ผ่าน CLI และ socket API ทำให้ผู้ใช้ขั้นสูงสร้าง orchestration ของตัวเองด้านบนได้ แทนที่จะรอให้ workflow เดียวของผลิตภัณฑ์หนึ่งพอดี"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux แทน Superset ได้หรือไม่?",
+          "faqA1": "ขึ้นอยู่กับว่าคุณใช้ Superset เพื่ออะไร cmux แทนชั้น terminal supervision ส่วน Superset รวม workflow งานและ worktree ที่กำหนดทิศทางมากกว่า",
+          "faqQ2": "cmux รันเอเจนต์ตัวเดียวกันได้ไหม?",
+          "faqA2": "ได้ cmux รัน CLI agents โดยตรง รวมถึง Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp และ Cursor CLI",
+          "faqQ3": "ทำไมเลือก cmux ถ้า Superset มี worktrees?",
+          "faqA3": "เลือก cmux ถ้าความสำคัญของคุณคือประสิทธิภาพเทอร์มินัล native, multitasking ด้วยคีย์บอร์ด, ไม่ lock-in กับเอเจนต์ และพื้นผิวที่เขียนโปรแกรมได้ซึ่งปรับกับเวิร์กโฟลว์ของคุณเอง"
+        },
+        "cmuxVsCursor": {
+          "metaTitle": "cmux vs Cursor สำหรับ AI coding agents — cmux",
+          "metaDescription": "เปรียบเทียบ cmux และ Cursor สำหรับ agent workflows, terminal supervision, editor integration, ประสิทธิภาพ macOS native และ lock-in",
+          "title": "cmux vs Cursor",
+          "intro": "Cursor เป็น AI editor และ agent platform ส่วน cmux เป็นเทอร์มินัลและเบราว์เซอร์ native สำหรับรันเอเจนต์และเครื่องมือที่คุณเลือก นักพัฒนาหลายคนใช้ทั้งคู่: Cursor สำหรับแก้โค้ด, cmux สำหรับดูแล terminal agents",
+          "summaryTitle": "คนละชั้นกัน",
+          "summaryBody": "ใช้ Cursor เมื่อต้องการ AI ในเอดิเตอร์ ใช้ cmux เมื่อต้องการรันและเฝ้าดู CLI agents, dev servers, SSH sessions และ browser checks โดยไม่ผูก workflow กับเอดิเตอร์หรือ hosted runtime ตัวเดียว",
+          "table": {
+            "headers": [
+              "มิติ",
+              "cmux",
+              "Cursor"
+            ],
+            "rows": [
+              [
+                "พื้นผิวหลัก",
+                "เทอร์มินัล, เบราว์เซอร์, workspaces, splits",
+                "เอดิเตอร์, แชท, hosted agents"
+              ],
+              [
+                "ตัวเลือกเอเจนต์",
+                "CLI agent ใดก็ได้",
+                "เวิร์กโฟลว์ AI ที่มี Cursor เป็นศูนย์กลางพร้อม integrations"
+              ],
+              [
+                "Lock-in",
+                "ใช้เอเจนต์และ keys ของคุณเอง",
+                "บัญชี Cursor, plans และฟีเจอร์แพลตฟอร์ม"
+              ],
+              [
+                "โปรไฟล์ประสิทธิภาพ",
+                "เทอร์มินัล Swift/AppKit native",
+                "ชุดเอดิเตอร์และ hosted-agent"
+              ],
+              [
+                "เหมาะที่สุด",
+                "ดูแล shell-based agents หลายตัว",
+                "เขียนและแก้โค้ดด้วย AI assistance"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux ทำงานข้างเอดิเตอร์ใดก็ได้",
+              "body": "cmux ไม่จำเป็นต้องกลายเป็นเอดิเตอร์ของคุณ คุณใช้ Cursor, Xcode, Neovim, VS Code หรือ JetBrains ต่อไปได้ ขณะที่ cmux รันเอเจนต์, tests, shells, browser panes และ remote sessions"
+            },
+            {
+              "title": "CLI agents ยังพกพาได้",
+              "body": "Claude Code, Codex, OpenCode และ CLI อื่นๆ คงบัญชี model choices และ configuration ของตัวเอง cmux เพิ่ม supervision โดยไม่ย้าย agent runtime ไปยัง hosted platform ใหม่"
+            },
+            {
+              "title": "เวิร์กโฟลว์เทอร์มินัลต้องการ controls แบบเทอร์มินัล",
+              "body": "งานเอเจนต์มักเกี่ยวกับ test runs, logs, dev servers, SSH และ local scripts cmux เก็บพื้นผิวเหล่านั้นไว้ในแอป native เดียวและควบคุมได้ผ่านคีย์ลัดกับ socket API"
+            },
+            {
+              "title": "การใช้คู่กันแข็งแรง",
+              "body": "setup ที่ใช้งานจริงคือ Cursor สำหรับการแก้โค้ดที่โฟกัส และ cmux สำหรับ terminal agents แบบขนาน เอดิเตอร์ยังสะอาด ขณะที่ cmux ติดตามว่า autonomous sessions ไหนกำลังรัน เสร็จ หรือ blocked"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "ถ้าใช้ cmux ควรเลิกใช้ Cursor ไหม?",
+          "faqA1": "ไม่ต้อง cmux เป็น terminal และ browser workspace จึงทำงานข้าง Cursor หรือเอดิเตอร์อื่นได้ดี",
+          "faqQ2": "cmux รัน Cursor CLI ได้ไหม?",
+          "faqA2": "ได้ Cursor CLI รันใน cmux เหมือน terminal agent อื่นๆ",
+          "faqQ3": "cmux เพิ่มอะไรให้ Cursor?",
+          "faqA3": "cmux เพิ่ม terminal multitasking แบบ native, agent workspaces ที่มองเห็นได้, notification rings, unread navigation และการควบคุมเบราว์เซอร์กับเทอร์มินัลที่เขียนโปรแกรมได้"
+        },
+        "cmuxVsWarp": {
+          "metaTitle": "cmux vs Warp สำหรับ AI coding agents — cmux",
+          "metaDescription": "เปรียบเทียบ cmux และ Warp สำหรับ terminal AI workflows, agent supervision, ประสิทธิภาพ macOS native, programmability และ lock-in",
+          "title": "cmux vs Warp",
+          "intro": "Warp เป็นผลิตภัณฑ์เทอร์มินัลที่เสริม AI ส่วน cmux เป็นเทอร์มินัล macOS native ที่สร้างรอบเซสชัน coding-agent จำนวนมาก พร้อมเวิร์กสเปซแนวตั้ง, notification rings และ socket ที่เขียนสคริปต์ได้",
+          "summaryTitle": "AI terminal vs เทอร์มินัลสำหรับดูแลเอเจนต์",
+          "summaryBody": "Warp แข็งแรงที่สุดเมื่อต้องการฟีเจอร์ AI ที่รวมในผลิตภัณฑ์เทอร์มินัล cmux แข็งแรงที่สุดเมื่อคุณใช้ CLI agents อยู่แล้วและต้องการที่ native เป็นระเบียบ และเขียนโปรแกรมได้สำหรับรันหลายตัว",
+          "table": {
+            "headers": [
+              "มิติ",
+              "cmux",
+              "Warp"
+            ],
+            "rows": [
+              [
+                "เวิร์กโฟลว์หลัก",
+                "ดูแล CLI agents หลายตัว",
+                "ประสบการณ์ AI terminal"
+              ],
+              [
+                "ตัวเลือกเอเจนต์",
+                "เอเจนต์ shell-based ใดก็ได้",
+                "เวิร์กโฟลว์ผลิตภัณฑ์ Warp"
+              ],
+              [
+                "การจัดระเบียบ",
+                "เวิร์กสเปซแนวตั้ง, notification rings, unread jumps",
+                "แท็บเทอร์มินัลและ Warp workflows"
+              ],
+              [
+                "Programmability",
+                "Unix socket, CLI, browser automation",
+                "ฟีเจอร์เฉพาะของ Warp"
+              ],
+              [
+                "เหมาะที่สุด",
+                "ผู้ใช้ macOS ที่ใช้เอเจนต์หนักๆ",
+                "ทีมที่รับ Warp เป็นเทอร์มินัลหลัก"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux มองเอเจนต์เป็นงานที่รันนาน",
+              "body": "Coding agents ใช้เวลามากกับการรัน tests, ถามคำถาม และรอ review cmux ทำให้เซสชันเหล่านั้นมองเห็นได้และทำเครื่องหมายตัวที่ต้องการ attention"
+            },
+            {
+              "title": "ไม่มี agent lock-in",
+              "body": "cmux ไม่สนว่า CLI ใดเป็นเจ้าของ pane คุณรัน Claude Code ใน workspace หนึ่ง, Codex ในอีกอัน, OpenCode ในอันที่สาม และคำสั่ง shell ปกติข้างทั้งหมดนั้นได้"
+            },
+            {
+              "title": "ประสิทธิภาพ Mac native",
+              "body": "cmux คือ Swift/AppKit พร้อม rendering จาก libghostty ทำให้ชั้น UI เบาเมื่อเปิดเทอร์มินัล, browser panes, dev servers และเอเจนต์จำนวนมาก"
+            },
+            {
+              "title": "Programmability สำหรับ custom workflows",
+              "body": "cmux CLI และ socket API ให้ scripts และ agents สร้าง workspaces, split panes, ส่ง input, อ่านหน้าจอ, ถ่าย screenshots และควบคุม browser ในตัวได้"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux เป็น AI terminal แบบ Warp หรือไม่?",
+          "faqA1": "cmux เป็นเทอร์มินัลสำหรับ AI agents มากกว่าผู้ช่วย AI ที่ฝังในเทอร์มินัล",
+          "faqQ2": "ใช้ Warp และ cmux พร้อมกันได้ไหม?",
+          "faqA2": "ได้ ใช้เทอร์มินัลที่เหมาะกับแต่ละงาน cmux แข็งแรงที่สุดเมื่อเซสชันเอเจนต์จำนวนมากต้องการการจัดระเบียบและการติดตาม attention",
+          "faqQ3": "ทำไมเลือก cmux สำหรับ coding agents?",
+          "faqA3": "cmux เพิ่ม workspaces, notification rings, unread navigation, browser automation และ socket ที่เขียนโปรแกรมได้รอบ CLI agents ที่คุณใช้อยู่แล้ว"
+        },
+        "cmuxVsGhostty": {
+          "metaTitle": "cmux vs Ghostty สำหรับ coding agents — cmux",
+          "metaDescription": "เปรียบเทียบ cmux และ Ghostty สำหรับเวิร์กโฟลว์เทอร์มินัล macOS, coding agents, ประสิทธิภาพ libghostty, แท็บแนวตั้ง, notifications และ programmability",
+          "title": "cmux vs Ghostty",
+          "intro": "Ghostty เป็น terminal emulator ที่เร็ว cmux เป็นแอป macOS native แยกต่างหากที่สร้างบน libghostty โดยเพิ่ม workspaces, แท็บแนวตั้ง, notification rings, browser panes และ socket API สำหรับเวิร์กโฟลว์ coding-agent",
+          "summaryTitle": "ตระกูล rendering engine เดียวกัน แต่งานต่างกัน",
+          "summaryBody": "ใช้ Ghostty เมื่อต้องการเทอร์มินัลอเนกประสงค์ที่โฟกัส ใช้ cmux เมื่อต้องการ rendering ระดับ Ghostty พร้อมการจัดระเบียบ, notifications และ automation สำหรับเซสชัน coding-agent จำนวนมาก",
+          "table": {
+            "headers": [
+              "มิติ",
+              "cmux",
+              "Ghostty"
+            ],
+            "rows": [
+              [
+                "งานหลัก",
+                "agent supervision และ multitasking",
+                "เทอร์มินัลอเนกประสงค์"
+              ],
+              [
+                "Rendering",
+                "สร้างบน libghostty",
+                "เครื่องยนต์เทอร์มินัล Ghostty"
+              ],
+              [
+                "การจัดระเบียบ",
+                "เวิร์กสเปซแนวตั้ง, splits, sidebar metadata",
+                "หน้าต่างเทอร์มินัล, แท็บ, splits"
+              ],
+              [
+                "Agent attention",
+                "notification rings และ unread navigation",
+                "เฉพาะ terminal notifications"
+              ],
+              [
+                "Automation",
+                "cmux CLI, socket API, browser automation",
+                "terminal configuration และ shell tooling"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux ไม่ใช่ fork ของ Ghostty",
+              "body": "cmux ใช้ libghostty เป็น rendering engine คล้ายกับที่แอป native ใช้ WebKit สำหรับ web views Ghostty ยังคงเป็นเทอร์มินัลของตัวเอง ส่วน cmux เป็นแอปอื่นที่มุ่งเวิร์กโฟลว์ที่ใช้เอเจนต์หนักๆ"
+            },
+            {
+              "title": "เวิร์กสเปซแนวตั้ง scale ดีกว่าสำหรับเอเจนต์",
+              "body": "เซสชันเอเจนต์ได้ประโยชน์จากชื่อถาวร, branch context, directory context, ports และ unread state cmux วาง metadata นั้นไว้ใน sidebar เพื่อให้เซสชันหลายสิบรายการยังสแกนได้"
+            },
+            {
+              "title": "Notifications กลายเป็นสถานะที่นำทางได้",
+              "body": "Desktop notifications หายไปได้ cmux เก็บ unread state ไว้ในแอป, ring pane และให้คุณ jump ไปยังเซสชันล่าสุดที่รออยู่จากคีย์บอร์ด"
+            },
+            {
+              "title": "Automation ไปไกลกว่า shell",
+              "body": "cmux เปิด app-level actions ผ่าน CLI และ Unix socket รวมถึง browser automation เอเจนต์สามารถ inspect web pages, click, type, อ่าน terminal screens และถ่าย screenshots จาก workspace เดียวกัน"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux สร้างโดยทีม Ghostty หรือไม่?",
+          "faqA1": "ไม่ใช่ cmux เป็นโปรเจกต์แยกที่ใช้ libghostty สำหรับ terminal rendering",
+          "faqQ2": "cmux อ่าน Ghostty config ไหม?",
+          "faqA2": "อ่าน cmux อ่าน Ghostty config ของคุณสำหรับตัวเลือก terminal rendering เช่น fonts, themes, colors และ cursor behavior",
+          "faqQ3": "เมื่อไหร่ควรใช้ cmux แทน Ghostty?",
+          "faqA3": "ใช้ cmux เมื่อคุณรัน coding agents หลายตัวและต้องการ workspaces, notification rings, unread navigation, browser panes และ programmability รอบๆ มัน"
+        }
+      }
+    },
     "cta": {
       "freeOpenSource": "cmux เป็นซอฟต์แวร์ฟรีและโอเพนซอร์สสำหรับ macOS",
       "seeAlso": "ดูเพิ่มเติม"
@@ -1757,7 +2191,9 @@
       "geminiCli": "เทอร์มินัลสำหรับ Gemini CLI",
       "aider": "เทอร์มินัลสำหรับ Aider",
       "amp": "เทอร์มินัลสำหรับ Amp",
-      "cursorCli": "เทอร์มินัลสำหรับ Cursor CLI"
+      "cursorCli": "เทอร์มินัลสำหรับ Cursor CLI",
+      "keyboardShortcuts": "คีย์ลัด",
+      "browserAutomation": "ระบบอัตโนมัติของเบราว์เซอร์"
     },
     "agents": {
       "metaTitle": "เทอร์มินัลสำหรับเอเจนต์เขียนโค้ด | cmux",

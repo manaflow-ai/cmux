@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { locales } from "../i18n/routing";
+import { comparePages, comparePath } from "./lib/compare-pages";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = "https://cmux.com";
@@ -50,6 +51,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/assets", lastModified: "2026-06-03", changeFrequency: "monthly" as const, priority: 0.5 },
     // SEO landing/guide pages: localized, not in the main nav.
     { path: "/guides", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
+    { path: "/compare", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.7 },
+    ...comparePages.map((page) => ({
+      path: comparePath(page.slug),
+      lastModified: page.lastModified,
+      changeFrequency: "monthly" as const,
+      priority: 0.7,
+    })),
     { path: "/best-terminal-for-mac", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/built-on-ghostty", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.7 },

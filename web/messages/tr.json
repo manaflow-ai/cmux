@@ -43,7 +43,8 @@
     "language": "Dil",
     "assets": "Varlıklar",
     "openSource": "Açık kaynak",
-    "guides": "Kılavuzlar"
+    "guides": "Kılavuzlar",
+    "compare": "Karşılaştır"
   },
   "home": {
     "taglinePrefix": "Şunun için tasarlanmış terminal: ",
@@ -1736,6 +1737,439 @@
       "title": "Kılavuzlar",
       "intro": "cmux için karşılaştırmalar, arka plan ve kullanım senaryosu kılavuzları. Ürün belgeleri için docs bölümüne bakın."
     },
+    "compare": {
+      "metaTitle": "cmux’u AI kodlama terminalleri ve ajan çalışma alanlarıyla karşılaştırın",
+      "metaDescription": "Claude Code, Codex, OpenCode ve diğer kodlama ajanlarını çalıştırmak için cmux’u Superset, Cursor, Warp, Ghostty ve diğer araçlarla karşılaştırın.",
+      "title": "cmux’u karşılaştırın",
+      "intro": "AI kodlama ajanları için terminal veya çalışma alanı seçen geliştiricilere odaklı karşılaştırmalar. Native macOS performansı, görünür çoklu görev, hızlı klavye navigasyonu ve tek bir ajan runtime’ına kilitlenmeme istediğinizde cmux en güçlüdür.",
+      "pages": {
+        "bestTerminalForAgents": {
+          "metaTitle": "2026’da AI kodlama ajanları için en iyi terminal — cmux",
+          "metaDescription": "AI kodlama ajanlarını çalıştırmak için cmux, Superset, Warp, Ghostty, iTerm2, tmux ve diğer terminalleri karşılaştırın.",
+          "title": "2026’da AI kodlama ajanları için en iyi terminal",
+          "intro": "Kodlama ajanları için en iyi terminal, uzun süre çalışan birçok oturumu görünür, tepkisel ve kolay kontrol edilir tutandır. cmux bu iş akışı için tasarlandı: native Swift/AppKit performansı, dikey çalışma alanları, bildirim halkaları, klavye kısayolları ve programlanabilir bir CLI.",
+          "summaryTitle": "Kısa cevap",
+          "summaryBody": "Yeni bir ajanı, editörü, bulut runtime’ını veya kredi sistemini dayatmadan birçok ajanı denetleyebilen native bir macOS terminali istiyorsanız cmux’u seçin. Görev orkestrasyonu ve yerleşik inceleme akışları istiyorsanız bir ajan çalışma alanı seçin. Çoğunlukla aynı anda tek ajan çalıştırıyorsanız klasik bir terminal seçin.",
+          "table": {
+            "headers": [
+              "Araç",
+              "En iyi kullanım",
+              "Ajan desteği",
+              "Ödün"
+            ],
+            "rows": [
+              [
+                "cmux",
+                "Birçok ajan için native terminal denetimi",
+                "Herhangi bir CLI ajanı",
+                "Yalnızca macOS"
+              ],
+              [
+                "Superset",
+                "Worktree tabanlı ajan orkestrasyonu",
+                "Birçok CLI ajanı",
+                "Electron app ve daha yönlendirilmiş iş akışı"
+              ],
+              [
+                "Warp",
+                "Yönetilen üründe AI terminal özellikleri",
+                "Warp merkezli AI iş akışı",
+                "Daha fazla platform kilidi"
+              ],
+              [
+                "Ghostty",
+                "Hızlı genel amaçlı terminal",
+                "Herhangi bir CLI ajanı",
+                "Yerleşik ajan düzeni yok"
+              ],
+              [
+                "iTerm2",
+                "Olgun macOS terminal iş akışları",
+                "Herhangi bir CLI ajanı",
+                "Ajan durumu manuel kalır"
+              ],
+              [
+                "tmux",
+                "SSH üzerinden terminal çoklama",
+                "Herhangi bir CLI ajanı",
+                "Prefix tuşu iş akışı ve native app UI yok"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux neden farklı",
+              "body": "cmux ajandan değil terminalden başlar. Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp ve Cursor CLI normal çalışır; cmux onların etrafına eksik kontrol düzlemini ekler: çalışma alanları, bölünmüş paneller, okunmamış durum, bildirim halkaları ve socket API."
+            },
+            {
+              "title": "Çoklu görev ve düzen",
+              "body": "Ajan yoğun iş, her oturum belirsiz başlıklı başka bir sekmeye dönüştüğünde dağılır. cmux işi branch, dizin, portlar ve son bildirim metnini gösteren dikey çalışma alanlarında tutar, böylece birkaç ajan çalışırken okunaklı kalır."
+            },
+            {
+              "title": "Yük altında performans",
+              "body": "cmux, Electron değil libghostty üzerine kurulu native bir Swift/AppKit uygulamasıdır. Tüm gün birçok terminali, tarayıcıyı ve ajanı açık tuttuğunuzda bu önemlidir; daha az UI yükü gerçek işi yapan ajanlara ve dev server’lara daha fazla CPU ve bellek bırakır."
+            },
+            {
+              "title": "Klavye öncelikli denetim",
+              "body": "cmux dikkati birinci sınıf iş akışı olarak ele alır. En son okunmamışa atla gibi kısayollar, her sekmeyi taramak veya masaüstü bildirimlerinin anlam kazanmasını beklemek yerine sizi doğrudan karar isteyen panele götürür."
+            }
+          ],
+          "faqTitle": "SSS",
+          "faqQ1": "cmux bir AI kodlama ajanı mı?",
+          "faqA1": "Hayır. cmux, zaten kullandığınız ajanların etrafındaki native terminal ve tarayıcı çalışma alanıdır.",
+          "faqQ2": "cmux’ta hangi ajanlar çalışır?",
+          "faqA2": "Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp ve Cursor CLI dahil her CLI ajanı çalışır.",
+          "faqQ3": "Neden sadece terminal sekmeleri kullanmayayım?",
+          "faqA3": "Sekmeler birkaç shell için çalışır. cmux ajan yoğun iş akışları için çalışma alanı meta verisi, bildirim halkaları, okunmamış navigasyonu, bölünmüş paneller, tarayıcı otomasyonu ve betiklenebilir socket ekler."
+        },
+        "multipleClaudeAgents": {
+          "metaTitle": "Birden fazla Claude Code ajanını paralel çalıştırma — cmux",
+          "metaDescription": "cmux çalışma alanları, bildirim halkaları, dikey sekmeler ve klavye kısayollarıyla birden fazla Claude Code oturumunu paralel çalıştırın.",
+          "title": "Birden fazla Claude Code ajanını paralel çalıştırma",
+          "intro": "Paralel Claude Code işi izolasyon, görünürlük ve giriş isteyen oturumu hızlı bulma yolu gerektirir. cmux her göreve görünür bir çalışma alanı verir ve Claude oturumlarını yan yana çalışırken okunur tutar.",
+          "summaryTitle": "Güvenli paralel iş akışı",
+          "summaryBody": "Görev başına bir branch veya worktree oluşturun, her birini kendi cmux çalışma alanında açın, Claude Code’u normal çalıştırın, ardından size ihtiyaç duyan oturumları gözden geçirmek için bildirim halkalarını ve okunmamış kısayollarını kullanın. Claude ajan olarak kalır; cmux denetim yüzeyini yönetir.",
+          "table": {
+            "headers": [
+              "Yaklaşım",
+              "İzolasyon",
+              "Görünürlük",
+              "En iyi kullanım"
+            ],
+            "rows": [
+              [
+                "Görev başına bir terminal sekmesi",
+                "Manuel",
+                "Zayıf",
+                "Küçük deneyler"
+              ],
+              [
+                "tmux panelleri",
+                "Manuel",
+                "Orta",
+                "Uzak shell iş akışları"
+              ],
+              [
+                "Manuel Git worktree’leri",
+                "Güçlü",
+                "Manuel",
+                "Dikkatli paralel iş"
+              ],
+              [
+                "cmux çalışma alanları",
+                "Branch/worktree düzeninizle çalışır",
+                "Güçlü",
+                "macOS’ta birçok görünür Claude oturumu"
+              ],
+              [
+                "cmux claude-teams",
+                "Teammate oturumları için native pane eşleme",
+                "Güçlü",
+                "Gizli tmux panelleri olmadan Claude teammate modu"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "Her göreve görünür bir yuva verin",
+              "body": "Paralel ajanların ana hata modu hangi terminalin hangi göreve ait olduğunu kaybetmektir. cmux çalışma alanları branch, dizin, portlar ve son çıktıyı kenar çubuğunda görünür tutar."
+            },
+            {
+              "title": "Bildirim halkalarını inceleme kuyruğu olarak kullanın",
+              "body": "Claude bittiğinde veya giriş istediğinde cmux paneli okunmamış işaretler ve halka gösterir. jump-to-latest-unread kısayolu paralel işi sekme avı yerine inceleme kuyruğuna dönüştürür."
+            },
+            {
+              "title": "Claude Code’u değiştirmeyin",
+              "body": "cmux Claude Code’un yerini almaz veya isteklerini proxy etmez. Aynı Claude CLI’ını mevcut hesabınız ve ayarlarınızla çalıştırırsınız, bu yüzden cmux’a özgü bir ajan runtime’ına kilitlenmezsiniz."
+            },
+            {
+              "title": "Uygun olduğunda teammate modunu kullanın",
+              "body": "Claude Code teammate modu için cmux tmux tarzı teammate panellerini native cmux bölmelerine çevirebilir, böylece spawn edilen teammates kenar çubuğu meta verisi ve bildirimlerle görünür kalır."
+            }
+          ],
+          "faqTitle": "SSS",
+          "faqQ1": "cmux Git worktree’leri otomatik oluşturur mu?",
+          "faqA1": "cmux branch veya worktree akışınızın etrafında çalışma alanları oluşturacak şekilde betiklenebilir ve CLI/socket API ekiplerin bu kurulumu otomatikleştirmesine izin verir. Karşılaştırma sayfaları görünür denetim katmanına odaklanır.",
+          "faqQ2": "Claude Code ve Codex yan yana çalışabilir mi?",
+          "faqA2": "Evet. cmux ajan bağımsızdır; Claude Code, Codex, OpenCode ve diğer CLI ajanları aynı anda ayrı çalışma alanlarında çalışabilir.",
+          "faqQ3": "Paralel ajanlar için en önemli kısayol hangisi?",
+          "faqA3": "Jump to latest unread temel denetim kısayoludur çünkü sizi doğrudan karar bekleyen ajana götürür."
+        },
+        "cmuxVsSuperset": {
+          "metaTitle": "AI kodlama ajanları için cmux vs Superset — cmux",
+          "metaDescription": "Paralel kodlama ajanları, native performans, ajan kilidi, düzen ve programlanabilirlik için cmux ve Superset’i karşılaştırın.",
+          "title": "cmux vs Superset",
+          "intro": "cmux ve Superset geliştiricilerin birden fazla kodlama ajanı çalıştırmasına yardım eder. Fark ürün biçimindedir: Superset worktree orkestrasyonlu bir ajan çalışma alanıdır; cmux ise herhangi bir CLI ajanını denetlemek için native bir terminal ve tarayıcıdır.",
+          "summaryTitle": "İş akışına göre seçin",
+          "summaryBody": "Hızlı native terminal, görünür çoklu görev, klavye odaklı dikkat yönetimi ve programlanabilir socket API istiyorsanız cmux’u seçin. Worktree orkestrasyonu ve yerleşik inceleme akışı merkezli daha yönlendirilmiş bir görev çalışma alanı istiyorsanız Superset’i seçin.",
+          "table": {
+            "headers": [
+              "Boyut",
+              "cmux",
+              "Superset"
+            ],
+            "rows": [
+              [
+                "Ana ürün",
+                "Native macOS terminali ve tarayıcı",
+                "Ajan orkestrasyon çalışma alanı"
+              ],
+              [
+                "Runtime",
+                "Swift/AppKit plus libghostty",
+                "Electron masaüstü uygulaması"
+              ],
+              [
+                "Ajan modeli",
+                "Herhangi bir CLI ajanı, cmux runtime kilidi yok",
+                "Yönetilen çalışma alanında birçok CLI ajanı"
+              ],
+              [
+                "Düzen",
+                "Dikey çalışma alanları, bölmeler, okunmamış durum, bildirim halkaları",
+                "Görevler, worktree’ler, inceleme yüzeyleri"
+              ],
+              [
+                "Programlanabilirlik",
+                "CLI, Unix socket API, tarayıcı otomasyonu, hooks",
+                "Ürün düzeyi orkestrasyon"
+              ],
+              [
+                "En iyi uyum",
+                "Terminalde yaşayan ve birçok araç çalıştıran geliştiriciler",
+                "Paketlenmiş ajan görev yöneticisi isteyen geliştiriciler"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux terminali primitive olarak tutar",
+              "body": "Bir ajan shell’de çalışıyorsa cmux’ta çalışır. Bu, Claude Code, Codex, OpenCode, Gemini CLI, Aider, scriptler, SSH ve yerel dev server’lar arasında geçiş yapan ekipler için cmux’u iyi bir seçim yapar."
+            },
+            {
+              "title": "Yüksek eşzamanlılıkta native performans önemlidir",
+              "body": "Birçok ajan çalıştırmak zaten CPU ve bellek tüketir. cmux, terminal yüzeyi hafif kalırken ajan süreçleri, derleyiciler ve dev server’ların ihtiyaç duydukları kaynakları tüketebilmesi için Swift/AppKit ve libghostty kullanır."
+            },
+            {
+              "title": "Dikkat bir ürün yüzeyidir",
+              "body": "cmux bir ajanın insana ihtiyaç duyduğu ana odaklanır. Bildirim halkaları, okunmamış rozetleri, bildirim paneli ve jump-to-latest-unread bitmiş veya bloklanmış oturumları bulmayı kolaylaştırır."
+            },
+            {
+              "title": "Programlanabilirlik kaçış kapısıdır",
+              "body": "cmux çalışma alanlarını, panelleri, ekran okumalarını, ekran görüntülerini ve tarayıcı otomasyonunu CLI ve socket API üzerinden açar. Bu, ileri kullanıcıların tek bir ürün iş akışının uymasını beklemek yerine kendi orkestrasyonlarını üstte kurmasına izin verir."
+            }
+          ],
+          "faqTitle": "SSS",
+          "faqQ1": "cmux Superset’in yerine geçer mi?",
+          "faqA1": "Superset’i ne için kullandığınıza bağlıdır. cmux terminal denetim katmanının yerini alır; Superset ise daha yönlendirilmiş görev ve worktree iş akışı içerir.",
+          "faqQ2": "cmux aynı ajanları çalıştırabilir mi?",
+          "faqA2": "Evet. cmux Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp ve Cursor CLI dahil CLI ajanlarını doğrudan çalıştırır.",
+          "faqQ3": "Superset’te worktree varken neden cmux seçeyim?",
+          "faqA3": "Önceliğiniz native terminal performansı, klavye odaklı çoklu görev, ajan kilidi olmaması ve kendi iş akışınıza uyarlayabileceğiniz programlanabilir bir yüzeyse cmux’u seçin."
+        },
+        "cmuxVsCursor": {
+          "metaTitle": "AI kodlama ajanları için cmux vs Cursor — cmux",
+          "metaDescription": "Ajan iş akışları, terminal denetimi, editör entegrasyonu, native macOS performansı ve kilitlenme için cmux ve Cursor’ı karşılaştırın.",
+          "title": "cmux vs Cursor",
+          "intro": "Cursor bir AI editörü ve ajan platformudur. cmux seçtiğiniz ajanları ve araçları çalıştırmak için native bir terminal ve tarayıcıdır. Birçok geliştirici ikisini de kullanır: düzenleme için Cursor, terminal ajanlarını denetlemek için cmux.",
+          "summaryTitle": "Farklı katmanlar",
+          "summaryBody": "Editör içinde AI istediğinizde Cursor kullanın. İş akışını tek bir editöre veya hosted runtime’a bağlamadan CLI ajanlarını, dev server’ları, SSH oturumlarını ve tarayıcı kontrollerini çalıştırıp izlemek istediğinizde cmux kullanın.",
+          "table": {
+            "headers": [
+              "Boyut",
+              "cmux",
+              "Cursor"
+            ],
+            "rows": [
+              [
+                "Birincil yüzey",
+                "Terminal, tarayıcı, çalışma alanları, bölmeler",
+                "Editör, sohbet, hosted ajanlar"
+              ],
+              [
+                "Ajan seçimi",
+                "Herhangi bir CLI ajanı",
+                "Cursor merkezli AI iş akışı plus entegrasyonlar"
+              ],
+              [
+                "Kilitlenme",
+                "Kendi ajanınızı ve anahtarlarınızı getirin",
+                "Cursor hesabı, planları ve platform özellikleri"
+              ],
+              [
+                "Performans profili",
+                "Native Swift/AppKit terminali",
+                "Editör ve hosted-agent paketi"
+              ],
+              [
+                "En iyi uyum",
+                "Birçok shell tabanlı ajanı denetleme",
+                "AI yardımıyla kod yazma ve düzenleme"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux herhangi bir editörün yanında çalışır",
+              "body": "cmux editörünüz olmak zorunda değildir. cmux ajanları, testleri, shell’leri, tarayıcı panellerini ve uzak oturumları çalıştırırken Cursor, Xcode, Neovim, VS Code veya JetBrains kullanmaya devam edebilirsiniz."
+            },
+            {
+              "title": "CLI ajanları taşınabilir kalır",
+              "body": "Claude Code, Codex, OpenCode ve diğer CLI’lar kendi hesaplarını, model seçimlerini ve yapılandırmalarını korur. cmux ajan runtime’ını yeni bir hosted platforma taşımadan denetim ekler."
+            },
+            {
+              "title": "Terminal iş akışları terminal kontrolleri ister",
+              "body": "Ajan işi çoğu zaman test çalıştırmaları, loglar, dev server’lar, SSH ve yerel scriptler içerir. cmux bu yüzeyleri tek native uygulamada tutar ve klavye kısayolları ile socket API üzerinden kontrol edilebilir yapar."
+            },
+            {
+              "title": "Kombinasyon güçlüdür",
+              "body": "Pratik kurulum, odaklı düzenleme için Cursor ve paralel terminal ajanları için cmux’tur. Editör temiz kalırken cmux hangi otonom oturumların çalıştığını, bittiğini veya bloklandığını izler."
+            }
+          ],
+          "faqTitle": "SSS",
+          "faqQ1": "cmux kullanırsam Cursor kullanmayı bırakmalı mıyım?",
+          "faqA1": "Hayır. cmux bir terminal ve tarayıcı çalışma alanıdır, bu yüzden Cursor veya başka herhangi bir editörün yanında iyi çalışır.",
+          "faqQ2": "cmux Cursor CLI çalıştırabilir mi?",
+          "faqA2": "Evet. Cursor CLI cmux’ta diğer terminal ajanları gibi çalışır.",
+          "faqQ3": "cmux Cursor’a ne ekler?",
+          "faqA3": "cmux native terminal çoklu görev, görünür ajan çalışma alanları, bildirim halkaları, okunmamış navigasyonu ve programlanabilir tarayıcı ve terminal kontrolü ekler."
+        },
+        "cmuxVsWarp": {
+          "metaTitle": "AI kodlama ajanları için cmux vs Warp — cmux",
+          "metaDescription": "Terminal AI iş akışları, ajan denetimi, native macOS performansı, programlanabilirlik ve kilitlenme için cmux ve Warp’ı karşılaştırın.",
+          "title": "cmux vs Warp",
+          "intro": "Warp AI ile güçlendirilmiş bir terminal ürünüdür. cmux, dikey çalışma alanları, bildirim halkaları ve betiklenebilir socket ile birçok kodlama ajanı oturumu etrafında kurulmuş native bir macOS terminalidir.",
+          "summaryTitle": "AI terminali vs ajan denetim terminali",
+          "summaryBody": "Terminal ürününe entegre AI özellikleri istediğinizde Warp en güçlüdür. Zaten CLI ajanları kullanıyor ve onların çoğunu çalıştırmak için native, düzenli, programlanabilir bir yer istiyorsanız cmux en güçlüdür.",
+          "table": {
+            "headers": [
+              "Boyut",
+              "cmux",
+              "Warp"
+            ],
+            "rows": [
+              [
+                "Ana iş akışı",
+                "Birçok CLI ajanını denetleme",
+                "AI terminal deneyimi"
+              ],
+              [
+                "Ajan seçimi",
+                "Herhangi bir shell tabanlı ajan",
+                "Warp ürün iş akışı"
+              ],
+              [
+                "Düzen",
+                "Dikey çalışma alanları, bildirim halkaları, okunmamış atlamaları",
+                "Terminal sekmeleri ve Warp iş akışları"
+              ],
+              [
+                "Programlanabilirlik",
+                "Unix socket, CLI, tarayıcı otomasyonu",
+                "Warp’a özgü özellikler"
+              ],
+              [
+                "En iyi uyum",
+                "Ajan yoğun macOS kullanıcıları",
+                "Warp’ı terminal olarak benimseyen ekipler"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux ajanları uzun süreli iş olarak ele alır",
+              "body": "Kodlama ajanları test çalıştırarak, soru sorarak ve inceleme bekleyerek çok zaman geçirir. cmux bu oturumları görünür tutar ve dikkat isteyenleri işaretler."
+            },
+            {
+              "title": "Ajan kilidi yok",
+              "body": "cmux panelin hangi CLI’a ait olduğuyla ilgilenmez. Bir çalışma alanında Claude Code, diğerinde Codex, üçüncüde OpenCode ve hepsinin yanında sıradan shell komutları çalıştırabilirsiniz."
+            },
+            {
+              "title": "Native Mac performansı",
+              "body": "cmux, libghostty rendering ile Swift/AppKit’tir. Birçok terminal, tarayıcı paneli, dev server ve ajan açıkken UI katmanını yalın tutar."
+            },
+            {
+              "title": "Özel iş akışları için programlanabilirlik",
+              "body": "cmux CLI ve socket API, scriptlerin ve ajanların çalışma alanı oluşturmasına, panel bölmesine, giriş göndermesine, ekran okumasına, ekran görüntüsü almasına ve yerleşik tarayıcıyı sürmesine izin verir."
+            }
+          ],
+          "faqTitle": "SSS",
+          "faqQ1": "cmux Warp gibi bir AI terminali mi?",
+          "faqA1": "cmux, terminale gömülü bir AI asistanından ziyade AI ajanları için bir terminaldir.",
+          "faqQ2": "Warp ve cmux’u birlikte kullanabilir miyim?",
+          "faqA2": "Evet. Her görev için uygun terminali kullanın. cmux birçok ajan oturumu düzen ve dikkat takibi istediğinde en güçlüdür.",
+          "faqQ3": "Kodlama ajanları için neden cmux seçeyim?",
+          "faqA3": "cmux zaten kullandığınız CLI ajanlarının etrafına çalışma alanları, bildirim halkaları, okunmamış navigasyonu, tarayıcı otomasyonu ve programlanabilir socket ekler."
+        },
+        "cmuxVsGhostty": {
+          "metaTitle": "Kodlama ajanları için cmux vs Ghostty — cmux",
+          "metaDescription": "macOS terminal iş akışları, kodlama ajanları, libghostty performansı, dikey sekmeler, bildirimler ve programlanabilirlik için cmux ve Ghostty’yi karşılaştırın.",
+          "title": "cmux vs Ghostty",
+          "intro": "Ghostty hızlı bir terminal emülatörüdür. cmux ise libghostty üzerine kurulu, çalışma alanları, dikey sekmeler, bildirim halkaları, tarayıcı panelleri ve kodlama ajanı iş akışları için socket API ekleyen ayrı bir native macOS uygulamasıdır.",
+          "summaryTitle": "Aynı rendering engine ailesi, farklı iş",
+          "summaryBody": "Odaklı genel amaçlı terminal istediğinizde Ghostty kullanın. Ghostty sınıfı terminal rendering’e ek olarak birçok kodlama ajanı oturumu için düzen, bildirim ve otomasyon istediğinizde cmux kullanın.",
+          "table": {
+            "headers": [
+              "Boyut",
+              "cmux",
+              "Ghostty"
+            ],
+            "rows": [
+              [
+                "Birincil iş",
+                "Ajan denetimi ve çoklu görev",
+                "Genel amaçlı terminal"
+              ],
+              [
+                "Rendering",
+                "libghostty üzerine kurulu",
+                "Ghostty terminal engine"
+              ],
+              [
+                "Düzen",
+                "Dikey çalışma alanları, bölmeler, kenar çubuğu meta verisi",
+                "Terminal pencereleri, sekmeler, bölmeler"
+              ],
+              [
+                "Ajan dikkati",
+                "Bildirim halkaları ve okunmamış navigasyonu",
+                "Yalnızca terminal bildirimleri"
+              ],
+              [
+                "Otomasyon",
+                "cmux CLI, socket API, tarayıcı otomasyonu",
+                "Terminal yapılandırması ve shell araçları"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux bir Ghostty fork’u değildir",
+              "body": "cmux libghostty’yi rendering engine olarak kullanır; native uygulamaların web görünümleri için WebKit kullanmasına benzer. Ghostty kendi terminali olarak kalır; cmux ajan yoğun iş akışlarına yönelik farklı bir uygulamadır."
+            },
+            {
+              "title": "Dikey çalışma alanları ajanlar için daha iyi ölçeklenir",
+              "body": "Ajan oturumları kalıcı adlardan, branch bağlamından, dizin bağlamından, portlardan ve okunmamış durumdan yararlanır. cmux bu meta veriyi kenar çubuğuna koyar, böylece onlarca oturum taranabilir kalır."
+            },
+            {
+              "title": "Bildirimler gezilebilir duruma dönüşür",
+              "body": "Masaüstü bildirimleri kaybolur. cmux okunmamış durumu uygulamada tutar, paneli halkalar ve klavyeden en son bekleyen oturuma atlamanızı sağlar."
+            },
+            {
+              "title": "Otomasyon shell’in dışına uzanır",
+              "body": "cmux, tarayıcı otomasyonu dahil app düzeyi eylemleri CLI ve Unix socket üzerinden açar. Ajanlar aynı çalışma alanından web sayfalarını inceleyebilir, tıklayabilir, yazabilir, terminal ekranlarını okuyabilir ve ekran görüntüsü alabilir."
+            }
+          ],
+          "faqTitle": "SSS",
+          "faqQ1": "cmux Ghostty ekibi tarafından mı geliştiriliyor?",
+          "faqA1": "Hayır. cmux terminal rendering için libghostty kullanan ayrı bir projedir.",
+          "faqQ2": "cmux Ghostty config okur mu?",
+          "faqA2": "Evet. cmux fontlar, temalar, renkler ve cursor davranışı gibi terminal rendering seçimleri için Ghostty config’inizi okur.",
+          "faqQ3": "Ghostty yerine ne zaman cmux kullanmalıyım?",
+          "faqA3": "Birden fazla kodlama ajanı çalıştırdığınızda ve etraflarında çalışma alanları, bildirim halkaları, okunmamış navigasyonu, tarayıcı panelleri ve programlanabilirlik istediğinizde cmux kullanın."
+        }
+      }
+    },
     "cta": {
       "freeOpenSource": "cmux, macOS için ücretsiz ve açık kaynaktır.",
       "seeAlso": "Ayrıca bakın"
@@ -1757,7 +2191,9 @@
       "geminiCli": "Gemini CLI için bir terminal",
       "aider": "Aider için bir terminal",
       "amp": "Amp için bir terminal",
-      "cursorCli": "Cursor CLI için bir terminal"
+      "cursorCli": "Cursor CLI için bir terminal",
+      "keyboardShortcuts": "Klavye kısayolları",
+      "browserAutomation": "Tarayıcı otomasyonu"
     },
     "agents": {
       "metaTitle": "Kodlama ajanları için bir terminal: cmux",

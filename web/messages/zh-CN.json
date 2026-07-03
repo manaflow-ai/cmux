@@ -43,7 +43,8 @@
     "language": "语言",
     "assets": "素材",
     "openSource": "开源",
-    "guides": "指南"
+    "guides": "指南",
+    "compare": "对比"
   },
   "home": {
     "taglinePrefix": "开源终端，专为 ",
@@ -1736,6 +1737,274 @@
       "title": "指南",
       "intro": "cmux 的对比、背景与使用场景指南。产品文档请参阅文档。"
     },
+    "compare": {
+      "metaTitle": "对比 cmux 与 AI 编程终端和 agent 工作区",
+      "metaDescription": "对比 cmux 与 Superset、Cursor、Warp、Ghostty 等工具，了解它们如何运行 Claude Code、Codex、OpenCode 和其他编程 agent。",
+      "title": "对比 cmux",
+      "intro": "面向正在为 AI 编程 agent 选择终端或工作区的开发者的聚焦对比。cmux 的优势在于原生 macOS 性能、可见的多任务处理、快速键盘导航，以及不锁定某一种 agent 运行时。",
+      "pages": {
+        "bestTerminalForAgents": {
+          "metaTitle": "2026 年 AI 编程 agent 的最佳终端 — cmux",
+          "metaDescription": "对比 cmux、Superset、Warp、Ghostty、iTerm2、tmux 等终端，了解它们如何运行 AI 编程 agent。",
+          "title": "2026 年 AI 编程 agent 的最佳终端",
+          "intro": "适合编程 agent 的最佳终端，是能让许多长时间运行的会话保持可见、响应迅速且易于控制的终端。cmux 正是为这种工作流而构建：原生 Swift/AppKit 性能、垂直工作区、通知环、键盘快捷键和可编程 CLI。",
+          "summaryTitle": "简短结论",
+          "summaryBody": "如果你想要一个原生 macOS 终端来监督许多 agent，同时不强制使用新的 agent、编辑器、云运行时或积分系统，请选择 cmux。如果你想要任务编排和内置审查流程，请选择 agent 工作区。如果你大多一次只运行一个 agent，传统终端就够了。",
+          "table": {
+            "headers": ["工具", "最适合", "Agent 支持", "取舍"],
+            "rows": [
+              ["cmux", "以原生终端监督多个 agent", "任意 CLI agent", "仅限 macOS"],
+              ["Superset", "基于 worktree 的 agent 编排", "多个 CLI agent", "Electron 应用，工作流更有主张"],
+              ["Warp", "托管产品中的 AI 终端功能", "以 Warp 为中心的 AI 工作流", "平台锁定更强"],
+              ["Ghostty", "高速通用终端", "任意 CLI agent", "没有内置 agent 组织能力"],
+              ["iTerm2", "成熟的 macOS 终端工作流", "任意 CLI agent", "Agent 状态需要手动跟踪"],
+              ["tmux", "通过 SSH 做终端复用", "任意 CLI agent", "前缀键工作流，没有原生应用 UI"]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux 的不同之处",
+              "body": "cmux 从终端出发，而不是从 agent 出发。Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp 和 Cursor CLI 都能照常运行，cmux 则在它们周围补上控制层：工作区、分屏面板、未读状态、通知环和 socket API。"
+            },
+            {
+              "title": "多任务与组织",
+              "body": "当每个会话都变成另一个标题模糊的标签页时，agent 密集型工作很容易失控。cmux 把工作放在垂直工作区中，并显示分支、目录、端口和最新通知文本，因此多个 agent 运行时仍然清晰可见。"
+            },
+            {
+              "title": "高负载下的性能",
+              "body": "cmux 是基于 libghostty 构建的原生 Swift/AppKit 应用，而不是 Electron。当你整天保留许多终端、浏览器和 agent 时，更低的 UI 开销会把更多 CPU 和内存留给真正工作的 agent 和开发服务器。"
+            },
+            {
+              "title": "键盘优先的监督",
+              "body": "cmux 把注意力管理当作一等工作流。跳到最新未读等快捷键可以让你直接进入需要决策的面板，而不用逐个扫描标签页或等待桌面通知变得有意义。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux 是 AI 编程 agent 吗？",
+          "faqA1": "不是。cmux 是围绕你已在使用的 agent 构建的原生终端和浏览器工作区。",
+          "faqQ2": "哪些 agent 可以在 cmux 中运行？",
+          "faqA2": "任意 CLI agent 都可以，包括 Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp 和 Cursor CLI。",
+          "faqQ3": "为什么不只用终端标签页？",
+          "faqA3": "标签页适合少量 shell。cmux 为 agent 密集型工作流增加了工作区元数据、通知环、未读导航、分屏面板、浏览器自动化和可脚本化 socket。"
+        },
+        "multipleClaudeAgents": {
+          "metaTitle": "如何并行运行多个 Claude Code agent — cmux",
+          "metaDescription": "使用 cmux 工作区、通知环、垂直标签和键盘快捷键并行运行多个 Claude Code 会话。",
+          "title": "如何并行运行多个 Claude Code agent",
+          "intro": "并行 Claude Code 工作需要隔离、可见性，以及快速找到需要输入的会话。cmux 为每个任务提供可见工作区，并让 Claude 会话并排运行时依然易读。",
+          "summaryTitle": "安全的并行工作流",
+          "summaryBody": "为每个任务创建一个分支或 worktree，在各自的 cmux 工作区中打开，正常运行 Claude Code，然后用通知环和未读快捷键审查需要你处理的会话。Claude 仍然是 agent；cmux 负责监督界面。",
+          "table": {
+            "headers": ["方式", "隔离", "可见性", "最佳用途"],
+            "rows": [
+              ["每个任务一个终端标签", "手动", "弱", "小实验"],
+              ["tmux 面板", "手动", "中等", "远程 shell 工作流"],
+              ["手动 Git worktree", "强", "手动", "谨慎的并行工作"],
+              ["cmux 工作区", "配合你的分支/worktree 设置", "强", "在 macOS 上保持多个 Claude 会话可见"],
+              ["cmux claude-teams", "把 teammate 会话映射为原生面板", "强", "无需隐藏 tmux 面板即可使用 Claude teammate mode"]
+            ]
+          },
+          "sections": [
+            {
+              "title": "给每个任务一个可见位置",
+              "body": "并行 agent 最常见的失败模式，是忘记哪个终端属于哪个任务。cmux 工作区会在侧边栏显示分支、目录、端口和最新输出。"
+            },
+            {
+              "title": "把通知环当作审查队列",
+              "body": "当 Claude 完成或请求输入时，cmux 会把面板标记为未读并响铃。跳到最新未读快捷键会把并行工作变成审查队列，而不是查找标签页。"
+            },
+            {
+              "title": "保持 Claude Code 不变",
+              "body": "cmux 不会替代 Claude Code，也不会代理它的请求。你使用现有账号和设置运行同一个 Claude CLI，因此不会锁定到 cmux 专属 agent 运行时。"
+            },
+            {
+              "title": "在合适时使用 teammate mode",
+              "body": "对于 Claude Code teammate mode，cmux 可以把 tmux 风格的 teammate 面板转换成原生 cmux 分屏，让派生的 teammate 也带着侧边栏元数据和通知保持可见。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux 会自动创建 Git worktree 吗？",
+          "faqA1": "cmux 可以通过脚本围绕你的分支或 worktree 流程创建工作区，CLI/socket API 也能让团队自动化这类设置。对比页面重点介绍可见的监督层。",
+          "faqQ2": "Claude Code 和 Codex 可以并排运行吗？",
+          "faqA2": "可以。cmux 不绑定 agent，因此 Claude Code、Codex、OpenCode 和其他 CLI agent 可以同时在不同工作区中运行。",
+          "faqQ3": "并行 agent 最重要的快捷键是什么？",
+          "faqA3": "跳到最新未读是核心监督快捷键，因为它会直接带你到正在等待决策的 agent。"
+        },
+        "cmuxVsSuperset": {
+          "metaTitle": "用于 AI 编程 agent 的 cmux vs Superset — cmux",
+          "metaDescription": "对比 cmux 与 Superset 在并行编程 agent、原生性能、agent 锁定、组织方式和可编程性上的差异。",
+          "title": "cmux vs Superset",
+          "intro": "cmux 和 Superset 都帮助开发者运行多个编程 agent。区别在产品形态：Superset 是带 worktree 编排的 agent 工作区，而 cmux 是用于监督任意 CLI agent 的原生终端和浏览器。",
+          "summaryTitle": "按工作流选择",
+          "summaryBody": "如果你想要快速的原生终端、可见的多任务处理、键盘驱动的注意力管理和可编程 socket API，请选择 cmux。如果你想要围绕 worktree 编排和内置审查流程的、更有主张的任务工作区，请选择 Superset。",
+          "table": {
+            "headers": ["维度", "cmux", "Superset"],
+            "rows": [
+              ["核心产品", "原生 macOS 终端和浏览器", "Agent 编排工作区"],
+              ["运行时", "Swift/AppKit 加 libghostty", "Electron 桌面应用"],
+              ["Agent 模型", "任意 CLI agent，不锁定 cmux 运行时", "托管工作区中的多个 CLI agent"],
+              ["组织方式", "垂直工作区、分屏、未读状态、通知环", "任务、worktree、审查界面"],
+              ["可编程性", "CLI、Unix socket API、浏览器自动化、hooks", "产品级编排"],
+              ["最适合", "以终端为中心并运行许多工具的开发者", "想要打包好的 agent 任务管理器的开发者"]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux 把终端保留为基础单元",
+              "body": "只要 agent 能在 shell 中运行，它就能在 cmux 中运行。这让 cmux 适合在 Claude Code、Codex、OpenCode、Gemini CLI、Aider、脚本、SSH 和本地开发服务器之间切换的团队。"
+            },
+            {
+              "title": "高并发下原生性能很重要",
+              "body": "运行许多 agent 本来就占用 CPU 和内存。cmux 使用 Swift/AppKit 和 libghostty，让终端界面保持轻量，同时把资源留给 agent 进程、编译器和开发服务器。"
+            },
+            {
+              "title": "注意力也是产品界面",
+              "body": "cmux 关注 agent 需要人类介入的时刻。通知环、未读标记、通知面板和跳到最新未读让已完成或被阻塞的会话更容易找到。"
+            },
+            {
+              "title": "可编程性是逃生口",
+              "body": "cmux 通过 CLI 和 socket API 暴露工作区、面板、屏幕读取、截图和浏览器自动化。这让高级用户可以在其上构建自己的编排，而不是等待某个产品工作流正好适配。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux 是 Superset 的替代品吗？",
+          "faqA1": "取决于你如何使用 Superset。cmux 可以替代终端监督层，而 Superset 包含更有主张的任务和 worktree 工作流。",
+          "faqQ2": "cmux 能运行相同的 agent 吗？",
+          "faqA2": "可以。cmux 直接运行 CLI agent，包括 Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp 和 Cursor CLI。",
+          "faqQ3": "如果 Superset 有 worktree，为什么选择 cmux？",
+          "faqA3": "如果你的优先级是原生终端性能、键盘驱动的多任务处理、不锁定 agent，以及可以适配自己工作流的可编程界面，请选择 cmux。"
+        },
+        "cmuxVsCursor": {
+          "metaTitle": "用于 AI 编程 agent 的 cmux vs Cursor — cmux",
+          "metaDescription": "对比 cmux 与 Cursor 在 agent 工作流、终端监督、编辑器集成、原生 macOS 性能和锁定上的差异。",
+          "title": "cmux vs Cursor",
+          "intro": "Cursor 是 AI 编辑器和 agent 平台。cmux 是用于运行你选择的 agent 和工具的原生终端和浏览器。许多开发者同时使用两者：用 Cursor 编辑，用 cmux 监督终端 agent。",
+          "summaryTitle": "不同层级",
+          "summaryBody": "如果你想在编辑器内使用 AI，请使用 Cursor。如果你想运行和监控 CLI agent、开发服务器、SSH 会话和浏览器检查，同时不把工作流绑定到一个编辑器或托管运行时，请使用 cmux。",
+          "table": {
+            "headers": ["维度", "cmux", "Cursor"],
+            "rows": [
+              ["主要界面", "终端、浏览器、工作区、分屏", "编辑器、聊天、托管 agent"],
+              ["Agent 选择", "任意 CLI agent", "以 Cursor 为中心的 AI 工作流和集成"],
+              ["锁定", "自带 agent 和密钥", "Cursor 账号、套餐和平台功能"],
+              ["性能形态", "原生 Swift/AppKit 终端", "编辑器和托管 agent 套件"],
+              ["最适合", "监督许多基于 shell 的 agent", "用 AI 辅助编写和编辑代码"]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux 可以在任何编辑器旁边工作",
+              "body": "cmux 不需要成为你的编辑器。你可以继续使用 Cursor、Xcode、Neovim、VS Code 或 JetBrains，同时用 cmux 运行 agent、测试、shell、浏览器面板和远程会话。"
+            },
+            {
+              "title": "CLI agent 保持可迁移",
+              "body": "Claude Code、Codex、OpenCode 和其他 CLI 保留各自的账号、模型选择和配置。cmux 增加监督能力，而不把 agent 运行时迁移到新的托管平台。"
+            },
+            {
+              "title": "终端工作流需要终端控制",
+              "body": "Agent 工作经常涉及测试运行、日志、开发服务器、SSH 和本地脚本。cmux 把这些界面放在一个原生应用中，并通过键盘快捷键和 socket API 让它们可控。"
+            },
+            {
+              "title": "组合使用很强",
+              "body": "实用设置是用 Cursor 做专注编辑，用 cmux 管理并行终端 agent。编辑器保持干净，cmux 跟踪哪些自主会话正在运行、已完成或被阻塞。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "如果使用 cmux，我应该停止使用 Cursor 吗？",
+          "faqA1": "不需要。cmux 是终端和浏览器工作区，因此可以很好地配合 Cursor 或其他编辑器。",
+          "faqQ2": "cmux 能运行 Cursor CLI 吗？",
+          "faqA2": "可以。Cursor CLI 像其他终端 agent 一样在 cmux 中运行。",
+          "faqQ3": "cmux 为 Cursor 补充了什么？",
+          "faqA3": "cmux 增加原生终端多任务、可见的 agent 工作区、通知环、未读导航，以及可编程的浏览器和终端控制。"
+        },
+        "cmuxVsWarp": {
+          "metaTitle": "用于 AI 编程 agent 的 cmux vs Warp — cmux",
+          "metaDescription": "对比 cmux 与 Warp 在终端 AI 工作流、agent 监督、原生 macOS 性能、可编程性和锁定上的差异。",
+          "title": "cmux vs Warp",
+          "intro": "Warp 是 AI 增强型终端产品。cmux 是围绕多个编程 agent 会话构建的原生 macOS 终端，提供垂直工作区、通知环和可脚本化 socket。",
+          "summaryTitle": "AI 终端 vs agent 监督终端",
+          "summaryBody": "如果你想要集成在终端产品里的 AI 功能，Warp 更强。如果你已经使用 CLI agent，并且需要一个原生、有组织、可编程的地方来运行许多 agent，cmux 更强。",
+          "table": {
+            "headers": ["维度", "cmux", "Warp"],
+            "rows": [
+              ["核心工作流", "监督许多 CLI agent", "AI 终端体验"],
+              ["Agent 选择", "任意基于 shell 的 agent", "Warp 产品工作流"],
+              ["组织方式", "垂直工作区、通知环、未读跳转", "终端标签和 Warp 工作流"],
+              ["可编程性", "Unix socket、CLI、浏览器自动化", "Warp 专属功能"],
+              ["最适合", "以 agent 为重心的 macOS 用户", "把 Warp 作为团队终端采用的团队"]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux 把 agent 当作长时间运行的工作",
+              "body": "编程 agent 会花很多时间运行测试、提问并等待审查。cmux 让这些会话保持可见，并标记需要注意的会话。"
+            },
+            {
+              "title": "没有 agent 锁定",
+              "body": "cmux 不关心哪个 CLI 拥有面板。你可以在一个工作区运行 Claude Code，在另一个运行 Codex，在第三个运行 OpenCode，也可以把普通 shell 命令放在旁边。"
+            },
+            {
+              "title": "原生 Mac 性能",
+              "body": "cmux 是使用 libghostty 渲染的 Swift/AppKit 应用。当许多终端、浏览器面板、开发服务器和 agent 打开时，UI 层保持轻量。"
+            },
+            {
+              "title": "面向自定义工作流的可编程性",
+              "body": "cmux CLI 和 socket API 让脚本和 agent 可以创建工作区、拆分面板、发送输入、读取屏幕、截图并驱动内置浏览器。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux 是像 Warp 一样的 AI 终端吗？",
+          "faqA1": "cmux 是面向 AI agent 的终端，而不是嵌入终端内的 AI 助手。",
+          "faqQ2": "我可以同时使用 Warp 和 cmux 吗？",
+          "faqA2": "可以。每个任务使用最合适的终端。cmux 在许多 agent 会话需要组织和注意力跟踪时最强。",
+          "faqQ3": "为什么为编程 agent 选择 cmux？",
+          "faqA3": "cmux 在你已使用的 CLI agent 周围增加工作区、通知环、未读导航、浏览器自动化和可编程 socket。"
+        },
+        "cmuxVsGhostty": {
+          "metaTitle": "用于编程 agent 的 cmux vs Ghostty — cmux",
+          "metaDescription": "对比 cmux 与 Ghostty 在 macOS 终端工作流、编程 agent、libghostty 性能、垂直标签、通知和可编程性上的差异。",
+          "title": "cmux vs Ghostty",
+          "intro": "Ghostty 是高速终端模拟器。cmux 是基于 libghostty 构建的独立原生 macOS 应用，为编程 agent 工作流增加工作区、垂直标签、通知环、浏览器面板和 socket API。",
+          "summaryTitle": "同一渲染引擎家族，不同任务",
+          "summaryBody": "如果你想要专注的通用终端，请使用 Ghostty。如果你想要 Ghostty 级终端渲染，并为多个编程 agent 会话增加组织、通知和自动化，请使用 cmux。",
+          "table": {
+            "headers": ["维度", "cmux", "Ghostty"],
+            "rows": [
+              ["主要任务", "Agent 监督和多任务处理", "通用终端"],
+              ["渲染", "基于 libghostty 构建", "Ghostty 终端引擎"],
+              ["组织方式", "垂直工作区、分屏、侧边栏元数据", "终端窗口、标签、分屏"],
+              ["Agent 注意力", "通知环和未读导航", "仅终端通知"],
+              ["自动化", "cmux CLI、socket API、浏览器自动化", "终端配置和 shell 工具"]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux 不是 Ghostty fork",
+              "body": "cmux 使用 libghostty 作为渲染引擎，类似原生应用使用 WebKit 来显示网页。Ghostty 仍然是自己的终端；cmux 是面向 agent 密集型工作流的另一个应用。"
+            },
+            {
+              "title": "垂直工作区更适合 agent 扩展",
+              "body": "Agent 会话受益于持久名称、分支上下文、目录上下文、端口和未读状态。cmux 把这些元数据放在侧边栏中，让数十个会话仍然易于浏览。"
+            },
+            {
+              "title": "通知变成可导航状态",
+              "body": "桌面通知会消失。cmux 在应用内保留未读状态，让面板响铃，并允许你用键盘跳到最新等待中的会话。"
+            },
+            {
+              "title": "自动化延伸到 shell 之外",
+              "body": "cmux 通过 CLI 和 Unix socket 暴露应用级操作，包括浏览器自动化。Agent 可以在同一个工作区中检查网页、点击、输入、读取终端屏幕并截图。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux 是 Ghostty 团队构建的吗？",
+          "faqA1": "不是。cmux 是一个使用 libghostty 做终端渲染的独立项目。",
+          "faqQ2": "cmux 会读取 Ghostty config 吗？",
+          "faqA2": "会。cmux 会读取你的 Ghostty config 中关于终端渲染的选择，例如字体、主题、颜色和光标行为。",
+          "faqQ3": "什么时候应该用 cmux 而不是 Ghostty？",
+          "faqA3": "当你运行多个编程 agent，并希望围绕它们拥有工作区、通知环、未读导航、浏览器面板和可编程性时，请使用 cmux。"
+        }
+      }
+    },
     "cta": {
       "freeOpenSource": "cmux 是面向 macOS 的免费开源软件。",
       "seeAlso": "另请参阅"
@@ -1757,7 +2026,9 @@
       "geminiCli": "为 Gemini CLI 打造的终端",
       "aider": "为 Aider 打造的终端",
       "amp": "为 Amp 打造的终端",
-      "cursorCli": "为 Cursor CLI 打造的终端"
+      "cursorCli": "为 Cursor CLI 打造的终端",
+      "keyboardShortcuts": "键盘快捷键",
+      "browserAutomation": "浏览器自动化"
     },
     "agents": {
       "metaTitle": "为编程 agent 打造的终端 | cmux",
