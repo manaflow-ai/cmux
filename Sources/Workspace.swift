@@ -5016,8 +5016,45 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         )
     }
 
+    // Pending remote-surface working directory (#main): a remote `pwd` report can
+    // arrive before the surface it belongs to exists (empty workspace). Stash it
+    // and apply when the surface is tracked, mirroring the TTY / port-kick stashes
+    // (those live in `remoteSurfaceTTYCoordinator`; PWD is kept here since its
+    // apply is a plain `updatePanelDirectory`).
+    private var pendingRemoteSurfacePWD: String?
+    private var pendingRemoteSurfacePWDSurfaceId: UUID?
+
+    func rememberPendingRemoteSurfacePWD(_ path: String, requestedSurfaceId: UUID?) {
+        guard path.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil else { return }
+        pendingRemoteSurfacePWD = path
+        pendingRemoteSurfacePWDSurfaceId = requestedSurfaceId
+    }
+
+    @MainActor
+    @discardableResult
+    private func applyPendingRemoteSurfacePWDIfNeeded(to panelId: UUID) -> Bool {
+        guard let path = pendingRemoteSurfacePWD,
+              path.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil else {
+            return false
+        }
+        if let requestedSurfaceId = pendingRemoteSurfacePWDSurfaceId,
+           requestedSurfaceId != panelId {
+            return false
+        }
+        pendingRemoteSurfacePWD = nil
+        pendingRemoteSurfacePWDSurfaceId = nil
+        return updatePanelDirectory(panelId: panelId, directory: path)
+    }
+
+    func resetPendingRemoteSurfacePWD() {
+        pendingRemoteSurfacePWD = nil
+        pendingRemoteSurfacePWDSurfaceId = nil
+    }
+
     @MainActor
     private func applyPendingRemoteSurfaceTTYIfNeeded(to panelId: UUID) {
+        // PWD before TTY, matching the pre-refactor track-apply order.
+        _ = applyPendingRemoteSurfacePWDIfNeeded(to: panelId)
         remoteSurfaceTTYCoordinator.applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
     }
 
