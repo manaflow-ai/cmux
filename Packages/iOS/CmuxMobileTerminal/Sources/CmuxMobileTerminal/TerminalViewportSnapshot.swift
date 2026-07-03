@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxMobileTerminalKit
 import CoreGraphics
 
 struct TerminalViewportSnapshot {
@@ -11,14 +12,16 @@ struct TerminalViewportSnapshot {
     let liveViewportRect: CGRect
 
     func renderViewportRect(forRenderSize renderSize: CGSize, clampsStaleLiveViewport: Bool) -> CGRect {
-        let targetHeight = layoutViewportRect.height
-        let liveHeight = liveViewportRect.height
-        let height = clampsStaleLiveViewport ? min(liveHeight, targetHeight) : liveHeight
+        let height = TerminalLetterboxGeometry.renderViewportHeight(
+            targetHeight: layoutViewportRect.height,
+            liveHeight: liveViewportRect.height,
+            clampsStaleLiveViewport: clampsStaleLiveViewport
+        )
         return CGRect(
             x: layoutViewportRect.minX,
             y: layoutViewportRect.minY,
             width: layoutViewportRect.width,
-            height: max(1, height)
+            height: height
         )
     }
 
@@ -41,4 +44,3 @@ struct TerminalViewportSnapshot {
     }
 }
 #endif
-

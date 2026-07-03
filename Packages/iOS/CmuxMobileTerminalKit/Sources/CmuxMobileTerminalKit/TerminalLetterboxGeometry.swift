@@ -103,8 +103,8 @@ public struct TerminalLetterboxGeometry {
     ///
     /// `liveHeight` follows the toolbar presentation frame during keyboard
     /// animation. When `clampsStaleLiveViewport` is true, render geometry has
-    /// already synced to `targetHeight`, so the returned height is clamped to
-    /// avoid using stale live geometry.
+    /// already synced to `targetHeight`, so the target height wins over stale
+    /// live geometry.
     ///
     /// - Parameters:
     ///   - targetHeight: The layout viewport height for the current grid.
@@ -118,7 +118,7 @@ public struct TerminalLetterboxGeometry {
     ) -> CGFloat {
         let target = max(1, targetHeight)
         let live = max(1, liveHeight)
-        return clampsStaleLiveViewport ? min(live, target) : live
+        return clampsStaleLiveViewport ? target : live
     }
 
     /// Resolve the bottom safe-area inset, preferring the view's own inset and
