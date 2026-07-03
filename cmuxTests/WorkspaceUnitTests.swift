@@ -3167,7 +3167,6 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
 
         try body()
     }
-
     private func makeDetachedWorkspaceTestTransfer(
         sourceWorkspaceId: UUID,
         directory: String? = nil,
@@ -3185,6 +3184,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             isLoading: false,
             isPinned: false,
             directory: directory,
+            directoryIsTrustedRemoteReport: false,
             directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: nil,

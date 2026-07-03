@@ -295,6 +295,48 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     }
 
     @MainActor
+    @Test("reattached remote ssh terminal preserves trusted cwd")
+    func reattachedRemoteSSHTerminalPreservesTrustedDirectory() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: sshCommand
+        )
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "seepine@192.168.5.20",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: "relay-\(UUID().uuidString)",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-issue-7268-reattach.sock",
+                terminalStartupCommand: sshCommand
+            ),
+            autoConnect: false
+        )
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        let detached = try #require(workspace.detachSurface(panelId: remotePanelId))
+        #expect(detached.directory == remoteDirectory)
+        #expect(detached.directoryIsTrustedRemoteReport)
+
+        let attachedPanelId = try #require(workspace.attachDetachedSurface(detached, inPane: paneId, focus: false))
+        #expect(attachedPanelId == remotePanelId)
+        #expect(workspace.reportedPanelDirectory(panelId: attachedPanelId) == remoteDirectory)
+        #expect(workspace.presentedCurrentDirectory == remoteDirectory)
+
+        workspace.updatePanelDirectory(panelId: attachedPanelId, directory: localDirectory)
+        #expect(workspace.presentedCurrentDirectory == remoteDirectory)
+    }
+
+    @MainActor
     @Test("new terminal to right inherits cwd from non-selected anchor tab")
     func newTerminalToRightUsesAnchorTabWorkingDirectoryWhenAnchorIsNotSelected() throws {
         let selectedDirectory = "/tmp/cmux-selected-\(UUID().uuidString)"
