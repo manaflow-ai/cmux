@@ -1478,7 +1478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // immediate launch path preserves window/bootstrap responsiveness. The
             // terminate-time flush is gated on `hasInstance`, so nothing is lost if
             // the app quits before this runs (no note could have been captured yet).
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 OfflineNotesStore.shared.start()
             }
         }

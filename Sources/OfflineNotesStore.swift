@@ -42,14 +42,9 @@ final class OfflineNotesStore {
     @ObservationIgnored private let reachability: any OfflineNotesReachabilityMonitoring
     @ObservationIgnored private var isFlushing = false
     @ObservationIgnored private var hasStarted = false
-    // A serial queue used purely as an ordered *I/O executor* for disk writes —
-    // not to synchronize mutable shared state (the queue, `notes`, is
-    // `@MainActor`-isolated). It is deliberately a `DispatchQueue` rather than an
-    // actor because writes need a total order (a slower write must never land
-    // after and overwrite a newer one) *and* a synchronous final write from
-    // `applicationWillTerminate` (`writeQueue.sync`) for quit durability — which
-    // an actor cannot provide from a synchronous context. The main actor only
-    // snapshots the value-type queue (O(1) COW) and enqueues.
+    // Ordered I/O executor for disk writes; `notes` remains @MainActor-isolated.
+    // A blocking termination enqueue preserves the final-write ordering that an
+    // actor cannot provide from `applicationWillTerminate`.
     @ObservationIgnored private let writeQueue = DispatchQueue(label: "com.cmux.offline-notes.persist")
 
     /// Bounds so the queue and its backing file stay small enough that the
@@ -387,7 +382,8 @@ final class OfflineNotesStore {
     func flushPendingPersistOnTermination() {
         guard let fileURL else { return }
         let snapshot = notes
-        writeQueue.sync { OfflineNotesStore.writeToDisk(snapshot, to: fileURL) }
+        // Termination-only ordered I/O drain; `notes` was snapshotted above.
+        writeQueue.asyncAndWait { OfflineNotesStore.writeToDisk(snapshot, to: fileURL) }
     }
 
     private nonisolated static func writeToDisk(_ notes: [OfflineNote], to fileURL: URL) {

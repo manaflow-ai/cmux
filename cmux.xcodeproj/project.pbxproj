@@ -731,6 +731,7 @@
 		0FF11E7E000000000000A012 /* OfflineNoteAgentDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000A011 /* OfflineNoteAgentDispatcher.swift */; };
 		0FF11E7E000000000000D012 /* OfflineNoteDispatchError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000D011 /* OfflineNoteDispatchError.swift */; };
 		0FF11E7E000000000000B012 /* OfflineNoteDispatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000B011 /* OfflineNoteDispatching.swift */; };
+		0FF11E7E000000000000A024 /* OfflineNoteRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000A023 /* OfflineNoteRow.swift */; };
 		0FF11E7E000000000000D022 /* OfflineNotesNetworkReachability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000D021 /* OfflineNotesNetworkReachability.swift */; };
 		0FF11E7E000000000000A022 /* OfflineNotesPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000A021 /* OfflineNotesPanelView.swift */; };
 		0FF11E7E000000000000B022 /* OfflineNotesReachability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000B021 /* OfflineNotesReachability.swift */; };
@@ -2035,6 +2036,7 @@
 		0FF11E7E000000000000A011 /* OfflineNoteAgentDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNoteAgentDispatcher.swift; sourceTree = "<group>"; };
 		0FF11E7E000000000000D011 /* OfflineNoteDispatchError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNoteDispatchError.swift; sourceTree = "<group>"; };
 		0FF11E7E000000000000B011 /* OfflineNoteDispatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNoteDispatching.swift; sourceTree = "<group>"; };
+		0FF11E7E000000000000A023 /* OfflineNoteRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNoteRow.swift; sourceTree = "<group>"; };
 		0FF11E7E000000000000D021 /* OfflineNotesNetworkReachability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNotesNetworkReachability.swift; sourceTree = "<group>"; };
 		0FF11E7E000000000000A021 /* OfflineNotesPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNotesPanelView.swift; sourceTree = "<group>"; };
 		0FF11E7E000000000000B021 /* OfflineNotesReachability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNotesReachability.swift; sourceTree = "<group>"; };
@@ -3049,6 +3051,7 @@
 				0FF11E7E000000000000B011 /* OfflineNoteDispatching.swift */,
 				0FF11E7E000000000000B021 /* OfflineNotesReachability.swift */,
 				0FF11E7E000000000000A011 /* OfflineNoteAgentDispatcher.swift */,
+				0FF11E7E000000000000A023 /* OfflineNoteRow.swift */,
 				0FF11E7E000000000000A021 /* OfflineNotesPanelView.swift */,
 				E3309A04 /* TabManager+EqualizeSplits.swift */,
 				C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */,
@@ -4833,6 +4836,7 @@
 				0FF11E7E000000000000A012 /* OfflineNoteAgentDispatcher.swift in Sources */,
 				0FF11E7E000000000000D012 /* OfflineNoteDispatchError.swift in Sources */,
 				0FF11E7E000000000000B012 /* OfflineNoteDispatching.swift in Sources */,
+				0FF11E7E000000000000A024 /* OfflineNoteRow.swift in Sources */,
 				0FF11E7E000000000000D022 /* OfflineNotesNetworkReachability.swift in Sources */,
 				0FF11E7E000000000000A022 /* OfflineNotesPanelView.swift in Sources */,
 				0FF11E7E000000000000B022 /* OfflineNotesReachability.swift in Sources */,
