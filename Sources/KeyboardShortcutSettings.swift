@@ -1786,6 +1786,10 @@ struct ShortcutStroke: Equatable, Hashable {
             return true
         }
 
+        if let explicitKeyCode = self.keyCode, keyCode == explicitKeyCode {
+            return true
+        }
+
         // The ANSI keyCode fallback below lets a US-ANSI shortcut still fire by
         // physical keyCode on layouts that place its key elsewhere. It must NOT
         // hijack a key that already produces a *clean, different* base character.

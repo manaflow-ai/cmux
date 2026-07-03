@@ -69,4 +69,25 @@ import Testing
             "US Cmd-] should still trigger browser Forward"
         )
     }
+
+    @Test func recordedPhysicalBracketShortcutStillMatchesDedicatedPlusKeyByStoredKeyCode() {
+        let recordedShortcut = StoredShortcut(
+            key: "]",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 30
+        )
+
+        #expect(
+            recordedShortcut.matches(
+                keyCode: 30,
+                modifierFlags: [.command],
+                eventCharacter: "+",
+                layoutCharacterProvider: { _, _ in "+" }
+            ),
+            "A user-recorded physical keyCode shortcut should survive the non-US + glyph guard"
+        )
+    }
 }
