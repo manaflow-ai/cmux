@@ -188,7 +188,9 @@ enum AppshotCapturer {
     /// frame match is absent or ambiguous (bounds unavailable, window
     /// resized/closed mid-capture, a coordinate-space mismatch, or identical
     /// frames). The focused window is the most likely frontmost/captured window,
-    /// so behavior never degrades below the previous version.
+    /// so behavior never degrades below the previous version. If the shared
+    /// deadline expires before the focused-window read, use only the already
+    /// materialized first-window fallback rather than starting another AX call.
     private static func resolveTargetWindow(app: AXUIElement, matching targetBounds: CGRect?, deadline: Date) -> AXUIElement? {
         // Cap the window array at the IPC boundary (see ``copyElements``): a
         // buggy or hostile frontmost app can report arbitrarily many windows, so
@@ -204,12 +206,13 @@ enum AppshotCapturer {
             frames.reserveCapacity(windows.count)
             for window in windows {
                 guard Date() < deadline else { break }
-                frames.append(axWindowFrame(window))
+                frames.append(axWindowFrame(window, deadline: deadline))
             }
             if let index = uniqueIndexOfFrame(matching: targetBounds, in: frames) {
                 return windows[index]
             }
         }
+        guard Date() < deadline else { return windows?.first }
         if let focused = copyElement(app, kAXFocusedWindowAttribute) { return focused }
         return windows?.first
     }
@@ -238,8 +241,10 @@ enum AppshotCapturer {
 
     /// Reads an AX window's frame (top-left-origin global screen points) from its
     /// `kAXPosition`/`kAXSize` attributes, or `nil` when either is missing.
-    private static func axWindowFrame(_ window: AXUIElement) -> CGRect? {
-        guard let positionValue = copyAXValue(window, kAXPositionAttribute),
+    private static func axWindowFrame(_ window: AXUIElement, deadline: Date) -> CGRect? {
+        guard Date() < deadline,
+              let positionValue = copyAXValue(window, kAXPositionAttribute),
+              Date() < deadline,
               let sizeValue = copyAXValue(window, kAXSizeAttribute) else { return nil }
         var origin = CGPoint.zero
         var size = CGSize.zero
