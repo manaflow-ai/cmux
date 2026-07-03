@@ -12,25 +12,13 @@ import UIKit
 /// The agent chat rendered inline in the workspace detail, in place of the
 /// terminal, when chat mode is toggled on. There is no cover and no Done
 /// button: the same toolbar toggle flips back to the terminal.
-struct WorkspaceChatPane<TitleMenuContent: View>: View {
+struct WorkspaceChatPane: View {
     let session: ChatSessionDescriptor
     let conversation: ChatConversationStore
     let store: CMUXMobileShellStore
-    /// The owning workspace's name, shown as the header title (so the header
-    /// reads as the workspace, not the session's first prompt).
-    let workspaceName: String
-    /// The name of the tab/terminal this session lives on, shown as the
-    /// header subtitle.
-    let tabName: String?
     /// Composer draft, owned by the parent so it survives toggling back to
     /// the terminal and returning mid-thought.
     @Binding var draft: String
-    /// Compact-stack back button owned by the workspace toolbar.
-    let backButtonConfiguration: WorkspaceBackButtonConfiguration?
-    /// Whether the workspace title pill should open a menu.
-    let isTitleMenuEnabled: Bool
-    /// Workspace-scoped actions exposed from the title pill.
-    let titleMenuContent: () -> TitleMenuContent
     /// Flips chat mode off (the toggle's "back to terminal" path).
     let onExitChat: () -> Void
 
@@ -38,9 +26,6 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
 
     @State private var accessoryConfiguration = TerminalAccessoryConfiguration.shared
     @State private var isShowingShortcutSettings = false
-    /// Full content width, used to bound the centered toolbar header so a long
-    /// workspace name truncates before the trailing toolbar buttons.
-    @State private var contentWidth: CGFloat = 0
 
     var body: some View {
         Group {
@@ -53,56 +38,9 @@ struct WorkspaceChatPane<TitleMenuContent: View>: View {
                 runsStoreTask: false,
                 onOpenTerminal: openTerminal
             )
-            // The host (workspace detail) owns the nav bar, so the live
-            // session-state header is supplied here rather than by ChatScreen,
-            // which would be dropped under the workspace's own chrome.
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-            .toolbar {
-                if backButtonConfiguration != nil {
-                    ToolbarItem(placement: .topBarLeading) {
-                        workspaceBackToolbarButton
-                    }
-                }
-                ToolbarItem(placement: .principal) {
-                    // WorkspaceDetailView mounts the terminal picker/chat
-                    // toggle in a sibling trailing toolbar item.
-                    WorkspaceTitleMenu(
-                        contentWidth: contentWidth,
-                        hasBackButton: backButtonConfiguration != nil,
-                        hasTrailingCluster: true,
-                        hasChatToggle: true,
-                        isEnabled: isTitleMenuEnabled,
-                        menuContent: titleMenuContent
-                    ) {
-                        ChatSessionHeaderView(
-                            descriptor: conversation.descriptor,
-                            agentState: conversation.agentState,
-                            isConnected: conversation.isConnected,
-                            titleOverride: workspaceName,
-                            subtitle: tabName,
-                            style: .toolbarCompact
-                        )
-                    }
-                }
-            }
         }
         .sheet(isPresented: $isShowingShortcutSettings) {
             TerminalShortcutsSettingsView(scope: .agentChat)
-        }
-    }
-
-    @ViewBuilder
-    private var workspaceBackToolbarButton: some View {
-        if let backButtonConfiguration {
-            // No explicit `.buttonStyle(.glass)`: the system already backs this
-            // `.topBarLeading` item in Liquid Glass on iOS 26. A second glass
-            // layer renders as an oversized square. See the matching note on
-            // `WorkspaceDetailView.workspaceBackToolbarButton`.
-            WorkspaceBackButton(
-                unreadCount: backButtonConfiguration.unreadCount,
-                badgeContrast: backButtonConfiguration.badgeContrast,
-                action: backButtonConfiguration.action
-            )
         }
     }
 

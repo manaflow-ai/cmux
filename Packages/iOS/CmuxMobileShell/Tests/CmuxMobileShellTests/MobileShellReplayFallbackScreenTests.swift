@@ -23,6 +23,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 3,
         text: "alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     let altDelivered = try await pollUntil {
