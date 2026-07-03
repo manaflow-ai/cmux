@@ -426,11 +426,6 @@ final class SavingTextView: NSTextView {
 }
 
 extension FilePreviewPanel {
-    func attachTextView(_ textView: NSTextView) {
-        self.textView = textView
-        focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
-    }
-
     @discardableResult
     func zoomTextPreviewIn() -> Bool {
         guard previewMode == .text,
