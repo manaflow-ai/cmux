@@ -8,6 +8,10 @@ struct TerminalPickerMenuRow: Identifiable, Equatable {
         id = terminal.id
         name = terminal.name
     }
+
+    static func == (lhs: TerminalPickerMenuRow, rhs: TerminalPickerMenuRow) -> Bool {
+        lhs.id == rhs.id
+    }
 }
 
 extension Collection where Element == TerminalPickerMenuRow {

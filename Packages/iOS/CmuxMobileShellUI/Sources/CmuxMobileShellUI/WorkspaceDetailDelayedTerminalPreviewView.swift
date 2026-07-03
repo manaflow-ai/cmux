@@ -2,6 +2,7 @@ import CmuxAgentChat
 import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import SwiftUI
 
 #if os(iOS) && DEBUG
@@ -42,9 +43,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             let workspace = MobileWorkspacePreview(
                 id: Self.workspaceID,
                 name: Self.workspaceTitle,
-                terminals: [
-                    MobileTerminalPreview(id: Self.terminalID, name: Self.terminalTitle),
-                ]
+                terminals: Self.injectedTerminals
             )
             store.replaceForegroundWorkspaceState([workspace])
             store.selectedWorkspaceID = Self.workspaceID
@@ -72,6 +71,30 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE"] == "1"
     }
 
+    /// Number of terminals injected into the preview workspace, from
+    /// `CMUX_UITEST_WORKSPACE_DETAIL_TERMINAL_COUNT` (default 1). A count above
+    /// ~6 makes the terminal-picker toolbar menu tall enough to scroll, which is
+    /// what the picker-scroll repro/regression captures need.
+    private static var terminalCount: Int {
+        let raw = ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_TERMINAL_COUNT"]
+        guard let raw, let count = Int(raw), count > 1 else { return 1 }
+        return count
+    }
+
+    private static var injectedTerminals: [MobileTerminalPreview] {
+        var terminals = [MobileTerminalPreview(id: terminalID, name: terminalTitle)]
+        guard terminalCount > 1 else { return terminals }
+        for index in 2...terminalCount {
+            terminals.append(
+                MobileTerminalPreview(
+                    id: .init(rawValue: "\(terminalID.rawValue)-\(index)"),
+                    name: L10n.terminalName(index: index)
+                )
+            )
+        }
+        return terminals
+    }
+
     private static var showsChatToggle: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE"] == "1"
     }
@@ -81,7 +104,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     }
 
     private static var terminalTitle: String {
-        usesLongTitle ? longTerminalTitle : "Terminal 1"
+        usesLongTitle ? longTerminalTitle : L10n.terminalName(index: 1)
     }
 }
 #endif
